@@ -1,0 +1,19 @@
+{
+  "name": "@k/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/types.ts",
+  "exports": {
+    ".": "./src/types.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

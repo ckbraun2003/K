@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "outDir": "./dist",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@k/shared": ["../shared/src/types.ts"]
+    }
+  },
+  "include": ["src", "../shared/src"],
+  "exclude": ["node_modules", "dist"]
+}
