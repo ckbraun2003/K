@@ -55,6 +55,29 @@ db.exec(`
     updated_at  INTEGER NOT NULL,
     md          TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS projects (
+    id                TEXT PRIMARY KEY,
+    name              TEXT NOT NULL UNIQUE,
+    local_path        TEXT NOT NULL,
+    github_remote     TEXT,
+    workspace_managed INTEGER NOT NULL DEFAULT 0,
+    bible_dir         TEXT NOT NULL DEFAULT 'docs/bible',
+    health_score      INTEGER,
+    last_verified_at  INTEGER,
+    created_at        INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS verification_reports (
+    id            TEXT PRIMARY KEY,
+    project_id    TEXT NOT NULL REFERENCES projects(id),
+    score         INTEGER NOT NULL,
+    findings      TEXT NOT NULL DEFAULT '[]',
+    fixes_applied TEXT NOT NULL DEFAULT '[]',
+    started_at    INTEGER NOT NULL,
+    completed_at  INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_verification_project ON verification_reports(project_id, started_at);
 `)
 
 // ─── Run helpers ─────────────────────────────────────────────────────────────
@@ -104,3 +127,32 @@ const getArtifact = db.prepare(`SELECT * FROM artifacts WHERE slug = ?`)
 const listArtifacts = db.prepare(`SELECT slug, title, phase, status, tags, updated_at FROM artifacts ORDER BY updated_at DESC`)
 
 export const artifactsDb = { upsertArtifact, getArtifact, listArtifacts }
+
+// ─── Project helpers ─────────────────────────────────────────────────────────
+
+const insertProject = db.prepare(`
+  INSERT INTO projects (id, name, local_path, github_remote, workspace_managed, bible_dir, created_at)
+  VALUES (@id, @name, @localPath, @githubRemote, @workspaceManaged, @bibleDir, @createdAt)
+`)
+
+const updateProjectHealth = db.prepare(`
+  UPDATE projects SET health_score = @healthScore, last_verified_at = @lastVerifiedAt WHERE id = @id
+`)
+
+const getProject = db.prepare(`SELECT * FROM projects WHERE id = ?`)
+const listProjects = db.prepare(`SELECT * FROM projects ORDER BY name`)
+
+export const projectsDb = { insertProject, updateProjectHealth, getProject, listProjects }
+
+// ─── Verification helpers ────────────────────────────────────────────────────
+
+const insertVerificationReport = db.prepare(`
+  INSERT INTO verification_reports (id, project_id, score, findings, fixes_applied, started_at, completed_at)
+  VALUES (@id, @projectId, @score, @findings, @fixesApplied, @startedAt, @completedAt)
+`)
+
+const listVerificationReports = db.prepare(`
+  SELECT * FROM verification_reports WHERE project_id = ? ORDER BY started_at DESC LIMIT 20
+`)
+
+export const verificationDb = { insertVerificationReport, listVerificationReports }

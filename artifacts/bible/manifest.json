@@ -1,0 +1,21 @@
+{
+  "title": "Jarvis — Project Bible",
+  "project": {
+    "id": "jarvis-core",
+    "name": "Jarvis Agentic Engineering Harness",
+    "localPath": ".",
+    "githubRemote": null,
+    "bibleDir": "artifacts/bible"
+  },
+  "sections": [
+    "01-vision",
+    "02-architecture",
+    "03-project-model",
+    "04-github-integration",
+    "05-verification-system",
+    "06-dashboard-ux",
+    "07-roadmap",
+    "08-decision-log",
+    "09-operations"
+  ]
+}

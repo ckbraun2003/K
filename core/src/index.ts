@@ -3,7 +3,7 @@
  *
  * Startup sequence:
  *   1. Init SQLite (db.ts runs on import)
- *   2. Bootstrap project-bible artifact (generate HTML)
+ *   2. Compile project bible (sections + live data → HTML)
  *   3. Register REST routes
  *   4. Register WS gateway (subscribe to EventBus, push to clients)
  *   5. Listen
@@ -15,7 +15,7 @@ import websocket, { type SocketStream } from '@fastify/websocket'
 import { eventBus } from './events.js'
 import { runsRoutes } from './routes/runs.js'
 import { artifactsRoutes } from './routes/artifacts.js'
-import { bootstrapProjectBible } from './artifacts.js'
+import { compileBible } from './bible.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
 
 const PORT = Number(process.env.PORT ?? 3001)
@@ -90,7 +90,7 @@ app.get('/ws', { websocket: true }, (connection: SocketStream) => {
 
 // ── Bootstrap + Listen ────────────────────────────────────────────────────────
 
-await bootstrapProjectBible()
+await compileBible()
 
 await app.listen({ port: PORT, host: HOST })
 console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)

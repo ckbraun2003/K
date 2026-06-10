@@ -71,11 +71,58 @@ export const ArtifactSchema = z.object({
 })
 export type Artifact = z.infer<typeof ArtifactSchema>
 
+// ─── Project ────────────────────────────────────────────────────────────────
+// A registry entry: local git repo + GitHub remote managed by the harness.
+// Invariants (enforced by verification): GitHub remote, docs/bible/, CI workflows.
+
+export const ProjectSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  localPath: z.string(),               // absolute path to the repo on disk
+  githubRemote: z.string().optional(), // "owner/repo"
+  workspaceManaged: z.boolean().default(false), // true if harness cloned it
+  bibleDir: z.string().default('docs/bible'),
+  healthScore: z.number().min(0).max(100).optional(),
+  lastVerifiedAt: z.number().optional(), // unix ms
+  createdAt: z.number(),
+})
+export type Project = z.infer<typeof ProjectSchema>
+
+// ─── VerificationReport ─────────────────────────────────────────────────────
+// Output of the verify-project skill (agent team audit).
+
+export const FindingSchema = z.object({
+  severity: z.enum(['info', 'warn', 'critical']),
+  area: z.string(),    // e.g. "ci", "tests", "bible", "pr-review"
+  message: z.string(),
+})
+export type Finding = z.infer<typeof FindingSchema>
+
+export const VerificationReportSchema = z.object({
+  id: z.string().uuid(),
+  projectId: z.string().uuid(),
+  score: z.number().min(0).max(100),
+  findings: z.array(FindingSchema).default([]),
+  fixesApplied: z.array(z.string()).default([]),
+  startedAt: z.number(),
+  completedAt: z.number().optional(),
+})
+export type VerificationReport = z.infer<typeof VerificationReportSchema>
+
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
 export const WsMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('event'), event: AgentEventSchema }),
   z.object({ type: z.literal('run_update'), run: RunSchema }),
+  // GitHub polling deltas (PR state change, CI conclusion change, issue sync)
+  z.object({
+    type: z.literal('github_update'),
+    projectId: z.string(),
+    kind: z.enum(['pr', 'ci', 'issue']),
+    payload: z.unknown(),
+  }),
+  // Verification skill progress + final report
+  z.object({ type: z.literal('verification_update'), report: VerificationReportSchema }),
   z.object({ type: z.literal('ping') }),
   z.object({ type: z.literal('pong') }),
 ])

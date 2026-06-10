@@ -16,7 +16,8 @@ import type { Artifact } from '@k/shared'
 import { artifactsDb } from './db.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-export const ARTIFACTS_DIR = path.join(__dirname, '../../../artifacts')
+// core/src/* and core/dist/* are both two levels below the repo root
+export const ARTIFACTS_DIR = path.join(__dirname, '../../artifacts')
 
 fs.mkdirSync(ARTIFACTS_DIR, { recursive: true })
 
@@ -203,19 +204,4 @@ export function listArtifacts(): Array<Omit<Artifact, 'md' | 'html'>> {
   }))
 }
 
-/** Load project-bible.md from disk (if it exists) and regenerate its HTML */
-export async function bootstrapProjectBible() {
-  const mdPath = path.join(ARTIFACTS_DIR, 'project-bible.md')
-  if (!fs.existsSync(mdPath)) {
-    console.log('[artifacts] project-bible.md not found — skipping bootstrap')
-    return
-  }
-  const md = fs.readFileSync(mdPath, 'utf8')
-  await saveArtifact('project-bible', md, {
-    title: 'Project Bible — Jarvis Agentic Harness',
-    phase: '0',
-    status: 'active',
-    tags: ['goal', 'roadmap'],
-  })
-  console.log('[artifacts] project-bible.html generated ✓')
-}
+// Project bible compilation moved to bible.ts (compiled from artifacts/bible/ sections)

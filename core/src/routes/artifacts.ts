@@ -1,7 +1,15 @@
 import type { FastifyInstance } from 'fastify'
 import { getArtifact, listArtifacts, saveArtifact } from '../artifacts.js'
+import { compileBible } from '../bible.js'
 
 export async function artifactsRoutes(app: FastifyInstance) {
+  // POST /api/bible/compile — recompile the project bible from its sections
+  app.post('/api/bible/compile', async (_req, reply) => {
+    const result = await compileBible()
+    if (!result) return reply.status(404).send({ error: 'no bible manifest found' })
+    return reply.send(result)
+  })
+
   // GET /api/artifacts — list all (no md/html, metadata only)
   app.get('/api/artifacts', async (_req, reply) => {
     return reply.send(listArtifacts())
