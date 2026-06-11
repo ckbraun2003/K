@@ -9,7 +9,7 @@ interface Props {
 }
 
 export default function DocViewer({ slug }: Props) {
-  const [view, setView] = useState<'md' | 'html'>('md')
+  const [view, setView] = useState<'md' | 'html'>('html')
 
   const { data: artifact, isLoading } = useQuery<Artifact>({
     queryKey: ['artifact', slug],
