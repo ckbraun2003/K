@@ -9,7 +9,7 @@ import RunsPage from '../pages/RunsPage'
 import DocsPage from '../pages/DocsPage'
 import ProjectsPage from '../pages/ProjectsPage'
 import { useHashRoute, navigate } from '../lib/route'
-import { connectWs, onWsMessage } from '../lib/ws'
+import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
 
 export default function Shell() {
   const route = useHashRoute()
@@ -21,7 +21,8 @@ export default function Shell() {
     // any message proves the socket is alive; fall back to optimistic after 1.5s
     const t = setTimeout(() => setConnected(true), 1_500)
     const unsub = onWsMessage(() => setConnected(true))
-    return () => { clearTimeout(t); unsub() }
+    const unsubStatus = onWsStatus(setConnected)
+    return () => { clearTimeout(t); unsub(); unsubStatus() }
   }, [])
 
   useEffect(() => {

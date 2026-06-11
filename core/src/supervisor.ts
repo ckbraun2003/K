@@ -31,6 +31,10 @@ fs.mkdirSync(WORKTREES_DIR, { recursive: true })
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const activeProcesses = new Map<string, { kill: (...args: any[]) => any }>()
 
+// Runs terminated by the operator — exit codes alone can't distinguish a kill
+// (non-zero exit) from a genuine agent failure
+const killedRuns = new Set<string>()
+
 export type StartRunOptions = {
   cwd?: string
   model?: string
@@ -99,6 +103,7 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
 export function kill(runId: string): boolean {
   const proc = activeProcesses.get(runId)
   if (!proc) return false
+  killedRuns.add(runId)
   proc.kill('SIGTERM')
   setTimeout(() => {
     if (activeProcesses.has(runId)) proc.kill('SIGKILL')
@@ -158,14 +163,16 @@ async function runAgent(run: Run, prompt: string, cwd: string) {
       } catch { /* best-effort cleanup */ }
     }
 
-    const finalStatus: Run['status'] = result.exitCode === 0 ? 'done' : 'error'
+    const wasKilled = killedRuns.delete(run.id)
+    const finalStatus: Run['status'] = wasKilled ? 'killed' : result.exitCode === 0 ? 'done' : 'error'
     const finalRun: Run = { ...run, status: finalStatus, tokensIn, tokensOut, costUsd, endedAt: Date.now() }
     emitStatusEvent(run.id, finalStatus, seq, Date.now())
     eventBus.emitRunUpdate(finalRun)
 
   } catch (err) {
     activeProcesses.delete(run.id)
-    const errRun: Run = { ...run, status: 'error', tokensIn, tokensOut, costUsd, endedAt: Date.now() }
+    const wasKilled = killedRuns.delete(run.id)
+    const errRun: Run = { ...run, status: wasKilled ? 'killed' : 'error', tokensIn, tokensOut, costUsd, endedAt: Date.now() }
     const errEvent: AgentEvent = {
       id: uuid(), runId: run.id, seq: seq++, type: 'error',
       ts: Date.now(), text: String(err),
@@ -214,9 +221,18 @@ function parseLine(
 
     if (type === 'result') {
       const stats = obj as Record<string, unknown>
-      if (typeof stats.input_tokens === 'number') event.tokensIn = stats.input_tokens
-      if (typeof stats.output_tokens === 'number') event.tokensOut = stats.output_tokens
-      if (typeof stats.cost_usd === 'number') event.costUsd = stats.cost_usd
+      // Current CLI nests usage and reports total_cost_usd; keep the old
+      // top-level fields as fallbacks for older CLI versions
+      const usage = stats.usage as Record<string, number> | undefined
+      const tokensIn = usage
+        ? (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0)
+        : typeof stats.input_tokens === 'number' ? stats.input_tokens : 0
+      const tokensOut = usage?.output_tokens ?? (typeof stats.output_tokens === 'number' ? stats.output_tokens : 0)
+      if (tokensIn) event.tokensIn = tokensIn
+      if (tokensOut) event.tokensOut = tokensOut
+      const cost = typeof stats.total_cost_usd === 'number' ? stats.total_cost_usd
+        : typeof stats.cost_usd === 'number' ? stats.cost_usd : 0
+      if (cost) event.costUsd = cost
       event.text = typeof stats.result === 'string' ? stats.result : undefined
     }
 

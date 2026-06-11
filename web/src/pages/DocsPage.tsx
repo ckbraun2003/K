@@ -35,9 +35,10 @@ export default function DocsPage({ slug }: { slug?: string }) {
           </button>
         ))}
       </aside>
-      <main className="flex-1 overflow-hidden">
+      {/* section, not main — the shell already provides the page's <main> landmark */}
+      <section className="flex-1 overflow-hidden">
         <DocViewer slug={active} />
-      </main>
+      </section>
     </div>
   )
 }

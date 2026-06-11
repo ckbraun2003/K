@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Project } from '@k/shared'
@@ -12,6 +12,15 @@ export default function ProjectsPage() {
   const [name, setName] = useState('')
   const [source, setSource] = useState('')
   const isUrl = /^(https:\/\/|git@)/.test(source.trim())
+
+  // window-level so Escape works even when focus left the panel — disabling
+  // the submit button while pending moves focus to <body>
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
 
   const register = useMutation({
     mutationFn: () =>
@@ -62,7 +71,6 @@ export default function ProjectsPage() {
               className="relative w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"
               initial={{ y: 12, scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 12, scale: 0.98 }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-              onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}
             >
               <h3 id="register-project-title" className="text-sm font-semibold text-[var(--text)]">Register project</h3>
               <p className="mt-1 text-xs text-[var(--muted)]">

@@ -37,7 +37,9 @@ export default function CommandBar({ open, onClose }: Props) {
       .slice(0, 4)
       .map(r => ({ kind: 'nav', label: `▶ ${r.prompt.slice(0, 60)}`, icon: '·', view: 'runs', param: r.id }))
     const dispatch: Item[] = query.trim() ? [{ kind: 'dispatch', label: query.trim() }] : []
-    return [...dispatch, ...navs, ...runItems]
+    // a query matching a destination (e.g. "doc") is a jump, not a prompt —
+    // rank navs first so Enter navigates; real prompts won't substring-match a label
+    return q && navs.length ? [...navs, ...dispatch, ...runItems] : [...dispatch, ...navs, ...runItems]
   }, [query, runs])
 
   useEffect(() => { setSelected(0) }, [items])

@@ -87,11 +87,19 @@ app.get('/ws', { websocket: true }, (connection: SocketStream) => {
     } catch { /* ignore */ }
   })
 
-  socket.on('close', () => {
+  function cleanup() {
     wsClients.delete(socket)
     unsubEvent()
     unsubRun()
     unsubBroadcast()
+  }
+
+  socket.on('close', cleanup)
+  // unhandled 'error' would throw and can skip 'close' — clean up here too
+  // (cleanup is idempotent: Set.delete + unsubscribe are safe to run twice)
+  socket.on('error', (err: Error) => {
+    console.warn('[ws] socket error:', err.message)
+    cleanup()
   })
 })
 

@@ -8,7 +8,8 @@ export default function RunsPage({ runId }: { runId?: string }) {
       <aside className="w-72 flex-shrink-0 overflow-hidden border-r border-[var(--border)]">
         <RunList selectedId={runId ?? null} onSelect={id => navigate('runs', id)} />
       </aside>
-      <main className="flex-1 overflow-hidden">
+      {/* section, not main — the shell already provides the page's <main> landmark */}
+      <section className="flex-1 overflow-hidden">
         {runId ? (
           <RunConsole runId={runId} />
         ) : (
@@ -17,7 +18,7 @@ export default function RunsPage({ runId }: { runId?: string }) {
             <p className="text-sm text-[var(--muted)]">Select a run — or press <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px]">⌘K</kbd> to dispatch one.</p>
           </div>
         )}
-      </main>
+      </section>
     </div>
   )
 }
