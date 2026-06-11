@@ -4,7 +4,10 @@ const BASE = '/api'
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init)
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (!res.ok) {
+    const detail = await res.json().then(b => (b as { error?: string }).error, () => undefined)
+    throw new Error(detail ?? `${res.status} ${res.statusText}`)
+  }
   return res.json() as Promise<T>
 }
 

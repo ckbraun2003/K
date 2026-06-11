@@ -8,7 +8,7 @@ import Home from '../pages/Home'
 import RunsPage from '../pages/RunsPage'
 import DocsPage from '../pages/DocsPage'
 import ProjectsPage from '../pages/ProjectsPage'
-import { useHashRoute } from '../lib/route'
+import { useHashRoute, navigate } from '../lib/route'
 import { connectWs, onWsMessage } from '../lib/ws'
 
 export default function Shell() {
@@ -25,10 +25,25 @@ export default function Shell() {
   }, [])
 
   useEffect(() => {
+    let chord = false
+    let chordTimer: ReturnType<typeof setTimeout>
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
         setCommandOpen(o => !o)
+        return
+      }
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'g' && !e.metaKey && !e.ctrlKey) {
+        chord = true
+        clearTimeout(chordTimer)
+        chordTimer = setTimeout(() => { chord = false }, 800)
+        return
+      }
+      if (chord) {
+        const map: Record<string, string> = { h: 'home', p: 'projects', r: 'runs', d: 'docs' }
+        if (map[e.key]) { e.preventDefault(); navigate(map[e.key]) }
+        chord = false
       }
     }
     window.addEventListener('keydown', handler)

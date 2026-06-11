@@ -28,6 +28,7 @@ export default function Sidebar({ active }: { active: string }) {
           key={d.id}
           title={d.label}
           disabled={!d.enabled}
+          aria-current={active === d.id ? 'page' : undefined}
           onClick={() => navigate(d.id)}
           className={cn(
             'flex h-9 w-9 items-center justify-center rounded-lg text-base transition-colors duration-150',

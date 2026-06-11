@@ -19,7 +19,7 @@ export default function Home() {
   return (
     <div className="h-full overflow-y-auto p-5">
       {/* metrics row */}
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <MetricCard
           label="Tokens today"
           value={metrics ? `${(metrics.today.tokens / 1000).toFixed(1)}k` : '—'}

@@ -19,6 +19,7 @@ export default function CommandBar({ open, onClose }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
 
   const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: api.runs.list, enabled: open })
 
@@ -40,6 +41,7 @@ export default function CommandBar({ open, onClose }: Props) {
   }, [query, runs])
 
   useEffect(() => { setSelected(0) }, [items])
+  useEffect(() => { listRef.current?.children[selected]?.scrollIntoView({ block: 'nearest' }) }, [selected])
 
   async function execute(item: Item) {
     if (busy) return
@@ -88,7 +90,7 @@ export default function CommandBar({ open, onClose }: Props) {
               placeholder="Ask Jarvis — or type to jump…"
               className="w-full border-b border-[var(--border)] bg-transparent px-4 py-3.5 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
             />
-            <ul className="max-h-72 overflow-y-auto py-1.5">
+            <ul ref={listRef} className="max-h-72 overflow-y-auto py-1.5">
               {items.map((item, i) => (
                 <li key={`${item.kind}-${item.label}-${i}`}>
                   <button

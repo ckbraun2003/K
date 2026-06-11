@@ -76,7 +76,7 @@ export default function RunConsole({ runId }: Props) {
           {run.status === 'running' && (
             <button
               onClick={handleKill}
-              className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+              className="text-xs px-2 py-0.5 rounded bg-red/20 text-red hover:bg-red/30 transition-colors"
             >
               Kill
             </button>
@@ -110,7 +110,7 @@ export default function RunConsole({ runId }: Props) {
               <span>⚠ {e.text}</span>
             )}
             {e.type === 'assistant' && e.tool && (
-              <span className="text-purple-400">⚙ {e.tool}()</span>
+              <span className="text-accent-hover">⚙ {e.tool}()</span>
             )}
             {e.type === 'assistant' && !e.tool && e.text && (
               <span>{e.text}</span>

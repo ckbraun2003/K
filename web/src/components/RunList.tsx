@@ -74,7 +74,7 @@ export default function RunList({ selectedId, onSelect }: Props) {
             animate={{ opacity: 1, x: 0 }}
           >
             <div className="flex items-center gap-2 mb-1">
-              <span className={cn('w-2 h-2 rounded-full flex-shrink-0', STATUS_DOT[run.status] ?? 'bg-gray-400')} />
+              <span className={cn('w-2 h-2 rounded-full flex-shrink-0', STATUS_DOT[run.status] ?? 'bg-muted')} />
               <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', STATUS_COLOR[run.status])}>
                 {run.status}
               </span>
