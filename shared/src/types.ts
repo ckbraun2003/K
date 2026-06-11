@@ -122,7 +122,7 @@ export type DailyMetric = z.infer<typeof DailyMetricSchema>
 export const MetricsSummarySchema = z.object({
   today: DailyMetricSchema,
   activeRuns: z.number().int(),
-  totalRuns: z.number().int(),
+  totalRuns: z.number().int(), // lifetime total — not limited to the 14-day window
   daily: z.array(DailyMetricSchema),  // oldest → newest, last 14 days incl. today
 })
 export type MetricsSummary = z.infer<typeof MetricsSummarySchema>

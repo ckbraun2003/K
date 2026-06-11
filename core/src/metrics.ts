@@ -21,8 +21,11 @@ function localDateKey(ts: number): string {
 
 export function summarizeRuns(rows: RunRow[], now: number): MetricsSummary {
   const buckets = new Map<string, DailyMetric>()
+  // anchor to local midnight so DST transitions can't skip a calendar day
+  const todayMidnight = new Date(now)
+  todayMidnight.setHours(0, 0, 0, 0)
   for (let i = 13; i >= 0; i--) {
-    const key = localDateKey(now - i * DAY)
+    const key = localDateKey(todayMidnight.getTime() - i * DAY)
     buckets.set(key, { date: key, runs: 0, tokens: 0, costUsd: 0 })
   }
   let activeRuns = 0

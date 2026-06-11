@@ -35,4 +35,12 @@ describe('summarizeRuns', () => {
     const s = summarizeRuns([row({ status: 'queued' })], now)
     expect(s.activeRuns).toBe(1)
   })
+
+  it('returns zero-filled summary for no runs', () => {
+    const s = summarizeRuns([], now)
+    expect(s.daily).toHaveLength(14)
+    expect(s.today).toEqual({ date: '2026-06-10', runs: 0, tokens: 0, costUsd: 0 })
+    expect(s.activeRuns).toBe(0)
+    expect(s.totalRuns).toBe(0)
+  })
 })
