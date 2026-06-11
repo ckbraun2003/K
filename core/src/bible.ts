@@ -18,6 +18,7 @@ import path from 'path'
 import { marked } from 'marked'
 import { db, artifactsDb } from './db.js'
 import { ARTIFACTS_DIR } from './artifacts.js'
+import { parseFrontmatter, roadmapPhases } from './bible-parse.js'
 
 // ── Section model ─────────────────────────────────────────────────────────────
 
@@ -34,17 +35,6 @@ interface BibleSection {
   status: 'stable' | 'active' | 'draft'
   updated: string
   md: string
-}
-
-function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
-  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
-  if (!m) return { meta: {}, body: raw }
-  const meta: Record<string, string> = {}
-  for (const line of m[1].split(/\r?\n/)) {
-    const kv = line.match(/^(\w[\w-]*):\s*(.*)$/)
-    if (kv) meta[kv[1]] = kv[2].replace(/^["']|["']$/g, '')
-  }
-  return { meta, body: m[2] }
 }
 
 // ── Live data directives ──────────────────────────────────────────────────────
@@ -110,21 +100,7 @@ function liveHealth(): string {
 
 /** Progress bars per "## Phase …" heading, computed from that phase's checkbox counts. */
 function liveRoadmapProgress(sectionMd: string): string {
-  const phases: Array<{ name: string; done: number; total: number }> = []
-  let current: { name: string; done: number; total: number } | null = null
-  for (const line of sectionMd.split(/\r?\n/)) {
-    const h = line.match(/^##\s+(.+?)\s*$/)
-    if (h) {
-      current = { name: h[1].replace(/\*/g, ''), done: 0, total: 0 }
-      phases.push(current)
-      continue
-    }
-    if (current && /^\s*-\s*\[[ xX]\]/.test(line)) {
-      current.total++
-      if (/^\s*-\s*\[[xX]\]/.test(line)) current.done++
-    }
-  }
-  const withItems = phases.filter(p => p.total > 0)
+  const withItems = roadmapPhases(sectionMd)
   if (withItems.length === 0) return placeholder('roadmap')
   const bars = withItems.map(p => {
     const pct = Math.round((p.done / p.total) * 100)
