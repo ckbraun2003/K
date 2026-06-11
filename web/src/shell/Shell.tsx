@@ -47,7 +47,7 @@ export default function Shell() {
       }
     }
     window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    return () => { clearTimeout(chordTimer); window.removeEventListener('keydown', handler) }
   }, [])
 
   return (

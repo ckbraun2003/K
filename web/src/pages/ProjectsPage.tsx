@@ -58,12 +58,13 @@ export default function ProjectsPage() {
             <motion.div
               role="dialog"
               aria-modal="true"
+              aria-labelledby="register-project-title"
               className="relative w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"
               initial={{ y: 12, scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 12, scale: 0.98 }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
               onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}
             >
-              <h3 className="text-sm font-semibold text-[var(--text)]">Register project</h3>
+              <h3 id="register-project-title" className="text-sm font-semibold text-[var(--text)]">Register project</h3>
               <p className="mt-1 text-xs text-[var(--muted)]">
                 Local path registers in place · GitHub URL clones into <span className="mono">workspace/</span>
               </p>
