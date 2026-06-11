@@ -177,7 +177,12 @@ export async function getArtifact(slug: string): Promise<Artifact | null> {
   const row = artifactsDb.getArtifact.get(slug) as Record<string, unknown> | undefined
   if (!row) return null
   const md = String(row.md ?? '')
-  const html = await renderMdToHtml(md, String(row.title ?? slug))
+  // Prefer the on-disk html (kept in sync by saveArtifact/compileBible) — for the
+  // bible this is the rich compiled view, which a generic re-render would discard.
+  const htmlPath = path.join(ARTIFACTS_DIR, `${slug}.html`)
+  const html = fs.existsSync(htmlPath)
+    ? fs.readFileSync(htmlPath, 'utf8')
+    : await renderMdToHtml(md, String(row.title ?? slug))
   return {
     slug: String(row.slug),
     title: String(row.title),
