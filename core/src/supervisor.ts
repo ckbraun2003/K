@@ -21,7 +21,8 @@ import { runsDb } from './db.js'
 import { route } from './router.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = path.join(__dirname, '../../../')
+// core/src/* and core/dist/* are both two levels below the repo root
+const REPO_ROOT = path.join(__dirname, '../../')
 const WORKTREES_DIR = path.join(__dirname, '../../.worktrees')
 
 fs.mkdirSync(WORKTREES_DIR, { recursive: true })
