@@ -10,8 +10,6 @@ export interface RunRow {
   cost_usd: number
 }
 
-const DAY = 86_400_000
-
 function localDateKey(ts: number): string {
   const d = new Date(ts)
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -21,11 +19,11 @@ function localDateKey(ts: number): string {
 
 export function summarizeRuns(rows: RunRow[], now: number): MetricsSummary {
   const buckets = new Map<string, DailyMetric>()
-  // anchor to local midnight so DST transitions can't skip a calendar day
-  const todayMidnight = new Date(now)
-  todayMidnight.setHours(0, 0, 0, 0)
+  // calendar-day arithmetic (not fixed 24h offsets) so DST transitions can't
+  // skip a day: new Date(y, m, d - i) normalizes to the actual local calendar day
+  const t = new Date(now)
   for (let i = 13; i >= 0; i--) {
-    const key = localDateKey(todayMidnight.getTime() - i * DAY)
+    const key = localDateKey(new Date(t.getFullYear(), t.getMonth(), t.getDate() - i).getTime())
     buckets.set(key, { date: key, runs: 0, tokens: 0, costUsd: 0 })
   }
   let activeRuns = 0
