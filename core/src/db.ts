@@ -78,6 +78,14 @@ db.exec(`
     completed_at  INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_verification_project ON verification_reports(project_id, started_at);
+
+  CREATE TABLE IF NOT EXISTS github_cache (
+    project_id  TEXT NOT NULL,
+    kind        TEXT NOT NULL,            -- 'pr' | 'ci'
+    payload     TEXT NOT NULL,            -- JSON array
+    fetched_at  INTEGER NOT NULL,
+    PRIMARY KEY (project_id, kind)
+  );
 `)
 
 // ─── Run helpers ─────────────────────────────────────────────────────────────
@@ -156,3 +164,15 @@ const listVerificationReports = db.prepare(`
 `)
 
 export const verificationDb = { insertVerificationReport, listVerificationReports }
+
+// ─── GitHub cache helpers ────────────────────────────────────────────────────
+
+const upsertGithubCache = db.prepare(`
+  INSERT INTO github_cache (project_id, kind, payload, fetched_at)
+  VALUES (@projectId, @kind, @payload, @fetchedAt)
+  ON CONFLICT(project_id, kind) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at
+`)
+
+const getGithubCache = db.prepare(`SELECT * FROM github_cache WHERE project_id = ? AND kind = ?`)
+
+export const githubDb = { upsertGithubCache, getGithubCache }

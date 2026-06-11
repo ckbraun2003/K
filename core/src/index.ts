@@ -19,6 +19,7 @@ import { metricsRoutes } from './routes/metrics.js'
 import { projectsRoutes } from './routes/projects.js'
 import { compileBible } from './bible.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
+import { startGithubPoller } from './github.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const HOST = process.env.HOST ?? '0.0.0.0'
@@ -99,6 +100,7 @@ app.get('/ws', { websocket: true }, (connection: SocketStream) => {
 await compileBible()
 
 await app.listen({ port: PORT, host: HOST })
+startGithubPoller()
 console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
 console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)
 console.log(`   Bearer token       → ${BEARER_TOKEN}\n`)

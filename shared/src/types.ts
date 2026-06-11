@@ -127,6 +127,34 @@ export const MetricsSummarySchema = z.object({
 })
 export type MetricsSummary = z.infer<typeof MetricsSummarySchema>
 
+// ─── GitHub (gh CLI projections) ────────────────────────────────────────────
+
+export const PrInfoSchema = z.object({
+  number: z.number().int(),
+  title: z.string(),
+  state: z.string(),               // OPEN | MERGED | CLOSED
+  url: z.string(),
+  checks: z.enum(['passing', 'failing', 'pending', 'none']),
+})
+export type PrInfo = z.infer<typeof PrInfoSchema>
+
+export const CiRunInfoSchema = z.object({
+  id: z.number(),
+  workflow: z.string(),
+  branch: z.string(),
+  status: z.string(),              // completed | in_progress | queued
+  conclusion: z.string().nullable(), // success | failure | … | null while running
+  createdAt: z.string(),
+})
+export type CiRunInfo = z.infer<typeof CiRunInfoSchema>
+
+export const GithubStatusSchema = z.object({
+  prs: z.array(PrInfoSchema),
+  ci: z.array(CiRunInfoSchema),
+  fetchedAt: z.number().nullable(),  // null = never fetched
+})
+export type GithubStatus = z.infer<typeof GithubStatusSchema>
+
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
 export const WsMessageSchema = z.discriminatedUnion('type', [
