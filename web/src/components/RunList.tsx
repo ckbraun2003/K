@@ -12,19 +12,19 @@ interface Props {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  queued:  'bg-yellow-500/20 text-yellow-400',
-  running: 'bg-blue-500/20 text-blue-400 animate-pulse',
-  done:    'bg-green-500/20 text-green-400',
-  error:   'bg-red-500/20 text-red-400',
-  killed:  'bg-gray-500/20 text-gray-400',
+  queued:  'bg-[var(--amber)]/15 text-[var(--amber)]',
+  running: 'bg-[var(--accent)]/15 text-[var(--accent-hover)]',
+  done:    'bg-[var(--green)]/15 text-[var(--green)]',
+  error:   'bg-[var(--red)]/15 text-[var(--red)]',
+  killed:  'bg-[var(--muted)]/15 text-[var(--muted)]',
 }
 
 const STATUS_DOT: Record<string, string> = {
-  queued:  'bg-yellow-400',
-  running: 'bg-blue-400',
-  done:    'bg-green-400',
-  error:   'bg-red-400',
-  killed:  'bg-gray-400',
+  queued:  'bg-[var(--amber)]',
+  running: 'bg-[var(--accent)] glow-live',
+  done:    'bg-[var(--green)]',
+  error:   'bg-[var(--red)]',
+  killed:  'bg-[var(--muted)]',
 }
 
 export default function RunList({ selectedId, onSelect }: Props) {
@@ -78,12 +78,12 @@ export default function RunList({ selectedId, onSelect }: Props) {
               <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', STATUS_COLOR[run.status])}>
                 {run.status}
               </span>
-              <span className="text-xs text-[var(--muted)] ml-auto">
+              <span className="mono text-xs text-[var(--muted)] ml-auto">
                 ${(run.costUsd).toFixed(4)}
               </span>
             </div>
             <p className="text-sm text-[var(--text)] truncate">{run.prompt}</p>
-            <p className="text-xs text-[var(--muted)] mt-0.5">
+            <p className="mono text-xs text-[var(--muted)] mt-0.5">
               {new Date(run.createdAt).toLocaleTimeString()} · {run.model}
             </p>
           </motion.button>

@@ -13,10 +13,10 @@ interface Props {
 const EVENT_COLOR: Record<string, string> = {
   system:    'text-[var(--muted)]',
   assistant: 'text-[var(--text)]',
-  user:      'text-blue-400',
-  usage:     'text-green-400',
-  error:     'text-red-400',
-  status:    'text-yellow-400',
+  user:      'text-[var(--accent-hover)]',
+  usage:     'text-[var(--green)]',
+  error:     'text-[var(--red)]',
+  status:    'text-[var(--amber)]',
 }
 
 export default function RunConsole({ runId }: Props) {
@@ -65,11 +65,11 @@ export default function RunConsole({ runId }: Props) {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', {
-            'bg-blue-500/20 text-blue-400 animate-pulse': run.status === 'running',
-            'bg-green-500/20 text-green-400': run.status === 'done',
-            'bg-red-500/20 text-red-400': run.status === 'error',
-            'bg-yellow-500/20 text-yellow-400': run.status === 'queued',
-            'bg-gray-500/20 text-gray-400': run.status === 'killed',
+            'bg-[var(--accent)]/15 text-[var(--accent-hover)] glow-live': run.status === 'running',
+            'bg-[var(--green)]/15 text-[var(--green)]': run.status === 'done',
+            'bg-[var(--red)]/15 text-[var(--red)]': run.status === 'error',
+            'bg-[var(--amber)]/15 text-[var(--amber)]': run.status === 'queued',
+            'bg-[var(--muted)]/15 text-[var(--muted)]': run.status === 'killed',
           })}>
             {run.status}
           </span>
