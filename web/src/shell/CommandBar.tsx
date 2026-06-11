@@ -39,9 +39,10 @@ export default function CommandBar({ open, onClose }: Props) {
     return [...dispatch, ...navs, ...runItems]
   }, [query, runs])
 
-  useEffect(() => { setSelected(0) }, [items.length])
+  useEffect(() => { setSelected(0) }, [items])
 
   async function execute(item: Item) {
+    if (busy) return
     if (item.kind === 'nav') {
       navigate(item.view, item.param)
       onClose()
