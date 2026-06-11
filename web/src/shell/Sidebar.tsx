@@ -21,7 +21,7 @@ export const DESTINATIONS: Destination[] = [
 
 export default function Sidebar({ active }: { active: string }) {
   return (
-    <nav className="row-span-3 flex flex-col items-center gap-1 border-r border-[var(--border)] bg-[var(--surface)] py-3 z-10">
+    <nav className="relative row-span-3 flex flex-col items-center gap-1 border-r border-[var(--border)] bg-[var(--surface)] py-3 z-10">
       <div className="mb-3 text-lg font-bold text-[var(--accent)]" title="Jarvis">⚡</div>
       {DESTINATIONS.map(d => (
         <button

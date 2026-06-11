@@ -9,7 +9,7 @@ interface Props {
 export default function TopBar({ view, connected, onOpenCommand }: Props) {
   const dest = DESTINATIONS.find(d => d.id === view)
   return (
-    <header className="z-10 flex items-center gap-4 border-b border-[var(--border)] px-4 py-2.5">
+    <header className="relative z-10 flex items-center gap-4 border-b border-[var(--border)] px-4 py-2.5">
       <h1 className="text-sm font-semibold tracking-wide text-[var(--text)]">
         <span className="mr-2 text-[var(--accent)]">{dest?.icon ?? '⌂'}</span>
         {dest?.label.split(' ·')[0] ?? 'Home'}
