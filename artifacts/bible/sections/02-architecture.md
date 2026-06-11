@@ -16,7 +16,7 @@ updated: 2026-06-11
 ┌───────────────┴───────────────────────┴──────────────────────┐
 │  core/  Fastify + TypeScript (Node 20)                       │
 │                                                              │
-│   routes/      runs · artifacts · bible · projects · metrics  │
+│   routes/     runs · artifacts · bible · projects · metrics  │
 │   supervisor.ts  spawn claude CLI in worktree, parse         │
 │                  stream-json, emit AgentEvents               │
 │   events.ts      EventBus ── the B-seam: every event is      │
