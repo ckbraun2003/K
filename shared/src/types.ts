@@ -109,6 +109,24 @@ export const VerificationReportSchema = z.object({
 })
 export type VerificationReport = z.infer<typeof VerificationReportSchema>
 
+// ─── Metrics ────────────────────────────────────────────────────────────────
+
+export const DailyMetricSchema = z.object({
+  date: z.string(),            // YYYY-MM-DD (local)
+  runs: z.number().int(),
+  tokens: z.number().int(),
+  costUsd: z.number(),
+})
+export type DailyMetric = z.infer<typeof DailyMetricSchema>
+
+export const MetricsSummarySchema = z.object({
+  today: DailyMetricSchema,
+  activeRuns: z.number().int(),
+  totalRuns: z.number().int(),
+  daily: z.array(DailyMetricSchema),  // oldest → newest, last 14 days incl. today
+})
+export type MetricsSummary = z.infer<typeof MetricsSummarySchema>
+
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
 export const WsMessageSchema = z.discriminatedUnion('type', [
