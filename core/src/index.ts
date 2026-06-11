@@ -73,6 +73,7 @@ app.get('/ws', { websocket: true }, (connection: SocketStream) => {
   const unsubRun = eventBus.onRunUpdate((r: Run) => {
     send({ type: 'run_update', run: r })
   })
+  const unsubBroadcast = eventBus.onBroadcast((m: WsMessage) => send(m))
 
   socket.on('message', (data: Buffer | string) => {
     try {
@@ -85,6 +86,7 @@ app.get('/ws', { websocket: true }, (connection: SocketStream) => {
     wsClients.delete(socket)
     unsubEvent()
     unsubRun()
+    unsubBroadcast()
   })
 })
 
