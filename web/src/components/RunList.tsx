@@ -12,11 +12,11 @@ interface Props {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  queued:  'bg-[var(--amber)]/15 text-[var(--amber)]',
-  running: 'bg-[var(--accent)]/15 text-[var(--accent-hover)]',
-  done:    'bg-[var(--green)]/15 text-[var(--green)]',
-  error:   'bg-[var(--red)]/15 text-[var(--red)]',
-  killed:  'bg-[var(--muted)]/15 text-[var(--muted)]',
+  queued:  'bg-amber/15 text-[var(--amber)]',
+  running: 'bg-accent/15 text-[var(--accent-hover)]',
+  done:    'bg-green/15 text-[var(--green)]',
+  error:   'bg-red/15 text-[var(--red)]',
+  killed:  'bg-muted/15 text-[var(--muted)]',
 }
 
 const STATUS_DOT: Record<string, string> = {

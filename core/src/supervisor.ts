@@ -113,6 +113,14 @@ export function kill(runId: string): boolean {
 
 // ── Private ──────────────────────────────────────────────────────────────────
 
+async function removeWorktree(run: Run) {
+  if (run.worktree && fs.existsSync(run.worktree)) {
+    try {
+      await execa('git', ['-C', run.cwd, 'worktree', 'remove', '--force', run.worktree])
+    } catch { /* best-effort cleanup */ }
+  }
+}
+
 async function runAgent(run: Run, prompt: string, cwd: string) {
   run.status = 'running'
   emitStatusEvent(run.id, 'running', 1, Date.now())
@@ -155,13 +163,7 @@ async function runAgent(run: Run, prompt: string, cwd: string) {
 
     const result = await proc
     activeProcesses.delete(run.id)
-
-    // Clean up worktree
-    if (run.worktree && fs.existsSync(run.worktree)) {
-      try {
-        await execa('git', ['-C', run.cwd, 'worktree', 'remove', '--force', run.worktree])
-      } catch { /* best-effort cleanup */ }
-    }
+    await removeWorktree(run)
 
     const wasKilled = killedRuns.delete(run.id)
     const finalStatus: Run['status'] = wasKilled ? 'killed' : result.exitCode === 0 ? 'done' : 'error'
@@ -171,6 +173,7 @@ async function runAgent(run: Run, prompt: string, cwd: string) {
 
   } catch (err) {
     activeProcesses.delete(run.id)
+    await removeWorktree(run)
     const wasKilled = killedRuns.delete(run.id)
     const errRun: Run = { ...run, status: wasKilled ? 'killed' : 'error', tokensIn, tokensOut, costUsd, endedAt: Date.now() }
     const errEvent: AgentEvent = {

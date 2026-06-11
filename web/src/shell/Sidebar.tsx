@@ -33,7 +33,7 @@ export default function Sidebar({ active }: { active: string }) {
           className={cn(
             'flex h-9 w-9 items-center justify-center rounded-lg text-base transition-colors duration-150',
             d.enabled ? 'text-[var(--muted)] hover:bg-[var(--raised)] hover:text-[var(--text)]' : 'cursor-default text-[var(--border)]',
-            active === d.id && 'bg-[var(--accent)]/20 text-[var(--accent-hover)]'
+            active === d.id && 'bg-accent/20 text-[var(--accent-hover)]'
           )}
         >
           {d.icon}

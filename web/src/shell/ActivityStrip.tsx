@@ -27,7 +27,7 @@ export default function ActivityStrip() {
   const lastDone = runs.find(r => r.status === 'done' || r.status === 'error' || r.status === 'killed')
 
   return (
-    <footer className="relative z-10 flex items-center gap-5 overflow-x-auto whitespace-nowrap border-t border-[var(--border)] bg-[var(--surface)]/60 px-4 py-1.5 text-xs backdrop-blur">
+    <footer className="relative z-10 flex items-center gap-5 overflow-x-auto whitespace-nowrap border-t border-[var(--border)] bg-surface/60 px-4 py-1.5 text-xs backdrop-blur">
       {active.length === 0 && (
         <span className="text-[var(--muted)]">idle — no agents running</span>
       )}

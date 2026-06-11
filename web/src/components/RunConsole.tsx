@@ -29,10 +29,12 @@ export default function RunConsole({ runId }: Props) {
     queryFn: () => api.runs.get(runId),
   })
 
-  // Live events via WS
+  // Persisted history + live events via WS (deduped by event id — live
+  // events can arrive while the backfill request is in flight)
   useEffect(() => {
     setEvents([]) // reset when run changes
-    return onWsMessage((msg: WsMessage) => {
+    let cancelled = false
+    const unsub = onWsMessage((msg: WsMessage) => {
       if (msg.type === 'event' && msg.event.runId === runId) {
         setEvents(prev => [...prev, msg.event])
       }
@@ -40,6 +42,14 @@ export default function RunConsole({ runId }: Props) {
         qc.setQueryData(['run', runId], msg.run)
       }
     })
+    api.runs.events(runId).then(history => {
+      if (cancelled) return
+      setEvents(prev => {
+        const seen = new Set(history.map(e => e.id))
+        return [...history, ...prev.filter(e => !seen.has(e.id))]
+      })
+    }).catch(() => { /* live stream still works without backfill */ })
+    return () => { cancelled = true; unsub() }
   }, [runId, qc])
 
   // Auto-scroll
@@ -65,18 +75,18 @@ export default function RunConsole({ runId }: Props) {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', {
-            'bg-[var(--accent)]/15 text-[var(--accent-hover)] glow-live': run.status === 'running',
-            'bg-[var(--green)]/15 text-[var(--green)]': run.status === 'done',
-            'bg-[var(--red)]/15 text-[var(--red)]': run.status === 'error',
-            'bg-[var(--amber)]/15 text-[var(--amber)]': run.status === 'queued',
-            'bg-[var(--muted)]/15 text-[var(--muted)]': run.status === 'killed',
+            'bg-accent/15 text-[var(--accent-hover)] glow-live': run.status === 'running',
+            'bg-green/15 text-[var(--green)]': run.status === 'done',
+            'bg-red/15 text-[var(--red)]': run.status === 'error',
+            'bg-amber/15 text-[var(--amber)]': run.status === 'queued',
+            'bg-muted/15 text-[var(--muted)]': run.status === 'killed',
           })}>
             {run.status}
           </span>
           {run.status === 'running' && (
             <button
               onClick={handleKill}
-              className="text-xs px-2 py-0.5 rounded bg-red/20 text-red hover:bg-red/30 transition-colors"
+              className="text-xs px-2 py-0.5 rounded bg-red/20 text-[var(--red)] hover:bg-red/30 transition-colors"
             >
               Kill
             </button>
@@ -110,7 +120,7 @@ export default function RunConsole({ runId }: Props) {
               <span>⚠ {e.text}</span>
             )}
             {e.type === 'assistant' && e.tool && (
-              <span className="text-accent-hover">⚙ {e.tool}()</span>
+              <span className="text-[var(--accent-hover)]">⚙ {e.tool}()</span>
             )}
             {e.type === 'assistant' && !e.tool && e.text && (
               <span>{e.text}</span>

@@ -23,7 +23,7 @@ export default function ProjectCard({ project }: { project: Project }) {
     <div
       className={cn(
         'card-lift rounded-lg border bg-[var(--surface)] p-4',
-        attention ? 'border-[var(--amber)]/40' : 'border-[var(--border)]'
+        attention ? 'border-amber/40' : 'border-[var(--border)]'
       )}
     >
       <div className="flex items-center gap-2">

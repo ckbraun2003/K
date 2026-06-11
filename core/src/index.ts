@@ -22,7 +22,9 @@ import type { WsMessage, AgentEvent, Run } from '@k/shared'
 import { startGithubPoller, stopGithubPoller } from './github.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
-const HOST = process.env.HOST ?? '0.0.0.0'
+// loopback by default — Phase 0's security posture assumes localhost-only;
+// set HOST=0.0.0.0 explicitly to expose on the network
+const HOST = process.env.HOST ?? '127.0.0.1'
 const BEARER_TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
 
 const app = Fastify({ logger: { level: 'info' } })

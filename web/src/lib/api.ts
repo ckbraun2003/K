@@ -1,4 +1,4 @@
-import type { Run, Artifact, MetricsSummary, Project, GithubStatus } from '@k/shared'
+import type { Run, AgentEvent, Artifact, MetricsSummary, Project, GithubStatus } from '@k/shared'
 
 const BASE = '/api'
 
@@ -15,6 +15,7 @@ export const api = {
   runs: {
     list: () => req<Run[]>('/runs'),
     get: (id: string) => req<Run>(`/runs/${id}`),
+    events: (id: string) => req<AgentEvent[]>(`/runs/${id}/events`),
     start: (prompt: string, cwd?: string) =>
       req<Run>('/runs', {
         method: 'POST',
