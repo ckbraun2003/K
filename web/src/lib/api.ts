@@ -1,4 +1,4 @@
-import type { Run, Artifact } from '@k/shared'
+import type { Run, Artifact, MetricsSummary, Project, GithubStatus } from '@k/shared'
 
 const BASE = '/api'
 
@@ -24,5 +24,18 @@ export const api = {
   artifacts: {
     list: () => req<Omit<Artifact, 'md' | 'html'>[]>('/artifacts'),
     get: (slug: string) => req<Artifact>(`/artifacts/${slug}`),
+  },
+  metrics: {
+    summary: () => req<MetricsSummary>('/metrics/summary'),
+  },
+  projects: {
+    list: () => req<Project[]>('/projects'),
+    register: (body: { name: string; localPath?: string; githubUrl?: string }) =>
+      req<Project>('/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    github: (id: string) => req<GithubStatus>(`/projects/${id}/github`),
   },
 }
