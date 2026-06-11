@@ -1,5 +1,5 @@
-import Dashboard from './pages/Dashboard'
+import Shell from './shell/Shell'
 
 export default function App() {
-  return <Dashboard />
+  return <Shell />
 }
