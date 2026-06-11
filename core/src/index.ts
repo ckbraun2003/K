@@ -16,6 +16,7 @@ import { eventBus } from './events.js'
 import { runsRoutes } from './routes/runs.js'
 import { artifactsRoutes } from './routes/artifacts.js'
 import { metricsRoutes } from './routes/metrics.js'
+import { projectsRoutes } from './routes/projects.js'
 import { compileBible } from './bible.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
 
@@ -52,6 +53,7 @@ app.get('/health', async () => ({ ok: true, ts: Date.now() }))
 await app.register(runsRoutes)
 await app.register(artifactsRoutes)
 await app.register(metricsRoutes)
+await app.register(projectsRoutes)
 
 // ── WebSocket gateway ─────────────────────────────────────────────────────────
 

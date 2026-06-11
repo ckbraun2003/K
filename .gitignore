@@ -9,3 +9,4 @@ core/data/
 artifacts/*.html
 !artifacts/.gitkeep
 .superpowers/
+workspace/
