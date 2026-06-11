@@ -15,6 +15,12 @@ import { projectsDb } from './db.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const WORKSPACE_DIR = path.join(__dirname, '../../workspace')
 
+const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+
+/** Errors caused by bad client input — routes map these to 400. */
+export class ClientError extends Error {}
+
 export interface RegistrationBody {
   name: string
   localPath?: string
@@ -23,6 +29,10 @@ export interface RegistrationBody {
 
 export function validateRegistration(b: RegistrationBody): { ok: true } | { ok: false; error: string } {
   if (!b.name?.trim()) return { ok: false, error: 'name is required' }
+  const name = b.name.trim()
+  if (!NAME_RE.test(name) || name.endsWith('.') || WINDOWS_RESERVED.test(name)) {
+    return { ok: false, error: 'name must be a safe directory name (letters, digits, _ . -)' }
+  }
   const sources = [b.localPath, b.githubUrl].filter(Boolean).length
   if (sources !== 1) return { ok: false, error: 'provide exactly one of localPath or githubUrl' }
   return { ok: true }
@@ -63,46 +73,63 @@ async function detectRemote(repoPath: string): Promise<string | undefined> {
   } catch { return undefined }
 }
 
+const inFlight = new Set<string>()
+
 export async function registerProject(b: RegistrationBody): Promise<Project> {
-  let localPath: string
-  let workspaceManaged = false
-  let githubRemote: string | undefined
+  const name = b.name.trim()
+  if (inFlight.has(name)) throw new ClientError(`registration already in progress for ${name}`)
+  inFlight.add(name)
+  try {
+    let localPath: string
+    let workspaceManaged = false
+    let githubRemote: string | undefined
 
-  if (b.githubUrl) {
-    const remote = remoteFromUrl(b.githubUrl)
-    if (!remote) throw new Error(`not a GitHub URL: ${b.githubUrl}`)
-    fs.mkdirSync(WORKSPACE_DIR, { recursive: true })
-    localPath = path.join(WORKSPACE_DIR, b.name)
-    if (!fs.existsSync(localPath)) {
-      await execa('gh', ['repo', 'clone', remote, localPath])
+    if (b.githubUrl) {
+      const remote = remoteFromUrl(b.githubUrl)
+      if (!remote) throw new ClientError(`not a GitHub URL: ${b.githubUrl}`)
+      fs.mkdirSync(WORKSPACE_DIR, { recursive: true })
+      localPath = path.join(WORKSPACE_DIR, name)
+      if (!localPath.startsWith(WORKSPACE_DIR + path.sep)) {
+        throw new ClientError(`invalid project name`)
+      }
+      if (!fs.existsSync(localPath)) {
+        await execa('gh', ['repo', 'clone', remote, localPath])
+      } else {
+        const existing = await detectRemote(localPath)
+        if (existing !== remote) {
+          throw new ClientError(`workspace/${name} already exists but points at ${existing ?? 'no remote'}, not ${remote}`)
+        }
+      }
+      workspaceManaged = true
+      githubRemote = remote
+    } else {
+      localPath = path.resolve(b.localPath!)
+      if (!fs.existsSync(path.join(localPath, '.git'))) {
+        throw new ClientError('localPath is not a git repository')
+      }
+      githubRemote = await detectRemote(localPath)
     }
-    workspaceManaged = true
-    githubRemote = remote
-  } else {
-    localPath = path.resolve(b.localPath!)
-    if (!fs.existsSync(path.join(localPath, '.git'))) {
-      throw new Error(`${localPath} is not a git repository`)
-    }
-    githubRemote = await detectRemote(localPath)
-  }
 
-  const project: Project = {
-    id: uuid(),
-    name: b.name.trim(),
-    localPath,
-    githubRemote,
-    workspaceManaged,
-    bibleDir: 'docs/bible',
-    createdAt: Date.now(),
+    const project: Project = {
+      id: uuid(),
+      name,
+      localPath,
+      githubRemote,
+      workspaceManaged,
+      bibleDir: 'docs/bible',
+      createdAt: Date.now(),
+    }
+    projectsDb.insertProject.run({
+      id: project.id,
+      name: project.name,
+      localPath: project.localPath,
+      githubRemote: project.githubRemote ?? null,
+      workspaceManaged: project.workspaceManaged ? 1 : 0,
+      bibleDir: project.bibleDir,
+      createdAt: project.createdAt,
+    })
+    return project
+  } finally {
+    inFlight.delete(name)
   }
-  projectsDb.insertProject.run({
-    id: project.id,
-    name: project.name,
-    localPath: project.localPath,
-    githubRemote: project.githubRemote ?? null,
-    workspaceManaged: project.workspaceManaged ? 1 : 0,
-    bibleDir: project.bibleDir,
-    createdAt: project.createdAt,
-  })
-  return project
 }

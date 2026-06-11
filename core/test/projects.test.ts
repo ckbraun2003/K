@@ -15,6 +15,12 @@ describe('validateRegistration', () => {
   it('rejects empty name', () => {
     expect(validateRegistration({ name: ' ', localPath: 'a' }).ok).toBe(false)
   })
+  it('rejects unsafe directory names', () => {
+    for (const name of ['../../evil', 'foo/bar', 'foo\\bar', '.', '..', '.git', 'con', 'nul.txt', 'foo.']) {
+      expect(validateRegistration({ name, localPath: 'a' }).ok).toBe(false)
+    }
+    expect(validateRegistration({ name: 'my-repo_2.0', localPath: 'a' }).ok).toBe(true)
+  })
 })
 
 describe('remoteFromUrl', () => {

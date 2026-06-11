@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { validateRegistration, registerProject, listProjects, getProject, type RegistrationBody } from '../projects.js'
+import { validateRegistration, registerProject, listProjects, getProject, ClientError, type RegistrationBody } from '../projects.js'
 import { getGithubStatus } from '../github.js'
 
 export async function projectsRoutes(app: FastifyInstance) {
@@ -14,7 +14,11 @@ export async function projectsRoutes(app: FastifyInstance) {
       const project = await registerProject(req.body)
       return reply.status(201).send(project)
     } catch (e) {
-      return reply.status(400).send({ error: String(e instanceof Error ? e.message : e) })
+      const msg = e instanceof Error ? e.message : String(e)
+      if (e instanceof ClientError) return reply.status(400).send({ error: msg })
+      if (msg.includes('UNIQUE constraint')) return reply.status(409).send({ error: `a project named ${req.body.name} already exists` })
+      req.log.error(e)
+      return reply.status(500).send({ error: 'registration failed' })
     }
   })
 
