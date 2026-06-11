@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-06-10
+updated: 2026-06-11
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -22,15 +22,17 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 - [x] Artifacts store (`artifacts.ts`) — md → styled HTML
 - [x] Bible compiler (`bible.ts`) — sections + live data → self-contained HTML
 - [x] Project/VerificationReport schemas + tables (groundwork)
-- [ ] Fastify REST + WS gateway end-to-end verification pass
-- [ ] React dashboard skeleton: PromptBar · RunList · RunConsole · DocViewer
+- [x] Fastify REST + WS gateway end-to-end verification pass
+- [x] React dashboard — Command Deck shell (sidebar · ⌘K · stage · activity strip)
 
 ## Phase 1 — Visibility + Fleet plumbing
 
 > Full observability, plus the registry and GitHub seams go live
 
-- [ ] Project registry API + onboarding skill (register path / clone URL, scaffold bible)
-- [ ] GitHubProvider via `gh` CLI — PR list/status, CI runs, polling + SQLite cache
+- [x] Project registry API (register path / clone URL)
+- [ ] Onboarding skill (scaffold bible + CI)
+- [x] GitHubProvider via `gh` CLI — PR list/status, CI runs, polling + SQLite cache
+- [x] Metrics summary endpoint + dashboard metrics row
 - [ ] Token time-series charts (per day/project/agent)
 - [ ] Full run event timeline (replayable from SQLite)
 - [ ] Web terminal (xterm.js + node-pty)

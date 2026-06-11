@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-06-10
+updated: 2026-06-11
 ---
 
 ## Running locally
@@ -24,6 +24,8 @@ HARNESS_TOKEN=dev-token-change-me     # bearer token (Phase 1: passkey/TOTP)
 CORS_ORIGIN=http://localhost:5173
 CLAUDE_MODEL=claude-sonnet-4-6
 ENABLE_OLLAMA=false
+GITHUB_POLL_MS=60000                  # gh polling interval
+ENABLE_GITHUB_POLL=true               # set false to disable
 ```
 
 ## Data locations
@@ -35,6 +37,7 @@ ENABLE_OLLAMA=false
 | Compiled bible | `artifacts/project-bible.html` | no (generated) |
 | Other artifacts | `artifacts/*.md` (+ generated `.html`) | md yes / html no |
 | Run worktrees | git worktrees, pruned after run | no |
+| Cloned workspaces | workspace/ | no |
 
 ## Bible workflow
 
@@ -55,4 +58,7 @@ ENABLE_OLLAMA=false
 | `core/src/bible.ts` | bible compiler (sections + live data → HTML) |
 | `core/src/artifacts.ts` | generic artifact store + md→HTML |
 | `core/src/index.ts` | Fastify bootstrap + WS gateway |
+| `core/src/github.ts` | GitHubProvider — gh CLI, cache, poller |
+| `core/src/projects.ts` | project registry (register/clone) |
+| `core/src/metrics.ts` | metrics summary aggregation |
 | `artifacts/bible/` | this document's source |

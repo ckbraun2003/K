@@ -2,7 +2,7 @@
 title: Architecture
 icon: "⬡"
 status: stable
-updated: 2026-06-10
+updated: 2026-06-11
 ---
 
 **Architecture A with B-seams** — a monolith core with Architecture-B observability built in from day one (decision D-001).
@@ -16,14 +16,14 @@ updated: 2026-06-10
 ┌───────────────┴───────────────────────┴──────────────────────┐
 │  core/  Fastify + TypeScript (Node 20)                       │
 │                                                              │
-│   routes/        runs · artifacts · bible · projects(→P1)    │
+│   routes/      runs · artifacts · bible · projects · metrics  │
 │   supervisor.ts  spawn claude CLI in worktree, parse         │
 │                  stream-json, emit AgentEvents               │
 │   events.ts      EventBus ── the B-seam: every event is      │
 │                  persisted to SQLite AND pushed to WS subs   │
 │   router.ts      ModelRouter ── the C-seam: route(task) →    │
 │                  claude | ollama (config, not code)          │
-│   github.ts(→P1) GitHubProvider ── gh CLI + polling seam     │
+│   github.ts      GitHubProvider ── gh CLI + polling seam     │
 │   bible.ts       compile sections + live data → HTML         │
 │   artifacts.ts   md store + generic md→HTML renderer         │
 │   db.ts          better-sqlite3 (WAL) schema + helpers       │
