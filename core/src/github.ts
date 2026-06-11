@@ -11,7 +11,8 @@ import { githubDb } from './db.js'
 import { eventBus } from './events.js'
 import { listProjects } from './projects.js'
 
-const POLL_MS = Number(process.env.GITHUB_POLL_MS ?? 60_000)
+const rawPollMs = Number(process.env.GITHUB_POLL_MS)
+const POLL_MS = Number.isFinite(rawPollMs) && rawPollMs > 0 ? rawPollMs : 60_000
 
 async function ghJson(args: string[], cwd: string): Promise<unknown> {
   const { stdout } = await execa('gh', [...args], { cwd, timeout: 30_000 })
@@ -26,17 +27,33 @@ export async function fetchGithubStatus(remote: string, cwd: string): Promise<{ 
   return { prs: parsePrList(prsRaw), ci: parseCiRuns(ciRaw) }
 }
 
-export function getGithubStatus(projectId: string): GithubStatus {
-  const pr = githubDb.getGithubCache.get(projectId, 'pr') as Record<string, unknown> | undefined
-  const ci = githubDb.getGithubCache.get(projectId, 'ci') as Record<string, unknown> | undefined
-  return {
-    prs: pr ? JSON.parse(String(pr.payload)) : [],
-    ci: ci ? JSON.parse(String(ci.payload)) : [],
-    fetchedAt: pr || ci ? Number((pr ?? ci)!.fetched_at) : null,
+function parsePayload<T>(row: Record<string, unknown> | undefined): T[] {
+  if (!row) return []
+  try {
+    const v = JSON.parse(String(row.payload))
+    return Array.isArray(v) ? v : []
+  } catch {
+    return [] // corrupted cache row — treat as never fetched rather than 500
   }
 }
 
+export function getGithubStatus(projectId: string): GithubStatus {
+  const pr = githubDb.getGithubCache.get(projectId, 'pr') as Record<string, unknown> | undefined
+  const ci = githubDb.getGithubCache.get(projectId, 'ci') as Record<string, unknown> | undefined
+  const stamps = [pr, ci].filter((r): r is Record<string, unknown> => !!r).map((r) => Number(r.fetched_at))
+  return {
+    prs: parsePayload<PrInfo>(pr),
+    ci: parsePayload<CiRunInfo>(ci),
+    fetchedAt: stamps.length ? Math.max(...stamps) : null,
+  }
+}
+
+let polling = false
+
 async function pollOnce(): Promise<void> {
+  if (polling) return
+  polling = true
+  try {
   for (const project of listProjects()) {
     if (!project.githubRemote) continue
     try {
@@ -56,6 +73,9 @@ async function pollOnce(): Promise<void> {
       console.warn(`[github] poll failed for ${project.name}: ${e instanceof Error ? e.message : e}`)
     }
   }
+  } finally {
+    polling = false
+  }
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -65,4 +85,9 @@ export function startGithubPoller(): void {
   void pollOnce()
   pollTimer = setInterval(() => void pollOnce(), POLL_MS)
   console.log(`[github] poller started (every ${POLL_MS / 1000}s)`)
+}
+
+export function stopGithubPoller(): void {
+  if (pollTimer) clearInterval(pollTimer)
+  pollTimer = null
 }

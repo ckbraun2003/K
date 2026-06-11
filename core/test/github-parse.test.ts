@@ -24,6 +24,21 @@ describe('parsePrList', () => {
     expect(parsePrList(null)).toEqual([])
     expect(parsePrList([{ bogus: true }])).toEqual([])
   })
+
+  it('reports passing when all checks succeed', () => {
+    const prs = parsePrList([{ number: 1, title: 't', state: 'OPEN', url: 'u', statusCheckRollup: [{ conclusion: 'SUCCESS' }, { conclusion: 'success' }] }])
+    expect(prs[0].checks).toBe('passing')
+  })
+
+  it('treats SKIPPED and NEUTRAL as passing', () => {
+    const prs = parsePrList([{ number: 1, title: 't', state: 'OPEN', url: 'u', statusCheckRollup: [{ conclusion: 'SKIPPED' }, { conclusion: 'NEUTRAL' }] }])
+    expect(prs[0].checks).toBe('passing')
+  })
+
+  it('prefers failing over pending', () => {
+    const prs = parsePrList([{ number: 1, title: 't', state: 'OPEN', url: 'u', statusCheckRollup: [{ conclusion: null }, { conclusion: 'FAILURE' }] }])
+    expect(prs[0].checks).toBe('failing')
+  })
 })
 
 describe('parseCiRuns', () => {
