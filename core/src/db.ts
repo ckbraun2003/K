@@ -26,6 +26,7 @@ db.exec(`
     tokens_in   INTEGER NOT NULL DEFAULT 0,
     tokens_out  INTEGER NOT NULL DEFAULT 0,
     cost_usd    REAL NOT NULL DEFAULT 0,
+    project_id  TEXT REFERENCES projects(id),
     created_at  INTEGER NOT NULL,
     ended_at    INTEGER
   );
@@ -88,11 +89,33 @@ db.exec(`
   );
 `)
 
+// ── migrations ───────────────────────────────────────────────────────────────
+// CREATE TABLE IF NOT EXISTS covers fresh installs; existing DBs evolve via
+// guarded ALTERs below (pragma table_info check makes them idempotent).
+// NB: migrated DBs append new columns at the end — column ORDER may differ
+// from a fresh install; always reference columns by name.
+
+function hasColumn(table: string, column: string): boolean {
+  const cols = db.pragma(`table_info(${table})`) as Array<{ name: string }>
+  return cols.some(c => c.name === column)
+}
+
+if (!hasColumn('runs', 'project_id')) {
+  // ADD COLUMN with REFERENCES is legal under foreign_keys=ON because the
+  // default is NULL; existing rows stay NULL (unassociated)
+  db.exec(`ALTER TABLE runs ADD COLUMN project_id TEXT REFERENCES projects(id)`)
+}
+
+// idx_runs_project must be created after the migration (not inside the main
+// db.exec above) so that the column is guaranteed to exist on migrated DBs
+// before the index statement runs.
+db.exec(`CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id)`)
+
 // ─── Run helpers ─────────────────────────────────────────────────────────────
 
 const insertRun = db.prepare(`
-  INSERT INTO runs (id, prompt, cwd, worktree, status, provider, model, tokens_in, tokens_out, cost_usd, created_at)
-  VALUES (@id, @prompt, @cwd, @worktree, @status, @provider, @model, @tokensIn, @tokensOut, @costUsd, @createdAt)
+  INSERT INTO runs (id, prompt, cwd, worktree, status, provider, model, tokens_in, tokens_out, cost_usd, project_id, created_at)
+  VALUES (@id, @prompt, @cwd, @worktree, @status, @provider, @model, @tokensIn, @tokensOut, @costUsd, @projectId, @createdAt)
 `)
 
 const updateRunStatus = db.prepare(`

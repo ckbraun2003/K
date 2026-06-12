@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { StartRunBodySchema } from '@k/shared'
 import { startRun, kill } from '../supervisor.js'
-import { runsDb, eventsDb } from '../db.js'
+import { runsDb, eventsDb, projectsDb } from '../db.js'
 
 export async function runsRoutes(app: FastifyInstance) {
   // POST /api/runs — start a new agent run
@@ -10,8 +10,11 @@ export async function runsRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.flatten() })
     }
-    const { prompt, cwd, model } = parsed.data
-    const run = await startRun(prompt, { cwd, model })
+    const { prompt, cwd, model, projectId } = parsed.data
+    if (projectId && !projectsDb.getProject.get(projectId)) {
+      return reply.status(400).send({ error: 'unknown projectId' })
+    }
+    const run = await startRun(prompt, { cwd, model, projectId })
     return reply.status(201).send(run)
   })
 
@@ -46,6 +49,7 @@ function dbRowToRun(r: Record<string, unknown>) {
     id: r.id, prompt: r.prompt, cwd: r.cwd, worktree: r.worktree,
     status: r.status, provider: r.provider, model: r.model,
     tokensIn: r.tokens_in, tokensOut: r.tokens_out, costUsd: r.cost_usd,
+    projectId: r.project_id ?? undefined,
     createdAt: r.created_at, endedAt: r.ended_at,
   }
 }

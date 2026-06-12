@@ -22,6 +22,7 @@ export const RunSchema = z.object({
   tokensIn: z.number().int().default(0),
   tokensOut: z.number().int().default(0),
   costUsd: z.number().default(0),
+  projectId: z.string().uuid().optional(),
   createdAt: z.number(), // unix ms
   endedAt: z.number().optional(),
 })
@@ -178,7 +179,8 @@ export type WsMessage = z.infer<typeof WsMessageSchema>
 
 export const StartRunBodySchema = z.object({
   prompt: z.string().min(1),
-  cwd: z.string().optional(),     // defaults to k/ root
-  model: z.string().optional(),   // defaults to router decision
+  cwd: z.string().optional(),       // defaults to k/ root
+  model: z.string().optional(),     // defaults to router decision
+  projectId: z.string().uuid().optional(), // explicit project association (overrides cwd inference)
 })
 export type StartRunBody = z.infer<typeof StartRunBodySchema>

@@ -17,9 +17,10 @@ import fs from 'fs'
 import { fileURLToPath } from 'url'
 import type { AgentEvent, Run } from '@k/shared'
 import { eventBus } from './events.js'
-import { runsDb } from './db.js'
+import { runsDb, projectsDb } from './db.js'
 import { route } from './router.js'
 import { resolvePermissionMode, buildClaudeArgs } from './claude-args.js'
+import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
 
 const PERMISSION_MODE = resolvePermissionMode(process.env.RUN_PERMISSION_MODE)
 
@@ -42,6 +43,7 @@ export type StartRunOptions = {
   cwd?: string
   model?: string
   preferLocal?: boolean
+  projectId?: string
 }
 
 export async function startRun(prompt: string, opts: StartRunOptions = {}): Promise<Run> {
@@ -50,6 +52,11 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   const cwd = opts.cwd ?? REPO_ROOT
   const worktreePath = path.join(WORKTREES_DIR, runId)
   const now = Date.now()
+
+  // Infer project association from explicit opt or cwd (always use original cwd, never worktree path)
+  const projectId = opts.projectId
+    ?? matchProjectByCwd(cwd, projectsDb.listProjects.all() as ProjectPathRow[])
+    ?? undefined
 
   const run: Run = {
     id: runId,
@@ -62,6 +69,7 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
     tokensIn: 0,
     tokensOut: 0,
     costUsd: 0,
+    projectId,
     createdAt: now,
   }
 
@@ -77,6 +85,7 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
     tokensIn: run.tokensIn,
     tokensOut: run.tokensOut,
     costUsd: run.costUsd,
+    projectId: run.projectId ?? null,
     createdAt: run.createdAt,
   })
 

@@ -22,6 +22,7 @@ describe('runsDb.clearRunWorktree', () => {
       tokensIn: 0,
       tokensOut: 0,
       costUsd: 0,
+      projectId: null,
       createdAt: Date.now(),
     })
 
