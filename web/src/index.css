@@ -16,6 +16,10 @@
   --amber: #eab308;
   --red: #ef4444;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* chart palette */
+  --chart-1: #6366f1; --chart-2: #22c55e; --chart-3: #eab308; --chart-4: #06b6d4;
+  --chart-5: #a855f7; --chart-6: #ef4444; --chart-7: #ec4899; --chart-8: #64748b;
+  --chart-other: #3f3f46;
 }
 
 * { box-sizing: border-box; }

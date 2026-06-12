@@ -8,6 +8,7 @@ import Home from '../pages/Home'
 import RunsPage from '../pages/RunsPage'
 import DocsPage from '../pages/DocsPage'
 import ProjectsPage from '../pages/ProjectsPage'
+import MetricsPage from '../pages/MetricsPage'
 import { useHashRoute, navigate } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
 
@@ -42,7 +43,7 @@ export default function Shell() {
         return
       }
       if (chord) {
-        const map: Record<string, string> = { h: 'home', p: 'projects', r: 'runs', d: 'docs' }
+        const map: Record<string, string> = { h: 'home', p: 'projects', r: 'runs', d: 'docs', m: 'metrics' }
         if (map[e.key]) { e.preventDefault(); navigate(map[e.key]) }
         chord = false
       }
@@ -71,6 +72,7 @@ export default function Shell() {
             {route.view === 'runs' && <RunsPage runId={route.param} />}
             {route.view === 'docs' && <DocsPage slug={route.param} />}
             {route.view === 'projects' && <ProjectsPage />}
+            {route.view === 'metrics' && <MetricsPage />}
           </motion.div>
         </AnimatePresence>
       </main>
