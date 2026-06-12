@@ -11,6 +11,9 @@ export async function runsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: parsed.error.flatten() })
     }
     const { prompt, cwd, model, projectId } = parsed.data
+    // TOCTOU note: if a project-delete route ever lands, a project could be
+    // removed between this check and the FK INSERT in startRun, producing a 500.
+    // That path is unreachable today (no delete route exists), so this is acceptable.
     if (projectId && !projectsDb.getProject.get(projectId)) {
       return reply.status(400).send({ error: 'unknown projectId' })
     }

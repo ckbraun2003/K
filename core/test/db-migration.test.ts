@@ -4,7 +4,11 @@
  */
 import { describe, it, expect, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, runsDb, projectsDb } from '../src/db.js'
+import Database from 'better-sqlite3'
+import path from 'path'
+import os from 'os'
+import fs from 'fs'
+import { db, runsDb, projectsDb, migrate } from '../src/db.js'
 
 const PROJECT_ID = uuid()
 const RUN_WITH_PROJECT = uuid()
@@ -15,6 +19,52 @@ afterAll(() => {
   db.prepare('DELETE FROM runs WHERE id = ?').run(RUN_WITH_PROJECT)
   db.prepare('DELETE FROM runs WHERE id = ?').run(RUN_WITHOUT_PROJECT)
   db.prepare('DELETE FROM projects WHERE id = ?').run(PROJECT_ID)
+})
+
+describe('migrate() on old-schema DB — guarded ALTER branch', () => {
+  const tmpPath = path.join(os.tmpdir(), `k-migration-${Date.now()}.db`)
+  let tempDb: Database.Database
+
+  it('sets up an old-schema DB and runs migrate() — adds column + index', () => {
+    tempDb = new Database(tmpPath)
+    tempDb.pragma('foreign_keys = ON')
+
+    // Old-schema runs table: no project_id column
+    tempDb.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY);
+      CREATE TABLE runs (
+        id          TEXT PRIMARY KEY,
+        prompt      TEXT NOT NULL,
+        cwd         TEXT NOT NULL,
+        worktree    TEXT,
+        status      TEXT NOT NULL DEFAULT 'queued',
+        provider    TEXT NOT NULL DEFAULT 'claude',
+        model       TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+        tokens_in   INTEGER NOT NULL DEFAULT 0,
+        tokens_out  INTEGER NOT NULL DEFAULT 0,
+        cost_usd    REAL NOT NULL DEFAULT 0,
+        created_at  INTEGER NOT NULL,
+        ended_at    INTEGER
+      );
+    `)
+
+    migrate(tempDb)
+
+    const cols = tempDb.pragma('table_info(runs)') as Array<{ name: string }>
+    expect(cols.map(c => c.name)).toContain('project_id')
+
+    const indexes = tempDb.pragma('index_list(runs)') as Array<{ name: string }>
+    expect(indexes.map(i => i.name)).toContain('idx_runs_project')
+  })
+
+  it('migrate() is idempotent — calling it a second time does not throw', () => {
+    expect(() => migrate(tempDb)).not.toThrow()
+  })
+
+  afterAll(() => {
+    try { tempDb?.close() } catch { /* ignore */ }
+    try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+  })
 })
 
 describe('db migration — runs.project_id', () => {

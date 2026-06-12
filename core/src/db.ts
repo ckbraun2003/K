@@ -95,21 +95,25 @@ db.exec(`
 // NB: migrated DBs append new columns at the end — column ORDER may differ
 // from a fresh install; always reference columns by name.
 
-function hasColumn(table: string, column: string): boolean {
-  const cols = db.pragma(`table_info(${table})`) as Array<{ name: string }>
+function hasColumn(d: Database.Database, table: string, column: string): boolean {
+  const cols = d.pragma(`table_info(${table})`) as Array<{ name: string }>
   return cols.some(c => c.name === column)
 }
 
-if (!hasColumn('runs', 'project_id')) {
-  // ADD COLUMN with REFERENCES is legal under foreign_keys=ON because the
-  // default is NULL; existing rows stay NULL (unassociated)
-  db.exec(`ALTER TABLE runs ADD COLUMN project_id TEXT REFERENCES projects(id)`)
+/** Guarded, idempotent schema evolution — runs at every boot; exported for tests. */
+export function migrate(d: Database.Database): void {
+  if (!hasColumn(d, 'runs', 'project_id')) {
+    // ADD COLUMN with REFERENCES is legal under foreign_keys=ON because the
+    // default is NULL; existing rows stay NULL (unassociated)
+    d.exec(`ALTER TABLE runs ADD COLUMN project_id TEXT REFERENCES projects(id)`)
+  }
+  // idx_runs_project must be created after the migration (not inside the main
+  // db.exec above) so that the column is guaranteed to exist on migrated DBs
+  // before the index statement runs.
+  d.exec(`CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id)`)
 }
 
-// idx_runs_project must be created after the migration (not inside the main
-// db.exec above) so that the column is guaranteed to exist on migrated DBs
-// before the index statement runs.
-db.exec(`CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id)`)
+migrate(db)
 
 // ─── Run helpers ─────────────────────────────────────────────────────────────
 

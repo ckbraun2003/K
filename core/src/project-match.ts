@@ -1,6 +1,9 @@
 /** Pure cwd→project inference. Matches when cwd equals or is inside local_path. */
 export interface ProjectPathRow { id: string; local_path: string }
 
+// Lowercase normalisation is intentional (Windows-first, case-insensitive FS).
+// On case-sensitive Linux FSes a path differing only in case would false-match;
+// that edge is knowingly accepted — all supported installs use case-insensitive paths.
 function norm(p: string): string {
   return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 }
