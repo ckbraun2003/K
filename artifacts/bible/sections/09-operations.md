@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-06-11
+updated: 2026-06-12
 ---
 
 ## Running locally
@@ -62,3 +62,10 @@ ENABLE_GITHUB_POLL=true               # set false to disable
 | `core/src/projects.ts` | project registry (register/clone) |
 | `core/src/metrics.ts` | metrics summary aggregation |
 | `artifacts/bible/` | this document's source |
+
+## Accepted risks
+
+- `/ws` and `/health` are auth-exempt **by design** for the localhost posture
+  (`HOST=127.0.0.1` default). The WS gateway streams run events to anyone who
+  can reach the port. **First thing to close if HOST is ever set to 0.0.0.0**
+  — add token auth to the WS upgrade before exposing on a network.

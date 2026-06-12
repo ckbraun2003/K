@@ -20,6 +20,7 @@ import { projectsRoutes } from './routes/projects.js'
 import { compileBible } from './bible.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
 import { startGithubPoller, stopGithubPoller } from './github.js'
+import { isAuthExempt } from './auth.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
 // loopback by default — Phase 0's security posture assumes localhost-only;
@@ -40,7 +41,7 @@ await app.register(websocket)
 
 app.addHook('onRequest', async (req, reply) => {
   // Skip auth for WS upgrade and health
-  if (req.url === '/ws' || req.url === '/health') return
+  if (isAuthExempt(req.url)) return
   const auth = req.headers.authorization
   if (!auth || auth !== `Bearer ${BEARER_TOKEN}`) {
     return reply.status(401).send({ error: 'unauthorized' })
