@@ -11,4 +11,8 @@ describe('isAuthExempt', () => {
   it('/ws/../api/runs → false (URL normalizes dot-segments)', () => expect(isAuthExempt('/ws/../api/runs')).toBe(false))
   it('/api/runs → false', () => expect(isAuthExempt('/api/runs')).toBe(false))
   it('empty string → false', () => expect(isAuthExempt('')).toBe(false))
+  // security invariant: the predicate must NOT percent-decode — the router does,
+  // so decoding here would open an exempt path to encoded protected routes
+  it('/%77s (encoded /ws) → false', () => expect(isAuthExempt('/%77s')).toBe(false))
+  it('//ws (network-path form) → false', () => expect(isAuthExempt('//ws')).toBe(false))
 })
