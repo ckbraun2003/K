@@ -128,6 +128,34 @@ export const MetricsSummarySchema = z.object({
 })
 export type MetricsSummary = z.infer<typeof MetricsSummarySchema>
 
+// ─── Metrics time series ─────────────────────────────────────────────────────
+
+export const TimeseriesGroupBySchema = z.enum(['project', 'model'])
+export type TimeseriesGroupBy = z.infer<typeof TimeseriesGroupBySchema>
+
+export const TimeseriesPointSchema = z.object({
+  runs: z.number().int(),
+  tokens: z.number().int(),   // tokens_in + tokens_out
+  costUsd: z.number(),
+})
+export type TimeseriesPoint = z.infer<typeof TimeseriesPointSchema>
+
+export const TimeseriesSeriesSchema = z.object({
+  key: z.string(),    // project id | model name | 'unassigned' | 'other'
+  label: z.string(),  // project name | model name | 'Unassigned' | 'Other'
+  points: z.array(TimeseriesPointSchema),  // length === dates.length, zero-filled
+  total: TimeseriesPointSchema,            // sums over the window
+})
+export type TimeseriesSeries = z.infer<typeof TimeseriesSeriesSchema>
+
+export const MetricsTimeseriesSchema = z.object({
+  groupBy: TimeseriesGroupBySchema,
+  days: z.number().int(),
+  dates: z.array(z.string()),              // YYYY-MM-DD local, oldest → newest
+  series: z.array(TimeseriesSeriesSchema), // sorted by total.tokens desc, 'other' last
+})
+export type MetricsTimeseries = z.infer<typeof MetricsTimeseriesSchema>
+
 // ─── GitHub (gh CLI projections) ────────────────────────────────────────────
 
 export const PrInfoSchema = z.object({
