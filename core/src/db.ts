@@ -102,8 +102,9 @@ const updateRunStatus = db.prepare(`
 
 const getRun = db.prepare(`SELECT * FROM runs WHERE id = ?`)
 const listRuns = db.prepare(`SELECT * FROM runs ORDER BY created_at DESC LIMIT 100`)
+const clearRunWorktree = db.prepare(`UPDATE runs SET worktree = NULL WHERE id = ?`)
 
-export const runsDb = { insertRun, updateRunStatus, getRun, listRuns }
+export const runsDb = { insertRun, updateRunStatus, getRun, listRuns, clearRunWorktree }
 
 // ─── Event helpers ───────────────────────────────────────────────────────────
 

@@ -19,6 +19,9 @@ import type { AgentEvent, Run } from '@k/shared'
 import { eventBus } from './events.js'
 import { runsDb } from './db.js'
 import { route } from './router.js'
+import { resolvePermissionMode, buildClaudeArgs } from './claude-args.js'
+
+const PERMISSION_MODE = resolvePermissionMode(process.env.RUN_PERMISSION_MODE)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // core/src/* and core/dist/* are both two levels below the repo root
@@ -92,10 +95,13 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
     // Not a git repo or worktree failed — run in cwd directly
     effectiveCwd = cwd
     run.worktree = undefined
+    runsDb.clearRunWorktree.run(run.id)
   }
 
+  const inWorktree = effectiveCwd === worktreePath
+
   // Launch in background — don't await
-  void runAgent(run, prompt, effectiveCwd)
+  void runAgent(run, prompt, effectiveCwd, inWorktree)
 
   return run
 }
@@ -121,7 +127,7 @@ async function removeWorktree(run: Run) {
   }
 }
 
-async function runAgent(run: Run, prompt: string, cwd: string) {
+async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boolean) {
   run.status = 'running'
   emitStatusEvent(run.id, 'running', 1, Date.now())
   eventBus.emitRunUpdate({ ...run })
@@ -134,7 +140,7 @@ async function runAgent(run: Run, prompt: string, cwd: string) {
   try {
     const proc = execa(
       'claude',
-      ['-p', prompt, '--output-format', 'stream-json', '--verbose'],
+      buildClaudeArgs(prompt, { inWorktree, permissionMode: PERMISSION_MODE }),
       { cwd, reject: false, all: true }
     )
 
