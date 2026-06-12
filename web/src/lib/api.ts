@@ -16,11 +16,11 @@ export const api = {
     list: () => req<Run[]>('/runs'),
     get: (id: string) => req<Run>(`/runs/${id}`),
     events: (id: string) => req<AgentEvent[]>(`/runs/${id}/events`),
-    start: (prompt: string, cwd?: string) =>
+    start: (prompt: string, opts?: { cwd?: string; projectId?: string }) =>
       req<Run>('/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, cwd }),
+        body: JSON.stringify({ prompt, ...opts }),
       }),
     kill: (id: string) =>
       req<{ killed: boolean }>(`/runs/${id}/kill`, { method: 'POST' }),
