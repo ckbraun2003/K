@@ -25,5 +25,5 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck               # pnpm -r typecheck (shared + core + web)
-      - run: pnpm --filter @k/core test   # vitest
+      - run: pnpm -r test                  # vitest (core + web)
       - run: pnpm build                   # pnpm -r build (core tsc + web tsc && vite build)

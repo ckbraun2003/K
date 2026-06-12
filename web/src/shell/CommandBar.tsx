@@ -6,6 +6,9 @@ import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
 import { DESTINATIONS } from './Sidebar'
+import { parseProjectQuery } from '../lib/command-parse'
+
+export { parseProjectQuery } from '../lib/command-parse'
 
 interface Props { open: boolean; onClose: () => void }
 
@@ -16,42 +19,6 @@ type Item =
   | { kind: 'project-ambiguous'; label: string }
   | { kind: 'nav'; label: string; icon: string; view: string; param?: string }
 
-/** Parse an @-prefixed query against a project list.
- *
- * Returns one of:
- *   { type: 'dispatch'; project; rest }   — unique match + space-separated rest
- *   { type: 'completion'; matches }        — partial prefix, no space yet
- *   { type: 'ambiguous'; prefix }          — multiple projects match the given prefix
- *   { type: 'none' }                       — no '@' prefix at all
- */
-export function parseProjectQuery(
-  query: string,
-  projects: Project[],
-): | { type: 'dispatch'; project: Project; rest: string }
-   | { type: 'completion'; matches: Project[] }
-   | { type: 'ambiguous'; prefix: string }
-   | { type: 'none' } {
-  if (!query.startsWith('@')) return { type: 'none' }
-
-  const dispatchMatch = /^@(\S+)\s+(.+)$/.exec(query)
-  if (dispatchMatch) {
-    const prefix = dispatchMatch[1].toLowerCase()
-    const rest = dispatchMatch[2]
-    const exact = projects.find(p => p.name.toLowerCase() === prefix)
-    if (exact) return { type: 'dispatch', project: exact, rest }
-    const prefixMatches = projects.filter(p => p.name.toLowerCase().startsWith(prefix))
-    if (prefixMatches.length === 1) return { type: 'dispatch', project: prefixMatches[0], rest }
-    return { type: 'ambiguous', prefix: dispatchMatch[1] }
-  }
-
-  // @prefix with no space yet — completion mode
-  const prefix = query.slice(1).toLowerCase()
-  const matches = prefix
-    ? projects.filter(p => p.name.toLowerCase().startsWith(prefix))
-    : projects
-  return { type: 'completion', matches }
-}
-
 export default function CommandBar({ open, onClose }: Props) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
@@ -59,6 +26,7 @@ export default function CommandBar({ open, onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
+  const busyRef = useRef(false)
 
   const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: api.runs.list, enabled: open })
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list, enabled: open })
@@ -113,7 +81,7 @@ export default function CommandBar({ open, onClose }: Props) {
   useEffect(() => { listRef.current?.children[selected]?.scrollIntoView({ block: 'nearest' }) }, [selected])
 
   async function execute(item: Item) {
-    if (busy) return
+    if (busy || busyRef.current) return
     if (item.kind === 'nav') {
       navigate(item.view, item.param)
       onClose()
@@ -121,14 +89,14 @@ export default function CommandBar({ open, onClose }: Props) {
     }
     if (item.kind === 'project-completion') {
       setQuery(`@${item.project.name} `)
-      setTimeout(() => inputRef.current?.focus(), 0)
+      inputRef.current?.focus()
       return
     }
     if (item.kind === 'project-ambiguous') {
       // not selectable — do nothing
       return
     }
-    setBusy(true); setError(null)
+    busyRef.current = true; setBusy(true); setError(null)
     try {
       let run: Run
       if (item.kind === 'dispatch-project') {
@@ -140,7 +108,7 @@ export default function CommandBar({ open, onClose }: Props) {
       navigate('runs', run.id)
     } catch (e) {
       setError(String(e))
-    } finally { setBusy(false) }
+    } finally { busyRef.current = false; setBusy(false) }
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
