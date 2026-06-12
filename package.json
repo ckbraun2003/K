@@ -2,6 +2,7 @@
   "name": "k",
   "version": "0.0.1",
   "private": true,
+  "packageManager": "pnpm@10.34.2",
   "engines": {
     "node": ">=20",
     "pnpm": ">=10"
