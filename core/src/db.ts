@@ -111,6 +111,8 @@ export function migrate(d: Database.Database): void {
   // db.exec above) so that the column is guaranteed to exist on migrated DBs
   // before the index statement runs.
   d.exec(`CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id)`)
+  // range scans for the windowed metrics timeseries query
+  d.exec(`CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at)`)
 }
 
 migrate(db)

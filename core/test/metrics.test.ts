@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { summarizeRuns, buildTimeseries, type RunRow, type TimeseriesRunRow } from '../src/metrics.js'
+import { summarizeRuns, buildTimeseries, windowStartMs, type RunRow, type TimeseriesRunRow } from '../src/metrics.js'
 
 const DAY = 86_400_000
 // Fixed "now": 2026-06-10T12:00 local
@@ -211,5 +211,27 @@ describe('buildTimeseries', () => {
       expect(ts.series[0].points[i]).toEqual({ runs: 0, tokens: 0, costUsd: 0 })
     }
     expect(ts.series[0].points[6].runs).toBe(1)
+  })
+})
+
+describe('windowStartMs', () => {
+  it('days=1 → local midnight of today', () => {
+    expect(windowStartMs(now, 1)).toBe(new Date(2026, 5, 10).getTime())
+  })
+
+  it('days=14 → local midnight 13 days back', () => {
+    expect(windowStartMs(now, 14)).toBe(new Date(2026, 4, 28).getTime())
+  })
+
+  it('agrees with the buildTimeseries window: a row exactly at windowStart is included, one ms earlier is not', () => {
+    const start = windowStartMs(now, 7)
+    const mk = (created_at: number): TimeseriesRunRow => ({
+      created_at, status: 'done', tokens_in: 1, tokens_out: 0, cost_usd: 0,
+      project_id: null, project_name: null, provider: 'claude', model: 'm',
+    })
+    const included = buildTimeseries([mk(start)], now, 7, 'project')
+    expect(included.series).toHaveLength(1)
+    const excluded = buildTimeseries([mk(start - 1)], now, 7, 'project')
+    expect(excluded.series).toHaveLength(0)
   })
 })

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { FastifyInstance } from 'fastify'
 import { TimeseriesGroupBySchema } from '@k/shared'
 import { db } from '../db.js'
-import { summarizeRuns, buildTimeseries, type RunRow, type TimeseriesRunRow } from '../metrics.js'
+import { summarizeRuns, buildTimeseries, windowStartMs, type RunRow, type TimeseriesRunRow } from '../metrics.js'
 
 const TimeseriesQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(90).default(30),
@@ -26,7 +26,8 @@ export async function metricsRoutes(app: FastifyInstance) {
       SELECT r.created_at, r.status, r.tokens_in, r.tokens_out, r.cost_usd,
              r.provider, r.model, r.project_id, p.name AS project_name
       FROM runs r LEFT JOIN projects p ON p.id = r.project_id
-    `).all() as TimeseriesRunRow[]
+      WHERE r.created_at >= ?
+    `).all(windowStartMs(Date.now(), parsed.data.days)) as TimeseriesRunRow[]
     return reply.send(buildTimeseries(rows, Date.now(), parsed.data.days, parsed.data.groupBy))
   })
 }

@@ -53,6 +53,14 @@ export interface TimeseriesRunRow extends RunRow {
   model: string
 }
 
+/** Epoch ms of local midnight `days - 1` days before `now` — the oldest instant
+ *  in the window. Lets callers bound their SQL (WHERE created_at >= ?) instead of
+ *  scanning the whole runs table; buildTimeseries still re-checks per row. */
+export function windowStartMs(now: number, days: number): number {
+  const t = new Date(now)
+  return new Date(t.getFullYear(), t.getMonth(), t.getDate() - (days - 1)).getTime()
+}
+
 export function buildTimeseries(
   rows: TimeseriesRunRow[],
   now: number,
