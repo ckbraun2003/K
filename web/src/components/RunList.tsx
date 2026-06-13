@@ -106,6 +106,7 @@ export default function RunList({ selectedId, onSelect }: Props) {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
+                aria-pressed={isActive}
                 className={cn(
                   'text-xs px-2 py-0.5 rounded font-medium transition-colors',
                   isActive
@@ -156,7 +157,7 @@ export default function RunList({ selectedId, onSelect }: Props) {
                 {killable && (
                   <button
                     onClick={e => handleKill(e, run.id)}
-                    className="opacity-0 group-hover:opacity-100 text-xs px-1.5 py-0.5 rounded bg-red/20 text-[var(--red)] hover:bg-red/30 transition-opacity"
+                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 text-xs px-1.5 py-0.5 rounded bg-red/20 text-[var(--red)] hover:bg-red/30 transition-opacity"
                     aria-label="Kill run"
                   >
                     ✕
