@@ -15,29 +15,34 @@ export interface OnboardResult {
   created: string[]
   invariants: {
     githubRemote: boolean   // project.githubRemote is set
-    bible: boolean          // docs/bible/ exists (after scaffolding)
-    ci: boolean             // .github/workflows/ exists (after scaffolding)
+    bible: boolean          // docs/bible/manifest.json present (a real bible, not just an empty dir)
+    ci: boolean             // .github/workflows/ exists
   }
 }
 
-function dirExists(localPath: string, rel: string): boolean {
+function exists(localPath: string, rel: string): boolean {
   return fs.existsSync(path.join(localPath, ...rel.split('/')))
 }
 
+// onboard + scaffoldBible both key on docs/bible (the only value registerProject
+// produces today). Threading a custom project.bibleDir is deferred until a
+// registration path can set one.
+const BIBLE_SENTINEL = 'docs/bible/manifest.json'
+const CI_DIR = '.github/workflows'
+
 /**
  * Ensure the three bible §3 invariants are satisfied for `project`.
- * Scaffolds bible + CI for whatever is missing; idempotent.
+ * Scaffolds bible + CI for whatever is missing; idempotent. An empty docs/bible
+ * dir does NOT count — the bible invariant requires a real manifest.json.
  */
 export function onboardProject(project: Project): OnboardResult {
   const created: string[] = []
   const root = project.localPath
 
-  // scaffoldBible hardcodes docs/bible — consistent with the default bibleDir
-  if (!dirExists(root, 'docs/bible')) {
+  if (!exists(root, BIBLE_SENTINEL)) {
     created.push(...scaffoldBible(root))
   }
-
-  if (!dirExists(root, '.github/workflows')) {
+  if (!exists(root, CI_DIR)) {
     created.push(...scaffoldCi(root))
   }
 
@@ -45,8 +50,8 @@ export function onboardProject(project: Project): OnboardResult {
     created,
     invariants: {
       githubRemote: !!project.githubRemote,
-      bible: dirExists(root, 'docs/bible'),
-      ci: dirExists(root, '.github/workflows'),
+      bible: exists(root, BIBLE_SENTINEL),
+      ci: exists(root, CI_DIR),
     },
   }
 }

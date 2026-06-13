@@ -110,10 +110,11 @@ describe('onboardProject — idempotency', () => {
 // ── partial onboarding ─────────────────────────────────────────────────────────
 
 describe('onboardProject — partial onboarding', () => {
-  it('bible present, CI absent: only CI is scaffolded', () => {
+  it('bible present (real manifest), CI absent: only CI is scaffolded', () => {
     const tmp = makeTmp()
-    // pre-create docs/bible/ so the bible check passes
+    // pre-create a real bible (manifest.json sentinel) so the bible check passes
     fs.mkdirSync(path.join(tmp, 'docs', 'bible'), { recursive: true })
+    fs.writeFileSync(path.join(tmp, 'docs', 'bible', 'manifest.json'), '{}')
 
     const { created, invariants } = onboardProject(makeProject(tmp, 'owner/repo'))
 
@@ -123,6 +124,17 @@ describe('onboardProject — partial onboarding', () => {
     expect(created).toContain('.github/workflows/ci.yml')
     expect(invariants.bible).toBe(true)
     expect(invariants.ci).toBe(true)
+  })
+
+  it('empty docs/bible dir (no manifest) is NOT treated as onboarded — bible is scaffolded', () => {
+    const tmp = makeTmp()
+    // an empty docs/bible dir must not satisfy the bible invariant
+    fs.mkdirSync(path.join(tmp, 'docs', 'bible'), { recursive: true })
+
+    const { created, invariants } = onboardProject(makeProject(tmp, 'owner/repo'))
+
+    expect(created).toContain('docs/bible/manifest.json')
+    expect(invariants.bible).toBe(true)
   })
 
   it('CI present, bible absent: only bible is scaffolded', () => {

@@ -22,7 +22,9 @@ function writeIfAbsent(root: string, rel: string, content: string): string | nul
   const abs = path.join(root, ...rel.split('/'))
   // Path-guard: resolved target must stay strictly inside root. Defensive — all
   // current `rel` values are hardcoded, but this protects any future dynamic caller.
-  if (!abs.startsWith(root + path.sep)) {
+  // `sep` is '' when root already ends in a separator (e.g. a drive root "C:\").
+  const sep = root.endsWith(path.sep) ? '' : path.sep
+  if (!abs.startsWith(root + sep)) {
     throw new Error(`scaffold: path escapes localPath — abs="${abs}", root="${root}"`)
   }
   if (fs.existsSync(abs)) return null

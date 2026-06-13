@@ -34,6 +34,12 @@ export async function projectsRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>('/api/projects/:id/onboard', async (req, reply) => {
     const project = getProject(req.params.id)
     if (!project) return reply.status(404).send({ error: 'not found' })
-    return reply.send(onboardProject(project))
+    try {
+      return reply.send(onboardProject(project))
+    } catch (e) {
+      // fs writes can throw (EACCES/ENOSPC/stale localPath); surface { error } like register
+      req.log.error(e)
+      return reply.status(500).send({ error: 'onboarding failed' })
+    }
   })
 }
