@@ -22,9 +22,11 @@ export function formatRelTime(offsetMs: number): string {
   return `+${(offsetMs / 1000).toFixed(1)}s`
 }
 
-// Clamp inter-event delay for replay
+// Clamp inter-event delay for replay so it stays watchable
+export const MIN_REPLAY_DELAY_MS = 120
+export const MAX_REPLAY_DELAY_MS = 1000
 export function clampDelay(ms: number): number {
-  return Math.max(120, Math.min(1000, ms))
+  return Math.max(MIN_REPLAY_DELAY_MS, Math.min(MAX_REPLAY_DELAY_MS, ms))
 }
 
 export default function RunTimeline({ events }: Props) {
@@ -80,6 +82,10 @@ export default function RunTimeline({ events }: Props) {
         timerRef.current = null
       }
     }
+  // `cursor` is intentionally excluded: the chained-timeout engine captures the
+  // cursor at play-start only and advances it itself. Adding cursor here would
+  // re-fire the effect on every tick and double-schedule timers (the Phase 0
+  // timer-leak bug). Scrubbing stops playback via setPlaying(false).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, events])
 
@@ -152,6 +158,7 @@ export default function RunTimeline({ events }: Props) {
             >
               <button
                 onClick={() => toggleExpanded(e.id)}
+                aria-expanded={isExpanded}
                 className="w-full text-left"
               >
                 <div className="flex items-baseline gap-2 font-mono text-xs">
@@ -196,6 +203,7 @@ export default function RunTimeline({ events }: Props) {
           </button>
           <input
             type="range"
+            aria-label="Replay position"
             min={0}
             max={events.length - 1}
             value={cursor}

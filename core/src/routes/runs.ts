@@ -35,7 +35,8 @@ export async function runsRoutes(app: FastifyInstance) {
   })
 
   // GET /api/runs/:id/events — event log for a run
-  // ?raw=1 opts into including the original JSON line in each event
+  // ?raw=1 opts into including the original JSON line in each event.
+  // Only the literal '1' enables it; ?raw=true / bare ?raw are intentionally off.
   app.get<{ Params: { id: string }; Querystring: { raw?: string } }>('/api/runs/:id/events', async (req, reply) => {
     const rows = eventsDb.listEvents.all(req.params.id) as Array<Record<string, unknown>>
     const includeRaw = req.query.raw === '1'
@@ -64,6 +65,6 @@ function dbRowToEvent(r: Record<string, unknown>, includeRaw = false) {
     id: r.id, runId: r.run_id, seq: r.seq, type: r.type, ts: r.ts,
     text: r.text, tool: r.tool,
     tokensIn: r.tokens_in, tokensOut: r.tokens_out, costUsd: r.cost_usd,
-    ...(includeRaw ? { raw: r.raw ?? undefined } : {}),
+    ...(includeRaw && r.raw != null ? { raw: r.raw as string } : {}),
   }
 }
