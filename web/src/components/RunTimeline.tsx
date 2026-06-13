@@ -52,9 +52,13 @@ export default function RunTimeline({ events, runId }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Cache for lazily-fetched raw strings, keyed by seq. Null means fetch returned 404.
+  // NB: seq is only unique within a run — RunConsole remounts this component with
+  // key={runId}, so this state never leaks across runs.
   const [rawCache, setRawCache] = useState<Record<number, string | null>>({})
-  // Track which seqs are currently being fetched to avoid duplicate requests.
+  // Concurrency guard (ref: reliable within a render batch, no double-fetch).
   const fetchingRef = useRef<Set<number>>(new Set())
+  // Same set mirrored in state so the "loading…" row actually re-renders.
+  const [loadingSeqs, setLoadingSeqs] = useState<Set<number>>(new Set())
 
   // Reset cursor when events array identity changes (run switch)
   useEffect(() => {
@@ -132,10 +136,14 @@ export default function RunTimeline({ events, runId }: Props) {
         // not already cached, and not already in-flight.
         if (shouldFetchRaw(seq, hasRawInline, rawCache, fetchingRef.current)) {
           fetchingRef.current.add(seq)
+          setLoadingSeqs(s => new Set(s).add(seq))
           api.runs.eventRaw(runId, seq)
             .then(raw => setRawCache(c => ({ ...c, [seq]: raw })))
             .catch(() => setRawCache(c => ({ ...c, [seq]: null })))
-            .finally(() => fetchingRef.current.delete(seq))
+            .finally(() => {
+              fetchingRef.current.delete(seq)
+              setLoadingSeqs(s => { const n = new Set(s); n.delete(seq); return n })
+            })
         }
       }
       return next
@@ -184,8 +192,8 @@ export default function RunTimeline({ events, runId }: Props) {
               rawContent = (
                 <p className="mt-1 text-xs text-[var(--muted)] italic">raw unavailable</p>
               )
-            } else if (!e.raw && fetchingRef.current.has(e.seq)) {
-              // In-flight fetch
+            } else if (!e.raw && loadingSeqs.has(e.seq)) {
+              // In-flight fetch (loadingSeqs is state, so this row re-renders)
               rawContent = (
                 <p className="mt-1 text-xs text-[var(--muted)] italic">loading…</p>
               )
@@ -202,7 +210,7 @@ export default function RunTimeline({ events, runId }: Props) {
               className={cn('py-1.5 border-b border-[var(--border)] last:border-0 transition-opacity duration-150', dimmed ? 'opacity-25' : 'opacity-100')}
             >
               <button
-                onClick={() => toggleExpanded(e.id, e.seq as number, !!e.raw)}
+                onClick={() => toggleExpanded(e.id, e.seq, !!e.raw)}
                 aria-expanded={isExpanded}
                 className="w-full text-left"
               >

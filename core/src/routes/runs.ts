@@ -52,6 +52,8 @@ export async function runsRoutes(app: FastifyInstance) {
   // 404 if the event doesn't exist OR if it exists but has no stored raw (null).
   app.get<{ Params: { id: string; seq: string } }>('/api/runs/:id/events/:seq/raw', async (req, reply) => {
     const seq = Number(req.params.seq)
+    // reject non-numeric seq before it binds as NaN→0 and silently queries the wrong row
+    if (!Number.isInteger(seq) || seq < 0) return reply.status(400).send({ error: 'seq must be a non-negative integer' })
     const row = eventsDb.getEventRaw.get(req.params.id, seq) as { raw: string | null } | undefined
     if (!row || row.raw == null) return reply.status(404).send({ error: 'not found' })
     return reply.send({ raw: row.raw })

@@ -116,7 +116,8 @@ export default function RunConsole({ runId }: Props) {
       </div>
 
       {view === 'timeline' ? (
-        <RunTimeline events={events} runId={runId} />
+        // key={runId} remounts on run switch so per-seq raw cache never leaks across runs
+        <RunTimeline key={runId} events={events} runId={runId} />
       ) : (
         /* Event stream */
         <div className="flex-1 overflow-y-auto px-5 py-4 font-mono text-sm space-y-0.5">
