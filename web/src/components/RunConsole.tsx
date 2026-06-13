@@ -5,12 +5,13 @@ import type { Run, AgentEvent, WsMessage } from '@k/shared'
 import { api } from '../lib/api'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
+import RunTimeline from './RunTimeline'
 
 interface Props {
   runId: string
 }
 
-const EVENT_COLOR: Record<string, string> = {
+export const EVENT_COLOR: Record<string, string> = {
   system:    'text-[var(--muted)]',
   assistant: 'text-[var(--text)]',
   user:      'text-[var(--accent-hover)]',
@@ -22,6 +23,7 @@ const EVENT_COLOR: Record<string, string> = {
 export default function RunConsole({ runId }: Props) {
   const qc = useQueryClient()
   const [events, setEvents] = useState<AgentEvent[]>([])
+  const [view, setView] = useState<'console' | 'timeline'>('console')
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const { data: run } = useQuery<Run>({
@@ -42,7 +44,7 @@ export default function RunConsole({ runId }: Props) {
         qc.setQueryData(['run', runId], msg.run)
       }
     })
-    api.runs.events(runId).then(history => {
+    api.runs.events(runId, { raw: true }).then(history => {
       if (cancelled) return
       setEvents(prev => {
         const seen = new Set(history.map(e => e.id))
@@ -74,6 +76,23 @@ export default function RunConsole({ runId }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Console | Timeline toggle */}
+          <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--raised)] p-0.5 gap-0.5">
+            {(['console', 'timeline'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={cn(
+                  'rounded px-3 py-1 text-xs font-medium transition-colors duration-150 capitalize',
+                  view === v
+                    ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm'
+                    : 'text-[var(--muted)] hover:text-[var(--text)]'
+                )}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
           <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', {
             'bg-accent/15 text-[var(--accent-hover)] glow-live': run.status === 'running',
             'bg-green/15 text-[var(--green)]': run.status === 'done',
@@ -94,44 +113,48 @@ export default function RunConsole({ runId }: Props) {
         </div>
       </div>
 
-      {/* Event stream */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 font-mono text-sm space-y-0.5">
-        {events.length === 0 && (
-          <div className="text-[var(--muted)] italic">Waiting for output…</div>
-        )}
-        {events.map(e => (
-          <motion.div
-            key={e.id}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.1 }}
-            className={cn('leading-relaxed whitespace-pre-wrap break-words', EVENT_COLOR[e.type] ?? 'text-[var(--text)]')}
-          >
-            {e.type === 'status' && (
-              <span className="text-[var(--muted)]">── {e.text} ──</span>
-            )}
-            {e.type === 'usage' && (
-              <span>
-                ▸ {e.tokensIn?.toLocaleString()} in / {e.tokensOut?.toLocaleString()} out
-                {e.costUsd ? ` / $${e.costUsd.toFixed(4)}` : ''}
-              </span>
-            )}
-            {e.type === 'error' && (
-              <span>⚠ {e.text}</span>
-            )}
-            {e.type === 'assistant' && e.tool && (
-              <span className="text-[var(--accent-hover)]">⚙ {e.tool}()</span>
-            )}
-            {e.type === 'assistant' && !e.tool && e.text && (
-              <span>{e.text}</span>
-            )}
-            {(e.type === 'system' || e.type === 'user') && e.text && (
-              <span className="opacity-60">{e.text}</span>
-            )}
-          </motion.div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
+      {view === 'timeline' ? (
+        <RunTimeline events={events} />
+      ) : (
+        /* Event stream */
+        <div className="flex-1 overflow-y-auto px-5 py-4 font-mono text-sm space-y-0.5">
+          {events.length === 0 && (
+            <div className="text-[var(--muted)] italic">Waiting for output…</div>
+          )}
+          {events.map(e => (
+            <motion.div
+              key={e.id}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.1 }}
+              className={cn('leading-relaxed whitespace-pre-wrap break-words', EVENT_COLOR[e.type] ?? 'text-[var(--text)]')}
+            >
+              {e.type === 'status' && (
+                <span className="text-[var(--muted)]">── {e.text} ──</span>
+              )}
+              {e.type === 'usage' && (
+                <span>
+                  ▸ {e.tokensIn?.toLocaleString()} in / {e.tokensOut?.toLocaleString()} out
+                  {e.costUsd ? ` / $${e.costUsd.toFixed(4)}` : ''}
+                </span>
+              )}
+              {e.type === 'error' && (
+                <span>⚠ {e.text}</span>
+              )}
+              {e.type === 'assistant' && e.tool && (
+                <span className="text-[var(--accent-hover)]">⚙ {e.tool}()</span>
+              )}
+              {e.type === 'assistant' && !e.tool && e.text && (
+                <span>{e.text}</span>
+              )}
+              {(e.type === 'system' || e.type === 'user') && e.text && (
+                <span className="opacity-60">{e.text}</span>
+              )}
+            </motion.div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
+      )}
     </div>
   )
 }

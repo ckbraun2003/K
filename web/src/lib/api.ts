@@ -15,7 +15,8 @@ export const api = {
   runs: {
     list: () => req<Run[]>('/runs'),
     get: (id: string) => req<Run>(`/runs/${id}`),
-    events: (id: string) => req<AgentEvent[]>(`/runs/${id}/events`),
+    events: (id: string, opts?: { raw?: boolean }) =>
+      req<AgentEvent[]>(`/runs/${id}/events${opts?.raw ? '?raw=1' : ''}`),
     start: (prompt: string, opts?: { cwd?: string; projectId?: string }) =>
       req<Run>('/runs', {
         method: 'POST',

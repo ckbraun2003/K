@@ -1,0 +1,212 @@
+import { useEffect, useRef, useState } from 'react'
+import type { AgentEvent } from '@k/shared'
+import { cn } from '../lib/cn'
+import { EVENT_COLOR } from './RunConsole'
+
+interface Props {
+  events: AgentEvent[]
+}
+
+// Format a unix-ms timestamp as HH:MM:SS.mmm
+export function formatAbsTime(ts: number): string {
+  const d = new Date(ts)
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  const ss = String(d.getSeconds()).padStart(2, '0')
+  const ms = String(d.getMilliseconds()).padStart(3, '0')
+  return `${hh}:${mm}:${ss}.${ms}`
+}
+
+// Format a relative offset in ms as +12.3s
+export function formatRelTime(offsetMs: number): string {
+  return `+${(offsetMs / 1000).toFixed(1)}s`
+}
+
+// Clamp inter-event delay for replay
+export function clampDelay(ms: number): number {
+  return Math.max(120, Math.min(1000, ms))
+}
+
+export default function RunTimeline({ events }: Props) {
+  const [cursor, setCursor] = useState(Math.max(0, events.length - 1))
+  const [playing, setPlaying] = useState(false)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Reset cursor when events array identity changes (run switch)
+  useEffect(() => {
+    setCursor(Math.max(0, events.length - 1))
+    setPlaying(false)
+  }, [events])
+
+  // Replay engine — chained setTimeout, cleans up on unmount / pause / events change
+  useEffect(() => {
+    function clearTimer() {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+    }
+
+    if (!playing || events.length === 0) {
+      clearTimer()
+      return
+    }
+
+    function advance(current: number) {
+      const next = current + 1
+      if (next >= events.length) {
+        setCursor(events.length - 1)
+        setPlaying(false)
+        return
+      }
+      setCursor(next)
+      const delay = clampDelay(events[next].ts - events[current].ts)
+      timerRef.current = setTimeout(() => advance(next), delay)
+    }
+
+    // Schedule the first advance from the current cursor
+    if (cursor < events.length - 1) {
+      const delay = clampDelay(events[cursor + 1].ts - events[cursor].ts)
+      timerRef.current = setTimeout(() => advance(cursor), delay)
+    } else {
+      // Already at end
+      setPlaying(false)
+    }
+
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, events])
+
+  if (events.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-[var(--muted)] text-sm italic">
+        No events
+      </div>
+    )
+  }
+
+  const firstTs = events[0].ts
+  const cursorEvent = events[Math.min(cursor, events.length - 1)]
+
+  function toggleExpanded(id: string) {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function handlePlayPause() {
+    if (playing) {
+      setPlaying(false)
+      return
+    }
+    // Restart from beginning if at end
+    if (cursor >= events.length - 1) {
+      setCursor(0)
+    }
+    setPlaying(true)
+  }
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Scrollable event list */}
+      <div className="flex-1 overflow-y-auto px-5 py-3 space-y-0">
+        {events.map((e, idx) => {
+          const isExpanded = expanded.has(e.id)
+          const dimmed = idx > cursor
+
+          let rawContent: React.ReactNode = null
+          if (isExpanded) {
+            if (e.raw) {
+              try {
+                const parsed = JSON.parse(e.raw)
+                rawContent = (
+                  <pre className="mt-1 text-xs text-[var(--muted)] bg-[var(--raised)] rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-words">
+                    {JSON.stringify(parsed, null, 2)}
+                  </pre>
+                )
+              } catch {
+                rawContent = (
+                  <p className="mt-1 text-xs text-[var(--muted)] italic">(no raw)</p>
+                )
+              }
+            } else {
+              rawContent = (
+                <p className="mt-1 text-xs text-[var(--muted)] italic">(no raw)</p>
+              )
+            }
+          }
+
+          return (
+            <div
+              key={e.id}
+              className={cn('py-1.5 border-b border-[var(--border)] last:border-0 transition-opacity duration-150', dimmed ? 'opacity-25' : 'opacity-100')}
+            >
+              <button
+                onClick={() => toggleExpanded(e.id)}
+                className="w-full text-left"
+              >
+                <div className="flex items-baseline gap-2 font-mono text-xs">
+                  <span className="text-[var(--muted)] w-6 text-right flex-shrink-0">{e.seq}</span>
+                  <span className="text-[var(--muted)] flex-shrink-0">{formatAbsTime(e.ts)}</span>
+                  <span className="text-[var(--muted)] flex-shrink-0 w-16 text-right">
+                    {formatRelTime(e.ts - firstTs)}
+                  </span>
+                  <span className={cn('flex-shrink-0 font-semibold', EVENT_COLOR[e.type] ?? 'text-[var(--text)]')}>
+                    {e.type}
+                  </span>
+                  {e.tool && (
+                    <span className="text-[var(--accent-hover)] flex-shrink-0">{e.tool}()</span>
+                  )}
+                  {e.text && (
+                    <span className="text-[var(--text)] truncate min-w-0">
+                      {e.text.slice(0, 120)}
+                    </span>
+                  )}
+                </div>
+              </button>
+              {rawContent}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Replay scrubber footer */}
+      <div className="flex-shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2 bg-[var(--surface)]">
+        {/* Readout */}
+        <div className="font-mono text-xs text-[var(--muted)]">
+          seq {cursorEvent.seq} · {cursor + 1}/{events.length} · {formatRelTime(cursorEvent.ts - firstTs)}
+        </div>
+
+        {/* Controls row */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handlePlayPause}
+            className="text-xs px-3 py-1 rounded bg-accent/15 text-[var(--accent-hover)] hover:bg-accent/25 transition-colors font-medium flex-shrink-0"
+          >
+            {playing ? 'Pause' : 'Play'}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={events.length - 1}
+            value={cursor}
+            onChange={e => {
+              setPlaying(false)
+              setCursor(Number(e.target.value))
+            }}
+            className="flex-1 accent-[var(--accent)]"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
