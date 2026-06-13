@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import type { Run, WsMessage } from '@k/shared'
 import { api } from '../lib/api'
@@ -27,8 +27,30 @@ const STATUS_DOT: Record<string, string> = {
   killed:  'bg-[var(--muted)]',
 }
 
+type FilterKey = 'all' | 'active' | 'done' | 'error' | 'killed'
+
+const FILTERS: FilterKey[] = ['all', 'active', 'done', 'error', 'killed']
+
+function matchesFilter(run: Run, filter: FilterKey): boolean {
+  if (filter === 'all') return true
+  if (filter === 'active') return run.status === 'running' || run.status === 'queued'
+  return run.status === filter
+}
+
+function countFilter(runs: Run[], filter: FilterKey): number {
+  return runs.filter(r => matchesFilter(r, filter)).length
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M tok`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k tok`
+  return `${n} tok`
+}
+
 export default function RunList({ selectedId, onSelect }: Props) {
   const qc = useQueryClient()
+  const [filter, setFilter] = useState<FilterKey>('all')
+
   const { data: runs = [] } = useQuery<Run[]>({
     queryKey: ['runs'],
     queryFn: api.runs.list,
@@ -51,43 +73,111 @@ export default function RunList({ selectedId, onSelect }: Props) {
     })
   }, [qc])
 
+  const filteredRuns = runs.filter(r => matchesFilter(r, filter))
+
+  // Footer totals over filtered set
+  const totalCost = filteredRuns.reduce((acc, r) => acc + r.costUsd, 0)
+  const totalTokens = filteredRuns.reduce((acc, r) => acc + r.tokensIn + r.tokensOut, 0)
+  const atLimit = runs.length === 100
+
+  async function handleKill(e: React.MouseEvent, id: string) {
+    e.stopPropagation()
+    await api.runs.kill(id)
+  }
+
+  function handleRowKeyDown(e: React.KeyboardEvent, id: string) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onSelect(id)
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
+      {/* Header */}
       <div className="px-4 py-3 border-b border-[var(--border)]">
-        <h2 className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Runs</h2>
+        <h2 className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider mb-2">Runs</h2>
+        {/* Filter chips */}
+        <div className="flex items-center gap-1 flex-wrap">
+          {FILTERS.map(f => {
+            const count = countFilter(runs, f)
+            const isActive = filter === f
+            return (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={cn(
+                  'text-xs px-2 py-0.5 rounded font-medium transition-colors',
+                  isActive
+                    ? 'bg-accent/15 text-[var(--accent-hover)]'
+                    : 'text-[var(--muted)] hover:text-[var(--text)]'
+                )}
+              >
+                {f} {count}
+              </button>
+            )
+          })}
+        </div>
       </div>
+
+      {/* Run list */}
       <div className="flex-1 overflow-y-auto">
-        {runs.length === 0 && (
+        {filteredRuns.length === 0 && (
           <div className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-            No runs yet.<br />Press ⌘K to start one.
+            {runs.length === 0
+              ? (<>No runs yet.<br />Press ⌘K to start one.</>)
+              : 'No runs match this filter.'}
           </div>
         )}
-        {runs.map(run => (
-          <motion.button
-            key={run.id}
-            onClick={() => onSelect(run.id)}
-            className={cn(
-              'w-full text-left px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--surface)] transition-colors',
-              selectedId === run.id && 'bg-[var(--surface)] border-l-2 border-l-[var(--accent)]'
-            )}
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              <span className={cn('w-2 h-2 rounded-full flex-shrink-0', STATUS_DOT[run.status] ?? 'bg-muted')} />
-              <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', STATUS_COLOR[run.status])}>
-                {run.status}
-              </span>
-              <span className="mono text-xs text-[var(--muted)] ml-auto">
-                ${(run.costUsd).toFixed(4)}
-              </span>
-            </div>
-            <p className="text-sm text-[var(--text)] truncate">{run.prompt}</p>
-            <p className="mono text-xs text-[var(--muted)] mt-0.5">
-              {new Date(run.createdAt).toLocaleTimeString()} · {run.model}
-            </p>
-          </motion.button>
-        ))}
+        {filteredRuns.map(run => {
+          const killable = run.status === 'running' || run.status === 'queued'
+          return (
+            <motion.div
+              key={run.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelect(run.id)}
+              onKeyDown={e => handleRowKeyDown(e, run.id)}
+              className={cn(
+                'group w-full text-left px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--surface)] transition-colors cursor-pointer',
+                selectedId === run.id && 'bg-[var(--surface)] border-l-2 border-l-[var(--accent)]'
+              )}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className={cn('w-2 h-2 rounded-full flex-shrink-0', STATUS_DOT[run.status] ?? 'bg-muted')} />
+                <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', STATUS_COLOR[run.status])}>
+                  {run.status}
+                </span>
+                <span className="mono text-xs text-[var(--muted)] ml-auto">
+                  ${(run.costUsd).toFixed(4)}
+                </span>
+                {killable && (
+                  <button
+                    onClick={e => handleKill(e, run.id)}
+                    className="opacity-0 group-hover:opacity-100 text-xs px-1.5 py-0.5 rounded bg-red/20 text-[var(--red)] hover:bg-red/30 transition-opacity"
+                    aria-label="Kill run"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <p className="text-sm text-[var(--text)] truncate">{run.prompt}</p>
+              <p className="mono text-xs text-[var(--muted)] mt-0.5">
+                {new Date(run.createdAt).toLocaleTimeString()} · {run.model}
+              </p>
+            </motion.div>
+          )
+        })}
+      </div>
+
+      {/* Sticky footer totals */}
+      <div className="flex-shrink-0 border-t border-[var(--border)] px-4 py-2">
+        <p className="mono text-xs text-[var(--muted)]">
+          {atLimit && <span className="mr-1">last 100 ·</span>}
+          Σ {filteredRuns.length} runs · ${totalCost.toFixed(2)} · {formatTokens(totalTokens)}
+        </p>
       </div>
     </div>
   )
