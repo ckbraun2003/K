@@ -65,8 +65,8 @@ describe('listRunsFiltered', () => {
 
   it('(c) limit caps the count', () => {
     const rows = runsDb.listRunsFiltered({ limit: 3 }) as Array<{ id: string }>
-    // At most 3 rows total
-    expect(rows.length).toBeLessThanOrEqual(3)
+    // ≥6 rows present → LIMIT 3 returns exactly 3 (proves the bound applies, not just an upper cap)
+    expect(rows.length).toBe(3)
   })
 
   it('(c) status + limit together', () => {

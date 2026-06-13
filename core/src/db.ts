@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
+import type { RunStatus } from '@k/shared'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
@@ -130,21 +131,20 @@ const updateRunStatus = db.prepare(`
 `)
 
 const getRun = db.prepare(`SELECT * FROM runs WHERE id = ?`)
-const listRuns = db.prepare(`SELECT * FROM runs ORDER BY created_at DESC LIMIT 100`)
 // Two cached statements: one unfiltered, one with status WHERE — selected at call time
 const listRunsAll    = db.prepare(`SELECT * FROM runs ORDER BY created_at DESC LIMIT ?`)
 const listRunsStatus = db.prepare(`SELECT * FROM runs WHERE status = ? ORDER BY created_at DESC LIMIT ?`)
 const clearRunWorktree = db.prepare(`UPDATE runs SET worktree = NULL WHERE id = ?`)
 
 /** Filtered run list. Uses pre-compiled statements — never interpolates values into SQL. */
-function listRunsFiltered({ status, limit }: { status?: string; limit: number }): Array<Record<string, unknown>> {
+function listRunsFiltered({ status, limit }: { status?: RunStatus; limit: number }): Array<Record<string, unknown>> {
   if (status !== undefined) {
     return listRunsStatus.all(status, limit) as Array<Record<string, unknown>>
   }
   return listRunsAll.all(limit) as Array<Record<string, unknown>>
 }
 
-export const runsDb = { insertRun, updateRunStatus, getRun, listRuns, listRunsFiltered, clearRunWorktree }
+export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, clearRunWorktree }
 
 // ─── Event helpers ───────────────────────────────────────────────────────────
 
