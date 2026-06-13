@@ -16,7 +16,8 @@ describe('summarizeRuns', () => {
       row({ status: 'running', cost_usd: 0 }),  // today, active
       row({ created_at: now - DAY }),           // yesterday
     ]
-    const s = summarizeRuns(rows, now)
+    // counts come from DB in production; pass explicit values matching intent
+    const s = summarizeRuns(rows, now, { totalRuns: 3, activeRuns: 1 })
     expect(s.today.runs).toBe(2)
     expect(s.today.tokens).toBe(300)
     expect(s.activeRuns).toBe(1)
@@ -24,24 +25,43 @@ describe('summarizeRuns', () => {
   })
 
   it('produces 14 daily buckets oldest→newest with zero-fill', () => {
-    const s = summarizeRuns([row({ created_at: now - 3 * DAY })], now)
+    const s = summarizeRuns([row({ created_at: now - 3 * DAY })], now, { totalRuns: 1, activeRuns: 0 })
     expect(s.daily).toHaveLength(14)
     expect(s.daily[13].date).toBe('2026-06-10')
     expect(s.daily[10].runs).toBe(1)
     expect(s.daily[0].runs).toBe(0)
   })
 
-  it('counts queued as active', () => {
-    const s = summarizeRuns([row({ status: 'queued' })], now)
-    expect(s.activeRuns).toBe(1)
+  it('counts queued as active — activeRuns from counts, not rows', () => {
+    // rows has a queued run but activeRuns comes from the passed counts object
+    const s = summarizeRuns([row({ status: 'queued' })], now, { totalRuns: 10, activeRuns: 3 })
+    expect(s.activeRuns).toBe(3)
   })
 
-  it('returns zero-filled summary for no runs', () => {
-    const s = summarizeRuns([], now)
+  it('returns zero-filled summary for no rows', () => {
+    const s = summarizeRuns([], now, { totalRuns: 0, activeRuns: 0 })
     expect(s.daily).toHaveLength(14)
     expect(s.today).toEqual({ date: '2026-06-10', runs: 0, tokens: 0, costUsd: 0 })
     expect(s.activeRuns).toBe(0)
     expect(s.totalRuns).toBe(0)
+  })
+
+  it('totalRuns reflects counts, not rows.length — lifetime can exceed window rows', () => {
+    // Only 2 rows in the 14-day window, but 500 runs exist lifetime
+    const rows = [row({}), row({ created_at: now - DAY })]
+    const s = summarizeRuns(rows, now, { totalRuns: 500, activeRuns: 7 })
+    expect(s.totalRuns).toBe(500)   // from counts, not rows.length (2)
+    expect(s.activeRuns).toBe(7)    // from counts, not derived from rows
+    expect(s.today.runs).toBe(1)    // daily bucket still reflects window rows only
+  })
+
+  it('rows outside 14-day window are NOT in daily buckets (safety guard)', () => {
+    // A row 15 days ago falls outside the oldest bucket; should not appear in daily
+    const old = row({ created_at: now - 15 * DAY })
+    const s = summarizeRuns([old], now, { totalRuns: 1, activeRuns: 0 })
+    expect(s.daily).toHaveLength(14)
+    const total = s.daily.reduce((acc, d) => acc + d.runs, 0)
+    expect(total).toBe(0) // old row contributed nothing to daily buckets
   })
 })
 

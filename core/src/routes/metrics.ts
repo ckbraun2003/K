@@ -12,10 +12,16 @@ const TimeseriesQuerySchema = z.object({
 export async function metricsRoutes(app: FastifyInstance) {
   // GET /api/metrics/summary — today + active + 14-day series
   app.get('/api/metrics/summary', async (_req, reply) => {
+    const now = Date.now()
+    // Bound the daily scan to the 14-day window; lifetime/active come from COUNT queries
     const rows = db.prepare(
-      `SELECT created_at, status, tokens_in, tokens_out, cost_usd FROM runs`
-    ).all() as RunRow[]
-    return reply.send(summarizeRuns(rows, Date.now()))
+      `SELECT created_at, status, tokens_in, tokens_out, cost_usd FROM runs WHERE created_at >= ?`
+    ).all(windowStartMs(now, 14)) as RunRow[]
+    const { c: totalRuns } = db.prepare(`SELECT COUNT(*) AS c FROM runs`).get() as { c: number }
+    const { c: activeRuns } = db.prepare(
+      `SELECT COUNT(*) AS c FROM runs WHERE status IN ('running','queued')`
+    ).get() as { c: number }
+    return reply.send(summarizeRuns(rows, now, { totalRuns, activeRuns }))
   })
 
   // GET /api/metrics/timeseries?days=30&groupBy=project|model
