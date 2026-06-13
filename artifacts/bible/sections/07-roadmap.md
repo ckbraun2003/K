@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-06-11
+updated: 2026-06-12
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -33,11 +33,11 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 - [ ] Onboarding skill (scaffold bible + CI)
 - [x] GitHubProvider via `gh` CLI — PR list/status, CI runs, polling + SQLite cache
 - [x] Metrics summary endpoint + dashboard metrics row
-- [ ] Token time-series charts (per day/project/agent)
-- [ ] Full run event timeline (replayable from SQLite)
+- [x] Token time-series charts (per day/project/model) — stacked SVG, top-8 + other
+- [x] Full run event timeline (replayable from SQLite via `?raw=1`)
 - [ ] Web terminal (xterm.js + node-pty)
 - [ ] Structured task/goal records (+ optional GitHub Issues sync)
-- [ ] Run list kill switch, status filters, cost totals
+- [x] Run list kill switch, status filters, cost totals
 - [ ] Auth hardening (passkey/TOTP replacing bearer token)
 
 ## Phase 2 — Command Deck + Knowledge + Verification
