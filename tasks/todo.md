@@ -12,8 +12,8 @@ agent-team PR-opening verification fidelity.
 ## Tasks
 
 - [x] Task 0: Branch + plan + tracker
-- [ ] Task 1: Bound /api/metrics/summary (COUNT queries, no full-table scan)
-- [ ] Task 2: Server-side ?status=/?limit= run filters
+- [x] Task 1: Bound /api/metrics/summary (1c4219e + f73430c — spec ✅; quality APPROVE_WITH_NITS → controller applied: 4 statements hoisted to module-level prepared consts, /timeseries now captures `now` once (fixed pre-existing twin-Date.now skew), COUNT invariant comment; 88 core tests green; deferred N: route-level SQL test for active=running|queued counted in Task 10 e2e)
+- [x] Task 2: Server-side ?status=/?limit= run filters (6a30789 + 94fd37e — spec ✅ (RunsQuerySchema coerce/min1/max500/default100; parameterized listRunsFiltered w/ two cached stmts; api.ts URLSearchParams no stray ?; RunList limit:100 only; 2 shell call-sites arrow-wrapped — TS-required after signature change; temp-DB isolated tests); quality APPROVE_WITH_NITS → controller applied: removed dead listRuns export, typed status param RunStatus, exact-count test assert; REJECTED key-split (I2) — kept shared ['runs'] one-fetch live cache, documented contract via comment; 99 core + 32 web green)
 - [ ] Task 3: Lazy per-event raw fetch
 - [ ] Task 4: Scaffolders — pure scaffoldBible + scaffoldCi
 - [ ] Task 5: Onboarding skill — enforce project invariants
