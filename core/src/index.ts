@@ -3,7 +3,7 @@
  *
  * Startup sequence:
  *   1. Init SQLite (db.ts runs on import)
- *   2. Bootstrap project-bible artifact (generate HTML)
+ *   2. Compile project bible (sections + live data → HTML)
  *   3. Register REST routes
  *   4. Register WS gateway (subscribe to EventBus, push to clients)
  *   5. Listen
@@ -15,11 +15,17 @@ import websocket, { type SocketStream } from '@fastify/websocket'
 import { eventBus } from './events.js'
 import { runsRoutes } from './routes/runs.js'
 import { artifactsRoutes } from './routes/artifacts.js'
-import { bootstrapProjectBible } from './artifacts.js'
+import { metricsRoutes } from './routes/metrics.js'
+import { projectsRoutes } from './routes/projects.js'
+import { compileBible } from './bible.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
+import { startGithubPoller, stopGithubPoller } from './github.js'
+import { isAuthExempt } from './auth.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
-const HOST = process.env.HOST ?? '0.0.0.0'
+// loopback by default — Phase 0's security posture assumes localhost-only;
+// set HOST=0.0.0.0 explicitly to expose on the network
+const HOST = process.env.HOST ?? '127.0.0.1'
 const BEARER_TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
 
 const app = Fastify({ logger: { level: 'info' } })
@@ -35,7 +41,7 @@ await app.register(websocket)
 
 app.addHook('onRequest', async (req, reply) => {
   // Skip auth for WS upgrade and health
-  if (req.url === '/ws' || req.url === '/health') return
+  if (isAuthExempt(req.url)) return
   const auth = req.headers.authorization
   if (!auth || auth !== `Bearer ${BEARER_TOKEN}`) {
     return reply.status(401).send({ error: 'unauthorized' })
@@ -50,6 +56,8 @@ app.get('/health', async () => ({ ok: true, ts: Date.now() }))
 
 await app.register(runsRoutes)
 await app.register(artifactsRoutes)
+await app.register(metricsRoutes)
+await app.register(projectsRoutes)
 
 // ── WebSocket gateway ─────────────────────────────────────────────────────────
 
@@ -73,6 +81,7 @@ app.get('/ws', { websocket: true }, (connection: SocketStream) => {
   const unsubRun = eventBus.onRunUpdate((r: Run) => {
     send({ type: 'run_update', run: r })
   })
+  const unsubBroadcast = eventBus.onBroadcast((m: WsMessage) => send(m))
 
   socket.on('message', (data: Buffer | string) => {
     try {
@@ -81,18 +90,29 @@ app.get('/ws', { websocket: true }, (connection: SocketStream) => {
     } catch { /* ignore */ }
   })
 
-  socket.on('close', () => {
+  function cleanup() {
     wsClients.delete(socket)
     unsubEvent()
     unsubRun()
+    unsubBroadcast()
+  }
+
+  socket.on('close', cleanup)
+  // unhandled 'error' would throw and can skip 'close' — clean up here too
+  // (cleanup is idempotent: Set.delete + unsubscribe are safe to run twice)
+  socket.on('error', (err: Error) => {
+    console.warn('[ws] socket error:', err.message)
+    cleanup()
   })
 })
 
 // ── Bootstrap + Listen ────────────────────────────────────────────────────────
 
-await bootstrapProjectBible()
+await compileBible()
 
+app.addHook('onClose', () => stopGithubPoller())
 await app.listen({ port: PORT, host: HOST })
+startGithubPoller()
 console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
 console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)
 console.log(`   Bearer token       → ${BEARER_TOKEN}\n`)

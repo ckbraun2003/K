@@ -8,3 +8,5 @@ core/data/
 *.db-wal
 artifacts/*.html
 !artifacts/.gitkeep
+.superpowers/
+workspace/

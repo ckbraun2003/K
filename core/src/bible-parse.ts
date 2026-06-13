@@ -1,0 +1,33 @@
+/** Pure parsing helpers for the bible compiler — no DB, no fs. */
+
+export interface RoadmapPhase { name: string; done: number; total: number }
+
+export function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
+  if (!m) return { meta: {}, body: raw }
+  const meta: Record<string, string> = {}
+  for (const line of m[1].split(/\r?\n/)) {
+    const kv = line.match(/^(\w[\w-]*):\s*(.*)$/)
+    if (kv) meta[kv[1]] = kv[2].replace(/^["']|["']$/g, '')
+  }
+  return { meta, body: m[2] }
+}
+
+/** Checkbox progress per "## …" heading; headings with zero checkboxes are omitted. */
+export function roadmapPhases(sectionMd: string): RoadmapPhase[] {
+  const phases: RoadmapPhase[] = []
+  let current: RoadmapPhase | null = null
+  for (const line of sectionMd.split(/\r?\n/)) {
+    const h = line.match(/^##\s+(.+?)\s*$/)
+    if (h) {
+      current = { name: h[1].replace(/\*/g, ''), done: 0, total: 0 }
+      phases.push(current)
+      continue
+    }
+    if (current && /^\s*-\s*\[[ xX]\]/.test(line)) {
+      current.total++
+      if (/^\s*-\s*\[[xX]\]/.test(line)) current.done++
+    }
+  }
+  return phases.filter(p => p.total > 0)
+}

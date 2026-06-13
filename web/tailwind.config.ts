@@ -5,14 +5,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: '#0f1117',
-        surface: '#1a1d27',
-        border: '#2a2d3a',
-        muted: '#94a3b8',
-        accent: '#6366f1',
+        bg: '#0a0a0f',
+        surface: '#111116',
+        raised: '#16161d',
+        border: '#26262e',
+        text: '#e7e7ea',
+        muted: '#8b8b93',
+        accent: { DEFAULT: '#6366f1', hover: '#818cf8' },
+        green: '#22c55e',
+        amber: '#eab308',
+        red: '#ef4444',
       },
       fontFamily: {
-        mono: ['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'monospace'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
       },
     },
   },

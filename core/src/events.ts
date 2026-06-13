@@ -9,7 +9,7 @@
  * file changes — every call site stays the same.
  */
 
-import type { AgentEvent, Run } from '@k/shared'
+import type { AgentEvent, Run, WsMessage } from '@k/shared'
 import { eventsDb, runsDb } from './db.js'
 
 type EventSubscriber = (e: AgentEvent) => void
@@ -17,6 +17,7 @@ type RunSubscriber = (r: Run) => void
 
 const eventSubs = new Set<EventSubscriber>()
 const runSubs = new Set<RunSubscriber>()
+const broadcastSubs = new Set<(m: WsMessage) => void>()
 
 export const eventBus = {
   // ── subscribe / unsubscribe ───────────────────────────────────────────────
@@ -65,6 +66,20 @@ export const eventBus = {
     })
     for (const sub of runSubs) {
       try { sub(r) } catch { /* same */ }
+    }
+  },
+
+  // ── generic broadcast (github_update, verification_update, …) ────────────
+  // Not persisted — transient UI state. Durable facts live in their own tables.
+
+  onBroadcast(fn: (m: WsMessage) => void): () => void {
+    broadcastSubs.add(fn)
+    return () => broadcastSubs.delete(fn)
+  },
+
+  broadcast(m: WsMessage): void {
+    for (const sub of broadcastSubs) {
+      try { sub(m) } catch { /* subscriber errors must not kill the bus */ }
     }
   },
 }

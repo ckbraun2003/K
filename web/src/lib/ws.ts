@@ -1,10 +1,19 @@
 import type { WsMessage } from '@k/shared'
 
 type MessageHandler = (msg: WsMessage) => void
+type StatusHandler = (connected: boolean) => void
 
 let socket: WebSocket | null = null
 const handlers = new Set<MessageHandler>()
+const statusHandlers = new Set<StatusHandler>()
+
+function emitStatus(connected: boolean) {
+  for (const h of statusHandlers) {
+    try { h(connected) } catch { /* status handlers must not break the socket */ }
+  }
+}
 let pingInterval: ReturnType<typeof setInterval> | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
 export function connectWs() {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return
@@ -14,6 +23,7 @@ export function connectWs() {
 
   socket.onopen = () => {
     console.log('[ws] connected')
+    emitStatus(true)
     pingInterval = setInterval(() => socket?.send(JSON.stringify({ type: 'ping' })), 20_000)
   }
 
@@ -29,8 +39,10 @@ export function connectWs() {
 
   socket.onclose = () => {
     console.log('[ws] disconnected — reconnecting in 3s')
+    emitStatus(false)
     if (pingInterval) clearInterval(pingInterval)
-    setTimeout(connectWs, 3_000)
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimer = setTimeout(connectWs, 3_000)
   }
 
   socket.onerror = () => socket?.close()
@@ -39,4 +51,9 @@ export function connectWs() {
 export function onWsMessage(handler: MessageHandler): () => void {
   handlers.add(handler)
   return () => handlers.delete(handler)
+}
+
+export function onWsStatus(handler: StatusHandler): () => void {
+  statusHandlers.add(handler)
+  return () => statusHandlers.delete(handler)
 }
