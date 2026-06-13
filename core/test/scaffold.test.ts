@@ -46,8 +46,9 @@ describe('scaffoldBible', () => {
     scaffoldBible(tmp)
     const raw = fs.readFileSync(path.join(tmp, 'docs', 'bible', 'manifest.json'), 'utf8')
     const manifest = JSON.parse(raw)
-    expect(Array.isArray(manifest.sections)).toBe(true)
-    expect(manifest.sections).toHaveLength(5)
+    expect(manifest.sections).toEqual([
+      '01-vision', '02-architecture', '03-roadmap', '04-decision-log', '05-operations',
+    ])
   })
 
   it('every section parses through parseFrontmatter with a non-empty title', () => {

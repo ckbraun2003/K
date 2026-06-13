@@ -20,9 +20,10 @@ function guardedRoot(localPath: string): string {
 /** Write file only if absent; return relative forward-slash path or null. */
 function writeIfAbsent(root: string, rel: string, content: string): string | null {
   const abs = path.join(root, ...rel.split('/'))
-  // Path-guard: resolved target must stay inside root
-  if (!abs.startsWith(root + path.sep) && abs !== root) {
-    throw new Error(`scaffoldBible: path escapes localPath: ${abs}`)
+  // Path-guard: resolved target must stay strictly inside root. Defensive — all
+  // current `rel` values are hardcoded, but this protects any future dynamic caller.
+  if (!abs.startsWith(root + path.sep)) {
+    throw new Error(`scaffold: path escapes localPath — abs="${abs}", root="${root}"`)
   }
   if (fs.existsSync(abs)) return null
   fs.mkdirSync(path.dirname(abs), { recursive: true })
@@ -32,7 +33,11 @@ function writeIfAbsent(root: string, rel: string, content: string): string | nul
 
 // ── section templates ─────────────────────────────────────────────────────────
 
-const TODAY = '2026-06-12'
+/** Local YYYY-MM-DD — computed at call time so scaffolded `updated:` is never stale. */
+function isoToday(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 interface SectionDef { id: string; title: string; icon: string; body: string }
 
@@ -111,10 +116,10 @@ List key metrics and alerting thresholds.
 
 function sectionContent(s: SectionDef): string {
   return `---
-title: ${s.title}
+title: "${s.title}"
 icon: "${s.icon}"
 status: draft
-updated: ${TODAY}
+updated: ${isoToday()}
 ---
 
 ${s.body}`
