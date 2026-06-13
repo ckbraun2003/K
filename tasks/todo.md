@@ -25,8 +25,11 @@ Branch: `feat/phase1-observability-core`
   - **projectId validation (Task 4):** bogus uuid → 400 "unknown projectId" ✓; missing prompt → 400 ✓; non-uuid → 400 ✓; 1 project registered (jarvis-core → repo root, @jarvis-core scope resolves).
   - **Browser e2e (real Chrome via playwright-core, fresh Vite :5174, 7/7 PASS, 0 console errors):** Metrics renders (svg role=img aria="tokens per day, stacked by project") ✓; all 8 SegControl toggles (groupBy/days/metric) no-crash chart-persists ✓; chart hover detail ✓; RunList chips all/active/done w/ counts + footer "Σ 8 runs · $2.18 · 568.1k tok" ✓; filter→footer recompute (done → "Σ 6 runs") ✓; select run→navigate #/runs/:id→Timeline toggle→scrubber (range+Play+readout) ✓; replay Play advances cursor 0→5 ✓.
   - **Deferred-live (verified via unit tests + unchanged-since-Phase-0 code, NOT re-run live to conserve agent spend):** permission-mode worktree write (claude-args.test.ts 15 tests + flag pre-checked in Task 3); worktree-fail→DB NULL (db-runs.test.ts + clearRunWorktree in supervisor catch); WS reconnect ≤3s (Phase 0 Task 16 verified, ws.ts unchanged); timeline live-append (WS event path carries raw, identical to console backfill which Phase 0 verified).
-- [ ] Task 11: Documentation + bible update
-- [ ] Final: whole-implementation code review → PR → merge on green CI
+- [x] Task 11: Documentation + bible update (568c035 — 07-roadmap: 3 delivered items checked (Phase 1 live progress 3/10→6/10=60%, verified in served compiled bible: phase-fill widths Phase0=100% Phase1=60%); 09-operations: HOST + RUN_PERMISSION_MODE env rows, key files auth.ts/claude-args.ts/project-match.ts + buildTimeseries note, new Schema-migrations + Continuous-integration sections; 02-architecture seam diagram already lists metrics — no per-endpoint list to change; GitNexus tooling artifacts (.claude/, AGENTS.md, .gitnexus ignore) left OUT of this PR)
+- [x] Final: whole-implementation code review → PR → merge on green CI
+  - Final review (whole branch main..HEAD, 43 files): **APPROVE_WITH_NITS** — no Critical, no security/correctness/merge-blocker. All 10 integration concerns verified CLEAN (migration idempotency + FK order, type contracts end-to-end (raw default-omit, projectId ?? undefined, MetricsTimeseries shape), auth seam covers new routes/no encoding bypass, permission-mode never elevated on fallback-to-cwd + worktree-NULL consistency, projectId inference uses original cwd, live/backfill event parity + dedup, no Tailwind alpha-trap, CI frozen-lockfile/packageManager pin). Branch green: core 86 + web 32, typecheck + build pass.
+  - Important (deferred, tracked → backlog): /api/metrics/summary unbounded full-table scan (totalRuns = rows.length). PRE-EXISTING Phase 0 endpoint, deliberate Task-6 decision ("/summary unbounded by design — totalRuns lifetime"); non-blocking, 8-row table. Not reopened at merge gate.
+  - Nits N1–N5: all acceptable-as-is per reviewer (no action).
 
 ## Backlog (deferred to next milestone — user decision 2026-06-12)
 
@@ -37,6 +40,13 @@ Branch: `feat/phase1-observability-core`
 - Lazy per-event raw fetch if `?raw=1` backfill payloads ever bite (plan risk #4)
 - Server-side `?limit=`/`?status=` filters on GET /api/runs if the last-100
   window proves unsatisfying (plan risk #5)
+- **/api/metrics/summary unbounded full-table scan** (final review, Phase 1).
+  Loads every run row each poll to derive a 14-day summary + lifetime totalRuns.
+  Fix when the runs table grows / endpoint is polled hot: `SELECT COUNT(*)` for
+  totalRuns (preserves lifetime semantic) + `COUNT(*) WHERE status IN
+  ('running','queued')` for activeRuns + bound the daily scan with
+  `WHERE created_at >= windowStartMs(now, 14)`; pass the two counts into
+  summarizeRuns. Timeseries endpoint is already windowed (Task 6).
 
 ## Environment notes
 
