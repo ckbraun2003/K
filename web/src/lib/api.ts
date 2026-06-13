@@ -23,6 +23,9 @@ export const api = {
     get: (id: string) => req<Run>(`/runs/${id}`),
     events: (id: string, opts?: { raw?: boolean }) =>
       req<AgentEvent[]>(`/runs/${id}/events${opts?.raw ? '?raw=1' : ''}`),
+    // Lazy per-event raw fetch — called only when the user expands a timeline row.
+    eventRaw: (id: string, seq: number): Promise<string> =>
+      req<{ raw: string }>(`/runs/${id}/events/${seq}/raw`).then(r => r.raw),
     start: (prompt: string, opts?: { cwd?: string; projectId?: string }) =>
       req<Run>('/runs', {
         method: 'POST',

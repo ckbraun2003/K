@@ -155,7 +155,10 @@ const insertEvent = db.prepare(`
 
 const listEvents = db.prepare(`SELECT * FROM events WHERE run_id = ? ORDER BY seq ASC`)
 
-export const eventsDb = { insertEvent, listEvents }
+// Fetch the raw JSON line for a single event — used by the lazy per-event endpoint.
+const getEventRaw = db.prepare(`SELECT raw FROM events WHERE run_id = ? AND seq = ?`)
+
+export const eventsDb = { insertEvent, listEvents, getEventRaw }
 
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 

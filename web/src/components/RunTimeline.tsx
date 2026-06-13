@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import type { AgentEvent } from '@k/shared'
 import { cn } from '../lib/cn'
 import { EVENT_COLOR } from './RunConsole'
+import { api } from '../lib/api'
 
 interface Props {
   events: AgentEvent[]
+  runId: string
 }
 
 // Format a unix-ms timestamp as HH:MM:SS.mmm
@@ -29,11 +31,30 @@ export function clampDelay(ms: number): number {
   return Math.max(MIN_REPLAY_DELAY_MS, Math.min(MAX_REPLAY_DELAY_MS, ms))
 }
 
-export default function RunTimeline({ events }: Props) {
+/**
+ * Pure guard: returns true when a lazy raw fetch should be triggered.
+ * Extracted so the caching policy can be tested without a React renderer.
+ * Conditions: expanding (not collapsing), no inline raw on the event,
+ * seq not already in the cache, seq not already in-flight.
+ */
+export function shouldFetchRaw(
+  seq: number,
+  hasRawInline: boolean,
+  cache: Record<number, string | null>,
+  inflight: Set<number>,
+): boolean {
+  return !hasRawInline && !(seq in cache) && !inflight.has(seq)
+}
+
+export default function RunTimeline({ events, runId }: Props) {
   const [cursor, setCursor] = useState(Math.max(0, events.length - 1))
   const [playing, setPlaying] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Cache for lazily-fetched raw strings, keyed by seq. Null means fetch returned 404.
+  const [rawCache, setRawCache] = useState<Record<number, string | null>>({})
+  // Track which seqs are currently being fetched to avoid duplicate requests.
+  const fetchingRef = useRef<Set<number>>(new Set())
 
   // Reset cursor when events array identity changes (run switch)
   useEffect(() => {
@@ -100,11 +121,23 @@ export default function RunTimeline({ events }: Props) {
   const firstTs = events[0].ts
   const cursorEvent = events[Math.min(cursor, events.length - 1)]
 
-  function toggleExpanded(id: string) {
+  function toggleExpanded(id: string, seq: number, hasRawInline: boolean) {
     setExpanded(prev => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+        // Trigger lazy fetch only when: expanding (not collapsing), no inline raw,
+        // not already cached, and not already in-flight.
+        if (shouldFetchRaw(seq, hasRawInline, rawCache, fetchingRef.current)) {
+          fetchingRef.current.add(seq)
+          api.runs.eventRaw(runId, seq)
+            .then(raw => setRawCache(c => ({ ...c, [seq]: raw })))
+            .catch(() => setRawCache(c => ({ ...c, [seq]: null })))
+            .finally(() => fetchingRef.current.delete(seq))
+        }
+      }
       return next
     })
   }
@@ -131,9 +164,11 @@ export default function RunTimeline({ events }: Props) {
 
           let rawContent: React.ReactNode = null
           if (isExpanded) {
-            if (e.raw) {
+            // Prefer inline raw (live events); fall back to lazily-fetched cache.
+            const rawStr = e.raw ?? (e.seq in rawCache ? rawCache[e.seq] : undefined)
+            if (rawStr != null) {
               try {
-                const parsed = JSON.parse(e.raw)
+                const parsed = JSON.parse(rawStr)
                 rawContent = (
                   <pre className="mt-1 text-xs text-[var(--muted)] bg-[var(--raised)] rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-words">
                     {JSON.stringify(parsed, null, 2)}
@@ -144,7 +179,17 @@ export default function RunTimeline({ events }: Props) {
                   <p className="mt-1 text-xs text-[var(--muted)] italic">(no raw)</p>
                 )
               }
-            } else {
+            } else if (rawCache[e.seq] === null) {
+              // Fetch returned 404 or failed
+              rawContent = (
+                <p className="mt-1 text-xs text-[var(--muted)] italic">raw unavailable</p>
+              )
+            } else if (!e.raw && fetchingRef.current.has(e.seq)) {
+              // In-flight fetch
+              rawContent = (
+                <p className="mt-1 text-xs text-[var(--muted)] italic">loading…</p>
+              )
+            } else if (!e.raw) {
               rawContent = (
                 <p className="mt-1 text-xs text-[var(--muted)] italic">(no raw)</p>
               )
@@ -157,7 +202,7 @@ export default function RunTimeline({ events }: Props) {
               className={cn('py-1.5 border-b border-[var(--border)] last:border-0 transition-opacity duration-150', dimmed ? 'opacity-25' : 'opacity-100')}
             >
               <button
-                onClick={() => toggleExpanded(e.id)}
+                onClick={() => toggleExpanded(e.id, e.seq as number, !!e.raw)}
                 aria-expanded={isExpanded}
                 className="w-full text-left"
               >

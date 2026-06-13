@@ -44,7 +44,9 @@ export default function RunConsole({ runId }: Props) {
         qc.setQueryData(['run', runId], msg.run)
       }
     })
-    api.runs.events(runId, { raw: true }).then(history => {
+    // Fetch without raw — live WS events carry raw inline; backfilled events
+    // fetch raw lazily per-expand via api.runs.eventRaw (see RunTimeline).
+    api.runs.events(runId).then(history => {
       if (cancelled) return
       setEvents(prev => {
         const seen = new Set(history.map(e => e.id))
@@ -114,7 +116,7 @@ export default function RunConsole({ runId }: Props) {
       </div>
 
       {view === 'timeline' ? (
-        <RunTimeline events={events} />
+        <RunTimeline events={events} runId={runId} />
       ) : (
         /* Event stream */
         <div className="flex-1 overflow-y-auto px-5 py-4 font-mono text-sm space-y-0.5">

@@ -47,6 +47,16 @@ export async function runsRoutes(app: FastifyInstance) {
     return reply.send(rows.map(r => dbRowToEvent(r, includeRaw)))
   })
 
+  // GET /api/runs/:id/events/:seq/raw — lazy single-event raw fetch.
+  // Returns { raw: string } for the one event identified by run_id + seq.
+  // 404 if the event doesn't exist OR if it exists but has no stored raw (null).
+  app.get<{ Params: { id: string; seq: string } }>('/api/runs/:id/events/:seq/raw', async (req, reply) => {
+    const seq = Number(req.params.seq)
+    const row = eventsDb.getEventRaw.get(req.params.id, seq) as { raw: string | null } | undefined
+    if (!row || row.raw == null) return reply.status(404).send({ error: 'not found' })
+    return reply.send({ raw: row.raw })
+  })
+
   // POST /api/runs/:id/kill — kill a running agent
   app.post<{ Params: { id: string } }>('/api/runs/:id/kill', async (req, reply) => {
     const killed = kill(req.params.id)
