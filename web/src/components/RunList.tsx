@@ -53,7 +53,7 @@ export default function RunList({ selectedId, onSelect }: Props) {
 
   const { data: runs = [] } = useQuery<Run[]>({
     queryKey: ['runs'],
-    queryFn: api.runs.list,
+    queryFn: () => api.runs.list({ limit: 100 }),
     refetchInterval: 5_000,
   })
 

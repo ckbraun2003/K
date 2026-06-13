@@ -212,3 +212,9 @@ export const StartRunBodySchema = z.object({
   projectId: z.string().uuid().optional(), // explicit project association (overrides cwd inference)
 })
 export type StartRunBody = z.infer<typeof StartRunBodySchema>
+
+export const RunsQuerySchema = z.object({
+  status: RunStatusSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+})
+export type RunsQuery = z.infer<typeof RunsQuerySchema>

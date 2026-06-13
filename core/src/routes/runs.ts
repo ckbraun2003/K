@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { StartRunBodySchema } from '@k/shared'
+import { StartRunBodySchema, RunsQuerySchema } from '@k/shared'
 import { startRun, kill } from '../supervisor.js'
 import { runsDb, eventsDb, projectsDb } from '../db.js'
 
@@ -21,9 +21,13 @@ export async function runsRoutes(app: FastifyInstance) {
     return reply.status(201).send(run)
   })
 
-  // GET /api/runs — list recent runs
-  app.get('/api/runs', async (_req, reply) => {
-    const rows = runsDb.listRuns.all() as Array<Record<string, unknown>>
+  // GET /api/runs — list recent runs; optional ?status= and ?limit= query params
+  app.get('/api/runs', async (req, reply) => {
+    const parsed = RunsQuerySchema.safeParse(req.query)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    const rows = runsDb.listRunsFiltered(parsed.data)
     return reply.send(rows.map(dbRowToRun))
   })
 
