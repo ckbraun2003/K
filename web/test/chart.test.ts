@@ -118,4 +118,10 @@ describe('formatMetricValue', () => {
     expect(formatMetricValue('runs', 42)).toBe('42')
     expect(formatMetricValue('runs', 1_000_000)).toBe('1000000')
   })
+
+  it('renders an em-dash for non-finite values', () => {
+    expect(formatMetricValue('tokens', NaN)).toBe('—')
+    expect(formatMetricValue('costUsd', Infinity)).toBe('—')
+    expect(formatMetricValue('runs', -Infinity)).toBe('—')
+  })
 })

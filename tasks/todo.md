@@ -6,14 +6,14 @@ Branch: `feat/phase1-observability-core`
 
 ## Tasks
 
-- [x] Task 0: Branch + plan + tracker (this commit)
-- [ ] Task 1: GitHub Actions CI (install, typecheck, test, build)
-- [ ] Task 2: Auth pathname fix + accepted-risks note + favicon
-- [ ] Task 3: Supervisor — permission mode + worktree-NULL persistence
-- [ ] Task 4: runs.project_id migration + run→project association
-- [ ] Task 5: Web plumbing — projectId dispatch + ⌘K @project scope
-- [ ] Task 6: Time-series aggregation + endpoint
-- [ ] Task 7: Web — stacked SVG chart + Metrics page
+- [x] Task 0: Branch + plan + tracker (222cab3)
+- [x] Task 1: GitHub Actions CI (df578e1 + 1d763c5 — spec ✅, quality ✅ "Yes"; controller applied permissions: contents: read; first run 27444299099 SUCCESS on ubuntu-latest)
+- [x] Task 2: Auth pathname fix + accepted-risks note + favicon (717c07b + 558e9a9 — spec ✅ verbatim, quality ✅ "Yes"; reviewer empirically verified no auth-bypass exists (router decodes, predicate doesn't — divergence lands safe); controller added /%77s + //ws invariant tests; key-files table entry deferred to Task 11)
+- [x] Task 3: Supervisor — permission mode + worktree-NULL persistence (61776cc + 0b8a959 — spec ✅; CLI pre-check: --permission-mode supports default|plan|acceptEdits|bypassPermissions (+auto/dontAsk unused); quality "With fixes" → fixed: vitest now isolated from production db via K_DATA_DIR override; deferred: console.warn→logger rides Phase 0 logger debt, supervisor-level gate integration test)
+- [x] Task 4: runs.project_id migration + run→project association (f382c69 + ce13977 — spec ✅ incl. fresh+migrated boot verification; quality "With fixes" → fixed: migration extracted to exported migrate(d) and the guarded-ALTER branch now unit-tested against an old-schema temp DB (70 tests); noted in code: norm() case-insensitivity intentional, FK-TOCTOU unreachable until a delete route lands)
+- [x] Task 5: Web plumbing — projectId dispatch + ⌘K @project scope (dfe8557 + 225b941 — spec ✅ (keyboard paths traced; @name-with-space moot: NAME_RE forbids spaces; dup names moot: DB UNIQUE); quality "With fixes" → fixed: parseProjectQuery extracted to web/src/lib/command-parse.ts + 12 unit tests (web vitest infra added — controller scope decision, pays off for Task 7 chart math), sync busyRef double-submit guard, redundant refocus timer dropped; CI test step → pnpm -r test; deferred: palette listbox a11y (pre-existing pattern))
+- [x] Task 6: Time-series aggregation + endpoint (a7b0a6f + 978fbd1 — spec ✅ (reviewer fuzzed query params: days=abc/''/5.5/array all 400); quality ✅ "Yes" + strong rec applied by controller: windowStartMs() bound on the SQL (WHERE created_at >=) + idx_runs_created_at in migrate(), 3 boundary tests (86 core total); noted: model-grouping keys on bare model (provider namespaces disjoint today); /summary stays unbounded by design — totalRuns is lifetime)
+- [x] Task 7: Web — stacked SVG chart + Metrics page (0e3be5a + quality fixes — spec ✅ (stacking math, seriesFill by key, fixed-height detail row, wiring all verified); quality APPROVE_WITH_NITS → controller applied: useMemo on stackDays + detailSeries (no recompute on hover), formatMetricValue Number.isFinite guard → '—' (+ test), svg role/aria-label, placeholderData: keepPreviousData (no flash on days/groupBy switch), dropped unused barGap/si; REJECTED reviewer's bg-accent/20 "alpha trap" finding — verified false positive: `accent` is a hex literal in tailwind.config.ts (#6366f1), not a var(), so the /20 modifier resolves correctly via the named-color path; 25 web tests green)
 - [ ] Task 8: Full run event timeline (replay)
 - [ ] Task 9: Run list — filter chips, row kill, cost totals
 - [ ] Task 10: End-to-end verification pass
@@ -41,7 +41,15 @@ Branch: `feat/phase1-observability-core`
 
 ## Review log
 
-(per-task spec/quality review outcomes recorded here)
+- Task 1 quality review (follow-ups, not blocking):
+  - projects.ts imports db.js at module scope → projects.test.ts (pure functions
+    only) has hidden native-module dependency. Follow-up: extract pure fns to
+    project-utils.ts. Candidate for any task already touching projects.ts.
+  - Action tags are floating @v4 (not SHA-pinned) — defer until Dependabot/Renovate.
+  - shared has no build script; `pnpm -r build` skips it silently (correct today —
+    shared is consumed as TS source via workspace:*).
+- CI status checks from this machine (gh absent, repo private): use git credential
+  helper token via Bash — see Task 1; pattern: `git credential fill` → api.github.com.
 
 ---
 

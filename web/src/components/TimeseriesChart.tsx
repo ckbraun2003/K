@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { MetricsTimeseries } from '@k/shared'
 import { stackDays, formatMetricValue, type Metric } from '../lib/chart'
 
@@ -24,15 +24,15 @@ function shortDate(d: string): string {
 export default function TimeseriesChart({ data, metric, height = 180 }: Props) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
-  const { days, maxTotal } = stackDays(data, metric)
+  // Memoized so hover state changes don't re-walk every series×date.
+  const { days, maxTotal } = useMemo(() => stackDays(data, metric), [data, metric])
   const n = data.dates.length
 
   // Empty state: all zeros
   const isEmpty = data.series.length === 0 || data.dates.length === 0 ||
     days.every(d => d.total === 0)
 
-  const barWidth = 7
-  const barGap = 3 // gap between bars: x = i*10 + 1.5, width 7 → total slot = 10
+  const barWidth = 7 // bar slot is 10 wide: x = i*10 + 1.5 centers a 7px bar
   const viewW = Math.max(n * 10, 10)
 
   // Date axis ticks: first, every ~7th, last
@@ -43,12 +43,12 @@ export default function TimeseriesChart({ data, metric, height = 180 }: Props) {
     if (n > 1) axisTicks.push(n - 1)
   }
 
-  // Detail row content
+  // Detail row content — memoized; only changes when data/metric/hover change.
   const hovered = hoverIndex !== null
-  const detailSeries = data.series.filter((s, si) => {
-    if (hovered && hoverIndex !== null) return s.points[hoverIndex][metric] !== 0
+  const detailSeries = useMemo(() => data.series.filter(s => {
+    if (hoverIndex !== null) return s.points[hoverIndex][metric] !== 0
     return s.total[metric] !== 0
-  })
+  }), [data, metric, hoverIndex])
 
   return (
     <div>
@@ -70,6 +70,8 @@ export default function TimeseriesChart({ data, metric, height = 180 }: Props) {
             viewBox={`0 0 ${viewW} 100`}
             preserveAspectRatio="none"
             onMouseLeave={() => setHoverIndex(null)}
+            role="img"
+            aria-label={`${metric} per day, stacked by ${data.groupBy}`}
             className="block"
           >
             {/* stacked bars */}

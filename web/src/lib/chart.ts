@@ -44,6 +44,7 @@ export function stackDays(data: MetricsTimeseries, metric: Metric): { days: Stac
 
 /** Format a metric value for display. */
 export function formatMetricValue(metric: Metric, v: number): string {
+  if (!Number.isFinite(v)) return '—'
   if (metric === 'runs') return String(Math.round(v))
   if (metric === 'costUsd') {
     if (v < 1) return `$${v.toFixed(4)}`

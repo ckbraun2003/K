@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import type { MetricsTimeseries, TimeseriesGroupBy } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -46,6 +46,7 @@ export default function MetricsPage() {
     queryKey: ['timeseries', days, groupBy],
     queryFn: () => api.metrics.timeseries(days, groupBy),
     refetchInterval: 30_000,
+    placeholderData: keepPreviousData, // no flash when switching days/groupBy
   })
 
   return (
