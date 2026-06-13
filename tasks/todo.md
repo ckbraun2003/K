@@ -15,7 +15,7 @@ agent-team PR-opening verification fidelity.
 - [x] Task 1: Bound /api/metrics/summary (1c4219e + f73430c — spec ✅; quality APPROVE_WITH_NITS → controller applied: 4 statements hoisted to module-level prepared consts, /timeseries now captures `now` once (fixed pre-existing twin-Date.now skew), COUNT invariant comment; 88 core tests green; deferred N: route-level SQL test for active=running|queued counted in Task 10 e2e)
 - [x] Task 2: Server-side ?status=/?limit= run filters (6a30789 + 94fd37e — spec ✅ (RunsQuerySchema coerce/min1/max500/default100; parameterized listRunsFiltered w/ two cached stmts; api.ts URLSearchParams no stray ?; RunList limit:100 only; 2 shell call-sites arrow-wrapped — TS-required after signature change; temp-DB isolated tests); quality APPROVE_WITH_NITS → controller applied: removed dead listRuns export, typed status param RunStatus, exact-count test assert; REJECTED key-split (I2) — kept shared ['runs'] one-fetch live cache, documented contract via comment; 99 core + 32 web green)
 - [x] Task 3: Lazy per-event raw fetch (933bad4 + fab965f — spec ✅ (GET /runs/:id/events/:seq/raw 404 on missing+null-raw, ?raw=1 bulk kept, RunConsole slim backfill, RunTimeline lazy fetch+cache by seq, exported pure shouldFetchRaw guard); quality REQUEST_CHANGES → controller fixed all: CRITICAL per-seq rawCache cross-run leak (key={runId} remount), NaN seq→400 guard, dead loading UI (loadingSeqs state mirrors the ref), dropped `as number` cast; 103 core + 39 web green; deferred: route-level 400 probe → Task 10 e2e)
-- [ ] Task 4: Scaffolders — pure scaffoldBible + scaffoldCi
+- [x] Task 4: Scaffolders — pure scaffoldBible + scaffoldCi (8b8160b + 41b40e8 — spec ✅ (idempotent skip-existing, real path-guard startsWith(root+sep), manifest+5 sections matching artifacts/bible format, roadmap section drives roadmapPhases, CI yaml mirrors repo ci.yml; sentinel-survives idempotency tests); quality APPROVE_WITH_NITS → controller applied: isoToday() dynamic date, generic guard error + dropped dead abs===root branch, quoted frontmatter title, exact-id manifest assert; 114 core green)
 - [ ] Task 5: Onboarding skill — enforce project invariants
 - [ ] Task 6: Verification engine — pure computeHealthScore + auditors
 - [ ] Task 7: Verification orchestration + routes + persistence
@@ -32,7 +32,9 @@ agent-team PR-opening verification fidelity.
   one-shot: `cd core && ./node_modules/.bin/tsx src/index.ts` via Bash, background.
 - Web dev auth: Vite proxy injects the bearer header (web/vite.config.ts).
 - Migration boot: run guarded ALTERs (score_breakdown) with the dev server stopped.
-- GitNexus tooling artifacts (.claude/, .gitnexus/, AGENTS.md, claude.md) stay OUT of commits.
+- Commit policy: authored Phase-2 skills (.claude/skills/onboarding, .claude/skills/verify-project)
+  ARE committed (selective git add). External GitNexus tooling (.claude/skills/gitnexus, .gitnexus/,
+  AGENTS.md, claude.md) stays OUT of commits.
 
 ## Review log
 
