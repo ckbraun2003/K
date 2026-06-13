@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { validateRegistration, registerProject, listProjects, getProject, ClientError, type RegistrationBody } from '../projects.js'
 import { getGithubStatus } from '../github.js'
+import { onboardProject } from '../onboard.js'
 
 export async function projectsRoutes(app: FastifyInstance) {
   // GET /api/projects — fleet list
@@ -27,5 +28,12 @@ export async function projectsRoutes(app: FastifyInstance) {
     const project = getProject(req.params.id)
     if (!project) return reply.status(404).send({ error: 'not found' })
     return reply.send(getGithubStatus(project.id))
+  })
+
+  // POST /api/projects/:id/onboard — scaffold bible §3 invariants (bible + CI)
+  app.post<{ Params: { id: string } }>('/api/projects/:id/onboard', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    return reply.send(onboardProject(project))
   })
 }
