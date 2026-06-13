@@ -1,4 +1,46 @@
-# Phase 1 — Observability Core — Execution Tracker
+# Phase 2 — Verification & Workspace Core — Execution Tracker
+
+Plan: `docs/superpowers/plans/2026-06-12-phase2-verification-core.md`
+Method: subagent-driven development (implementer → spec review → quality review per task)
+Branch: `feat/phase2-verification-core`
+
+Scope (focused vertical slice, user decision 2026-06-12): Phase 1 tech-debt backlog +
+onboarding skill + Phase 2 verification system. Deferred to follow-on milestones: web
+terminal, task/goal records, auth hardening, fleet/knowledge graph, full 7-tab workspace,
+agent-team PR-opening verification fidelity.
+
+## Tasks
+
+- [x] Task 0: Branch + plan + tracker
+- [ ] Task 1: Bound /api/metrics/summary (COUNT queries, no full-table scan)
+- [ ] Task 2: Server-side ?status=/?limit= run filters
+- [ ] Task 3: Lazy per-event raw fetch
+- [ ] Task 4: Scaffolders — pure scaffoldBible + scaffoldCi
+- [ ] Task 5: Onboarding skill — enforce project invariants
+- [ ] Task 6: Verification engine — pure computeHealthScore + auditors
+- [ ] Task 7: Verification orchestration + routes + persistence
+- [ ] Task 8: verify-project skill + CI auditor fix + deep-verify dispatch
+- [ ] Task 9: Web — verification UI (card action + live report view)
+- [ ] Task 10: End-to-end verification pass
+- [ ] Task 11: Documentation + bible update + merge
+- [ ] Final: whole-implementation code review → PR → merge on green CI
+
+## Environment notes
+
+- `gh` CLI NOT installed — CI status via GitHub web UI / unauthenticated REST.
+- `pnpm --filter @k/core dev` (tsx watch) hangs under the agent harness; for e2e run
+  one-shot: `cd core && ./node_modules/.bin/tsx src/index.ts` via Bash, background.
+- Web dev auth: Vite proxy injects the bearer header (web/vite.config.ts).
+- Migration boot: run guarded ALTERs (score_breakdown) with the dev server stopped.
+- GitNexus tooling artifacts (.claude/, .gitnexus/, AGENTS.md, claude.md) stay OUT of commits.
+
+## Review log
+
+(per-task spec/quality review notes appended here)
+
+---
+
+# Phase 1 — Observability Core — Execution Tracker (history)
 
 Plan: `docs/superpowers/plans/2026-06-12-phase1-observability-core.md`
 Method: subagent-driven development (implementer → spec review → quality review per task)
