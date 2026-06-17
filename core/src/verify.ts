@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import type { Finding, Project, GithubStatus, CiRunInfo, VerificationReport } from '@k/shared'
 import { getGithubStatus } from './github.js'
+import { scaffoldCi } from './scaffold.js'
 import { db, verificationDb, projectsDb } from './db.js'
 import { eventBus } from './events.js'
 
@@ -394,10 +395,28 @@ export function runVerification(project: Project): VerificationReport {
     projectId: project.id,
     score,
     findings,
-    fixesApplied: [], // Task 8 populates this; deterministic verify applies nothing
+    fixesApplied: [], // populated below (deterministic CI-auditor fix)
     startedAt,
     completedAt: Date.now(),
     breakdown,
+  }
+
+  // ── deterministic CI-auditor fix (Task 8) ────────────────────────────────────
+  // The SCORE above already reflects the state AT verification time (CI missing →
+  // auditCi critical + ci component 0). We do NOT re-gather or re-score after
+  // fixing. When no workflow exists, scaffold a starter CI file into the working
+  // tree (uncommitted — a proposed change for operator review, NOT a push) and
+  // record it in fixesApplied. The NEXT verify will see the workflow. This must
+  // run BEFORE persistReport so fixesApplied is persisted. Robust: a scaffold
+  // failure must not fail the (already-successful) verification.
+  if (!hasWorkflow) {
+    try {
+      for (const rel of scaffoldCi(project.localPath)) {
+        report.fixesApplied.push(`scaffolded CI workflow: ${rel}`)
+      }
+    } catch {
+      // path-guard / fs error: leave fixesApplied untouched, do not throw out.
+    }
   }
 
   // ── persist atomically (report row + project health in one transaction, so a

@@ -11,7 +11,7 @@
  * project at a fresh temp dir with NO workflow/bible/remote so the FS/git
  * gatherers return deterministic facts without depending on the harness repo.
  */
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, vi, beforeEach } from 'vitest'
 import Fastify from 'fastify'
 import Database from 'better-sqlite3'
 import { v4 as uuid } from 'uuid'
@@ -24,6 +24,14 @@ import { getProject } from '../src/projects.js'
 import { projectsRoutes } from '../src/routes/projects.js'
 import { eventBus } from '../src/events.js'
 import type { Project, WsMessage } from '@k/shared'
+
+// Mock the supervisor so the deep-verify route never actually spawns claude.
+// Hoisted by vitest above the imports; the route imports startRun from here.
+vi.mock('../src/supervisor.js', () => ({
+  startRun: vi.fn(async () => ({ id: 'mock-run' })),
+}))
+import { startRun } from '../src/supervisor.js'
+const startRunMock = vi.mocked(startRun)
 
 // ── temp dirs + project rows we create, cleaned up after the suite ─────────────
 
@@ -83,7 +91,16 @@ describe('runVerification — persistence round-trip', () => {
     const persisted = rowToReport(rows[0])
     expect(persisted.id).toBe(report.id)
     expect(persisted.score).toBe(report.score)
-    expect(persisted.fixesApplied).toEqual([])
+    // Task 8: a bare project has no workflow, so runVerification scaffolds a
+    // starter ci.yml and records it in fixesApplied (persisted with the report).
+    expect(report.fixesApplied).toEqual(['scaffolded CI workflow: .github/workflows/ci.yml'])
+    expect(persisted.fixesApplied).toEqual(report.fixesApplied)
+    // the file was actually written into the project's working tree
+    expect(fs.existsSync(path.join(project.localPath, '.github', 'workflows', 'ci.yml'))).toBe(true)
+    // the SCORE still reflects CI-MISSING this run — the scaffold does not
+    // retroactively fix it (ci component 0, score 20).
+    expect(report.breakdown.ci).toBe(0)
+    expect(report.score).toBe(20)
 
     // project health + last_verified_at were updated
     const updated = getProject(project.id)
@@ -171,6 +188,93 @@ describe('verify/verifications routes — unknown id → 404', () => {
     const res = await app.inject({ method: 'GET', url: `/api/projects/${uuid()}/verifications` })
     expect(res.statusCode).toBe(404)
     await app.close()
+  })
+})
+
+// ── CI-auditor scaffold idempotency (Task 8) ─────────────────────────────────────
+
+describe('runVerification — CI-auditor scaffold is idempotent', () => {
+  it('a second verify on a now-scaffolded project adds no new fix and drops the workflow critical', () => {
+    const project = insertBareProject()
+
+    // First run: no workflow → critical + scaffold.
+    const first = runVerification(project)
+    expect(first.fixesApplied).toEqual(['scaffolded CI workflow: .github/workflows/ci.yml'])
+    const firstWorkflowCriticals = first.findings.filter(
+      f => f.severity === 'critical' && /workflow/i.test(f.message),
+    )
+    expect(firstWorkflowCriticals).toHaveLength(1)
+
+    // Second run: workflow now exists → scaffoldCi skips it (no new fix), and CI
+    // is classified 'none' (workflow present but no runs) → info, NOT critical.
+    const second = runVerification(project)
+    expect(second.fixesApplied).toEqual([])
+    const secondWorkflowCriticals = second.findings.filter(
+      f => f.severity === 'critical' && /workflow/i.test(f.message),
+    )
+    expect(secondWorkflowCriticals).toHaveLength(0)
+    const ciFinding = second.findings.find(f => f.area === 'ci')
+    expect(ciFinding?.severity).toBe('info')
+  })
+})
+
+// ── deep-verify dispatch (Task 8, light Fastify inject) ───────────────────────────
+
+describe('POST /api/projects/:id/verify — deep dispatch', () => {
+  beforeEach(() => startRunMock.mockClear())
+
+  it('deep:true returns the deterministic report AND dispatches startRun', async () => {
+    const project = insertBareProject()
+    const app = Fastify()
+    await app.register(projectsRoutes)
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${project.id}/verify`,
+        payload: { deep: true },
+      })
+      expect(res.statusCode).toBe(200)
+      const report = res.json()
+      expect(report.projectId).toBe(project.id)
+      expect(typeof report.score).toBe('number')
+      expect(startRunMock).toHaveBeenCalledTimes(1)
+      const [, opts] = startRunMock.mock.calls[0]
+      expect(opts).toMatchObject({ cwd: project.localPath, projectId: project.id })
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('no body (plain verify) returns the report and does NOT dispatch startRun', async () => {
+    const project = insertBareProject()
+    const app = Fastify()
+    await app.register(projectsRoutes)
+    try {
+      const res = await app.inject({ method: 'POST', url: `/api/projects/${project.id}/verify` })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().projectId).toBe(project.id)
+      expect(startRunMock).not.toHaveBeenCalled()
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('deep:false returns the report and does NOT dispatch startRun', async () => {
+    const project = insertBareProject()
+    const app = Fastify()
+    await app.register(projectsRoutes)
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${project.id}/verify`,
+        payload: { deep: false },
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().projectId).toBe(project.id)
+      expect(startRunMock).not.toHaveBeenCalled()
+    } finally {
+      await app.close()
+    }
   })
 })
 
