@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import type { Finding, Project, GithubStatus, CiRunInfo, VerificationReport } from '@k/shared'
 import { getGithubStatus } from './github.js'
-import { verificationDb, projectsDb } from './db.js'
+import { db, verificationDb, projectsDb } from './db.js'
 import { eventBus } from './events.js'
 
 // ─── Health score (pure, bible §5) ───────────────────────────────────────────
@@ -238,12 +238,17 @@ export interface InvariantFacts {
  * — they answer different questions (CI signal vs. invariant) — but we avoid
  * emitting two identical messages by phrasing them distinctly.
  */
+/** Exact message for the GitHub-remote invariant. Shared with composeFindings so
+ *  its dedupe filter keys on this constant (compile-checked) rather than a loose
+ *  substring that could silently drift if the copy is ever reworded. */
+export const MSG_NO_REMOTE = 'no GitHub remote configured for project'
+
 export function auditInvariants(project: Project, facts: InvariantFacts): Finding[] {
   const findings: Finding[] = []
   const bibleDir = project.bibleDir || 'docs/bible'
 
   if (!project.githubRemote) {
-    findings.push({ severity: 'critical', area: 'invariants', message: 'no GitHub remote configured for project' })
+    findings.push({ severity: 'critical', area: 'invariants', message: MSG_NO_REMOTE })
   }
   if (!facts.hasBible) {
     findings.push({ severity: 'critical', area: 'invariants', message: `missing bible invariant: ${bibleDir}/ not present` })
@@ -333,9 +338,31 @@ function composeFindings(
   const remoteOnly = auditInvariants(project, {
     hasBible: facts.hasBible,
     hasWorkflow: facts.hasWorkflow,
-  }).filter(f => f.area === 'invariants' && f.message.includes('GitHub remote'))
+  }).filter(f => f.area === 'invariants' && f.message === MSG_NO_REMOTE)
   return [...ci, ...bible, ...remoteOnly]
 }
+
+/** Atomic persist: write the report row AND update the project's health in one
+ *  SQLite transaction. Either both land or neither — a failure on the second
+ *  write rolls back the first, so a stored report can never disagree with the
+ *  fleet health shown on the card. (better-sqlite3 transactions are synchronous.) */
+const persistReport = db.transaction((report: VerificationReport): void => {
+  verificationDb.insertVerificationReport.run({
+    id: report.id,
+    projectId: report.projectId,
+    score: report.score,
+    findings: JSON.stringify(report.findings),
+    fixesApplied: JSON.stringify(report.fixesApplied),
+    startedAt: report.startedAt,
+    completedAt: report.completedAt,
+    scoreBreakdown: JSON.stringify(report.breakdown),
+  })
+  projectsDb.updateProjectHealth.run({
+    id: report.projectId,
+    healthScore: report.score,
+    lastVerifiedAt: report.completedAt,
+  })
+})
 
 /**
  * Run a deterministic single-shot verification for an already-resolved project:
@@ -373,24 +400,12 @@ export function runVerification(project: Project): VerificationReport {
     breakdown,
   }
 
-  // ── persist (JSON-stringify the structured columns) ─────────────────────────
-  verificationDb.insertVerificationReport.run({
-    id: report.id,
-    projectId: report.projectId,
-    score: report.score,
-    findings: JSON.stringify(report.findings),
-    fixesApplied: JSON.stringify(report.fixesApplied),
-    startedAt: report.startedAt,
-    completedAt: report.completedAt,
-    scoreBreakdown: JSON.stringify(report.breakdown),
-  })
-  projectsDb.updateProjectHealth.run({
-    id: project.id,
-    healthScore: report.score,
-    lastVerifiedAt: report.completedAt,
-  })
+  // ── persist atomically (report row + project health in one transaction, so a
+  //    mid-write failure can't leave a stored report with stale fleet health) ──
+  persistReport(report)
 
-  // ── broadcast the in-memory report (NOT the stringified DB form) ────────────
+  // ── broadcast the in-memory report (NOT the stringified DB form). Outside the
+  //    transaction by necessity — a broadcast can't be rolled back. ────────────
   eventBus.broadcast({ type: 'verification_update', report })
 
   return report

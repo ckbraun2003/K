@@ -11,7 +11,7 @@
  * project at a fresh temp dir with NO workflow/bible/remote so the FS/git
  * gatherers return deterministic facts without depending on the harness repo.
  */
-import { describe, it, expect, afterAll, afterEach } from 'vitest'
+import { describe, it, expect, afterAll } from 'vitest'
 import Fastify from 'fastify'
 import Database from 'better-sqlite3'
 import { v4 as uuid } from 'uuid'
@@ -90,15 +90,11 @@ describe('runVerification — persistence round-trip', () => {
     expect(updated?.healthScore).toBe(report.score)
     expect(updated?.lastVerifiedAt).toBe(report.completedAt)
 
-    // breakdown round-trips: the four persisted components equal the in-memory ones
-    expect(persisted.breakdown).toBeDefined()
+    // breakdown round-trips through the DB AND has the concrete expected values
+    // for a bare project (no workflow/bible/remote, coverage unknown): ci 0,
+    // coverage 20 (neutral), bible 0, findings 20−3·10 floored to 0.
+    expect(report.breakdown).toEqual({ ci: 0, coverage: 20, bible: 0, findings: 0 })
     expect(persisted.breakdown).toEqual(report.breakdown)
-    expect(report.breakdown).toEqual({
-      ci: report.breakdown!.ci,
-      coverage: report.breakdown!.coverage,
-      bible: report.breakdown!.bible,
-      findings: report.breakdown!.findings,
-    })
   })
 })
 
@@ -182,9 +178,9 @@ describe('verify/verifications routes — unknown id → 404', () => {
 
 describe('migrate() — verification_reports.score_breakdown', () => {
   const tmpPath = path.join(os.tmpdir(), `k-verify-migration-${Date.now()}.db`)
+  // tempDb is created in the first `it` and reused by the second (ordered within
+  // this describe); closed + unlinked in afterAll.
   let tempDb: Database.Database
-
-  afterEach(() => { /* keep tempDb open across the two ordered its */ })
 
   it('adds score_breakdown to an old-schema verification_reports table', () => {
     tempDb = new Database(tmpPath)
