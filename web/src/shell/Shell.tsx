@@ -9,6 +9,7 @@ import RunsPage from '../pages/RunsPage'
 import DocsPage from '../pages/DocsPage'
 import ProjectsPage from '../pages/ProjectsPage'
 import MetricsPage from '../pages/MetricsPage'
+import ProjectVerification from '../pages/ProjectVerification'
 import { useHashRoute, navigate } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
 
@@ -73,6 +74,7 @@ export default function Shell() {
             {route.view === 'docs' && <DocsPage slug={route.param} />}
             {route.view === 'projects' && <ProjectsPage />}
             {route.view === 'metrics' && <MetricsPage />}
+            {route.view === 'verify' && <ProjectVerification projectId={route.param} />}
           </motion.div>
         </AnimatePresence>
       </main>

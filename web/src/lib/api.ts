@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, Project, GithubStatus } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, Project, GithubStatus, VerificationReport } from '@k/shared'
 
 const BASE = '/api'
 
@@ -53,5 +53,12 @@ export const api = {
         body: JSON.stringify(body),
       }),
     github: (id: string) => req<GithubStatus>(`/projects/${id}/github`),
+    verify: (id: string, opts?: { deep?: boolean }) =>
+      req<VerificationReport>(`/projects/${id}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opts ?? {}),
+      }),
+    verifications: (id: string) => req<VerificationReport[]>(`/projects/${id}/verifications`),
   },
 }
