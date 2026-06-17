@@ -65,7 +65,9 @@ export async function projectsRoutes(app: FastifyInstance) {
       // Light validation: deep is an optional boolean. A missing/empty body is
       // a plain deterministic verify; a malformed `deep` is rejected.
       const body = req.body ?? {}
-      if (typeof body !== 'object' || (body.deep !== undefined && typeof body.deep !== 'boolean')) {
+      // Reject non-objects (incl. JSON arrays — typeof [] === 'object') and a
+      // non-boolean `deep`; a missing/empty object body is a plain verify.
+      if (typeof body !== 'object' || Array.isArray(body) || (body.deep !== undefined && typeof body.deep !== 'boolean')) {
         return reply.status(400).send({ error: 'deep must be a boolean' })
       }
 

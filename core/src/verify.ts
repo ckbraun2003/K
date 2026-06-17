@@ -420,7 +420,10 @@ export function runVerification(project: Project): VerificationReport {
   }
 
   // ── persist atomically (report row + project health in one transaction, so a
-  //    mid-write failure can't leave a stored report with stale fleet health) ──
+  //    mid-write failure can't leave a stored report with stale fleet health).
+  //    Note: if a CI file was just scaffolded and persistReport throws, the file
+  //    stays on disk with no recorded report — self-healing (next verify sees the
+  //    workflow as already-present and emits no new fixesApplied entry). ────────
   persistReport(report)
 
   // ── broadcast the in-memory report (NOT the stringified DB form). Outside the

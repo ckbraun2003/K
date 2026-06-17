@@ -276,6 +276,25 @@ describe('POST /api/projects/:id/verify — deep dispatch', () => {
       await app.close()
     }
   })
+
+  it('rejects a malformed body (non-boolean deep, or a JSON array) with 400', async () => {
+    const project = insertBareProject()
+    const app = Fastify()
+    await app.register(projectsRoutes)
+    try {
+      for (const payload of [{ deep: 'yes' }, [true] as unknown]) {
+        const res = await app.inject({
+          method: 'POST',
+          url: `/api/projects/${project.id}/verify`,
+          payload,
+        })
+        expect(res.statusCode).toBe(400)
+      }
+      expect(startRunMock).not.toHaveBeenCalled()
+    } finally {
+      await app.close()
+    }
+  })
 })
 
 // ── migration: score_breakdown column ────────────────────────────────────────────
