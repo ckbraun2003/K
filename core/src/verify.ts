@@ -13,8 +13,12 @@
 
 import fs from 'fs'
 import path from 'path'
+import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import type { Finding, Project, GithubStatus, CiRunInfo } from '@k/shared'
+import type { Finding, Project, GithubStatus, CiRunInfo, VerificationReport } from '@k/shared'
+import { getGithubStatus } from './github.js'
+import { verificationDb, projectsDb } from './db.js'
+import { eventBus } from './events.js'
 
 // ─── Health score (pure, bible §5) ───────────────────────────────────────────
 
@@ -300,4 +304,94 @@ export function bibleFreshnessDays(localPath: string, bibleDir: string): number 
   } catch {
     return null
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Orchestration (IMPURE conductor). Gathers facts via the helpers above + the
+// GitHub cache, scores with the pure core, persists, and broadcasts. The pure
+// functions above stay untouched. Signature takes a Project (not an id): the
+// route already does getProject→404, so passing the resolved project keeps this
+// free of DB lookups + a redundant "unknown id" error type.
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compose the scored finding set so each ROOT CAUSE is counted once. auditCi and
+ * auditBible own the rich CI/bible judgments (incl. the missing-workflow and
+ * missing-bible criticals). auditInvariants would emit duplicate missing-workflow
+ * / missing-bible criticals for the same root cause, double-penalizing the score
+ * (e.g. no workflow → −10 in ci AND −10 in invariants = −20 for one problem), so
+ * from auditInvariants we keep ONLY the GitHub-remote invariant, which neither
+ * other auditor covers.
+ */
+function composeFindings(
+  project: Project,
+  gh: GithubStatus,
+  facts: { hasBible: boolean; hasWorkflow: boolean; freshnessDays: number | null },
+): Finding[] {
+  const ci = auditCi(gh, facts.hasWorkflow)
+  const bible = auditBible(facts.freshnessDays, facts.hasBible)
+  const remoteOnly = auditInvariants(project, {
+    hasBible: facts.hasBible,
+    hasWorkflow: facts.hasWorkflow,
+  }).filter(f => f.area === 'invariants' && f.message.includes('GitHub remote'))
+  return [...ci, ...bible, ...remoteOnly]
+}
+
+/**
+ * Run a deterministic single-shot verification for an already-resolved project:
+ * gather facts, score, persist the report, update project health, broadcast, and
+ * return the in-memory report. Synchronous by design (matches the pure engine).
+ */
+export function runVerification(project: Project): VerificationReport {
+  const startedAt = Date.now()
+
+  // ── gather facts (impure) ───────────────────────────────────────────────────
+  const hasWorkflow = hasWorkflowFile(project.localPath)
+  const hasBible = hasBibleDir(project.localPath, project.bibleDir)
+  const freshnessDays = bibleFreshnessDays(project.localPath, project.bibleDir)
+  const gh = getGithubStatus(project.id)
+  const ci = classifyCi(gh, hasWorkflow)
+  const bibleFresh = bibleFreshFromDays(freshnessDays, hasBible)
+  // No coverage signal in this milestone — default to the neutral 'unknown'
+  // (plan risk #1). An agent layer will supply a real trend later; until then we
+  // do not penalize coverage and do not fetch the prior report (unused here).
+  const coverageTrend: CoverageTrend = 'unknown'
+
+  // ── compose + score (pure) ──────────────────────────────────────────────────
+  const findings = composeFindings(project, gh, { hasBible, hasWorkflow, freshnessDays })
+  const { score, breakdown } = computeHealthScore({ ci, coverageTrend, bibleFresh, findings })
+
+  // ── build the in-memory report (camelCase, real arrays/objects) ─────────────
+  const report: VerificationReport = {
+    id: randomUUID(),
+    projectId: project.id,
+    score,
+    findings,
+    fixesApplied: [], // Task 8 populates this; deterministic verify applies nothing
+    startedAt,
+    completedAt: Date.now(),
+    breakdown,
+  }
+
+  // ── persist (JSON-stringify the structured columns) ─────────────────────────
+  verificationDb.insertVerificationReport.run({
+    id: report.id,
+    projectId: report.projectId,
+    score: report.score,
+    findings: JSON.stringify(report.findings),
+    fixesApplied: JSON.stringify(report.fixesApplied),
+    startedAt: report.startedAt,
+    completedAt: report.completedAt,
+    scoreBreakdown: JSON.stringify(report.breakdown),
+  })
+  projectsDb.updateProjectHealth.run({
+    id: project.id,
+    healthScore: report.score,
+    lastVerifiedAt: report.completedAt,
+  })
+
+  // ── broadcast the in-memory report (NOT the stringified DB form) ────────────
+  eventBus.broadcast({ type: 'verification_update', report })
+
+  return report
 }

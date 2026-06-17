@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { validateRegistration, registerProject, listProjects, getProject, ClientError, type RegistrationBody } from '../projects.js'
 import { getGithubStatus } from '../github.js'
 import { onboardProject } from '../onboard.js'
+import { runVerification } from '../verify.js'
+import { verificationDb, rowToReport } from '../db.js'
 
 export async function projectsRoutes(app: FastifyInstance) {
   // GET /api/projects — fleet list
@@ -41,5 +43,27 @@ export async function projectsRoutes(app: FastifyInstance) {
       req.log.error(e)
       return reply.status(500).send({ error: 'onboarding failed' })
     }
+  })
+
+  // POST /api/projects/:id/verify — deterministic single-shot verification.
+  // (Task 8 adds a { deep? } body for agent dispatch; this is the sync path only.)
+  app.post<{ Params: { id: string } }>('/api/projects/:id/verify', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    try {
+      return reply.send(runVerification(project))
+    } catch (e) {
+      // fs/git/db work can throw (stale localPath, EACCES, db error); surface { error }
+      req.log.error(e)
+      return reply.status(500).send({ error: 'verification failed' })
+    }
+  })
+
+  // GET /api/projects/:id/verifications — recent reports, newest first (SQL-ordered)
+  app.get<{ Params: { id: string } }>('/api/projects/:id/verifications', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    const rows = verificationDb.listVerificationReports.all(project.id) as Array<Record<string, unknown>>
+    return reply.send(rows.map(rowToReport))
   })
 }

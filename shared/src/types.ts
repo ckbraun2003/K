@@ -107,6 +107,11 @@ export const VerificationReportSchema = z.object({
   fixesApplied: z.array(z.string()).default([]),
   startedAt: z.number(),
   completedAt: z.number().optional(),
+  // Per-factor weighted score components (mirrors verify.ts HealthBreakdown).
+  // Optional so reports persisted before this field still validate.
+  breakdown: z
+    .object({ ci: z.number(), coverage: z.number(), bible: z.number(), findings: z.number() })
+    .optional(),
 })
 export type VerificationReport = z.infer<typeof VerificationReportSchema>
 
