@@ -25,11 +25,13 @@ function scoreColor(score: number): string {
 export default function ProjectVerification({ projectId }: { projectId?: string }) {
   const qc = useQueryClient()
 
-  const { data: projects = [] } = useQuery<Project[]>({
+  const { data: projects = [], isSuccess: projectsLoaded } = useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: api.projects.list,
   })
   const project = projects.find(p => p.id === projectId)
+  // Distinguish "still loading the fleet" from "loaded, but no such project".
+  const projectName = project?.name ?? (projectsLoaded ? 'Project not found' : 'Project')
 
   const { data: reports = [], isLoading } = useQuery<VerificationReport[]>({
     queryKey: ['verifications', projectId],
@@ -89,7 +91,7 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
           ← Fleet
         </button>
         <h2 className="text-sm font-semibold text-[var(--text)]">
-          {project?.name ?? 'Project'}
+          {projectName}
         </h2>
         {project?.healthScore != null && (
           <span className={cn('mono ml-1 text-xs', scoreColor(project.healthScore))}>
@@ -143,10 +145,12 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
                 <span className="text-xs text-[var(--muted)]">/ 100 health</span>
               </div>
 
-              {latest.breakdown ? (
+              {latest.breakdown ? (() => {
+                const bd = latest.breakdown // narrowed: defined inside this block
+                return (
                 <div className="mt-4 space-y-2.5">
                   {BREAKDOWN_BARS.map(({ key, label }) => {
-                    const value = latest.breakdown![key]
+                    const value = bd[key]
                     const max = BREAKDOWN_MAX[key]
                     const pct = barPct(value, max)
                     return (
@@ -169,7 +173,8 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
                     )
                   })}
                 </div>
-              ) : (
+                )
+              })() : (
                 <p className="mt-3 text-[11px] text-[var(--muted)]">
                   No score breakdown on this report.
                 </p>
@@ -186,8 +191,8 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
               ) : (
                 <div className="mt-3 space-y-2">
                   {grouped.map(group =>
-                    group.items.map((f, i) => (
-                      <div key={`${group.severity}-${i}`} className="flex items-start gap-2">
+                    group.items.map(f => (
+                      <div key={`${group.severity}-${f.area}-${f.message}`} className="flex items-start gap-2">
                         <span
                           className={cn('mt-1.5 h-2 w-2 flex-shrink-0 rounded-full', SEVERITY_DOT[group.severity])}
                         />
@@ -213,7 +218,7 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
               ) : (
                 <ul className="mt-3 space-y-1.5">
                   {latest.fixesApplied.map((fix, i) => (
-                    <li key={i} className="flex items-start gap-2 text-xs text-[var(--text)]">
+                    <li key={`${i}-${fix}`} className="flex items-start gap-2 text-xs text-[var(--text)]">
                       <span className="text-[var(--green)]">✓</span>
                       {fix}
                     </li>
