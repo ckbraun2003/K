@@ -13,7 +13,7 @@
 
 import fs from 'fs'
 import path from 'path'
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import type { Finding, Project, GithubStatus, CiRunInfo } from '@k/shared'
 
 // ─── Health score (pure, bible §5) ───────────────────────────────────────────
@@ -112,34 +112,45 @@ const BIBLE_STALE_DAYS = 30 // bible §5: sections updated within 30 days = fres
 /**
  * Classify the observed CI state from gathered GitHub facts.
  *  - no workflow file → 'none' (no CI signal at all)
- *  - no completed runs observed → 'none'
- *  - latest completed run concluded failure → 'failing'
- *  - completed runs disagree (some success, some failure) → 'flaky'
+ *  - no decisive runs observed → 'none'
+ *  - latest decisive run concluded failure → 'failing'
+ *  - decisive runs disagree (some success, some failure) → 'flaky'
  *  - latest (and consistent) success → 'passing'
  *
- * "Completed" = conclusion !== null. In-progress/queued runs (conclusion null)
- * are ignored for classification. Runs are sorted newest-first by createdAt so
- * the "latest" judgment is independent of gh's return order.
+ * Only DECISIVE conclusions count: 'success' and the failure-class conclusions
+ * ('failure', 'timed_out', 'action_required', 'startup_failure'). Neutral
+ * outcomes ('skipped', 'cancelled', 'neutral', 'stale') and in-progress runs
+ * (conclusion null) carry no pass/fail signal and are ignored — otherwise a
+ * merely-cancelled run would drag a clean repo to 'flaky'. Runs are sorted
+ * newest-first by createdAt so the "latest" judgment is independent of gh order.
  */
+const CI_SUCCESS = 'success'
+// GitHub Actions conclusions that mean the run actually failed (vs. neutral).
+const CI_FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'action_required', 'startup_failure'])
+
 export function classifyCi(ghStatus: GithubStatus, hasWorkflow: boolean): CiState {
   if (!hasWorkflow) return 'none'
 
-  const completed = ghStatus.ci
-    .filter((r: CiRunInfo) => r.conclusion != null)
+  const norm = (c: string | null) => String(c).toLowerCase()
+  const isSuccess = (c: string | null) => norm(c) === CI_SUCCESS
+  const isFailure = (c: string | null) => CI_FAILURE_CONCLUSIONS.has(norm(c))
+
+  // Keep only runs that carry a decisive pass/fail signal; drop neutral + null.
+  const decisive = ghStatus.ci
+    .filter((r: CiRunInfo) => isSuccess(r.conclusion) || isFailure(r.conclusion))
     .slice()
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
 
-  if (completed.length === 0) return 'none'
+  if (decisive.length === 0) return 'none'
 
-  const isSuccess = (c: string | null) => String(c).toLowerCase() === 'success'
-  const anySuccess = completed.some(r => isSuccess(r.conclusion))
-  const anyFailure = completed.some(r => !isSuccess(r.conclusion))
+  const anySuccess = decisive.some(r => isSuccess(r.conclusion))
+  const anyFailure = decisive.some(r => isFailure(r.conclusion))
 
   // Mixed conclusions across observed runs → flaky.
   if (anySuccess && anyFailure) return 'flaky'
 
   // Consistent: judge by the latest run.
-  return isSuccess(completed[0].conclusion) ? 'passing' : 'failing'
+  return isSuccess(decisive[0].conclusion) ? 'passing' : 'failing'
 }
 
 /**
@@ -200,30 +211,40 @@ export function bibleFreshFromDays(freshnessDays: number | null, hasBibleDir: bo
 
 // ─── Invariants auditor (pure) ────────────────────────────────────────────────
 
+/** Pre-gathered presence facts for the three bible §3 invariants that require
+ *  disk reads. The githubRemote invariant is read from the project itself. */
+export interface InvariantFacts {
+  hasBible: boolean      // docs/bible/ present (real bible — manifest sentinel)
+  hasWorkflow: boolean   // .github/workflows/ holds ≥1 workflow file
+}
+
 /**
  * Registry-level invariants auditor (bible §3): GitHub remote, docs/bible/,
- * .github/workflows/.
+ * .github/workflows/. PURE — like the other auditors it receives already-gathered
+ * facts (the two disk-presence booleans) and reads only plain fields off the
+ * project; it never touches the filesystem itself. Task 7's orchestration gathers
+ * the facts once (via hasBibleDir / hasWorkflowFile below) and feeds both the
+ * score inputs and this auditor, so there is a single source of truth and no
+ * redundant I/O.
  *
  * Scope decision (kept non-duplicative): auditInvariants reports only on the
- * *presence* of the three invariants — the githubRemote field plus the two
- * required directories on disk. It deliberately does NOT judge CI pass/fail or
- * bible staleness; those richer judgments belong to auditCi / auditBible.
- * It is acceptable that a missing workflow surfaces from both auditCi and
- * auditInvariants — they answer different questions (CI signal vs. invariant) —
- * but we avoid emitting two identical messages by phrasing them distinctly.
+ * *presence* of the three invariants. It deliberately does NOT judge CI pass/fail
+ * or bible staleness; those richer judgments belong to auditCi / auditBible. It is
+ * acceptable that a missing workflow surfaces from both auditCi and auditInvariants
+ * — they answer different questions (CI signal vs. invariant) — but we avoid
+ * emitting two identical messages by phrasing them distinctly.
  */
-export function auditInvariants(project: Project): Finding[] {
+export function auditInvariants(project: Project, facts: InvariantFacts): Finding[] {
   const findings: Finding[] = []
-  const root = project.localPath
   const bibleDir = project.bibleDir || 'docs/bible'
 
   if (!project.githubRemote) {
     findings.push({ severity: 'critical', area: 'invariants', message: 'no GitHub remote configured for project' })
   }
-  if (!hasBibleDir(root, bibleDir)) {
+  if (!facts.hasBible) {
     findings.push({ severity: 'critical', area: 'invariants', message: `missing bible invariant: ${bibleDir}/ not present` })
   }
-  if (!hasWorkflowFile(root)) {
+  if (!facts.hasWorkflow) {
     findings.push({ severity: 'critical', area: 'invariants', message: 'missing CI invariant: no workflow under .github/workflows' })
   }
   return findings
@@ -259,11 +280,13 @@ export function hasBibleDir(localPath: string, bibleDir: string): boolean {
  * Whole days since the last commit that touched <bibleDir>, via
  * `git log -1 --format=%ct -- <bibleDir>` (committer unix seconds) run in
  * localPath. Returns null if no commit touches the bible, or git is unavailable
- * / errors. Synchronous (execSync) to match the deterministic verification run.
+ * / errors. Uses execFileSync (no shell) so bibleDir is passed as a literal
+ * argv entry — no shell-quoting/injection concerns and correct on Windows where
+ * paths may contain spaces. Synchronous to match the deterministic verify run.
  */
 export function bibleFreshnessDays(localPath: string, bibleDir: string): number | null {
   try {
-    const out = execSync(`git log -1 --format=%ct -- ${JSON.stringify(bibleDir)}`, {
+    const out = execFileSync('git', ['log', '-1', '--format=%ct', '--', bibleDir], {
       cwd: localPath,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],

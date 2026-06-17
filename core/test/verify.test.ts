@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { execFileSync } from 'node:child_process'
 import type { Finding, Project, GithubStatus, CiRunInfo } from '@k/shared'
 import {
   computeHealthScore,
@@ -27,14 +28,20 @@ function ghStatus(ci: CiRunInfo[]): GithubStatus {
 }
 
 let runSeq = 0
+// Default createdAt is derived as a fixed base epoch + runSeq seconds so each
+// auto-generated run gets a distinct, always-valid ISO timestamp (newer = later
+// runSeq). Avoids the day-of-month overflow a `2026-06-${10+runSeq}` form hits
+// once runSeq exceeds 21.
+const RUN_BASE_MS = Date.parse('2026-06-10T12:00:00Z')
 function ciRun(conclusion: string | null, createdAt?: string): CiRunInfo {
+  const seq = ++runSeq
   return {
-    id: ++runSeq,
+    id: seq,
     workflow: 'CI',
     branch: 'main',
     status: conclusion == null ? 'in_progress' : 'completed',
     conclusion,
-    createdAt: createdAt ?? `2026-06-${String(10 + runSeq).padStart(2, '0')}T12:00:00Z`,
+    createdAt: createdAt ?? new Date(RUN_BASE_MS + seq * 1000).toISOString(),
   }
 }
 
@@ -121,14 +128,17 @@ describe('computeHealthScore', () => {
     expect(score).toBe(80)
   })
 
-  it('worst case = 0', () => {
-    const { score } = computeHealthScore({
+  it('floor case (declining coverage is the only non-zero component) → 10', () => {
+    // ci=0, coverage=10 (declining=0.5·20), bible=0, findings floored to 0.
+    // 'declining' is the lowest coverage multiplier, so this is the practical
+    // minimum — there is no coverage input that scores 0.
+    const { score, breakdown } = computeHealthScore({
       ci: 'failing',
       coverageTrend: 'declining',
       bibleFresh: false,
       findings: [finding('critical'), finding('critical')],
     })
-    // 0 + 10 + 0 + 0 = 10
+    expect(breakdown).toEqual({ ci: 0, coverage: 10, bible: 0, findings: 0 })
     expect(score).toBe(10)
   })
 })
@@ -175,6 +185,21 @@ describe('classifyCi', () => {
   it('ignores in-progress runs (conclusion null)', () => {
     const runs = [ciRun('success'), ciRun(null)]
     expect(classifyCi(ghStatus(runs), true)).toBe('passing')
+  })
+
+  it("ignores neutral conclusions — success + cancelled stays 'passing' (not flaky)", () => {
+    const runs = [ciRun('success'), ciRun('cancelled'), ciRun('skipped')]
+    expect(classifyCi(ghStatus(runs), true)).toBe('passing')
+  })
+
+  it("workflow with only neutral conclusions → 'none' (no decisive signal)", () => {
+    const runs = [ciRun('skipped'), ciRun('cancelled')]
+    expect(classifyCi(ghStatus(runs), true)).toBe('none')
+  })
+
+  it("decisive failure-class conclusions (timed_out) count as failure", () => {
+    expect(classifyCi(ghStatus([ciRun('timed_out')]), true)).toBe('failing')
+    expect(classifyCi(ghStatus([ciRun('success'), ciRun('timed_out')]), true)).toBe('flaky')
   })
 })
 
@@ -277,29 +302,42 @@ function makeProject(localPath: string, githubRemote?: string): Project {
 
 // ── auditInvariants ───────────────────────────────────────────────────────────
 
-describe('auditInvariants', () => {
-  it('missing githubRemote → critical (among others on a bare dir)', () => {
-    const tmp = makeTmp()
-    const f = auditInvariants(makeProject(tmp, undefined))
+describe('auditInvariants (pure — takes gathered facts)', () => {
+  const allPresent = { hasBible: true, hasWorkflow: true }
+
+  it('missing githubRemote → critical', () => {
+    const f = auditInvariants(makeProject('/x', undefined), allPresent)
     expect(f.some(x => x.area === 'invariants' && x.message.includes('GitHub remote'))).toBe(true)
   })
 
   it('present remote + bible + workflows → no findings', () => {
+    const f = auditInvariants(makeProject('/x', 'owner/repo'), allPresent)
+    expect(f).toEqual([])
+  })
+
+  it('present remote but both dirs missing → 2 critical invariant findings', () => {
+    const f = auditInvariants(makeProject('/x', 'owner/repo'), { hasBible: false, hasWorkflow: false })
+    expect(f).toHaveLength(2)
+    expect(f.every(x => x.severity === 'critical' && x.area === 'invariants')).toBe(true)
+  })
+
+  it('does NOT touch the filesystem — bogus localPath with all-present facts yields no findings', () => {
+    const f = auditInvariants(makeProject('/no/such/path/anywhere', 'owner/repo'), allPresent)
+    expect(f).toEqual([])
+  })
+
+  // Wiring check: the FS helpers (Task 7 gathers these) compose with the pure auditor.
+  it('composes with the fs helpers the orchestration uses', () => {
     const tmp = makeTmp()
     fs.mkdirSync(path.join(tmp, 'docs', 'bible'), { recursive: true })
     fs.writeFileSync(path.join(tmp, 'docs', 'bible', 'manifest.json'), '{}')
     fs.mkdirSync(path.join(tmp, '.github', 'workflows'), { recursive: true })
     fs.writeFileSync(path.join(tmp, '.github', 'workflows', 'ci.yml'), 'name: CI\n')
 
-    const f = auditInvariants(makeProject(tmp, 'owner/repo'))
-    expect(f).toEqual([])
-  })
-
-  it('present remote but missing dirs → 2 critical invariant findings', () => {
-    const tmp = makeTmp()
-    const f = auditInvariants(makeProject(tmp, 'owner/repo'))
-    expect(f).toHaveLength(2)
-    expect(f.every(x => x.severity === 'critical' && x.area === 'invariants')).toBe(true)
+    const project = makeProject(tmp, 'owner/repo')
+    const facts = { hasBible: hasBibleDir(tmp, project.bibleDir), hasWorkflow: hasWorkflowFile(tmp) }
+    expect(facts).toEqual({ hasBible: true, hasWorkflow: true })
+    expect(auditInvariants(project, facts)).toEqual([])
   })
 })
 
@@ -348,10 +386,54 @@ describe('hasBibleDir', () => {
 })
 
 describe('bibleFreshnessDays', () => {
-  // A real temp git repo is heavy; exercise the null/try-catch path against a
-  // non-git temp dir (git log fails → null).
   it('returns null when not a git repo (try/catch path)', () => {
     const tmp = makeTmp()
     expect(bibleFreshnessDays(tmp, 'docs/bible')).toBeNull()
   })
+
+  it('returns null when the repo has no commit touching the bible dir', () => {
+    const tmp = makeTmp()
+    initRepo(tmp)
+    commitFile(tmp, 'README.md', '# hi') // commit, but not under docs/bible
+    expect(bibleFreshnessDays(tmp, 'docs/bible')).toBeNull()
+  })
+
+  it('counts whole days from the last bible commit (today → 0)', () => {
+    const tmp = makeTmp()
+    initRepo(tmp)
+    commitFile(tmp, 'docs/bible/manifest.json', '{}')
+    expect(bibleFreshnessDays(tmp, 'docs/bible')).toBe(0)
+  })
+
+  it('computes the day delta from a backdated commit (≈40 days → stale)', () => {
+    const tmp = makeTmp()
+    initRepo(tmp)
+    const when = new Date(Date.now() - 40 * 86_400 * 1000).toISOString()
+    commitFile(tmp, 'docs/bible/manifest.json', '{}', when)
+    const days = bibleFreshnessDays(tmp, 'docs/bible')
+    expect(days).not.toBeNull()
+    // floor of (~40d minus a few ms of test runtime) → 39 or 40; either is "stale".
+    expect(days).toBeGreaterThanOrEqual(39)
+    expect(days).toBeLessThanOrEqual(40)
+  })
 })
+
+// ── git test helpers (local temp repos) ───────────────────────────────────────
+
+function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): void {
+  execFileSync('git', args, { cwd, stdio: 'ignore', env: { ...process.env, ...env } })
+}
+function initRepo(cwd: string): void {
+  git(cwd, ['init', '-q'])
+  git(cwd, ['config', 'user.email', 'test@example.com'])
+  git(cwd, ['config', 'user.name', 'Test'])
+  git(cwd, ['config', 'commit.gpgsign', 'false'])
+}
+function commitFile(cwd: string, rel: string, content: string, isoDate?: string): void {
+  const abs = path.join(cwd, ...rel.split('/'))
+  fs.mkdirSync(path.dirname(abs), { recursive: true })
+  fs.writeFileSync(abs, content)
+  git(cwd, ['add', rel])
+  const env = isoDate ? { GIT_AUTHOR_DATE: isoDate, GIT_COMMITTER_DATE: isoDate } : undefined
+  git(cwd, ['commit', '-q', '-m', `add ${rel}`], env)
+}
