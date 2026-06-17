@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-06-12
+updated: 2026-06-17
 ---
 
 ## Running locally
@@ -51,6 +51,18 @@ ENABLE_GITHUB_POLL=true               # set false to disable
 - The compiled HTML is self-contained — open it directly in a browser or via the dashboard Docs view.
 - Registered projects follow the same flow with `<repo>/docs/bible/`.
 
+## HTTP API surface (projects + verification + runs)
+
+Beyond the registry/metrics endpoints, the project + verification surface is:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/projects/:id/onboard` | scaffold the three §3 invariants (starter bible + CI) for whatever is missing; idempotent |
+| `POST /api/projects/:id/verify` | deterministic single-shot verification → `VerificationReport`. Optional body `{ deep?: boolean }`: `deep: true` also fire-and-forgets the Layer-2 `verify-project` agent run (the deterministic report is always returned immediately) |
+| `GET /api/projects/:id/verifications` | report history, newest first |
+| `GET /api/runs/:id/events/:seq/raw` | lazy per-event raw stream-json (404 on missing/null-raw seq, 400 on non-numeric) |
+| `GET /api/runs?status=&limit=` | server-side run filters (`status` validated; `limit` 1–500, default 100) |
+
 ## Key files
 
 | File | Purpose |
@@ -68,6 +80,9 @@ ENABLE_GITHUB_POLL=true               # set false to disable
 | `core/src/index.ts` | Fastify bootstrap + WS gateway |
 | `core/src/github.ts` | GitHubProvider — gh CLI, cache, poller |
 | `core/src/projects.ts` | project registry (register/clone) |
+| `core/src/scaffold.ts` | pure bible/CI scaffolders (idempotent, path-guarded) |
+| `core/src/onboard.ts` | enforce the 3 §3 project invariants (delegates to the scaffolders) |
+| `core/src/verify.ts` | health-score engine + auditors + `runVerification` orchestration |
 | `core/src/metrics.ts` | metrics summary + `buildTimeseries` (day × project\|model, top-8 + other) |
 | `artifacts/bible/` | this document's source |
 
@@ -82,6 +97,12 @@ main DDL block. Migrated DBs append columns at the end, so column **order** can
 differ from a fresh install — always reference columns by name. `migrate(d)` is
 exported so tests can run it against an old-schema temp DB. First boot after a
 new migration: run with the dev server stopped to avoid a concurrent-migration race.
+
+`verification_reports.score_breakdown` (TEXT, JSON) was added via one of these
+guarded idempotent ALTERs — it stores the four §5 score components (`ci`,
+`coverage`, `bible`, `findings`) so the Verification tab can render per-weight
+bars without recomputing. Older reports without the column still validate
+(the breakdown is optional on read).
 
 ## Continuous integration
 
