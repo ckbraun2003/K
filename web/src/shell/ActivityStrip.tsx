@@ -26,7 +26,7 @@ export default function ActivityStrip() {
   }, [qc])
 
   const active = runs.filter(r => r.status === 'running' || r.status === 'queued')
-  const lastDone = runs.find(r => r.status === 'done' || r.status === 'error' || r.status === 'killed')
+  const lastDone = runs.find(r => r.status === 'done' || r.status === 'error' || r.status === 'killed' || r.status === 'interrupted')
 
   return (
     <footer className="relative z-10 flex items-center gap-5 overflow-x-auto whitespace-nowrap border-t border-[var(--border)] bg-surface/60 px-4 py-1.5 text-xs backdrop-blur">

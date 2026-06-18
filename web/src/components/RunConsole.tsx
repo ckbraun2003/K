@@ -106,7 +106,7 @@ export default function RunConsole({ runId }: Props) {
           <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', {
             'bg-accent/15 text-[var(--accent-hover)] glow-live': run.status === 'running',
             'bg-green/15 text-[var(--green)]': run.status === 'done',
-            'bg-red/15 text-[var(--red)]': run.status === 'error',
+            'bg-red/15 text-[var(--red)]': run.status === 'error' || run.status === 'interrupted',
             'bg-amber/15 text-[var(--amber)]': run.status === 'queued',
             'bg-muted/15 text-[var(--muted)]': run.status === 'killed',
           })}>

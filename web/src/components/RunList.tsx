@@ -29,9 +29,9 @@ const STATUS_DOT: Record<string, string> = {
   interrupted: 'bg-[var(--red)]',
 }
 
-type FilterKey = 'all' | 'active' | 'done' | 'error' | 'killed'
+type FilterKey = 'all' | 'active' | 'done' | 'error' | 'killed' | 'interrupted'
 
-const FILTERS: FilterKey[] = ['all', 'active', 'done', 'error', 'killed']
+const FILTERS: FilterKey[] = ['all', 'active', 'done', 'error', 'killed', 'interrupted']
 
 function matchesFilter(run: Run, filter: FilterKey): boolean {
   if (filter === 'all') return true

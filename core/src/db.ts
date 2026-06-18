@@ -174,8 +174,11 @@ export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, cl
 
 // ─── Event helpers ───────────────────────────────────────────────────────────
 
+// OR IGNORE: the UNIQUE(run_id, seq) index (added in migrate) means a stray
+// duplicate seq silently drops instead of throwing into the live event-stream
+// handler and aborting the run.
 const insertEvent = db.prepare(`
-  INSERT INTO events (id, run_id, seq, type, ts, raw, text, tool, tokens_in, tokens_out, cost_usd)
+  INSERT OR IGNORE INTO events (id, run_id, seq, type, ts, raw, text, tool, tokens_in, tokens_out, cost_usd)
   VALUES (@id, @runId, @seq, @type, @ts, @raw, @text, @tool, @tokensIn, @tokensOut, @costUsd)
 `)
 
