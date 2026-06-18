@@ -3,6 +3,7 @@ import type { MetricsSummary, Project } from '@k/shared'
 import { api } from '../lib/api'
 import MetricCard from '../components/MetricCard'
 import ProjectCard from '../components/ProjectCard'
+import HomeFleetGraph from './HomeFleetGraph'
 import { navigate } from '../lib/route'
 
 export default function Home() {
@@ -57,6 +58,9 @@ export default function Home() {
           {projects.map(p => <ProjectCard key={p.id} project={p} />)}
         </div>
       )}
+
+      {/* Fleet Graph */}
+      <HomeFleetGraph projects={projects} />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, Project, GithubStatus, VerificationReport } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, Project, GithubStatus, VerificationReport, ProjectTask } from '@k/shared'
 
 const BASE = '/api'
 
@@ -13,10 +13,11 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   runs: {
-    list: (opts?: { status?: RunStatus; limit?: number }) => {
+    list: (opts?: { status?: RunStatus; limit?: number; projectId?: string }) => {
       const params = new URLSearchParams()
       if (opts?.status !== undefined) params.set('status', opts.status)
       if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
+      if (opts?.projectId !== undefined) params.set('projectId', opts.projectId)
       const qs = params.size > 0 ? `?${params.toString()}` : ''
       return req<Run[]>(`/runs${qs}`)
     },
@@ -38,6 +39,16 @@ export const api = {
   artifacts: {
     list: () => req<Omit<Artifact, 'md' | 'html'>[]>('/artifacts'),
     get: (slug: string) => req<Artifact>(`/artifacts/${slug}`),
+    save: (slug: string, body: { md: string; title?: string; phase?: string; status?: string; tags?: string[] }) =>
+      req<{ slug: string; updatedAt: number }>(`/artifacts/${slug}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    compileBible: () =>
+      req<{ htmlPath: string; sections: string[]; compiledAt: number }>('/bible/compile', {
+        method: 'POST',
+      }),
   },
   metrics: {
     summary: () => req<MetricsSummary>('/metrics/summary'),
@@ -60,5 +71,31 @@ export const api = {
         body: JSON.stringify(opts ?? {}),
       }),
     verifications: (id: string) => req<VerificationReport[]>(`/projects/${id}/verifications`),
+    tasks: {
+      list: (projectId: string) => req<ProjectTask[]>(`/projects/${projectId}/tasks`),
+      create: (projectId: string, title: string) =>
+        req<ProjectTask>(`/projects/${projectId}/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title }),
+        }),
+      updateStatus: (projectId: string, taskId: string, status: ProjectTask['status']) =>
+        req<ProjectTask>(`/projects/${projectId}/tasks/${taskId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        }),
+    },
+    graph: (id: string) =>
+      req<{ nodes: unknown[]; links: unknown[]; stale: boolean }>(`/projects/${id}/graph`),
+    createPr: (id: string, opts: { title: string; body: string; head: string; base: string }) =>
+      req<{ number: number; url: string; title: string; state: string }>(
+        `/projects/${id}/prs`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(opts),
+        },
+      ),
   },
 }

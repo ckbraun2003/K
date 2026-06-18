@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-06-10
+updated: 2026-06-18
 ---
 
 The dashboard is the operator's **source of truth** and is held to product quality, not internal-tool quality. IA: **Command Deck** (decision D-006, mockups approved 2026-06-10). Design language: **precision minimal** (decision D-007).
@@ -86,3 +86,45 @@ Command (⌘K) · Card · Tabs · Badge · Tooltip · Dialog (confirm-cards) · 
 ## Accessibility & quality bar
 
 Full keyboard navigation (sidebar `g` chords, `j/k` lists, ⌘K everything) · visible focus rings (accent) · WCAG AA contrast on all text · reduced-motion respects OS setting · 60fps graph interactions on a mid laptop; degrade node count before frame rate.
+
+## Phase G — Implemented (✓ complete 2026-06-18)
+
+All items below were delivered in Phase G (G-1 through G-6):
+
+### Project Workspace — 7-tab scaffold (G-1)
+
+- Hash-segment routing: `#/project/:id/tab` with `subParam` support in `route.ts`
+- Roving `tabIndex` keyboard navigation across all 7 tabs
+- Tab order: Overview · Knowledge Graph · Runs · Tasks · PRs & CI · Verification · Bible
+
+### Overview, Verification, Bible tabs (G-2)
+
+- **Overview tab**: health score breakdown, latest verification summary, recent runs, open PRs, bible freshness, quick actions
+- **Verification tab**: report timeline, findings list with severity badges, fixes applied, re-run button; fetches from `GET /api/projects/:id/verifications`
+- **Bible tab**: compiled bible rendered in an iframe; per-section edit modal (markdown) + recompile trigger via `POST /api/bible/compile`
+
+### Runs, Tasks, PRs & CI tabs (G-3)
+
+- **Runs tab**: project-scoped run list with live status indicators, run dispatch form, RunConsole embedded
+- **Tasks tab**: `project_tasks` table (SQLite, added in `db.ts`); CRUD via `GET/POST /api/projects/:id/tasks` and `PATCH /api/projects/:id/tasks/:taskId`; dispatch-agent-on-task shortcut
+- **PRs & CI tab**: open PRs with check status, diff links, Actions run history; PR creation modal (see Agent-opens-PR below)
+
+### Knowledge Graph tab + Fleet Graph (G-4)
+
+- **Knowledge Graph tab**: per-project ForceGraph2D rendering from `GET /api/projects/:id/graph` (reads `.gitnexus/graph.json`); node inspector right-panel on click showing symbol type and dispatch actions; stale-index banner when graph data is unavailable
+- **Fleet Graph**: project-nodes graph on Home stage, sized by activity and colored by health score; full-screen `/graph` route accessible via sidebar
+- **Graph API**: `GET /api/projects/:id/graph` returns `{ nodes, links, stale }` — normalizes GitNexus `graph.json` shape (supports both `edges` and `links` keys)
+
+### Agent-opens-PR (G-5)
+
+- **`createPR` backend** (`core/src/github.ts`): invokes `gh pr create` via `execa` with an argv array (never shell string — command injection safe); sanitizes `gh` stderr before surfacing errors; throws descriptive error on non-JSON stdout
+- **Route**: `POST /api/projects/:id/prs` — validates body via `CreatePrOptsSchema` (Zod); 400 if project has no `githubRemote`; 201 with `{ number, url, title, state }` on success
+- **PR modal in PRs & CI tab**: form for `title`, `body`, `head`, `base`; calls `api.projects.createPr()`; shows error toast on failure
+- **"Create PR from Run →" footer** in `RunConsole`: appears when run is terminal (`done`/`error`/`killed`/`interrupted`) and has an associated `projectId`; navigates to `#/project/:id/prs-ci`
+
+### G-6 close-out
+
+- `core/test/tasks-route.test.ts`: full CRUD coverage (GET 404/200, POST 400/201, PATCH 400/404/200, `completedAt` lifecycle)
+- `core/test/create-pr.test.ts`: `createPR` unit tests (happy path, non-JSON error, execa-throws error, argv-array guard) + route integration tests
+- Bible §06 and §07 updated to reflect Phase G completion
+- `.env.example` added to repo root with all documented environment variables
