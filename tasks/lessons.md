@@ -49,3 +49,12 @@ entries at session start before touching the same area.
 - **Windows case-insensitive gitignore** — **Pattern:** a `claude.md` ignore entry also
   matched the canonical `CLAUDE.md` on NTFS, making it un-committable. **Rule:** be precise
   with gitignore patterns on case-insensitive filesystems; verify with `git check-ignore`.
+
+- **`CLAUDE.md` is the GLOBAL harness prompt, not project docs** — **Pattern:** "make
+  CLAUDE.md the system prompt for the harness" was misread as "document the K project in
+  CLAUDE.md" — it was rewritten with K-specific repo map, pnpm commands, ports, and module
+  list. **Rule:** the root `CLAUDE.md` is the project-agnostic global ruleset shared by every
+  agent the harness runs (planning, delegation, verification, tone, must/must-not). Keep
+  project-specific facts (stack, run/test commands, module map) in that project's own bible /
+  `AGENTS.md`, never in the global prompt. When asked to edit a "system prompt," confirm
+  whether it is the global harness prompt or a single project's instructions before rewriting.
