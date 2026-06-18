@@ -14,7 +14,7 @@ export const DESTINATIONS: Destination[] = [
   { id: 'graph', icon: '◉', label: 'Fleet Graph · Phase 2', enabled: false },
   { id: 'runs', icon: '▶', label: 'Runs', enabled: true },
   { id: 'tasks', icon: '✓', label: 'Tasks · Phase 1', enabled: false },
-  { id: 'skills', icon: '⚒', label: 'Skills · Phase 3', enabled: false },
+  { id: 'skills', icon: '⚒', label: 'Skills', enabled: true },
   { id: 'metrics', icon: '∿', label: 'Metrics', enabled: true },
   { id: 'docs', icon: '▤', label: 'Docs', enabled: true },
 ]

@@ -1,0 +1,87 @@
+import type { FastifyInstance } from 'fastify'
+import { CreateSkillSchema } from '@k/shared'
+import { skillsDb } from '../db.js'
+import { listSkills, registerSkill, rowToSkill, triggerSkill } from '../skills.js'
+
+export async function skillsRoutes(app: FastifyInstance) {
+  // GET /api/skills — list all skills
+  app.get('/api/skills', async (_req, reply) => {
+    return reply.send(listSkills())
+  })
+
+  // POST /api/skills — create a skill
+  app.post('/api/skills', async (req, reply) => {
+    const parsed = CreateSkillSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    const existing = skillsDb.getSkillByName.get(parsed.data.name)
+    if (existing) {
+      return reply.status(409).send({ error: `a skill named '${parsed.data.name}' already exists` })
+    }
+    const skill = registerSkill(parsed.data)
+    return reply.status(201).send(skill)
+  })
+
+  // PATCH /api/skills/:id — update enabled flag and/or schedule/eventTrigger
+  app.patch<{ Params: { id: string } }>('/api/skills/:id', async (req, reply) => {
+    const row = skillsDb.getSkill.get(req.params.id)
+    if (!row) return reply.status(404).send({ error: 'not found' })
+
+    const body = req.body as Record<string, unknown>
+
+    if (body.enabled !== undefined) {
+      skillsDb.updateSkillEnabled.run(body.enabled ? 1 : 0, req.params.id)
+    }
+    if (body.schedule !== undefined || body.eventTrigger !== undefined) {
+      const current = rowToSkill(row as Record<string, unknown>)
+      skillsDb.updateSkillSchedule.run(
+        body.schedule !== undefined ? (body.schedule as string | null) : current.schedule ?? null,
+        body.eventTrigger !== undefined ? (body.eventTrigger as string | null) : current.eventTrigger ?? null,
+        req.params.id,
+      )
+    }
+
+    const updated = skillsDb.getSkill.get(req.params.id) as Record<string, unknown>
+    return reply.send(rowToSkill(updated))
+  })
+
+  // DELETE /api/skills/:id — remove a skill (204 no content)
+  app.delete<{ Params: { id: string } }>('/api/skills/:id', async (req, reply) => {
+    const row = skillsDb.getSkill.get(req.params.id)
+    if (!row) return reply.status(404).send({ error: 'not found' })
+    skillsDb.deleteSkill.run(req.params.id)
+    return reply.status(204).send()
+  })
+
+  // POST /api/skills/:id/trigger — manual trigger (202 + { skillRunId, runId })
+  app.post<{ Params: { id: string } }>('/api/skills/:id/trigger', async (req, reply) => {
+    const row = skillsDb.getSkill.get(req.params.id)
+    if (!row) return reply.status(404).send({ error: 'not found' })
+    try {
+      const result = await triggerSkill(req.params.id, 'manual')
+      return reply.status(202).send(result)
+    } catch (e) {
+      req.log.error(e)
+      return reply.status(500).send({ error: 'trigger failed' })
+    }
+  })
+
+  // GET /api/skills/:id/runs — list recent skill_runs
+  app.get<{ Params: { id: string } }>('/api/skills/:id/runs', async (req, reply) => {
+    const row = skillsDb.getSkill.get(req.params.id)
+    if (!row) return reply.status(404).send({ error: 'not found' })
+    const runs = skillsDb.listSkillRuns.all(req.params.id) as Record<string, unknown>[]
+    return reply.send(
+      runs.map(r => ({
+        id: String(r.id),
+        skillId: String(r.skillId),
+        runId: r.runId != null ? String(r.runId) : null,
+        triggeredBy: String(r.triggeredBy),
+        startedAt: Number(r.startedAt),
+        completedAt: r.completedAt != null ? Number(r.completedAt) : null,
+        status: String(r.status),
+      })),
+    )
+  })
+}

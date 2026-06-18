@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, Project, GithubStatus, VerificationReport, ProjectTask } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill } from '@k/shared'
 
 const BASE = '/api'
 
@@ -97,5 +97,34 @@ export const api = {
           body: JSON.stringify(opts),
         },
       ),
+  },
+  skills: {
+    list: () => req<Skill[]>('/skills'),
+    create: (body: CreateSkill) =>
+      req<Skill>('/skills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    toggle: (id: string, enabled: boolean) =>
+      req<Skill>(`/skills/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      }),
+    delete: (id: string) =>
+      req<void>(`/skills/${id}`, { method: 'DELETE' }),
+    trigger: (id: string) =>
+      req<{ skillRunId: string; runId: string }>(`/skills/${id}/trigger`, { method: 'POST' }),
+    runs: (id: string) =>
+      req<Array<{
+        id: string
+        skillId: string
+        runId: string | null
+        triggeredBy: string
+        startedAt: number
+        completedAt: number | null
+        status: string
+      }>>(`/skills/${id}/runs`),
   },
 }

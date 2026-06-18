@@ -17,6 +17,8 @@ import { runsRoutes } from './routes/runs.js'
 import { artifactsRoutes } from './routes/artifacts.js'
 import { metricsRoutes } from './routes/metrics.js'
 import { projectsRoutes } from './routes/projects.js'
+import { skillsRoutes } from './routes/skills.js'
+import { startEventListener, startScheduler } from './skills.js'
 import { compileBible } from './bible.js'
 import { reconcileOnBoot } from './supervisor.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
@@ -67,6 +69,7 @@ export async function buildApp() {
   await app.register(artifactsRoutes)
   await app.register(metricsRoutes)
   await app.register(projectsRoutes)
+  await app.register(skillsRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 
@@ -131,6 +134,8 @@ async function start() {
 
   await app.listen({ port: PORT, host: HOST })
   startGithubPoller()
+  startEventListener()
+  startScheduler()
   console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
   console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)
   console.log(`   Bearer token       → ${BEARER_TOKEN}\n`)

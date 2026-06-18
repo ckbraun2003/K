@@ -247,3 +247,30 @@ export const CreatePrOptsSchema = z.object({
   base: z.string().min(1).max(255),
 })
 export type CreatePrOpts = z.infer<typeof CreatePrOptsSchema>
+
+// ─── Skill/Hook/Workflow Registry ────────────────────────────────────────────
+
+export const SkillSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional(),
+  type: z.enum(['skill', 'hook', 'workflow']),
+  source: z.string().min(1).max(2000),
+  triggerType: z.enum(['manual', 'schedule', 'event']),
+  schedule: z.string().nullable().optional(),
+  eventTrigger: z.string().nullable().optional(),
+  enabled: z.boolean(),
+  createdAt: z.number(),
+})
+export type Skill = z.infer<typeof SkillSchema>
+
+export const CreateSkillSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional(),
+  type: z.enum(['skill', 'hook', 'workflow']),
+  source: z.string().min(1).max(2000),
+  triggerType: z.enum(['manual', 'schedule', 'event']),
+  schedule: z.string().nullable().optional(),
+  eventTrigger: z.string().nullable().optional(),
+})
+export type CreateSkill = z.infer<typeof CreateSkillSchema>

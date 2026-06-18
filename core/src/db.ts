@@ -98,6 +98,29 @@ db.exec(`
     completed_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(project_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS skills (
+    id           TEXT PRIMARY KEY,
+    name         TEXT NOT NULL UNIQUE,
+    description  TEXT,
+    type         TEXT NOT NULL CHECK(type IN ('skill','hook','workflow')),
+    source       TEXT NOT NULL,
+    triggerType  TEXT NOT NULL CHECK(triggerType IN ('manual','schedule','event')),
+    schedule     TEXT,
+    eventTrigger TEXT,
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    createdAt    INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS skill_runs (
+    id          TEXT PRIMARY KEY,
+    skillId     TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    runId       TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    triggeredBy TEXT NOT NULL,
+    startedAt   INTEGER NOT NULL,
+    completedAt INTEGER,
+    status      TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed'))
+  );
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -319,3 +342,48 @@ const upsertGithubCache = db.prepare(`
 const getGithubCache = db.prepare(`SELECT * FROM github_cache WHERE project_id = ? AND kind = ?`)
 
 export const githubDb = { upsertGithubCache, getGithubCache }
+
+// ─── Skills helpers ──────────────────────────────────────────────────────────
+
+const insertSkill = db.prepare(`
+  INSERT INTO skills (id, name, description, type, source, triggerType, schedule, eventTrigger, enabled, createdAt)
+  VALUES (@id, @name, @description, @type, @source, @triggerType, @schedule, @eventTrigger, @enabled, @createdAt)
+`)
+
+const listSkills = db.prepare(`SELECT * FROM skills ORDER BY createdAt DESC`)
+
+const getSkill = db.prepare(`SELECT * FROM skills WHERE id = ?`)
+
+const getSkillByName = db.prepare(`SELECT * FROM skills WHERE name = ?`)
+
+const updateSkillEnabled = db.prepare(`UPDATE skills SET enabled = ? WHERE id = ?`)
+
+const updateSkillSchedule = db.prepare(`UPDATE skills SET schedule = ?, eventTrigger = ? WHERE id = ?`)
+
+const deleteSkill = db.prepare(`DELETE FROM skills WHERE id = ?`)
+
+const insertSkillRun = db.prepare(`
+  INSERT INTO skill_runs (id, skillId, runId, triggeredBy, startedAt, completedAt, status)
+  VALUES (@id, @skillId, @runId, @triggeredBy, @startedAt, @completedAt, @status)
+`)
+
+const listSkillRuns = db.prepare(`
+  SELECT * FROM skill_runs WHERE skillId = ? ORDER BY startedAt DESC LIMIT 20
+`)
+
+const updateSkillRunStatus = db.prepare(`
+  UPDATE skill_runs SET status = ?, completedAt = ? WHERE id = ?
+`)
+
+export const skillsDb = {
+  insertSkill,
+  listSkills,
+  getSkill,
+  getSkillByName,
+  updateSkillEnabled,
+  updateSkillSchedule,
+  deleteSkill,
+  insertSkillRun,
+  listSkillRuns,
+  updateSkillRunStatus,
+}
