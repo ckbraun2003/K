@@ -3,11 +3,12 @@ import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
 import path from 'path'
 import { validateRegistration, registerProject, listProjects, getProject, ClientError, type RegistrationBody } from '../projects.js'
-import { getGithubStatus } from '../github.js'
+import { getGithubStatus, createPR } from '../github.js'
 import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { verificationDb, rowToReport, projectTasksDb } from '../db.js'
+import { CreatePrOptsSchema } from '@k/shared'
 
 // Natural-language prompt that triggers the Layer-2 verify-project skill.
 const DEEP_VERIFY_PROMPT =
@@ -155,6 +156,22 @@ export async function projectsRoutes(app: FastifyInstance) {
       return reply.send(rowToTask({ ...row, status, completed_at: completedAt }))
     }
   )
+
+  // POST /api/projects/:id/prs — create a GitHub PR via gh CLI
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/projects/:id/prs', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    if (!project.githubRemote) return reply.status(400).send({ error: 'project has no GitHub remote' })
+    const parsed = CreatePrOptsSchema.safeParse(req.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+    try {
+      const pr = await createPR(project.githubRemote, parsed.data)
+      return reply.status(201).send(pr)
+    } catch (e) {
+      req.log.error(e)
+      return reply.status(500).send({ error: e instanceof Error ? e.message : 'gh pr create failed' })
+    }
+  })
 
   // GET /api/projects/:id/graph — knowledge graph data from .gitnexus/graph.json
   app.get<{ Params: { id: string } }>('/api/projects/:id/graph', async (req, reply) => {

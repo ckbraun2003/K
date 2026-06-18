@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import type { Run, AgentEvent, WsMessage } from '@k/shared'
 import { api } from '../lib/api'
+import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
 import RunTimeline from './RunTimeline'
@@ -166,6 +167,19 @@ export default function RunConsole({ runId }: Props) {
           <div ref={bottomRef} />
         </div>
       )}
+
+      {/* Footer: Create PR shortcut — only shown for terminal runs associated with a project */}
+      {(run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted') &&
+        run.projectId && (
+          <div className="flex-shrink-0 border-t border-[var(--border)] px-5 py-2 flex justify-end">
+            <button
+              onClick={() => navigate('project', run.projectId!, 'prs-ci')}
+              className="text-xs text-[var(--muted)] hover:text-[var(--text)] border border-[var(--border)] rounded px-3 py-1 transition-colors hover:border-[var(--accent)] hover:text-[var(--accent-hover)]"
+            >
+              Create PR from Run →
+            </button>
+          </div>
+        )}
     </div>
   )
 }

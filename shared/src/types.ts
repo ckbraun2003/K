@@ -237,3 +237,13 @@ export const ProjectTaskSchema = z.object({
   completedAt: z.number().nullable().optional(),
 })
 export type ProjectTask = z.infer<typeof ProjectTaskSchema>
+
+// ─── PR creation ─────────────────────────────────────────────────────────────
+
+export const CreatePrOptsSchema = z.object({
+  title: z.string().min(1).max(255),
+  body: z.string().max(65535).default(''),
+  head: z.string().min(1).max(255),
+  base: z.string().min(1).max(255),
+})
+export type CreatePrOpts = z.infer<typeof CreatePrOptsSchema>

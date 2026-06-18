@@ -97,6 +97,53 @@ async function pollOnce(fetch: typeof fetchGithubStatus = fetchGithubStatus): Pr
 // (startGithubPoller) keep using the zero-arg form. Non-behavioral.
 export const __pollOnce = pollOnce
 
+// ─── createPR ────────────────────────────────────────────────────────────────
+
+export interface CreatePrOpts {
+  title: string
+  body: string
+  head: string
+  base: string
+}
+
+export async function createPR(
+  remote: string,
+  opts: CreatePrOpts,
+): Promise<{ number: number; url: string; title: string; state: string }> {
+  let stdout: string
+  let stderr: string
+  try {
+    const result = await execa(
+      'gh',
+      [
+        'pr', 'create',
+        '--repo', remote,
+        '--title', opts.title,
+        '--body', opts.body,
+        '--head', opts.head,
+        '--base', opts.base,
+        '--json', 'number,url,title,state',
+      ],
+      { timeout: 60_000 },
+    )
+    stdout = result.stdout
+    stderr = result.stderr
+  } catch (e) {
+    const err = e as { stderr?: string; exitCode?: number }
+    // Sanitize gh stderr — it may contain repo URLs, branch names, or auth hints
+    const ghMsg = err.stderr?.split('\n').find(l => l.trim() && !l.includes('http'))?.trim()
+    throw new Error(ghMsg || 'gh pr create failed')
+  }
+  if (!stdout) throw new Error('gh pr create produced no output')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    throw new Error(`gh pr create returned unexpected output: ${stdout.slice(0, 120)}`)
+  }
+  return parsed as { number: number; url: string; title: string; state: string }
+}
+
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 export function startGithubPoller(): void {

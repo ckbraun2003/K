@@ -88,5 +88,14 @@ export const api = {
     },
     graph: (id: string) =>
       req<{ nodes: unknown[]; links: unknown[]; stale: boolean }>(`/projects/${id}/graph`),
+    createPr: (id: string, opts: { title: string; body: string; head: string; base: string }) =>
+      req<{ number: number; url: string; title: string; state: string }>(
+        `/projects/${id}/prs`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(opts),
+        },
+      ),
   },
 }

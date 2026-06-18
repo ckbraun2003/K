@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { GithubStatus, PrInfo, CiRunInfo } from '@k/shared'
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
@@ -90,12 +91,38 @@ function CiRow({ run }: { run: CiRunInfo }) {
   )
 }
 
+const DEFAULT_FORM = { title: '', body: '', head: '', base: 'main' }
+
 export default function PrsCiTab({ projectId }: Props) {
+  const qc = useQueryClient()
+  const [showModal, setShowModal] = useState(false)
+  const [prForm, setPrForm] = useState<{ title: string; body: string; head: string; base: string }>(DEFAULT_FORM)
+  const [prUrl, setPrUrl] = useState<string | null>(null)
+  const [prNumber, setPrNumber] = useState<number | null>(null)
+
   const { data: github, isLoading, error } = useQuery<GithubStatus>({
     queryKey: ['github', projectId],
     queryFn: () => api.projects.github(projectId),
     refetchInterval: 60_000,
   })
+
+  const createPrMutation = useMutation({
+    mutationFn: () => api.projects.createPr(projectId, prForm),
+    onSuccess: (pr) => {
+      void qc.invalidateQueries({ queryKey: ['github', projectId] })
+      setPrUrl(pr.url)
+      setPrNumber(pr.number)
+      setShowModal(false)
+      setPrForm(DEFAULT_FORM)
+    },
+  })
+
+  useEffect(() => {
+    if (!showModal) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowModal(false) }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [showModal])
 
   const openPrs = github?.prs.filter(p => p.state === 'OPEN') ?? []
   const ciRuns = github?.ci ?? []
@@ -106,9 +133,8 @@ export default function PrsCiTab({ projectId }: Props) {
       <div className="flex-shrink-0 px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
-            disabled
-            title="PR creation coming in G-5"
-            className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] opacity-40 cursor-not-allowed"
+            onClick={() => { setPrForm(DEFAULT_FORM); createPrMutation.reset(); setShowModal(true) }}
+            className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:border-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
           >
             + Open PR
           </button>
@@ -123,6 +149,28 @@ export default function PrsCiTab({ projectId }: Props) {
             : 'Never fetched'}
         </span>
       </div>
+
+      {/* Success banner */}
+      {prUrl != null && prNumber != null && (
+        <div className="flex-shrink-0 px-4 py-2 bg-[var(--surface)] border-b border-[var(--border)] text-xs text-[var(--text)] flex items-center gap-2">
+          <span className="text-[var(--green)]">PR created:</span>
+          <a
+            href={prUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[var(--accent-hover)] underline underline-offset-2 hover:opacity-80 transition-opacity"
+          >
+            #{prNumber}
+          </a>
+          <button
+            onClick={() => { setPrUrl(null); setPrNumber(null) }}
+            className="ml-auto text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+            aria-label="Dismiss"
+          >
+            x
+          </button>
+        </div>
+      )}
 
       {isLoading && (
         <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted)]">
@@ -166,6 +214,105 @@ export default function PrsCiTab({ projectId }: Props) {
             )}
           </div>
         </>
+      )}
+
+      {/* Create PR Modal */}
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={e => { if (e.target === e.currentTarget) setShowModal(false) }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--bg)] shadow-2xl p-6 flex flex-col gap-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-title"
+          >
+            <h2 id="modal-title" className="text-sm font-semibold text-[var(--text)]">Open Pull Request</h2>
+
+            {/* Title */}
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-[var(--muted)]">Title</span>
+              <input
+                type="text"
+                value={prForm.title}
+                onChange={e => setPrForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="feat: my change"
+                maxLength={255}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+              />
+            </label>
+
+            {/* Description */}
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-[var(--muted)]">Description</span>
+              <textarea
+                value={prForm.body}
+                onChange={e => setPrForm(f => ({ ...f, body: e.target.value }))}
+                rows={6}
+                maxLength={65535}
+                placeholder="What does this PR do?"
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--accent)] transition-colors resize-y"
+              />
+            </label>
+
+            {/* Head branch */}
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-[var(--muted)]">Head branch</span>
+              <input
+                type="text"
+                value={prForm.head}
+                onChange={e => setPrForm(f => ({ ...f, head: e.target.value }))}
+                placeholder="feat/my-branch"
+                maxLength={255}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+              />
+            </label>
+
+            {/* Base branch */}
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-[var(--muted)]">Base branch</span>
+              <input
+                type="text"
+                value={prForm.base}
+                onChange={e => setPrForm(f => ({ ...f, base: e.target.value }))}
+                placeholder="main"
+                maxLength={255}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+              />
+            </label>
+
+            {/* Mutation error */}
+            {createPrMutation.isError && (
+              <p className="text-xs text-[var(--red)]">
+                {createPrMutation.error instanceof Error
+                  ? createPrMutation.error.message
+                  : 'Failed to create PR'}
+              </p>
+            )}
+
+            {/* Buttons */}
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                onClick={() => setShowModal(false)}
+                disabled={createPrMutation.isPending}
+                className="rounded-lg border border-[var(--border)] px-4 py-2 text-xs text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--text)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => createPrMutation.mutate()}
+                disabled={createPrMutation.isPending || !prForm.title.trim() || !prForm.head.trim() || !prForm.base.trim()}
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {createPrMutation.isPending && (
+                  <span className="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" aria-hidden />
+                )}
+                Create PR
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
