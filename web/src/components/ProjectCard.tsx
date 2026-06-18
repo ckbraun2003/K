@@ -24,14 +24,15 @@ export default function ProjectCard({ project }: { project: Project }) {
   const openPrs = gh?.prs.filter(p => p.state === 'OPEN').length ?? 0
   const lowHealth = project.healthScore != null && project.healthScore < LOW_HEALTH_THRESHOLD
   const attention = ci === 'failing' || lowHealth
+  const goWorkspace = () => navigate('project', project.id)
   const goVerify = () => navigate('verify', project.id)
 
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={goVerify}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goVerify() } }}
+      onClick={goWorkspace}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goWorkspace() } }}
       className={cn(
         'card-lift cursor-pointer rounded-lg border bg-[var(--surface)] p-4',
         attention ? 'border-amber/40' : 'border-[var(--border)]'

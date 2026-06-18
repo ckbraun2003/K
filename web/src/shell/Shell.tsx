@@ -10,6 +10,7 @@ import DocsPage from '../pages/DocsPage'
 import ProjectsPage from '../pages/ProjectsPage'
 import MetricsPage from '../pages/MetricsPage'
 import ProjectVerification from '../pages/ProjectVerification'
+import ProjectWorkspace from '../pages/ProjectWorkspace'
 import { useHashRoute, navigate } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
 
@@ -75,6 +76,7 @@ export default function Shell() {
             {route.view === 'projects' && <ProjectsPage />}
             {route.view === 'metrics' && <MetricsPage />}
             {route.view === 'verify' && <ProjectVerification projectId={route.param} />}
+            {route.view === 'project' && <ProjectWorkspace projectId={route.param} tab={route.subParam} />}
           </motion.div>
         </AnimatePresence>
       </main>
