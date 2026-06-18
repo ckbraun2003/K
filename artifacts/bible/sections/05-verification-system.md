@@ -2,7 +2,7 @@
 title: Verification System
 icon: "✓"
 status: active
-updated: 2026-06-17
+updated: 2026-06-18
 ---
 
 Verification is **two-layer** (decision D-004): machines check what machines are good at; agents judge what requires judgment.
@@ -84,5 +84,44 @@ When a project has **no workflow**, verification scaffolds a starter `.github/wo
 `POST /api/projects/:id/verify` with body `{ "deep": true }` returns the deterministic report immediately (unchanged shape) **and** additionally dispatches the `verify-project` skill as a supervised, fire-and-forget run (the four-agent team — CI auditor, test-coverage scout, PR reviewer, doc-freshness checker) scoped to the project. Its judgment findings surface as a **normal run console**, the same place any supervised run appears.
 
 > **Deferred:** wiring the agent's structured output back into a persisted `VerificationReport` (so judgment findings re-score the project). This milestone the **deterministic engine owns the score and the report**; the skill's findings are read from the run console.
+
+## Phase 3 — skill testing & routing outcomes
+
+Verification extends in Phase 3 from *projects* to the harness's own *skills* and *routing*.
+
+### Skill testing (eval-harness)
+
+Skills in the registry (the Phase-3 Skill/Hook/Workflow registry — see Roadmap §07) can regress
+silently. A **skill test** dispatches a
+supervised run that invokes the external `everything-claude-code:eval-harness` skill against a
+target skill's `source`, captures a pass/fail outcome, and compares it to that skill's prior
+baseline. The harness does not reimplement evaluation — it reuses the eval-harness skill behind a
+thin native layer.
+
+```ts
+SkillEval {
+  id: uuid
+  skillId: uuid
+  runId: uuid | null       // the supervised eval run
+  status: 'pass' | 'fail'
+  regression: boolean      // was-pass, now-fail vs. the prior baseline
+  createdAt: number
+}
+```
+
+- Persisted in the `skill_evals` table; one row per test.
+- `POST /api/skills/:id/test` dispatches the eval run; `GET /api/skills/:id/evals` returns history.
+- A **regression** (the previous eval passed, this one failed) is flagged and surfaced as a badge
+  on the Skills page. If the eval run can't be dispatched the call degrades cleanly — no crash.
+
+### Routing outcomes (routing dashboard)
+
+Every run already records its provider, model, cost, tokens, and status. The **routing dashboard**
+aggregates that run-outcome data — cost, latency, and success rate by provider+model (and task
+shape) — so the operator can see where spend goes and whether cheaper routing is paying off. The
+same aggregates feed the `ModelRouter`'s cost-aware decisions (section "Architecture"). The view
+reuses the existing stacked-SVG charts and `buildTimeseries`, and renders a sane empty state
+before any runs exist. It is read-only insight today; **learned/automatic routing tuning is a
+Phase 5 increment.**
 
 <!-- @live:recent-runs -->

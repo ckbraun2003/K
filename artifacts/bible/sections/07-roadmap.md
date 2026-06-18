@@ -35,10 +35,11 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 - [x] Metrics summary endpoint + dashboard metrics row
 - [x] Token time-series charts (per day/project/model) — stacked SVG, top-8 + other
 - [x] Full run event timeline (replayable from SQLite via `?raw=1`)
-- [ ] Web terminal (xterm.js + node-pty) — *deferred to Phase 3 (Automation & Skills)*
-- [ ] Structured task/goal records (+ optional GitHub Issues sync) — *deferred to Phase 3; depends on the GitHubProvider issue-sync methods (planned, not yet implemented — see §4)*
 - [x] Run list kill switch, status filters, cost totals
-- [ ] Auth hardening (passkey/TOTP replacing bearer token) — *deferred to Phase 4 (Multi-Device / remote-access hardening)*
+
+**Deferred out of Phase 1** (re-homed to their target phases so this phase reflects only its
+delivered scope): web terminal → **Phase 3 (3-6)**; structured task/goal records + GitHub Issues
+sync → **Phase 3 (3-7)**; auth hardening (passkey/TOTP) → **Phase 4** (remote-access hardening).
 
 ## Phase G — Command Deck + Knowledge + Verification *(✓ complete 2026-06-18)*
 
@@ -62,10 +63,37 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 
 ## Phase 3 — Automation & Skills *(current)*
 
-- [x] Skill/hook/workflow registry with scheduled + event triggers
-- [ ] Model router live — Ollama integration, cost-aware routing
-- [ ] Skill testing via eval-harness (pass/fail + regression)
-- [ ] Run-outcome data → routing improvement dashboard
+> Skills run themselves on schedules and events; the model router goes live with cost-aware
+> routing; skills are tested for regressions; and run-outcome data becomes visible and
+> actionable. Waves 3-6 and 3-7 are the Phase-1 deferrals, re-homed here.
+
+- [x] **3-1 — Skill/Hook/Workflow Registry.** `skills` + `skill_runs` tables, `skills.ts`,
+  REST routes, `SkillsPage`, cron scheduler + event listener, boundary validation.
+  *Done — CRUD plus manual / schedule / event triggers dispatch runs; invalid cron or
+  trigger-field mismatch is rejected with 400 at the API boundary.*
+- [ ] **3-2 — Ollama provider + cost-aware routing.** Replace the `ollamaProvider` stub; extend
+  `route()` with task hints + run-outcome data + an Ollama reachability check.
+  *Accept when: unit tests pass with no live Ollama; `route()` returns claude when
+  `ENABLE_OLLAMA` is unset; an unreachable/absent Ollama falls back to claude with a warning and
+  never fails a run; the supervisor needs no edits.*
+- [ ] **3-3 — Skill testing via eval-harness.** Reuse `everything-claude-code:eval-harness`
+  behind a thin native layer; `skill_evals` table; `POST /api/skills/:id/test` + `GET …/evals`.
+  *Accept when: each test records pass/fail; a regression (was-pass, now-fail vs the prior
+  baseline) is detected and surfaced on `SkillsPage`; a non-dispatchable eval degrades cleanly.*
+- [ ] **3-4 — Routing improvement dashboard.** Backend aggregation of cost / latency / success
+  by provider+model+task; a `RoutingPage` with an outcome table, trend charts, and a plain-
+  language recommendation. *Accept when: the dashboard renders live aggregates and a sane empty
+  state, reusing the stacked-SVG chart, `buildTimeseries`, and the design tokens.*
+- [ ] **3-6 — Web terminal** *(re-homed from Phase 1).* `node-pty` session over the WS gateway,
+  auth-guarded, cleaned up on disconnect; an xterm.js terminal in the workspace. *Accept when:
+  spawn/echo/exit works and cleans up; an unsupported/absent pty degrades gracefully; the WS
+  upgrade is auth-guarded. Feature-flag-isolate if `node-pty` destabilizes Windows CI.*
+- [ ] **3-7 — Structured task/goal records + GitHub Issues sync** *(re-homed from Phase 1).*
+  Implement `GitHubProvider.syncIssues` on the existing `project_tasks` model; add a Tasks-tab
+  sync affordance. *Accept when: issue↔task mapping is correct with a mocked `gh`; an absent
+  `gh` degrades (no crash), matching the PR/CI poller posture.*
+- [ ] **3-5 — Phase 3 close-out.** Finalize these sections + roadmap progress, capture lessons,
+  run the whole-implementation review and full e2e verification, open the PR, merge on green CI.
 
 ## Phase 4 — Multi-Device
 
