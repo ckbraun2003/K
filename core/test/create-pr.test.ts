@@ -27,27 +27,31 @@ describe('createPR — unit (execa mocked)', () => {
     mockExeca.mockReset()
   })
 
-  it('happy path: parses the gh JSON output and returns PR fields', async () => {
-    const prPayload = { number: 42, url: 'https://github.com/foo/bar/pull/42', title: 'feat: test', state: 'open' }
+  it('happy path: parses the PR URL from stdout and returns PR fields', async () => {
     mockExeca.mockResolvedValueOnce({
-      stdout: JSON.stringify(prPayload),
+      stdout: 'https://github.com/acme/widgets/pull/42\n',
       stderr: '',
     })
 
     const { createPR } = await import('../src/github.js')
-    const result = await createPR('foo/bar', {
+    const result = await createPR('acme/widgets', {
       title: 'feat: test',
       body: '',
       head: 'feat/test',
       base: 'main',
     })
 
-    expect(result).toEqual(prPayload)
+    expect(result).toEqual({
+      number: 42,
+      url: 'https://github.com/acme/widgets/pull/42',
+      title: 'feat: test',
+      state: 'open',
+    })
   })
 
-  it('execa is called with an argv array (not a shell string) — command injection guard', async () => {
+  it('execa is called with an argv array (not a shell string), without --json — command injection guard', async () => {
     mockExeca.mockResolvedValueOnce({
-      stdout: JSON.stringify({ number: 1, url: 'u', title: 't', state: 'open' }),
+      stdout: 'https://github.com/owner/repo/pull/1\n',
       stderr: '',
     })
 
@@ -61,28 +65,30 @@ describe('createPR — unit (execa mocked)', () => {
 
     // Verify execa was called with a command string and an array as the second arg
     expect(mockExeca).toHaveBeenCalled()
-    const [_binary, args] = mockExeca.mock.calls[mockExeca.mock.calls.length - 1] as [string, string[], unknown]
+    const [_binary, args] = (mockExeca.mock.lastCall ?? []) as [string, string[], unknown]
     expect(Array.isArray(args)).toBe(true)
     // The title should appear as a discrete array element, not shell-interpolated
     expect(args).toContain('test')
+    // `gh pr create` does NOT support --json — it must not be passed
+    expect(args).not.toContain('--json')
   })
 
-  it('non-JSON stdout: throws a descriptive error (not SyntaxError)', async () => {
+  it('stdout without a PR URL: throws a descriptive error', async () => {
     mockExeca.mockResolvedValueOnce({
-      stdout: 'not-json-output',
+      stdout: 'Warning: something\n',
       stderr: '',
     })
 
     const { createPR } = await import('../src/github.js')
     await expect(
       createPR('foo/bar', { title: 'x', body: '', head: 'feat/x', base: 'main' })
-    ).rejects.toThrow(/gh pr create returned unexpected output/)
+    ).rejects.toThrow(/no PR URL/)
   })
 
-  it('execa throws: throws a sanitized error (no raw stderr dump)', async () => {
+  it('execa throws: throws a sanitized error (URLs stripped, real text kept)', async () => {
     mockExeca.mockRejectedValueOnce(
       Object.assign(new Error('execa error'), {
-        stderr: 'error: authentication required\nhttps://github.com/login/oauth/authorize?...',
+        stderr: 'failed: see https://github.com/acme/widgets/pull/9 for details',
         exitCode: 1,
       })
     )
@@ -93,8 +99,11 @@ describe('createPR — unit (execa mocked)', () => {
       .catch((e: Error) => e)
 
     expect(err).toBeInstanceOf(Error)
-    // Should not include raw URLs in the sanitized message
-    expect((err as Error).message).not.toContain('https://')
+    // Raw URL must be stripped and replaced with the [url] placeholder
+    expect((err as Error).message).not.toContain('https://github.com')
+    expect((err as Error).message).toContain('[url]')
+    // The real error text must survive sanitization
+    expect((err as Error).message).toContain('failed')
     // Should be a concise message
     expect((err as Error).message.length).toBeLessThan(200)
   })
@@ -185,7 +194,7 @@ describe('POST /api/projects/:id/prs', () => {
     // execa mock is already set up from the unit tests above; reset and set success response
     mockExeca.mockReset()
     mockExeca.mockResolvedValueOnce({
-      stdout: JSON.stringify({ number: 99, url: 'https://github.com/owner/repo/pull/99', title: 'feat: my pr', state: 'open' }),
+      stdout: 'https://github.com/owner/repo/pull/99\n',
       stderr: '',
     })
 

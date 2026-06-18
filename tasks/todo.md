@@ -241,3 +241,45 @@ Branch: `feat/phase0-command-deck`
     error states) show real messages instead of "409 Conflict".
   - Register dialog a11y: role="dialog"/aria-modal, Escape to close, autoFocus
     first input (fold into Task 15 polish if scope allows).
+
+---
+
+## Phase G — Workspace UI & Fleet Graph (✓ complete 2026-06-18)
+
+- [x] G-1: ProjectWorkspace 7-tab scaffold + hash-segment routing
+- [x] G-2: Overview / Verification / Bible tabs
+- [x] G-3: Runs / Tasks / PRs & CI tabs + `project_tasks` table + CRUD API
+- [x] G-4: Knowledge Graph tab (ForceGraph2D) + Fleet Graph + `GET /api/projects/:id/graph`
+- [x] G-5: Agent-opens-PR (`createPR` + `POST /api/projects/:id/prs` + modal + RunConsole footer)
+- [x] G-6: task/PR tests, bible §06/§07 updates, `.env.example`
+
+## Phase 3 — Automation & Skills (in progress)
+
+- [x] 3-1: Skill/Hook/Workflow Registry (DB tables, `skills.ts`, routes, SkillsPage, scheduler + event listener)
+- [ ] 3-2: Ollama provider + cost-aware routing
+- [ ] 3-3: eval-harness skill testing
+- [ ] 3-4: routing dashboard
+- [ ] 3-5: Phase 3 close-out
+
+## Review — Audit & Remediation (2026-06-18)
+
+**Verified good:**
+- Local `main` synced with `origin/main` (Phase G fully landed).
+- Selective-merge integrity confirmed — `git diff <agent-commit> <landed-commit>` empty
+  across the shared accumulation files (api.ts, Shell.tsx, db.ts, types.ts, routes).
+- Test suite green: 279 → 285 tests passing.
+
+**Issues found & fixed:**
+- `createPR` used `gh pr create --json` — a flag the real `gh pr create` does not support;
+  fixed the runtime bug and the false-green mocked test that masked it.
+- Wave 3-1 skill creation lacked validation — added cron-expression and trigger-type/field
+  consistency checks at the API boundary (reject 400).
+- Corrected a misleading scheduler comment.
+- Cleaned up `completedAt: null as null` cast.
+- Removed 8 lingering agent worktrees.
+- Added `.claude/worktrees/` to `.gitignore`.
+- Restored `CLAUDE.md` tracking (case-insensitive-gitignore collision with `claude.md`).
+- Kept `AGENTS.md` local (untracked, per tooling-artifact policy).
+- Fixed §07 roadmap phase markers (Phase 0 no longer `*(current)*`; Phase 3 marked current;
+  Phase G origin note; 3-1 checked).
+- Created `tasks/lessons.md` capturing the Phase G / Phase 3 corrections.

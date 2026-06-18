@@ -117,8 +117,12 @@ export function startEventListener(): void {
 }
 
 /** Cron loop — fires schedule-triggered skills whose cron expression matches.
- *  Uses node-cron v4: each skill gets its own ScheduledTask; tasks are stopped
- *  after their first fire so they don't accumulate over successive minutes. */
+ *  Uses node-cron v4. An outer 1-minute heartbeat reconciles the set of active
+ *  per-skill cron tasks: it adds tasks for newly-enabled schedule skills with a
+ *  valid cron expression, and stops/removes tasks for skills that are no longer
+ *  active. Each per-skill task fires on its own cron expression and recurs by
+ *  design (a cron schedule is meant to fire repeatedly — tasks are NOT stopped
+ *  after their first fire). */
 export function startScheduler(): void {
   // Outer heartbeat: every minute re-evaluate which schedule-triggered skills
   // should have a cron task running.

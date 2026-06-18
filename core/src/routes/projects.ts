@@ -8,7 +8,7 @@ import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { verificationDb, rowToReport, projectTasksDb } from '../db.js'
-import { CreatePrOptsSchema } from '@k/shared'
+import { CreatePrOptsSchema, type ProjectTask } from '@k/shared'
 
 // Natural-language prompt that triggers the Layer-2 verify-project skill.
 const DEEP_VERIFY_PROMPT =
@@ -119,13 +119,13 @@ export async function projectsRoutes(app: FastifyInstance) {
     if (!project) return reply.status(404).send({ error: 'not found' })
     const title = typeof req.body?.title === 'string' ? req.body.title.trim() : ''
     if (!title || title.length > 1000) return reply.status(400).send({ error: 'title must be 1–1000 characters' })
-    const task = {
+    const task: ProjectTask = {
       id: randomUUID(),
       projectId: project.id,
       title,
-      status: 'open' as const,
+      status: 'open',
       createdAt: Date.now(),
-      completedAt: null as null,
+      completedAt: null,
     }
     projectTasksDb.insertProjectTask.run({ id: task.id, projectId: task.projectId, title: task.title, status: task.status, createdAt: task.createdAt })
     return reply.status(201).send(task)

@@ -9,7 +9,7 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 
 <!-- @live:roadmap-progress -->
 
-## Phase 0 — Foundation *(current)*
+## Phase 0 — Foundation
 
 > Running skeleton: prompt → supervised agent → live stream → persisted run + artifacts + compiled bible
 
@@ -44,6 +44,8 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 
 > The approved dashboard design built for real; graphs and the verify-project skill live
 
+> *Phase G builds the originally-numbered "Phase 2 — Command Deck" design; it was renamed to avoid collision with the merged Phase 2 verification-core work.*
+
 - [x] Command Deck frame: icon sidebar, ⌘K bar, stage, activity strip
 - [x] Home stage: metrics row, needs-attention project cards, fleet graph pane
 - [x] Project workspace: 7 tabs incl. per-project Knowledge Graph (GitNexus)
@@ -58,9 +60,9 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 - [x] "Create PR from Run →" footer in RunConsole
 - [x] G-6: tasks-route tests, create-pr tests, bible §06+§07 updates, .env.example
 
-## Phase 3 — Automation & Skills
+## Phase 3 — Automation & Skills *(current)*
 
-- [ ] Skill/hook/workflow registry with scheduled + event triggers
+- [x] Skill/hook/workflow registry with scheduled + event triggers
 - [ ] Model router live — Ollama integration, cost-aware routing
 - [ ] Skill testing via eval-harness (pass/fail + regression)
 - [ ] Run-outcome data → routing improvement dashboard

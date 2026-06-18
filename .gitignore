@@ -11,6 +11,6 @@ artifacts/*.html
 .superpowers/
 workspace/
 .gitnexus/
-claude.md
 AGENTS.md
 .claude/skills/gitnexus/
+.claude/worktrees/

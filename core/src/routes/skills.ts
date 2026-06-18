@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { validate as cronValidate } from 'node-cron'
 import { CreateSkillSchema } from '@k/shared'
 import { skillsDb } from '../db.js'
 import { listSkills, registerSkill, rowToSkill, triggerSkill } from '../skills.js'
@@ -14,6 +15,17 @@ export async function skillsRoutes(app: FastifyInstance) {
     const parsed = CreateSkillSchema.safeParse(req.body)
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    // Trigger-type / field consistency: a schedule trigger needs a valid cron
+    // expression; an event trigger needs an event name; manual needs neither.
+    if (parsed.data.triggerType === 'schedule') {
+      const schedule = parsed.data.schedule
+      if (!schedule || !cronValidate(schedule)) {
+        return reply.status(400).send({ error: 'schedule trigger requires a valid cron expression' })
+      }
+    }
+    if (parsed.data.triggerType === 'event' && !parsed.data.eventTrigger) {
+      return reply.status(400).send({ error: 'event trigger requires an eventTrigger name' })
     }
     const existing = skillsDb.getSkillByName.get(parsed.data.name)
     if (existing) {

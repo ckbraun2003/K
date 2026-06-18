@@ -111,8 +111,9 @@ export async function createPR(
   opts: CreatePrOpts,
 ): Promise<{ number: number; url: string; title: string; state: string }> {
   let stdout: string
-  let stderr: string
   try {
+    // `gh pr create` does NOT support --json; on success it prints the new PR's
+    // URL to stdout (possibly alongside other informational lines).
     const result = await execa(
       'gh',
       [
@@ -122,26 +123,25 @@ export async function createPR(
         '--body', opts.body,
         '--head', opts.head,
         '--base', opts.base,
-        '--json', 'number,url,title,state',
       ],
       { timeout: 60_000 },
     )
     stdout = result.stdout
-    stderr = result.stderr
   } catch (e) {
     const err = e as { stderr?: string; exitCode?: number }
-    // Sanitize gh stderr — it may contain repo URLs, branch names, or auth hints
-    const ghMsg = err.stderr?.split('\n').find(l => l.trim() && !l.includes('http'))?.trim()
-    throw new Error(ghMsg || 'gh pr create failed')
+    // Sanitize gh stderr — it may contain repo URLs or auth hints. Strip URLs in
+    // place (do NOT drop whole lines, or real error text would be discarded).
+    const sanitized = (err.stderr ?? '').replace(/https?:\/\/\S+/g, '[url]').trim()
+    throw new Error(sanitized || 'gh pr create failed')
   }
-  if (!stdout) throw new Error('gh pr create produced no output')
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(stdout)
-  } catch {
-    throw new Error(`gh pr create returned unexpected output: ${stdout.slice(0, 120)}`)
+  const match = stdout.match(/https?:\/\/\S*\/pull\/(\d+)/)
+  if (!match) throw new Error('gh pr create succeeded but no PR URL was returned')
+  return {
+    number: parseInt(match[1], 10),
+    url: match[0],
+    title: opts.title,
+    state: 'open',
   }
-  return parsed as { number: number; url: string; title: string; state: string }
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
