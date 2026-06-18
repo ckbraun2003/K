@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-06-17
+updated: 2026-06-18
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -40,17 +40,23 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 - [x] Run list kill switch, status filters, cost totals
 - [ ] Auth hardening (passkey/TOTP replacing bearer token) — *deferred to Phase 4 (Multi-Device / remote-access hardening)*
 
-## Phase 2 — Command Deck + Knowledge + Verification
+## Phase G — Command Deck + Knowledge + Verification *(✓ complete 2026-06-18)*
 
 > The approved dashboard design built for real; graphs and the verify-project skill live
 
-- [ ] Command Deck frame: icon sidebar, ⌘K bar, stage, activity strip
-- [ ] Home stage: metrics row, needs-attention project cards, fleet graph pane
-- [ ] Project workspace: 7 tabs incl. per-project Knowledge Graph (GitNexus)
-- [ ] Node inspector with dispatch-agent actions
+- [x] Command Deck frame: icon sidebar, ⌘K bar, stage, activity strip
+- [x] Home stage: metrics row, needs-attention project cards, fleet graph pane
+- [x] Project workspace: 7 tabs incl. per-project Knowledge Graph (GitNexus)
+- [x] Node inspector with dispatch-agent actions
 - [x] `verify-project` skill: agent team, VerificationReport, health scores
 - [x] CI scaffolding/repair by the CI auditor
-- [ ] Agent-opens-PR flow surfaced in PRs & CI tab
+- [x] Agent-opens-PR flow surfaced in PRs & CI tab
+- [x] Fleet Graph on Home page + full-screen /graph route
+- [x] Knowledge Graph tab: ForceGraph2D, node inspector, stale-index banner
+- [x] Task CRUD: `project_tasks` table + `GET/POST/PATCH /api/projects/:id/tasks`
+- [x] `createPR` via `gh` CLI (argv array, sanitized errors) + `POST /api/projects/:id/prs`
+- [x] "Create PR from Run →" footer in RunConsole
+- [x] G-6: tasks-route tests, create-pr tests, bible §06+§07 updates, .env.example
 
 ## Phase 3 — Automation & Skills
 

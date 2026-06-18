@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+﻿import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
 import path from 'path'
@@ -125,6 +125,7 @@ export async function projectsRoutes(app: FastifyInstance) {
       title,
       status: 'open' as const,
       createdAt: Date.now(),
+      completedAt: null as null,
     }
     projectTasksDb.insertProjectTask.run({ id: task.id, projectId: task.projectId, title: task.title, status: task.status, createdAt: task.createdAt })
     return reply.status(201).send(task)
