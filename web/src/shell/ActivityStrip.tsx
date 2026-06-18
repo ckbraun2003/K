@@ -7,7 +7,7 @@ import { navigate } from '../lib/route'
 
 export default function ActivityStrip() {
   const qc = useQueryClient()
-  const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: api.runs.list, refetchInterval: 10_000 })
+  const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list(), refetchInterval: 10_000 })
   const { data: metrics } = useQuery<MetricsSummary>({
     queryKey: ['metrics'],
     queryFn: api.metrics.summary,

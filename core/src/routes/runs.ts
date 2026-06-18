@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { StartRunBodySchema } from '@k/shared'
+import { StartRunBodySchema, RunsQuerySchema } from '@k/shared'
 import { startRun, kill } from '../supervisor.js'
 import { runsDb, eventsDb, projectsDb } from '../db.js'
 
@@ -21,9 +21,13 @@ export async function runsRoutes(app: FastifyInstance) {
     return reply.status(201).send(run)
   })
 
-  // GET /api/runs — list recent runs
-  app.get('/api/runs', async (_req, reply) => {
-    const rows = runsDb.listRuns.all() as Array<Record<string, unknown>>
+  // GET /api/runs — list recent runs; optional ?status= and ?limit= query params
+  app.get('/api/runs', async (req, reply) => {
+    const parsed = RunsQuerySchema.safeParse(req.query)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    const rows = runsDb.listRunsFiltered(parsed.data)
     return reply.send(rows.map(dbRowToRun))
   })
 
@@ -41,6 +45,18 @@ export async function runsRoutes(app: FastifyInstance) {
     const rows = eventsDb.listEvents.all(req.params.id) as Array<Record<string, unknown>>
     const includeRaw = req.query.raw === '1'
     return reply.send(rows.map(r => dbRowToEvent(r, includeRaw)))
+  })
+
+  // GET /api/runs/:id/events/:seq/raw — lazy single-event raw fetch.
+  // Returns { raw: string } for the one event identified by run_id + seq.
+  // 404 if the event doesn't exist OR if it exists but has no stored raw (null).
+  app.get<{ Params: { id: string; seq: string } }>('/api/runs/:id/events/:seq/raw', async (req, reply) => {
+    const seq = Number(req.params.seq)
+    // reject non-numeric seq before it binds as NaN→0 and silently queries the wrong row
+    if (!Number.isInteger(seq) || seq < 0) return reply.status(400).send({ error: 'seq must be a non-negative integer' })
+    const row = eventsDb.getEventRaw.get(req.params.id, seq) as { raw: string | null } | undefined
+    if (!row || row.raw == null) return reply.status(404).send({ error: 'not found' })
+    return reply.send({ raw: row.raw })
   })
 
   // POST /api/runs/:id/kill — kill a running agent

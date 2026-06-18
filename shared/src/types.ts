@@ -107,6 +107,11 @@ export const VerificationReportSchema = z.object({
   fixesApplied: z.array(z.string()).default([]),
   startedAt: z.number(),
   completedAt: z.number().optional(),
+  // Per-factor weighted score components (mirrors verify.ts HealthBreakdown).
+  // Optional so reports persisted before this field still validate.
+  breakdown: z
+    .object({ ci: z.number(), coverage: z.number(), bible: z.number(), findings: z.number() })
+    .optional(),
 })
 export type VerificationReport = z.infer<typeof VerificationReportSchema>
 
@@ -212,3 +217,9 @@ export const StartRunBodySchema = z.object({
   projectId: z.string().uuid().optional(), // explicit project association (overrides cwd inference)
 })
 export type StartRunBody = z.infer<typeof StartRunBodySchema>
+
+export const RunsQuerySchema = z.object({
+  status: RunStatusSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+})
+export type RunsQuery = z.infer<typeof RunsQuerySchema>

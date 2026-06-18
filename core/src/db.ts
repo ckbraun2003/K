@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
+import type { RunStatus, VerificationReport } from '@k/shared'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
@@ -100,6 +101,10 @@ function hasColumn(d: Database.Database, table: string, column: string): boolean
   return cols.some(c => c.name === column)
 }
 
+function hasTable(d: Database.Database, table: string): boolean {
+  return !!d.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(table)
+}
+
 /** Guarded, idempotent schema evolution — runs at every boot; exported for tests. */
 export function migrate(d: Database.Database): void {
   if (!hasColumn(d, 'runs', 'project_id')) {
@@ -113,6 +118,14 @@ export function migrate(d: Database.Database): void {
   d.exec(`CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id)`)
   // range scans for the windowed metrics timeseries query
   d.exec(`CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at)`)
+  // verification_reports.score_breakdown: nullable JSON of the per-factor score
+  // components. Appended via guarded ALTER (not in CREATE TABLE) so existing DBs
+  // gain the column; fresh installs get it here too since migrate() runs at boot.
+  // The hasTable guard keeps migrate() callable against DBs predating the table
+  // (e.g. minimal old-schema fixtures in db-migration.test.ts).
+  if (hasTable(d, 'verification_reports') && !hasColumn(d, 'verification_reports', 'score_breakdown')) {
+    d.exec(`ALTER TABLE verification_reports ADD COLUMN score_breakdown TEXT`)
+  }
 }
 
 migrate(db)
@@ -130,10 +143,20 @@ const updateRunStatus = db.prepare(`
 `)
 
 const getRun = db.prepare(`SELECT * FROM runs WHERE id = ?`)
-const listRuns = db.prepare(`SELECT * FROM runs ORDER BY created_at DESC LIMIT 100`)
+// Two cached statements: one unfiltered, one with status WHERE — selected at call time
+const listRunsAll    = db.prepare(`SELECT * FROM runs ORDER BY created_at DESC LIMIT ?`)
+const listRunsStatus = db.prepare(`SELECT * FROM runs WHERE status = ? ORDER BY created_at DESC LIMIT ?`)
 const clearRunWorktree = db.prepare(`UPDATE runs SET worktree = NULL WHERE id = ?`)
 
-export const runsDb = { insertRun, updateRunStatus, getRun, listRuns, clearRunWorktree }
+/** Filtered run list. Uses pre-compiled statements — never interpolates values into SQL. */
+function listRunsFiltered({ status, limit }: { status?: RunStatus; limit: number }): Array<Record<string, unknown>> {
+  if (status !== undefined) {
+    return listRunsStatus.all(status, limit) as Array<Record<string, unknown>>
+  }
+  return listRunsAll.all(limit) as Array<Record<string, unknown>>
+}
+
+export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, clearRunWorktree }
 
 // ─── Event helpers ───────────────────────────────────────────────────────────
 
@@ -144,7 +167,10 @@ const insertEvent = db.prepare(`
 
 const listEvents = db.prepare(`SELECT * FROM events WHERE run_id = ? ORDER BY seq ASC`)
 
-export const eventsDb = { insertEvent, listEvents }
+// Fetch the raw JSON line for a single event — used by the lazy per-event endpoint.
+const getEventRaw = db.prepare(`SELECT raw FROM events WHERE run_id = ? AND seq = ?`)
+
+export const eventsDb = { insertEvent, listEvents, getEventRaw }
 
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
@@ -185,8 +211,8 @@ export const projectsDb = { insertProject, updateProjectHealth, getProject, list
 // ─── Verification helpers ────────────────────────────────────────────────────
 
 const insertVerificationReport = db.prepare(`
-  INSERT INTO verification_reports (id, project_id, score, findings, fixes_applied, started_at, completed_at)
-  VALUES (@id, @projectId, @score, @findings, @fixesApplied, @startedAt, @completedAt)
+  INSERT INTO verification_reports (id, project_id, score, findings, fixes_applied, started_at, completed_at, score_breakdown)
+  VALUES (@id, @projectId, @score, @findings, @fixesApplied, @startedAt, @completedAt, @scoreBreakdown)
 `)
 
 const listVerificationReports = db.prepare(`
@@ -194,6 +220,37 @@ const listVerificationReports = db.prepare(`
 `)
 
 export const verificationDb = { insertVerificationReport, listVerificationReports }
+
+/** Map a verification_reports DB row → the shared VerificationReport shape.
+ *  snake_case → camelCase; JSON columns parsed; breakdown omitted when NULL.
+ *  Null-safe: missing/garbled JSON degrades to empty arrays rather than throwing. */
+export function rowToReport(r: Record<string, unknown>): VerificationReport {
+  const parseArr = (v: unknown): unknown[] => {
+    try {
+      const p = JSON.parse(String(v ?? '[]'))
+      return Array.isArray(p) ? p : []
+    } catch {
+      return []
+    }
+  }
+  const report: VerificationReport = {
+    id: String(r.id),
+    projectId: String(r.project_id),
+    score: Number(r.score),
+    findings: parseArr(r.findings) as VerificationReport['findings'],
+    fixesApplied: parseArr(r.fixes_applied) as string[],
+    startedAt: Number(r.started_at),
+    completedAt: r.completed_at == null ? undefined : Number(r.completed_at),
+  }
+  if (r.score_breakdown != null) {
+    try {
+      report.breakdown = JSON.parse(String(r.score_breakdown))
+    } catch {
+      /* leave breakdown undefined on garbled JSON */
+    }
+  }
+  return report
+}
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────
 

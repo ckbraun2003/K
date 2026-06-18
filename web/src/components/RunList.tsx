@@ -51,9 +51,12 @@ export default function RunList({ selectedId, onSelect }: Props) {
   const qc = useQueryClient()
   const [filter, setFilter] = useState<FilterKey>('all')
 
+  // ['runs'] is the shared default-list cache (RunList + ActivityStrip + CommandBar,
+  // live-patched by run_update). limit:100 === the server default, so the shared key
+  // is correct — a *filtered* or non-default-limit list must use a distinct queryKey.
   const { data: runs = [] } = useQuery<Run[]>({
     queryKey: ['runs'],
-    queryFn: api.runs.list,
+    queryFn: () => api.runs.list({ limit: 100 }),
     refetchInterval: 5_000,
   })
 

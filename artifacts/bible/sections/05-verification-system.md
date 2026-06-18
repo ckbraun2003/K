@@ -2,7 +2,7 @@
 title: Verification System
 icon: "✓"
 status: active
-updated: 2026-06-10
+updated: 2026-06-17
 ---
 
 Verification is **two-layer** (decision D-004): machines check what machines are good at; agents judge what requires judgment.
@@ -56,5 +56,33 @@ Reports persist to SQLite, stream to the dashboard's Verification tab, and the s
 - **Findings (20):** no open critical = full; each open critical −10, each warn −2 (floor 0).
 
 The formula is deliberately simple and documented here so agents and operator agree on what "healthy" means. Tune it by editing this section — the verification skill reads its weights from the bible.
+
+## What shipped — the deterministic spine vs. the agent layer
+
+This milestone delivered the deterministic Layer-1 spine end-to-end and authored the Layer-2 skill + deep dispatch. The split below records exactly what is computed by code today versus what is deferred to the agent layer.
+
+### Deterministic spine (core owns it)
+
+The health score and report are computed and persisted **deterministically** by `core/src/verify.ts` — no agent in the loop:
+
+- `computeHealthScore` implements the exact §5 formula above (`40·CI + 20·coverage-trend + 20·bible-freshness + 20·findings`), returning the clamped score plus a per-factor `breakdown` for the UI bars.
+- The pure auditors — **CI** (`auditCi` / `classifyCi`), **bible-freshness** (`auditBible`), and **invariants** (`auditInvariants`) — take already-gathered facts and emit `Finding[]`. `composeFindings` dedupes them so each root cause is counted once (CI/bible auditors own the missing-workflow / missing-bible criticals; only the GitHub-remote invariant is kept from `auditInvariants`, avoiding a double penalty).
+- `runVerification` is the impure conductor: it gathers facts (cached GitHub CI status, `.github/workflows/` presence, bible git-freshness via `git log` on the bible dir), scores with the pure core, persists a `VerificationReport` (including `score_breakdown`) and updates project health **atomically** in one SQLite transaction, then broadcasts a `verification_update` event.
+
+Exposed via `POST /api/projects/:id/verify` (synchronous, authoritative) and `GET /api/projects/:id/verifications` (report history, newest first).
+
+### Coverage trend = neutral today
+
+There is **no coverage signal wired yet**, so `runVerification` defaults the coverage trend to `unknown`, which scores as neutral (full marks, no penalty). This is documented so operator and agents agree that today's score is effectively weighted on **CI + bible-freshness + findings**, and coverage stays neutral until an agent layer supplies a real trend.
+
+### CI auditor — deterministic scaffold (uncommitted, not a push)
+
+When a project has **no workflow**, verification scaffolds a starter `.github/workflows/ci.yml` into the working tree and records it in `fixesApplied` (e.g. `scaffolded CI workflow: .github/workflows/ci.yml`). This write is **UNCOMMITTED** — a proposed change left in the working tree for operator review. The score reflects the pre-fix state (missing CI → critical, CI component 0); the *next* verify observes the workflow. The §5 "fix via PR, never direct push" rule is preserved in spirit — nothing is committed or pushed. **Agent-opened PRs are the deferred next increment.**
+
+### Agent layer — the `verify-project` skill
+
+`POST /api/projects/:id/verify` with body `{ "deep": true }` returns the deterministic report immediately (unchanged shape) **and** additionally dispatches the `verify-project` skill as a supervised, fire-and-forget run (the four-agent team — CI auditor, test-coverage scout, PR reviewer, doc-freshness checker) scoped to the project. Its judgment findings surface as a **normal run console**, the same place any supervised run appears.
+
+> **Deferred:** wiring the agent's structured output back into a persisted `VerificationReport` (so judgment findings re-score the project). This milestone the **deterministic engine owns the score and the report**; the skill's findings are read from the run console.
 
 <!-- @live:recent-runs -->

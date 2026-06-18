@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-06-12
+updated: 2026-06-17
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -30,7 +30,7 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 > Full observability, plus the registry and GitHub seams go live
 
 - [x] Project registry API (register path / clone URL)
-- [ ] Onboarding skill (scaffold bible + CI)
+- [x] Onboarding skill (scaffold bible + CI)
 - [x] GitHubProvider via `gh` CLI — PR list/status, CI runs, polling + SQLite cache
 - [x] Metrics summary endpoint + dashboard metrics row
 - [x] Token time-series charts (per day/project/model) — stacked SVG, top-8 + other
@@ -48,8 +48,8 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 - [ ] Home stage: metrics row, needs-attention project cards, fleet graph pane
 - [ ] Project workspace: 7 tabs incl. per-project Knowledge Graph (GitNexus)
 - [ ] Node inspector with dispatch-agent actions
-- [ ] `verify-project` skill: agent team, VerificationReport, health scores
-- [ ] CI scaffolding/repair by the CI auditor
+- [x] `verify-project` skill: agent team, VerificationReport, health scores
+- [x] CI scaffolding/repair by the CI auditor
 - [ ] Agent-opens-PR flow surfaced in PRs & CI tab
 
 ## Phase 3 — Automation & Skills

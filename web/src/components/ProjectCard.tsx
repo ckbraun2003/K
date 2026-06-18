@@ -1,7 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import type { Project, GithubStatus } from '@k/shared'
 import { api } from '../lib/api'
+import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
+import { formatTimeAgo } from '../lib/verify'
+
+// A health score below this flags the card for attention alongside failing CI.
+const LOW_HEALTH_THRESHOLD = 50
 
 function ciState(gh?: GithubStatus): 'passing' | 'failing' | 'unknown' {
   const latest = gh?.ci?.[0]
@@ -17,12 +22,18 @@ export default function ProjectCard({ project }: { project: Project }) {
   })
   const ci = ciState(gh)
   const openPrs = gh?.prs.filter(p => p.state === 'OPEN').length ?? 0
-  const attention = ci === 'failing'
+  const lowHealth = project.healthScore != null && project.healthScore < LOW_HEALTH_THRESHOLD
+  const attention = ci === 'failing' || lowHealth
+  const goVerify = () => navigate('verify', project.id)
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={goVerify}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goVerify() } }}
       className={cn(
-        'card-lift rounded-lg border bg-[var(--surface)] p-4',
+        'card-lift cursor-pointer rounded-lg border bg-[var(--surface)] p-4',
         attention ? 'border-amber/40' : 'border-[var(--border)]'
       )}
     >
@@ -52,6 +63,17 @@ export default function ProjectCard({ project }: { project: Project }) {
         )}
       </p>
       <p className="mono mt-2 truncate text-[10px] text-[var(--muted)] opacity-60">{project.localPath}</p>
+      <div className="mt-2 flex items-center justify-between">
+        <span className={cn('text-[10px]', lowHealth ? 'text-[var(--amber)]' : 'text-[var(--muted)]')}>
+          {formatTimeAgo(project.lastVerifiedAt)}
+        </span>
+        <button
+          onClick={e => { e.stopPropagation(); goVerify() }}
+          className="text-[11px] font-medium text-[var(--accent-hover)] transition-opacity duration-150 hover:opacity-80"
+        >
+          ▶ Run verification
+        </button>
+      </div>
     </div>
   )
 }

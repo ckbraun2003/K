@@ -28,7 +28,7 @@ export default function CommandBar({ open, onClose }: Props) {
   const listRef = useRef<HTMLUListElement>(null)
   const busyRef = useRef(false)
 
-  const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: api.runs.list, enabled: open })
+  const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list(), enabled: open })
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list, enabled: open })
 
   useEffect(() => {

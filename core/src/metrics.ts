@@ -17,7 +17,13 @@ function localDateKey(ts: number): string {
   return `${d.getFullYear()}-${m}-${day}`
 }
 
-export function summarizeRuns(rows: RunRow[], now: number): MetricsSummary {
+/** counts.totalRuns = lifetime total from DB; counts.activeRuns = running|queued from DB.
+ *  rows are pre-windowed to the 14-day range — only used to populate daily buckets. */
+export function summarizeRuns(
+  rows: RunRow[],
+  now: number,
+  counts: { totalRuns: number; activeRuns: number },
+): MetricsSummary {
   const buckets = new Map<string, DailyMetric>()
   // calendar-day arithmetic (not fixed 24h offsets) so DST transitions can't
   // skip a day: new Date(y, m, d - i) normalizes to the actual local calendar day
@@ -26,11 +32,9 @@ export function summarizeRuns(rows: RunRow[], now: number): MetricsSummary {
     const key = localDateKey(new Date(t.getFullYear(), t.getMonth(), t.getDate() - i).getTime())
     buckets.set(key, { date: key, runs: 0, tokens: 0, costUsd: 0 })
   }
-  let activeRuns = 0
   for (const r of rows) {
-    if (r.status === 'running' || r.status === 'queued') activeRuns++
     const b = buckets.get(localDateKey(r.created_at))
-    if (!b) continue // older than the window
+    if (!b) continue // older than the window (safety guard; rows should be pre-windowed)
     b.runs++
     b.tokens += r.tokens_in + r.tokens_out
     b.costUsd += r.cost_usd
@@ -38,8 +42,8 @@ export function summarizeRuns(rows: RunRow[], now: number): MetricsSummary {
   const daily = [...buckets.values()]
   return {
     today: daily[daily.length - 1],
-    activeRuns,
-    totalRuns: rows.length,
+    activeRuns: counts.activeRuns,
+    totalRuns: counts.totalRuns,
     daily,
   }
 }

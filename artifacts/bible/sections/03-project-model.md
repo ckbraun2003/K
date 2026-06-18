@@ -2,7 +2,7 @@
 title: Project Model
 icon: "▦"
 status: active
-updated: 2026-06-10
+updated: 2026-06-17
 ---
 
 Jarvis manages a **fleet of projects**. A project is a registry entry pointing at a local git repository with a GitHub remote (decision D-005).
@@ -39,6 +39,8 @@ Every registered project **must** have:
 3. **CI workflows** under `.github/workflows/` covering lint, typecheck, test, and build. The verification skill scaffolds or repairs these if missing or broken.
 
 These three invariants are exactly what the verification system (section 5) enforces, and what the health score measures.
+
+Onboarding now **actively scaffolds** the missing invariants rather than merely checking them. `POST /api/projects/:id/onboard` inspects the three invariants above (GitHub remote, `docs/bible/`, `.github/workflows/`) and scaffolds a starter bible (manifest + sections) and CI workflow for whatever is absent. It is idempotent — an existing bible (keyed on a real `manifest.json` sentinel, not just an empty dir) or workflow is left untouched, so re-running creates nothing. The GitHub remote is reported but not fabricated. The verification system then measures and enforces these same invariants on every run.
 
 ## Project zero
 
