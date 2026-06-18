@@ -32,19 +32,30 @@ export function barPct(value: number, max: number): number {
   return Math.max(0, Math.min(1, value / max))
 }
 
-// Relative-time hint for a unix-ms timestamp. Returns "never verified" when
-// absent. This is distinct from RunTimeline.formatRelTime (which formats a ms
-// offset as "+12.3s") — here we want a coarse calendar-ish "3d ago".
+// Coarse calendar-ish relative time string ("3d ago", "just now").
+// Distinct from RunTimeline.formatRelTime which formats a ms offset as "+12.3s".
+export function relativeTime(ts: number, now: number = Date.now()): string {
+  const sec = Math.max(0, Math.round((now - ts) / 1000))
+  if (sec < 60) return 'just now'
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m ago`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}h ago`
+  return `${Math.floor(hr / 24)}d ago`
+}
+
+// Verification-context wrapper: prepends "verified" or returns "never verified".
 export function formatTimeAgo(ts: number | undefined, now: number = Date.now()): string {
   if (ts == null) return 'never verified'
-  const sec = Math.max(0, Math.round((now - ts) / 1000))
-  if (sec < 60) return 'verified just now'
-  const min = Math.floor(sec / 60)
-  if (min < 60) return `verified ${min}m ago`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `verified ${hr}h ago`
-  const day = Math.floor(hr / 24)
-  return `verified ${day}d ago`
+  const rel = relativeTime(ts, now)
+  return rel === 'just now' ? 'verified just now' : `verified ${rel}`
+}
+
+// Score → Tailwind color class.
+export function scoreColor(score: number): string {
+  if (score >= 75) return 'text-[var(--green)]'
+  if (score >= 50) return 'text-[var(--amber)]'
+  return 'text-[var(--red)]'
 }
 
 // Color token suffix per severity (named tokens — safe with Tailwind alpha).

@@ -4,6 +4,9 @@ import type { Project } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
+import OverviewTab from './tabs/OverviewTab'
+import VerificationTab from './tabs/VerificationTab'
+import BibleTab from './tabs/BibleTab'
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
@@ -149,11 +152,19 @@ export default function ProjectWorkspace({
             role="tabpanel"
             aria-labelledby={`tab-${t.id}`}
             hidden={t.id !== activeTab}
+            className="h-full"
           >
             {t.id === activeTab && (
-              <div className="p-6 text-[var(--muted)]">
-                {t.label} — Coming in G-2 / G-3…
-              </div>
+              <>
+                {t.id === 'overview' && <OverviewTab projectId={projectId!} />}
+                {t.id === 'verification' && <VerificationTab projectId={projectId!} />}
+                {t.id === 'bible' && <BibleTab projectId={projectId} />}
+                {t.id !== 'overview' && t.id !== 'verification' && t.id !== 'bible' && (
+                  <div className="p-6 text-[var(--muted)]">
+                    {t.label} — Coming in G-3…
+                  </div>
+                )}
+              </>
             )}
           </div>
         ))}
