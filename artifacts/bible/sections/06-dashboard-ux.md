@@ -11,7 +11,7 @@ The dashboard is the operator's **source of truth** and is held to product quali
 
 ```
 ┌──┬─────────────────────────────────────────────────┐
-│⚡│  ⌘K Ask Jarvis / jump anywhere…      ● core ok  │  command bar
+│⚡│  ⌘K Ask K / jump anywhere…           ● core ok  │  command bar
 │⌂ ├─────────────────────────────────────────────────┤
 │▦ │                                                 │
 │◉ │                   STAGE                         │  swappable per

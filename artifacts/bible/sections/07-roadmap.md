@@ -35,10 +35,10 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 - [x] Metrics summary endpoint + dashboard metrics row
 - [x] Token time-series charts (per day/project/model) — stacked SVG, top-8 + other
 - [x] Full run event timeline (replayable from SQLite via `?raw=1`)
-- [ ] Web terminal (xterm.js + node-pty)
-- [ ] Structured task/goal records (+ optional GitHub Issues sync)
+- [ ] Web terminal (xterm.js + node-pty) — *deferred to Phase 3 (Automation & Skills)*
+- [ ] Structured task/goal records (+ optional GitHub Issues sync) — *deferred to Phase 3; depends on the GitHubProvider issue-sync methods (planned, not yet implemented — see §4)*
 - [x] Run list kill switch, status filters, cost totals
-- [ ] Auth hardening (passkey/TOTP replacing bearer token)
+- [ ] Auth hardening (passkey/TOTP replacing bearer token) — *deferred to Phase 4 (Multi-Device / remote-access hardening)*
 
 ## Phase 2 — Command Deck + Knowledge + Verification
 

@@ -1,3 +1,43 @@
+# K Remediation & Phase 2 Resume — Execution Tracker
+
+Plan: `~/.claude/plans/read-and-analyze-the-reactive-moler.md` (approved 2026-06-17)
+Origin: 5-agent rigorous review (architecture, correctness, security, frontend, tests/docs).
+Branch: `feat/k-remediation`
+Method: delegated subagent-driven implementation, green gate per phase.
+
+## Tasks
+
+- [x] Phase A — Security (non-accepted vulns): A1 artifact slug path-traversal guard
+  (route regex + scaffold-style containment in artifacts.ts); A2 cwd validated against
+  registered projects/REPO_ROOT in POST /api/runs; A3 escape bible `icon` + sanitize-html
+  on marked() output (new sanitize.ts); A4 onboard reuses verify.hasWorkflowFile; A5
+  anchored githubRemote validation (isSafeRemote). +artifacts-route/runs-cwd/sanitize
+  tests. Green: 203 core + 57 web.
+- [x] Phase B — Correctness: B1 falsy-zero token/cost guards → `!= null` (extracted
+  `accumulate`/`parseLine` exports + supervisor-accumulate test); B2 RunConsole merge
+  re-sorts by seq (`mergeEvents` + console test); B3 RunTimeline rawCache via ref;
+  B4 ActivityStrip aligned to `['runs']` limit:100. Green: 209 core + 61 web.
+- [x] Phase C — Reliability/arch: C1 `reconcileOnBoot` (stale running/queued → new
+  `interrupted` status + worktree prune, wired in index.ts) + reconcile test; C2 kill()
+  SIGKILL timer cleared via clearRunTracking; C3 dedup migration + UNIQUE index
+  idx_events_run_seq + AgentEventSchema ingest validation in parseLine; C4 honest Provider
+  seam (providers.ts: claudeProvider + ollama stub-throws), supervisor dispatches on
+  provider. Green: 223 core + 61 web.
+- [ ] Phase D — Rename Jarvis → K (live surfaces)
+- [ ] Phase E — Targeted core tests (github poller/cache; broader route contracts)
+- [ ] Phase F — Documentation accuracy (README, bible drift, claude.md dedup)
+- [ ] Phase G — Resume Phase 2 features (workspace tabs, fleet graph) — separate sub-milestone
+
+## Deferred (accepted localhost risks per user decision 2026-06-17 — tracked, not fixed)
+
+Per bible §9 "Accepted risks" (HOST=127.0.0.1 default posture). Close these BEFORE any
+0.0.0.0 exposure: WS upgrade auth (token on `/ws`); timing-safe bearer compare
+(`crypto.timingSafeEqual`); refuse-to-boot on default `HARNESS_TOKEN` + non-loopback HOST;
+stop logging the token at startup; `@fastify/rate-limit` on POST /api/runs; `localPath`
+registration root allowlist; EventBus persist/publish split (Phase-5 seam).
+
+---
+
 # Phase 2 — Verification & Workspace Core — Execution Tracker
 
 Plan: `docs/superpowers/plans/2026-06-12-phase2-verification-core.md`

@@ -51,6 +51,16 @@ ENABLE_GITHUB_POLL=true               # set false to disable
 - The compiled HTML is self-contained — open it directly in a browser or via the dashboard Docs view.
 - Registered projects follow the same flow with `<repo>/docs/bible/`.
 
+## Onboard / verify scaffold-then-commit workflow
+
+Onboarding (`POST /api/projects/:id/onboard`) and verification (`POST /api/projects/:id/verify`) may scaffold files into the **working tree — uncommitted**: a starter `.github/workflows/ci.yml` and/or a starter bible, written for operator review rather than pushed. Nothing is committed or pushed on your behalf. After running either, inspect the proposed changes with `git status` / `git diff`, then commit manually if you accept them. The score reflects the pre-fix state; the next verify observes the now-present files.
+
+## Troubleshooting
+
+- **Stale worktree after a crash.** A crashed or killed run can leave a `.worktrees/<runId>` directory behind. On boot, `reconcileOnBoot` (core/src/supervisor.ts, wired in index.ts) auto-reconciles runs stuck in `running`/`queued` to `interrupted`, runs `git worktree prune`, and removes orphaned `.worktrees/*` dirs — so a simple core restart usually cleans these up. On Windows a file lock can block removal (logged, non-fatal); if a stale dir persists, close any process holding it and run `git worktree prune` manually, then delete the directory.
+- **SQLite "database is locked".** `core/data/k.db` runs in WAL mode. A first boot after a new schema migration, or two core processes pointing at the same DB, can race and surface a lock. Run a single core process, and start the dev server **stopped** for the first boot after a migration (see Schema migrations). The `-wal`/`-shm` sidecar files are normal and are checkpointed automatically.
+- **Port already in use.** The core binds `PORT` (default 3001) and the web dev server binds 5173. If either is taken (`EADDRINUSE`), stop the other process or change `PORT` in `core/.env` (and `CORS_ORIGIN` to match the web origin). On Windows, find the holder with `netstat -ano | findstr :3001`.
+
 ## HTTP API surface (projects + verification + runs)
 
 Beyond the registry/metrics endpoints, the project + verification surface is:

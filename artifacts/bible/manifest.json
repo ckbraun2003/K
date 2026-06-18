@@ -1,8 +1,8 @@
 {
-  "title": "Jarvis — Project Bible",
+  "title": "K — Project Bible",
   "project": {
     "id": "jarvis-core",
-    "name": "Jarvis Agentic Engineering Harness",
+    "name": "K Agentic Engineering Harness",
     "localPath": ".",
     "githubRemote": null,
     "bibleDir": "artifacts/bible"
