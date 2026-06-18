@@ -19,7 +19,7 @@ export default function TopBar({ view, connected, onOpenCommand }: Props) {
         className="ml-auto flex w-80 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-left text-xs text-[var(--muted)] transition-colors duration-150 hover:border-accent/50 hover:text-[var(--text)]"
       >
         <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px]">⌘K</kbd>
-        <span>Ask Jarvis or jump anywhere…</span>
+        <span>Ask K or jump anywhere…</span>
       </button>
       <span
         title={connected ? 'core connected' : 'connecting…'}

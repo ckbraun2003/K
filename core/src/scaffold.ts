@@ -48,7 +48,7 @@ const SECTIONS: SectionDef[] = [
     id: '01-vision',
     title: 'Vision',
     icon: '◈',
-    body: `> Starter section scaffolded by Jarvis onboarding. Replace with your project's real content.
+    body: `> Starter section scaffolded by K onboarding. Replace with your project's real content.
 
 ## Purpose
 
@@ -63,7 +63,7 @@ Describe what this project is and why it exists.
     id: '02-architecture',
     title: 'Architecture',
     icon: '⬡',
-    body: `> Starter section scaffolded by Jarvis onboarding. Replace with your project's real content.
+    body: `> Starter section scaffolded by K onboarding. Replace with your project's real content.
 
 ## Overview
 
@@ -79,7 +79,7 @@ Describe the high-level system design here.
     title: 'Roadmap',
     icon: '▦',
     // roadmapPhases() requires ## headings followed by - [ ] checkboxes
-    body: `> Starter section scaffolded by Jarvis onboarding. Replace with your project's real content.
+    body: `> Starter section scaffolded by K onboarding. Replace with your project's real content.
 
 ## Phase 1
 
@@ -92,7 +92,7 @@ Describe the high-level system design here.
     id: '04-decision-log',
     title: 'Decision Log',
     icon: '◉',
-    body: `> Starter section scaffolded by Jarvis onboarding. Replace with your project's real content.
+    body: `> Starter section scaffolded by K onboarding. Replace with your project's real content.
 
 ## ADR-001 — Initial Setup
 
@@ -103,7 +103,7 @@ Record architectural decisions here with context, decision, and consequences.
     id: '05-operations',
     title: 'Operations',
     icon: '⊞',
-    body: `> Starter section scaffolded by Jarvis onboarding. Replace with your project's real content.
+    body: `> Starter section scaffolded by K onboarding. Replace with your project's real content.
 
 ## Runbook
 

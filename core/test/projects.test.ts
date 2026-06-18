@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validateRegistration, remoteFromUrl } from '../src/projects.js'
+import { validateRegistration, remoteFromUrl, isSafeRemote } from '../src/projects.js'
 
 describe('validateRegistration', () => {
   it('accepts a localPath registration', () => {
@@ -31,5 +31,22 @@ describe('remoteFromUrl', () => {
   })
   it('returns null for non-github urls', () => {
     expect(remoteFromUrl('https://gitlab.com/foo/bar')).toBeNull()
+  })
+})
+
+// A5 — githubRemote option-injection hardening
+describe('isSafeRemote', () => {
+  it('accepts a plain owner/repo', () => {
+    expect(isSafeRemote('owner/repo')).toBe(true)
+    expect(isSafeRemote('my-org/my.repo_2')).toBe(true)
+  })
+  it('rejects a leading dash (gh flag injection)', () => {
+    expect(isSafeRemote('-foo/bar')).toBe(false)
+    expect(isSafeRemote('owner/-evil')).toBe(false)
+  })
+  it('rejects embedded shell/metacharacters and extra segments', () => {
+    for (const r of ['owner/repo;evil', 'owner/repo evil', 'owner/repo/extra', 'owner', 'a/b/c', '']) {
+      expect(isSafeRemote(r), r).toBe(false)
+    }
   })
 })

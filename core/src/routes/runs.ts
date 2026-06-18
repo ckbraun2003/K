@@ -1,7 +1,21 @@
 import type { FastifyInstance } from 'fastify'
+import path from 'path'
 import { StartRunBodySchema, RunsQuerySchema } from '@k/shared'
-import { startRun, kill } from '../supervisor.js'
+import { startRun, kill, REPO_ROOT } from '../supervisor.js'
 import { runsDb, eventsDb, projectsDb } from '../db.js'
+import { matchProjectByCwd, type ProjectPathRow } from '../project-match.js'
+
+/**
+ * A client-supplied `cwd` must resolve under a registered project's localPath
+ * OR under the harness REPO_ROOT (its default). Anything else (e.g. C:\Windows,
+ * /etc) is rejected so a run can't be launched against an arbitrary directory.
+ */
+function isCwdAllowed(cwd: string): boolean {
+  const projects = projectsDb.listProjects.all() as ProjectPathRow[]
+  // Treat REPO_ROOT as a synthetic registered root so the default cwd is allowed.
+  const roots: ProjectPathRow[] = [...projects, { id: '__repo__', local_path: REPO_ROOT }]
+  return matchProjectByCwd(path.resolve(cwd), roots) !== null
+}
 
 export async function runsRoutes(app: FastifyInstance) {
   // POST /api/runs — start a new agent run
@@ -16,6 +30,9 @@ export async function runsRoutes(app: FastifyInstance) {
     // That path is unreachable today (no delete route exists), so this is acceptable.
     if (projectId && !projectsDb.getProject.get(projectId)) {
       return reply.status(400).send({ error: 'unknown projectId' })
+    }
+    if (cwd !== undefined && !isCwdAllowed(cwd)) {
+      return reply.status(400).send({ error: 'cwd not under a registered project' })
     }
     const run = await startRun(prompt, { cwd, model, projectId })
     return reply.status(201).send(run)

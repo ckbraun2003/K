@@ -18,6 +18,16 @@ export const WORKSPACE_DIR = path.join(__dirname, '../../workspace')
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
 
+// A trustworthy "owner/repo": exactly two safe segments. Anchored so embedded
+// metacharacters (`owner/repo;evil`) are rejected, and no segment may start with
+// `-` so the value can never be misread as a `gh` CLI flag (option injection).
+const SAFE_REMOTE_RE = /^[A-Za-z0-9_.][A-Za-z0-9_.-]*\/[A-Za-z0-9_.][A-Za-z0-9_.-]*$/
+
+/** True if `remote` is a safe "owner/repo" that cannot be parsed as a gh flag. */
+export function isSafeRemote(remote: string): boolean {
+  return SAFE_REMOTE_RE.test(remote)
+}
+
 /** Errors caused by bad client input — routes map these to 400. */
 export class ClientError extends Error {}
 
@@ -69,7 +79,10 @@ export function getProject(id: string): Project | null {
 async function detectRemote(repoPath: string): Promise<string | undefined> {
   try {
     const { stdout } = await execa('git', ['remote', 'get-url', 'origin'], { cwd: repoPath })
-    return remoteFromUrl(stdout.trim()) ?? undefined
+    const remote = remoteFromUrl(stdout.trim()) ?? undefined
+    // Drop anything that isn't a safe owner/repo so an injectable value (e.g.
+    // `-foo/bar`) is never persisted or later handed to the gh CLI.
+    return remote && isSafeRemote(remote) ? remote : undefined
   } catch { return undefined }
 }
 
@@ -87,6 +100,7 @@ export async function registerProject(b: RegistrationBody): Promise<Project> {
     if (b.githubUrl) {
       const remote = remoteFromUrl(b.githubUrl)
       if (!remote) throw new ClientError(`not a GitHub URL: ${b.githubUrl}`)
+      if (!isSafeRemote(remote)) throw new ClientError(`unsafe GitHub remote: ${remote}`)
       fs.mkdirSync(WORKSPACE_DIR, { recursive: true })
       localPath = path.join(WORKSPACE_DIR, name)
       if (!localPath.startsWith(WORKSPACE_DIR + path.sep)) {

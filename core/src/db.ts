@@ -126,6 +126,20 @@ export function migrate(d: Database.Database): void {
   if (hasTable(d, 'verification_reports') && !hasColumn(d, 'verification_reports', 'score_breakdown')) {
     d.exec(`ALTER TABLE verification_reports ADD COLUMN score_breakdown TEXT`)
   }
+  // events(run_id, seq) must be unique — the lazy raw endpoint does a .get() by
+  // (run_id, seq) assuming a single row. SQLite can't ALTER ADD CONSTRAINT, so a
+  // unique index is the idiomatic equivalent. Existing dev DBs may already hold
+  // duplicate rows (historical bug or manual seeding); creating a unique index
+  // over duplicates throws, so dedupe first — keep the lowest rowid per pair.
+  if (hasTable(d, 'events')) {
+    d.exec(`
+      DELETE FROM events
+      WHERE rowid NOT IN (
+        SELECT MIN(rowid) FROM events GROUP BY run_id, seq
+      )
+    `)
+    d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq)`)
+  }
 }
 
 migrate(db)

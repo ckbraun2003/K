@@ -10,13 +10,14 @@ import fs from 'fs'
 import path from 'path'
 import type { Project } from '@k/shared'
 import { scaffoldBible, scaffoldCi } from './scaffold.js'
+import { hasWorkflowFile } from './verify.js'
 
 export interface OnboardResult {
   created: string[]
   invariants: {
     githubRemote: boolean   // project.githubRemote is set
     bible: boolean          // docs/bible/manifest.json present (a real bible, not just an empty dir)
-    ci: boolean             // .github/workflows/ exists
+    ci: boolean             // ≥1 .yml/.yaml file under .github/workflows/ (an empty dir does NOT count)
   }
 }
 
@@ -28,12 +29,13 @@ function exists(localPath: string, rel: string): boolean {
 // produces today). Threading a custom project.bibleDir is deferred until a
 // registration path can set one.
 const BIBLE_SENTINEL = 'docs/bible/manifest.json'
-const CI_DIR = '.github/workflows'
 
 /**
  * Ensure the three bible §3 invariants are satisfied for `project`.
  * Scaffolds bible + CI for whatever is missing; idempotent. An empty docs/bible
- * dir does NOT count — the bible invariant requires a real manifest.json.
+ * dir does NOT count — the bible invariant requires a real manifest.json. Likewise
+ * the CI invariant requires an actual workflow FILE (via verify.ts hasWorkflowFile),
+ * not merely the .github/workflows/ dir — so onboard and verify agree.
  */
 export function onboardProject(project: Project): OnboardResult {
   const created: string[] = []
@@ -42,7 +44,7 @@ export function onboardProject(project: Project): OnboardResult {
   if (!exists(root, BIBLE_SENTINEL)) {
     created.push(...scaffoldBible(root))
   }
-  if (!exists(root, CI_DIR)) {
+  if (!hasWorkflowFile(root)) {
     created.push(...scaffoldCi(root))
   }
 
@@ -51,7 +53,7 @@ export function onboardProject(project: Project): OnboardResult {
     invariants: {
       githubRemote: !!project.githubRemote,
       bible: exists(root, BIBLE_SENTINEL),
-      ci: exists(root, CI_DIR),
+      ci: hasWorkflowFile(root),
     },
   }
 }

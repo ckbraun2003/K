@@ -8,6 +8,7 @@ export const RunStatusSchema = z.enum([
   'done',
   'error',
   'killed',
+  'interrupted', // terminal: run was running/queued when the core process restarted
 ])
 export type RunStatus = z.infer<typeof RunStatusSchema>
 

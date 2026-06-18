@@ -48,9 +48,23 @@ export function getGithubStatus(projectId: string): GithubStatus {
   }
 }
 
+/**
+ * Delta predicate — true when the freshly-fetched payload differs from the
+ * previously-cached one, so a github_update broadcast is warranted. Pure: a
+ * structural JSON compare, order-sensitive (the gh CLI yields a stable order).
+ */
+export function hasChanged(prev: unknown, next: unknown): boolean {
+  return JSON.stringify(prev) !== JSON.stringify(next)
+}
+
 let polling = false
 
-async function pollOnce(): Promise<void> {
+/**
+ * One poll cycle over every registered project with a remote. The gh-invoking
+ * fetch is injectable (defaults to the real `fetchGithubStatus`) so the
+ * reentrancy guard and delta/broadcast logic are unit-testable without `gh`.
+ */
+async function pollOnce(fetch: typeof fetchGithubStatus = fetchGithubStatus): Promise<void> {
   if (polling) return
   polling = true
   try {
@@ -58,14 +72,14 @@ async function pollOnce(): Promise<void> {
     if (!project.githubRemote) continue
     try {
       const before = getGithubStatus(project.id)
-      const { prs, ci } = await fetchGithubStatus(project.githubRemote, project.localPath)
+      const { prs, ci } = await fetch(project.githubRemote, project.localPath)
       const now = Date.now()
       githubDb.upsertGithubCache.run({ projectId: project.id, kind: 'pr', payload: JSON.stringify(prs), fetchedAt: now })
       githubDb.upsertGithubCache.run({ projectId: project.id, kind: 'ci', payload: JSON.stringify(ci), fetchedAt: now })
-      if (JSON.stringify(prs) !== JSON.stringify(before.prs)) {
+      if (hasChanged(before.prs, prs)) {
         eventBus.broadcast({ type: 'github_update', projectId: project.id, kind: 'pr', payload: prs })
       }
-      if (JSON.stringify(ci) !== JSON.stringify(before.ci)) {
+      if (hasChanged(before.ci, ci)) {
         eventBus.broadcast({ type: 'github_update', projectId: project.id, kind: 'ci', payload: ci })
       }
     } catch (e) {
@@ -77,6 +91,11 @@ async function pollOnce(): Promise<void> {
     polling = false
   }
 }
+
+// Exported under a test-only alias so the suite can drive pollOnce with an
+// injected fetcher and exercise the reentrancy guard. Production callers
+// (startGithubPoller) keep using the zero-arg form. Non-behavioral.
+export const __pollOnce = pollOnce
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 

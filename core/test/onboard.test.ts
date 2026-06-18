@@ -137,10 +137,12 @@ describe('onboardProject — partial onboarding', () => {
     expect(invariants.bible).toBe(true)
   })
 
-  it('CI present, bible absent: only bible is scaffolded', () => {
+  it('CI present (real workflow file), bible absent: only bible is scaffolded', () => {
     const tmp = makeTmp()
-    // pre-create .github/workflows/ so CI check passes
+    // pre-create .github/workflows/ WITH a real workflow file so the CI invariant
+    // is genuinely satisfied (an empty dir does NOT count — see test below).
     fs.mkdirSync(path.join(tmp, '.github', 'workflows'), { recursive: true })
+    fs.writeFileSync(path.join(tmp, '.github', 'workflows', 'existing.yml'), 'name: CI\n')
 
     const { created, invariants } = onboardProject(makeProject(tmp, 'owner/repo'))
 
@@ -150,5 +152,21 @@ describe('onboardProject — partial onboarding', () => {
     expect(created).toContain('docs/bible/manifest.json')
     expect(invariants.bible).toBe(true)
     expect(invariants.ci).toBe(true)
+  })
+
+  it('empty .github/workflows/ dir (no yml file) is NOT treated as CI-onboarded — ci.yml is scaffolded', () => {
+    const tmp = makeTmp()
+    // an empty workflows dir must not satisfy the CI invariant (matches verify.ts)
+    fs.mkdirSync(path.join(tmp, '.github', 'workflows'), { recursive: true })
+
+    const { created, invariants } = onboardProject(makeProject(tmp, 'owner/repo'))
+
+    expect(created).toContain('.github/workflows/ci.yml')
+    expect(invariants.ci).toBe(true)
+
+    // idempotent: a second run scaffolds nothing new and CI stays satisfied
+    const second = onboardProject(makeProject(tmp, 'owner/repo'))
+    expect(second.created).toEqual([])
+    expect(second.invariants.ci).toBe(true)
   })
 })

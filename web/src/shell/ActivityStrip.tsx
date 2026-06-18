@@ -7,7 +7,9 @@ import { navigate } from '../lib/route'
 
 export default function ActivityStrip() {
   const qc = useQueryClient()
-  const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list(), refetchInterval: 10_000 })
+  // ['runs'] is the shared default-list cache key (see RunList). The queryFn must
+  // match RunList's limit:100 so the two consumers don't disagree under one key.
+  const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list({ limit: 100 }), refetchInterval: 10_000 })
   const { data: metrics } = useQuery<MetricsSummary>({
     queryKey: ['metrics'],
     queryFn: api.metrics.summary,
