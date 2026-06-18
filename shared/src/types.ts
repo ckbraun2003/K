@@ -222,5 +222,18 @@ export type StartRunBody = z.infer<typeof StartRunBodySchema>
 export const RunsQuerySchema = z.object({
   status: RunStatusSchema.optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
+  projectId: z.string().uuid().optional(),
 })
 export type RunsQuery = z.infer<typeof RunsQuerySchema>
+
+// ─── ProjectTask ─────────────────────────────────────────────────────────────
+
+export const ProjectTaskSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  title: z.string(),
+  status: z.enum(['open', 'in_progress', 'done']),
+  createdAt: z.number(),
+  completedAt: z.number().nullable().optional(),
+})
+export type ProjectTask = z.infer<typeof ProjectTaskSchema>

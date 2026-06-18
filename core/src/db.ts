@@ -88,6 +88,16 @@ db.exec(`
     fetched_at  INTEGER NOT NULL,
     PRIMARY KEY (project_id, kind)
   );
+
+  CREATE TABLE IF NOT EXISTS project_tasks (
+    id           TEXT PRIMARY KEY,
+    project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title        TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','in_progress','done')),
+    created_at   INTEGER NOT NULL,
+    completed_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(project_id, created_at);
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -158,12 +168,20 @@ const updateRunStatus = db.prepare(`
 
 const getRun = db.prepare(`SELECT * FROM runs WHERE id = ?`)
 // Two cached statements: one unfiltered, one with status WHERE — selected at call time
-const listRunsAll    = db.prepare(`SELECT * FROM runs ORDER BY created_at DESC LIMIT ?`)
-const listRunsStatus = db.prepare(`SELECT * FROM runs WHERE status = ? ORDER BY created_at DESC LIMIT ?`)
+const listRunsAll           = db.prepare(`SELECT * FROM runs ORDER BY created_at DESC LIMIT ?`)
+const listRunsStatus        = db.prepare(`SELECT * FROM runs WHERE status = ? ORDER BY created_at DESC LIMIT ?`)
+const listRunsProject       = db.prepare(`SELECT * FROM runs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`)
+const listRunsProjectStatus = db.prepare(`SELECT * FROM runs WHERE project_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?`)
 const clearRunWorktree = db.prepare(`UPDATE runs SET worktree = NULL WHERE id = ?`)
 
 /** Filtered run list. Uses pre-compiled statements — never interpolates values into SQL. */
-function listRunsFiltered({ status, limit }: { status?: RunStatus; limit: number }): Array<Record<string, unknown>> {
+function listRunsFiltered({ status, limit, projectId }: { status?: RunStatus; limit: number; projectId?: string }): Array<Record<string, unknown>> {
+  if (projectId !== undefined && status !== undefined) {
+    return listRunsProjectStatus.all(projectId, status, limit) as Array<Record<string, unknown>>
+  }
+  if (projectId !== undefined) {
+    return listRunsProject.all(projectId, limit) as Array<Record<string, unknown>>
+  }
   if (status !== undefined) {
     return listRunsStatus.all(status, limit) as Array<Record<string, unknown>>
   }
@@ -268,6 +286,27 @@ export function rowToReport(r: Record<string, unknown>): VerificationReport {
   }
   return report
 }
+
+// ─── ProjectTask helpers ─────────────────────────────────────────────────────
+
+const insertProjectTask = db.prepare(`
+  INSERT INTO project_tasks (id, project_id, title, status, created_at)
+  VALUES (@id, @projectId, @title, @status, @createdAt)
+`)
+
+const listProjectTasks = db.prepare(`
+  SELECT * FROM project_tasks WHERE project_id = ? ORDER BY created_at DESC
+`)
+
+const updateProjectTaskStatus = db.prepare(`
+  UPDATE project_tasks
+  SET status = @status, completed_at = @completedAt
+  WHERE id = @id AND project_id = @projectId
+`)
+
+const getProjectTask = db.prepare(`SELECT * FROM project_tasks WHERE id = ? AND project_id = ?`)
+
+export const projectTasksDb = { insertProjectTask, listProjectTasks, updateProjectTaskStatus, getProjectTask }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────
 

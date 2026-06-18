@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'crypto'
 import { validateRegistration, registerProject, listProjects, getProject, ClientError, type RegistrationBody } from '../projects.js'
 import { getGithubStatus } from '../github.js'
 import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
-import { verificationDb, rowToReport } from '../db.js'
+import { verificationDb, rowToReport, projectTasksDb } from '../db.js'
 
 // Natural-language prompt that triggers the Layer-2 verify-project skill.
 const DEEP_VERIFY_PROMPT =
@@ -100,4 +101,67 @@ export async function projectsRoutes(app: FastifyInstance) {
     const rows = verificationDb.listVerificationReports.all(project.id) as Array<Record<string, unknown>>
     return reply.send(rows.map(rowToReport))
   })
+
+  // GET /api/projects/:id/tasks — list tasks for project
+  app.get<{ Params: { id: string } }>('/api/projects/:id/tasks', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    const rows = projectTasksDb.listProjectTasks.all(project.id) as Array<Record<string, unknown>>
+    return reply.send(rows.map(rowToTask))
+  })
+
+  // POST /api/projects/:id/tasks — create a task
+  app.post<{ Params: { id: string }; Body: { title?: string } }>('/api/projects/:id/tasks', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : ''
+    if (!title || title.length > 1000) return reply.status(400).send({ error: 'title must be 1–1000 characters' })
+    const task = {
+      id: randomUUID(),
+      projectId: project.id,
+      title,
+      status: 'open' as const,
+      createdAt: Date.now(),
+    }
+    projectTasksDb.insertProjectTask.run({ id: task.id, projectId: task.projectId, title: task.title, status: task.status, createdAt: task.createdAt })
+    return reply.status(201).send(task)
+  })
+
+  // PATCH /api/projects/:id/tasks/:taskId — update task status
+  app.patch<{ Params: { id: string; taskId: string }; Body: { status?: string } }>(
+    '/api/projects/:id/tasks/:taskId',
+    async (req, reply) => {
+      const project = getProject(req.params.id)
+      if (!project) return reply.status(404).send({ error: 'not found' })
+      const VALID_STATUSES = ['open', 'in_progress', 'done'] as const
+      type TaskStatus = typeof VALID_STATUSES[number]
+      const status = req.body?.status
+      if (!status || !VALID_STATUSES.includes(status as TaskStatus)) {
+        return reply.status(400).send({ error: 'status must be one of: open, in_progress, done' })
+      }
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!UUID_RE.test(req.params.taskId)) return reply.status(400).send({ error: 'invalid taskId' })
+      const row = projectTasksDb.getProjectTask.get(req.params.taskId, project.id) as Record<string, unknown> | undefined
+      if (!row) return reply.status(404).send({ error: 'task not found' })
+      const completedAt = status === 'done' ? Date.now() : null
+      projectTasksDb.updateProjectTaskStatus.run({
+        id: req.params.taskId,
+        projectId: project.id,
+        status,
+        completedAt,
+      })
+      return reply.send(rowToTask({ ...row, status, completed_at: completedAt }))
+    }
+  )
+}
+
+function rowToTask(r: Record<string, unknown>) {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    title: r.title,
+    status: r.status,
+    createdAt: r.created_at,
+    completedAt: r.completed_at ?? null,
+  }
 }

@@ -38,11 +38,15 @@ export async function runsRoutes(app: FastifyInstance) {
     return reply.status(201).send(run)
   })
 
-  // GET /api/runs — list recent runs; optional ?status= and ?limit= query params
+  // GET /api/runs — list recent runs; optional ?status=, ?limit=, ?projectId= query params
   app.get('/api/runs', async (req, reply) => {
     const parsed = RunsQuerySchema.safeParse(req.query)
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    // projectId filter: if provided, validate that the project exists
+    if (parsed.data.projectId && !projectsDb.getProject.get(parsed.data.projectId)) {
+      return reply.status(400).send({ error: 'unknown projectId' })
     }
     const rows = runsDb.listRunsFiltered(parsed.data)
     return reply.send(rows.map(dbRowToRun))

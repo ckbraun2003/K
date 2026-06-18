@@ -7,6 +7,9 @@ import { cn } from '../lib/cn'
 import OverviewTab from './tabs/OverviewTab'
 import VerificationTab from './tabs/VerificationTab'
 import BibleTab from './tabs/BibleTab'
+import RunsTab from './tabs/RunsTab'
+import TasksTab from './tabs/TasksTab'
+import PrsCiTab from './tabs/PrsCiTab'
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
@@ -156,12 +159,15 @@ export default function ProjectWorkspace({
           >
             {t.id === activeTab && (
               <>
-                {t.id === 'overview' && <OverviewTab projectId={projectId!} />}
-                {t.id === 'verification' && <VerificationTab projectId={projectId!} />}
-                {t.id === 'bible' && <BibleTab projectId={projectId} />}
-                {t.id !== 'overview' && t.id !== 'verification' && t.id !== 'bible' && (
+                {t.id === 'overview'      && <OverviewTab      projectId={projectId!} />}
+                {t.id === 'verification'  && <VerificationTab  projectId={projectId!} />}
+                {t.id === 'bible'         && <BibleTab         projectId={projectId} />}
+                {t.id === 'runs'          && <RunsTab          projectId={projectId!} />}
+                {t.id === 'tasks'         && <TasksTab         projectId={projectId!} />}
+                {t.id === 'prs-ci'        && <PrsCiTab         projectId={projectId!} />}
+                {t.id === 'knowledge-graph' && (
                   <div className="p-6 text-[var(--muted)]">
-                    {t.label} — Coming in G-3…
+                    Knowledge Graph — Coming in G-4…
                   </div>
                 )}
               </>
