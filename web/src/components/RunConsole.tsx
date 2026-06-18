@@ -11,6 +11,17 @@ interface Props {
   runId: string
 }
 
+/**
+ * Merge backfilled history with live events, deduped by id and sorted by seq.
+ * Live events may arrive out of order (or before the backfill resolves), so the
+ * merged result is re-sorted by `seq` for stable, in-order rendering.
+ * Extracted as a pure function so the ordering contract can be unit-tested.
+ */
+export function mergeEvents(history: AgentEvent[], live: AgentEvent[]): AgentEvent[] {
+  const seen = new Set(history.map(e => e.id))
+  return [...history, ...live.filter(e => !seen.has(e.id))].sort((a, b) => a.seq - b.seq)
+}
+
 export const EVENT_COLOR: Record<string, string> = {
   system:    'text-[var(--muted)]',
   assistant: 'text-[var(--text)]',
@@ -48,10 +59,7 @@ export default function RunConsole({ runId }: Props) {
     // fetch raw lazily per-expand via api.runs.eventRaw (see RunTimeline).
     api.runs.events(runId).then(history => {
       if (cancelled) return
-      setEvents(prev => {
-        const seen = new Set(history.map(e => e.id))
-        return [...history, ...prev.filter(e => !seen.has(e.id))]
-      })
+      setEvents(prev => mergeEvents(history, prev))
     }).catch(() => { /* live stream still works without backfill */ })
     return () => { cancelled = true; unsub() }
   }, [runId, qc])
@@ -98,7 +106,7 @@ export default function RunConsole({ runId }: Props) {
           <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', {
             'bg-accent/15 text-[var(--accent-hover)] glow-live': run.status === 'running',
             'bg-green/15 text-[var(--green)]': run.status === 'done',
-            'bg-red/15 text-[var(--red)]': run.status === 'error',
+            'bg-red/15 text-[var(--red)]': run.status === 'error' || run.status === 'interrupted',
             'bg-amber/15 text-[var(--amber)]': run.status === 'queued',
             'bg-muted/15 text-[var(--muted)]': run.status === 'killed',
           })}>

@@ -12,24 +12,26 @@ interface Props {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  queued:  'bg-amber/15 text-[var(--amber)]',
-  running: 'bg-accent/15 text-[var(--accent-hover)]',
-  done:    'bg-green/15 text-[var(--green)]',
-  error:   'bg-red/15 text-[var(--red)]',
-  killed:  'bg-muted/15 text-[var(--muted)]',
+  queued:      'bg-amber/15 text-[var(--amber)]',
+  running:     'bg-accent/15 text-[var(--accent-hover)]',
+  done:        'bg-green/15 text-[var(--green)]',
+  error:       'bg-red/15 text-[var(--red)]',
+  killed:      'bg-muted/15 text-[var(--muted)]',
+  interrupted: 'bg-red/15 text-[var(--red)]',
 }
 
 const STATUS_DOT: Record<string, string> = {
-  queued:  'bg-[var(--amber)]',
-  running: 'bg-[var(--accent)] glow-live',
-  done:    'bg-[var(--green)]',
-  error:   'bg-[var(--red)]',
-  killed:  'bg-[var(--muted)]',
+  queued:      'bg-[var(--amber)]',
+  running:     'bg-[var(--accent)] glow-live',
+  done:        'bg-[var(--green)]',
+  error:       'bg-[var(--red)]',
+  killed:      'bg-[var(--muted)]',
+  interrupted: 'bg-[var(--red)]',
 }
 
-type FilterKey = 'all' | 'active' | 'done' | 'error' | 'killed'
+type FilterKey = 'all' | 'active' | 'done' | 'error' | 'killed' | 'interrupted'
 
-const FILTERS: FilterKey[] = ['all', 'active', 'done', 'error', 'killed']
+const FILTERS: FilterKey[] = ['all', 'active', 'done', 'error', 'killed', 'interrupted']
 
 function matchesFilter(run: Run, filter: FilterKey): boolean {
   if (filter === 'all') return true

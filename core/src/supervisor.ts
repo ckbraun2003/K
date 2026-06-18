@@ -11,22 +11,24 @@
  */
 
 import { execa } from 'execa'
+import { execFileSync } from 'child_process'
 import { v4 as uuid } from 'uuid'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import type { AgentEvent, Run } from '@k/shared'
+import { AgentEventSchema, type AgentEvent, type Run } from '@k/shared'
 import { eventBus } from './events.js'
-import { runsDb, projectsDb } from './db.js'
+import { db, runsDb, projectsDb } from './db.js'
 import { route } from './router.js'
-import { resolvePermissionMode, buildClaudeArgs } from './claude-args.js'
+import { resolvePermissionMode } from './claude-args.js'
+import { getProvider, parseClaudeLine, type ParseCtx } from './providers.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
 
 const PERMISSION_MODE = resolvePermissionMode(process.env.RUN_PERMISSION_MODE)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // core/src/* and core/dist/* are both two levels below the repo root
-const REPO_ROOT = path.join(__dirname, '../../')
+export const REPO_ROOT = path.join(__dirname, '../../')
 const WORKTREES_DIR = path.join(__dirname, '../../.worktrees')
 
 fs.mkdirSync(WORKTREES_DIR, { recursive: true })
@@ -38,6 +40,11 @@ const activeProcesses = new Map<string, { kill: (...args: any[]) => any }>()
 // Runs terminated by the operator — exit codes alone can't distinguish a kill
 // (non-zero exit) from a genuine agent failure
 const killedRuns = new Set<string>()
+
+// Pending SIGKILL-escalation timers keyed by runId, so a killed-then-exited run
+// clears its timer instead of leaving a dangling 3s handle. Cleared in the
+// run-completion path alongside activeProcesses.delete().
+const killTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 export type StartRunOptions = {
   cwd?: string
@@ -120,10 +127,25 @@ export function kill(runId: string): boolean {
   if (!proc) return false
   killedRuns.add(runId)
   proc.kill('SIGTERM')
-  setTimeout(() => {
+  // Escalate to SIGKILL if the process ignores SIGTERM. Store the handle so the
+  // completion path can clear it — otherwise a clean exit leaves a dangling 3s
+  // timer holding the proc reference.
+  const timer = setTimeout(() => {
+    killTimers.delete(runId)
     if (activeProcesses.has(runId)) proc.kill('SIGKILL')
   }, 3000)
+  killTimers.set(runId, timer)
   return true
+}
+
+/** Forget a run's process + clear any pending SIGKILL-escalation timer. */
+function clearRunTracking(runId: string) {
+  activeProcesses.delete(runId)
+  const timer = killTimers.get(runId)
+  if (timer) {
+    clearTimeout(timer)
+    killTimers.delete(runId)
+  }
 }
 
 // ── Private ──────────────────────────────────────────────────────────────────
@@ -134,6 +156,69 @@ async function removeWorktree(run: Run) {
       await execa('git', ['-C', run.cwd, 'worktree', 'remove', '--force', run.worktree])
     } catch { /* best-effort cleanup */ }
   }
+}
+
+// ── Crash recovery (boot sweep) ────────────────────────────────────────────────
+
+/**
+ * Flip every `running`/`queued` run to the terminal `interrupted` status and null
+ * its worktree column. At boot these statuses are necessarily stale — no in-flight
+ * run survives a process restart — so leaving them inflates the activeRuns metric
+ * forever. Pure DB mutation (no FS/git); takes the DB handle so it's unit-testable
+ * against a temp DB. Returns the number of rows reconciled.
+ */
+export function reconcileStaleRuns(d: import('better-sqlite3').Database = db): number {
+  const res = d
+    .prepare(
+      `UPDATE runs SET status = 'interrupted', worktree = NULL, ended_at = ?
+       WHERE status IN ('running', 'queued')`,
+    )
+    .run(Date.now())
+  return res.changes
+}
+
+/**
+ * Best-effort prune of orphaned git worktrees left by crashed runs. Runs
+ * `git worktree prune` then removes leftover `.worktrees/*` directories that no
+ * longer map to an active run. Never throws — Windows file locks can make removal
+ * fail, so every step is guarded and logged. Call after reconcileStaleRuns().
+ */
+export function pruneOrphanWorktrees(): void {
+  try {
+    execFileSync('git', ['worktree', 'prune'], { cwd: REPO_ROOT, stdio: 'ignore' })
+  } catch (err) {
+    console.warn('[supervisor] git worktree prune failed:', (err as Error).message)
+  }
+  try {
+    if (!fs.existsSync(WORKTREES_DIR)) return
+    for (const entry of fs.readdirSync(WORKTREES_DIR)) {
+      // Active runs hold their worktree dir; reconcileStaleRuns nulled the rest,
+      // so anything on disk here is orphaned. Remove best-effort.
+      if (activeProcesses.has(entry)) continue
+      const dir = path.join(WORKTREES_DIR, entry)
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+      } catch (err) {
+        console.warn(`[supervisor] could not remove orphan worktree ${dir}:`, (err as Error).message)
+      }
+    }
+  } catch (err) {
+    console.warn('[supervisor] worktree dir sweep failed:', (err as Error).message)
+  }
+}
+
+/**
+ * One-shot boot reconciliation: mark crashed runs terminal, then prune orphan
+ * worktrees. Wired into core bootstrap (index.ts). Never throws.
+ */
+export function reconcileOnBoot(): void {
+  try {
+    const n = reconcileStaleRuns()
+    if (n > 0) console.log(`[supervisor] boot sweep: marked ${n} stale run(s) interrupted`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileStaleRuns failed:', (err as Error).message)
+  }
+  pruneOrphanWorktrees()
 }
 
 async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boolean) {
@@ -147,9 +232,13 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
   let costUsd = 0
 
   try {
+    // Dispatch on the routed provider — never hard-code "claude". An unimplemented
+    // provider (ollama) throws from buildArgs here and surfaces as an error event
+    // below, rather than silently spawning claude.
+    const provider = getProvider(run.provider)
     const proc = execa(
-      'claude',
-      buildClaudeArgs(prompt, { inWorktree, permissionMode: PERMISSION_MODE }),
+      provider.binary,
+      provider.buildArgs(prompt, { inWorktree, permissionMode: PERMISSION_MODE }),
       { cwd, reject: false, all: true }
     )
 
@@ -166,10 +255,8 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
           if (!line.trim()) continue
           const event = parseLine(line, run.id, seq++, { tokensIn, tokensOut, costUsd })
           if (event) {
-            // Accumulate usage
-            if (event.tokensIn) tokensIn = event.tokensIn
-            if (event.tokensOut) tokensOut = event.tokensOut
-            if (event.costUsd) costUsd = event.costUsd
+            // Accumulate usage (last-wins overwrite; a real 0 is a legitimate value)
+            ;({ tokensIn, tokensOut, costUsd } = accumulate({ tokensIn, tokensOut, costUsd }, event))
             eventBus.emitEvent(event)
           }
         }
@@ -177,7 +264,7 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
     }
 
     const result = await proc
-    activeProcesses.delete(run.id)
+    clearRunTracking(run.id)
     await removeWorktree(run)
 
     const wasKilled = killedRuns.delete(run.id)
@@ -187,7 +274,7 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
     eventBus.emitRunUpdate(finalRun)
 
   } catch (err) {
-    activeProcesses.delete(run.id)
+    clearRunTracking(run.id)
     await removeWorktree(run)
     const wasKilled = killedRuns.delete(run.id)
     const errRun: Run = { ...run, status: wasKilled ? 'killed' : 'error', tokensIn, tokensOut, costUsd, endedAt: Date.now() }
@@ -200,73 +287,45 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
   }
 }
 
-function parseLine(
-  line: string,
-  runId: string,
-  seq: number,
-  _ctx: { tokensIn: number; tokensOut: number; costUsd: number }
-): AgentEvent | null {
-  try {
-    const obj = JSON.parse(line) as Record<string, unknown>
-    const type = (obj.type as string) ?? 'assistant'
+type Usage = { tokensIn: number; tokensOut: number; costUsd: number }
 
-    const event: AgentEvent = {
-      id: uuid(),
-      runId,
-      seq,
-      type: mapType(type),
-      ts: Date.now(),
-      raw: line,
-    }
-
-    // Extract display text
-    if (type === 'assistant' && obj.message) {
-      const msg = obj.message as Record<string, unknown>
-      const content = msg.content as Array<Record<string, unknown>> | undefined
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'text') event.text = String(block.text ?? '')
-          if (block.type === 'tool_use') event.tool = String(block.name ?? '')
-        }
-      }
-      // Usage from message
-      const usage = msg.usage as Record<string, number> | undefined
-      if (usage) {
-        if (usage.input_tokens) event.tokensIn = usage.input_tokens
-        if (usage.output_tokens) event.tokensOut = usage.output_tokens
-      }
-    }
-
-    if (type === 'result') {
-      const stats = obj as Record<string, unknown>
-      // Current CLI nests usage and reports total_cost_usd; keep the old
-      // top-level fields as fallbacks for older CLI versions
-      const usage = stats.usage as Record<string, number> | undefined
-      const tokensIn = usage
-        ? (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0)
-        : typeof stats.input_tokens === 'number' ? stats.input_tokens : 0
-      const tokensOut = usage?.output_tokens ?? (typeof stats.output_tokens === 'number' ? stats.output_tokens : 0)
-      if (tokensIn) event.tokensIn = tokensIn
-      if (tokensOut) event.tokensOut = tokensOut
-      const cost = typeof stats.total_cost_usd === 'number' ? stats.total_cost_usd
-        : typeof stats.cost_usd === 'number' ? stats.cost_usd : 0
-      if (cost) event.costUsd = cost
-      event.text = typeof stats.result === 'string' ? stats.result : undefined
-    }
-
-    return event
-  } catch {
-    // Tolerant: ignore malformed lines
-    return null
+/**
+ * Roll a parsed event's usage into the running totals with last-wins/overwrite
+ * semantics. Guards are explicit `!= null` nullish checks (not truthy) so a
+ * legitimate `0` (cache-only turn, free/Ollama run, total_cost_usd: 0) is
+ * recorded instead of letting the prior non-zero value persist.
+ */
+export function accumulate(prev: Usage, event: AgentEvent): Usage {
+  return {
+    tokensIn: event.tokensIn != null ? event.tokensIn : prev.tokensIn,
+    tokensOut: event.tokensOut != null ? event.tokensOut : prev.tokensOut,
+    costUsd: event.costUsd != null ? event.costUsd : prev.costUsd,
   }
 }
 
-function mapType(raw: string): AgentEvent['type'] {
-  if (raw === 'system') return 'system'
-  if (raw === 'assistant') return 'assistant'
-  if (raw === 'user') return 'user'
-  if (raw === 'result') return 'usage'
-  return 'assistant'
+/**
+ * Parse one NDJSON output line into a validated AgentEvent (or null to ignore).
+ *
+ * Thin wrapper over the claude provider's parser plus a runtime validation pass
+ * at the agent-ingest boundary: events that fail AgentEventSchema are dropped and
+ * logged rather than persisted+broadcast, so malformed `JSON.parse` output can't
+ * poison the store or the WebSocket stream. Re-exported here (vs. providers.ts)
+ * so existing supervisor tests importing `parseLine` keep working.
+ */
+export function parseLine(
+  line: string,
+  runId: string,
+  seq: number,
+  ctx: ParseCtx
+): AgentEvent | null {
+  const event = parseClaudeLine(line, runId, seq, ctx)
+  if (event === null) return null
+  const parsed = AgentEventSchema.safeParse(event)
+  if (!parsed.success) {
+    console.warn(`[supervisor] dropping malformed event (run ${runId}, seq ${seq}):`, parsed.error.message)
+    return null
+  }
+  return parsed.data
 }
 
 function emitStatusEvent(runId: string, status: string, seq: number, ts: number) {

@@ -51,7 +51,7 @@ Reports persist to SQLite, stream to the dashboard's Verification tab, and the s
 `score = 40·CI + 20·coverage-trend + 20·bible-freshness + 20·findings`
 
 - **CI (40):** latest default-branch run green = full marks; failing = 0; flaky (mixed last 5) = half.
-- **Coverage trend (20):** improving or stable ≥ baseline = full; declining = proportional.
+- **Coverage trend (20):** improving or stable ≥ baseline = full; declining = proportional (half). `unknown` — today's default, since no coverage signal is wired (see below) — scores as **full marks / neutral (no penalty)**.
 - **Bible freshness (20):** all sections updated within 30 days of last significant commit = full.
 - **Findings (20):** no open critical = full; each open critical −10, each warn −2 (floor 0).
 

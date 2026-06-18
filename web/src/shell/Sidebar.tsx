@@ -22,7 +22,7 @@ export const DESTINATIONS: Destination[] = [
 export default function Sidebar({ active }: { active: string }) {
   return (
     <nav className="relative row-span-3 flex flex-col items-center gap-1 border-r border-[var(--border)] bg-[var(--surface)] py-3 z-10">
-      <div className="mb-3 text-lg font-bold text-[var(--accent)]" title="Jarvis">⚡</div>
+      <div className="mb-3 text-lg font-bold text-[var(--accent)]" title="K">⚡</div>
       {DESTINATIONS.map(d => (
         <button
           key={d.id}

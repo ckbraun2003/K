@@ -19,6 +19,7 @@ import { marked } from 'marked'
 import { db, artifactsDb } from './db.js'
 import { ARTIFACTS_DIR } from './artifacts.js'
 import { parseFrontmatter, roadmapPhases } from './bible-parse.js'
+import { sanitizeRenderedHtml } from './sanitize.js'
 
 // ── Section model ─────────────────────────────────────────────────────────────
 
@@ -136,7 +137,7 @@ const STATUS_CLASS: Record<string, string> = { stable: 'green', active: 'accent'
 function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & { html: string }>): string {
   const nav = sections.map(s => `
     <a class="nav-item" href="#${s.slug}" data-section="${s.slug}">
-      <span class="nav-icon">${s.icon}</span>
+      <span class="nav-icon">${escHtml(s.icon)}</span>
       <span class="nav-title">${escHtml(s.title)}</span>
       <span class="dot dot-${STATUS_CLASS[s.status] ?? 'amber'}" title="${s.status}"></span>
     </a>`).join('')
@@ -144,7 +145,7 @@ function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & {
   const body = sections.map(s => `
     <section id="${s.slug}" class="bible-section">
       <header class="section-head">
-        <span class="section-icon">${s.icon}</span>
+        <span class="section-icon">${escHtml(s.icon)}</span>
         <h1>${escHtml(s.title)}</h1>
         <span class="badge badge-${STATUS_CLASS[s.status] ?? 'amber'}">${s.status}</span>
         <span class="section-updated mono">updated ${s.updated}</span>
@@ -278,7 +279,7 @@ function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & {
 <body>
 <div class="layout">
   <nav>
-    <div class="logo"><b>JARVIS</b><span>project bible</span></div>
+    <div class="logo"><b>K</b><span>project bible</span></div>
     ${nav}
     <div class="nav-foot">
       ${escHtml(manifest.project.name)}<br>
@@ -350,7 +351,10 @@ export async function compileBible(bibleDir = path.join(ARTIFACTS_DIR, 'bible'))
     }
     const { meta, body } = parseFrontmatter(fs.readFileSync(file, 'utf8'))
     const resolved = resolveDirectives(body)
-    const html = await marked(resolved, { gfm: true, breaks: false })
+    // Sanitize the rendered section body (untrusted .md) before it is embedded
+    // in the trusted bible template and persisted to disk. Live-data directives
+    // resolve to trusted div/span/table markup, all of which the allowlist keeps.
+    const html = sanitizeRenderedHtml(await marked(resolved, { gfm: true, breaks: false }))
     sections.push({
       slug,
       title: meta.title ?? slug,

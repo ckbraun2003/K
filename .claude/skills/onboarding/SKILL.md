@@ -42,7 +42,7 @@ Response shape:
 }
 ```
 
-**Via the Jarvis dashboard:** use the "Onboard" button on any registered project card.
+**Via the K dashboard:** use the "Onboard" button on any registered project card.
 
 ## Notes
 

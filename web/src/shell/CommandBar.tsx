@@ -138,7 +138,7 @@ export default function CommandBar({ open, onClose }: Props) {
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Ask Jarvis — or type to jump…"
+              placeholder="Ask K — or type to jump…"
               className="w-full border-b border-[var(--border)] bg-transparent px-4 py-3.5 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
             />
             <ul ref={listRef} className="max-h-72 overflow-y-auto py-1.5">

@@ -55,6 +55,13 @@ export default function RunTimeline({ events, runId }: Props) {
   // NB: seq is only unique within a run — RunConsole remounts this component with
   // key={runId}, so this state never leaks across runs.
   const [rawCache, setRawCache] = useState<Record<number, string | null>>({})
+  // Mirror the cache in a ref so the toggle handler's guard always reads the
+  // latest entries (not a value captured at handler-definition time). Without
+  // this, rapidly expanding rows re-fetches raw the closure hasn't "seen" yet.
+  // Reset semantics are preserved: the component remounts per runId (key={runId}
+  // in RunConsole), so both state and ref start empty for each run.
+  const rawCacheRef = useRef(rawCache)
+  rawCacheRef.current = rawCache
   // Concurrency guard (ref: reliable within a render batch, no double-fetch).
   const fetchingRef = useRef<Set<number>>(new Set())
   // Same set mirrored in state so the "loading…" row actually re-renders.
@@ -134,12 +141,12 @@ export default function RunTimeline({ events, runId }: Props) {
         next.add(id)
         // Trigger lazy fetch only when: expanding (not collapsing), no inline raw,
         // not already cached, and not already in-flight.
-        if (shouldFetchRaw(seq, hasRawInline, rawCache, fetchingRef.current)) {
+        if (shouldFetchRaw(seq, hasRawInline, rawCacheRef.current, fetchingRef.current)) {
           fetchingRef.current.add(seq)
           setLoadingSeqs(s => new Set(s).add(seq))
           api.runs.eventRaw(runId, seq)
-            .then(raw => setRawCache(c => ({ ...c, [seq]: raw })))
-            .catch(() => setRawCache(c => ({ ...c, [seq]: null })))
+            .then(raw => setRawCache(c => { const n = { ...c, [seq]: raw }; rawCacheRef.current = n; return n }))
+            .catch(() => setRawCache(c => { const n = { ...c, [seq]: null }; rawCacheRef.current = n; return n }))
             .finally(() => {
               fetchingRef.current.delete(seq)
               setLoadingSeqs(s => { const n = new Set(s); n.delete(seq); return n })

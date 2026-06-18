@@ -10,3 +10,7 @@ artifacts/*.html
 !artifacts/.gitkeep
 .superpowers/
 workspace/
+.gitnexus/
+claude.md
+AGENTS.md
+.claude/skills/gitnexus/

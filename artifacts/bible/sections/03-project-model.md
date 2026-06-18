@@ -5,7 +5,7 @@ status: active
 updated: 2026-06-17
 ---
 
-Jarvis manages a **fleet of projects**. A project is a registry entry pointing at a local git repository with a GitHub remote (decision D-005).
+K manages a **fleet of projects**. A project is a registry entry pointing at a local git repository with a GitHub remote (decision D-005).
 
 ```ts
 Project {
@@ -13,7 +13,7 @@ Project {
   name: string
   localPath: string          // absolute path to the repo on disk
   githubRemote?: string      // "owner/repo" — required for managed projects
-  workspaceManaged: boolean  // true if Jarvis cloned it into the workspace dir
+  workspaceManaged: boolean  // true if K cloned it into the workspace dir
   bibleDir: string           // bible source dir, default "docs/bible"
   healthScore?: number       // 0–100, written by verification runs
   lastVerifiedAt?: number    // unix ms
@@ -25,8 +25,8 @@ Project {
 
 | Path | Flow |
 |------|------|
-| **Register existing folder** | Point Jarvis at any local git repo. Onboarding verifies a GitHub remote exists (or offers to create one via `gh repo create`). |
-| **Clone from GitHub** | Give a GitHub URL; Jarvis runs `gh repo clone` into the managed workspace directory and registers the result. |
+| **Register existing folder** | Point K at any local git repo. Onboarding verifies a GitHub remote exists (or offers to create one via `gh repo create`). |
+| **Clone from GitHub** | Give a GitHub URL; K runs `gh repo clone` into the managed workspace directory and registers the result. |
 
 Either way the registry row is identical — downstream features never care which path created it.
 

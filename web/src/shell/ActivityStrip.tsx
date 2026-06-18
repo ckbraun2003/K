@@ -7,7 +7,9 @@ import { navigate } from '../lib/route'
 
 export default function ActivityStrip() {
   const qc = useQueryClient()
-  const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list(), refetchInterval: 10_000 })
+  // ['runs'] is the shared default-list cache key (see RunList). The queryFn must
+  // match RunList's limit:100 so the two consumers don't disagree under one key.
+  const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list({ limit: 100 }), refetchInterval: 10_000 })
   const { data: metrics } = useQuery<MetricsSummary>({
     queryKey: ['metrics'],
     queryFn: api.metrics.summary,
@@ -24,7 +26,7 @@ export default function ActivityStrip() {
   }, [qc])
 
   const active = runs.filter(r => r.status === 'running' || r.status === 'queued')
-  const lastDone = runs.find(r => r.status === 'done' || r.status === 'error' || r.status === 'killed')
+  const lastDone = runs.find(r => r.status === 'done' || r.status === 'error' || r.status === 'killed' || r.status === 'interrupted')
 
   return (
     <footer className="relative z-10 flex items-center gap-5 overflow-x-auto whitespace-nowrap border-t border-[var(--border)] bg-surface/60 px-4 py-1.5 text-xs backdrop-blur">
