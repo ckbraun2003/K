@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'crypto'
+import { readFile } from 'fs/promises'
+import path from 'path'
 import { validateRegistration, registerProject, listProjects, getProject, ClientError, type RegistrationBody } from '../projects.js'
 import { getGithubStatus } from '../github.js'
 import { onboardProject } from '../onboard.js'
@@ -153,6 +155,36 @@ export async function projectsRoutes(app: FastifyInstance) {
       return reply.send(rowToTask({ ...row, status, completed_at: completedAt }))
     }
   )
+
+  // GET /api/projects/:id/graph — knowledge graph data from .gitnexus/graph.json
+  app.get<{ Params: { id: string } }>('/api/projects/:id/graph', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    const graphPath = path.join(project.localPath, '.gitnexus', 'graph.json')
+    try {
+      const raw = await readFile(graphPath, 'utf8')
+      const data = JSON.parse(raw) as {
+        nodes?: Array<Record<string, unknown>>
+        edges?: Array<Record<string, unknown>>
+        links?: Array<Record<string, unknown>>
+      }
+      const nodes = (data.nodes ?? []).map(n => ({
+        id: n.id ?? n.name,
+        label: (n.label ?? n.name ?? n.id) as string,
+        type: n.type as string | undefined,
+        group: n.group as string | undefined,
+        ...n,
+      }))
+      const links = (data.links ?? data.edges ?? []).map(e => ({
+        source: (e.source ?? e.from) as string,
+        target: (e.target ?? e.to) as string,
+        type: e.type as string | undefined,
+      }))
+      return reply.send({ nodes, links, stale: false })
+    } catch {
+      return reply.send({ nodes: [], links: [], stale: true })
+    }
+  })
 }
 
 function rowToTask(r: Record<string, unknown>) {

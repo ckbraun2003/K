@@ -86,5 +86,7 @@ export const api = {
           body: JSON.stringify({ status }),
         }),
     },
+    graph: (id: string) =>
+      req<{ nodes: unknown[]; links: unknown[]; stale: boolean }>(`/projects/${id}/graph`),
   },
 }

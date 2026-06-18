@@ -10,6 +10,7 @@ import BibleTab from './tabs/BibleTab'
 import RunsTab from './tabs/RunsTab'
 import TasksTab from './tabs/TasksTab'
 import PrsCiTab from './tabs/PrsCiTab'
+import KnowledgeGraphTab from './tabs/KnowledgeGraphTab'
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
@@ -165,11 +166,7 @@ export default function ProjectWorkspace({
                 {t.id === 'runs'          && <RunsTab          projectId={projectId!} />}
                 {t.id === 'tasks'         && <TasksTab         projectId={projectId!} />}
                 {t.id === 'prs-ci'        && <PrsCiTab         projectId={projectId!} />}
-                {t.id === 'knowledge-graph' && (
-                  <div className="p-6 text-[var(--muted)]">
-                    Knowledge Graph — Coming in G-4…
-                  </div>
-                )}
+                {t.id === 'knowledge-graph' && <KnowledgeGraphTab projectId={projectId!} />}
               </>
             )}
           </div>
