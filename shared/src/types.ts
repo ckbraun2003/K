@@ -235,8 +235,21 @@ export const ProjectTaskSchema = z.object({
   status: z.enum(['open', 'in_progress', 'done']),
   createdAt: z.number(),
   completedAt: z.number().nullable().optional(),
+  // GitHub Issues sync — present when a task mirrors an issue (Wave 3-7)
+  issueNumber: z.number().int().nullable().optional(),
+  issueUrl: z.string().nullable().optional(),
+  issueState: z.string().nullable().optional(),
 })
 export type ProjectTask = z.infer<typeof ProjectTaskSchema>
+
+// A GitHub issue projected from `gh issue list --json number,title,state,url`.
+export const IssueInfoSchema = z.object({
+  number: z.number().int(),
+  title: z.string(),
+  state: z.string(),
+  url: z.string(),
+})
+export type IssueInfo = z.infer<typeof IssueInfoSchema>
 
 // ─── PR creation ─────────────────────────────────────────────────────────────
 
@@ -247,3 +260,77 @@ export const CreatePrOptsSchema = z.object({
   base: z.string().min(1).max(255),
 })
 export type CreatePrOpts = z.infer<typeof CreatePrOptsSchema>
+
+// ─── Skill/Hook/Workflow Registry ────────────────────────────────────────────
+
+export const SkillSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional(),
+  type: z.enum(['skill', 'hook', 'workflow']),
+  source: z.string().min(1).max(2000),
+  triggerType: z.enum(['manual', 'schedule', 'event']),
+  schedule: z.string().nullable().optional(),
+  eventTrigger: z.string().nullable().optional(),
+  enabled: z.boolean(),
+  createdAt: z.number(),
+})
+export type Skill = z.infer<typeof SkillSchema>
+
+export const CreateSkillSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional(),
+  type: z.enum(['skill', 'hook', 'workflow']),
+  source: z.string().min(1).max(2000),
+  triggerType: z.enum(['manual', 'schedule', 'event']),
+  schedule: z.string().nullable().optional(),
+  eventTrigger: z.string().nullable().optional(),
+})
+export type CreateSkill = z.infer<typeof CreateSkillSchema>
+
+// PATCH /api/skills/:id body — only the mutable fields, all optional.
+export const UpdateSkillSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    schedule: z.string().nullable().optional(),
+    eventTrigger: z.string().nullable().optional(),
+  })
+  .strict()
+export type UpdateSkill = z.infer<typeof UpdateSkillSchema>
+
+// A single eval-harness test of a skill — pass/fail verdict plus regression flag
+// (was-pass-now-fail vs the prior completed eval baseline).
+export const SkillEvalStatusSchema = z.enum(['pending', 'pass', 'fail'])
+export const SkillEvalSchema = z.object({
+  id: z.string(),
+  skillId: z.string(),
+  runId: z.string().nullable(),
+  status: SkillEvalStatusSchema,
+  regression: z.boolean(),
+  baselineEvalId: z.string().nullable(),
+  createdAt: z.number(),
+  completedAt: z.number().nullable(),
+})
+export type SkillEval = z.infer<typeof SkillEvalSchema>
+
+// ─── Routing stats ───────────────────────────────────────────────────────────
+// Per-(provider,model) outcome aggregates powering the routing dashboard.
+
+export const RoutingModelStatSchema = z.object({
+  provider: z.string(),
+  model: z.string(),
+  runs: z.number().int(),
+  successRate: z.number(),   // done / terminal-count, 0..1 (0 if no terminal runs)
+  avgCostUsd: z.number(),    // mean over runs with cost_usd > 0 (0 if none)
+  totalCostUsd: z.number(),
+  avgLatencyMs: z.number(),  // mean ended_at - created_at over completed runs (0 if none)
+})
+export type RoutingModelStat = z.infer<typeof RoutingModelStatSchema>
+
+export const RoutingStatsSchema = z.object({
+  generatedAt: z.number(),
+  totalRuns: z.number().int(),
+  groups: z.array(RoutingModelStatSchema), // sorted by runs desc, then provider+model asc
+  recommendation: z.string(),
+})
+export type RoutingStats = z.infer<typeof RoutingStatsSchema>

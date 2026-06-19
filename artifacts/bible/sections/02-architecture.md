@@ -2,10 +2,10 @@
 title: Architecture
 icon: "⬡"
 status: stable
-updated: 2026-06-11
+updated: 2026-06-18
 ---
 
-**Architecture A with B-seams** — a monolith core with Architecture-B observability built in from day one (decision D-001).
+**Architecture A with B-seams** — a single monolithic core (Architecture A) with three deliberate **B-seams** built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected).
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -19,11 +19,11 @@ updated: 2026-06-11
 │   routes/     runs · artifacts · bible · projects · metrics  │
 │   supervisor.ts  spawn claude CLI in worktree, parse         │
 │                  stream-json, emit AgentEvents               │
-│   events.ts      EventBus ── the B-seam: every event is      │
+│   events.ts      EventBus ── a B-seam: every event is        │
 │                  persisted to SQLite AND pushed to WS subs   │
-│   router.ts      ModelRouter ── the C-seam: route(task) →    │
+│   router.ts      ModelRouter ── a B-seam: route(task) →      │
 │                  claude | ollama (config, not code)          │
-│   github.ts      GitHubProvider ── gh CLI + polling seam     │
+│   github.ts      GitHubProvider ── a B-seam: gh CLI + poll   │
 │   bible.ts       compile sections + live data → HTML         │
 │   artifacts.ts   md store + generic md→HTML renderer         │
 │   db.ts          better-sqlite3 (WAL) schema + helpers       │
@@ -35,13 +35,31 @@ updated: 2026-06-11
         └────────────────┘        └──────────────┘
 ```
 
-## The seams
+## The three B-seams
 
-| Seam | Interface | Today | Later |
+| B-seam | Interface | Today | Later |
 |------|-----------|-------|-------|
 | **EventBus** | `emit/onEvent/onRunUpdate` | in-process + SQLite `events` table | NATS/Redis Streams + worker processes (Phase 5) |
-| **ModelRouter** | `route(task) → provider/model` | claude default, ollama stub | cost-aware routing from run-outcome data (Phase 3) |
+| **ModelRouter** | `route(task) → provider/model` | cost-aware routing across claude + ollama (Phase 3) | learned routing from accumulated run-outcome data (Phase 5) |
 | **GitHubProvider** | `listPRs/prStatus/ciRuns/createPR/syncIssues` | `gh` CLI + polling (Phase 1) | webhook push (only if polling lag ever hurts) |
+
+### ModelRouter — cost-aware routing (Phase 3)
+
+`route(task) → { provider, model, baseUrl? }` is the single decision point; `providers.ts`
+owns *how* a chosen provider is dispatched (binary, argv, NDJSON parsing). Two providers exist:
+`claudeProvider` (the agent engine) and `ollamaProvider` (local models). Routing inputs:
+
+- **Task hints** — `preferLocal` (route to Ollama when available) and `maxCostUsd` (prefer a
+  cheaper model when the cap is tight).
+- **Run-outcome data** — cost, latency, and success rate aggregated per provider+model from the
+  `runs`/`events` tables. The router favours the cheapest provider/model that has historically
+  succeeded for similar work.
+
+**Graceful-degradation contract:** Ollama is optional. If `ENABLE_OLLAMA` is unset, or the
+Ollama binary/endpoint is unreachable, the router falls back to `claudeProvider` and logs a
+warning — a routing decision can never make a run *fail* for lack of a local model (the same
+posture the GitHub poller takes when `gh` is absent). The supervisor dispatches strictly on the
+routed provider's name, so choosing "ollama" can never silently run claude, and vice-versa.
 
 ## Tech stack
 

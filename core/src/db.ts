@@ -98,6 +98,40 @@ db.exec(`
     completed_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(project_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS skills (
+    id           TEXT PRIMARY KEY,
+    name         TEXT NOT NULL UNIQUE,
+    description  TEXT,
+    type         TEXT NOT NULL CHECK(type IN ('skill','hook','workflow')),
+    source       TEXT NOT NULL,
+    triggerType  TEXT NOT NULL CHECK(triggerType IN ('manual','schedule','event')),
+    schedule     TEXT,
+    eventTrigger TEXT,
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    createdAt    INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS skill_runs (
+    id          TEXT PRIMARY KEY,
+    skillId     TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    runId       TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    triggeredBy TEXT NOT NULL,
+    startedAt   INTEGER NOT NULL,
+    completedAt INTEGER,
+    status      TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed'))
+  );
+
+  CREATE TABLE IF NOT EXISTS skill_evals (
+    id             TEXT PRIMARY KEY,
+    skillId        TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    runId          TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    status         TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','pass','fail')),
+    regression     INTEGER NOT NULL DEFAULT 0,
+    baselineEvalId TEXT REFERENCES skill_evals(id) ON DELETE SET NULL,
+    createdAt      INTEGER NOT NULL,
+    completedAt    INTEGER
+  );
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -149,6 +183,16 @@ export function migrate(d: Database.Database): void {
       )
     `)
     d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq)`)
+  }
+  // project_tasks GitHub Issues sync columns (Wave 3-7): appended via guarded
+  // ALTERs (not in CREATE TABLE) so existing DBs gain them; fresh installs get
+  // them here too since migrate() runs at boot. hasTable guard keeps migrate()
+  // safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'project_tasks')) {
+    if (!hasColumn(d, 'project_tasks', 'issue_number')) d.exec(`ALTER TABLE project_tasks ADD COLUMN issue_number INTEGER`)
+    if (!hasColumn(d, 'project_tasks', 'issue_url')) d.exec(`ALTER TABLE project_tasks ADD COLUMN issue_url TEXT`)
+    if (!hasColumn(d, 'project_tasks', 'issue_state')) d.exec(`ALTER TABLE project_tasks ADD COLUMN issue_state TEXT`)
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_project_tasks_issue ON project_tasks(project_id, issue_number)`)
   }
 }
 
@@ -290,8 +334,8 @@ export function rowToReport(r: Record<string, unknown>): VerificationReport {
 // ─── ProjectTask helpers ─────────────────────────────────────────────────────
 
 const insertProjectTask = db.prepare(`
-  INSERT INTO project_tasks (id, project_id, title, status, created_at)
-  VALUES (@id, @projectId, @title, @status, @createdAt)
+  INSERT INTO project_tasks (id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state)
+  VALUES (@id, @projectId, @title, @status, @createdAt, @completedAt, @issueNumber, @issueUrl, @issueState)
 `)
 
 const listProjectTasks = db.prepare(`
@@ -306,7 +350,26 @@ const updateProjectTaskStatus = db.prepare(`
 
 const getProjectTask = db.prepare(`SELECT * FROM project_tasks WHERE id = ? AND project_id = ?`)
 
-export const projectTasksDb = { insertProjectTask, listProjectTasks, updateProjectTaskStatus, getProjectTask }
+// Issue-sync lookup: a task already mirroring a given (project, issue#).
+const getProjectTaskByIssue = db.prepare(`SELECT * FROM project_tasks WHERE project_id = ? AND issue_number = ?`)
+
+// Reconcile an existing task with its upstream issue. status/completed_at are
+// decided by the caller (sync mapping); title and issue metadata always refresh.
+const updateProjectTaskFromIssue = db.prepare(`
+  UPDATE project_tasks
+  SET title = @title, issue_url = @issueUrl, issue_state = @issueState,
+      status = @status, completed_at = @completedAt
+  WHERE id = @id
+`)
+
+export const projectTasksDb = {
+  insertProjectTask,
+  listProjectTasks,
+  updateProjectTaskStatus,
+  getProjectTask,
+  getProjectTaskByIssue,
+  updateProjectTaskFromIssue,
+}
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────
 
@@ -319,3 +382,83 @@ const upsertGithubCache = db.prepare(`
 const getGithubCache = db.prepare(`SELECT * FROM github_cache WHERE project_id = ? AND kind = ?`)
 
 export const githubDb = { upsertGithubCache, getGithubCache }
+
+// ─── Skills helpers ──────────────────────────────────────────────────────────
+
+const insertSkill = db.prepare(`
+  INSERT INTO skills (id, name, description, type, source, triggerType, schedule, eventTrigger, enabled, createdAt)
+  VALUES (@id, @name, @description, @type, @source, @triggerType, @schedule, @eventTrigger, @enabled, @createdAt)
+`)
+
+const listSkills = db.prepare(`SELECT * FROM skills ORDER BY createdAt DESC`)
+
+const getSkill = db.prepare(`SELECT * FROM skills WHERE id = ?`)
+
+const getSkillByName = db.prepare(`SELECT * FROM skills WHERE name = ?`)
+
+const updateSkillEnabled = db.prepare(`UPDATE skills SET enabled = ? WHERE id = ?`)
+
+const updateSkillSchedule = db.prepare(`UPDATE skills SET schedule = ?, eventTrigger = ? WHERE id = ?`)
+
+const deleteSkill = db.prepare(`DELETE FROM skills WHERE id = ?`)
+
+const insertSkillRun = db.prepare(`
+  INSERT INTO skill_runs (id, skillId, runId, triggeredBy, startedAt, completedAt, status)
+  VALUES (@id, @skillId, @runId, @triggeredBy, @startedAt, @completedAt, @status)
+`)
+
+const listSkillRuns = db.prepare(`
+  SELECT * FROM skill_runs WHERE skillId = ? ORDER BY startedAt DESC LIMIT 20
+`)
+
+const updateSkillRunStatus = db.prepare(`
+  UPDATE skill_runs SET status = ?, completedAt = ? WHERE id = ?
+`)
+
+export const skillsDb = {
+  insertSkill,
+  listSkills,
+  getSkill,
+  getSkillByName,
+  updateSkillEnabled,
+  updateSkillSchedule,
+  deleteSkill,
+  insertSkillRun,
+  listSkillRuns,
+  updateSkillRunStatus,
+}
+
+// ─── Skill eval helpers ──────────────────────────────────────────────────────
+
+const insertSkillEval = db.prepare(`
+  INSERT INTO skill_evals (id, skillId, runId, status, regression, baselineEvalId, createdAt, completedAt)
+  VALUES (@id, @skillId, @runId, @status, @regression, @baselineEvalId, @createdAt, @completedAt)
+`)
+
+const getSkillEval = db.prepare(`SELECT * FROM skill_evals WHERE id = ?`)
+
+const listSkillEvals = db.prepare(`
+  SELECT * FROM skill_evals WHERE skillId = ? ORDER BY createdAt DESC LIMIT 20
+`)
+
+// Most recent completed (pass|fail) eval for a skill — the regression baseline.
+const latestCompletedSkillEval = db.prepare(`
+  SELECT * FROM skill_evals
+  WHERE skillId = ? AND status IN ('pass','fail')
+  ORDER BY createdAt DESC LIMIT 1
+`)
+
+const patchSkillEvalRunId = db.prepare(`UPDATE skill_evals SET runId = ? WHERE id = ?`)
+
+const updateSkillEvalResult = db.prepare(`
+  UPDATE skill_evals SET status = @status, regression = @regression, baselineEvalId = @baselineEvalId, completedAt = @completedAt WHERE id = @id
+`)
+
+export const skillEvalsDb = {
+  insertSkillEval,
+  getSkillEval,
+  listSkillEvals,
+  latestCompletedSkillEval,
+  patchSkillEvalRunId,
+  updateSkillEvalResult,
+}

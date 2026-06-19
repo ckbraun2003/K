@@ -1,14 +1,17 @@
 /**
- * Provider seam — the honest half of the Architecture-C router.
+ * Provider seam — the dispatch half of the ModelRouter B-seam.
  *
  * `route()` (router.ts) decides WHICH provider; this module decides HOW that
  * provider is dispatched: which binary to spawn, what argv to build, and how to
- * parse each NDJSON output line into an AgentEvent. The supervisor dispatches on
- * the routed provider's name so choosing "ollama" can never silently run claude.
+ * parse each output line into an AgentEvent. The supervisor dispatches on the
+ * routed provider's name (and uses that provider's `parseLine`), so choosing
+ * "ollama" can never silently run or be parsed as claude.
  *
- * Phase 0: only `claudeProvider` is implemented. `ollamaProvider` is a stub that
- * throws on dispatch — adding a real Ollama integration later is a contained
- * change (implement buildArgs/parseLine here, no supervisor edits).
+ * `claudeProvider` wraps the Claude Code CLI (stream-json). `ollamaProvider`
+ * wraps `ollama run <model>` for local models; its output is plain text streamed
+ * line by line (local runs are free, so cost/tokens stay 0). Routing only ever
+ * selects ollama when it is enabled AND reachable (see router.ts), so the
+ * supervisor never has to special-case an absent binary.
  */
 
 import { v4 as uuid } from 'uuid'
@@ -17,7 +20,9 @@ import { buildClaudeArgs, type PermissionMode } from './claude-args.js'
 
 export type ParseCtx = { tokensIn: number; tokensOut: number; costUsd: number }
 
-export type BuildArgsOptions = { inWorktree: boolean; permissionMode: PermissionMode }
+/** `model` is the routed model name — required by ollama (`ollama run <model>`),
+ *  ignored by claude (which uses its CLI/env default to preserve existing argv). */
+export type BuildArgsOptions = { inWorktree: boolean; permissionMode: PermissionMode; model?: string }
 
 export interface Provider {
   /** Routed provider name — matches RouteResult.provider. */
@@ -109,24 +114,43 @@ export const claudeProvider: Provider = {
   parseLine: parseClaudeLine,
 }
 
-// ── ollama (stub) ───────────────────────────────────────────────────────────
+// ── ollama ────────────────────────────────────────────────────────────────────
 
-const OLLAMA_NOT_IMPLEMENTED = 'ollama provider not yet implemented (Phase 3)'
+const OLLAMA_FALLBACK_MODEL = process.env.OLLAMA_MODEL ?? 'llama3.2'
 
-/**
- * Stub: routing can pick ollama, but dispatching it must fail loudly rather than
- * silently falling back to claude. Implementing this later (buildArgs/parseLine)
- * is the whole change — no supervisor edits required.
- */
+/** Build argv for `ollama run <model> <prompt>` — a one-shot headless completion
+ *  that streams the response to stdout. Permission mode / worktree gating do not
+ *  apply to a local model, so those opts are intentionally ignored. */
+export function buildOllamaArgs(prompt: string, opts: BuildArgsOptions): string[] {
+  return ['run', opts.model ?? OLLAMA_FALLBACK_MODEL, prompt]
+}
+
+/** Parse one line of `ollama run` output into an assistant AgentEvent.
+ *  The CLI streams plain text; we also tolerate NDJSON (`{response, done}`) in
+ *  case a future invocation uses `--format json`. Local runs are free, so no
+ *  token/cost fields are emitted (they default to 0 via the supervisor). */
+export function parseOllamaLine(
+  line: string,
+  runId: string,
+  seq: number,
+  _ctx: ParseCtx,
+): AgentEvent | null {
+  let text = line
+  try {
+    const obj = JSON.parse(line) as Record<string, unknown>
+    if (obj && typeof obj.response === 'string') text = obj.response
+  } catch {
+    // plain-text line — use as-is
+  }
+  if (!text) return null
+  return { id: uuid(), runId, seq, type: 'assistant', ts: Date.now(), text, raw: line }
+}
+
 export const ollamaProvider: Provider = {
   name: 'ollama',
   binary: 'ollama',
-  buildArgs() {
-    throw new Error(OLLAMA_NOT_IMPLEMENTED)
-  },
-  parseLine() {
-    throw new Error(OLLAMA_NOT_IMPLEMENTED)
-  },
+  buildArgs: buildOllamaArgs,
+  parseLine: parseOllamaLine,
 }
 
 /** Resolve a Provider implementation from a routed provider name. */

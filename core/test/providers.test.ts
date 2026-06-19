@@ -1,12 +1,15 @@
 /**
- * C4 — ModelRouter is an honest seam. The default route resolves to the claude
+ * ModelRouter is an honest seam. The default route resolves to the claude
  * provider (whose argv/parse logic is byte-for-byte the existing behavior); an
- * ollama route resolves to a stub that throws on dispatch rather than silently
- * running claude.
+ * ollama route resolves to a real ollama provider that spawns `ollama run` and
+ * parses its output — never silently running or parsing as claude.
  */
 import { describe, it, expect } from 'vitest'
 import { getProvider, claudeProvider, ollamaProvider } from '../src/providers.js'
 import { buildClaudeArgs } from '../src/claude-args.js'
+
+const RUN_ID = '00000000-0000-0000-0000-000000000000'
+const CTX = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
 
 describe('getProvider — routed dispatch', () => {
   it('default (claude) resolves to the claude provider', () => {
@@ -36,14 +39,31 @@ describe('claudeProvider — preserves existing behavior', () => {
   })
 })
 
-describe('ollamaProvider — honest not-implemented surface', () => {
-  it('buildArgs throws a clear not-implemented error (no silent claude run)', () => {
-    expect(() => ollamaProvider.buildArgs('hi', { inWorktree: false, permissionMode: 'default' }))
-      .toThrow(/ollama provider not yet implemented/i)
+describe('ollamaProvider — local model dispatch', () => {
+  it('buildArgs spawns `ollama run <model> <prompt>` with the routed model', () => {
+    const args = ollamaProvider.buildArgs('do a thing', { inWorktree: true, permissionMode: 'acceptEdits', model: 'llama3.1' })
+    expect(args).toEqual(['run', 'llama3.1', 'do a thing'])
   })
 
-  it('parseLine throws the same not-implemented error', () => {
-    expect(() => ollamaProvider.parseLine('{}', 'r', 1, { tokensIn: 0, tokensOut: 0, costUsd: 0 }))
-      .toThrow(/ollama provider not yet implemented/i)
+  it('buildArgs falls back to a default model when none is routed', () => {
+    const args = ollamaProvider.buildArgs('hi', { inWorktree: false, permissionMode: 'default' })
+    expect(args[0]).toBe('run')
+    expect(args[1]).toBeTruthy()       // some model name
+    expect(args[2]).toBe('hi')
+  })
+
+  it('parseLine treats a plain-text line as assistant output', () => {
+    const ev = ollamaProvider.parseLine('hello from llama', RUN_ID, 1, CTX)
+    expect(ev!.type).toBe('assistant')
+    expect(ev!.text).toBe('hello from llama')
+  })
+
+  it('parseLine tolerates NDJSON {response} (e.g. --format json)', () => {
+    const ev = ollamaProvider.parseLine(JSON.stringify({ response: 'tok', done: false }), RUN_ID, 2, CTX)
+    expect(ev!.text).toBe('tok')
+  })
+
+  it('parseLine ignores an empty line', () => {
+    expect(ollamaProvider.parseLine('', RUN_ID, 3, CTX)).toBeNull()
   })
 })

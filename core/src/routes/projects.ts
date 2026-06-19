@@ -3,12 +3,12 @@ import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
 import path from 'path'
 import { validateRegistration, registerProject, listProjects, getProject, ClientError, type RegistrationBody } from '../projects.js'
-import { getGithubStatus, createPR } from '../github.js'
+import { getGithubStatus, createPR, syncIssues } from '../github.js'
 import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { verificationDb, rowToReport, projectTasksDb } from '../db.js'
-import { CreatePrOptsSchema } from '@k/shared'
+import { CreatePrOptsSchema, type ProjectTask } from '@k/shared'
 
 // Natural-language prompt that triggers the Layer-2 verify-project skill.
 const DEEP_VERIFY_PROMPT =
@@ -119,16 +119,37 @@ export async function projectsRoutes(app: FastifyInstance) {
     if (!project) return reply.status(404).send({ error: 'not found' })
     const title = typeof req.body?.title === 'string' ? req.body.title.trim() : ''
     if (!title || title.length > 1000) return reply.status(400).send({ error: 'title must be 1–1000 characters' })
-    const task = {
+    const task: ProjectTask = {
       id: randomUUID(),
       projectId: project.id,
       title,
-      status: 'open' as const,
+      status: 'open',
       createdAt: Date.now(),
-      completedAt: null as null,
+      completedAt: null,
     }
-    projectTasksDb.insertProjectTask.run({ id: task.id, projectId: task.projectId, title: task.title, status: task.status, createdAt: task.createdAt })
+    projectTasksDb.insertProjectTask.run({
+      id: task.id,
+      projectId: task.projectId,
+      title: task.title,
+      status: task.status,
+      createdAt: task.createdAt,
+      completedAt: null,
+      issueNumber: null,
+      issueUrl: null,
+      issueState: null,
+    })
     return reply.status(201).send(task)
+  })
+
+  // POST /api/projects/:id/tasks/sync — pull GitHub issues into project_tasks.
+  // syncIssues never throws: gh absent/unauth/offline OR a project with no remote
+  // all resolve to { synced: 0, degraded: true }, so "sync is always safe to call"
+  // — a normal 200 (degraded) outcome, never 400/500. Only a missing project 404s.
+  app.post<{ Params: { id: string } }>('/api/projects/:id/tasks/sync', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    const result = await syncIssues(project)
+    return reply.send(result)
   })
 
   // PATCH /api/projects/:id/tasks/:taskId — update task status
@@ -213,5 +234,8 @@ function rowToTask(r: Record<string, unknown>) {
     status: r.status,
     createdAt: r.created_at,
     completedAt: r.completed_at ?? null,
+    issueNumber: r.issue_number ?? null,
+    issueUrl: r.issue_url ?? null,
+    issueState: r.issue_state ?? null,
   }
 }

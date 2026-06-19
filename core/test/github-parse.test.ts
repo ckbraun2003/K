@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parsePrList, parseCiRuns } from '../src/github-parse.js'
+import { parsePrList, parseCiRuns, parseIssueList } from '../src/github-parse.js'
 
 describe('parsePrList', () => {
   it('maps gh pr list --json output and rolls up checks', () => {
@@ -38,6 +38,38 @@ describe('parsePrList', () => {
   it('prefers failing over pending', () => {
     const prs = parsePrList([{ number: 1, title: 't', state: 'OPEN', url: 'u', statusCheckRollup: [{ conclusion: null }, { conclusion: 'FAILURE' }] }])
     expect(prs[0].checks).toBe('failing')
+  })
+})
+
+describe('parseIssueList', () => {
+  it('maps gh issue list --json output', () => {
+    const gh = [
+      { number: 7, title: 'Bug: crash', state: 'OPEN', url: 'https://github.com/o/r/issues/7' },
+      { number: 5, title: 'Done thing', state: 'CLOSED', url: 'https://github.com/o/r/issues/5' },
+    ]
+    expect(parseIssueList(gh)).toEqual([
+      { number: 7, title: 'Bug: crash', state: 'OPEN', url: 'https://github.com/o/r/issues/7' },
+      { number: 5, title: 'Done thing', state: 'CLOSED', url: 'https://github.com/o/r/issues/5' },
+    ])
+  })
+
+  it('defaults missing state/url and tolerates garbage input', () => {
+    expect(parseIssueList(null)).toEqual([])
+    expect(parseIssueList('nope')).toEqual([])
+    // per-row guard drops malformed rows (missing number / non-string title)
+    expect(parseIssueList([{ bogus: true }, { number: 1 }, { number: 'x', title: 't' }])).toEqual([])
+    expect(parseIssueList([{ number: 3, title: 'no state' }])).toEqual([
+      { number: 3, title: 'no state', state: 'OPEN', url: '' },
+    ])
+  })
+
+  it('drops non-http(s) url schemes at the ingest boundary (XSS-href defense)', () => {
+    const out = parseIssueList([
+      { number: 1, title: 'evil', state: 'OPEN', url: 'javascript:alert(1)' },
+      { number: 2, title: 'evil2', state: 'OPEN', url: 'data:text/html,<script>x</script>' },
+      { number: 3, title: 'ok', state: 'OPEN', url: 'https://github.com/o/r/issues/3' },
+    ])
+    expect(out.map(i => i.url)).toEqual(['', '', 'https://github.com/o/r/issues/3'])
   })
 })
 

@@ -5,9 +5,10 @@
  */
 
 import { execa } from 'execa'
-import type { GithubStatus, PrInfo, CiRunInfo } from '@k/shared'
-import { parsePrList, parseCiRuns } from './github-parse.js'
-import { githubDb } from './db.js'
+import { randomUUID } from 'crypto'
+import type { GithubStatus, PrInfo, CiRunInfo, IssueInfo, Project } from '@k/shared'
+import { parsePrList, parseCiRuns, parseIssueList } from './github-parse.js'
+import { githubDb, projectTasksDb } from './db.js'
 import { eventBus } from './events.js'
 import { listProjects } from './projects.js'
 
@@ -25,6 +26,88 @@ export async function fetchGithubStatus(remote: string, cwd: string): Promise<{ 
     ghJson(['run', 'list', '--repo', remote, '--limit', '10', '--json', 'databaseId,workflowName,headBranch,status,conclusion,createdAt'], cwd),
   ])
   return { prs: parsePrList(prsRaw), ci: parseCiRuns(ciRaw) }
+}
+
+// ─── Issues sync ───────────────────────────────────────────────────────────────
+
+export async function fetchIssues(remote: string, cwd: string): Promise<IssueInfo[]> {
+  const raw = await ghJson(
+    ['issue', 'list', '--repo', remote, '--json', 'number,title,state,url', '--state', 'all', '--limit', '50'],
+    cwd,
+  )
+  return parseIssueList(raw)
+}
+
+/**
+ * Sync a project's GitHub issues into its project_tasks. Mirrors the poller's
+ * degradation contract: gh absent / unauth / offline never throws — it returns
+ * { synced: 0, degraded: true } and keeps existing tasks intact.
+ *
+ * Status mapping (issue → task):
+ *   - new + issue open    → insert task 'open'
+ *   - new + issue closed  → insert task 'done' (completed_at = now)
+ *   - existing + closed   → 'done' (set completed_at if not already done)
+ *   - existing + open & task 'done' → reopen to 'open' (clear completed_at)
+ *   - existing otherwise  → leave status (don't clobber a user's 'in_progress')
+ * Title + issue_url + issue_state always refresh on update.
+ */
+export async function syncIssues(
+  project: Project,
+  fetch: typeof fetchIssues = fetchIssues,
+): Promise<{ synced: number; degraded: boolean }> {
+  if (!project.githubRemote) return { synced: 0, degraded: true }
+  try {
+    const issues = await fetch(project.githubRemote, project.localPath)
+    let synced = 0
+    for (const issue of issues) {
+      const closed = issue.state.toUpperCase() === 'CLOSED'
+      const existing = projectTasksDb.getProjectTaskByIssue.get(project.id, issue.number) as
+        | Record<string, unknown>
+        | undefined
+      if (existing) {
+        const currentStatus = String(existing.status)
+        let status = currentStatus
+        let completedAt = existing.completed_at == null ? null : Number(existing.completed_at)
+        if (closed) {
+          status = 'done'
+          if (currentStatus !== 'done') completedAt = Date.now()
+        } else if (currentStatus === 'done') {
+          // issue reopened upstream → reopen the task
+          status = 'open'
+          completedAt = null
+        }
+        // else: open issue, task open/in_progress → leave status untouched
+        projectTasksDb.updateProjectTaskFromIssue.run({
+          id: String(existing.id),
+          title: issue.title,
+          issueUrl: issue.url,
+          issueState: issue.state,
+          status,
+          completedAt,
+        })
+      } else {
+        const now = Date.now()
+        projectTasksDb.insertProjectTask.run({
+          id: randomUUID(),
+          projectId: project.id,
+          title: issue.title,
+          status: closed ? 'done' : 'open',
+          createdAt: now,
+          completedAt: closed ? now : null,
+          issueNumber: issue.number,
+          issueUrl: issue.url,
+          issueState: issue.state,
+        })
+      }
+      synced++
+    }
+    eventBus.broadcast({ type: 'github_update', projectId: project.id, kind: 'issue', payload: issues })
+    return { synced, degraded: false }
+  } catch (e) {
+    // Offline / rate-limited / gh unauthenticated → nothing synced, not an error
+    console.warn(`[github] issue sync failed for ${project.name}: ${e instanceof Error ? e.message : e}`)
+    return { synced: 0, degraded: true }
+  }
 }
 
 function parsePayload<T>(row: Record<string, unknown> | undefined): T[] {
@@ -111,8 +194,9 @@ export async function createPR(
   opts: CreatePrOpts,
 ): Promise<{ number: number; url: string; title: string; state: string }> {
   let stdout: string
-  let stderr: string
   try {
+    // `gh pr create` does NOT support --json; on success it prints the new PR's
+    // URL to stdout (possibly alongside other informational lines).
     const result = await execa(
       'gh',
       [
@@ -122,26 +206,25 @@ export async function createPR(
         '--body', opts.body,
         '--head', opts.head,
         '--base', opts.base,
-        '--json', 'number,url,title,state',
       ],
       { timeout: 60_000 },
     )
     stdout = result.stdout
-    stderr = result.stderr
   } catch (e) {
     const err = e as { stderr?: string; exitCode?: number }
-    // Sanitize gh stderr — it may contain repo URLs, branch names, or auth hints
-    const ghMsg = err.stderr?.split('\n').find(l => l.trim() && !l.includes('http'))?.trim()
-    throw new Error(ghMsg || 'gh pr create failed')
+    // Sanitize gh stderr — it may contain repo URLs or auth hints. Strip URLs in
+    // place (do NOT drop whole lines, or real error text would be discarded).
+    const sanitized = (err.stderr ?? '').replace(/https?:\/\/\S+/g, '[url]').trim()
+    throw new Error(sanitized || 'gh pr create failed')
   }
-  if (!stdout) throw new Error('gh pr create produced no output')
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(stdout)
-  } catch {
-    throw new Error(`gh pr create returned unexpected output: ${stdout.slice(0, 120)}`)
+  const match = stdout.match(/https?:\/\/\S*\/pull\/(\d+)/)
+  if (!match) throw new Error('gh pr create succeeded but no PR URL was returned')
+  return {
+    number: parseInt(match[1], 10),
+    url: match[0],
+    title: opts.title,
+    state: 'open',
   }
-  return parsed as { number: number; url: string; title: string; state: string }
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null

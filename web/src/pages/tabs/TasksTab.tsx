@@ -65,6 +65,13 @@ export default function TasksTab({ projectId }: Props) {
     },
   })
 
+  const syncIssues = useMutation({
+    mutationFn: () => api.projects.tasks.sync(projectId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks', projectId] })
+    },
+  })
+
   const dispatchAgent = useMutation({
     mutationFn: (task: ProjectTask) =>
       api.runs.start(task.title, { projectId }),
@@ -133,7 +140,23 @@ export default function TasksTab({ projectId }: Props) {
               <p className={cn('text-sm text-[var(--text)] truncate', task.status === 'done' && 'line-through opacity-50')}>
                 {task.title}
               </p>
-              <p className="font-mono text-[10px] text-[var(--muted)]">{formatTimeAgo(task.createdAt)}</p>
+              <p className="font-mono text-[10px] text-[var(--muted)] flex items-center gap-1.5">
+                <span>{formatTimeAgo(task.createdAt)}</span>
+                {task.issueNumber != null && (
+                  <>
+                    <a
+                      href={task.issueUrl ?? undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="text-[var(--accent)] hover:underline"
+                    >
+                      #{task.issueNumber}
+                    </a>
+                    {task.issueState && <span className="text-[var(--muted)]">{task.issueState.toLowerCase()}</span>}
+                  </>
+                )}
+              </p>
             </div>
 
             {/* Dispatch agent button */}
@@ -149,15 +172,24 @@ export default function TasksTab({ projectId }: Props) {
         ))}
       </div>
 
-      {/* Footer: GitHub Issues sync (placeholder) */}
-      <div className="flex-shrink-0 px-4 py-3 border-t border-[var(--border)] flex items-center justify-between">
-        <button
-          disabled
-          title="Coming in Phase 4"
-          className="text-xs text-[var(--muted)] opacity-40 cursor-not-allowed"
-        >
-          Sync with GitHub Issues
-        </button>
+      {/* Footer: GitHub Issues sync */}
+      <div className="flex-shrink-0 px-4 py-3 border-t border-[var(--border)] flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => syncIssues.mutate()}
+            disabled={syncIssues.isPending}
+            title="Pull this project's GitHub issues into the task list"
+            className="text-xs text-[var(--text)] hover:text-[var(--accent)] transition-colors disabled:opacity-40"
+          >
+            {syncIssues.isPending ? 'Syncing…' : 'Sync with GitHub Issues'}
+          </button>
+          {syncIssues.isSuccess && syncIssues.data?.degraded && (
+            <span className="text-[11px] text-[var(--muted)]">gh unavailable — nothing synced</span>
+          )}
+          {syncIssues.isError && (
+            <span className="text-[11px] text-[var(--red)]">⚠ {String(syncIssues.error)}</span>
+          )}
+        </div>
         {createTask.isError && (
           <span className="text-[11px] text-[var(--red)]">⚠ {String(createTask.error)}</span>
         )}
