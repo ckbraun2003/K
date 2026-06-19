@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, SkillEval } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, SkillEval } from '@k/shared'
 
 const BASE = '/api'
 
@@ -54,6 +54,7 @@ export const api = {
     summary: () => req<MetricsSummary>('/metrics/summary'),
     timeseries: (days: number, groupBy: TimeseriesGroupBy) =>
       req<MetricsTimeseries>(`/metrics/timeseries?days=${days}&groupBy=${groupBy}`),
+    routing: (days = 30) => req<RoutingStats>(`/metrics/routing?days=${days}`),
   },
   projects: {
     list: () => req<Project[]>('/projects'),

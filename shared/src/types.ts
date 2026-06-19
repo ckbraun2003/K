@@ -289,3 +289,25 @@ export const SkillEvalSchema = z.object({
   completedAt: z.number().nullable(),
 })
 export type SkillEval = z.infer<typeof SkillEvalSchema>
+
+// ─── Routing stats ───────────────────────────────────────────────────────────
+// Per-(provider,model) outcome aggregates powering the routing dashboard.
+
+export const RoutingModelStatSchema = z.object({
+  provider: z.string(),
+  model: z.string(),
+  runs: z.number().int(),
+  successRate: z.number(),   // done / terminal-count, 0..1 (0 if no terminal runs)
+  avgCostUsd: z.number(),    // mean over runs with cost_usd > 0 (0 if none)
+  totalCostUsd: z.number(),
+  avgLatencyMs: z.number(),  // mean ended_at - created_at over completed runs (0 if none)
+})
+export type RoutingModelStat = z.infer<typeof RoutingModelStatSchema>
+
+export const RoutingStatsSchema = z.object({
+  generatedAt: z.number(),
+  totalRuns: z.number().int(),
+  groups: z.array(RoutingModelStatSchema), // sorted by runs desc, then provider+model asc
+  recommendation: z.string(),
+})
+export type RoutingStats = z.infer<typeof RoutingStatsSchema>

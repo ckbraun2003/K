@@ -16,6 +16,7 @@ export const DESTINATIONS: Destination[] = [
   { id: 'tasks', icon: '✓', label: 'Tasks · Phase 1', enabled: false },
   { id: 'skills', icon: '⚒', label: 'Skills', enabled: true },
   { id: 'metrics', icon: '∿', label: 'Metrics', enabled: true },
+  { id: 'routing', icon: '⇄', label: 'Routing', enabled: true },
   { id: 'docs', icon: '▤', label: 'Docs', enabled: true },
 ]
 

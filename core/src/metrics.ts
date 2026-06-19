@@ -1,6 +1,9 @@
 /** Pure metrics aggregation over run rows — no DB, no clock. */
 
-import type { MetricsSummary, DailyMetric, MetricsTimeseries, TimeseriesGroupBy } from '@k/shared'
+import type {
+  MetricsSummary, DailyMetric, MetricsTimeseries, TimeseriesGroupBy,
+  RoutingStats, RoutingModelStat,
+} from '@k/shared'
 
 export interface RunRow {
   created_at: number
@@ -157,4 +160,125 @@ export function buildTimeseries(
   }
 
   return { groupBy, days, dates, series }
+}
+
+// ─── Routing stats ─────────────────────────────────────────────────────────
+
+export interface RoutingRunRow {
+  provider: string
+  model: string
+  status: string
+  cost_usd: number
+  created_at: number
+  ended_at: number | null
+}
+
+const TERMINAL = new Set(['done', 'error', 'killed', 'interrupted'])
+
+// Minimum total run history before we'll suggest a routing change.
+const RECOMMEND_MIN_RUNS = 10
+
+/** Plain-language routing recommendation derived purely from the aggregated
+ *  groups. Deterministic and unit-testable. */
+export function routingRecommendation(groups: RoutingModelStat[]): string {
+  const totalRuns = groups.reduce((sum, g) => sum + g.runs, 0)
+  if (totalRuns < RECOMMEND_MIN_RUNS) {
+    return 'Not enough run history yet to recommend a routing change.'
+  }
+
+  const ollama = groups.filter(g => g.provider === 'ollama')
+  const claude = groups.filter(g => g.provider === 'claude')
+
+  if (claude.length > 0 && ollama.length === 0) {
+    return 'All runs went to Claude — local (Ollama) routing is unused or disabled. Enabling it could cut cost on low-risk tasks.'
+  }
+
+  if (ollama.length > 0 && claude.length > 0) {
+    // Best (highest success rate) group on each side.
+    const bestOllama = ollama.reduce((a, b) => (b.successRate > a.successRate ? b : a))
+    const bestClaude = claude.reduce((a, b) => (b.successRate > a.successRate ? b : a))
+    // Local is free; recommend preferring it when its success rate is within a
+    // small margin of Claude's (or better).
+    if (bestOllama.successRate >= bestClaude.successRate - 0.05) {
+      const local = `${bestOllama.provider}/${bestOllama.model}`
+      const localPct = Math.round(bestOllama.successRate * 100)
+      const claudePct = Math.round(bestClaude.successRate * 100)
+      return `Local ${local} matches Claude on success (${localPct}% vs ${claudePct}%) at $0 cost — prefer it for low-risk tasks.`
+    }
+    return 'Claude is outperforming local models on success rate; keep routing risky tasks to Claude.'
+  }
+
+  // ollama only (claude.length === 0, guaranteed by the branches above)
+  if (ollama.length > 0 && claude.length === 0) {
+    return 'All runs went to local models at $0 cost. Routing is already cost-optimal for the observed workload.'
+  }
+
+  // Unreachable for the claude|ollama provider enum, but stay accurate (rather
+  // than implying "no history") if a future provider ever appears in the data.
+  return 'No routing recommendation available for the current provider mix.'
+}
+
+/** Pure per-(provider,model) outcome aggregation. `now` is used only for
+ *  generatedAt (mirrors summarizeRuns). */
+export function aggregateRouting(rows: RoutingRunRow[], now: number): RoutingStats {
+  type Acc = {
+    provider: string
+    model: string
+    runs: number
+    terminal: number
+    done: number
+    costSum: number       // over all runs (totalCostUsd)
+    costPosSum: number    // over runs with cost_usd > 0
+    costPosCount: number
+    latencySum: number
+    latencyCount: number
+  }
+  const accs = new Map<string, Acc>()
+
+  for (const r of rows) {
+    const key = `${r.provider} ${r.model}`
+    let a = accs.get(key)
+    if (!a) {
+      a = {
+        provider: r.provider, model: r.model, runs: 0, terminal: 0, done: 0,
+        costSum: 0, costPosSum: 0, costPosCount: 0, latencySum: 0, latencyCount: 0,
+      }
+      accs.set(key, a)
+    }
+    a.runs++
+    if (TERMINAL.has(r.status)) {
+      a.terminal++
+      if (r.status === 'done') a.done++
+    }
+    a.costSum += r.cost_usd
+    if (r.cost_usd > 0) { a.costPosSum += r.cost_usd; a.costPosCount++ }
+    if (r.ended_at != null && r.ended_at >= r.created_at) {
+      a.latencySum += r.ended_at - r.created_at
+      a.latencyCount++
+    }
+  }
+
+  const groups: RoutingModelStat[] = [...accs.values()].map(a => ({
+    provider: a.provider,
+    model: a.model,
+    runs: a.runs,
+    successRate: a.terminal > 0 ? a.done / a.terminal : 0,
+    avgCostUsd: a.costPosCount > 0 ? a.costPosSum / a.costPosCount : 0,
+    totalCostUsd: a.costSum,
+    avgLatencyMs: a.latencyCount > 0 ? a.latencySum / a.latencyCount : 0,
+  }))
+
+  groups.sort((a, b) => {
+    if (b.runs !== a.runs) return b.runs - a.runs
+    const ka = `${a.provider} ${a.model}`
+    const kb = `${b.provider} ${b.model}`
+    return ka < kb ? -1 : ka > kb ? 1 : 0
+  })
+
+  return {
+    generatedAt: now,
+    totalRuns: rows.length,
+    groups,
+    recommendation: routingRecommendation(groups),
+  }
 }
