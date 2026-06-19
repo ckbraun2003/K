@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Skill, CreateSkill } from '@k/shared'
+import type { Skill, CreateSkill, SkillEval } from '@k/shared'
 import { api } from '../lib/api'
 
 const TYPE_COLORS: Record<Skill['type'], string> = {
@@ -65,6 +65,11 @@ export default function SkillsPage() {
 
   const triggerMutation = useMutation({
     mutationFn: (id: string) => api.skills.trigger(id),
+  })
+
+  const testMutation = useMutation({
+    mutationFn: (id: string) => api.skills.test(id),
+    onSuccess: (_data, id) => qc.invalidateQueries({ queryKey: ['skill-evals', id] }),
   })
 
   function handleSubmit(e: React.FormEvent) {
@@ -228,8 +233,10 @@ export default function SkillsPage() {
             skill={skill}
             onToggle={enabled => toggleMutation.mutate({ id: skill.id, enabled })}
             onTrigger={() => triggerMutation.mutate(skill.id)}
+            onTest={() => testMutation.mutate(skill.id)}
             onDelete={() => deleteMutation.mutate(skill.id)}
             isTriggerPending={triggerMutation.isPending && triggerMutation.variables === skill.id}
+            isTestPending={testMutation.isPending && testMutation.variables === skill.id}
           />
         ))}
       </div>
@@ -237,19 +244,34 @@ export default function SkillsPage() {
   )
 }
 
+const EVAL_BADGE: Record<SkillEval['status'], string> = {
+  pass: 'bg-green-500/20 text-green-300',
+  fail: 'bg-red-500/20 text-red-300',
+  pending: 'bg-[var(--raised)] text-[var(--muted)]',
+}
+
 function SkillRow({
   skill,
   onToggle,
   onTrigger,
+  onTest,
   onDelete,
   isTriggerPending,
+  isTestPending,
 }: {
   skill: Skill
   onToggle: (enabled: boolean) => void
   onTrigger: () => void
+  onTest: () => void
   onDelete: () => void
   isTriggerPending: boolean
+  isTestPending: boolean
 }) {
+  const { data: evals = [] } = useQuery<SkillEval[]>({
+    queryKey: ['skill-evals', skill.id],
+    queryFn: () => api.skills.evals(skill.id),
+  })
+  const latestEval = evals[0]
   return (
     <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
       {/* Toggle */}
@@ -272,6 +294,12 @@ function SkillRow({
           {!skill.enabled && (
             <Badge label="disabled" className="bg-[var(--raised)] text-[var(--muted)]" />
           )}
+          {latestEval && (
+            <Badge label={`eval: ${latestEval.status}`} className={EVAL_BADGE[latestEval.status]} />
+          )}
+          {latestEval?.regression && (
+            <Badge label="⚠ regression" className="bg-red-500/20 text-red-300" />
+          )}
         </div>
         {skill.description && (
           <p className="mt-0.5 truncate text-xs text-[var(--muted)]">{skill.description}</p>
@@ -292,6 +320,13 @@ function SkillRow({
           className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
         >
           {isTriggerPending ? '…' : '▶ run'}
+        </button>
+        <button
+          onClick={onTest}
+          disabled={isTestPending}
+          className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+        >
+          {isTestPending ? '…' : 'test'}
         </button>
         <button
           onClick={onDelete}

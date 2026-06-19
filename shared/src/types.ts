@@ -274,3 +274,18 @@ export const CreateSkillSchema = z.object({
   eventTrigger: z.string().nullable().optional(),
 })
 export type CreateSkill = z.infer<typeof CreateSkillSchema>
+
+// A single eval-harness test of a skill — pass/fail verdict plus regression flag
+// (was-pass-now-fail vs the prior completed eval baseline).
+export const SkillEvalStatusSchema = z.enum(['pending', 'pass', 'fail'])
+export const SkillEvalSchema = z.object({
+  id: z.string(),
+  skillId: z.string(),
+  runId: z.string().nullable(),
+  status: SkillEvalStatusSchema,
+  regression: z.boolean(),
+  baselineEvalId: z.string().nullable(),
+  createdAt: z.number(),
+  completedAt: z.number().nullable(),
+})
+export type SkillEval = z.infer<typeof SkillEvalSchema>

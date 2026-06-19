@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, SkillEval } from '@k/shared'
 
 const BASE = '/api'
 
@@ -116,6 +116,9 @@ export const api = {
       req<void>(`/skills/${id}`, { method: 'DELETE' }),
     trigger: (id: string) =>
       req<{ skillRunId: string; runId: string }>(`/skills/${id}/trigger`, { method: 'POST' }),
+    test: (id: string) =>
+      req<{ evalId: string; runId: string }>(`/skills/${id}/test`, { method: 'POST' }),
+    evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),
     runs: (id: string) =>
       req<Array<{
         id: string

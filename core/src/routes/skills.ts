@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { validate as cronValidate } from 'node-cron'
 import { CreateSkillSchema } from '@k/shared'
 import { skillsDb } from '../db.js'
-import { listSkills, registerSkill, rowToSkill, triggerSkill } from '../skills.js'
+import { listSkills, listSkillEvals, registerSkill, rowToSkill, runSkillTest, triggerSkill } from '../skills.js'
 
 export async function skillsRoutes(app: FastifyInstance) {
   // GET /api/skills — list all skills
@@ -77,6 +77,26 @@ export async function skillsRoutes(app: FastifyInstance) {
       req.log.error(e)
       return reply.status(500).send({ error: 'trigger failed' })
     }
+  })
+
+  // POST /api/skills/:id/test — dispatch an eval-harness test (202 + { evalId, runId })
+  app.post<{ Params: { id: string } }>('/api/skills/:id/test', async (req, reply) => {
+    const row = skillsDb.getSkill.get(req.params.id)
+    if (!row) return reply.status(404).send({ error: 'not found' })
+    try {
+      const result = await runSkillTest(req.params.id)
+      return reply.status(202).send(result)
+    } catch (e) {
+      req.log.error(e)
+      return reply.status(500).send({ error: 'test failed' })
+    }
+  })
+
+  // GET /api/skills/:id/evals — list recent skill_evals
+  app.get<{ Params: { id: string } }>('/api/skills/:id/evals', async (req, reply) => {
+    const row = skillsDb.getSkill.get(req.params.id)
+    if (!row) return reply.status(404).send({ error: 'not found' })
+    return reply.send(listSkillEvals(req.params.id))
   })
 
   // GET /api/skills/:id/runs — list recent skill_runs

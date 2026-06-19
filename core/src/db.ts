@@ -121,6 +121,17 @@ db.exec(`
     completedAt INTEGER,
     status      TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed'))
   );
+
+  CREATE TABLE IF NOT EXISTS skill_evals (
+    id             TEXT PRIMARY KEY,
+    skillId        TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    runId          TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    status         TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','pass','fail')),
+    regression     INTEGER NOT NULL DEFAULT 0,
+    baselineEvalId TEXT REFERENCES skill_evals(id) ON DELETE SET NULL,
+    createdAt      INTEGER NOT NULL,
+    completedAt    INTEGER
+  );
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -386,4 +397,39 @@ export const skillsDb = {
   insertSkillRun,
   listSkillRuns,
   updateSkillRunStatus,
+}
+
+// ─── Skill eval helpers ──────────────────────────────────────────────────────
+
+const insertSkillEval = db.prepare(`
+  INSERT INTO skill_evals (id, skillId, runId, status, regression, baselineEvalId, createdAt, completedAt)
+  VALUES (@id, @skillId, @runId, @status, @regression, @baselineEvalId, @createdAt, @completedAt)
+`)
+
+const getSkillEval = db.prepare(`SELECT * FROM skill_evals WHERE id = ?`)
+
+const listSkillEvals = db.prepare(`
+  SELECT * FROM skill_evals WHERE skillId = ? ORDER BY createdAt DESC LIMIT 20
+`)
+
+// Most recent completed (pass|fail) eval for a skill — the regression baseline.
+const latestCompletedSkillEval = db.prepare(`
+  SELECT * FROM skill_evals
+  WHERE skillId = ? AND status IN ('pass','fail')
+  ORDER BY createdAt DESC LIMIT 1
+`)
+
+const patchSkillEvalRunId = db.prepare(`UPDATE skill_evals SET runId = ? WHERE id = ?`)
+
+const updateSkillEvalResult = db.prepare(`
+  UPDATE skill_evals SET status = @status, regression = @regression, baselineEvalId = @baselineEvalId, completedAt = @completedAt WHERE id = @id
+`)
+
+export const skillEvalsDb = {
+  insertSkillEval,
+  getSkillEval,
+  listSkillEvals,
+  latestCompletedSkillEval,
+  patchSkillEvalRunId,
+  updateSkillEvalResult,
 }
