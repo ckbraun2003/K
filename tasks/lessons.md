@@ -50,6 +50,36 @@ entries at session start before touching the same area.
   matched the canonical `CLAUDE.md` on NTFS, making it un-committable. **Rule:** be precise
   with gitignore patterns on case-insensitive filesystems; verify with `git check-ignore`.
 
+- **`npx gitnexus analyze` rewrites `CLAUDE.md`** — **Pattern:** running the
+  GitNexus analyzer (manually or via the post-commit hook) appends a large
+  `<!-- gitnexus:start -->…<!-- gitnexus:end -->` block to `CLAUDE.md`, re-bloating
+  the file that Wave 0 deliberately trimmed. **Rule:** after any `gitnexus analyze`
+  (or any commit, since a PostToolUse hook re-runs it), `git checkout -- CLAUDE.md`
+  before staging the next change; never let the injected block land in a feature
+  commit. Verify with `git diff --stat CLAUDE.md` (should be empty).
+
+- **pnpm 10 ignores native build scripts until approved** — **Pattern:** `pnpm add
+  node-pty` installed the package but skipped its build (prebuild copy), so the
+  native binding was absent. **Rule:** native deps must be listed under
+  `onlyBuiltDependencies` in `pnpm-workspace.yaml` (alongside `better-sqlite3`,
+  `esbuild`); then `pnpm install` runs the build. Verify the binding actually loads
+  (`node -e "require('node-pty').spawn(...)"`) before assuming it works.
+
+- **Scope embedded browser secrets to the feature** — **Pattern:** the web terminal
+  needed a token in the bundle; baking `HARNESS_TOKEN` (the full-REST credential)
+  into the Vite bundle would let a leaked bundle hit every API route. **Rule:** when
+  a credential must reach the browser, mint a SEPARATE, narrowly-scoped token
+  (`TERMINAL_TOKEN`) so a leak grants only that feature — never the master token.
+  Auth-guard sensitive WS routes that are hook-exempt with an in-handler token check.
+
+- **Verify native/runtime seams live, not just with mocks** — **Pattern:** the
+  terminal's unit tests use a fake pty; that proves the bridge logic but not the
+  real node-pty dynamic-import + spawn. **Rule:** for a wave whose risk is a native
+  binding or a real subprocess, run one live end-to-end smoke (boot the app, drive
+  the real WS, assert real output + that a bad token spawns nothing) in addition to
+  the deterministic mocked unit tests. Keep the live check out of CI; run it in
+  verification.
+
 - **`CLAUDE.md` is the GLOBAL harness prompt, not project docs** — **Pattern:** "make
   CLAUDE.md the system prompt for the harness" was misread as "document the K project in
   CLAUDE.md" — it was rewritten with K-specific repo map, pnpm commands, ports, and module
@@ -58,3 +88,16 @@ entries at session start before touching the same area.
   project-specific facts (stack, run/test commands, module map) in that project's own bible /
   `AGENTS.md`, never in the global prompt. When asked to edit a "system prompt," confirm
   whether it is the global harness prompt or a single project's instructions before rewriting.
+
+- **Import the renderer subpackage, not the `react-force-graph` aggregate** — **Pattern:** all
+  three graph views imported `{ ForceGraph2D } from 'react-force-graph'`. The aggregate package's
+  module body wires up the 3D/VR/AR renderers, which reference a global `AFRAME` that doesn't exist
+  in a plain browser, so it threw `ReferenceError: AFRAME is not defined` at module-evaluation time.
+  Because `Shell` statically imports the graph pages, that throw crashed the whole React tree —
+  blank screen on EVERY route. typecheck, `vite build`, and all 80 unit tests passed regardless,
+  because the crash only manifests in a real browser at runtime. **Rule:** import the renderer-
+  specific subpackage (`react-force-graph-2d`, default export) — never the `react-force-graph`
+  aggregate — and remember unit tests + build do NOT catch module-eval-time browser crashes. For a
+  client-rendered SPA, a "blank page" almost always = an uncaught throw during initial render/module
+  load; drive a real browser and read the console. Added a static guard test
+  (`web/test/bundle-guard.test.ts`) that fails CI if the aggregate import returns.
