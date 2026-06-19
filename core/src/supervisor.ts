@@ -50,11 +50,12 @@ export type StartRunOptions = {
   cwd?: string
   model?: string
   preferLocal?: boolean
+  maxCostUsd?: number
   projectId?: string
 }
 
 export async function startRun(prompt: string, opts: StartRunOptions = {}): Promise<Run> {
-  const routeResult = route({ prompt, preferLocal: opts.preferLocal })
+  const routeResult = route({ prompt, preferLocal: opts.preferLocal, maxCostUsd: opts.maxCostUsd })
   const runId = uuid()
   const cwd = opts.cwd ?? REPO_ROOT
   const worktreePath = path.join(WORKTREES_DIR, runId)
@@ -232,13 +233,13 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
   let costUsd = 0
 
   try {
-    // Dispatch on the routed provider — never hard-code "claude". An unimplemented
-    // provider (ollama) throws from buildArgs here and surfaces as an error event
-    // below, rather than silently spawning claude.
+    // Dispatch on the routed provider — never hard-code "claude". buildArgs and
+    // parseLine both come from the routed provider, so an ollama run is spawned
+    // AND parsed as ollama (a routing/parsing mismatch is structurally impossible).
     const provider = getProvider(run.provider)
     const proc = execa(
       provider.binary,
-      provider.buildArgs(prompt, { inWorktree, permissionMode: PERMISSION_MODE }),
+      provider.buildArgs(prompt, { inWorktree, permissionMode: PERMISSION_MODE, model: run.model }),
       { cwd, reject: false, all: true }
     )
 
@@ -253,7 +254,11 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
         buf = lines.pop() ?? ''
         for (const line of lines) {
           if (!line.trim()) continue
-          const event = parseLine(line, run.id, seq++, { tokensIn, tokensOut, costUsd })
+          const s = seq++
+          // Parse with the ROUTED provider's parser, then validate at the ingest
+          // boundary so malformed output can't poison the store or WS stream.
+          const parsed = provider.parseLine(line, run.id, s, { tokensIn, tokensOut, costUsd })
+          const event = parsed ? validateAgentEvent(parsed, run.id, s) : null
           if (event) {
             // Accumulate usage (last-wins overwrite; a real 0 is a legitimate value)
             ;({ tokensIn, tokensOut, costUsd } = accumulate({ tokensIn, tokensOut, costUsd }, event))
@@ -304,13 +309,25 @@ export function accumulate(prev: Usage, event: AgentEvent): Usage {
 }
 
 /**
- * Parse one NDJSON output line into a validated AgentEvent (or null to ignore).
- *
- * Thin wrapper over the claude provider's parser plus a runtime validation pass
- * at the agent-ingest boundary: events that fail AgentEventSchema are dropped and
- * logged rather than persisted+broadcast, so malformed `JSON.parse` output can't
- * poison the store or the WebSocket stream. Re-exported here (vs. providers.ts)
- * so existing supervisor tests importing `parseLine` keep working.
+ * Validate a parsed event at the agent-ingest boundary: events that fail
+ * AgentEventSchema are dropped and logged rather than persisted+broadcast, so
+ * malformed provider output can't poison the store or the WebSocket stream.
+ * Applied to every provider's parser output in the stream loop above.
+ */
+export function validateAgentEvent(event: AgentEvent, runId: string, seq: number): AgentEvent | null {
+  const parsed = AgentEventSchema.safeParse(event)
+  if (!parsed.success) {
+    console.warn(`[supervisor] dropping malformed event (run ${runId}, seq ${seq}):`, parsed.error.message)
+    return null
+  }
+  return parsed.data
+}
+
+/**
+ * Parse one claude NDJSON line into a validated AgentEvent (or null to ignore).
+ * Thin wrapper over the claude provider's parser + `validateAgentEvent`,
+ * re-exported here (vs. providers.ts) so existing supervisor tests importing
+ * `parseLine` keep working.
  */
 export function parseLine(
   line: string,
@@ -320,12 +337,7 @@ export function parseLine(
 ): AgentEvent | null {
   const event = parseClaudeLine(line, runId, seq, ctx)
   if (event === null) return null
-  const parsed = AgentEventSchema.safeParse(event)
-  if (!parsed.success) {
-    console.warn(`[supervisor] dropping malformed event (run ${runId}, seq ${seq}):`, parsed.error.message)
-    return null
-  }
-  return parsed.data
+  return validateAgentEvent(event, runId, seq)
 }
 
 function emitStatusEvent(runId: string, status: string, seq: number, ts: number) {

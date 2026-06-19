@@ -1,18 +1,26 @@
 /**
- * ModelRouter — the Architecture-C seam.
+ * ModelRouter — the routing half of the ModelRouter B-seam.
  *
- * route(task) returns { provider, model } so the supervisor never has
- * a hard dependency on "claude". Swapping in Ollama for cheap/offline
- * tasks is a config change, not a code change.
+ * route(task) returns { provider, model, baseUrl? } so the supervisor never has
+ * a hard dependency on "claude". Swapping in Ollama for cheap/offline tasks is a
+ * config decision, not a code change.
  *
- * Phase 0: always returns claude-sonnet-4-6 (the latest capable model).
- * Phase 3: read ROUTER_RULES env/config to split tasks by type/cost/privacy.
+ * Graceful-degradation contract: Ollama is optional. route() only ever selects
+ * ollama when it is explicitly enabled (ENABLE_OLLAMA) AND a background probe has
+ * confirmed it is reachable. Otherwise it falls back to claude — a routing
+ * decision must never make a run *fail* for lack of a local model (the same
+ * posture the GitHub poller takes when `gh` is absent).
+ *
+ * Cost-aware routing reads run-outcome data (mean cost of completed claude runs)
+ * so a task with a tight `maxCostUsd` cap can prefer the free local model.
  */
+
+import { db } from './db.js'
 
 export type RoutingTask = {
   prompt: string
   preferLocal?: boolean   // hint: route to Ollama if available
-  maxCostUsd?: number     // hint: use cheaper model if needed
+  maxCostUsd?: number     // hint: prefer the free local model if claude historically costs more
 }
 
 export type RouteResult = {
@@ -26,11 +34,77 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434'
 const OLLAMA_DEFAULT_MODEL = process.env.OLLAMA_MODEL ?? 'llama3.2'
 const ENABLE_OLLAMA = process.env.ENABLE_OLLAMA === 'true'
 
-export function route(_task: RoutingTask): RouteResult {
-  // Phase 0: always claude
-  // Phase 3: evaluate task hints + ROUTER_RULES + check if ollama is reachable
-  if (ENABLE_OLLAMA && _task.preferLocal) {
-    return { provider: 'ollama', model: OLLAMA_DEFAULT_MODEL, baseUrl: OLLAMA_BASE_URL }
+// Reachability is updated by the background probe. It defaults to false so the
+// router never routes to an unproven Ollama before the first successful probe.
+let ollamaReachable = false
+export function isOllamaReachable(): boolean { return ollamaReachable }
+
+/** Injectable decision inputs — supplied in tests to keep route() pure (no DB,
+ *  no env, no live probe). Defaults read module/env/DB state in production. */
+export type RouteDeps = {
+  enableOllama?: boolean
+  ollamaReachable?: boolean
+  avgClaudeCostUsd?: () => number | null
+}
+
+export function route(task: RoutingTask, deps: RouteDeps = {}): RouteResult {
+  const claude: RouteResult = { provider: 'claude', model: CLAUDE_DEFAULT_MODEL }
+
+  const enabled = deps.enableOllama ?? ENABLE_OLLAMA
+  if (!enabled) return claude
+
+  const reachable = deps.ollamaReachable ?? ollamaReachable
+  if (!reachable) return claude   // degrade — never fail a run for an absent local model
+
+  const ollama: RouteResult = { provider: 'ollama', model: OLLAMA_DEFAULT_MODEL, baseUrl: OLLAMA_BASE_URL }
+
+  // Explicit hint wins.
+  if (task.preferLocal) return ollama
+
+  // Cost-aware: if a cap is set and claude has historically cost more than the
+  // cap, prefer the free local model.
+  if (task.maxCostUsd != null) {
+    const avg = (deps.avgClaudeCostUsd ?? avgClaudeCostUsd)()
+    if (avg != null && avg > task.maxCostUsd) return ollama
   }
-  return { provider: 'claude', model: CLAUDE_DEFAULT_MODEL }
+
+  return claude
+}
+
+/** Run-outcome data: mean cost of completed, non-free claude runs (null if none). */
+export function avgClaudeCostUsd(): number | null {
+  try {
+    const row = db
+      .prepare(
+        `SELECT AVG(cost_usd) AS avg FROM runs
+         WHERE provider = 'claude' AND status = 'done' AND cost_usd > 0`,
+      )
+      .get() as { avg: number | null } | undefined
+    return row?.avg ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Probe Ollama reachability via HTTP GET /api/tags. Never throws; updates the
+ *  cached flag and returns it. */
+export async function probeOllama(baseUrl = OLLAMA_BASE_URL, timeoutMs = 2000): Promise<boolean> {
+  try {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => ctrl.abort(), timeoutMs)
+    const res = await fetch(`${baseUrl}/api/tags`, { signal: ctrl.signal }).finally(() => clearTimeout(t))
+    ollamaReachable = res.ok
+  } catch {
+    ollamaReachable = false
+  }
+  return ollamaReachable
+}
+
+/** Start periodic reachability probing. No-op unless ENABLE_OLLAMA is set, so a
+ *  machine without Ollama never logs probe noise. Wired into core bootstrap. */
+export function startOllamaProbe(intervalMs = 60_000): void {
+  if (!ENABLE_OLLAMA) return
+  void probeOllama()
+  const timer = setInterval(() => { void probeOllama() }, intervalMs)
+  timer.unref?.()
 }

@@ -21,6 +21,7 @@ import { skillsRoutes } from './routes/skills.js'
 import { startEventListener, startScheduler } from './skills.js'
 import { compileBible } from './bible.js'
 import { reconcileOnBoot } from './supervisor.js'
+import { startOllamaProbe } from './router.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
 import { startGithubPoller, stopGithubPoller } from './github.js'
 import { isAuthExempt } from './auth.js'
@@ -136,6 +137,7 @@ async function start() {
   startGithubPoller()
   startEventListener()
   startScheduler()
+  startOllamaProbe()  // no-op unless ENABLE_OLLAMA; keeps router reachability fresh
   console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
   console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)
   console.log(`   Bearer token       → ${BEARER_TOKEN}\n`)
