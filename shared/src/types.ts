@@ -288,6 +288,16 @@ export const CreateSkillSchema = z.object({
 })
 export type CreateSkill = z.infer<typeof CreateSkillSchema>
 
+// PATCH /api/skills/:id body — only the mutable fields, all optional.
+export const UpdateSkillSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    schedule: z.string().nullable().optional(),
+    eventTrigger: z.string().nullable().optional(),
+  })
+  .strict()
+export type UpdateSkill = z.infer<typeof UpdateSkillSchema>
+
 // A single eval-harness test of a skill — pass/fail verdict plus regression flag
 // (was-pass-now-fail vs the prior completed eval baseline).
 export const SkillEvalStatusSchema = z.enum(['pending', 'pass', 'fail'])

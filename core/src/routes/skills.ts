@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { validate as cronValidate } from 'node-cron'
-import { CreateSkillSchema } from '@k/shared'
+import { CreateSkillSchema, UpdateSkillSchema } from '@k/shared'
 import { skillsDb } from '../db.js'
 import { listSkills, listSkillEvals, registerSkill, rowToSkill, runSkillTest, triggerSkill } from '../skills.js'
 
@@ -40,7 +40,17 @@ export async function skillsRoutes(app: FastifyInstance) {
     const row = skillsDb.getSkill.get(req.params.id)
     if (!row) return reply.status(404).send({ error: 'not found' })
 
-    const body = req.body as Record<string, unknown>
+    const parsed = UpdateSkillSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    const body = parsed.data
+
+    // A non-null schedule must be a valid cron expression — same boundary check
+    // POST enforces, so a bad cron can never be stored (and silently never fire).
+    if (body.schedule != null && !cronValidate(body.schedule)) {
+      return reply.status(400).send({ error: 'schedule must be a valid cron expression' })
+    }
 
     if (body.enabled !== undefined) {
       skillsDb.updateSkillEnabled.run(body.enabled ? 1 : 0, req.params.id)
@@ -48,8 +58,8 @@ export async function skillsRoutes(app: FastifyInstance) {
     if (body.schedule !== undefined || body.eventTrigger !== undefined) {
       const current = rowToSkill(row as Record<string, unknown>)
       skillsDb.updateSkillSchedule.run(
-        body.schedule !== undefined ? (body.schedule as string | null) : current.schedule ?? null,
-        body.eventTrigger !== undefined ? (body.eventTrigger as string | null) : current.eventTrigger ?? null,
+        body.schedule !== undefined ? body.schedule : current.schedule ?? null,
+        body.eventTrigger !== undefined ? body.eventTrigger : current.eventTrigger ?? null,
         req.params.id,
       )
     }

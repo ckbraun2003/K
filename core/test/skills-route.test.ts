@@ -109,6 +109,43 @@ describe('POST /api/skills — trigger-type / field validation', () => {
   })
 })
 
+describe('PATCH /api/skills/:id — body validation', () => {
+  let id: string
+  beforeAll(async () => {
+    const payload = makeSkill({ triggerType: 'manual' })
+    const res = await app.inject({ method: 'POST', url: '/api/skills', headers: AUTH, payload })
+    persistedNames.push(payload.name as string)
+    id = res.json().id
+  })
+
+  it('400 when patching schedule with an invalid cron expression', async () => {
+    const res = await app.inject({
+      method: 'PATCH', url: `/api/skills/${id}`, headers: AUTH,
+      payload: { schedule: 'not a cron' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.stringify(res.json().error)).toMatch(/cron/i)
+  })
+
+  it('400 on an unknown field (strict schema)', async () => {
+    const res = await app.inject({
+      method: 'PATCH', url: `/api/skills/${id}`, headers: AUTH,
+      payload: { bogus: true },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('200 when patching schedule with a valid cron expression', async () => {
+    const res = await app.inject({
+      method: 'PATCH', url: `/api/skills/${id}`, headers: AUTH,
+      payload: { schedule: '*/10 * * * *', enabled: false },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().schedule).toBe('*/10 * * * *')
+    expect(res.json().enabled).toBe(false)
+  })
+})
+
 describe('GET /api/skills', () => {
   it('returns the created skill(s)', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/skills', headers: AUTH })

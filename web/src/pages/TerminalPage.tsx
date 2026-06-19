@@ -64,6 +64,13 @@ export default function TerminalPage() {
       }
     }
     ws.onopen = sendResize
+    // A hard transport failure (server crash, drop, refused upgrade) surfaces as
+    // an error/close event, not a JSON error frame — show it so the pane never
+    // just goes silent. A clean close (we initiated it) needs no banner.
+    ws.onerror = () => setError('connection failed — is the core server running?')
+    ws.onclose = (e) => {
+      if (!e.wasClean) setError(`connection closed unexpectedly (code ${e.code})`)
+    }
     window.addEventListener('resize', sendResize)
 
     return () => {

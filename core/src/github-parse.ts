@@ -2,6 +2,17 @@
 
 import type { PrInfo, CiRunInfo, IssueInfo } from '@k/shared'
 
+/**
+ * Only http(s) URLs survive ingest. `gh … --json url` is normally a github.com
+ * link, but the value is rendered as an `<a href>` in the web UI; gating the
+ * scheme here (the boundary) blocks a `javascript:`/`data:` href from ever being
+ * stored, rather than relying on the React renderer to neutralise it at paint.
+ */
+function safeHttpUrl(raw: unknown): string {
+  const s = String(raw ?? '')
+  return /^https?:\/\//i.test(s) ? s : ''
+}
+
 function rollupChecks(rollup: unknown): PrInfo['checks'] {
   if (!Array.isArray(rollup) || rollup.length === 0) return 'none'
   let pending = false
@@ -27,7 +38,7 @@ export function parsePrList(json: unknown): PrInfo[] {
       number: r.number,
       title: r.title,
       state: String(r.state ?? 'OPEN'),
-      url: String(r.url ?? ''),
+      url: safeHttpUrl(r.url),
       checks: rollupChecks(r.statusCheckRollup),
     })
   }
@@ -44,7 +55,7 @@ export function parseIssueList(json: unknown): IssueInfo[] {
       number: r.number,
       title: r.title,
       state: String(r.state ?? 'OPEN'),
-      url: String(r.url ?? ''),
+      url: safeHttpUrl(r.url),
     })
   }
   return out

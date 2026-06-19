@@ -62,6 +62,15 @@ describe('parseIssueList', () => {
       { number: 3, title: 'no state', state: 'OPEN', url: '' },
     ])
   })
+
+  it('drops non-http(s) url schemes at the ingest boundary (XSS-href defense)', () => {
+    const out = parseIssueList([
+      { number: 1, title: 'evil', state: 'OPEN', url: 'javascript:alert(1)' },
+      { number: 2, title: 'evil2', state: 'OPEN', url: 'data:text/html,<script>x</script>' },
+      { number: 3, title: 'ok', state: 'OPEN', url: 'https://github.com/o/r/issues/3' },
+    ])
+    expect(out.map(i => i.url)).toEqual(['', '', 'https://github.com/o/r/issues/3'])
+  })
 })
 
 describe('parseCiRuns', () => {
