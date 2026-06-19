@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ForceGraph2D } from 'react-force-graph'
+import ForceGraph2D from 'react-force-graph-2d'
 import type { Project } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
