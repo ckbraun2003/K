@@ -1,6 +1,6 @@
 /** Pure projections from `gh … --json` payloads — no subprocess, no DB. */
 
-import type { PrInfo, CiRunInfo } from '@k/shared'
+import type { PrInfo, CiRunInfo, IssueInfo } from '@k/shared'
 
 function rollupChecks(rollup: unknown): PrInfo['checks'] {
   if (!Array.isArray(rollup) || rollup.length === 0) return 'none'
@@ -29,6 +29,22 @@ export function parsePrList(json: unknown): PrInfo[] {
       state: String(r.state ?? 'OPEN'),
       url: String(r.url ?? ''),
       checks: rollupChecks(r.statusCheckRollup),
+    })
+  }
+  return out
+}
+
+export function parseIssueList(json: unknown): IssueInfo[] {
+  if (!Array.isArray(json)) return []
+  const out: IssueInfo[] = []
+  for (const raw of json) {
+    const r = raw as Record<string, unknown>
+    if (typeof r?.number !== 'number' || typeof r?.title !== 'string') continue
+    out.push({
+      number: r.number,
+      title: r.title,
+      state: String(r.state ?? 'OPEN'),
+      url: String(r.url ?? ''),
     })
   }
   return out

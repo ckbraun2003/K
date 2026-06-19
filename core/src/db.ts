@@ -184,6 +184,16 @@ export function migrate(d: Database.Database): void {
     `)
     d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq)`)
   }
+  // project_tasks GitHub Issues sync columns (Wave 3-7): appended via guarded
+  // ALTERs (not in CREATE TABLE) so existing DBs gain them; fresh installs get
+  // them here too since migrate() runs at boot. hasTable guard keeps migrate()
+  // safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'project_tasks')) {
+    if (!hasColumn(d, 'project_tasks', 'issue_number')) d.exec(`ALTER TABLE project_tasks ADD COLUMN issue_number INTEGER`)
+    if (!hasColumn(d, 'project_tasks', 'issue_url')) d.exec(`ALTER TABLE project_tasks ADD COLUMN issue_url TEXT`)
+    if (!hasColumn(d, 'project_tasks', 'issue_state')) d.exec(`ALTER TABLE project_tasks ADD COLUMN issue_state TEXT`)
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_project_tasks_issue ON project_tasks(project_id, issue_number)`)
+  }
 }
 
 migrate(db)
@@ -324,8 +334,8 @@ export function rowToReport(r: Record<string, unknown>): VerificationReport {
 // ─── ProjectTask helpers ─────────────────────────────────────────────────────
 
 const insertProjectTask = db.prepare(`
-  INSERT INTO project_tasks (id, project_id, title, status, created_at)
-  VALUES (@id, @projectId, @title, @status, @createdAt)
+  INSERT INTO project_tasks (id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state)
+  VALUES (@id, @projectId, @title, @status, @createdAt, @completedAt, @issueNumber, @issueUrl, @issueState)
 `)
 
 const listProjectTasks = db.prepare(`
@@ -340,7 +350,26 @@ const updateProjectTaskStatus = db.prepare(`
 
 const getProjectTask = db.prepare(`SELECT * FROM project_tasks WHERE id = ? AND project_id = ?`)
 
-export const projectTasksDb = { insertProjectTask, listProjectTasks, updateProjectTaskStatus, getProjectTask }
+// Issue-sync lookup: a task already mirroring a given (project, issue#).
+const getProjectTaskByIssue = db.prepare(`SELECT * FROM project_tasks WHERE project_id = ? AND issue_number = ?`)
+
+// Reconcile an existing task with its upstream issue. status/completed_at are
+// decided by the caller (sync mapping); title and issue metadata always refresh.
+const updateProjectTaskFromIssue = db.prepare(`
+  UPDATE project_tasks
+  SET title = @title, issue_url = @issueUrl, issue_state = @issueState,
+      status = @status, completed_at = @completedAt
+  WHERE id = @id
+`)
+
+export const projectTasksDb = {
+  insertProjectTask,
+  listProjectTasks,
+  updateProjectTaskStatus,
+  getProjectTask,
+  getProjectTaskByIssue,
+  updateProjectTaskFromIssue,
+}
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────
 

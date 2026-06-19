@@ -235,8 +235,21 @@ export const ProjectTaskSchema = z.object({
   status: z.enum(['open', 'in_progress', 'done']),
   createdAt: z.number(),
   completedAt: z.number().nullable().optional(),
+  // GitHub Issues sync — present when a task mirrors an issue (Wave 3-7)
+  issueNumber: z.number().int().nullable().optional(),
+  issueUrl: z.string().nullable().optional(),
+  issueState: z.string().nullable().optional(),
 })
 export type ProjectTask = z.infer<typeof ProjectTaskSchema>
+
+// A GitHub issue projected from `gh issue list --json number,title,state,url`.
+export const IssueInfoSchema = z.object({
+  number: z.number().int(),
+  title: z.string(),
+  state: z.string(),
+  url: z.string(),
+})
+export type IssueInfo = z.infer<typeof IssueInfoSchema>
 
 // ─── PR creation ─────────────────────────────────────────────────────────────
 

@@ -86,6 +86,8 @@ export const api = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status }),
         }),
+      sync: (projectId: string) =>
+        req<{ synced: number; degraded: boolean }>(`/projects/${projectId}/tasks/sync`, { method: 'POST' }),
     },
     graph: (id: string) =>
       req<{ nodes: unknown[]; links: unknown[]; stale: boolean }>(`/projects/${id}/graph`),
