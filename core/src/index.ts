@@ -25,12 +25,17 @@ import { startOllamaProbe } from './router.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
 import { startGithubPoller, stopGithubPoller } from './github.js'
 import { isAuthExempt } from './auth.js'
+import { terminalGate, createTerminalSession, type SpawnPty } from './terminal.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
 // loopback by default — Phase 0's security posture assumes localhost-only;
 // set HOST=0.0.0.0 explicitly to expose on the network
 const HOST = process.env.HOST ?? '127.0.0.1'
 const BEARER_TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
+// Separate, narrower credential for the web terminal. It is embedded in the web
+// bundle (vite.config.ts) so a leaked bundle grants ONLY terminal access — never
+// the full-REST HARNESS_TOKEN. Default-off feature; loopback posture applies.
+const TERMINAL_TOKEN = process.env.TERMINAL_TOKEN ?? 'dev-terminal-token'
 
 /**
  * Build the Fastify app: CORS, WS plugin, auth hook, health, REST routes, and
@@ -117,6 +122,61 @@ export async function buildApp() {
       console.warn('[ws] socket error:', err.message)
       cleanup()
     })
+  })
+
+  // ── Web terminal (opt-in, sensitive) ─────────────────────────────────────────
+  // Default OFF. Gated on ENABLE_TERMINAL=true + a matching `token` query param
+  // (browsers can't send an auth header on a WS upgrade). node-pty is imported
+  // dynamically so its native binding never affects core boot, and an
+  // unavailable pty degrades to a clean 'unavailable' error frame.
+  app.get('/ws/terminal', { websocket: true }, async (connection: SocketStream, req) => {
+    const socket = connection.socket
+
+    const token = ((req.query ?? {}) as { token?: string }).token
+    const gate = terminalGate({
+      enabled: process.env.ENABLE_TERMINAL === 'true',
+      token,
+      expectedToken: TERMINAL_TOKEN,
+    })
+    if (!gate.ok) {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify({ type: 'error', code: gate.code }))
+      }
+      socket.close()
+      return
+    }
+
+    // Dynamically import node-pty: keep it off the core boot path, and degrade
+    // gracefully if the native binding is missing on this platform.
+    let spawnPty: SpawnPty
+    try {
+      const pty = await import('node-pty')
+      spawnPty = (shell, cols, rows) =>
+        pty.spawn(shell, [], {
+          name: 'xterm-color',
+          cols,
+          rows,
+          cwd: process.env.HOME ?? process.cwd(),
+          env: process.env,
+        })
+    } catch {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify({ type: 'error', code: 'unavailable' }))
+      }
+      socket.close()
+      return
+    }
+
+    const session = createTerminalSession({
+      send: (f) => {
+        if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(f))
+      },
+      spawn: spawnPty,
+    })
+
+    socket.on('message', (d: Buffer | string) => session.onClientMessage(d.toString()))
+    socket.on('close', () => session.dispose())
+    socket.on('error', () => session.dispose())
   })
 
   app.addHook('onClose', () => stopGithubPoller())
