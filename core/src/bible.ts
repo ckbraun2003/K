@@ -334,7 +334,10 @@ ${body}
 
 export interface CompileResult { htmlPath: string; sections: string[]; compiledAt: number }
 
-export async function compileBible(bibleDir = path.join(ARTIFACTS_DIR, 'bible')): Promise<CompileResult | null> {
+export async function compileBible(
+  bibleDir = path.join(ARTIFACTS_DIR, 'bible'),
+  outPath = path.join(ARTIFACTS_DIR, 'project-bible.html'),
+): Promise<CompileResult | null> {
   const manifestPath = path.join(bibleDir, 'manifest.json')
   if (!fs.existsSync(manifestPath)) {
     console.log(`[bible] no manifest at ${manifestPath} — skipping`)
@@ -367,7 +370,7 @@ export async function compileBible(bibleDir = path.join(ARTIFACTS_DIR, 'bible'))
   }
 
   const html = bibleTemplate(manifest, sections)
-  const htmlPath = path.join(ARTIFACTS_DIR, 'project-bible.html')
+  const htmlPath = outPath
   fs.writeFileSync(htmlPath, html, 'utf8')
 
   // Keep the artifacts API/DocViewer working: store concatenated md under the same slug.

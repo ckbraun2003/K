@@ -78,7 +78,7 @@ describe('compileBible — section XSS neutralised', () => {
       `---\ntitle: "Evil"\nicon: "<script>alert(9)</script>"\nstatus: draft\nupdated: 2026-01-01\n---\n\n# Normal heading\n\n${XSS}`,
     )
 
-    const result = await compileBible(bibleDir)
+    const result = await compileBible(bibleDir, path.join(bibleDir, 'project-bible.html'))
     expect(result).not.toBeNull()
     const html = fs.readFileSync(result!.htmlPath, 'utf8')
 
