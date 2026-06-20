@@ -3,7 +3,7 @@
  *
  * Startup sequence:
  *   1. Init SQLite (db.ts runs on import)
- *   2. Compile project bible (sections + live data → HTML)
+ *   2. Compile project bible (sections + live data → HTML) + seed ui-demo
  *   3. Register REST routes
  *   4. Register WS gateway (subscribe to EventBus, push to clients)
  *   5. Listen
@@ -20,6 +20,7 @@ import { projectsRoutes } from './routes/projects.js'
 import { skillsRoutes } from './routes/skills.js'
 import { startEventListener, startScheduler } from './skills.js'
 import { compileBible } from './bible.js'
+import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { getProject } from './projects.js'
 import { reconcileOnBoot } from './supervisor.js'
@@ -201,6 +202,7 @@ async function start() {
 
   const app = await buildApp()
   await compileBible()
+  await seedUiDemo()  // ensure the Command Deck `ui-demo` artifact is present
 
   await app.listen({ port: PORT, host: HOST })
   startGithubPoller()

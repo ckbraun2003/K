@@ -31,6 +31,7 @@ export default function DocsPage({ slug }: { slug?: string }) {
             <span className="mono text-[10px] text-[var(--muted)]">
               {new Date(a.updatedAt).toLocaleDateString()}
               {a.tags.includes('bible') && ' · 📖 bible'}
+              {(a.tags.includes('ui') || a.tags.includes('demo')) && ' · 🖥 ui'}
             </span>
           </button>
         ))}

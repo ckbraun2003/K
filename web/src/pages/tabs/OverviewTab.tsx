@@ -212,6 +212,12 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
         >
           Dispatch Agent
         </button>
+        <button
+          onClick={() => navigate('docs', 'ui-demo')}
+          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)]"
+        >
+          🖥 UI Demo
+        </button>
         {verify.error && (
           <span className="text-[11px] text-[var(--red)]">⚠ {String(verify.error)}</span>
         )}

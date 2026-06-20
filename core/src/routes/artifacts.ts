@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { getArtifact, listArtifacts, saveArtifact } from '../artifacts.js'
 import { compileBible } from '../bible.js'
+import { compileProjectUiDemo, seedUiDemo } from '../ui-artifact.js'
 
 // URL-safe slug: leading alphanumeric, then up to 79 of [alnum _ -]. No dots,
 // slashes, or %-escapes survive — blocks ../ and ..%2f path-traversal at the boundary.
@@ -13,6 +14,40 @@ export async function artifactsRoutes(app: FastifyInstance) {
     if (!result) return reply.status(404).send({ error: 'no bible manifest found' })
     return reply.send(result)
   })
+
+  // POST /api/ui-artifact/compile — (re)compile a UI demo artifact. With no body
+  // this rebuilds the harness's global `ui-demo`; with { projectId } it compiles
+  // a project-scoped demo under `project-<id>-ui-demo`.
+  app.post<{ Body?: { projectId?: string } }>(
+    '/api/ui-artifact/compile',
+    {
+      // Lock the body shape: only an optional `projectId` is accepted. This is a
+      // structural guardrail — compileUiArtifact writes its `html` to disk
+      // VERBATIM (unsanitized), so this schema's `additionalProperties: false`
+      // ensures a future caller can't silently smuggle an `html`/`source` field
+      // through this route into that verbatim-write path.
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { projectId: { type: 'string' } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const projectId = req.body?.projectId
+      if (projectId !== undefined) {
+        // Validate at the boundary: the projectId becomes part of the on-disk slug.
+        if (typeof projectId !== 'string' || !SLUG_RE.test(projectId)) {
+          return reply.status(400).send({ error: 'invalid projectId' })
+        }
+        const result = await compileProjectUiDemo(projectId)
+        return reply.send(result)
+      }
+      const result = await seedUiDemo()
+      return reply.send(result)
+    },
+  )
 
   // GET /api/artifacts — list all (no md/html, metadata only)
   app.get('/api/artifacts', async (_req, reply) => {
