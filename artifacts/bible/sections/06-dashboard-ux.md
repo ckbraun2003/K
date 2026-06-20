@@ -137,7 +137,7 @@ Phase H takes the Phase-G surfaces from "wired" to "finished": the per-project g
 
 Precision-minimal (D-007) still governs density, color discipline, and mono numerals. Hybrid glass adds a thin translucent layer to **hero surfaces only** — never to dense data tables — so depth never fights legibility.
 
-- **Glass tokens / utilities** (`web/src/index.css`): a `--glass` surface (`rgba(22,22,29,.55)`), `backdrop-filter: blur(16px) saturate(140%)` (with the `-webkit-` prefix), and a hairline border + soft drop-shadow. Exposed as a reusable utility so hero surfaces opt in consistently.
+- **Glass tokens / utilities** (`web/src/index.css`): a `--glass-bg` surface (`rgba(20, 20, 27, 0.62)`), `backdrop-filter: blur(20px) saturate(160%)` (with the `-webkit-` prefix), and a hairline border + soft drop-shadow. Exposed as a reusable utility so hero surfaces opt in consistently.
 - **`@supports` fallback:** an `@supports not (backdrop-filter: blur(1px))` block swaps the translucent fill for an opaque `--raised` surface, so browsers without backdrop-filter still get a solid, legible panel (no transparent-over-text failure mode).
 - **Applied to hero surfaces only:** command bar, modals/confirm-cards, the graph node inspector, and the activity strip. Data tables, run lists, and the bible body stay flat per D-007.
 

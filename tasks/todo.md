@@ -28,31 +28,51 @@ Plan: `~/.claude/plans/read-and-analyze-the-curried-sparkle.md`
 - [x] Fleet graph polish (edges not derivable from `GET /projects` — nodes-only + comment, no invented data)
 - [x] Spec + quality review → 5 fixes (mutate-arg node, unified has-data CTA, dispatch reset, legend containment, cast cleanup) → web 95✓ typecheck/build clean, no aggregate import
 
-## Wave 4 — Hybrid glass + motion
-- [ ] Glass tokens + backdrop-blur utils + @supports fallback (index.css)
-- [ ] Apply glass to hero surfaces only (CommandBar, modals, node inspector, ActivityStrip)
-- [ ] Motion: `lib/motion.ts` variants, stage/tab transitions, micro-interactions; 60fps check
-- [ ] Spec + quality review → commit → CI green
+## Wave 4 — Hybrid glass + motion ✅ (commit 27550af)
+- [x] Glass tokens + backdrop-blur utils + @supports fallback (index.css)
+- [x] Apply glass to hero surfaces only (CommandBar, dispatch confirm-card, node inspector, ActivityStrip)
+- [x] Motion: `lib/motion.ts` variants, stage transition (Shell) + tab fade (ProjectWorkspace), micro-interactions; reduced-motion app-wide via MotionConfig
+- [x] Spec + quality review → 2 BLOCKERs (reduced-motion via MotionConfig, overlayFade exit) + WARNs (AnimatePresence unmount race, dead-export prune, dedup) fixed → web 95✓ typecheck/build clean
 
-## Wave 5 — UI artifact system
-- [ ] `core/src/ui-artifact.ts`: `compileUiArtifact()` writes rich HTML to disk + upserts md
-- [ ] `POST /api/ui-artifact/compile` endpoint
-- [ ] DocsPage UI badge + link from project Overview
-- [ ] Seed harness `ui-demo` artifact (interactive mini Command Deck, hybrid-glass)
-- [ ] Tests: `ui-artifact.test.ts` (preserves interactive HTML, output-path isolation)
-- [ ] Spec + quality review → commit → CI green
+## Wave 5 — UI artifact system ✅ (commit 9e9d658)
+- [x] `core/src/ui-artifact.ts`: `compileUiArtifact()` writes rich HTML to disk verbatim + upserts md (bypasses sanitizer); outDir overridable
+- [x] `POST /api/ui-artifact/compile` endpoint (optional projectId; additionalProperties:false body schema)
+- [x] DocsPage 🖥 ui badge + link from project Overview
+- [x] Seed harness `ui-demo` artifact (interactive mini Command Deck, hybrid-glass, offline/sandbox-safe)
+- [x] Tests: `ui-artifact.test.ts` (preserves interactive HTML, output-path isolation)
+- [x] Spec PASS; quality PASS-WITH-FIXES → route schema hardening + @internal doc, deleted tautological test, bulletproof real-dir cleanup → core 377✓
 
-## Wave 6 — create-web-ui-artifact skill + bible docs
-- [ ] `.claude/skills/create-web-ui-artifact/SKILL.md` + register in skill registry
-- [ ] Bible §06 (glass + motion + UI artifact ref), knowledge-graph content, §07 roadmap (Phase H), §08 decisions D-008/D-009/D-010
-- [ ] Tests: skill registration; compileBible isolation holds
-- [ ] Spec + quality review → commit → CI green
+## Wave 6 — create-web-ui-artifact skill + bible docs ✅ (commit cb108d0)
+- [x] `.claude/skills/create-web-ui-artifact/SKILL.md` + register via idempotent BUILTIN_SKILLS seed (also surfaces onboarding/verify-project)
+- [x] Bible §06 (glass + motion + graph engine/features), §07 roadmap (Phase H, @live), §08 decisions D-009/D-010/D-011 (D-008 already taken)
+- [x] Tests: skill registration + idempotency/user-edit preservation; compileBible isolation holds
+- [x] Spec PASS; quality PASS-WITH-FIXES → module-scope test cleanup + user-edit-preservation assertion → core 382✓
 
 ## Wave 7 — Verify, CI, whole-implementation review
-- [ ] `verify-project` / health audit; address findings
-- [ ] `pnpm typecheck && pnpm -r test && pnpm build` green; CI green on branch
-- [ ] Whole-implementation review agent across all waves
-- [ ] Update review section below + lessons.md; recompile bible; merge `--no-ff` (no push unless asked)
+- [x] `verify-project` / health audit — covered by the whole-implementation review (security, integration, regressions, lessons adherence, dead-code) + green aggregate gate
+- [x] `pnpm typecheck && pnpm -r test && pnpm build` green (core 382 / web 95, build OK; pre-existing >500kB chunk warning only)
+- [x] Whole-implementation review agent across all waves → SHIP-WITH-FIXES → 1 WARN (SKILL.md path) + 1 NIT (§06 glass values) fixed; 2 dead motion exports deliberately kept (reserved comment)
+- [x] Update review section below + lessons.md; recompile bible (9 sections, Phase H + @live:roadmap-progress resolved, artifact gitignored)
+- [ ] Merge `--no-ff` — HELD per user (stop before merge); branch ready for merge approval
 
 ## Review notes
-_(filled in as waves complete)_
+
+Phase H delivered across 6 implementation waves + verification (Wave 7), each via the delegation
+loop (implementer → spec-review → quality-review → controller fixes → reviewable commit → gate).
+
+- **Wave 4** (27550af) hybrid glass + motion. Reviews caught 2 BLOCKERs: Framer ignores CSS
+  reduced-motion (fixed app-wide via `MotionConfig reducedMotion="user"`) and a missing
+  `overlayFade` exit (scrim snapped on close); plus an AnimatePresence dispatch-modal unmount race.
+- **Wave 5** (9e9d658) standalone UI-artifact system modeled on `bible.ts`. Security hardening:
+  verbatim sanitizer-bypass documented `@internal`, route locked with `additionalProperties:false`;
+  iframe `allow-scripts` without `allow-same-origin`; a tautological test removed and real-dir test
+  cleanup made bulletproof (3d61b84 isolation honored).
+- **Wave 6** (cb108d0) `create-web-ui-artifact` skill + idempotent `BUILTIN_SKILLS` seed (also
+  surfaces onboarding/verify-project in the Skills tab) + bible §06/§07/§08 (D-009/D-010/D-011).
+  Test cleanup made module-scoped; added a user-edit-preservation assertion.
+- **Wave 7** whole-impl review = SHIP-WITH-FIXES; doc-drift fixes applied; aggregate gate green;
+  bible recompiled. New reusable lessons captured (MotionConfig reduced-motion; harden
+  sanitizer-bypass at the route; verify documented paths/values against source).
+
+Verification status: `pnpm typecheck` clean · `pnpm -r test` green (core 382 / web 95) · `pnpm build`
+OK. Branch `feat/phase-h-graph-experience` is ready; **merge held pending user approval**.

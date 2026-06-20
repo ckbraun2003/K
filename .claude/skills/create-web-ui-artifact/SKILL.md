@@ -96,7 +96,7 @@ Content-Type: application/json
 Response shape:
 
 ```json
-{ "slug": "project-<id>-ui-demo", "htmlPath": "…/artifacts/bible/project-<id>-ui-demo.html", "compiledAt": 1234567890 }
+{ "slug": "project-<id>-ui-demo", "htmlPath": "…/artifacts/project-<id>-ui-demo.html", "compiledAt": 1234567890 }
 ```
 
 If you authored bespoke per-project HTML (beyond the shared demo body), land it
