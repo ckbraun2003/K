@@ -190,6 +190,37 @@ export const GithubStatusSchema = z.object({
 })
 export type GithubStatus = z.infer<typeof GithubStatusSchema>
 
+// ─── Knowledge graph ──────────────────────────────────────────────────────────
+// Per-project code graph, built by orchestrating `npx gitnexus analyze`. The graph
+// data itself lives in the project's .gitnexus/ dir; K tracks build state here.
+
+export const GraphBuildStatusSchema = z.enum(['idle', 'building', 'ready', 'error'])
+export type GraphBuildStatus = z.infer<typeof GraphBuildStatusSchema>
+
+export const ProjectGraphMetaSchema = z.object({
+  projectId: z.string(),
+  status: GraphBuildStatusSchema,
+  builtAt: z.number().nullable(),     // unix ms of last successful build
+  lastCommit: z.string().nullable(),  // git HEAD captured at last build (from .gitnexus/meta.json)
+  nodeCount: z.number().int(),
+  edgeCount: z.number().int(),
+  error: z.string().nullable(),       // last build error message, if status === 'error'
+})
+export type ProjectGraphMeta = z.infer<typeof ProjectGraphMetaSchema>
+
+// GET /api/projects/:id/graph response — render data + build metadata.
+export const GraphResponseSchema = z.object({
+  nodes: z.array(z.record(z.unknown())),
+  links: z.array(z.record(z.unknown())),
+  stale: z.boolean(),                 // true if never built or HEAD has moved since the build
+  status: GraphBuildStatusSchema,
+  builtAt: z.number().nullable(),
+  nodeCount: z.number().int(),
+  edgeCount: z.number().int(),
+  error: z.string().nullable(),
+})
+export type GraphResponse = z.infer<typeof GraphResponseSchema>
+
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
 export const WsMessageSchema = z.discriminatedUnion('type', [
@@ -204,6 +235,8 @@ export const WsMessageSchema = z.discriminatedUnion('type', [
   }),
   // Verification skill progress + final report
   z.object({ type: z.literal('verification_update'), report: VerificationReportSchema }),
+  // Knowledge-graph build state transition (building → ready/error) + reindex marks
+  z.object({ type: z.literal('graph_update'), projectId: z.string(), meta: ProjectGraphMetaSchema }),
   z.object({ type: z.literal('ping') }),
   z.object({ type: z.literal('pong') }),
 ])

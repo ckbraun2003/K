@@ -8,6 +8,7 @@ import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { verificationDb, rowToReport, projectTasksDb } from '../db.js'
+import { buildGraph, getGraphMeta, isGraphStale } from '../graph.js'
 import { CreatePrOptsSchema, type ProjectTask } from '@k/shared'
 
 // Natural-language prompt that triggers the Layer-2 verify-project skill.
@@ -195,10 +196,11 @@ export async function projectsRoutes(app: FastifyInstance) {
     }
   })
 
-  // GET /api/projects/:id/graph — knowledge graph data from .gitnexus/graph.json
+  // GET /api/projects/:id/graph — knowledge graph data (.gitnexus/graph.json) + build meta
   app.get<{ Params: { id: string } }>('/api/projects/:id/graph', async (req, reply) => {
     const project = getProject(req.params.id)
     if (!project) return reply.status(404).send({ error: 'not found' })
+    const meta = getGraphMeta(project.id)
     const graphPath = path.join(project.localPath, '.gitnexus', 'graph.json')
     try {
       const raw = await readFile(graphPath, 'utf8')
@@ -219,10 +221,37 @@ export async function projectsRoutes(app: FastifyInstance) {
         target: (e.target ?? e.to) as string,
         type: e.type as string | undefined,
       }))
-      return reply.send({ nodes, links, stale: false })
-    } catch {
-      return reply.send({ nodes: [], links: [], stale: true })
+      const stale = await isGraphStale(project, meta)
+      return reply.send({
+        nodes, links, stale,
+        status: meta.status, builtAt: meta.builtAt,
+        nodeCount: meta.nodeCount, edgeCount: meta.edgeCount, error: meta.error,
+      })
+    } catch (err) {
+      // A missing artifact (ENOENT) is the normal "never built" case; anything
+      // else (corrupt JSON, permissions) is unexpected — surface it in the log so
+      // a status:'ready' paired with empty nodes isn't silently misleading.
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        req.log.warn(err, 'graph.json read/parse failed')
+      }
+      // No usable graph artifact → empty + stale, but still surface build meta
+      // (e.g. status 'error' from a failed build, or 'building' mid-flight).
+      return reply.send({
+        nodes: [], links: [], stale: true,
+        status: meta.status, builtAt: meta.builtAt,
+        nodeCount: meta.nodeCount, edgeCount: meta.edgeCount, error: meta.error,
+      })
     }
+  })
+
+  // POST /api/projects/:id/graph/build — (re)build the graph via `npx gitnexus analyze`.
+  // Fire-and-forget: returns 202 with the current (building) meta; completion and
+  // failure are reported live over the WS graph_update channel.
+  app.post<{ Params: { id: string } }>('/api/projects/:id/graph/build', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    void buildGraph(project).catch(err => req.log.error(err, 'graph build failed'))
+    return reply.status(202).send(getGraphMeta(project.id))
   })
 }
 
