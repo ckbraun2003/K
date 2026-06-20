@@ -23,6 +23,7 @@ export default function HomeFleetGraph({ projects }: Props) {
       val: 3,
       color: healthColor(p.healthScore),
     })),
+    // Nodes-only: cross-project dependency edges aren't derivable from GET /projects yet.
     links: [] as { source: string; target: string }[],
   }
 
@@ -54,6 +55,9 @@ export default function HomeFleetGraph({ projects }: Props) {
             onNodeClick={(node: FGNode) => {
               if (node.id) navigate('project', node.id as string)
             }}
+            cooldownTicks={100}
+            d3VelocityDecay={0.3}
+            d3AlphaDecay={0.02}
             enableNodeDrag={false}
             enableZoomInteraction
             enablePanInteraction

@@ -21,12 +21,12 @@ Plan: `~/.claude/plans/read-and-analyze-the-curried-sparkle.md`
 - [x] Tests: enrichment shape/graceful, dispatch 201/400/404, auto-reindex fires-once/guard/env-off
 - [x] Spec + quality review → 7 fixes applied (bible scoping, timer unref, onClose unsubscribe, input regex, comment, guard-test signal, run-insert fidelity) → typecheck clean, core 371✓ / web 81✓
 
-## Wave 3 — Knowledge Graph UI
-- [ ] Build/Refresh button + status/stale chip + WS auto-refresh
-- [ ] Node inspector enriched facts + enable Dispatch Agent (confirm-card → dispatch → toast)
-- [ ] Graph polish: status coloring, legend, spring physics, focus transitions
-- [ ] Fleet graph dependency edges + polish
-- [ ] Spec + quality review → commit → CI green
+## Wave 3 — Knowledge Graph UI ✅
+- [x] Build/Refresh button + building spinner + last-built/stale/error chips + WS `graph_update`→cache-invalidate auto-refresh
+- [x] Node inspector enriched facts (last-run/findings/inBible) + enabled Dispatch Agent (`fixed` confirm-card → dispatch → transient notice)
+- [x] Graph polish: enrichment/status coloring, legend, spring physics (cooldown/decay), center/zoom on click, reduced-motion
+- [x] Fleet graph polish (edges not derivable from `GET /projects` — nodes-only + comment, no invented data)
+- [x] Spec + quality review → 5 fixes (mutate-arg node, unified has-data CTA, dispatch reset, legend containment, cast cleanup) → web 95✓ typecheck/build clean, no aggregate import
 
 ## Wave 4 — Hybrid glass + motion
 - [ ] Glass tokens + backdrop-blur utils + @supports fallback (index.css)
