@@ -7,6 +7,7 @@ import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
 import { DESTINATIONS } from './Sidebar'
 import { parseProjectQuery } from '../lib/command-parse'
+import { modalCard, overlayFade } from '../lib/motion'
 
 export { parseProjectQuery } from '../lib/command-parse'
 
@@ -123,15 +124,12 @@ export default function CommandBar({ open, onClose }: Props) {
       {open && (
         <motion.div
           className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-28"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          variants={overlayFade} initial="hidden" animate="visible" exit="exit"
         >
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
           <motion.div
-            className="glow-focus relative w-full max-w-xl overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]"
-            initial={{ opacity: 0, y: -16, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -16, scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+            className="glass glow-focus relative w-full max-w-xl overflow-hidden rounded-xl"
+            variants={modalCard} initial="hidden" animate="visible" exit="exit"
           >
             <input
               ref={inputRef}

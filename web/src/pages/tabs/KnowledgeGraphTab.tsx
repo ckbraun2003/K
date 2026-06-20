@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import ForceGraph2D from 'react-force-graph-2d'
 import type { GraphResponse, Run } from '@k/shared'
 import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { onWsMessage } from '../../lib/ws'
+import { dialogCard, overlayFade, sidePanel, fade, microLift, prefersReducedMotion } from '../../lib/motion'
 import {
   DISPATCH_ACTIONS,
   GRAPH_LEGEND,
@@ -41,10 +43,6 @@ function formatBuiltAt(builtAt: number | null): string {
   if (h < 24) return `built ${h}h ago`
   return `built ${Math.floor(h / 24)}d ago`
 }
-
-const prefersReducedMotion = () =>
-  typeof window !== 'undefined' &&
-  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 
 interface Props {
   projectId: string
@@ -277,8 +275,15 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
         </div>
 
         {/* Node inspector panel */}
+        <AnimatePresence>
         {selected && (
-          <div className="absolute right-0 top-0 flex h-full w-80 flex-col overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-4">
+          <motion.div
+            key="inspector"
+            variants={sidePanel} initial="hidden" animate="visible" exit="exit"
+            // Left hairline intentionally inherits the lighter --glass-border color
+            // (from .glass) to read as a glass panel edge — not a bug.
+            className="glass absolute right-0 top-0 flex h-full w-80 flex-col overflow-y-auto border-y-0 border-r-0 border-l p-4"
+          >
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Node</span>
               <button
@@ -370,13 +375,15 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
             )}
 
             <div className="mt-auto space-y-2 pt-4">
-              <button
+              <motion.button
+                {...microLift}
                 onClick={() => navigate('project', projectId, 'runs')}
                 className="w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
               >
                 View in Runs
-              </button>
-              <button
+              </motion.button>
+              <motion.button
+                {...microLift}
                 onClick={() => {
                   setAction('investigate')
                   dispatchMutation.reset()
@@ -385,14 +392,18 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)]"
               >
                 Dispatch Agent
-              </button>
+              </motion.button>
             </div>
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
 
         {/* Transient dispatch notice */}
+        <AnimatePresence>
         {notice && (
-          <div
+          <motion.div
+            key="notice"
+            variants={fade} initial="hidden" animate="visible" exit="exit"
             className={`absolute bottom-3 right-3 z-40 flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${
               notice.kind === 'ok'
                 ? 'border-[var(--border)] bg-[var(--surface)] text-[var(--text)]'
@@ -409,20 +420,25 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                 View run ↗
               </button>
             )}
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
 
       {/* Dispatch confirm-card modal */}
-      {dispatchOpen && selected && (
-        <div
+      <AnimatePresence>
+      {dispatchOpen && (
+        <motion.div
+          variants={overlayFade} initial="hidden" animate="visible" exit="exit"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
           onClick={e => {
             if (e.target === e.currentTarget && !dispatchMutation.isPending) setDispatchOpen(false)
           }}
         >
-          <div
-            className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-6 shadow-2xl"
+          {selected && (
+          <motion.div
+            variants={dialogCard} initial="hidden" animate="visible" exit="exit"
+            className="glass-strong flex w-full max-w-md flex-col gap-4 rounded-xl p-6"
             role="dialog"
             aria-modal="true"
             aria-labelledby="dispatch-title"
@@ -490,9 +506,11 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                 Dispatch
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+          )}
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   )
 }

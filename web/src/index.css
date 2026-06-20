@@ -20,6 +20,12 @@
   --chart-1: #6366f1; --chart-2: #22c55e; --chart-3: #eab308; --chart-4: #06b6d4;
   --chart-5: #a855f7; --chart-6: #ef4444; --chart-7: #ec4899; --chart-8: #64748b;
   --chart-other: #3f3f46;
+  /* liquid-glass tokens — HERO surfaces only (bible §6); dense views stay opaque.
+     Tuned to the dark precision-minimal palette: a translucent cool-charcoal pane,
+     a hairline border lifted slightly off --border, and a faint top sheen. */
+  --glass-bg: rgba(20, 20, 27, 0.62);
+  --glass-border: rgba(120, 122, 138, 0.18);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
 }
 
 * { box-sizing: border-box; }
@@ -49,6 +55,9 @@ html, body, #root {
     radial-gradient(60rem 40rem at 70% -10%, rgba(99, 102, 241, 0.07), transparent 60%),
     radial-gradient(50rem 35rem at 10% 110%, rgba(99, 102, 241, 0.05), transparent 60%);
   animation: ambient-drift 24s ease-in-out infinite alternate;
+  /* Promote to its own compositor layer so the continuously-animating ambient
+     drift doesn't repaint the now-glass ActivityStrip above it (60fps mitigation). */
+  will-change: transform;
 }
 @keyframes ambient-drift {
   from { transform: translateX(-2%) translateY(0); opacity: 0.8; }
@@ -79,6 +88,35 @@ html, body, #root {
   transform: translateY(-1px);
   border-color: rgba(99, 102, 241, 0.4);
   box-shadow: 0 4px 24px -12px rgba(99, 102, 241, 0.35);
+}
+
+/* ── liquid glass ───────────────────────────────────────────────────────────
+   Apple-style translucent material, reserved for HERO surfaces (command bar,
+   dialogs, inspector, activity strip). DENSE data views (tables/lists/grids/
+   the graph canvas) deliberately stay opaque & precision-minimal. */
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  /* subtle top sheen sitting just inside the hairline border */
+  box-shadow: inset 0 1px 0 0 var(--glass-highlight);
+}
+
+/* A slightly heavier variant for full-attention surfaces (centered dialogs). */
+.glass-strong {
+  background: rgba(16, 16, 22, 0.78);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  backdrop-filter: blur(28px) saturate(170%);
+  box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 24px 60px -24px rgba(0, 0, 0, 0.6);
+}
+
+/* Graceful degradation: browsers without backdrop-filter get a solid raised
+   surface so glass panes never render as near-transparent unreadable boxes. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .glass { background: var(--raised); border-color: var(--border); }
+  .glass-strong { background: var(--surface); border-color: var(--border); }
 }
 
 /* ── chrome ───────────────────────────────────────────────────────────────── */
