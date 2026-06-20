@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-06-19
+updated: 2026-06-20
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -104,6 +104,20 @@ sync → **Phase 3 (3-7)**; auth hardening (passkey/TOTP) → **Phase 4** (remot
   pass across all 10 routes caught and fixed a blank-screen regression — the `react-force-graph`
   aggregate threw `AFRAME is not defined` at module-eval time, blanking every route; switched to
   the 2D-only `react-force-graph-2d` subpackage (guarded by a static import test).
+
+## Phase H — Knowledge Graph Engine & Experience Polish
+
+> Every registered project gets a live, navigable, actionable code graph; the interface feels finished (hybrid glass + motion); the bible self-demonstrates via a real UI artifact. One reviewable commit per wave (implementer → spec-review → quality-review → controller → CI).
+
+> *Phase H is experience-focused and lettered like Phase G; it slots in before Phase 4 (Multi-Device).*
+
+- [x] **H-1 — Graph build engine (core).** `project_graphs` table (status/built_at/last_commit/node+edge counts/error); `buildGraph()` runs `npx gitnexus analyze` via an injected seam with an in-flight guard + EventBus emit; `POST /api/projects/:id/graph/build` + status/stale on `GET …/graph`; transient `graph_update` WS; shared graph-status schema; `graph.test.ts` (CI never invokes real GitNexus).
+- [x] **H-2 — Enrichment, dispatch, auto-reindex (core).** Live node enrichment in `GET …/graph` (last-touched run, verify findings, bible — bible scoped to the harness project only); `POST /api/projects/:id/graph/dispatch` (node-scoped run via `startRun`, single-line input guard → 400); auto-reindex via an `onRunUpdate` subscriber (per-project debounced, guarded; env flag `GRAPH_AUTO_REINDEX`, default on).
+- [x] **H-3 — Knowledge Graph UI.** Build/Refresh button + building spinner + last-built/stale/error chips + WS-driven auto-refresh; node inspector enriched facts + enabled Dispatch Agent (confirm-card → dispatch → transient notice); graph polish (status coloring, legend, spring physics, center/zoom on click, reduced-motion); fleet-graph polish (nodes-only, no invented edges).
+- [x] **H-4 — Hybrid glass + motion.** Glass tokens + backdrop-blur utilities + `@supports` fallback (`index.css`); glass applied to hero surfaces only (command bar, modals, node inspector, activity strip); centralized `lib/motion.ts` variants + `MotionConfig` reduced-motion; 60fps check.
+- [x] **H-5 — UI artifact system.** `core/src/ui-artifact.ts` (`compileUiArtifact` writes rich HTML to disk verbatim + upserts md); `POST /api/ui-artifact/compile`; seeded harness `ui-demo` (interactive mini Command Deck, hybrid-glass); DocViewer UI badge/link; `ui-artifact.test.ts` (preserves interactive HTML, output-path isolation).
+- [x] **H-6 — `create-web-ui-artifact` skill + bible docs.** New `.claude/skills/create-web-ui-artifact/SKILL.md` (UI counterpart to `onboarding`), seeded into the skills registry as a manual workflow; bible §06 (hybrid glass + motion + graph engine + UI artifact), §07 (this Phase H), §08 (D-009/D-010/D-011); skill-registration + bible-isolation tests.
+- [ ] **H-7 — Verify, CI, whole-implementation review.** `verify-project` / health audit; `pnpm typecheck && pnpm -r test && pnpm build` + CI green on the branch; whole-implementation review across all waves; recompile bible; merge `--no-ff`.
 
 ## Phase 4 — Multi-Device
 

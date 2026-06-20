@@ -18,7 +18,7 @@ import { artifactsRoutes } from './routes/artifacts.js'
 import { metricsRoutes } from './routes/metrics.js'
 import { projectsRoutes } from './routes/projects.js'
 import { skillsRoutes } from './routes/skills.js'
-import { startEventListener, startScheduler } from './skills.js'
+import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { compileBible } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
@@ -203,6 +203,7 @@ async function start() {
   const app = await buildApp()
   await compileBible()
   await seedUiDemo()  // ensure the Command Deck `ui-demo` artifact is present
+  seedBuiltinSkills() // ensure the authored .claude/skills/* appear in the Skills tab
 
   await app.listen({ port: PORT, host: HOST })
   startGithubPoller()

@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-06-18
+updated: 2026-06-20
 ---
 
 The dashboard is the operator's **source of truth** and is held to product quality, not internal-tool quality. IA: **Command Deck** (decision D-006, mockups approved 2026-06-10). Design language: **precision minimal** (decision D-007).
@@ -128,3 +128,36 @@ All items below were delivered in Phase G (G-1 through G-6):
 - `core/test/create-pr.test.ts`: `createPR` unit tests (happy path, non-JSON error, execa-throws error, argv-array guard) + route integration tests
 - Bible §06 and §07 updated to reflect Phase G completion
 - `.env.example` added to repo root with all documented environment variables
+
+## Phase H — Knowledge graph engine + experience polish
+
+Phase H takes the Phase-G surfaces from "wired" to "finished": the per-project graph gains a real build/refresh engine, the design language gains a **hybrid-glass** layer over precision-minimal, motion is centralized and reduced-motion-safe, and the UI itself becomes a self-demonstrating artifact.
+
+### Hybrid glass (extends D-007, see D-009)
+
+Precision-minimal (D-007) still governs density, color discipline, and mono numerals. Hybrid glass adds a thin translucent layer to **hero surfaces only** — never to dense data tables — so depth never fights legibility.
+
+- **Glass tokens / utilities** (`web/src/index.css`): a `--glass` surface (`rgba(22,22,29,.55)`), `backdrop-filter: blur(16px) saturate(140%)` (with the `-webkit-` prefix), and a hairline border + soft drop-shadow. Exposed as a reusable utility so hero surfaces opt in consistently.
+- **`@supports` fallback:** an `@supports not (backdrop-filter: blur(1px))` block swaps the translucent fill for an opaque `--raised` surface, so browsers without backdrop-filter still get a solid, legible panel (no transparent-over-text failure mode).
+- **Applied to hero surfaces only:** command bar, modals/confirm-cards, the graph node inspector, and the activity strip. Data tables, run lists, and the bible body stay flat per D-007.
+
+### Motion (reduced-motion-safe)
+
+- **`web/src/lib/motion.ts`**: the single source of motion variants (stage/tab transitions, micro-interactions) so durations/easings match the §06 motion tokens (150ms micro · 250ms stage) instead of being re-specified per component.
+- **`MotionConfig` reduced-motion:** a top-level `MotionConfig reducedMotion="user"` makes every variant honor the OS *prefers-reduced-motion* setting automatically; pulse/animation is reserved for genuinely-live elements and gated by `@media (prefers-reduced-motion: reduce)` in CSS.
+- Quality bar unchanged: 60fps graph interactions; degrade node count before frame rate.
+
+### Knowledge graph engine (see D-009)
+
+The graph spec above describes the *experience*; Phase H adds the *engine* behind it, orchestrated through GitNexus:
+
+- **Build / refresh:** `project_graphs` table (status · built_at · last_commit · node/edge counts · error) plus `POST /api/projects/:id/graph/build`, which runs `npx gitnexus analyze` via an injected `analyze` seam (an in-flight guard prevents concurrent builds; CI never invokes real GitNexus). `GET …/graph` reports `status` + `stale`; a transient `graph_update` WS message rides the existing broadcast path so the UI auto-refreshes (Build/Refresh button, building spinner, last-built / stale / error chips).
+- **Live node enrichment:** `GET …/graph` enriches nodes with live facts — last-touched run, verify findings, and whether the symbol is referenced in the bible (bible scoping is restricted to the harness project only).
+- **Dispatch from a node:** `POST /api/projects/:id/graph/dispatch` launches a node-scoped supervised run via the existing `startRun` seam (single-line input guarded with a 400); the node inspector surfaces a confirm-card → dispatch → transient notice flow.
+- **Auto-reindex:** an `onRunUpdate` subscriber marks a project's graph stale and triggers a per-project, debounced, guarded rebuild after a run that touched it (env flag `GRAPH_AUTO_REINDEX`, default on).
+- **Renderer note:** graph views import the renderer-specific `react-force-graph-2d` subpackage (default export), never the `react-force-graph` aggregate — the aggregate references a non-existent global `AFRAME` and throws at module-eval time, blanking every route (guarded by a static import test).
+
+### UI as a self-demonstrating artifact (see D-010)
+
+- The interactive **`ui-demo`** (a self-contained mini Command Deck in the hybrid-glass look) is compiled to a first-class artifact via `core/src/ui-artifact.ts` (`compileUiArtifact`) and `POST /api/ui-artifact/compile`. Its rich inline CSS+JS are written to disk **verbatim** (bypassing the generic artifact sanitizer) and served back through the DocViewer's sandboxed iframe (`allow-scripts`, **no** `allow-same-origin`), so the demo is fully offline and sandbox-safe (no CDN/font fetches, no `localStorage` reliance).
+- The **`create-web-ui-artifact` skill** (`.claude/skills/create-web-ui-artifact/SKILL.md`) is the UI counterpart to `onboarding`: for a web-UI project it inspects routes/components, authors a project-specific self-contained demo, and compiles it (with `{ projectId }`) into a per-project artifact (`project-<id>-ui-demo`). It is seeded into the skills registry as a manual-trigger workflow, so it is triggerable from the **Skills** tab alongside `onboarding` and `verify-project`.
