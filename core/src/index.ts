@@ -20,6 +20,8 @@ import { projectsRoutes } from './routes/projects.js'
 import { skillsRoutes } from './routes/skills.js'
 import { startEventListener, startScheduler } from './skills.js'
 import { compileBible } from './bible.js'
+import { registerGraphAutoReindex } from './graph.js'
+import { getProject } from './projects.js'
 import { reconcileOnBoot } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
@@ -36,6 +38,10 @@ const BEARER_TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
 // bundle (vite.config.ts) so a leaked bundle grants ONLY terminal access — never
 // the full-REST HARNESS_TOKEN. Default-off feature; loopback posture applies.
 const TERMINAL_TOKEN = process.env.TERMINAL_TOKEN ?? 'dev-terminal-token'
+
+// Captured at bootstrap so the Fastify onClose hook can tear down the
+// auto-reindex EventBus subscription (set in start(); undefined in tests).
+let stopGraphAutoReindex: (() => void) | undefined
 
 /**
  * Build the Fastify app: CORS, WS plugin, auth hook, health, REST routes, and
@@ -179,7 +185,10 @@ export async function buildApp() {
     socket.on('error', () => session.dispose())
   })
 
-  app.addHook('onClose', () => stopGithubPoller())
+  app.addHook('onClose', () => {
+    stopGithubPoller()
+    stopGraphAutoReindex?.()
+  })
   return app
 }
 
@@ -197,6 +206,9 @@ async function start() {
   startGithubPoller()
   startEventListener()
   startScheduler()
+  // Auto-reindex a project's knowledge graph after a run touching it completes
+  // (debounced + guarded). Default ON; set GRAPH_AUTO_REINDEX=0 to disable.
+  stopGraphAutoReindex = registerGraphAutoReindex(getProject)
   startOllamaProbe()  // no-op unless ENABLE_OLLAMA; keeps router reachability fresh
   console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
   console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)

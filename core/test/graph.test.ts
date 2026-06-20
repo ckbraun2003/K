@@ -6,16 +6,25 @@
  * (POST /graph/build, GET /graph) via buildApp + app.inject. The real GitNexus
  * CLI is NEVER invoked. DB is isolated via vitest.config.ts K_DATA_DIR.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { v4 as uuid } from 'uuid'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import type { Project, WsMessage } from '@k/shared'
-import { db, projectsDb } from '../src/db.js'
+import { db, projectsDb, runsDb, verificationDb, artifactsDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
-import { buildGraph, getGraphMeta, isGraphStale, __setAnalyzeRunner } from '../src/graph.js'
+import { REPO_ROOT } from '../src/supervisor.js'
+import {
+  buildGraph,
+  getGraphMeta,
+  isGraphStale,
+  enrichNodes,
+  registerGraphAutoReindex,
+  markStale,
+  __setAnalyzeRunner,
+} from '../src/graph.js'
 
 const TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
 const AUTH = { authorization: `Bearer ${TOKEN}` }
@@ -183,3 +192,201 @@ describe('graph routes', () => {
     expect(body.nodeCount).toBe(4)
   })
 })
+
+// ── live node enrichment (Wave 2) ───────────────────────────────────────────────
+
+function insertRun(projectId: string, prompt: string, status = 'done'): string {
+  const id = uuid()
+  runsDb.insertRun.run({
+    id, prompt, cwd: '/tmp', worktree: null, status,
+    provider: 'claude', model: 'claude-sonnet-4-6',
+    tokensIn: 0, tokensOut: 0, costUsd: 0, projectId, createdAt: Date.now(),
+  })
+  return id
+}
+
+describe('enrichNodes', () => {
+  it('attaches lastRun + findings, and inBible ONLY for the harness-root project', () => {
+    // The project-bible artifact is the harness's OWN global bible, so inBible is
+    // only meaningful when the project IS the harness repo (localPath = REPO_ROOT).
+    const p = insertProject(REPO_ROOT)
+    const runId = insertRun(p.id, 'Investigate failing tests in src/widget.ts please')
+
+    // a verification report whose finding references the same file
+    verificationDb.insertVerificationReport.run({
+      id: uuid(), projectId: p.id, score: 50,
+      findings: JSON.stringify([{ severity: 'warn', area: 'tests', message: 'flaky test in src/widget.ts' }]),
+      fixesApplied: JSON.stringify([]), startedAt: Date.now(), completedAt: Date.now(),
+      scoreBreakdown: null,
+    })
+    // the compiled bible references the file too
+    artifactsDb.upsertArtifact.run({
+      slug: 'project-bible', title: 'Bible', phase: null, status: 'active',
+      tags: JSON.stringify([]), linkedRunId: null, updatedAt: Date.now(),
+      md: 'The widget lives at src/widget.ts and is core.',
+    })
+
+    const [node] = enrichNodes(p, [{ id: 'n1', label: 'widget', file: 'src/widget.ts' }])
+    const e = (node as { enrichment?: Record<string, unknown> }).enrichment
+    expect(e).toBeDefined()
+    expect((e!.lastRun as { runId: string }).runId).toBe(runId)
+    expect((e!.findings as unknown[]).length).toBe(1)
+    expect(e!.inBible).toBe(true)
+  })
+
+  it('omits inBible for a NON-harness project even when the global bible matches', () => {
+    // Same bible text references the file, but this project is not the harness repo,
+    // so the global project-bible must NOT contribute inBible to its nodes.
+    const p = insertProject(tmpRepo())
+    insertRun(p.id, 'Investigate src/widget.ts please')
+    artifactsDb.upsertArtifact.run({
+      slug: 'project-bible', title: 'Bible', phase: null, status: 'active',
+      tags: JSON.stringify([]), linkedRunId: null, updatedAt: Date.now(),
+      md: 'The widget lives at src/widget.ts and is core.',
+    })
+
+    const [node] = enrichNodes(p, [{ id: 'n1', label: 'widget', file: 'src/widget.ts' }])
+    const e = (node as { enrichment?: Record<string, unknown> }).enrichment
+    expect(e).toBeDefined()                 // lastRun still attaches
+    expect(e!.lastRun).toBeDefined()
+    expect(e!.inBible).toBeUndefined()      // but inBible is scoped out
+  })
+
+  it('omits enrichment for a node with no derivable facts (no throw)', () => {
+    const p = insertProject(tmpRepo())
+    const nodes = enrichNodes(p, [{ id: 'orphan', label: 'src/nowhere-xyz.ts', file: 'src/nowhere-xyz.ts' }])
+    expect((nodes[0] as { enrichment?: unknown }).enrichment).toBeUndefined()
+  })
+
+  it('is graceful when sources are entirely absent', () => {
+    const p = insertProject(tmpRepo())
+    expect(() => enrichNodes(p, [{ id: 'x', label: 'foo', file: 'foo.ts' }])).not.toThrow()
+  })
+})
+
+// ── auto-reindex (Wave 2) ───────────────────────────────────────────────────────
+
+describe('registerGraphAutoReindex', () => {
+  beforeEach(() => { vi.useFakeTimers(); delete process.env.GRAPH_AUTO_REINDEX })
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
+
+  it('a qualifying run-completion triggers exactly ONE debounced rebuild', async () => {
+    const dir = tmpRepo()
+    const p = insertProject(dir)
+    let analyzeCalls = 0
+    __setAnalyzeRunner(async (cwd) => { analyzeCalls++; writeGitnexusMeta(cwd, 'c1', 1, 1) })
+
+    const off = registerGraphAutoReindex(() => p, 50)
+    try {
+      // burst of three completions for the same project collapses to one rebuild
+      for (let i = 0; i < 3; i++) eventBus.emitRunUpdate(makeRun(p.id, 'done'))
+      expect(analyzeCalls).toBe(0)              // debounced — nothing yet
+      await vi.advanceTimersByTimeAsync(60)
+      await vi.runAllTimersAsync()
+      expect(analyzeCalls).toBe(1)              // exactly one rebuild fired
+      // buildGraph's await-chain (analyze → readGraphStats) settles on real
+      // microtasks; flush them under fake timers before asserting terminal state.
+      vi.useRealTimers()
+      await new Promise(r => setTimeout(r, 20))
+      expect(getGraphMeta(p.id).status).toBe('ready')
+    } finally {
+      off()
+    }
+  })
+
+  it('does not trigger when a build is already in flight (guard)', async () => {
+    const dir = tmpRepo()
+    const p = insertProject(dir)
+    // never-resolving analyze → build stays in flight. Count invocations so we can
+    // assert the guard prevents the analyze seam from being entered a SECOND time.
+    let analyzeCalls = 0
+    __setAnalyzeRunner(() => { analyzeCalls++; return new Promise<void>(() => {}) })
+    const first = buildGraph(p)                 // occupy the in-flight guard
+    void first
+    expect(getGraphMeta(p.id).status).toBe('building')
+    expect(analyzeCalls).toBe(1)                // the in-flight build's single analyze
+
+    let secondAnalyze = 0
+    const off = registerGraphAutoReindex(() => { secondAnalyze++; return p }, 50)
+    try {
+      eventBus.emitRunUpdate(makeRun(p.id, 'done'))
+      await vi.advanceTimersByTimeAsync(60)
+      await vi.runAllTimersAsync()
+      // isBuilding guard short-circuits before resolveProject is ever called
+      expect(secondAnalyze).toBe(0)
+      // and crucially: analyze is NOT re-entered while the first build is in flight
+      expect(analyzeCalls).toBe(1)
+    } finally {
+      off()
+    }
+  })
+
+  it('does nothing when GRAPH_AUTO_REINDEX=0', async () => {
+    const p = insertProject(tmpRepo())
+    process.env.GRAPH_AUTO_REINDEX = '0'
+    let resolved = 0
+    const off = registerGraphAutoReindex(() => { resolved++; return p }, 50)
+    try {
+      eventBus.emitRunUpdate(makeRun(p.id, 'done'))
+      await vi.advanceTimersByTimeAsync(60)
+      await vi.runAllTimersAsync()
+      expect(resolved).toBe(0)
+    } finally {
+      off()
+    }
+  })
+
+  it('ignores non-terminal / non-done statuses', async () => {
+    const p = insertProject(tmpRepo())
+    let resolved = 0
+    const off = registerGraphAutoReindex(() => { resolved++; return p }, 50)
+    try {
+      eventBus.emitRunUpdate(makeRun(p.id, 'running'))
+      eventBus.emitRunUpdate(makeRun(p.id, 'error'))
+      await vi.advanceTimersByTimeAsync(60)
+      await vi.runAllTimersAsync()
+      expect(resolved).toBe(0)
+    } finally {
+      off()
+    }
+  })
+})
+
+// ── markStale (Wave 2) ──────────────────────────────────────────────────────────
+
+describe('markStale', () => {
+  it('flips a ready graph to stale (lastCommit=null) and broadcasts', async () => {
+    const dir = tmpRepo()
+    const p = insertProject(dir)
+    __setAnalyzeRunner(async (cwd) => writeGitnexusMeta(cwd, 'c1', 2, 2))
+    await buildGraph(p)
+    expect(getGraphMeta(p.id).status).toBe('ready')
+
+    const seen: WsMessage[] = []
+    const unsub = eventBus.onBroadcast(m => seen.push(m))
+    markStale(p.id)
+    unsub()
+
+    expect(getGraphMeta(p.id).lastCommit).toBeNull()
+    expect(await isGraphStale(p)).toBe(true)
+    expect(seen.some(m => m.type === 'graph_update')).toBe(true)
+  })
+
+  it('is a no-op for a never-built graph', () => {
+    const p = insertProject(tmpRepo())
+    markStale(p.id)
+    expect(getGraphMeta(p.id).status).toBe('idle')
+  })
+})
+
+/** Build a Run for emitRunUpdate AND insert its row first, so emitRunUpdate's
+ *  real `UPDATE runs ...` hits an existing row (matching production) rather than
+ *  no-op'ing on a fabricated id. Reuses the insertRun helper above. */
+function makeRun(projectId: string, status: string): import('@k/shared').Run {
+  const id = insertRun(projectId, 'x', status)
+  return {
+    id, prompt: 'x', cwd: '/tmp', status: status as import('@k/shared').Run['status'],
+    provider: 'claude', model: 'claude-sonnet-4-6',
+    tokensIn: 0, tokensOut: 0, costUsd: 0, projectId, createdAt: Date.now(),
+  }
+}

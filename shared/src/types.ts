@@ -208,6 +208,26 @@ export const ProjectGraphMetaSchema = z.object({
 })
 export type ProjectGraphMeta = z.infer<typeof ProjectGraphMetaSchema>
 
+// Best-effort, per-node enrichment facts derived from EXISTING harness data
+// (Wave 2). Every field is optional: a node only carries the facts we could
+// genuinely derive, and an absent/errored data source is simply omitted — the
+// GET /graph request never fails over enrichment.
+export const GraphNodeEnrichmentSchema = z.object({
+  // Most recent run whose prompt referenced this node's file/label.
+  lastRun: z
+    .object({
+      runId: z.string(),
+      status: z.string(),
+      createdAt: z.number(),
+    })
+    .optional(),
+  // Verification findings (from the project's latest report) referencing this file.
+  findings: z.array(FindingSchema).optional(),
+  // True if the node's file is referenced in the compiled project bible.
+  inBible: z.boolean().optional(),
+})
+export type GraphNodeEnrichment = z.infer<typeof GraphNodeEnrichmentSchema>
+
 // GET /api/projects/:id/graph response — render data + build metadata.
 export const GraphResponseSchema = z.object({
   nodes: z.array(z.record(z.unknown())),
@@ -220,6 +240,21 @@ export const GraphResponseSchema = z.object({
   error: z.string().nullable(),
 })
 export type GraphResponse = z.infer<typeof GraphResponseSchema>
+
+// POST /api/projects/:id/graph/dispatch body — launch a node-scoped agent run.
+// nodeId is required; file/action refine the generated prompt. Validated at the
+// route boundary (400 on invalid) per lessons.md "validate user input at the boundary".
+// nodeId/file are interpolated into an agent prompt, so reject newlines and other
+// control characters at the boundary: a single-line value can't smuggle injected
+// instructions across lines. (Rejects \n, \r, \t, all C0 control chars, and DEL.)
+// eslint-disable-next-line no-control-regex
+const SINGLE_LINE = /^[^\x00-\x1F\x7F]+$/
+export const GraphDispatchBodySchema = z.object({
+  nodeId: z.string().min(1).max(1000).regex(SINGLE_LINE, 'must be a single line'),
+  file: z.string().min(1).max(1000).regex(SINGLE_LINE, 'must be a single line').optional(),
+  action: z.enum(['investigate', 'fix', 'explain']).optional(),
+})
+export type GraphDispatchBody = z.infer<typeof GraphDispatchBodySchema>
 
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 

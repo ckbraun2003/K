@@ -8,8 +8,8 @@ import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { verificationDb, rowToReport, projectTasksDb } from '../db.js'
-import { buildGraph, getGraphMeta, isGraphStale } from '../graph.js'
-import { CreatePrOptsSchema, type ProjectTask } from '@k/shared'
+import { buildGraph, getGraphMeta, isGraphStale, enrichNodes } from '../graph.js'
+import { CreatePrOptsSchema, GraphDispatchBodySchema, type ProjectTask } from '@k/shared'
 
 // Natural-language prompt that triggers the Layer-2 verify-project skill.
 const DEEP_VERIFY_PROMPT =
@@ -209,13 +209,16 @@ export async function projectsRoutes(app: FastifyInstance) {
         edges?: Array<Record<string, unknown>>
         links?: Array<Record<string, unknown>>
       }
-      const nodes = (data.nodes ?? []).map(n => ({
+      const baseNodes = (data.nodes ?? []).map(n => ({
         id: n.id ?? n.name,
         label: (n.label ?? n.name ?? n.id) as string,
         type: n.type as string | undefined,
         group: n.group as string | undefined,
         ...n,
       }))
+      // Best-effort per-node enrichment from existing harness data (Wave 2).
+      // Never throws — a node only gains facts we could derive.
+      const nodes = enrichNodes(project, baseNodes)
       const links = (data.links ?? data.edges ?? []).map(e => ({
         source: (e.source ?? e.from) as string,
         target: (e.target ?? e.to) as string,
@@ -253,6 +256,39 @@ export async function projectsRoutes(app: FastifyInstance) {
     void buildGraph(project).catch(err => req.log.error(err, 'graph build failed'))
     return reply.status(202).send(getGraphMeta(project.id))
   })
+
+  // POST /api/projects/:id/graph/dispatch — launch a node-scoped agent run.
+  // Builds a prompt from { nodeId, file?, action? } and creates a supervised run
+  // in the project's repo via the existing startRun seam. 201 with the run.
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/projects/:id/graph/dispatch', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    const parsed = GraphDispatchBodySchema.safeParse(req.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+    const prompt = buildDispatchPrompt(parsed.data)
+    try {
+      const run = await startRun(prompt, { cwd: project.localPath, projectId: project.id })
+      return reply.status(201).send(run)
+    } catch (e) {
+      req.log.error(e)
+      return reply.status(500).send({ error: e instanceof Error ? e.message : 'dispatch failed' })
+    }
+  })
+}
+
+/** Build a node-scoped agent prompt from a validated dispatch body. The `action`
+ *  selects the intent; `file` (preferred) or `nodeId` names the target. Pure. */
+function buildDispatchPrompt(body: { nodeId: string; file?: string; action?: 'investigate' | 'fix' | 'explain' }): string {
+  const target = body.file?.trim() || body.nodeId
+  switch (body.action) {
+    case 'fix':
+      return `Investigate and fix failing tests or bugs in ${target}. Run the tests, find the root cause, and apply a minimal fix.`
+    case 'explain':
+      return `Explain the ${target} subsystem: its responsibilities, key functions, and how it connects to the rest of the codebase.`
+    case 'investigate':
+    default:
+      return `Investigate ${target}: review the code, summarize what it does, and flag any issues or risks you find.`
+  }
 }
 
 function rowToTask(r: Record<string, unknown>) {
