@@ -1,5 +1,15 @@
 import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody } from '@k/shared'
 
+/** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
+export interface OnboardResult {
+  created: string[]
+  invariants: {
+    githubRemote: boolean
+    bible: boolean
+    ci: boolean
+  }
+}
+
 const BASE = '/api'
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -65,6 +75,8 @@ export const api = {
         body: JSON.stringify(body),
       }),
     github: (id: string) => req<GithubStatus>(`/projects/${id}/github`),
+    onboard: (id: string) =>
+      req<OnboardResult>(`/projects/${id}/onboard`, { method: 'POST' }),
     verify: (id: string, opts?: { deep?: boolean }) =>
       req<VerificationReport>(`/projects/${id}/verify`, {
         method: 'POST',
