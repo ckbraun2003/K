@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import MetricCard from '../components/MetricCard'
 import ProjectCard from '../components/ProjectCard'
 import HomeFleetGraph from './HomeFleetGraph'
+import GettingStarted from '../components/GettingStarted'
 import { navigate } from '../lib/route'
 
 export default function Home() {
@@ -35,6 +36,13 @@ export default function Home() {
         <MetricCard label="Runs today" value={metrics ? String(metrics.today.runs) : '—'} spark={spark(d => d.runs)} />
         <MetricCard label="Total runs" value={metrics ? String(metrics.totalRuns) : '—'} />
       </div>
+
+      {/* getting started — dismissible first-run guidance; forced open while empty */}
+      <GettingStarted
+        projects={projects}
+        forceOpen={projects.length === 0}
+        onRegister={() => navigate('projects')}
+      />
 
       {/* projects */}
       <div className="mt-6 flex items-center justify-between">

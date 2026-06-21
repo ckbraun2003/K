@@ -13,16 +13,17 @@ Plan: `~/.claude/plans/read-and-analyze-the-linked-bengio.md`
 
 ## Track A — User-Testing Readiness
 
-### Wave R1 — Install / Run documentation
-- [ ] Overhaul `README.md` into a real quick-start (prereqs, install, `pnpm dev`, ports, `.env` from `.env.example`, troubleshooting); cross-link bible §09 as the deep reference, keep consistent
-- [ ] Spec-review (every command accurate vs real scripts) + quality-review
-- [ ] Verify: an agent follows the README verbatim on a clean checkout; each step works
+### Wave R1 — Install / Run documentation  ✅ (commit de1c956)
+- [x] Overhauled `README.md` into a 5-min quick-start (prereqs, install, `pnpm dev`, ports, `.env`, troubleshooting from bible §09); also fixed `.env.example` RUN_PERMISSION_MODE default comment
+- [x] Spec-review (controller): every command matches verified source
+- [x] Verify: `pnpm dev` proxy 200 (Wave 0), `pnpm -r test` green (core 389), typecheck/build green
 
-### Wave R2 — In-app Getting Started + surface core workflows
-- [ ] First-run/empty-state Getting Started flow: Register project → Build graph → Run verification
-- [ ] Surface hidden backends: Onboard button (`POST /api/projects/:id/onboard`), Verify action, Build-graph hint, sidebar tooltips, enable Fleet Graph (Phase H is done)
-- [ ] Spec + quality review (glass/motion tokens, reduced-motion via MotionConfig, `react-force-graph-2d` only)
-- [ ] Verify: live Playwright smoke — empty state → register → graph build → verify, screenshots
+### Wave R2 — In-app Getting Started + surface core workflows  ✅
+- [x] `GettingStarted.tsx` 3-step card on empty states (Home + ProjectsPage); step 1 reflects live progress
+- [x] OverviewTab Quick Actions: Onboard (`POST …/onboard` + result notice), Build-graph; Verify/Dispatch already existed; added `api.projects.onboard`
+- [x] Enabled Fleet Graph sidebar entry; added tooltips + aria-labels to all nav items
+- [x] Spec + quality review → CLEAN (AFRAME rule honored, motion/glass conventions, API correct); 2 NITs fixed (comment accuracy, redundant AnimatePresence)
+- [x] Verify: live Playwright smoke — ALL routes non-blank, 0 console/page errors, Fleet Graph canvas renders (2 nodes), Getting Started visible; typecheck/build/test green (web 95)
 
 ### Wave R3 — Bible "How to Use K" user guide + in-app Help
 - [ ] New bible section `artifacts/bible/sections/10-user-guide.md` + register in `manifest.json` (markdown source only, never compiled HTML)

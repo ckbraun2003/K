@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Run, VerificationReport, GithubStatus } from '@k/shared'
-import { api } from '../../lib/api'
+import { api, type OnboardResult } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { cn } from '../../lib/cn'
 import {
@@ -58,6 +59,18 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
     },
   })
   const pending = verify.isPending
+
+  // Onboard — scaffolds the bible §3 invariants (starter bible + CI) for projects
+  // that were registered before they had them. Surfaces what it created.
+  const [onboardResult, setOnboardResult] = useState<OnboardResult | null>(null)
+  const onboard = useMutation({
+    mutationFn: () => api.projects.onboard(projectId),
+    onSuccess: result => {
+      setOnboardResult(result)
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['github', projectId] })
+    },
+  })
 
   const openPrs = (github?.prs ?? []).filter(pr => pr.state === 'OPEN')
 
@@ -207,6 +220,20 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
           Deep Verify
         </button>
         <button
+          onClick={() => navigate('project', projectId, 'knowledge-graph')}
+          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)]"
+        >
+          ◉ Build graph
+        </button>
+        <button
+          onClick={() => onboard.mutate()}
+          disabled={onboard.isPending}
+          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] disabled:opacity-40"
+          title="Scaffold the starter bible + CI workflow if missing"
+        >
+          {onboard.isPending ? 'onboarding…' : '✦ Onboard'}
+        </button>
+        <button
           onClick={() => navigate('project', projectId, 'runs')}
           className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)]"
         >
@@ -221,7 +248,48 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
         {verify.error && (
           <span className="text-[11px] text-[var(--red)]">⚠ {String(verify.error)}</span>
         )}
+        {onboard.error && (
+          <span className="text-[11px] text-[var(--red)]">⚠ {String(onboard.error)}</span>
+        )}
       </div>
+
+      {/* ── Onboard result notice ─────────────────────────────────────── */}
+      {onboardResult && (
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-[var(--text)]">Onboarding complete</span>
+            <button
+              onClick={() => setOnboardResult(null)}
+              className="text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+              aria-label="Dismiss onboarding notice"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="mt-1.5 text-[var(--muted)]">
+            {onboardResult.created.length === 0
+              ? 'All bible invariants already satisfied — nothing to scaffold.'
+              : `Scaffolded ${onboardResult.created.length} file${onboardResult.created.length === 1 ? '' : 's'}.`}
+          </p>
+          {onboardResult.created.length > 0 && (
+            <ul className="mt-2 space-y-0.5">
+              {onboardResult.created.map(f => (
+                <li key={f} className="mono text-[10px] text-[var(--muted)]">+ {f}</li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-2 flex gap-3 text-[10px]">
+            {(['githubRemote', 'bible', 'ci'] as const).map(k => (
+              <span
+                key={k}
+                className={onboardResult.invariants[k] ? 'text-[var(--green)]' : 'text-[var(--amber)]'}
+              >
+                {onboardResult.invariants[k] ? '✓' : '○'} {k}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
     </div>
   )

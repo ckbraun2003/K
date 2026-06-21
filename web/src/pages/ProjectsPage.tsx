@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import type { Project } from '@k/shared'
 import { api } from '../lib/api'
 import ProjectCard from '../components/ProjectCard'
+import GettingStarted from '../components/GettingStarted'
 
 export default function ProjectsPage() {
   const qc = useQueryClient()
@@ -52,9 +53,7 @@ export default function ProjectsPage() {
         {projects.map(p => <ProjectCard key={p.id} project={p} />)}
       </div>
       {projects.length === 0 && (
-        <p className="mt-10 text-center text-sm text-[var(--muted)]">
-          No projects yet. Register an existing local repo, or paste a GitHub URL to clone it into the workspace.
-        </p>
+        <GettingStarted projects={projects} forceOpen onRegister={() => setOpen(true)} />
       )}
 
       <AnimatePresence>
