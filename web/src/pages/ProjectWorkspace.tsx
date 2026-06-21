@@ -1,9 +1,11 @@
 import { useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import type { Project } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
+import { fade } from '../lib/motion'
 import OverviewTab from './tabs/OverviewTab'
 import VerificationTab from './tabs/VerificationTab'
 import BibleTab from './tabs/BibleTab'
@@ -159,15 +161,24 @@ export default function ProjectWorkspace({
             className="h-full"
           >
             {t.id === activeTab && (
-              <>
-                {t.id === 'overview'      && <OverviewTab      projectId={projectId!} />}
-                {t.id === 'verification'  && <VerificationTab  projectId={projectId!} />}
-                {t.id === 'bible'         && <BibleTab         projectId={projectId} />}
-                {t.id === 'runs'          && <RunsTab          projectId={projectId!} />}
-                {t.id === 'tasks'         && <TasksTab         projectId={projectId!} />}
-                {t.id === 'prs-ci'        && <PrsCiTab         projectId={projectId!} />}
-                {t.id === 'knowledge-graph' && <KnowledgeGraphTab projectId={projectId!} />}
-              </>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={t.id}
+                  className="h-full"
+                  variants={fade}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                >
+                  {t.id === 'overview'      && <OverviewTab      projectId={projectId!} />}
+                  {t.id === 'verification'  && <VerificationTab  projectId={projectId!} />}
+                  {t.id === 'bible'         && <BibleTab         projectId={projectId} />}
+                  {t.id === 'runs'          && <RunsTab          projectId={projectId!} />}
+                  {t.id === 'tasks'         && <TasksTab         projectId={projectId!} />}
+                  {t.id === 'prs-ci'        && <PrsCiTab         projectId={projectId!} />}
+                  {t.id === 'knowledge-graph' && <KnowledgeGraphTab projectId={projectId!} />}
+                </motion.div>
+              </AnimatePresence>
             )}
           </div>
         ))}

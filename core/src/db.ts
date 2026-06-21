@@ -132,6 +132,19 @@ db.exec(`
     createdAt      INTEGER NOT NULL,
     completedAt    INTEGER
   );
+
+  -- Per-project knowledge-graph build state (Phase H). The graph data lives in the
+  -- project's .gitnexus/ dir; this table tracks build status/freshness only.
+  CREATE TABLE IF NOT EXISTS project_graphs (
+    project_id  TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    status      TEXT NOT NULL DEFAULT 'idle' CHECK(status IN ('idle','building','ready','error')),
+    built_at    INTEGER,
+    last_commit TEXT,
+    node_count  INTEGER NOT NULL DEFAULT 0,
+    edge_count  INTEGER NOT NULL DEFAULT 0,
+    error       TEXT,
+    updated_at  INTEGER NOT NULL
+  );
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -286,6 +299,25 @@ const getProject = db.prepare(`SELECT * FROM projects WHERE id = ?`)
 const listProjects = db.prepare(`SELECT * FROM projects ORDER BY name`)
 
 export const projectsDb = { insertProject, updateProjectHealth, getProject, listProjects }
+
+// ─── Project graph helpers ───────────────────────────────────────────────────
+
+const upsertProjectGraph = db.prepare(`
+  INSERT INTO project_graphs (project_id, status, built_at, last_commit, node_count, edge_count, error, updated_at)
+  VALUES (@projectId, @status, @builtAt, @lastCommit, @nodeCount, @edgeCount, @error, @updatedAt)
+  ON CONFLICT(project_id) DO UPDATE SET
+    status      = excluded.status,
+    built_at    = excluded.built_at,
+    last_commit = excluded.last_commit,
+    node_count  = excluded.node_count,
+    edge_count  = excluded.edge_count,
+    error       = excluded.error,
+    updated_at  = excluded.updated_at
+`)
+
+const getProjectGraph = db.prepare(`SELECT * FROM project_graphs WHERE project_id = ?`)
+
+export const projectGraphsDb = { upsertProjectGraph, getProjectGraph }
 
 // ─── Verification helpers ────────────────────────────────────────────────────
 

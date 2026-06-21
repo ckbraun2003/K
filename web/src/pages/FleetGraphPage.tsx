@@ -14,6 +14,13 @@ function healthColor(healthScore: number | undefined | null): string {
   return '#ef4444'
 }
 
+const FLEET_LEGEND: { color: string; label: string }[] = [
+  { color: '#22c55e', label: 'Healthy (≥75)' },
+  { color: '#eab308', label: 'At risk (≥50)' },
+  { color: '#ef4444', label: 'Failing (<50)' },
+  { color: '#8b8b93', label: 'Unverified' },
+]
+
 export default function FleetGraphPage() {
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ['projects'],
@@ -47,6 +54,9 @@ export default function FleetGraphPage() {
       val: 3,
       color: healthColor(p.healthScore),
     })),
+    // Cross-project dependency edges aren't derivable yet: the fleet view is fed only
+    // by GET /projects (independent project records with no inter-project relation).
+    // Leave nodes-only until a backend data source for fleet dependencies exists.
     links: [] as { source: string; target: string }[],
   }
 
@@ -67,25 +77,39 @@ export default function FleetGraphPage() {
       </div>
 
       {/* Graph */}
-      <div ref={containerRef} className="flex-1 overflow-hidden">
+      <div ref={containerRef} className="relative flex-1 overflow-hidden">
         {projects.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
             No projects registered. Go to Projects to add one.
           </div>
         ) : (
-          <ForceGraph2D
-            graphData={graphData}
-            width={dims.width}
-            height={dims.height}
-            backgroundColor="#0a0a0f"
-            nodeLabel="label"
-            onNodeClick={(node: FGNode) => {
-              if (node.id) navigate('project', node.id as string)
-            }}
-            enableNodeDrag
-            enableZoomInteraction
-            enablePanInteraction
-          />
+          <>
+            <ForceGraph2D
+              graphData={graphData}
+              width={dims.width}
+              height={dims.height}
+              backgroundColor="#0a0a0f"
+              nodeLabel="label"
+              onNodeClick={(node: FGNode) => {
+                if (node.id) navigate('project', node.id as string)
+              }}
+              cooldownTicks={100}
+              d3VelocityDecay={0.3}
+              d3AlphaDecay={0.02}
+              enableNodeDrag
+              enableZoomInteraction
+              enablePanInteraction
+            />
+            {/* Legend */}
+            <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)]/80 px-3 py-2 backdrop-blur-sm">
+              {FLEET_LEGEND.map(item => (
+                <div key={item.label} className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                  <span className="text-[10px] text-[var(--muted)]">{item.label}</span>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>

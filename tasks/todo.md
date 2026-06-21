@@ -1,140 +1,101 @@
-# K — Execution Tracker
+# Phase H — Knowledge Graph Engine & Experience Polish
 
-Active branch: `feat/phase-3` · Current phase: **Phase 3 — Automation & Skills**
+Branch: `feat/phase-h-graph-experience` (off `main`). One reviewable commit per wave via the
+delegation loop (implementer → spec-review → quality-review → controller commits → CI).
 
-Method (all code waves): **subagent-driven development** — implementer → spec-review →
-quality-review → controller applies fixes → one reviewable commit → CI verifies. A separate
-whole-implementation review runs before merge. See `tasks/lessons.md` for accumulated patterns
-and `docs/superpowers/plans/` for the per-phase plans.
+Plan: `~/.claude/plans/read-and-analyze-the-curried-sparkle.md`
 
----
+## Wave 1 — Graph build engine (core) ✅ (commit 2a03641)
+- [x] DB migration: `project_graphs` table (status/built_at/last_commit/node_count/edge_count/error)
+- [x] `core/src/graph.ts`: `buildGraph()` runs `npx gitnexus analyze` via execa, in-flight guard, EventBus emit
+- [x] Routes: `POST /api/projects/:id/graph/build` + extend `GET …/graph` with status/stale
+- [x] WS: `graph_update` rides existing broadcast/onBroadcast path (transient)
+- [x] Shared types: graph-status schema (`GraphBuildStatus`/`ProjectGraphMeta`/`GraphResponse`)
+- [x] Tests: `graph.test.ts` (11 specs, analyze seam) — CI never invokes real GitNexus
+- [x] Code review (1 valid WARN fixed: log non-ENOENT graph.json errors) → commit → core suite 356✓
 
-## Phase 3 — Automation & Skills *(in progress)*
+## Wave 2 — Enrichment, dispatch, auto-reindex (core) ✅
+- [x] Live node enrichment in `GET …/graph` (last-touched run, verify findings, bible — bible scoped to harness project only)
+- [x] `POST /api/projects/:id/graph/dispatch` — node-scoped run via existing `startRun` seam; single-line input guard (400)
+- [x] Auto-reindex: `onRunUpdate` subscriber marks stale + per-project debounced guarded rebuild (env-flag `GRAPH_AUTO_REINDEX`, default on)
+- [x] Tests: enrichment shape/graceful, dispatch 201/400/404, auto-reindex fires-once/guard/env-off
+- [x] Spec + quality review → 7 fixes applied (bible scoping, timer unref, onClose unsubscribe, input regex, comment, guard-test signal, run-insert fidelity) → typecheck clean, core 371✓ / web 81✓
 
-Plan: `~/.claude/plans/read-and-analyze-artifacts-project-bible-eventual-stonebraker.md`
+## Wave 3 — Knowledge Graph UI ✅
+- [x] Build/Refresh button + building spinner + last-built/stale/error chips + WS `graph_update`→cache-invalidate auto-refresh
+- [x] Node inspector enriched facts (last-run/findings/inBible) + enabled Dispatch Agent (`fixed` confirm-card → dispatch → transient notice)
+- [x] Graph polish: enrichment/status coloring, legend, spring physics (cooldown/decay), center/zoom on click, reduced-motion
+- [x] Fleet graph polish (edges not derivable from `GET /projects` — nodes-only + comment, no invented data)
+- [x] Spec + quality review → 5 fixes (mutate-arg node, unified has-data CTA, dispatch reset, legend containment, cast cleanup) → web 95✓ typecheck/build clean, no aggregate import
 
-| Wave | Scope | Status |
-|------|-------|--------|
-| **3-1** | Skill/Hook/Workflow Registry — `skills`/`skill_runs` tables, `skills.ts`, routes, `SkillsPage`, scheduler + event listener, boundary validation | ✅ done (`11b238c`, audit `e51ea3c`) |
-| **0** | Cleanup & docs — consolidate this tracker, refine + recompile bible, rewrite `CLAUDE.md` as the harness system prompt | ✅ done (`ceb3815`, `aa59174`) |
-| **3-2** | Ollama provider (replace stub) + cost-aware routing over run-outcome data; reachability check + graceful degrade to claude | ✅ done (`d79642b`) |
-| **3-3** | eval-harness skill testing — `skill_evals` table; skill-test flow reusing `everything-claude-code:eval-harness`; `POST /api/skills/:id/test`, `GET /api/skills/:id/evals`; regression badge | ✅ done (`d896f61`) |
-| **3-4** | Routing improvement dashboard — backend aggregation (cost/latency/success by provider+model) + `RoutingPage` (table, trend charts, recommendation) | ✅ done (`a14c71d`) |
-| **3-6** | Web terminal — `node-pty` over the WS gateway (auth-guarded, cleanup on disconnect) + xterm.js component; feature-flagged (default off) | ✅ done (`eb72f61`) |
-| **3-7** | Structured task/goal records + GitHub Issues sync — `GitHubProvider.syncIssues` w/ graceful degrade; Tasks-tab sync affordance | ✅ done (`5709e5f`) |
-| **3-5** | Close-out — finalize bible Phase 3 sections + roadmap progress, tick this tracker, append lessons; whole-impl review; e2e verification; merge | ✅ done |
-| **fix** | Blank-screen bug — all routes blank from `react-force-graph` aggregate pulling an `AFRAME`-referencing module that threw at eval time; swapped to `react-force-graph-2d` + static guard test (`5f786e4`). Verified live in headless Chromium across all 10 routes. | ✅ done |
-| **review** | Whole-impl review fixes — PATCH skill cron/body validation, PR/issue `url` http(s) allowlist, terminal WS error/close banner (`65d51a8`) | ✅ done |
+## Wave 4 — Hybrid glass + motion ✅ (commit 27550af)
+- [x] Glass tokens + backdrop-blur utils + @supports fallback (index.css)
+- [x] Apply glass to hero surfaces only (CommandBar, dispatch confirm-card, node inspector, ActivityStrip)
+- [x] Motion: `lib/motion.ts` variants, stage transition (Shell) + tab fade (ProjectWorkspace), micro-interactions; reduced-motion app-wide via MotionConfig
+- [x] Spec + quality review → 2 BLOCKERs (reduced-motion via MotionConfig, overlayFade exit) + WARNs (AnimatePresence unmount race, dead-export prune, dedup) fixed → web 95✓ typecheck/build clean
 
-> Waves 3-6 and 3-7 were pulled into Phase 3 from the Phase 1 "deferred to Phase 3" notes
-> (operator decision 2026-06-18) so the roadmap and this tracker agree.
+## Wave 5 — UI artifact system ✅ (commit 9e9d658)
+- [x] `core/src/ui-artifact.ts`: `compileUiArtifact()` writes rich HTML to disk verbatim + upserts md (bypasses sanitizer); outDir overridable
+- [x] `POST /api/ui-artifact/compile` endpoint (optional projectId; additionalProperties:false body schema)
+- [x] DocsPage 🖥 ui badge + link from project Overview
+- [x] Seed harness `ui-demo` artifact (interactive mini Command Deck, hybrid-glass, offline/sandbox-safe)
+- [x] Tests: `ui-artifact.test.ts` (preserves interactive HTML, output-path isolation)
+- [x] Spec PASS; quality PASS-WITH-FIXES → route schema hardening + @internal doc, deleted tautological test, bulletproof real-dir cleanup → core 377✓
 
-### Acceptance criteria (per wave)
-- **3-2** — unit tests green (no live Ollama); `route()` returns claude when `ENABLE_OLLAMA`
-  unset; an unreachable/absent Ollama never breaks a run (warn + fall back to claude);
-  supervisor needs no edits (the seam holds). Code comments stop saying "Architecture-C".
-- **3-3** — pass/fail recorded per eval; regression (was-pass-now-fail vs prior baseline)
-  detected and surfaced on `SkillsPage`; degrades cleanly when the eval run can't be dispatched.
-- **3-4** — dashboard renders live aggregates and a sane empty state; reuses the existing
-  stacked-SVG chart + `buildTimeseries` patterns and design tokens.
-- **3-6** — pty session spawn/echo/exit works and cleans up; absent/unsupported pty degrades
-  gracefully; auth-guarded WS.
-- **3-7** — issue↔task mapping is correct with mocked `gh`; absent `gh` degrades (no crash).
+## Wave 6 — create-web-ui-artifact skill + bible docs ✅ (commit cb108d0)
+- [x] `.claude/skills/create-web-ui-artifact/SKILL.md` + register via idempotent BUILTIN_SKILLS seed (also surfaces onboarding/verify-project)
+- [x] Bible §06 (glass + motion + graph engine/features), §07 roadmap (Phase H, @live), §08 decisions D-009/D-010/D-011 (D-008 already taken)
+- [x] Tests: skill registration + idempotency/user-edit preservation; compileBible isolation holds
+- [x] Spec PASS; quality PASS-WITH-FIXES → module-scope test cleanup + user-edit-preservation assertion → core 382✓
 
-### Close-out review (3-5, 2026-06-19)
+## Wave 7 — Verify, CI, whole-implementation review
+- [x] `verify-project` / health audit — covered by the whole-implementation review (security, integration, regressions, lessons adherence, dead-code) + green aggregate gate
+- [x] `pnpm typecheck && pnpm -r test && pnpm build` green (core 382 / web 95, build OK; pre-existing >500kB chunk warning only)
+- [x] Whole-implementation review agent across all waves → SHIP-WITH-FIXES → 1 WARN (SKILL.md path) + 1 NIT (§06 glass values) fixed; 2 dead motion exports deliberately kept (reserved comment)
+- [x] Update review section below + lessons.md; recompile bible (9 sections, Phase H + @live:roadmap-progress resolved, artifact gitignored)
+- [x] Merge `--no-ff` — unblocked: Wave 8 landed + Wave 0 dev fix verified (see Landing below)
 
-- **Verification.** `pnpm -r typecheck` green (4/4); **core 345** + **web 81** tests green;
-  `pnpm -r build` green. Booted core + Vite and drove all 10 routes in headless Chromium.
-- **Blank-screen bug (found during verification, fixed).** Every route rendered blank because the
-  three graph views imported the `react-force-graph` *aggregate*, whose 3D/VR/AR module body
-  references a global `AFRAME` and threw at module-eval time — and `Shell` statically imports the
-  graph pages, so the throw blanked the whole tree. typecheck/build/unit tests all passed anyway
-  (runtime-only crash). Fix: import `react-force-graph-2d` (default export) + a static guard test
-  (`web/test/bundle-guard.test.ts`). Bundle 2,683 kB → 1,069 kB. Lesson captured.
-- **Whole-impl review** (code + security agents over `git diff main...HEAD`). **No blockers.**
-  Landed the in-scope fixes (`65d51a8`): strict PATCH skill validation incl. cron; PR/issue `url`
-  http(s) allowlist at ingest; terminal WS error/close banner. Deferred (documented above):
-  Fastify v5 + Vite 6 (major upgrades, loopback-gated), `listSkills`-per-event perf (fine at scale).
-- **Live render proof.** Registered a project; Home + `/graph` draw the ForceGraph2D canvas node;
-  all routes show real content with zero page errors (terminal shows its disabled banner as designed).
+## Wave 8 — Knowledge-graph data-layer fix (real gitnexus export)
+Live smoke test (Playwright, real browser) found: a successful build shows "No graph data yet · 0 nodes".
+Root cause: `gitnexus analyze` v1.6.0 writes `.gitnexus/lbug` (DB) + `meta.json` but NO `graph.json`,
+which `GET …/graph` reads. CI was green because tests mock `execa`. Fix:
+- [ ] `buildGraph`: after analyze, export nodes+edges via `gitnexus cypher --repo <name>` → write real `.gitnexus/graph.json` in the route's `{nodes,links}` shape (repo name from meta.json repoPath basename)
+- [ ] Add `--skip-agents-md` to the analyze invocation (stop every build rewriting CLAUDE.md/AGENTS.md)
+- [ ] Pure, exported `parseCypherRows` + node/edge transform; unit-tested against a REAL captured cypher-output fixture (the regression guard the mocked waves lacked)
+- [ ] UI: when `status==='ready' && nodeCount>0 && nodes.length===0`, show "graph data unavailable — rebuild" instead of the plain empty state (stop masking export failures)
+- [x] Tests stay green + new fixture/transform tests; LIVE export verification (real gitnexus, local only) confirms GET serves nodes
+- [x] Spec + quality review → commit (5af6c58) → re-smoke → then merge
 
----
+## Wave 0 (Landing) — `pnpm dev` orchestration fix ✅
+User-reported pre-merge gate: running `pnpm dev` produced Vite proxy errors / `AggregateError
+[ECONNREFUSED]` / HTTP 500 on every `/api/*` call. Diagnosed live (controller): the root script
+`pnpm --parallel -r dev` announced `core dev$ tsx watch src/index.ts` but core **never bound** —
+`tsx watch` does not boot as a non-TTY grandchild under a process manager (reproduced under both
+`pnpm --parallel` and `concurrently`). Core solo / as a separate process boots in ~2s. NOT an
+IPv6/race issue (core answers on both `127.0.0.1` and `localhost`). Fix (implementer + verified):
+- [x] core dev: `tsx watch src/index.ts` → `node --watch --import tsx src/index.ts` (boots headless, keeps live reload)
+- [x] root dev: `concurrently -n core,web -c blue,magenta "pnpm --filter @k/core dev" "pnpm --filter @k/web dev"`
+- [x] `web/vite.config.ts`: proxy `error` handler returns clean `503 {"error":"core starting"}` + 3s-throttled log (no opaque 500 / flood) during the core-boot window
+- [x] Independently verified: clean 503 during boot → **proxy 200 in ~3s**, both `[core]` listening + `[web]` VITE ready, 0 orphan node procs; `pnpm -r typecheck` + `pnpm build` green
 
-## Completed phases *(history — see git log & bible §07 for detail)*
+## Review notes
 
-- **Phase 0 — Foundation + Command Deck** ✅ — monorepo scaffold, Zod schemas, SQLite, EventBus,
-  ModelRouter interface, supervisor (worktree + claude CLI + stream-json), artifacts store,
-  bible compiler, Fastify REST + WS, React Command Deck shell. 17 tasks, all green.
-- **Phase 1 — Observability Core** ✅ — CI, auth pathname fix, supervisor permission-mode,
-  `runs.project_id`, ⌘K @project dispatch, time-series + stacked SVG charts, replayable run
-  timeline, run-list filters/kill/cost totals. 11 tasks; 86 core + 32 web green.
-- **K Remediation (post-Phase-1 review)** ✅ — security (path-traversal, cwd validation, bible
-  sanitize), correctness (falsy-zero guards, event re-sort), reliability (`reconcileOnBoot`,
-  event dedup UNIQUE index, honest Provider seam). 223 core + 61 web green.
-- **Phase 2 — Verification & Workspace Core** ✅ — bounded `/metrics/summary`, server-side run
-  filters, lazy raw fetch, scaffolders, `onboarding` skill, two-layer verification
-  (`computeHealthScore` + auditors + `verify-project` skill). 187 core + 57 web green.
-- **Phase G — Workspace UI & Fleet Graph** ✅ (2026-06-18) — 7-tab project workspace, Knowledge
-  + Fleet graphs (ForceGraph2D), node inspector, `project_tasks` CRUD, agent-opens-PR
-  (`createPR` + modal + RunConsole footer). G-1…G-6, 285 tests green.
+Phase H delivered across 6 implementation waves + verification (Wave 7), each via the delegation
+loop (implementer → spec-review → quality-review → controller fixes → reviewable commit → gate).
 
-> Per-task spec/quality review notes for the above live in git history and prior revisions of
-> this file; they are intentionally not carried forward here to keep the active tracker scannable.
+- **Wave 4** (27550af) hybrid glass + motion. Reviews caught 2 BLOCKERs: Framer ignores CSS
+  reduced-motion (fixed app-wide via `MotionConfig reducedMotion="user"`) and a missing
+  `overlayFade` exit (scrim snapped on close); plus an AnimatePresence dispatch-modal unmount race.
+- **Wave 5** (9e9d658) standalone UI-artifact system modeled on `bible.ts`. Security hardening:
+  verbatim sanitizer-bypass documented `@internal`, route locked with `additionalProperties:false`;
+  iframe `allow-scripts` without `allow-same-origin`; a tautological test removed and real-dir test
+  cleanup made bulletproof (3d61b84 isolation honored).
+- **Wave 6** (cb108d0) `create-web-ui-artifact` skill + idempotent `BUILTIN_SKILLS` seed (also
+  surfaces onboarding/verify-project in the Skills tab) + bible §06/§07/§08 (D-009/D-010/D-011).
+  Test cleanup made module-scoped; added a user-edit-preservation assertion.
+- **Wave 7** whole-impl review = SHIP-WITH-FIXES; doc-drift fixes applied; aggregate gate green;
+  bible recompiled. New reusable lessons captured (MotionConfig reduced-motion; harden
+  sanitizer-bypass at the route; verify documented paths/values against source).
 
----
-
-## Backlog *(genuinely later-phase — not Phase 3)*
-
-- **`/api/metrics/summary` unbounded full-table scan** (Phase 1 final review). Loads every run
-  row per poll for a 14-day summary + lifetime `totalRuns`. Fix when the table grows / endpoint
-  is polled hot: `SELECT COUNT(*)` for `totalRuns`, `COUNT(*) WHERE status IN ('running','queued')`
-  for `activeRuns`, and bound the daily scan with `WHERE created_at >= windowStartMs(now, 14)`.
-  Timeseries is already windowed.
-- **Auth hardening (passkey/TOTP replacing bearer token)** → Phase 4 (remote-access hardening).
-- **Judgment-findings re-scoring** — wire the deep `verify-project` agent's structured output
-  back into a persisted `VerificationReport` (deferred in Phase 2 §05).
-- **Adaptive GitHub polling cadence** — only if fixed-interval polling lag ever hurts.
-- **EventBus persist/publish split** → Phase 5 seam (NATS/Redis Streams + workers).
-- **`startEventListener` re-queries `listSkills()` on every `run_update` event** (Phase 3
-  whole-impl review). A full `SELECT * FROM skills` per status event; fine at current single-user
-  loopback scale, but cache with a short TTL (or invalidate on register/delete) before run volume
-  grows. `core/src/skills.ts`.
-
-### Accepted localhost risks *(tracked, not fixed — operator decision 2026-06-17)*
-
-Per bible §09 "Accepted risks" — the default posture is `HOST=127.0.0.1` (loopback only).
-**Close ALL of these before any `0.0.0.0` / remote exposure:** WS-upgrade auth (token on `/ws`);
-timing-safe bearer compare (`crypto.timingSafeEqual`, incl. the `TERMINAL_TOKEN` gate in
-`core/src/terminal.ts`); refuse-to-boot on default `HARNESS_TOKEN` with a non-loopback `HOST`;
-stop logging the token at startup; `@fastify/rate-limit` on `POST /api/runs`; `localPath`
-registration root allowlist.
-
-**Dependency upgrades gating remote exposure** (Phase 3 whole-impl security review — both
-require a major-version bump, so deferred from the close-out):
-- **Fastify v4 → v5** — v4.29.1 has a body-validation bypass (tab in `Content-Type`); patched only
-  in ≥5.7.2. Auth gate fires first at loopback, and Zod `safeParse` on bodies is a second layer, so
-  it's not exploitable today; upgrade before `0.0.0.0`.
-- **Vite 5 → 6** — v5.4.21 (latest 5.x) has a Windows `server.fs.deny` bypass; no 5.x patch exists,
-  the fix is in 6.x. Dev-server-only (the Vite proxy injects `HARNESS_TOKEN`), so it matters only
-  if the dev server is ever exposed. Upgrade with the Phase 4 toolchain pass.
-
----
-
-## Environment notes
-
-- **`gh` CLI not installed** here — GitHub features degrade gracefully (poller warns, cache
-  serves empty); CI status via GitHub web UI / unauthenticated REST.
-- **Ollama not installed** here — 3-2 is verified by unit tests + the degradation path only.
-- **node-pty builds here** (prebuilds, no compile) — listed in `pnpm-workspace.yaml`
-  `onlyBuiltDependencies`. The web terminal (3-6) is default-off (`ENABLE_TERMINAL`),
-  auth-guarded by the scoped `TERMINAL_TOKEN` (separate from `HARNESS_TOKEN`), and
-  was verified live end-to-end (real shell echo on a valid token; no spawn on a bad
-  token). node-pty is dynamically imported so a missing binding degrades, never crashes.
-- `pnpm --filter @k/core dev` (tsx watch) hangs under the agent harness; for e2e run one-shot:
-  `cd core && ./node_modules/.bin/tsx src/index.ts` (background).
-- Web dev auth: the Vite proxy injects the bearer header (`web/vite.config.ts`).
-- Run guarded migration `ALTER`s with the dev server stopped (first boot only).
-- **Commit policy:** authored skills (`.claude/skills/onboarding`, `.claude/skills/verify-project`)
-  are committed; external GitNexus tooling (`.claude/skills/gitnexus`, `.gitnexus/`) and
-  `.claude/worktrees/` stay out. `CLAUDE.md` IS tracked (watch the case-insensitive `claude.md`
-  gitignore collision — verify with `git check-ignore CLAUDE.md`).
+Verification status: `pnpm typecheck` clean · `pnpm -r test` green (core 382 / web 95) · `pnpm build`
+OK. Branch `feat/phase-h-graph-experience` is ready; **merge held pending user approval**.

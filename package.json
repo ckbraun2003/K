@@ -8,8 +8,11 @@
     "pnpm": ">=10"
   },
   "scripts": {
-    "dev": "pnpm --parallel -r dev",
+    "dev": "concurrently -n core,web -c blue,magenta \"pnpm --filter @k/core dev\" \"pnpm --filter @k/web dev\"",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
   }
 }

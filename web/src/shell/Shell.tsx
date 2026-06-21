@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import ActivityStrip from './ActivityStrip'
@@ -17,6 +17,7 @@ import SkillsPage from '../pages/SkillsPage'
 import TerminalPage from '../pages/TerminalPage'
 import { useHashRoute, navigate } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
+import { stageTransition } from '../lib/motion'
 
 export default function Shell() {
   const route = useHashRoute()
@@ -59,6 +60,7 @@ export default function Shell() {
   }, [])
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="grid h-screen grid-cols-[52px_1fr] grid-rows-[auto_1fr_auto] bg-[var(--bg)]">
       <div className="ambient" aria-hidden />
       <Sidebar active={route.view} />
@@ -69,10 +71,10 @@ export default function Shell() {
           <motion.div
             key={route.view}
             className="h-full"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
+            variants={stageTransition}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
           >
             {route.view === 'home' && <Home />}
             {route.view === 'runs' && <RunsPage runId={route.param} />}
@@ -92,5 +94,6 @@ export default function Shell() {
       <ActivityStrip />
       <CommandBar open={commandOpen} onClose={() => setCommandOpen(false)} />
     </div>
+    </MotionConfig>
   )
 }

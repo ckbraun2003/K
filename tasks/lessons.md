@@ -89,6 +89,36 @@ entries at session start before touching the same area.
   `AGENTS.md`, never in the global prompt. When asked to edit a "system prompt," confirm
   whether it is the global harness prompt or a single project's instructions before rewriting.
 
+## Phase H (2026-06-20)
+
+- **Framer Motion ignores the CSS `prefers-reduced-motion` rule** — **Pattern:** the global
+  `@media (prefers-reduced-motion: reduce) { * { transition-duration: 0.01ms !important } }`
+  block neutralizes CSS transitions but does NOTHING to Framer Motion's JS-driven spring/variant
+  animations (Framer injects its own inline styles + RAF loop). Wave 4 shipped `reducedMotion()`
+  helpers but left them unplugged, so the accessibility requirement was unmet despite the CSS rule
+  existing. **Rule:** for Framer Motion, honor reduced-motion at the source — wrap the app root in
+  `<MotionConfig reducedMotion="user">`. That covers every current and future `motion.*` element in
+  one line; keep a JS `prefersReducedMotion()` only for imperative non-Framer animation (e.g. a
+  canvas zoom). Don't assume a CSS media-query rule reaches a JS animation library.
+
+- **A sanitizer-bypassing compiler must be hardened at the route boundary** — **Pattern:** the
+  UI-artifact compiler intentionally writes interactive HTML to disk VERBATIM (bypassing the
+  generic sanitizing render) so demos survive — mirroring the bible. The current route only seeds
+  server-authored HTML, but `compileUiArtifact(html)` is a public function: any future caller that
+  pipes user input through it becomes a stored-XSS vector, invisible at the call site. **Rule:**
+  when an internal function writes unsanitized content to disk by design, (1) mark it `@internal`
+  /server-generated-only in the type docs, and (2) lock the HTTP route with a strict JSON schema
+  (`additionalProperties:false`, only the safe fields) so a future caller physically cannot smuggle
+  an `html` field into the verbatim-write path. Defense-in-depth: also rely on the rendering
+  iframe's `sandbox="allow-scripts"` WITHOUT `allow-same-origin`.
+
+- **Documented paths/values must be verified against source, not the demo** — **Pattern:** a SKILL.md
+  documented the compile output as `artifacts/bible/<slug>.html` (real path is `artifacts/<slug>.html`),
+  and bible §06 documented glass tokens using the ui-demo's INLINE values instead of the actual
+  `index.css` utility values. Both parse/test clean but mislead a future agent/reader. **Rule:** when
+  docs assert a concrete path or token value, grep the actual source (`ARTIFACTS_DIR`/`artifactPath`,
+  `index.css`) and cite that — never copy a nearby demo's numbers or guess a directory layout.
+
 - **Import the renderer subpackage, not the `react-force-graph` aggregate** — **Pattern:** all
   three graph views imported `{ ForceGraph2D } from 'react-force-graph'`. The aggregate package's
   module body wires up the 3D/VR/AR renderers, which reference a global `AFRAME` that doesn't exist
@@ -101,3 +131,18 @@ entries at session start before touching the same area.
   client-rendered SPA, a "blank page" almost always = an uncaught throw during initial render/module
   load; drive a real browser and read the console. Added a static guard test
   (`web/test/bundle-guard.test.ts`) that fails CI if the aggregate import returns.
+
+- **`tsx watch` won't boot as a non-TTY grandchild under a process manager** — **Pattern:** the root
+  dev script `pnpm --parallel -r dev` printed `core dev$ tsx watch src/index.ts` but core never bound
+  to :3001, so the Vite dev proxy flooded `AggregateError [ECONNREFUSED]` and returned HTTP 500 on
+  every `/api/*` call. Core ran fine solo / as its own process, so it looked intermittent. Reproduced
+  under BOTH `pnpm --parallel` and `concurrently`: `tsx watch` (which spawns a watched child) hangs
+  without a real TTY/proper stdio when run as a grandchild of a parallel runner — not an IPv6 or
+  startup-race issue (core answered on both `127.0.0.1` and `localhost` once up). **Rule:** for a
+  long-running dev server under a process manager, use Node's native watcher with the tsx loader
+  (`node --watch --import tsx src/index.ts`) instead of `tsx watch`, and orchestrate multiple dev
+  servers with `concurrently` (named/prefixed) rather than `pnpm --parallel`. Independently make the
+  consumer resilient to the boot window: a Vite dev proxy should have an `error` handler that returns
+  a clean `503` (not an opaque 500) and throttles logging while the upstream is still starting. Prove
+  it by polling the proxy after `pnpm dev` and asserting a 200 within ~15s — build/typecheck never
+  catch this because the process simply never starts.

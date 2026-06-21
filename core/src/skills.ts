@@ -38,6 +38,61 @@ export function listSkills(): Skill[] {
   return (skillsDb.listSkills.all() as Record<string, unknown>[]).map(rowToSkill)
 }
 
+// ─── Built-in (filesystem) skills ────────────────────────────────────────────
+
+/**
+ * The authored `.claude/skills/*` workflows the harness ships with. They live as
+ * `SKILL.md` files (agent-invokable), and are also seeded into the skills table
+ * at bootstrap so they appear — and are triggerable — from the Skills tab.
+ *
+ * Each entry is `CreateSkill`-shaped and MUST satisfy the same boundary
+ * validation POST /api/skills enforces (a `manual` trigger needs neither a cron
+ * `schedule` nor an `eventTrigger`), so seeding can never store an invalid skill
+ * that would be silently dropped at trigger time.
+ */
+export const BUILTIN_SKILLS: readonly CreateSkill[] = [
+  {
+    name: 'onboarding',
+    description:
+      'Scaffold a registered project’s bible + CI to satisfy the three bible §3 invariants (GitHub remote, bible, CI). Idempotent.',
+    type: 'workflow',
+    source: '.claude/skills/onboarding/SKILL.md',
+    triggerType: 'manual',
+  },
+  {
+    name: 'verify-project',
+    description:
+      'Run the Layer-2 verification agent team (CI auditor, coverage scout, PR reviewer, doc-freshness) and apply safe fixes via PR only.',
+    type: 'workflow',
+    source: '.claude/skills/verify-project/SKILL.md',
+    triggerType: 'manual',
+  },
+  {
+    name: 'create-web-ui-artifact',
+    description:
+      'Author a project-specific, self-contained interactive UI demo (hybrid-glass, offline, sandbox-safe) and compile it into a renderable UI artifact via POST /api/ui-artifact/compile.',
+    type: 'workflow',
+    source: '.claude/skills/create-web-ui-artifact/SKILL.md',
+    triggerType: 'manual',
+  },
+] as const
+
+/**
+ * Idempotently register the built-in skills. Existing rows (matched by name) are
+ * left untouched so a user’s edits (enabled flag, schedule) are preserved across
+ * restarts. Returns the names that were newly inserted. Called at bootstrap.
+ */
+export function seedBuiltinSkills(): string[] {
+  const created: string[] = []
+  for (const skill of BUILTIN_SKILLS) {
+    if (skillsDb.getSkillByName.get(skill.name)) continue
+    registerSkill(skill)
+    created.push(skill.name)
+  }
+  if (created.length) console.log(`[skills] seeded built-in skills: ${created.join(', ')} ✓`)
+  return created
+}
+
 export function registerSkill(opts: CreateSkill): Skill {
   const id = randomUUID()
   const now = Date.now()

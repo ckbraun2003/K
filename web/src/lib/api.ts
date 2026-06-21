@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, SkillEval } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody } from '@k/shared'
 
 const BASE = '/api'
 
@@ -90,7 +90,15 @@ export const api = {
         req<{ synced: number; degraded: boolean }>(`/projects/${projectId}/tasks/sync`, { method: 'POST' }),
     },
     graph: (id: string) =>
-      req<{ nodes: unknown[]; links: unknown[]; stale: boolean }>(`/projects/${id}/graph`),
+      req<GraphResponse>(`/projects/${id}/graph`),
+    graphBuild: (id: string) =>
+      req<ProjectGraphMeta>(`/projects/${id}/graph/build`, { method: 'POST' }),
+    graphDispatch: (id: string, body: GraphDispatchBody) =>
+      req<Run>(`/projects/${id}/graph/dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
     createPr: (id: string, opts: { title: string; body: string; head: string; base: string }) =>
       req<{ number: number; url: string; title: string; state: string }>(
         `/projects/${id}/prs`,
