@@ -53,7 +53,7 @@ Plan: `~/.claude/plans/read-and-analyze-the-curried-sparkle.md`
 - [x] `pnpm typecheck && pnpm -r test && pnpm build` green (core 382 / web 95, build OK; pre-existing >500kB chunk warning only)
 - [x] Whole-implementation review agent across all waves → SHIP-WITH-FIXES → 1 WARN (SKILL.md path) + 1 NIT (§06 glass values) fixed; 2 dead motion exports deliberately kept (reserved comment)
 - [x] Update review section below + lessons.md; recompile bible (9 sections, Phase H + @live:roadmap-progress resolved, artifact gitignored)
-- [ ] Merge `--no-ff` — HELD: live smoke test found a data-layer bug (Wave 8); merge after Wave 8 + re-smoke
+- [x] Merge `--no-ff` — unblocked: Wave 8 landed + Wave 0 dev fix verified (see Landing below)
 
 ## Wave 8 — Knowledge-graph data-layer fix (real gitnexus export)
 Live smoke test (Playwright, real browser) found: a successful build shows "No graph data yet · 0 nodes".
@@ -63,8 +63,20 @@ which `GET …/graph` reads. CI was green because tests mock `execa`. Fix:
 - [ ] Add `--skip-agents-md` to the analyze invocation (stop every build rewriting CLAUDE.md/AGENTS.md)
 - [ ] Pure, exported `parseCypherRows` + node/edge transform; unit-tested against a REAL captured cypher-output fixture (the regression guard the mocked waves lacked)
 - [ ] UI: when `status==='ready' && nodeCount>0 && nodes.length===0`, show "graph data unavailable — rebuild" instead of the plain empty state (stop masking export failures)
-- [ ] Tests stay green + new fixture/transform tests; LIVE export verification (real gitnexus, local only) confirms GET serves nodes
-- [ ] Spec + quality review → commit → re-smoke → then merge
+- [x] Tests stay green + new fixture/transform tests; LIVE export verification (real gitnexus, local only) confirms GET serves nodes
+- [x] Spec + quality review → commit (5af6c58) → re-smoke → then merge
+
+## Wave 0 (Landing) — `pnpm dev` orchestration fix ✅
+User-reported pre-merge gate: running `pnpm dev` produced Vite proxy errors / `AggregateError
+[ECONNREFUSED]` / HTTP 500 on every `/api/*` call. Diagnosed live (controller): the root script
+`pnpm --parallel -r dev` announced `core dev$ tsx watch src/index.ts` but core **never bound** —
+`tsx watch` does not boot as a non-TTY grandchild under a process manager (reproduced under both
+`pnpm --parallel` and `concurrently`). Core solo / as a separate process boots in ~2s. NOT an
+IPv6/race issue (core answers on both `127.0.0.1` and `localhost`). Fix (implementer + verified):
+- [x] core dev: `tsx watch src/index.ts` → `node --watch --import tsx src/index.ts` (boots headless, keeps live reload)
+- [x] root dev: `concurrently -n core,web -c blue,magenta "pnpm --filter @k/core dev" "pnpm --filter @k/web dev"`
+- [x] `web/vite.config.ts`: proxy `error` handler returns clean `503 {"error":"core starting"}` + 3s-throttled log (no opaque 500 / flood) during the core-boot window
+- [x] Independently verified: clean 503 during boot → **proxy 200 in ~3s**, both `[core]` listening + `[web]` VITE ready, 0 orphan node procs; `pnpm -r typecheck` + `pnpm build` green
 
 ## Review notes
 

@@ -28,6 +28,21 @@ export default defineConfig({
           proxy.on('proxyReq', (proxyReq) => {
             proxyReq.setHeader('Authorization', `Bearer ${process.env.HARNESS_TOKEN ?? 'dev-token-change-me'}`)
           })
+          // Core can still be booting (node --watch) while Vite is already serving.
+          // Degrade gracefully: return 503 instead of an opaque 500, and throttle
+          // logging so a not-yet-listening core doesn't flood the console.
+          let lastWarn = 0
+          proxy.on('error', (_err, _req, res) => {
+            const now = Date.now()
+            if (now - lastWarn > 3000) {
+              lastWarn = now
+              console.warn('[vite] core not ready — proxying /api returned 503')
+            }
+            if (res && 'writeHead' in res && !res.headersSent) {
+              res.writeHead(503, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'core starting' }))
+            }
+          })
         },
       },
     },

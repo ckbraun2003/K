@@ -131,3 +131,18 @@ entries at session start before touching the same area.
   client-rendered SPA, a "blank page" almost always = an uncaught throw during initial render/module
   load; drive a real browser and read the console. Added a static guard test
   (`web/test/bundle-guard.test.ts`) that fails CI if the aggregate import returns.
+
+- **`tsx watch` won't boot as a non-TTY grandchild under a process manager** — **Pattern:** the root
+  dev script `pnpm --parallel -r dev` printed `core dev$ tsx watch src/index.ts` but core never bound
+  to :3001, so the Vite dev proxy flooded `AggregateError [ECONNREFUSED]` and returned HTTP 500 on
+  every `/api/*` call. Core ran fine solo / as its own process, so it looked intermittent. Reproduced
+  under BOTH `pnpm --parallel` and `concurrently`: `tsx watch` (which spawns a watched child) hangs
+  without a real TTY/proper stdio when run as a grandchild of a parallel runner — not an IPv6 or
+  startup-race issue (core answered on both `127.0.0.1` and `localhost` once up). **Rule:** for a
+  long-running dev server under a process manager, use Node's native watcher with the tsx loader
+  (`node --watch --import tsx src/index.ts`) instead of `tsx watch`, and orchestrate multiple dev
+  servers with `concurrently` (named/prefixed) rather than `pnpm --parallel`. Independently make the
+  consumer resilient to the boot window: a Vite dev proxy should have an `error` handler that returns
+  a clean `503` (not an opaque 500) and throttles logging while the upstream is still starting. Prove
+  it by polling the proxy after `pnpm dev` and asserting a 200 within ~15s — build/typecheck never
+  catch this because the process simply never starts.
