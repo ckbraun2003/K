@@ -8,6 +8,10 @@ export interface Destination {
   /** One-line description shown in the hover/focus tooltip for the icon-only nav. */
   hint: string
   enabled: boolean
+  /** Optional explicit navigation target. Defaults to `id`. Lets an entry (e.g. Help)
+   *  deep-link into another view with a param without owning its own route. */
+  view?: string
+  param?: string
 }
 
 export const DESTINATIONS: Destination[] = [
@@ -21,6 +25,7 @@ export const DESTINATIONS: Destination[] = [
   { id: 'routing', icon: '⇄', label: 'Routing', hint: 'Model routing stats', enabled: true },
   { id: 'terminal', icon: '>_', label: 'Terminal', hint: 'Embedded shell', enabled: true },
   { id: 'docs', icon: '▤', label: 'Docs', hint: 'Bible & artifacts', enabled: true },
+  { id: 'help', icon: '❔', label: 'Help', hint: 'How to use K — the user guide', enabled: true, view: 'docs', param: 'project-bible' },
 ]
 
 export default function Sidebar({ active }: { active: string }) {
@@ -33,8 +38,8 @@ export default function Sidebar({ active }: { active: string }) {
           title={d.enabled ? `${d.label} — ${d.hint}` : d.label}
           aria-label={d.label}
           disabled={!d.enabled}
-          aria-current={active === d.id ? 'page' : undefined}
-          onClick={() => navigate(d.id)}
+          aria-current={active === (d.view ?? d.id) ? 'page' : undefined}
+          onClick={() => navigate(d.view ?? d.id, d.param)}
           className={cn(
             'flex h-9 w-9 items-center justify-center rounded-lg text-base transition-colors duration-150',
             d.enabled ? 'text-[var(--muted)] hover:bg-[var(--raised)] hover:text-[var(--text)]' : 'cursor-default text-[var(--border)]',

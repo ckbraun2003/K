@@ -25,11 +25,11 @@ Plan: `~/.claude/plans/read-and-analyze-the-linked-bengio.md`
 - [x] Spec + quality review → CLEAN (AFRAME rule honored, motion/glass conventions, API correct); 2 NITs fixed (comment accuracy, redundant AnimatePresence)
 - [x] Verify: live Playwright smoke — ALL routes non-blank, 0 console/page errors, Fleet Graph canvas renders (2 nodes), Getting Started visible; typecheck/build/test green (web 95)
 
-### Wave R3 — Bible "How to Use K" user guide + in-app Help
-- [ ] New bible section `artifacts/bible/sections/10-user-guide.md` + register in `manifest.json` (markdown source only, never compiled HTML)
-- [ ] Reachable from in-app Docs (`web/src/pages/DocsPage.tsx`); add a Help affordance
-- [ ] Spec (paths/values grepped vs source) + quality review
-- [ ] Verify: recompile bible, section renders in-app + in compiled HTML
+### Wave R3 — Bible "How to Use K" user guide + in-app Help  ✅
+- [x] New bible section `artifacts/bible/sections/10-user-guide.md` (task-oriented: install/run, register, dashboard tour, graph, dispatch, verify, onboard, edit bible, troubleshooting) + registered in `manifest.json`
+- [x] In-app **Help** sidebar item (❔) → opens the bible in Docs (`view:docs param:project-bible`)
+- [x] Spec review (controller): sidebar-icon table matches real DESTINATIONS; content consistent with README/§09; Sidebar `view ?? id` preserves all existing nav
+- [x] Verify: core compiled 10 sections, `<section id="10-user-guide">` present in project-bible.html; web typecheck/build clean
 
 ## Track B — Phase 4 (Multi-Device)
 
