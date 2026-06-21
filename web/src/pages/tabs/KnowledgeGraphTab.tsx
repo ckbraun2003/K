@@ -168,6 +168,10 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
   // Canonical "do we have graph data" signal: the actually-rendered node array, so the
   // toolbar label and the empty-state branch can never disagree.
   const hasData = graph.nodes.length > 0
+  // Export-failure: meta says a graph WAS built (ready + nodeCount > 0) but no
+  // renderable nodes came back (graph.json missing/unreadable). Distinct from the
+  // normal never-built empty state so the user knows to rebuild, not just build.
+  const dataUnavailable = !hasData && graph.status === 'ready' && graph.nodeCount > 0
 
   return (
     <div className="flex h-full flex-col">
@@ -192,7 +196,7 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
           className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2.5 py-1 text-xs font-medium text-[var(--text)] transition-colors hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
           title="Rebuild the knowledge graph"
         >
-          {building ? 'Building…' : hasData ? 'Refresh' : 'Build graph'}
+          {building ? 'Building…' : dataUnavailable ? 'Rebuild' : hasData ? 'Refresh' : 'Build graph'}
         </button>
         <span className="font-mono text-[10px] text-[var(--muted)]">
           {graph.nodes.length} nodes · {graph.links.length} edges
@@ -231,16 +235,27 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
             </div>
           ) : !hasData ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-[var(--muted)]">
-              <span>{graph.status === 'error' ? 'Graph build failed.' : 'No graph data yet.'}</span>
+              <span>
+                {graph.status === 'error'
+                  ? 'Graph build failed.'
+                  : dataUnavailable
+                    ? 'Graph data unavailable — rebuild.'
+                    : 'No graph data yet.'}
+              </span>
               {graph.status === 'error' && graph.error && (
                 <code className="max-w-md break-all font-mono text-[11px] text-red-400">{graph.error}</code>
+              )}
+              {dataUnavailable && (
+                <span className="max-w-md text-center text-[11px] text-amber-400">
+                  Build reported {graph.nodeCount} nodes but no graph data could be loaded. Rebuild to regenerate it.
+                </span>
               )}
               <button
                 onClick={handleBuild}
                 disabled={building || buildMutation.isPending}
                 className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {building ? 'Building…' : 'Build graph'}
+                {building ? 'Building…' : dataUnavailable ? 'Rebuild graph' : 'Build graph'}
               </button>
             </div>
           ) : (

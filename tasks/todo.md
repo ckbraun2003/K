@@ -53,7 +53,18 @@ Plan: `~/.claude/plans/read-and-analyze-the-curried-sparkle.md`
 - [x] `pnpm typecheck && pnpm -r test && pnpm build` green (core 382 / web 95, build OK; pre-existing >500kB chunk warning only)
 - [x] Whole-implementation review agent across all waves → SHIP-WITH-FIXES → 1 WARN (SKILL.md path) + 1 NIT (§06 glass values) fixed; 2 dead motion exports deliberately kept (reserved comment)
 - [x] Update review section below + lessons.md; recompile bible (9 sections, Phase H + @live:roadmap-progress resolved, artifact gitignored)
-- [ ] Merge `--no-ff` — HELD per user (stop before merge); branch ready for merge approval
+- [ ] Merge `--no-ff` — HELD: live smoke test found a data-layer bug (Wave 8); merge after Wave 8 + re-smoke
+
+## Wave 8 — Knowledge-graph data-layer fix (real gitnexus export)
+Live smoke test (Playwright, real browser) found: a successful build shows "No graph data yet · 0 nodes".
+Root cause: `gitnexus analyze` v1.6.0 writes `.gitnexus/lbug` (DB) + `meta.json` but NO `graph.json`,
+which `GET …/graph` reads. CI was green because tests mock `execa`. Fix:
+- [ ] `buildGraph`: after analyze, export nodes+edges via `gitnexus cypher --repo <name>` → write real `.gitnexus/graph.json` in the route's `{nodes,links}` shape (repo name from meta.json repoPath basename)
+- [ ] Add `--skip-agents-md` to the analyze invocation (stop every build rewriting CLAUDE.md/AGENTS.md)
+- [ ] Pure, exported `parseCypherRows` + node/edge transform; unit-tested against a REAL captured cypher-output fixture (the regression guard the mocked waves lacked)
+- [ ] UI: when `status==='ready' && nodeCount>0 && nodes.length===0`, show "graph data unavailable — rebuild" instead of the plain empty state (stop masking export failures)
+- [ ] Tests stay green + new fixture/transform tests; LIVE export verification (real gitnexus, local only) confirms GET serves nodes
+- [ ] Spec + quality review → commit → re-smoke → then merge
 
 ## Review notes
 

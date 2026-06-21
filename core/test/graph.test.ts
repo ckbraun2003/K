@@ -12,6 +12,7 @@ import { v4 as uuid } from 'uuid'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import type { Project, WsMessage } from '@k/shared'
 import { db, projectsDb, runsDb, verificationDb, artifactsDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
@@ -23,8 +24,19 @@ import {
   enrichNodes,
   registerGraphAutoReindex,
   markStale,
+  parseCypherRows,
+  toGraphJson,
   __setAnalyzeRunner,
 } from '../src/graph.js'
+
+// Real `gitnexus cypher` output captured against the live K index (Wave 8). These
+// pin the parser/transform to the tool's ACTUAL stdout format — the guard the
+// execa-mocked waves lacked. Re-capture with:
+//   npx gitnexus cypher --repo K "MATCH (n) RETURN n LIMIT 3"
+//   npx gitnexus cypher --repo K "MATCH (a)-[r]->(b) RETURN {source: a.id, target: b.id, type: label(r)} AS e LIMIT 3"
+const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
+const CYPHER_NODES = fs.readFileSync(path.join(FIXTURES, 'cypher-nodes.json'), 'utf8')
+const CYPHER_EDGES = fs.readFileSync(path.join(FIXTURES, 'cypher-edges.json'), 'utf8')
 
 const TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
 const AUTH = { authorization: `Bearer ${TOKEN}` }
@@ -103,6 +115,27 @@ describe('buildGraph', () => {
     expect(meta.status).toBe('error')
   })
 
+  it('seam writes a graph.json built from the real-fixture transform (Wave 8)', async () => {
+    // Mirrors the real runner contract: analyze + export. Here the fake seam runs
+    // the SAME pure transform over the real cypher fixture and writes graph.json,
+    // so we prove the artifact lands in the route's shape without shelling out.
+    const dir = tmpRepo()
+    const p = insertProject(dir)
+    __setAnalyzeRunner(async (cwd) => {
+      writeGitnexusMeta(cwd, 'commit-xyz', 3, 3)
+      const graph = toGraphJson(parseCypherRows(CYPHER_NODES), parseCypherRows(CYPHER_EDGES))
+      fs.writeFileSync(path.join(cwd, '.gitnexus', 'graph.json'), JSON.stringify(graph))
+    })
+    await buildGraph(p)
+
+    const written = JSON.parse(fs.readFileSync(path.join(dir, '.gitnexus', 'graph.json'), 'utf8'))
+    expect(written.nodes.length).toBe(3)
+    expect(written.links.length).toBe(3)
+    const folder = written.nodes.find((n: { id: string }) => n.id === 'Folder:web')
+    expect(folder).toBeDefined()
+    expect('embedding' in folder).toBe(false)
+  })
+
   it('concurrent build is a no-op guard', async () => {
     const dir = tmpRepo()
     const p = insertProject(dir)
@@ -115,6 +148,78 @@ describe('buildGraph', () => {
     resolveAnalyze()
     await first
     expect(getGraphMeta(p.id).status).toBe('ready')
+  })
+})
+
+// ── cypher parsing / transform (Wave 8 — pure, pinned to REAL tool output) ──────
+
+describe('parseCypherRows (real fixture)', () => {
+  it('drops header + separator rows and JSON-parses each single-column node cell', () => {
+    const rows = parseCypherRows(CYPHER_NODES) as Array<Record<string, unknown>>
+    expect(rows.length).toBe(3)
+    // Shape pinned to the actual tool output: id/name/filePath/_label + null noise.
+    expect(rows[0].id).toBe('Folder:web')
+    expect(rows[0].name).toBe('web')
+    expect(rows[0].filePath).toBe('web')
+    expect(rows[0]._label).toBe('Folder')
+    expect(rows[0].embedding).toBeNull()
+  })
+
+  it('parses single-column edge cells', () => {
+    const rows = parseCypherRows(CYPHER_EDGES) as Array<Record<string, unknown>>
+    expect(rows.length).toBe(3)
+    expect(rows[0].source).toBe('File:web/src/main.tsx')
+    expect(rows[0].target).toBe('File:web/src/index.css')
+    expect(rows[0].type).toBe('CodeRelation')
+  })
+
+  it('returns [] for empty / malformed stdout (no throw)', () => {
+    expect(parseCypherRows(JSON.stringify({ markdown: '| n |\n| --- |' }))).toEqual([])
+    expect(parseCypherRows(JSON.stringify({ row_count: 0 }))).toEqual([])
+  })
+})
+
+describe('toGraphJson (real fixture)', () => {
+  it('transforms raw rows into the lean route shape and keeps ids so links resolve', () => {
+    const nodeRows = parseCypherRows(CYPHER_NODES)
+    const edgeRows = parseCypherRows(CYPHER_EDGES)
+    const { nodes, links } = toGraphJson(nodeRows, edgeRows)
+
+    expect(nodes.length).toBe(3)
+    // Noise dropped; _label mapped to type AND group; filePath → file; id verbatim.
+    const folder = nodes.find(n => n.id === 'Folder:web')
+    expect(folder).toEqual({
+      id: 'Folder:web', name: 'web', label: 'web', type: 'Folder', file: 'web', group: 'Folder',
+    })
+    expect('embedding' in folder!).toBe(false)
+    expect('_id' in folder!).toBe(false)
+
+    expect(links.length).toBe(3)
+    const link = links.find(l => l.source === 'File:web/src/main.tsx')
+    expect(link).toEqual({
+      source: 'File:web/src/main.tsx', target: 'File:web/src/index.css', type: 'CodeRelation',
+    })
+  })
+
+  it('falls back label→id only when name is unset OR empty-string', () => {
+    const { nodes } = toGraphJson(
+      [
+        { id: 'A', name: 'real', _label: 'File' },
+        { id: 'B', name: '', _label: 'File' },     // empty name is not a usable label
+        { id: 'C', _label: 'File' },                // missing name
+      ],
+      [],
+    )
+    expect(nodes.map(n => n.label)).toEqual(['real', 'B', 'C'])
+  })
+
+  it('drops nodes without a string id and edges missing source/target', () => {
+    const { nodes, links } = toGraphJson(
+      [{ name: 'no-id' }, { id: 'ok' }],
+      [{ source: 'a' }, { source: 'a', target: 'b', type: 'X' }],
+    )
+    expect(nodes.map(n => n.id)).toEqual(['ok'])
+    expect(links.length).toBe(1)
   })
 })
 

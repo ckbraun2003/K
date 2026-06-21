@@ -13,7 +13,7 @@
  */
 
 import { execa } from 'execa'
-import { readFile } from 'fs/promises'
+import { readFile, rename, writeFile } from 'fs/promises'
 import path from 'path'
 import type { Finding, GraphNodeEnrichment, Project, ProjectGraphMeta, Run } from '@k/shared'
 import { artifactsDb, db, projectGraphsDb, rowToReport, verificationDb } from './db.js'
@@ -21,14 +21,154 @@ import { eventBus } from './events.js'
 import { REPO_ROOT } from './supervisor.js'
 
 // ── analyze runner (swappable seam) ─────────────────────────────────────────────
+//
+// The seam's contract is "produce the .gitnexus artifacts": run analyze AND export
+// a renderable graph.json. The real impl shells out (analyze → cypher → writeFile);
+// CI injects a fake that just writes fixture meta.json + graph.json. Keeping the
+// whole real-CLI path behind one seam means buildGraph never shells out in tests.
 
 export type AnalyzeRunner = (cwd: string) => Promise<void>
 
 const ANALYZE_TIMEOUT_MS = Number(process.env.GITNEXUS_TIMEOUT_MS) || 600_000
+const CYPHER_TIMEOUT_MS = Number(process.env.GITNEXUS_CYPHER_TIMEOUT_MS) || 120_000
 
-/** Real runner: `npx gitnexus analyze` in the project dir. */
+// ── pure cypher parsing / transform (no I/O — unit-tested directly) ──────────────
+
+/**
+ * Parse `gitnexus cypher` stdout into the array of single-column cell values.
+ *
+ * The CLI prints `{ "markdown": "| col |\n| --- |\n| <cell> |\n...", "row_count": N }`.
+ * For a SINGLE-column RETURN, each data row is `| <json> |` where <json> is one JSON
+ * value — safe to JSON.parse even if it contains `|`, because there's exactly one
+ * column (no inner cell delimiter to confuse us). We drop the header + separator
+ * rows and JSON.parse each remaining cell.
+ */
+export function parseCypherRows(stdout: string): unknown[] {
+  const outer = JSON.parse(stdout) as { markdown?: unknown }
+  const md = typeof outer.markdown === 'string' ? outer.markdown : ''
+  const lines = md.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+  const rows: unknown[] = []
+  for (const line of lines) {
+    if (!line.startsWith('|')) continue
+    // Strip the single leading + trailing pipe, leaving the one column's cell.
+    const cell = line.replace(/^\|/, '').replace(/\|$/, '').trim()
+    if (cell === '' || cell === 'n' || cell === 'e' || /^-+$/.test(cell)) continue // header/separator
+    try {
+      rows.push(JSON.parse(cell))
+    } catch {
+      // A cell that isn't JSON (an unexpected header label) is skipped, not fatal.
+    }
+  }
+  return rows
+}
+
+type RawNode = Record<string, unknown>
+type RawEdge = Record<string, unknown>
+
+export interface GraphJson {
+  nodes: Array<{ id: string; name: unknown; label: string; type: unknown; file: unknown; group: unknown }>
+  links: Array<{ source: unknown; target: unknown; type: unknown }>
+}
+
+/**
+ * Transform raw cypher node/edge rows into the lean shape the GET /graph route +
+ * UI consume. Drops the embedding + the many null columns; keeps `id` verbatim so
+ * links resolve. `_label` becomes both `type` and `group` (the UI colors by these).
+ * Label falls back to id only when name is unset OR empty-string (deliberate: an
+ * empty name is not a usable label).
+ */
+export function toGraphJson(nodeRows: unknown[], edgeRows: unknown[]): GraphJson {
+  const nodes = (nodeRows as RawNode[])
+    .filter(n => n && typeof n === 'object' && typeof n.id === 'string')
+    .map(n => {
+      const name = n.name
+      const label = typeof name === 'string' && name.trim() !== '' ? name : String(n.id)
+      return {
+        id: String(n.id),
+        name: name ?? null,
+        label,
+        type: n._label ?? null,
+        file: n.filePath ?? null,
+        group: n._label ?? null,
+      }
+    })
+  const links = (edgeRows as RawEdge[])
+    .filter(e => e && typeof e === 'object' && e.source != null && e.target != null)
+    .map(e => ({ source: e.source, target: e.target, type: e.type ?? null }))
+  return { nodes, links }
+}
+
+// ── repo-name resolution (the global registry can hold multiple repos) ───────────
+
+/**
+ * Resolve the `--repo <name>` gitnexus needs for `cwd`. Prefers the basename of
+ * `.gitnexus/meta.json`'s repoPath (authoritative); falls back to parsing
+ * `gitnexus list` and matching the entry whose Path === cwd (case-insensitive,
+ * normalized) — an exact path match, NOT substring, so "K" can't match "KAT".
+ */
+export async function resolveRepoName(cwd: string): Promise<string> {
+  try {
+    const meta = JSON.parse(await readFile(path.join(cwd, '.gitnexus', 'meta.json'), 'utf8')) as { repoPath?: string }
+    if (typeof meta.repoPath === 'string' && meta.repoPath.trim() !== '') {
+      return path.basename(meta.repoPath)
+    }
+  } catch {
+    // fall through to `gitnexus list`
+  }
+  const { stdout } = await execa('npx', ['gitnexus', 'list'], { cwd, timeout: 30_000 })
+  const want = path.resolve(cwd).toLowerCase()
+  // Entries look like: "  <Name>\n    Path:    <path>\n ..."
+  const lines = stdout.split('\n')
+  let currentName: string | null = null
+  for (const line of lines) {
+    const nameMatch = /^\s{0,4}(\S.*?)\s*$/.exec(line)
+    const pathMatch = /^\s*Path:\s*(.+?)\s*$/.exec(line)
+    if (pathMatch) {
+      const p = path.resolve(pathMatch[1]).toLowerCase()
+      if (p === want && currentName) return currentName
+    } else if (nameMatch && !/:/.test(line) && line.trim() !== '' && !/^\s*Indexed Repositories/.test(line)) {
+      currentName = nameMatch[1].trim()
+    }
+  }
+  throw new Error(`could not resolve gitnexus repo name for ${cwd}`)
+}
+
+/** Run a single-column cypher query and return its parsed rows. */
+async function runCypher(cwd: string, repo: string, query: string): Promise<unknown[]> {
+  const { stdout } = await execa('npx', ['gitnexus', 'cypher', '--repo', repo, query], {
+    cwd,
+    timeout: CYPHER_TIMEOUT_MS,
+  })
+  return parseCypherRows(stdout)
+}
+
+/**
+ * Export `.gitnexus/graph.json` from the indexed gitnexus DB via two cypher
+ * queries. Separated out (and exported) so the real export path is exercised
+ * live, but only the real runner calls it — CI's fake runner writes a fixture.
+ */
+export async function exportGraphJson(cwd: string): Promise<GraphJson> {
+  const repo = await resolveRepoName(cwd)
+  const [nodeRows, edgeRows] = await Promise.all([
+    runCypher(cwd, repo, 'MATCH (n) RETURN n'),
+    runCypher(cwd, repo, 'MATCH (a)-[r]->(b) RETURN {source: a.id, target: b.id, type: label(r)} AS e'),
+  ])
+  const graph = toGraphJson(nodeRows, edgeRows)
+  const finalPath = path.join(cwd, '.gitnexus', 'graph.json')
+  const tmpPath = finalPath + '.tmp'
+  await writeFile(tmpPath, JSON.stringify(graph))
+  await rename(tmpPath, finalPath)
+  return graph
+}
+
+/**
+ * Real runner: `npx gitnexus analyze --skip-agents-md` (the --skip-agents-md flag
+ * stops every build from rewriting CLAUDE.md/AGENTS.md), then export graph.json
+ * from the freshly-indexed DB so the GET /graph route has renderable data.
+ */
 const defaultAnalyze: AnalyzeRunner = async (cwd) => {
-  await execa('npx', ['gitnexus', 'analyze'], { cwd, timeout: ANALYZE_TIMEOUT_MS })
+  await execa('npx', ['gitnexus', 'analyze', '--skip-agents-md'], { cwd, timeout: ANALYZE_TIMEOUT_MS })
+  await exportGraphJson(cwd)
 }
 
 let analyzeRunner: AnalyzeRunner = defaultAnalyze

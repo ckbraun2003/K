@@ -1,0 +1,4 @@
+{
+  "markdown": "| e |\n| --- |\n| {\"source\":\"File:web/src/main.tsx\",\"target\":\"File:web/src/index.css\",\"type\":\"CodeRelation\"} |\n| {\"source\":\"File:web/src/main.tsx\",\"target\":\"File:web/src/App.tsx\",\"type\":\"CodeRelation\"} |\n| {\"source\":\"File:web/src/shell/Shell.tsx\",\"target\":\"File:web/src/shell/TopBar.tsx\",\"type\":\"CodeRelation\"} |",
+  "row_count": 3
+}
