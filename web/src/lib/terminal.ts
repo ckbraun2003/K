@@ -6,9 +6,17 @@
  * than throwing, so a hostile/garbled socket can't crash the UI.
  */
 
-/** Build the terminal WS URL — points straight at core (not the Vite proxy). */
-export function terminalWsUrl(hostname: string, token: string): string {
-  return `ws://${hostname}:3001/ws/terminal?token=${encodeURIComponent(token)}`
+/**
+ * Build the terminal WS URL — points straight at core (not the Vite proxy).
+ *
+ * `port` is required (no default) so every caller must supply the core port and
+ * a port-shifted stack physically can't fall back to a hardcoded 3001 — the e2e
+ * harness and multi-device setups run core off-default. Caller computes it the
+ * same way the main gateway does (`import.meta.env.VITE_CORE_PORT ?? '3001'`,
+ * see lib/ws.ts).
+ */
+export function terminalWsUrl(hostname: string, token: string, port: string): string {
+  return `ws://${hostname}:${port}/ws/terminal?token=${encodeURIComponent(token)}`
 }
 
 /** Client → server: keystrokes. */

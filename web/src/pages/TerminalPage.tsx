@@ -20,6 +20,10 @@ const TOKEN = import.meta.env.VITE_TERMINAL_TOKEN ?? 'dev-terminal-token'
 export default function TerminalPage() {
   const hostRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
+  // Until the socket is open (or has failed) the xterm host is blank — show a
+  // status so the pane is never silently empty (esp. when the terminal is
+  // disabled or core is on a non-default port).
+  const [connecting, setConnecting] = useState(true)
 
   useEffect(() => {
     const host = hostRef.current
@@ -36,7 +40,21 @@ export default function TerminalPage() {
     term.open(host)
     fit.fit()
 
-    const ws = new WebSocket(terminalWsUrl(window.location.hostname, TOKEN))
+    // Core port defaults to 3001; the e2e harness / multi-device stacks inject
+    // VITE_CORE_PORT. Computed the same way as the main gateway (lib/ws.ts) so
+    // the terminal socket dials the live core, not a dead literal 3001.
+    const corePort = import.meta.env.VITE_CORE_PORT ?? '3001'
+    const ws = new WebSocket(terminalWsUrl(window.location.hostname, TOKEN, corePort))
+
+    // Effect-scoped (not React state, which would be stale in these one-shot
+    // handlers): once a server gate/degradation frame explains the failure, an
+    // unclean close must not clobber that clearer reason with a generic message.
+    let reported = false
+    const report = (msg: string) => {
+      reported = true
+      setConnecting(false)
+      setError(msg)
+    }
 
     ws.onmessage = (e) => {
       const f = parseServerFrame(typeof e.data === 'string' ? e.data : '')
@@ -44,7 +62,9 @@ export default function TerminalPage() {
       if (f.type === 'output') term.write(f.data)
       else if (f.type === 'exit') term.write(`\r\n[process exited (${f.exitCode})]\r\n`)
       else if (f.type === 'error') {
-        setError(errorReason(f.code))
+        // A gate/degradation frame (disabled / unauthorized / unavailable):
+        // the socket opened, so stop the connecting state and show the reason.
+        report(errorReason(f.code))
         term.write(`\r\n[terminal ${f.code}]\r\n`)
       }
     }
@@ -63,13 +83,19 @@ export default function TerminalPage() {
         ws.send(encodeResize(term.cols, term.rows))
       }
     }
-    ws.onopen = sendResize
+    ws.onopen = () => {
+      setConnecting(false)
+      sendResize()
+    }
     // A hard transport failure (server crash, drop, refused upgrade) surfaces as
     // an error/close event, not a JSON error frame — show it so the pane never
     // just goes silent. A clean close (we initiated it) needs no banner.
-    ws.onerror = () => setError('connection failed — is the core server running?')
+    ws.onerror = () => {
+      if (!reported) report('connection failed — is the core server running?')
+    }
     ws.onclose = (e) => {
-      if (!e.wasClean) setError(`connection closed unexpectedly (code ${e.code})`)
+      setConnecting(false)
+      if (!e.wasClean && !reported) report(`connection closed unexpectedly (code ${e.code})`)
     }
     window.addEventListener('resize', sendResize)
 
@@ -81,18 +107,44 @@ export default function TerminalPage() {
     }
   }, [])
 
+  const status: 'connecting' | 'error' | 'connected' = error
+    ? 'error'
+    : connecting
+      ? 'connecting'
+      : 'connected'
+
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
       <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
         <h2 className="text-sm font-semibold text-[var(--text)]">Terminal</h2>
         <span className="text-xs text-[var(--muted)]">node-pty · /ws/terminal</span>
-        {error && (
-          <span className="ml-auto rounded bg-[var(--raised)] px-2 py-1 text-xs text-[var(--accent-hover)]">
-            {error}
+        {status !== 'connected' && (
+          <span
+            data-testid="terminal-status"
+            className={`ml-auto rounded bg-[var(--raised)] px-2 py-1 text-xs ${
+              status === 'error' ? 'text-[var(--accent-hover)]' : 'text-[var(--muted)]'
+            }`}
+          >
+            {status === 'error' ? error : 'Connecting…'}
           </span>
         )}
       </div>
-      <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden p-2" style={{ background: '#0b0e14' }} />
+      {/* Parent is `relative` so the status overlay scopes to this pane (not a
+          full-screen modal — `absolute` is correct here, see lessons.md). */}
+      <div className="relative min-h-0 flex-1">
+        <div ref={hostRef} className="h-full overflow-hidden p-2" style={{ background: '#0b0e14' }} />
+        {status !== 'connected' && (
+          <div
+            data-testid="terminal-overlay"
+            className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-center"
+            style={{ background: '#0b0e14' }}
+          >
+            <p className={`max-w-md text-sm ${status === 'error' ? 'text-[var(--accent-hover)]' : 'text-[var(--muted)]'}`}>
+              {status === 'error' ? error : 'Connecting to terminal…'}
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
