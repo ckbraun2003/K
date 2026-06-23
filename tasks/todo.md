@@ -128,12 +128,26 @@ backlog item numbers are shown in `(report #N)`.
 - [x] Verify: web typecheck · `web test` **139 passed** (+30: cron/chords/html/source/chart tests) ·
       build ✓ · WS-dot outage live-smoke green
 
-### Wave C6 — Cold-load / latency investigation  [investigate, don't blind-fix]
-- [ ] Investigate cold Home ~20s (finding #9), create-skill ~16s (finding #17), and the
-      `net::ERR_INSUFFICIENT_RESOURCES` request storm (finding #3) — likely cold WS + initial fetch
-      fan-out; look at initial query batching (report #9)
-- [ ] Spec + quality review
-- [ ] Verify: measure cold-load + create round-trips before/after; no request storm in console
+### Wave C6 — Cold-load / latency investigation  ✅ DONE (committed)  [investigate, don't blind-fix]
+- [x] **Root-caused the request storm (finding #3):** `ProjectCard` ran a **per-card**
+      `useQuery(['github', id])`, so the Home/Projects grid fired **N parallel** `/api/projects/:id/github`
+      requests on cold mount (measured 1:1 — 24 cards→24 in-flight, 60→60), exhausting the browser
+      socket pool. **Fixed N→1:** new `GET /api/projects/github` batch route (same cheap cached SQLite
+      read, behind the global auth `onRequest` hook), a shared `web/src/lib/useFleetGithub()` hook
+      (single `['github-fleet']` query, 60s interval + `staleTime`), and a now-**pure** `ProjectCard`
+      (takes `gh?` prop). Single-project workspace tabs keep the per-id route. Measured after: total
+      requests 60→11, peak in-flight 60→6, fan-out →0
+- [x] **Reframed findings #9 (cold Home ~20s) and #17 (create-skill ~16s) as a measurement artifact,
+      NOT product defects:** they were the **Vite dev-server cold-compile** of the 1.1 MB bundle on
+      first interaction; the **built** bundle is interactive in ~0.7–2s (an order of magnitude below
+      the dev-server figures). No app/server change warranted for those
+- [x] Spec + quality review (code-reviewer, core+web) → **CHANGES REQUESTED** (2 HIGH) → resolved:
+      auth-scope HIGH confirmed a non-issue (global `app.addHook('onRequest')` covers all routes); the
+      throwaway `e2e/perf/` measurement scaffolding (hardcoded path + dead create-skill stub) **dropped**
+      from the commit (numbers captured here); `staleTime` added to the fleet hook
+- [x] Verify: web typecheck · `web test` **139 passed** · build ✓ · core typecheck · `core test`
+      **437 passed** (incl. new `github-fleet-route.test.ts`: map shape, per-id parity, no `:id`
+      shadowing). Before/after request-count deltas measured on the built bundle (see above)
 
 ---
 

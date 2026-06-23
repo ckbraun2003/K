@@ -1,6 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
 import type { Project, GithubStatus } from '@k/shared'
-import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
 import { formatTimeAgo } from '../lib/verify'
@@ -14,12 +12,10 @@ function ciState(gh?: GithubStatus): 'passing' | 'failing' | 'unknown' {
   return latest.conclusion === 'success' ? 'passing' : 'failing'
 }
 
-export default function ProjectCard({ project }: { project: Project }) {
-  const { data: gh } = useQuery<GithubStatus>({
-    queryKey: ['github', project.id],
-    queryFn: () => api.projects.github(project.id),
-    refetchInterval: 60_000,
-  })
+// `gh` is supplied by the parent grid via a single fleet-level query
+// (lib/useFleetGithub) rather than a per-card fetch — see Wave C6: N cards used
+// to fire N parallel /github requests, exhausting the browser socket pool.
+export default function ProjectCard({ project, gh }: { project: Project; gh?: GithubStatus }) {
   const ci = ciState(gh)
   const openPrs = gh?.prs.filter(p => p.state === 'OPEN').length ?? 0
   const lowHealth = project.healthScore != null && project.healthScore < LOW_HEALTH_THRESHOLD

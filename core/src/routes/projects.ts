@@ -9,7 +9,7 @@ import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { verificationDb, rowToReport, projectTasksDb } from '../db.js'
 import { buildGraph, getGraphMeta, isGraphStale, enrichNodes } from '../graph.js'
-import { CreatePrOptsSchema, GraphDispatchBodySchema, type ProjectTask } from '@k/shared'
+import { CreatePrOptsSchema, GraphDispatchBodySchema, type ProjectTask, type GithubStatus } from '@k/shared'
 
 // Natural-language prompt that triggers the Layer-2 verify-project skill.
 const DEEP_VERIFY_PROMPT =
@@ -37,7 +37,20 @@ export async function projectsRoutes(app: FastifyInstance) {
     }
   })
 
-  // GET /api/projects/:id/github — cached PR + CI status
+  // GET /api/projects/github — fleet-level cached PR + CI status, keyed by id.
+  // Collapses the Home/Projects grid's per-card fan-out (one request per card)
+  // into a single batch read so a cold fleet load doesn't fire N parallel
+  // /github requests (Wave C6). Each entry is the same cheap cached SQLite read
+  // as the per-id route. Registered before the `:id` route; Fastify's router
+  // prioritizes the static `github` segment over the `:id` param regardless.
+  app.get('/api/projects/github', async (_req, reply) => {
+    const statuses: Record<string, GithubStatus> = {}
+    for (const project of listProjects()) statuses[project.id] = getGithubStatus(project.id)
+    return reply.send(statuses)
+  })
+
+  // GET /api/projects/:id/github — cached PR + CI status (single project; still
+  // used by the workspace PRs/CI + Overview tabs, which load one project at a time)
   app.get<{ Params: { id: string } }>('/api/projects/:id/github', async (req, reply) => {
     const project = getProject(req.params.id)
     if (!project) return reply.status(404).send({ error: 'not found' })

@@ -5,11 +5,13 @@ import type { Project } from '@k/shared'
 import { api } from '../lib/api'
 import ProjectCard from '../components/ProjectCard'
 import GettingStarted from '../components/GettingStarted'
+import { useFleetGithub } from '../lib/useFleetGithub'
 import { classifySource } from '../lib/source'
 
 export default function ProjectsPage() {
   const qc = useQueryClient()
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
+  const githubFor = useFleetGithub()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [source, setSource] = useState('')
@@ -58,7 +60,7 @@ export default function ProjectsPage() {
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-3">
-        {projects.map(p => <ProjectCard key={p.id} project={p} />)}
+        {projects.map(p => <ProjectCard key={p.id} project={p} gh={githubFor(p.id)} />)}
       </div>
       {projects.length === 0 && (
         <GettingStarted projects={projects} forceOpen onRegister={() => setOpen(true)} />

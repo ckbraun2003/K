@@ -5,6 +5,7 @@ import MetricCard from '../components/MetricCard'
 import ProjectCard from '../components/ProjectCard'
 import HomeFleetGraph from './HomeFleetGraph'
 import GettingStarted from '../components/GettingStarted'
+import { useFleetGithub } from '../lib/useFleetGithub'
 import { navigate } from '../lib/route'
 
 export default function Home() {
@@ -14,6 +15,7 @@ export default function Home() {
     refetchInterval: 30_000,
   })
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
+  const githubFor = useFleetGithub()
 
   const spark = (pick: (d: MetricsSummary['daily'][number]) => number) =>
     metrics ? metrics.daily.map(pick) : undefined
@@ -63,7 +65,7 @@ export default function Home() {
         </button>
       ) : (
         <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-3">
-          {projects.map(p => <ProjectCard key={p.id} project={p} />)}
+          {projects.map(p => <ProjectCard key={p.id} project={p} gh={githubFor(p.id)} />)}
         </div>
       )}
 

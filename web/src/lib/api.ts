@@ -105,6 +105,9 @@ export const api = {
         body: JSON.stringify(body),
       }),
     github: (id: string) => req<GithubStatus>(`/projects/${id}/github`),
+    // Fleet-level batch: all projects' cached github status in one request, so
+    // the Home/Projects grid doesn't fan out one /github call per card (Wave C6).
+    githubFleet: () => req<Record<string, GithubStatus>>('/projects/github'),
     onboard: (id: string) =>
       req<OnboardResult>(`/projects/${id}/onboard`, { method: 'POST' }),
     verify: (id: string, opts?: { deep?: boolean }) =>
