@@ -29,6 +29,7 @@ export default function ProjectCard({ project }: { project: Project }) {
 
   return (
     <div
+      data-testid={`project-card-${project.id}`}
       role="button"
       tabIndex={0}
       onClick={goWorkspace}
@@ -69,6 +70,7 @@ export default function ProjectCard({ project }: { project: Project }) {
           {formatTimeAgo(project.lastVerifiedAt)}
         </span>
         <button
+          data-testid={`project-verify-btn-${project.id}`}
           onClick={e => { e.stopPropagation(); goVerify() }}
           className="text-[11px] font-medium text-[var(--accent-hover)] transition-opacity duration-150 hover:opacity-80"
         >

@@ -42,6 +42,7 @@ export default function ProjectsPage() {
           Fleet · {projects.length} project{projects.length === 1 ? '' : 's'}
         </h2>
         <button
+          data-testid="register-open"
           onClick={() => setOpen(true)}
           className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-90"
         >
@@ -64,6 +65,7 @@ export default function ProjectsPage() {
           >
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
             <motion.div
+              data-testid="register-dialog"
               role="dialog"
               aria-modal="true"
               aria-labelledby="register-project-title"
@@ -76,6 +78,7 @@ export default function ProjectsPage() {
                 Local path registers in place · GitHub URL clones into <span className="mono">workspace/</span>
               </p>
               <input
+                data-testid="register-name"
                 autoFocus
                 value={name}
                 onChange={e => setName(e.target.value)}
@@ -83,6 +86,7 @@ export default function ProjectsPage() {
                 className="mt-4 w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none focus:border-[var(--accent)]"
               />
               <input
+                data-testid="register-source"
                 value={source}
                 onChange={e => setSource(e.target.value)}
                 placeholder="C:\path\to\repo — or — https://github.com/owner/repo"
@@ -93,6 +97,7 @@ export default function ProjectsPage() {
                   {register.isError ? `⚠ ${String(register.error)}` : isUrl ? 'will clone via gh' : source ? 'will register path' : ''}
                 </span>
                 <button
+                  data-testid="register-submit"
                   onClick={() => register.mutate()}
                   disabled={!name.trim() || !source.trim() || register.isPending}
                   className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-90 disabled:opacity-40"

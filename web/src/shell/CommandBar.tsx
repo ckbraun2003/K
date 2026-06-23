@@ -182,6 +182,7 @@ export default function CommandBar({ open, onClose }: Props) {
             variants={modalCard} initial="hidden" animate="visible" exit="exit"
           >
             <input
+              data-testid="cmdk-input"
               ref={inputRef}
               value={query}
               onChange={e => { setQuery(e.target.value); if (confirm) setConfirm(null) }}
@@ -199,6 +200,7 @@ export default function CommandBar({ open, onClose }: Props) {
                     </div>
                   ) : (
                     <button
+                      data-testid={item.kind === 'dispatch' || item.kind === 'dispatch-project' ? 'cmdk-row-dispatch' : 'cmdk-row-nav'}
                       onMouseEnter={() => setSelected(i)}
                       onClick={() => execute(item)}
                       className={cn(

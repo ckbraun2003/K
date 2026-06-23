@@ -120,6 +120,7 @@ export default function RunList({ selectedId, onSelect }: Props) {
             return (
               <button
                 key={f}
+                data-testid={`run-filter-${f}`}
                 onClick={() => setFilter(f)}
                 aria-pressed={isActive}
                 className={cn(
@@ -150,6 +151,8 @@ export default function RunList({ selectedId, onSelect }: Props) {
           return (
             <motion.div
               key={run.id}
+              // intentionally non-unique (one per row): select via getByTestId('run-row').nth(i)/.all()
+              data-testid="run-row"
               role="button"
               tabIndex={0}
               onClick={() => onSelect(run.id)}

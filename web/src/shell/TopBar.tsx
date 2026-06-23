@@ -26,6 +26,8 @@ export default function TopBar({ view, connected, onOpenCommand }: Props) {
         <span>Ask K or jump anywhere…</span>
       </button>
       <span
+        data-testid="ws-dot"
+        data-ws-status={connected ? 'connected' : 'connecting'}
         title={connected ? 'core connected' : 'connecting…'}
         className={`h-2 w-2 rounded-full ${connected ? 'bg-[var(--green)] glow-live' : 'bg-[var(--amber)] animate-pulse'}`}
       />

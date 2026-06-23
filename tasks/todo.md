@@ -82,14 +82,25 @@ backlog item numbers are shown in `(report #N)`.
       errored in the UI. Root-caused in `web/src/lib/api.ts` `req()` (204/empty short-circuit) +
       unit test; **re-verified live** (dialog closes, row clears without reload, zero console errors)
 
-### Wave C4 — Testability hooks  [de-risks the P02/P04 High timeouts]
-- [ ] Add stable `data-testid` to: register dialog + submit, project cards + action buttons, ⌘K rows,
-      run/kill controls, WS dot (report #8; theme e)
-- [ ] Single-stack manual repro of the P02 register-dialog (#1, #2) and P04 verify-nav (#5, #6) High
-      findings to confirm they are parallel-load/selector flakiness vs. real product defects; fix any
-      genuine defect found
-- [ ] Spec + quality review
-- [ ] Verify: re-run the relevant e2e personas with the new testids; register + verify-nav stable
+### Wave C4 — Testability hooks  ✅ DONE (committed)  [de-risks the P02/P04 High timeouts]
+- [x] Added stable `data-testid` across the surfaces (report #8; theme e): register dialog
+      (`register-open`/`-dialog`/`-name`/`-source`/`-submit`), project cards + verify action
+      (`project-card-${id}`, `project-verify-btn-${id}` — keyed by id to avoid Playwright strict-mode
+      collisions on the grid), ⌘K input + rows (`cmdk-input`, `cmdk-row-dispatch`/`-nav`), run controls
+      (`run-row` [intentionally non-unique], `run-filter-${f}`; kill `run-kill-btn`/`-dialog` already
+      landed in C3), WS dot (`ws-dot` + `data-ws-status`). Dropped a dead `data-cmdk-row` attr
+- [x] Single-stack repro (`e2e/specs/C4-repro.spec.ts`, gated out of the persona swarm via `PERSONA`)
+      proves **P02 register-dialog (#1,#2) and P04 verify-nav (#5,#6) are harness parallel-load
+      flakiness, NOT product defects**: register #1/#2 close the dialog + render cards in ~1.3s each,
+      verify-nav reaches `#/verify/<id>` in ~85ms; spec asserts dialog-close, card-count ≥2, the URL
+      carries the real project id, and **zero unexpected 4xx/5xx** (so a server error can't pass
+      silently). No product defect → no code fix needed
+- [x] Spec + quality review (code-reviewer) → **CHANGES REQUESTED** (1 HIGH testid-uniqueness, 3 MED
+      repro-rigor, 2 LOW) → all fixed: id-keyed `project-verify-btn`, asserted `net4xx5xx`,
+      URL-carries-id assertion, self-sufficient 2nd register test, swarm gate, `run-row` comment, dead
+      attr removed. Re-run clean
+- [x] Verify: web typecheck · `web test` **109 passed** · build ✓ · repro spec **3/3** on a non-PERSONA
+      single default-port stack (0 console/page errors, 0 HTTP ≥400)
 
 ### Wave C5 — Polish & hygiene
 - [ ] WS dot reflects a dropped connection (amber "connecting…" on outage); consider a text label
