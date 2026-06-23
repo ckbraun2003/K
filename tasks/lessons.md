@@ -162,3 +162,25 @@ entries at session start before touching the same area.
   Then run at least one smoke on a NON-default port; a multi-stack / port-shifted run catches the
   client-side port assumptions that single-stack dev (where the literal happens to equal the default)
   structurally cannot.
+
+## Phase 4 / remote-access hardening (2026-06-23)
+
+- **When exposing a service beyond loopback, audit every token-leakage path — not just "is the
+  compare correct"** — **Pattern:** Wave P1's auth surface had a correct constant-time compare and a
+  correct boot-time safety gate, yet the review trident found four real leak/UX paths the happy-path
+  implementation missed: (1) the build-time `define` baked a *real* `HARNESS_TOKEN` into the browser
+  bundle whenever it was set during `vite build` (CI sourcing `.env` ships the secret in `dist/*.js`);
+  (2) Fastify's default request logging serializes the `Authorization` header to stdout on every call;
+  (3) the WS client dialed `ws://` unconditionally, sending the `?token=` in plaintext even behind an
+  HTTPS proxy; (4) a `4401` WS close triggered an infinite silent reconnect loop instead of surfacing
+  the login screen. None are caught by unit tests or `tsc`/`vite build`. **Rule:** for any
+  remote-exposed credential, walk the *full* lifecycle, not just the comparison — (a) the build/bundle
+  (never `JSON.stringify` an operator secret into a Vite `define`; gate any dev-token fallback behind
+  `import.meta.env.DEV` so it's inert in prod), (b) the transport (mirror `wss://`/`https:`; treat
+  `?token=` in a URL as logged-everywhere), (c) the logs (set `disableRequestLogging` or a
+  header-redacting serializer so the bearer never lands in stdout), and (d) the failure UX (a rejected
+  token must re-prompt, never loop). Verify these with a **live runtime smoke** (boot the real server;
+  assert REST `401`/`200`, WS `4401`/open, the first-run token file == the printed banner, and that a
+  non-loopback bind with a weak token actually `process.exit`s before `listen`) — the predicates were
+  all green in unit tests while the integration leaks were wide open. Carry this into P2 (Tauri) and
+  P3 (PWA): both re-ship the bundle and re-expose the transport.

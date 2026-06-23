@@ -2,7 +2,7 @@
 title: User Guide
 icon: "❔"
 status: active
-updated: 2026-06-21
+updated: 2026-06-22
 ---
 
 A task-oriented walkthrough for a new operator. It mirrors the README quick-start and stays consistent with §06 (Dashboard) and §09 (Operations) — those sections hold the design spec and the full operations reference; this one is the *how do I actually use it* guide. Reach it any time from the **Help** entry in the sidebar (it opens this bible in **Docs**).
@@ -86,6 +86,8 @@ Onboarding enforces the project invariants by **scaffolding** whatever is missin
 ## Editing a project's bible
 
 Open the project workspace's **Bible** tab. The compiled bible renders in-app; each section has an **edit** action that opens the markdown source. Save your edit, then **recompile** — the tab triggers a fresh compile and re-renders. (Under the hood: sections live as markdown under the bible directory; the compiler regenerates the self-contained HTML. Never hand-edit the compiled HTML — it's regenerated and your changes would be lost.)
+
+The section **edit** and **Recompile** actions live **only** in this project-workspace Bible tab. The sidebar **Docs**/**Help** view (▤) — where the Help entry opens this guide — is **read-only** (it just renders compiled artifacts), so reach for the workspace Bible tab when you actually want to change a section.
 
 ## Troubleshooting
 

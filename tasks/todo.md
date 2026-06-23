@@ -1,43 +1,128 @@
-# Phase 4 (Multi-Device) + User-Testing Readiness
+# Phase 4 (Multi-Device) + User-Testing Fixes
 
-Branch: `feat/phase-4-and-testing-readiness` (off `main`, after Phase H + Wave 0 dev fix landed).
+Branch: `feat/phase-4-multidevice` (off `main`, after Phase H + Track A readiness merged).
 One reviewable commit per wave via the delegation loop (implementer → spec-review → quality-review →
 controller verifies/commits → CI/live smoke). Controller writes no code; all impl/fix/review/verify
 is delegated. Whole-implementation review before the final `--no-ff` merge.
 
-Plan: `~/.claude/plans/read-and-analyze-the-linked-bengio.md`
+**Order of work:** **Track C (user-testing fixes) runs next**, before Phase 4 P2/P3 — highest-impact
+while the system is in active user testing. P1 auth (already built) just needs review + verify +
+commit. P2/P3 follow Track C.
+
+Plans: `~/.claude/plans/read-and-analyze-the-cryptic-pearl.md` (this reconciliation),
+`~/.claude/plans/read-and-analyze-the-linked-bengio.md` (original Phase 4 plan).
 
 ## Wave 0 — Land Phase H (pnpm dev fix + merge)  ✅ DONE
 - [x] Diagnosed + fixed the `pnpm dev` Vite-proxy/500 bug (`node --watch --import tsx` + `concurrently` + proxy 503 handler); verified proxy 200 in ~3s, typecheck/build green
 - [x] `--no-ff` merge Phase H into `main` (`fb8141c`) + pushed to origin (`224a4a6..fb8141c`)
 
-## Track A — User-Testing Readiness
+## Track A — User-Testing Readiness  ✅ MERGED (`d87d192`, pushed)
+- [x] **R1** — README quick-start overhaul + `.env.example` RUN_PERMISSION_MODE fix (`de1c956`)
+- [x] **R2** — In-app Getting Started card + surfaced Onboard/Verify/Build-graph + enabled Fleet Graph + nav tooltips/aria (live Playwright smoke green)
+- [x] **R3** — Bible §10 "How to Use K" user guide + in-app **Help** sidebar entry (compiled 10 sections; web typecheck/build clean)
 
-### Wave R1 — Install / Run documentation  ✅ (commit de1c956)
-- [x] Overhauled `README.md` into a 5-min quick-start (prereqs, install, `pnpm dev`, ports, `.env`, troubleshooting from bible §09); also fixed `.env.example` RUN_PERMISSION_MODE default comment
-- [x] Spec-review (controller): every command matches verified source
-- [x] Verify: `pnpm dev` proxy 200 (Wave 0), `pnpm -r test` green (core 389), typecheck/build green
+---
 
-### Wave R2 — In-app Getting Started + surface core workflows  ✅
-- [x] `GettingStarted.tsx` 3-step card on empty states (Home + ProjectsPage); step 1 reflects live progress
-- [x] OverviewTab Quick Actions: Onboard (`POST …/onboard` + result notice), Build-graph; Verify/Dispatch already existed; added `api.projects.onboard`
-- [x] Enabled Fleet Graph sidebar entry; added tooltips + aria-labels to all nav items
-- [x] Spec + quality review → CLEAN (AFRAME rule honored, motion/glass conventions, API correct); 2 NITs fixed (comment accuracy, redundant AnimatePresence)
-- [x] Verify: live Playwright smoke — ALL routes non-blank, 0 console/page errors, Fleet Graph canvas renders (2 nodes), Getting Started visible; typecheck/build/test green (web 95)
+## Track C — User-Testing Fixes  ⬅ NEXT
 
-### Wave R3 — Bible "How to Use K" user guide + in-app Help  ✅
-- [x] New bible section `artifacts/bible/sections/10-user-guide.md` (task-oriented: install/run, register, dashboard tour, graph, dispatch, verify, onboard, edit bible, troubleshooting) + registered in `manifest.json`
-- [x] In-app **Help** sidebar item (❔) → opens the bible in Docs (`view:docs param:project-bible`)
-- [x] Spec review (controller): sidebar-icon table matches real DESTINATIONS; content consistent with README/§09; Sidebar `view ?? id` preserves all existing nav
-- [x] Verify: core compiled 10 sections, `<section id="10-user-guide">` present in project-bible.html; web typecheck/build clean
+Folds in the prioritized fix backlog from `artifacts/user-testing-report.md` (38 findings —
+0 Critical · 8 High · 6 Med · 13 Low · 11 Nit). Each wave runs the standard
+implementer → spec-review → quality-review → verify loop and lands one reviewable commit. Report
+backlog item numbers are shown in `(report #N)`.
+
+### Wave C1 — Terminal port + disabled banner  ✅ DONE (committed `a4e5511`)  [clears a High]
+- [x] Fixed `terminalWsUrl()` (`web/src/lib/terminal.ts`) to take a **required** `port` param
+      (no default → a future caller can't silently regress to a hardcoded port); `TerminalPage`
+      computes `VITE_CORE_PORT ?? '3001'` exactly like `web/src/lib/ws.ts:30` and passes it
+      (report #1; finding #8)
+- [x] `TerminalPage.tsx` now renders a **connecting / disabled / failed** status badge + a
+      pane-scoped overlay instead of a silent blank xterm; effect-scoped `reported` flag keeps a
+      server gate frame (e.g. `disabled`) from being clobbered by the unclean-close message
+      (report #2; finding #7). Added `data-testid` `terminal-status` / `terminal-overlay`
+- [x] Spec + quality review (code-reviewer agent) → **APPROVE**, 0 Critical/High/Med; applied the
+      LOW copy-consistency nit; rejected the NIT (unconditional `setConnecting(false)` is the more
+      robust choice — prevents a stuck-"Connecting…" path on a clean close before open)
+- [x] Verify: web typecheck clean · `web test` **96 passed** (+1 new) · `build` ✓ · live Playwright
+      smoke on **non-default** port 3190 (`P09` terminal test) — disabled banner shown and the core
+      logged `GET /ws/terminal` arriving at **:3190** (proves the port is honored, not dead `:3001`)
+
+### Wave C2 — Routing + ⌘K dispatch
+- [ ] 404 / unknown-route empty-state (or redirect to Home) — `web/src/shell/Shell.tsx` default branch
+      + TopBar title (stop rendering a blank canvas labeled "Home") (report #3; finding #13)
+- [ ] Dispatch **confirm / preview card** in `web/src/shell/CommandBar.tsx` `execute()` (line ~84):
+      preview target project / model / scope (plan mode) before firing `api.runs.start` (report #4;
+      finding #4) — _this makes bible §10's confirm-card language true_
+- [ ] Disambiguate ⌘K navigate-vs-dispatch (item ordering + mode hint/toggle); make empty-query
+      Enter a no-op (report #5; findings #12, #26)
+- [ ] Spec + quality review
+- [ ] Verify: unknown route shows 404 state; dispatch shows confirm card pre-run; empty Enter no-ops
+
+### Wave C3 — Destructive-action confirms + skill feedback
+- [ ] Confirm (or undo toast) on skill **delete** and run **kill** — currently one unconfirmed click
+      (report #6; findings #19, #27)
+- [ ] `onSuccess` toast + run-link on skill **trigger** (`triggerMutation`) so the user isn't left
+      hunting the Runs tab (report #6; finding #10)
+- [ ] Surface the existing-but-unused `api.skills.runs()` skill run-history in the UI (report #6;
+      finding #11)
+- [ ] Spec + quality review
+- [ ] Verify: delete/kill prompt before acting; trigger toasts + links to the run; history renders
+
+### Wave C4 — Testability hooks  [de-risks the P02/P04 High timeouts]
+- [ ] Add stable `data-testid` to: register dialog + submit, project cards + action buttons, ⌘K rows,
+      run/kill controls, WS dot (report #8; theme e)
+- [ ] Single-stack manual repro of the P02 register-dialog (#1, #2) and P04 verify-nav (#5, #6) High
+      findings to confirm they are parallel-load/selector flakiness vs. real product defects; fix any
+      genuine defect found
+- [ ] Spec + quality review
+- [ ] Verify: re-run the relevant e2e personas with the new testids; register + verify-nav stable
+
+### Wave C5 — Polish & hygiene
+- [ ] WS dot reflects a dropped connection (amber "connecting…" on outage); consider a text label
+      (report #10; findings #14, #37)
+- [ ] Client-side hints: register path/URL format (finding #25) and cron format/validation before the
+      server round-trip (finding #18) (report #11)
+- [ ] Metrics 30d date-axis right-edge tick overlap — `TimeseriesChart` `translateX(-50%)` vs `(-100%)`
+      collision (report #12; finding #22)
+- [ ] Keyboard-chord parity (add g-chords for graph/skills/routing/terminal) + in-app shortcut legend
+      (report #13; finding #24)
+- [ ] Stop the per-render bible iframe `console.error` (sandboxed inline `<script>`) (report #14;
+      finding #16). Leave the expected-4xx adversarial console noise as-is (findings #29, #38)
+- [ ] Spec + quality review
+- [ ] Verify: outage flips the dot; invalid path/cron caught client-side; axis ticks legible; chords
+      + legend present; bible iframe quiet
+
+### Wave C6 — Cold-load / latency investigation  [investigate, don't blind-fix]
+- [ ] Investigate cold Home ~20s (finding #9), create-skill ~16s (finding #17), and the
+      `net::ERR_INSUFFICIENT_RESOURCES` request storm (finding #3) — likely cold WS + initial fetch
+      fan-out; look at initial query batching (report #9)
+- [ ] Spec + quality review
+- [ ] Verify: measure cold-load + create round-trips before/after; no request storm in console
+
+---
 
 ## Track B — Phase 4 (Multi-Device)
 
-### Wave P1 — Remote-access hardening  [prereq for P2/P3 exposure]
-- [ ] Replace insecure default `HARNESS_TOKEN` flow with real auth (passkey/TOTP or strong generated token + first-run setup); validate at the API boundary
-- [ ] Document Tailscale / reverse-proxy exposure + guardrails (bible §04/§09; `core/src/index.ts` auth)
-- [ ] Security-review agent (mandatory) + spec + quality
-- [ ] Verify: auth enforced on API + WS; documented Tailscale path works end-to-end
+### Wave P1 — Remote-access hardening  ✅ DONE (committed `5d629b1`)
+- [x] Replaced insecure default `HARNESS_TOKEN` flow with a strong **generated + persisted first-run
+      token** (`core/src/auth.ts`: env → `data/auth-token` → `crypto.randomBytes(32)` first-run +
+      banner; `unsafeBootReason` refuses a non-loopback bind with a weak/empty token; constant-time
+      `tokensEqual`/`wsTokenOk`). Wired in `core/src/index.ts` (`resolveHarnessToken`,
+      `unsafeBootReason`, first-run banner). Web: `web/src/lib/auth.ts` + `LoginScreen.tsx` (401 →
+      token login, sessionStorage), `ws.ts`/`api.ts` use `effectiveToken()`
+- [x] Documented Tailscale / reverse-proxy exposure + guardrails — bible §09 "Remote access" section
+      (token resolution, safety gate, Tailscale/HTTPS-proxy guidance, WS `4401` auth)
+- [x] **Security-review (mandatory) + quality + spec-conformance** of the auth surface →
+      security **APPROVE** (post-fix), quality **CHANGES→fixed**, spec **CONFORMS**. Blockers fixed:
+      WS `4401` no longer infinite-reconnects (shared `auth-events` surfaces login on REST+WS),
+      `ws.ts` uses `wss://` over HTTPS, `vite.config` never bakes a real token (DEV-gated
+      `effectiveToken`), Fastify `disableRequestLogging` (no bearer in logs), `terminalGate`
+      constant-time + a non-loopback `TERMINAL_TOKEN` boot gate. Deferred (documented): HMAC-equalized
+      compare (token is fixed-length base64url(32) — length not secret)
+- [x] Verify: core **425** + web **96** tests · build ✓ · **8/8 live runtime smoke** — first-run
+      gen+persist (banner == `data/auth-token`), REST `401`(none/wrong)/`200`(valid), WS `4401`/open,
+      non-loopback weak-token boot refusal for **both** HARNESS_TOKEN and TERMINAL_TOKEN
+- [x] Committed `5d629b1` (auth surface + README remote-access + §09); e2e harness + lockfile landed
+      separately in `4738d01` (`test:`)
 
 ### Wave P2 — Tauri desktop app
 - [ ] Tauri shell wrapping the web UI + bundled/launched core, tray icon, native notifications (run completion, CI status); new workspace package + build scripts
@@ -49,14 +134,43 @@ Plan: `~/.claude/plans/read-and-analyze-the-linked-bengio.md`
 - [ ] Spec + quality
 - [ ] Verify: Lighthouse PWA installability passes; install + push notification verified
 
-## Whole-implementation review + merge
-- [ ] Whole-impl review across R1–P3 (security, integration, regressions, lessons adherence, dead-code)
-- [ ] CI green (`pnpm typecheck && pnpm -r test && pnpm build`) + final live smoke
-- [ ] `--no-ff` merge `feat/phase-4-and-testing-readiness` into `main`, push
+## Bible §10 reconciliation (doc-vs-reality)
+- [ ] **Edit-affordance pointer (report #7; findings #15, #28):** §10 already points editing to the
+      project-**workspace Bible tab** (correct), but the **Help → Docs** path lands readers in
+      read-only Docs. Add one sentence making clear that section editing + Recompile live in the
+      workspace Bible tab (not the read-only Docs/Help view) so §10's "edit each section" promise has
+      a real target. _(Doc-only — done in this reconciliation pass; see Review notes.)_
+- [ ] Confirm-card / node-dispatch language in §10 is intentionally **kept** — it converges to reality
+      when **Wave C2** lands the confirm card (node-dispatch is already wired). Do not delete/re-add.
 
-## Deferrals (noted, out of scope unless requested)
+## Whole-implementation review + merge
+- [ ] Whole-impl review across Track C + P1–P3 (security, integration, regressions, lessons adherence, dead-code)
+- [ ] CI green (`pnpm typecheck && pnpm -r test && pnpm build`) + final live smoke
+- [ ] `--no-ff` merge `feat/phase-4-multidevice` into `main`, push
+
+## Deferrals / known coverage gaps (out of scope unless requested)
 - Wire coverage signal + agent-layer verification scoring into the health score (bible §05 flags both)
 - Adaptive polling cadence / webhook push / learned routing (bible Phase 5)
+- **Untested in the user-testing swarm (verify before claiming these work):** populated
+  metrics/routing **trends over time** (only empty/low-data rendering tested); real **GitHub clone +
+  PR creation** (only graceful no-remote degradation); `gitnexus analyze` **KG build to terminal
+  state** (only that the canvas renders, no AFRAME blank); **fleet node → workspace click-through**
+  (canvas hit-test; wired but unverified by automation); **edit-mode / long-running / concurrent real
+  dispatch** (only one short plan-mode run per persona)
 
 ## Review notes
-_(appended as waves land)_
+
+### Doc reconciliation pass (2026-06-22)
+Folded the user-testing report's 14-item prioritized backlog into a new **Track C** (Waves C1–C6),
+grouped by theme, each ready for the delegation loop; every backlog item maps to a wave item with its
+`report #N` / `finding #N` reference. Corrected the tracker branch to `feat/phase-4-multidevice`.
+
+Verified against source (not just the report):
+- **P1 auth is built and uncommitted** — `core/src/auth.ts`, `core/src/index.ts` (banner at :47/:226/:262),
+  web login flow, and bible §09 "Remote access" all present; remaining work is security-review +
+  verify + commit only.
+- **Still open, confirmed in source:** `web/src/lib/terminal.ts:11` hardcodes `:3001` (Wave C1);
+  `web/src/shell/CommandBar.tsx:84` `execute()` calls `api.runs.start` with no confirm card (Wave C2).
+
+Bible §10 edit-affordance pointer clarified in this pass; confirm-card language intentionally kept
+(converges when C2 lands). No product/source code touched.
