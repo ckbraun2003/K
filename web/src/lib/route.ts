@@ -2,6 +2,17 @@ import { useEffect, useState } from 'react'
 
 export type Route = { view: string; param?: string; subParam?: string }
 
+/** Views Shell can render. An unrouted hash (e.g. #/nonsense) is a 404 — see
+ *  Shell's default branch and TopBar's title fallback. */
+export const KNOWN_VIEWS = new Set([
+  'home', 'runs', 'docs', 'projects', 'metrics', 'routing',
+  'verify', 'project', 'graph', 'skills', 'terminal',
+])
+
+export function isKnownView(view: string): boolean {
+  return KNOWN_VIEWS.has(view)
+}
+
 function parse(): Route {
   const segs = window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean)
   return { view: segs[0] || 'home', param: segs[1], subParam: segs[2] }

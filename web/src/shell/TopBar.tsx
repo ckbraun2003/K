@@ -1,4 +1,5 @@
 import { DESTINATIONS } from './Sidebar'
+import { isKnownView } from '../lib/route'
 
 interface Props {
   view: string
@@ -8,11 +9,14 @@ interface Props {
 
 export default function TopBar({ view, connected, onOpenCommand }: Props) {
   const dest = DESTINATIONS.find(d => d.id === view)
+  // An unrouted hash must not masquerade as Home — surface the not-found state.
+  const title = dest?.label.split(' ·')[0] ?? (isKnownView(view) ? 'Home' : 'Not found')
+  const icon = dest?.icon ?? (isKnownView(view) ? '⌂' : '⌀')
   return (
     <header className="relative z-10 flex items-center gap-4 border-b border-[var(--border)] px-4 py-2.5">
       <h1 className="text-sm font-semibold tracking-wide text-[var(--text)]">
-        <span className="mr-2 text-[var(--accent)]">{dest?.icon ?? '⌂'}</span>
-        {dest?.label.split(' ·')[0] ?? 'Home'}
+        <span className="mr-2 text-[var(--accent)]">{icon}</span>
+        {title}
       </h1>
       <button
         onClick={onOpenCommand}

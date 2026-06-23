@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseProjectQuery } from '../src/lib/command-parse'
+import { parseProjectQuery, decideEnterMode } from '../src/lib/command-parse'
 import type { Project } from '@k/shared'
 
 function makeProject(name: string): Project {
@@ -112,5 +112,24 @@ describe('parseProjectQuery', () => {
   it('zero projects — @name rest returns ambiguous', () => {
     const result = parseProjectQuery('@k fix', [])
     expect(result.type).toBe('ambiguous')
+  })
+})
+
+describe('decideEnterMode', () => {
+  it('empty / whitespace-only query is a no-op (no silent jump)', () => {
+    expect(decideEnterMode('', false)).toBe('noop')
+    expect(decideEnterMode('   ', true)).toBe('noop')
+  })
+
+  it('query that matches a nav label defaults to navigate', () => {
+    expect(decideEnterMode('docs', true)).toBe('navigate')
+  })
+
+  it('query with no nav match defaults to dispatch', () => {
+    expect(decideEnterMode('fix the failing test', false)).toBe('dispatch')
+  })
+
+  it('non-empty query with no nav match dispatches even if it looks like a word', () => {
+    expect(decideEnterMode('refactor', false)).toBe('dispatch')
   })
 })

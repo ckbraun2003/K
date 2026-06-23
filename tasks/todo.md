@@ -46,16 +46,24 @@ backlog item numbers are shown in `(report #N)`.
       smoke on **non-default** port 3190 (`P09` terminal test) — disabled banner shown and the core
       logged `GET /ws/terminal` arriving at **:3190** (proves the port is honored, not dead `:3001`)
 
-### Wave C2 — Routing + ⌘K dispatch
-- [ ] 404 / unknown-route empty-state (or redirect to Home) — `web/src/shell/Shell.tsx` default branch
-      + TopBar title (stop rendering a blank canvas labeled "Home") (report #3; finding #13)
-- [ ] Dispatch **confirm / preview card** in `web/src/shell/CommandBar.tsx` `execute()` (line ~84):
-      preview target project / model / scope (plan mode) before firing `api.runs.start` (report #4;
-      finding #4) — _this makes bible §10's confirm-card language true_
-- [ ] Disambiguate ⌘K navigate-vs-dispatch (item ordering + mode hint/toggle); make empty-query
-      Enter a no-op (report #5; findings #12, #26)
-- [ ] Spec + quality review
-- [ ] Verify: unknown route shows 404 state; dispatch shows confirm card pre-run; empty Enter no-ops
+### Wave C2 — Routing + ⌘K dispatch  ✅ DONE (committed)
+- [x] 404 / unknown-route empty-state — `web/src/pages/NotFound.tsx` rendered from `Shell.tsx`'s
+      default branch via the shared `isKnownView()`/`KNOWN_VIEWS` in `web/src/lib/route.ts`; TopBar
+      shows "Not found" (⌀), not "Home"; `data-testid="route-404"` (report #3; finding #13)
+- [x] Dispatch **confirm / preview card** in `CommandBar.tsx` — `execute()` now stages a confirm
+      card (Project / Model / Scope·permission) before `fireDispatch()` calls `api.runs.start`;
+      Enter confirms, Esc cancels (report #4; finding #4). Model/permission shown as **defaults**
+      with explicit "(default · routing/env may override)" caveats so the card can't misrepresent the
+      effective run config — makes bible §10's confirm-card language true without lying
+- [x] Disambiguate navigate-vs-dispatch via `decideEnterMode()` (pure, unit-tested) + a footer
+      mode toggle (Tab flips Navigate/Dispatch, `data-testid="enter-mode-toggle"`); empty-query
+      Enter is now a no-op (report #5; findings #12, #26)
+- [x] Spec + quality review (code-reviewer) → **CHANGES REQUESTED** → fixed: confirm-card `flex-col`
+      stacking, default-caveats, cancel-confirm-on-edit, `role=dialog`+focus+aria, dead Esc/`navMatch`
+      dedup. Re-run clean
+- [x] Verify: web typecheck · `web test` **100 passed** (command-parse 12→16) · build ✓ · **live
+      browser smoke 5/5** (no blank-screen regression, 404 state, confirm card stacks below w/ caveats,
+      empty Enter no-op, mode toggle) — zero console errors
 
 ### Wave C3 — Destructive-action confirms + skill feedback
 - [ ] Confirm (or undo toast) on skill **delete** and run **kill** — currently one unconfirmed click
@@ -149,6 +157,10 @@ backlog item numbers are shown in `(report #N)`.
 - [ ] `--no-ff` merge `feat/phase-4-multidevice` into `main`, push
 
 ## Deferrals / known coverage gaps (out of scope unless requested)
+- **Live run-config in the ⌘K confirm card (from C2):** the card previews the *default* model +
+  permission mode with an explicit "(default)" caveat. The truly-effective values come from core env
+  (`CLAUDE_MODEL`/`RUN_PERMISSION_MODE`) and the per-project router. A `GET /api/run-config` endpoint
+  (+ per-dispatch routing preview) would make the card show exact effective values — Phase 4 follow-up.
 - Wire coverage signal + agent-layer verification scoring into the health score (bible §05 flags both)
 - Adaptive polling cadence / webhook push / learned routing (bible Phase 5)
 - **Untested in the user-testing swarm (verify before claiming these work):** populated
