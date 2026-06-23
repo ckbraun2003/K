@@ -5,6 +5,7 @@ import type { Run, WsMessage } from '@k/shared'
 import { api } from '../lib/api'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
+import ConfirmDialog from './ConfirmDialog'
 
 interface Props {
   selectedId: string | null
@@ -52,6 +53,9 @@ function formatTokens(n: number): string {
 export default function RunList({ selectedId, onSelect }: Props) {
   const qc = useQueryClient()
   const [filter, setFilter] = useState<FilterKey>('all')
+  // Run pending kill-confirmation (null = no dialog).
+  const [pendingKill, setPendingKill] = useState<Run | null>(null)
+  const [killing, setKilling] = useState(false)
 
   // ['runs'] is the shared default-list cache (RunList + ActivityStrip + CommandBar,
   // live-patched by run_update). limit:100 === the server default, so the shared key
@@ -85,9 +89,15 @@ export default function RunList({ selectedId, onSelect }: Props) {
   const totalTokens = filteredRuns.reduce((acc, r) => acc + r.tokensIn + r.tokensOut, 0)
   const atLimit = runs.length === 100
 
-  async function handleKill(e: React.MouseEvent, id: string) {
-    e.stopPropagation()
-    await api.runs.kill(id)
+  async function confirmKill() {
+    if (!pendingKill) return
+    setKilling(true)
+    try {
+      await api.runs.kill(pendingKill.id)
+      setPendingKill(null)
+    } finally {
+      setKilling(false)
+    }
   }
 
   function handleRowKeyDown(e: React.KeyboardEvent, id: string) {
@@ -161,7 +171,8 @@ export default function RunList({ selectedId, onSelect }: Props) {
                 </span>
                 {killable && (
                   <button
-                    onClick={e => handleKill(e, run.id)}
+                    onClick={e => { e.stopPropagation(); setPendingKill(run) }}
+                    data-testid="run-kill-btn"
                     className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 text-xs px-1.5 py-0.5 rounded bg-red/20 text-[var(--red)] hover:bg-red/30 transition-opacity"
                     aria-label="Kill run"
                   >
@@ -185,6 +196,22 @@ export default function RunList({ selectedId, onSelect }: Props) {
           Σ {filteredRuns.length} runs · ${totalCost.toFixed(2)} · {formatTokens(totalTokens)}
         </p>
       </div>
+
+      <ConfirmDialog
+        open={pendingKill !== null}
+        title="Kill run?"
+        testid="run-kill-dialog"
+        busy={killing}
+        message={
+          <>
+            Terminating <span className="font-medium text-[var(--text)]">{pendingKill?.prompt}</span>{' '}
+            stops the agent immediately. This cannot be undone.
+          </>
+        }
+        confirmLabel="Kill run"
+        onConfirm={confirmKill}
+        onCancel={() => setPendingKill(null)}
+      />
     </div>
   )
 }

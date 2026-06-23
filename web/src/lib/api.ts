@@ -1,6 +1,9 @@
 import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
+import type { SkillRun } from './skill-runs'
+
+export type { SkillRun } from './skill-runs'
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
 export interface OnboardResult {
@@ -37,6 +40,13 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const detail = await res.json().then(b => (b as { error?: string }).error, () => undefined)
     throw new Error(detail ?? `${res.status} ${res.statusText}`)
+  }
+  // Some endpoints answer with 204 No Content (e.g. DELETE /api/skills/:id) or an
+  // otherwise empty body. Calling res.json() on an empty body throws "Unexpected
+  // end of JSON input", which would land a successful mutation in onError. Detect
+  // the no-body case and resolve as undefined so req<void>() callers are clean.
+  if (res.status === 204 || res.headers?.get('content-length') === '0') {
+    return undefined as T
   }
   return res.json() as Promise<T>
 }
@@ -162,15 +172,6 @@ export const api = {
     test: (id: string) =>
       req<{ evalId: string; runId: string }>(`/skills/${id}/test`, { method: 'POST' }),
     evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),
-    runs: (id: string) =>
-      req<Array<{
-        id: string
-        skillId: string
-        runId: string | null
-        triggeredBy: string
-        startedAt: number
-        completedAt: number | null
-        status: string
-      }>>(`/skills/${id}/runs`),
+    runs: (id: string) => req<SkillRun[]>(`/skills/${id}/runs`),
   },
 }

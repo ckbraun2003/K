@@ -7,6 +7,7 @@ import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
 import RunTimeline from './RunTimeline'
+import ConfirmDialog from './ConfirmDialog'
 
 interface Props {
   runId: string
@@ -36,6 +37,8 @@ export default function RunConsole({ runId }: Props) {
   const qc = useQueryClient()
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [view, setView] = useState<'console' | 'timeline'>('console')
+  const [confirmKill, setConfirmKill] = useState(false)
+  const [killing, setKilling] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const { data: run } = useQuery<Run>({
@@ -71,7 +74,13 @@ export default function RunConsole({ runId }: Props) {
   }, [events])
 
   async function handleKill() {
-    await api.runs.kill(runId)
+    setKilling(true)
+    try {
+      await api.runs.kill(runId)
+      setConfirmKill(false)
+    } finally {
+      setKilling(false)
+    }
   }
 
   if (!run) return <div className="flex-1 flex items-center justify-center text-[var(--muted)]">Loading…</div>
@@ -115,7 +124,8 @@ export default function RunConsole({ runId }: Props) {
           </span>
           {run.status === 'running' && (
             <button
-              onClick={handleKill}
+              onClick={() => setConfirmKill(true)}
+              data-testid="run-kill-btn"
               className="text-xs px-2 py-0.5 rounded bg-red/20 text-[var(--red)] hover:bg-red/30 transition-colors"
             >
               Kill
@@ -180,6 +190,17 @@ export default function RunConsole({ runId }: Props) {
             </button>
           </div>
         )}
+
+      <ConfirmDialog
+        open={confirmKill}
+        title="Kill run?"
+        testid="run-kill-dialog"
+        busy={killing}
+        message="Terminating this run stops the agent immediately. This cannot be undone."
+        confirmLabel="Kill run"
+        onConfirm={handleKill}
+        onCancel={() => setConfirmKill(false)}
+      />
     </div>
   )
 }

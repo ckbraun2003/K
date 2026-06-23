@@ -65,15 +65,22 @@ backlog item numbers are shown in `(report #N)`.
       browser smoke 5/5** (no blank-screen regression, 404 state, confirm card stacks below w/ caveats,
       empty Enter no-op, mode toggle) — zero console errors
 
-### Wave C3 — Destructive-action confirms + skill feedback
-- [ ] Confirm (or undo toast) on skill **delete** and run **kill** — currently one unconfirmed click
-      (report #6; findings #19, #27)
-- [ ] `onSuccess` toast + run-link on skill **trigger** (`triggerMutation`) so the user isn't left
-      hunting the Runs tab (report #6; finding #10)
-- [ ] Surface the existing-but-unused `api.skills.runs()` skill run-history in the UI (report #6;
-      finding #11)
-- [ ] Spec + quality review
-- [ ] Verify: delete/kill prompt before acting; trigger toasts + links to the run; history renders
+### Wave C3 — Destructive-action confirms + skill feedback  ✅ DONE (committed)
+- [x] Reusable `ConfirmDialog` gates skill **delete** + run **kill** at **both** kill sites
+      (RunConsole + RunList); `api.skills.delete`/`api.runs.kill` only fire from the dialog confirm
+      (report #6; findings #19, #27). testids `skill-delete-*` / `run-kill-*`
+- [x] `Toast` on skill **trigger** linking to the **real** run (trigger returns `{runId}` →
+      `navigate('runs', runId)`); trigger/delete now have error feedback too (report #6; finding #10)
+- [x] `SkillRunHistory` surfaces the previously-dead `api.skills.runs()` (react-query, list/empty/
+      error states, each row links to its run) (report #6; finding #11)
+- [x] Spec + quality review (code-reviewer) → CHANGES (4 MED) → fixed: ConfirmDialog `aria-labelledby`,
+      Toast timer-reset (ref'd onDismiss), trigger/history error states, delete-error in dialog
+- [x] Verify: web typecheck · `web test` **109 passed** (skill-runs + api-204 unit tests) · build ✓ ·
+      **live smoke 5/5** (no blank screen; delete/kill confirm gate; trigger toast+link navigates;
+      history renders). Smoke **caught a real bug** — `DELETE /api/skills/:id` returns 204 but
+      `req<void>()` called `res.json()` → "Unexpected end of JSON input", so a successful delete
+      errored in the UI. Root-caused in `web/src/lib/api.ts` `req()` (204/empty short-circuit) +
+      unit test; **re-verified live** (dialog closes, row clears without reload, zero console errors)
 
 ### Wave C4 — Testability hooks  [de-risks the P02/P04 High timeouts]
 - [ ] Add stable `data-testid` to: register dialog + submit, project cards + action buttons, ⌘K rows,

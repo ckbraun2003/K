@@ -184,3 +184,19 @@ entries at session start before touching the same area.
   non-loopback bind with a weak token actually `process.exit`s before `listen`) — the predicates were
   all green in unit tests while the integration leaks were wide open. Carry this into P2 (Tauri) and
   P3 (PWA): both re-ship the bundle and re-expose the transport.
+
+## Track C — user-testing fixes (2026-06-23)
+
+- **A fetch wrapper that always calls `res.json()` throws on a 204/empty body** — **Pattern:** the web
+  client's `req<T>()` unconditionally did `return res.json()`. `DELETE /api/skills/:id` answers `204 No
+  Content` with an empty body, so `res.json()` threw "Unexpected end of JSON input" — the delete
+  *succeeded* on the server but the mutation landed in `onError`: the confirm dialog stayed open showing
+  an error and the list never invalidated, so the row lingered until a manual reload. typecheck, the
+  code review, and 105 passing unit tests all missed it because the unit tests mock `fetch` with a JSON
+  body and never exercise a real 204. **Rule:** any shared HTTP helper must handle no-content responses
+  — short-circuit on `res.status === 204` (or `content-length: 0`) and return `undefined` instead of
+  parsing. When you add an endpoint that returns 204/empty, check the client's response-parsing path.
+  And: **a live browser smoke catches integration bugs that mocked unit tests structurally cannot** —
+  the delete looked perfect in code + unit tests; only driving the real DELETE→204→react-query path in
+  a browser surfaced it. Keep doing a live smoke of each user-facing wave, and when it finds a bug, fix
+  the root cause and re-verify the fix live (not just with a new mock).
