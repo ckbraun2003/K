@@ -200,3 +200,35 @@ entries at session start before touching the same area.
   the delete looked perfect in code + unit tests; only driving the real DELETE→204→react-query path in
   a browser surfaced it. Keep doing a live smoke of each user-facing wave, and when it finds a bug, fix
   the root cause and re-verify the fix live (not just with a new mock).
+
+- **Measure front-end "slowness" against the BUILT bundle, not the dev server** — **Pattern:** the
+  user-testing swarm reported cold Home ~20s (#9) and create-skill ~16s (#17) as High/Med latency
+  defects. Wave C6 reproduced them on the built bundle (`vite preview`-style static+proxy) and found
+  the app is interactive in ~0.7–2s — an order of magnitude faster. The 16–20s was the **Vite dev
+  server cold-compiling the 1.1 MB bundle on first interaction**, which does not exist in production.
+  Two "defects" were really a measurement artifact of the test harness driving `pnpm dev`. **Rule:**
+  when investigating perceived front-end latency, measure the **production-built** bundle before
+  attributing time to app/server code; dev-server cold-transform masquerades as app latency. (Carry
+  into P2/P3: Tauri/PWA ship the built bundle — measure there, not in dev.)
+
+- **A per-list-item `useQuery` fans out to N parallel requests on grid mount** — **Pattern:** every
+  `ProjectCard` ran its own `useQuery(['github', id])`, so a fleet grid of N cards fired N concurrent
+  `/api/projects/:id/github` requests on cold mount (measured exactly 1:1 — 60 cards → 60 in-flight),
+  exhausting the browser socket pool (`net::ERR_INSUFFICIENT_RESOURCES`, finding #3). The endpoint
+  itself was a cheap cached read, so it looked harmless per-call. **Rule:** never fetch per list item
+  in a grid/list — hoist to ONE fleet/batch query at the parent (a `Record<id,…>` endpoint + a shared
+  hook keyed once) and pass each row its slice as a prop. Register the static batch segment
+  (`/projects/github`) before the param route (`/projects/:id/…`); Fastify's radix router prefers the
+  static segment regardless, but assert it with a no-shadowing test. Make the row component pure.
+
+- **Extract input validators to pure, tested modules — and test path/regex logic against the real OS**
+  — **Pattern:** Wave C5's register-source classifier lived inline in the component with a backslash
+  character class that did not match standard Windows paths (`C:\path\to\repo`), so on the very OS K
+  runs on a valid local path was flagged "malformed" and submit was disabled — and there was no unit
+  test for the classifier (cron/chords/html got tests; the path classifier didn't), so the review,
+  typecheck, and build all missed it. **Rule:** extract validation/classification into a pure `lib/*`
+  module and unit-test it with **platform-real inputs** (Windows drive `C:\`, UNC `\\server\share`,
+  POSIX, `~`, relative, plus URLs and garbage). A separator character class is `[/\\]` in a regex
+  **literal** — NOT a `new RegExp("[\\/]")` string, where the doubled backslash collapses. When you
+  mirror a server validator on the client (cron ↔ node-cron), match it exactly at the boundary
+  (node-cron ignores trailing fields → don't reject a 6+field expression the server accepts).
