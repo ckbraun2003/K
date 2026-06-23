@@ -3,14 +3,24 @@ dist/
 .env
 .env.local
 core/data/
+data/
 *.db
 *.db-shm
 *.db-wal
+# persisted harness bearer token (first-run generated secret) — never commit
+auth-token
 artifacts/*.html
 !artifacts/.gitkeep
 .superpowers/
 workspace/
 .gitnexus/
+# e2e user-testing swarm: keep generated reports, screenshots, isolated-stack
+# data dirs, and throwaway fixture repos out of the repo (specs/lib are tracked).
+e2e/reports/
+e2e/.data/
+e2e/.fixtures/
+test-results/
+playwright-report/
 AGENTS.md
 .claude/skills/gitnexus/
 .claude/worktrees/

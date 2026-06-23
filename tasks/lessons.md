@@ -146,3 +146,19 @@ entries at session start before touching the same area.
   a clean `503` (not an opaque 500) and throttles logging while the upstream is still starting. Prove
   it by polling the proxy after `pnpm dev` and asserting a 200 within ~15s — build/typecheck never
   catch this because the process simply never starts.
+
+## Phase 4 / user-testing isolation (2026-06-22)
+
+- **Parameterize a service port everywhere, and smoke a non-default port** — **Pattern:** standing up
+  10 isolated parallel stacks (each core on its own port) for the Playwright swarm forced the web
+  client off the default core port 3001. `web/src/lib/ws.ts` was fixed to read `VITE_CORE_PORT`, but
+  `web/src/lib/terminal.ts`'s `terminalWsUrl()` still returned a literal `ws://${hostname}:3001/ws/terminal…`
+  — so the terminal socket dialed a dead port on every non-default stack, and the server's
+  `{error,code:"disabled"}` frame never arrived (the "Terminal disabled" reason became dead code
+  off-default). On the *default* port 3001 the disabled banner works, so single-stack dev never
+  reveals it; only a multi-stack / non-default-port run does. **Rule:** when parameterizing a service
+  port, grep for ALL hardcoded occurrences of it (`grep -rn ':3001' web/src` finds BOTH `ws.ts` AND
+  `terminal.ts`) and fix every site for parity — don't stop at the one the current feature touches.
+  Then run at least one smoke on a NON-default port; a multi-stack / port-shifted run catches the
+  client-side port assumptions that single-stack dev (where the literal happens to equal the default)
+  structurally cannot.
