@@ -102,20 +102,31 @@ backlog item numbers are shown in `(report #N)`.
 - [x] Verify: web typecheck · `web test` **109 passed** · build ✓ · repro spec **3/3** on a non-PERSONA
       single default-port stack (0 console/page errors, 0 HTTP ≥400)
 
-### Wave C5 — Polish & hygiene
-- [ ] WS dot reflects a dropped connection (amber "connecting…" on outage); consider a text label
-      (report #10; findings #14, #37)
-- [ ] Client-side hints: register path/URL format (finding #25) and cron format/validation before the
-      server round-trip (finding #18) (report #11)
-- [ ] Metrics 30d date-axis right-edge tick overlap — `TimeseriesChart` `translateX(-50%)` vs `(-100%)`
-      collision (report #12; finding #22)
-- [ ] Keyboard-chord parity (add g-chords for graph/skills/routing/terminal) + in-app shortcut legend
-      (report #13; finding #24)
-- [ ] Stop the per-render bible iframe `console.error` (sandboxed inline `<script>`) (report #14;
-      finding #16). Leave the expected-4xx adversarial console noise as-is (findings #29, #38)
-- [ ] Spec + quality review
-- [ ] Verify: outage flips the dot; invalid path/cron caught client-side; axis ticks legible; chords
-      + legend present; bible iframe quiet
+### Wave C5 — Polish & hygiene  ✅ DONE (committed)
+- [x] WS dot now flips to amber + a "connecting…"/"live" text label on outage (`TopBar.tsx`; `ws.ts`
+      already `emitStatus(false)` on close) (report #10; findings #14, #37). **Live-smoke verified**:
+      kill core → amber/"connecting…" → restart → green/"live"
+- [x] Client-side hints before the server round-trip (report #11): register source classified by a new
+      pure `web/src/lib/source.ts` (`classifySource` → path/url/invalid; handles Windows `C:\`, UNC,
+      POSIX, `~`, relative + GitHub URLs) with an inline hint + submit-gate (finding #25); cron shape
+      validated by a new `web/src/lib/cron.ts` `checkCron()` ported to match node-cron v4 at the server
+      boundary (incl. trailing-field tolerance) with an inline hint (finding #18)
+- [x] Metrics axis tick overlap fixed via extracted `axisTickIndices()` in `web/src/lib/chart.ts`
+      (gap rule drops a weekly tick too close to the right-anchored last tick); 30d → `[0,7,14,21,29]`,
+      7/14d unchanged (report #12; finding #22)
+- [x] Keyboard-chord parity — all 9 enabled views now have g-chords (added graph/skills/routing/
+      terminal via `web/src/lib/chords.ts`) + a `?`-toggled, Escape-closing, focus-managed in-app
+      shortcut legend (report #13; finding #24)
+- [x] Bible iframe quieted — `web/src/lib/html.ts` `stripScripts()` removes the compiled bible's inline
+      `<script>` before the script-less sandbox renders it (NO `allow-scripts` — XSS lesson), killing
+      the per-render "Blocked script execution" error; expected-4xx noise left as-is (report #14;
+      finding #16; #29/#38 unchanged)
+- [x] Spec + quality review (code-reviewer) → **CHANGES REQUESTED** (1 HIGH: Windows `\` paths wrongly
+      flagged malformed — would block local register on Windows; 2 MED cron-7-field/legend-focus; LOW/
+      NIT) → all fixed: path classifier extracted + regex `/^[a-zA-Z]:[/\\]/` + `source.test.ts`
+      proving `C:\Users\…`→path; cron trailing-field parity; legend focus + chord-clear-on-open
+- [x] Verify: web typecheck · `web test` **139 passed** (+30: cron/chords/html/source/chart tests) ·
+      build ✓ · WS-dot outage live-smoke green
 
 ### Wave C6 — Cold-load / latency investigation  [investigate, don't blind-fix]
 - [ ] Investigate cold Home ~20s (finding #9), create-skill ~16s (finding #17), and the

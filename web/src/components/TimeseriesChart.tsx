@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { MetricsTimeseries } from '@k/shared'
-import { stackDays, formatMetricValue, type Metric } from '../lib/chart'
+import { stackDays, formatMetricValue, axisTickIndices, type Metric } from '../lib/chart'
 
 interface Props {
   data: MetricsTimeseries
@@ -35,13 +35,8 @@ export default function TimeseriesChart({ data, metric, height = 180 }: Props) {
   const barWidth = 7 // bar slot is 10 wide: x = i*10 + 1.5 centers a 7px bar
   const viewW = Math.max(n * 10, 10)
 
-  // Date axis ticks: first, every ~7th, last
-  const axisTicks: number[] = []
-  if (n > 0) {
-    axisTicks.push(0)
-    for (let i = 7; i < n - 1; i += 7) axisTicks.push(i)
-    if (n > 1) axisTicks.push(n - 1)
-  }
+  // Date axis ticks: first, every ~7th, last — see axisTickIndices (finding #22).
+  const axisTicks = axisTickIndices(n)
 
   // Detail row content — memoized; only changes when data/metric/hover change.
   const hovered = hoverIndex !== null

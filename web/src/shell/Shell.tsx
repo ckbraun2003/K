@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
@@ -19,11 +19,20 @@ import NotFound from '../pages/NotFound'
 import { useHashRoute, navigate, isKnownView } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
 import { stageTransition } from '../lib/motion'
+import { CHORDS, CHORD_MAP } from '../lib/chords'
 
 export default function Shell() {
   const route = useHashRoute()
   const [connected, setConnected] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
+  const [legendOpen, setLegendOpen] = useState(false)
+  const legendCardRef = useRef<HTMLDivElement>(null)
+
+  // a11y: move focus into the legend dialog when it opens so screen-reader
+  // users land inside the modal (it's role="dialog" aria-modal="true").
+  useEffect(() => {
+    if (legendOpen) legendCardRef.current?.focus()
+  }, [legendOpen])
 
   useEffect(() => {
     connectWs()
@@ -44,6 +53,17 @@ export default function Shell() {
         return
       }
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      // `?` (Shift+/) toggles the shortcut legend; Escape closes it.
+      if (e.key === '?' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault()
+        // clear any armed g-chord so the g→? quirk can't fire a stale chord
+        // after the legend closes.
+        chord = false
+        clearTimeout(chordTimer)
+        setLegendOpen(o => !o)
+        return
+      }
+      if (e.key === 'Escape') { e.preventDefault(); setLegendOpen(false) }
       if (e.key === 'g' && !e.metaKey && !e.ctrlKey) {
         chord = true
         clearTimeout(chordTimer)
@@ -51,8 +71,7 @@ export default function Shell() {
         return
       }
       if (chord) {
-        const map: Record<string, string> = { h: 'home', p: 'projects', r: 'runs', d: 'docs', m: 'metrics' }
-        if (map[e.key]) { e.preventDefault(); navigate(map[e.key]) }
+        if (CHORD_MAP[e.key]) { e.preventDefault(); navigate(CHORD_MAP[e.key]) }
         chord = false
       }
     }
@@ -95,6 +114,47 @@ export default function Shell() {
 
       <ActivityStrip />
       <CommandBar open={commandOpen} onClose={() => setCommandOpen(false)} />
+
+      <AnimatePresence>
+        {legendOpen && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center px-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            data-testid="shortcut-legend"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Keyboard shortcuts"
+          >
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setLegendOpen(false)} />
+            <motion.div
+              ref={legendCardRef}
+              tabIndex={-1}
+              className="relative w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 outline-none"
+              initial={{ y: 12, scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 12, scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+            >
+              <h3 className="text-sm font-semibold text-[var(--text)]">Keyboard shortcuts</h3>
+              <p className="mt-1 text-xs text-[var(--muted)]">Press <kbd className="mono rounded bg-[var(--raised)] px-1 py-0.5 text-[10px]">?</kbd> any time to toggle this panel.</p>
+              <ul className="mt-4 flex flex-col gap-1.5">
+                <li className="flex items-center justify-between text-xs">
+                  <span className="text-[var(--text)]">Command palette</span>
+                  <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">⌘K</kbd>
+                </li>
+                {CHORDS.map(c => (
+                  <li key={c.key} className="flex items-center justify-between text-xs">
+                    <span className="text-[var(--text)]">{c.label}</span>
+                    <span className="mono text-[10px] text-[var(--muted)]">
+                      <kbd className="rounded bg-[var(--raised)] px-1.5 py-0.5">g</kbd>
+                      {' '}
+                      <kbd className="rounded bg-[var(--raised)] px-1.5 py-0.5">{c.key}</kbd>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
     </MotionConfig>
   )

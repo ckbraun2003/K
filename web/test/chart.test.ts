@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stackDays, formatMetricValue } from '../src/lib/chart'
+import { stackDays, formatMetricValue, axisTickIndices } from '../src/lib/chart'
 import type { MetricsTimeseries } from '@k/shared'
 
 function makeData(seriesPoints: { key: string; vals: { runs: number; tokens: number; costUsd: number }[] }[]): MetricsTimeseries {
@@ -123,5 +123,43 @@ describe('formatMetricValue', () => {
     expect(formatMetricValue('tokens', NaN)).toBe('—')
     expect(formatMetricValue('costUsd', Infinity)).toBe('—')
     expect(formatMetricValue('runs', -Infinity)).toBe('—')
+  })
+})
+
+describe('axisTickIndices', () => {
+  it('returns nothing for an empty window', () => {
+    expect(axisTickIndices(0)).toEqual([])
+  })
+
+  it('single column shows only index 0', () => {
+    expect(axisTickIndices(1)).toEqual([0])
+  })
+
+  it('7d window: first + last, no crowding', () => {
+    expect(axisTickIndices(7)).toEqual([0, 6])
+  })
+
+  it('14d window: first, weekly, last', () => {
+    expect(axisTickIndices(14)).toEqual([0, 7, 13])
+  })
+
+  it('30d window: drops the index-28 weekly tick that collides with the final index-29 tick (finding #22)', () => {
+    // Without the gap rule this was [0,7,14,21,28,29] — 28 and 29 overprint.
+    expect(axisTickIndices(30)).toEqual([0, 7, 14, 21, 29])
+  })
+
+  it('60d window: drops the index-56 tick that sits exactly 3 slots from the final index', () => {
+    // `<= 3` gap rule widens the previously-tight 56↔59 gap (finding follow-up).
+    expect(axisTickIndices(60)).toEqual([0, 7, 14, 21, 28, 35, 42, 49, 59])
+  })
+
+  it('always ends with the final index and never duplicates it', () => {
+    for (const n of [2, 5, 8, 9, 10, 15, 21, 28, 30, 31, 60]) {
+      const t = axisTickIndices(n)
+      expect(t[t.length - 1]).toBe(n - 1)
+      expect(new Set(t).size).toBe(t.length)
+      // strictly increasing
+      for (let i = 1; i < t.length; i++) expect(t[i]).toBeGreaterThan(t[i - 1])
+    }
   })
 })

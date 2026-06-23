@@ -4,6 +4,7 @@ import type { Skill, CreateSkill, SkillEval } from '@k/shared'
 import { api } from '../lib/api'
 import type { SkillRun } from '../lib/skill-runs'
 import { sortSkillRunsNewestFirst } from '../lib/skill-runs'
+import { checkCron } from '../lib/cron'
 import { navigate } from '../lib/route'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Toast from '../components/Toast'
@@ -103,6 +104,12 @@ export default function SkillsPage() {
     createMutation.mutate(body)
   }
 
+  // Validate the cron client-side BEFORE the server round-trip, mirroring the
+  // core node-cron validator so the hint never blocks a server-accepted
+  // expression (finding #18). Only relevant for the schedule trigger.
+  const cronCheck = checkCron(form.schedule ?? '')
+  const cronInvalid = form.triggerType === 'schedule' && !cronCheck.valid
+
   const inputCls =
     'w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:border-[var(--accent)] focus:outline-none'
 
@@ -174,11 +181,21 @@ export default function SkillsPage() {
               <div className="col-span-2">
                 <label className="mb-1 block text-xs text-[var(--muted)]">Cron expression</label>
                 <input
+                  data-testid="skill-cron-input"
                   className={inputCls}
                   placeholder="e.g. 0 2 * * *"
                   value={form.schedule ?? ''}
+                  aria-invalid={cronInvalid}
                   onChange={e => setForm(f => ({ ...f, schedule: e.target.value || null }))}
                 />
+                <p
+                  data-testid="skill-cron-hint"
+                  className={`mt-1 text-[11px] ${cronInvalid ? 'text-[var(--red)]' : 'text-[var(--muted)]'}`}
+                >
+                  {cronInvalid
+                    ? `⚠ ${cronCheck.error}`
+                    : '5 or 6 fields: min hour day month weekday (e.g. 0 2 * * * = 2am daily)'}
+                </p>
               </div>
             )}
             {form.triggerType === 'event' && (
@@ -220,7 +237,7 @@ export default function SkillsPage() {
           <div className="mt-3 flex items-center gap-2">
             <button
               type="submit"
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || cronInvalid}
               className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               {createMutation.isPending ? 'registering…' : 'register'}

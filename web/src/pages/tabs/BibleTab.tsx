@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Artifact } from '@k/shared'
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
+import { stripScripts } from '../../lib/html'
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -70,7 +71,12 @@ export default function BibleTab({ projectId: _projectId }: { projectId?: string
     },
   })
 
-  const bibleHtml = bibleArtifact?.html ?? ''
+  // Strip the compiled bible's inline enhancement <script> before injecting it
+  // into a script-less sandbox: the iframe blocks it anyway and otherwise logs
+  // "Blocked script execution in about:srcdoc" on every render (finding #16). The
+  // read-only view doesn't need the scroll-spy/j-k nav. Memoized so we don't
+  // re-scan the (large) HTML on unrelated re-renders.
+  const bibleHtml = useMemo(() => stripScripts(bibleArtifact?.html ?? ''), [bibleArtifact?.html])
 
   // Filter artifacts to surface likely bible sections (exclude the compiled one)
   const sections = artifacts.filter(a => a.slug !== 'project-bible')

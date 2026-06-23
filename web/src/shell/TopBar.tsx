@@ -29,8 +29,16 @@ export default function TopBar({ view, connected, onOpenCommand }: Props) {
         data-testid="ws-dot"
         data-ws-status={connected ? 'connected' : 'connecting'}
         title={connected ? 'core connected' : 'connecting…'}
-        className={`h-2 w-2 rounded-full ${connected ? 'bg-[var(--green)] glow-live' : 'bg-[var(--amber)] animate-pulse'}`}
-      />
+        className="flex items-center gap-1.5 text-[11px] font-medium"
+      >
+        <span
+          aria-hidden
+          className={`h-2 w-2 rounded-full ${connected ? 'bg-[var(--green)] glow-live' : 'bg-[var(--amber)] animate-pulse'}`}
+        />
+        <span className={connected ? 'text-[var(--muted)]' : 'text-[var(--amber)]'}>
+          {connected ? 'live' : 'connecting…'}
+        </span>
+      </span>
     </header>
   )
 }
