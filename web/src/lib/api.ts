@@ -1,4 +1,6 @@
 import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody } from '@k/shared'
+import { authHeader, clearSessionToken } from './auth'
+import { notifyUnauthorized } from './auth-events'
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
 export interface OnboardResult {
@@ -12,8 +14,26 @@ export interface OnboardResult {
 
 const BASE = '/api'
 
+/** Notified on a 401/4401 so the app can show the login screen (remote access). */
+export { onUnauthorized } from './auth-events'
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init)
+  // Attach the harness token. In dev the Vite proxy also injects one, but the
+  // explicit header lets the same code authenticate against core directly
+  // (remote / production) where no proxy exists. When there's no token to add
+  // (dev with proxy-injected auth), pass `init` through untouched so the request
+  // shape is unchanged.
+  const auth = authHeader()
+  const effectiveInit =
+    Object.keys(auth).length > 0
+      ? { ...init, headers: { ...(init?.headers ?? {}), ...auth } }
+      : init
+  const res = await fetch(`${BASE}${path}`, effectiveInit)
+  if (res.status === 401) {
+    // Stale/absent token → drop it and surface the login screen.
+    clearSessionToken()
+    notifyUnauthorized()
+  }
   if (!res.ok) {
     const detail = await res.json().then(b => (b as { error?: string }).error, () => undefined)
     throw new Error(detail ?? `${res.status} ${res.statusText}`)

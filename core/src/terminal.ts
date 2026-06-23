@@ -8,6 +8,8 @@
  *   - `createTerminalSession` — bridges a pty to a JSON frame protocol.
  */
 
+import { wsTokenOk } from './auth.js'
+
 /** Minimal slice of node-pty's IPty that the session needs (keeps node-pty out of here). */
 export interface PtyLike {
   onData(cb: (d: string) => void): void
@@ -39,8 +41,9 @@ export function terminalGate(opts: {
   expectedToken: string
 }): GateResult {
   if (!opts.enabled) return { ok: false, code: 'disabled' }
-  // Reject unset/empty tokens explicitly; a simple compare is fine for localhost.
-  if (opts.token == null || opts.token === '' || opts.token !== opts.expectedToken) {
+  // Constant-time compare: the terminal token grants a host shell, so avoid a
+  // timing oracle. wsTokenOk also rejects unset/empty tokens.
+  if (!wsTokenOk(opts.token, opts.expectedToken)) {
     return { ok: false, code: 'unauthorized' }
   }
   return { ok: true }

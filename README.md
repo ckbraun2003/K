@@ -73,13 +73,31 @@ The handful of vars that matter for local testing (real defaults shown):
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `HARNESS_TOKEN` | `dev-token-change-me` | Bearer token for web → core auth. **Insecure default** — fine for loopback, but change it before exposing K beyond localhost. |
+| `HARNESS_TOKEN` | _(auto-generated)_ | Bearer token for web → core auth. Leave **unset** and core generates a strong token on first run, persists it to `data/auth-token`, and prints it once. Set it explicitly to pin your own. See [Remote access](#remote-access). |
+| `HOST` | `127.0.0.1` | Interface to bind. Loopback by default; only set `0.0.0.0` **behind** Tailscale or an authenticating HTTPS proxy. Core refuses to bind a non-loopback host with a weak/empty token. |
 | `PORT` | `3001` | Core HTTP/WS port. |
 | `CLAUDE_MODEL` | `claude-sonnet-4-6` | Claude model used for agent runs. |
 | `RUN_PERMISSION_MODE` | `acceptEdits` | `claude --permission-mode` for worktree runs. One of `default` \| `plan` \| `acceptEdits` \| `bypassPermissions` (invalid values fall back to `acceptEdits`). `bypassPermissions` is the explicit opt-in for fully-autonomous runs. |
 
 This is the short list. For the complete set (host binding, CORS, data dir, Ollama routing, GitHub
 polling, the web terminal, etc.) see bible §09 Operations.
+
+## Remote access
+
+K defaults to **loopback-only** (`HOST=127.0.0.1`). To reach it from another device, put an
+authentication layer in front — do not expose the raw port to the internet:
+
+- **Tailscale (recommended)** — join the host to your tailnet and reach K at its Tailscale
+  address; access is gated by your tailnet ACLs *and* the harness token.
+- **Authenticating HTTPS reverse proxy** (Caddy / nginx / Cloudflare Access) terminating TLS and
+  proxying to loopback core. Only then is `HOST=0.0.0.0` appropriate.
+
+On first run, core generates a strong `HARNESS_TOKEN`, saves it to `data/auth-token` (gitignored,
+`0600`), and prints it once — copy it then. Later boots only show a masked confirmation. Set
+`HARNESS_TOKEN` yourself to pin a specific token. Core **refuses to start** if `HOST` is non-loopback
+while the token is weak or empty. When you open the dashboard remotely it prompts for the token (stored
+in `sessionStorage`); on localhost it just works with no login. Full details: bible §09 Operations →
+Remote access.
 
 ## Common commands
 
