@@ -77,12 +77,15 @@ border `rgba(255,143,192,.16)`, tint `rgba(255,143,192,.10)`. Radii: 18/14/10px.
 - [x] Verify: typecheck clean · build ✓ · 133 tests (graph + bundle-guard green) · **live smoke 4/4**
       (fleet graph screenshot confirms a large glowing labeled node vs. the old dull dot)
 
-## Wave 7 — Documentation & artifacts
-- [ ] `06-dashboard-ux.md` — tokens table + rules + sidebar + tabs + graph spec
-- [ ] `08-decision-log.md` — D-011 (vivid-glass redesign, IA changes, delete)
-- [ ] Recompile bible + ui-demo; verify in Artifacts tab
-- [ ] Update this `todo.md` review section; capture lessons
-- [ ] Review + verify → commit
+## Wave 7 — Documentation & artifacts  ✅ DONE
+- [x] `06-dashboard-ux.md` — design-language line, labeled-sidebar IA, Bible→Artifacts tab,
+      vivid-glass token table (values cited from index.css), rules (dark-text-on-accent), glass
+      tokens, graph spec (glow nodes + visible sky edges)
+- [x] `08-decision-log.md` — **D-013** (note: D-011/D-012 already taken) + supersedes-note on D-007/D-009
+- [x] Recompiled bible (10 sections) — asserted #ff8fc0/#38bdf8/Artifacts/vivid midnight-glass/D-013
+      present; ui-demo palette already covered by `core/test/ui-artifact.test.ts`
+      (compiled HTML is gitignored / runtime-generated)
+- [x] Updated `todo.md` + captured lessons (contrast, partial-cascade delete, token-sync)
 
 ## Wave 8 — Whole-redesign verification
 - [ ] `pnpm -r build` + `pnpm -r test` (bundle-guard + new delete tests green)
