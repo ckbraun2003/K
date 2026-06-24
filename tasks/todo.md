@@ -47,11 +47,16 @@ border `rgba(255,143,192,.16)`, tint `rgba(255,143,192,.10)`. Radii: 18/14/10px.
       documented (skill-scoped, intentionally retained — skill runs carry no projectId). Verify:
       core+web typecheck clean · 460 core + 139 web tests pass
 
-## Wave 4 — Project workspace + Bible→Artifacts tab
-- [ ] `ProjectWorkspace.tsx` — restyle tab bar; rename `bible`→`artifacts` (label "Artifacts")
-- [ ] `BibleTab.tsx`→`ArtifactsTab.tsx` — project-scoped artifact gallery; keep edit + recompile
-- [ ] Restyle Overview / Tasks / Runs / PRs & CI / Verification tab bodies
-- [ ] Review + verify → commit
+## Wave 4 — Project workspace + Bible→Artifacts tab  ✅ DONE
+- [x] `ProjectWorkspace.tsx` — rename `bible`→`artifacts` (label "Artifacts"); restyled tab bar
+      (rounded blush active pill, sky focus ring, wraps)
+- [x] `BibleTab.tsx`→`ArtifactsTab.tsx` — project-scoped artifact gallery (rail + DocViewer),
+      keeps recompile + markdown editor. Unified on DocViewer (allow-scripts, matches DocsPage) →
+      removed now-dead `stripScripts` (`lib/html.ts` + `html.test.ts`). Fixed DocViewer contrast.
+- [~] Overview/Tasks/Runs/PRs/Verification deeper restyle folded into Wave 5 (token re-tint already
+      applies; TasksTab restyled in Wave 3)
+- [x] Review (code-reviewer) → APPROVE (0 Crit/High; 2 by-design MEDIUM). Verify: typecheck clean ·
+      build ✓ · 133 web tests pass
 
 ## Wave 5 — Home, cards & list pages
 - [ ] Restyle Home, ProjectCard, MetricCard, ProjectsPage, SkillsPage, RunsPage, MetricsPage,
