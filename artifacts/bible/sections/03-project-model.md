@@ -46,6 +46,27 @@ Onboarding now **actively scaffolds** the missing invariants rather than merely 
 
 The harness applies its own rules to itself: this bible is compiled by the same `compileBible()` used for every other project, the harness gets a CI workflow, and verification runs against it like any fleet member. If the mechanism is annoying for project zero, it is annoying for everything — fix the mechanism.
 
+## Workflow runs
+
+A **workflow run** records one supervised delegation run launched over a batch of selected todos from the Tasks tab (see §02 `workflows.ts`, §06 Tasks tab). It ties the selection to the single agent run that addresses it.
+
+```ts
+WorkflowRun {
+  id: uuid
+  projectId: uuid            // → projects, ON DELETE CASCADE
+  runId?: uuid               // → runs, ON DELETE SET NULL (patched in after startRun)
+  taskIds: uuid[]            // JSON — the project_tasks selected for this batch
+  mode: 'combined'           // one orchestrator run for the whole selection
+  status: 'running' | 'completed' | 'failed'
+  createdAt: number          // unix ms
+  completedAt?: number       // set when the underlying run reaches a terminal status
+}
+```
+
+- **Relation to `project_tasks`:** `taskIds` references the `project_tasks` rows in the batch. On dispatch those tasks flip to `in_progress`; they are never auto-marked `done` (completion is decided by the run's PR).
+- **Relation to `runs`:** `runId` points at the single supervised run that executes the delegation loop. It is `null` until `startRun` returns, then patched in; `ON DELETE SET NULL` keeps the workflow-run row if the underlying run is later purged.
+- Backed by the `workflow_runs` table with an index on `(project_id, created_at)`; helpers live in `workflowRunsDb` (`core/src/db.ts`). The table is the deliberate growth point for an Idea-2 staged engine (a future `workflow_stages` table — see decision D-012).
+
 ## Lifecycle
 
 `registered → onboarded (invariants satisfied) → active (runs/PRs flowing) → idle (no activity N days) → archived (hidden from home, data retained)`

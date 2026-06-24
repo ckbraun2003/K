@@ -161,3 +161,12 @@ The graph spec above describes the *experience*; Phase H adds the *engine* behin
 
 - The interactive **`ui-demo`** (a self-contained mini Command Deck in the hybrid-glass look) is compiled to a first-class artifact via `core/src/ui-artifact.ts` (`compileUiArtifact`) and `POST /api/ui-artifact/compile`. Its rich inline CSS+JS are written to disk **verbatim** (bypassing the generic artifact sanitizer) and served back through the DocViewer's sandboxed iframe (`allow-scripts`, **no** `allow-same-origin`), so the demo is fully offline and sandbox-safe (no CDN/font fetches, no `localStorage` reliance).
 - The **`create-web-ui-artifact` skill** (`.claude/skills/create-web-ui-artifact/SKILL.md`) is the UI counterpart to `onboarding`: for a web-UI project it inspects routes/components, authors a project-specific self-contained demo, and compiles it (with `{ projectId }`) into a per-project artifact (`project-<id>-ui-demo`). It is seeded into the skills registry as a manual-trigger workflow, so it is triggerable from the **Skills** tab alongside `onboarding` and `verify-project`.
+
+## Tasks tab — run a delegation workflow over selected todos
+
+The **Tasks** tab (`web/src/pages/tabs/TasksTab.tsx`) can now multi-select todos and launch a supervised delegation workflow over the selection — turning the per-task "dispatch-agent-on-task" shortcut into a batch action backed by `core/src/workflows.ts` (see §02).
+
+- **Selection:** each todo row has a checkbox; a header **select-all** checkbox shows the indeterminate state on a partial selection. The Set of selected ids is pruned after every interval refetch so it can never reference a deleted row.
+- **Action bar:** a sticky bar appears while at least one todo is selected, with a **Run delegation workflow** action that calls `api.projects.tasks.dispatchWorkflow` (`POST /api/projects/:id/tasks/dispatch`). One supervised orchestrator run is launched for the whole selection (one reviewable commit / PR), not one run per todo.
+- **`in_progress` on dispatch, never auto-`done`:** the selected todos flip to `in_progress` the moment the workflow is dispatched, and are **never** auto-marked `done` — the agent's PR decides completion (mirrors the lifecycle in §02).
+- **View-run toast:** on success a Sonner toast confirms dispatch and offers **"View run →"**, which navigates to the new run's console (`navigate('runs', runId)`). The toast reads its count/ids from the mutation's variables (not component state), so an interval refetch clearing the selection can't make it report a stale count.

@@ -72,6 +72,18 @@ Monorepo (pnpm workspaces)
 
 **Agent engine:** Claude Code CLI (`claude -p --output-format stream-json`) wrapped by `supervisor.ts`. Each run executes in an isolated git worktree.
 
+## Todo delegation workflow (`workflows.ts`)
+
+`core/src/workflows.ts` is a seam over the supervisor that turns a batch of selected todos into **one** supervised orchestrator run. It mirrors how the skills layer wraps the supervisor with `triggerSkill` / `runSkillTest` — a pure prompt-builder plus a lifecycle that locks state, dispatches a run, and finalizes a tracking row when the run terminates.
+
+- **`buildDelegationPrompt(tasks)`** — pure, deterministic. Renders the selected todos as a checklist and instructs the run to act as the *controller* of the harness delegation loop (implementer → spec-review → quality-review → controller-applies-fixes), spawning its own subagents and producing **one** reviewable commit / PR for the whole batch (PR-only; never push to a default branch).
+- **`dispatchTaskWorkflow(project, taskIds)`** — the lifecycle: validate + scope every task to the project (a missing/foreign id throws a typed `TaskNotFoundError`), flip the selected todos to `in_progress`, insert a `workflow_runs` row (`status: 'running'`), then `await startRun(prompt, { cwd: project.localPath, projectId })`, patch the `run_id` back onto the row, and subscribe on `eventBus.onRunUpdate` to finalize the row when the run reaches a terminal status. **Graceful degrade:** if `startRun` throws, the locked state would leak, so it finalizes the row `failed`, reverts each task to `open`, logs, and re-throws — the same degrade posture `runSkillTest` takes.
+- **`deriveWorkflowStatus` / `finalizeWorkflowRun`** — pure seams for the result path (`done → completed`, any other terminal status → `failed`), exported so tests can drive finalization without a live run.
+
+**One-orchestrator-run execution model.** A selection of todos maps to exactly one combined run (decision D-012). The harness delegation loop is a *prose* methodology the orchestrator agent carries out inside its own context and worktree, spawning its own role subagents — not a multi-run engine in core. `startRun` is strictly one-agent/one-worktree, so the selected todos are addressed by a single controller run that opens a single PR; completion is decided by that PR, never by the harness auto-marking todos `done`.
+
+**Idea-2 growth path.** The `workflows.ts` seam and the `workflow_runs` table are the deliberate growth point. To graduate to per-stage, individually-visible/retryable runs, add a `workflow_stages` table and have `dispatchTaskWorkflow` spawn one `startRun` per stage chained on `eventBus` (threading a shared branch/worktree across stages). The route, the web api client, and the UI stay unchanged — only the lifecycle inside the seam grows.
+
 **Existing building blocks (reused, not rebuilt):**
 
 - **GitNexus** — repo indexing, knowledge graphs, impact analysis, wiki generation (graph data source, Phase 2)
