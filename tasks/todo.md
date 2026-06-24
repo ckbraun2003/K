@@ -22,12 +22,16 @@ border `rgba(255,143,192,.16)`, tint `rgba(255,143,192,.10)`. Radii: 18/14/10px.
 - [x] Review (code-reviewer) → CRITICAL white-on-blush fixed (dark text on accent fills, hover→sky);
       MEDIUM `uiArtifactShell` retuned. Verify: web+core typecheck clean · web build ✓ · 139 tests pass
 
-## Wave 2 — Shell & navigation (labeled sidebar, Docs out of rail)
-- [ ] `Sidebar.tsx` — ~200px labeled rail, glass active pill, sky hover, collapse toggle;
-      remove `docs` from primary DESTINATIONS; Help + Settings → footer cluster
-- [ ] `Shell.tsx` — grid column 52px→200px (+ collapsed variant); rounded stage; keep MotionConfig
-- [ ] `TopBar.tsx` / `CommandBar.tsx` / `ActivityStrip.tsx` — restyle, larger targets, rounder
-- [ ] Review + verify → commit
+## Wave 2 — Shell & navigation (labeled sidebar, Docs out of rail)  ✅ DONE
+- [x] `Sidebar.tsx` — 220px labeled rail (collapses to 60px), blush glass active pill, sky hover,
+      collapse/expand toggles (aria-expanded); `section: primary|footer|hidden`; Docs out of rail
+      (kept `hidden` for label resolution); Help + Settings → footer; dropped disabled `tasks` stub
+- [x] `Shell.tsx` — responsive grid column (220/60px), collapse state persisted to localStorage
+- [x] `TopBar.tsx` (sky hover, rounder) / `CommandBar.tsx` (NAV_DESTINATIONS + `d.view??d.id`
+      fixes ⌘K "Help"→404 bug). ActivityStrip inherits new glass — no change
+- [x] Review (code-reviewer) → HIGH aria-expanded + 2 LOW (localStorage side-effect, chord-test
+      hidden filter) all fixed. Verify: typecheck clean · build ✓ · 139 tests pass
+      _(live browser smoke deferred to post-Wave-5 checkpoint + Wave 8)_
 
 ## Wave 3 — Delete projects & tasks (backend + frontend)
 - [ ] `core/src/db.ts` — `deleteProject` / `deleteProjectTask`

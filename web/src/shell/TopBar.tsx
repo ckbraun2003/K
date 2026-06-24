@@ -13,14 +13,14 @@ export default function TopBar({ view, connected, onOpenCommand }: Props) {
   const title = dest?.label.split(' ·')[0] ?? (isKnownView(view) ? 'Home' : 'Not found')
   const icon = dest?.icon ?? (isKnownView(view) ? '⌂' : '⌀')
   return (
-    <header className="relative z-10 flex items-center gap-4 border-b border-[var(--border)] px-4 py-2.5">
+    <header className="relative z-10 flex items-center gap-4 border-b border-[var(--border)] px-5 py-3">
       <h1 className="text-sm font-semibold tracking-wide text-[var(--text)]">
         <span className="mr-2 text-[var(--accent)]">{icon}</span>
         {title}
       </h1>
       <button
         onClick={onOpenCommand}
-        className="ml-auto flex w-80 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-left text-xs text-[var(--muted)] transition-colors duration-150 hover:border-accent/50 hover:text-[var(--text)]"
+        className="ml-auto flex w-80 items-center gap-2 rounded-control border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-left text-xs text-[var(--muted)] transition-colors duration-150 hover:border-[color:rgba(56,189,248,0.5)] hover:text-[var(--text)]"
       >
         <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px]">⌘K</kbd>
         <span>Ask K or jump anywhere…</span>

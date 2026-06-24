@@ -26,7 +26,16 @@ export default function Shell() {
   const [connected, setConnected] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(
+    () => localStorage.getItem('k.nav.collapsed') === '1',
+  )
   const legendCardRef = useRef<HTMLDivElement>(null)
+
+  function toggleNav() {
+    const next = !navCollapsed
+    localStorage.setItem('k.nav.collapsed', next ? '1' : '0')
+    setNavCollapsed(next)
+  }
 
   // a11y: move focus into the legend dialog when it opens so screen-reader
   // users land inside the modal (it's role="dialog" aria-modal="true").
@@ -81,9 +90,12 @@ export default function Shell() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <div className="grid h-screen grid-cols-[52px_1fr] grid-rows-[auto_1fr_auto] bg-[var(--bg)]">
+    <div
+      className="grid h-screen grid-rows-[auto_1fr_auto] bg-[var(--bg)]"
+      style={{ gridTemplateColumns: `${navCollapsed ? 60 : 220}px 1fr` }}
+    >
       <div className="ambient" aria-hidden />
-      <Sidebar active={route.view} />
+      <Sidebar active={route.view} collapsed={navCollapsed} onToggleCollapse={toggleNav} />
       <TopBar view={route.view} connected={connected} onOpenCommand={() => setCommandOpen(true)} />
 
       <main className="relative z-10 overflow-hidden">

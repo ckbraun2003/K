@@ -8,7 +8,7 @@ describe('keyboard chords', () => {
     // route/view), so it isn't a chord target. Every other enabled destination
     // with a real view must have a chord (finding #24 parity gap).
     const enabledViews = DESTINATIONS
-      .filter(d => d.enabled && d.id !== 'help')
+      .filter(d => d.enabled && d.id !== 'help' && d.section !== 'hidden')
       .map(d => d.view ?? d.id)
     const chordViews = new Set(CHORDS.map(c => c.view))
     for (const v of enabledViews) {

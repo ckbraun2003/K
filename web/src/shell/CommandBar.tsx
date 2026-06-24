@@ -5,7 +5,7 @@ import type { Run, Project } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
-import { DESTINATIONS } from './Sidebar'
+import { NAV_DESTINATIONS } from './Sidebar'
 import { parseProjectQuery, decideEnterMode } from '../lib/command-parse'
 import { modalCard, overlayFade, dialogCard } from '../lib/motion'
 import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
@@ -82,9 +82,9 @@ export default function CommandBar({ open, onClose }: Props) {
     }
 
     // Plain query
-    const navs: Item[] = DESTINATIONS.filter(d => d.enabled)
+    const navs: Item[] = NAV_DESTINATIONS
       .filter(d => !q || d.label.toLowerCase().includes(q))
-      .map(d => ({ kind: 'nav' as const, label: d.label.split(' ·')[0], icon: d.icon, view: d.id }))
+      .map(d => ({ kind: 'nav' as const, label: d.label.split(' ·')[0], icon: d.icon, view: d.view ?? d.id, param: d.param }))
     const runItems: Item[] = runs
       .filter(r => q && r.prompt.toLowerCase().includes(q))
       .slice(0, 4)
