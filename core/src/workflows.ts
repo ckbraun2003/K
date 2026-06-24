@@ -18,6 +18,15 @@ import { eventBus } from './events.js'
 // Terminal run statuses — same set runSkillTest uses to finalize.
 const TERMINAL = new Set(['done', 'error', 'killed', 'interrupted'])
 
+/** Thrown when a requested taskId is missing or not scoped to this project. The
+ *  route discriminates on this type (instanceof) to translate it to a 400. */
+export class TaskNotFoundError extends Error {
+  constructor(public readonly taskId: string) {
+    super(`Task not found in project: ${taskId}`)
+    this.name = 'TaskNotFoundError'
+  }
+}
+
 /** DB row → ProjectTask shape. Local to keep modules clean (rowToTask is a
  *  private helper in routes/projects.ts; we don't import from the route). */
 function rowToTask(r: Record<string, unknown>): ProjectTask {
@@ -93,7 +102,7 @@ export async function dispatchTaskWorkflow(
     const row = projectTasksDb.getProjectTask.get(taskId, project.id) as
       | Record<string, unknown>
       | undefined
-    if (!row) throw new Error(`Task not found in project: ${taskId}`)
+    if (!row) throw new TaskNotFoundError(taskId)
     tasks.push(rowToTask(row))
   }
 

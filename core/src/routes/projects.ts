@@ -7,9 +7,10 @@ import { getGithubStatus, createPR, syncIssues } from '../github.js'
 import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
+import { dispatchTaskWorkflow, TaskNotFoundError } from '../workflows.js'
 import { verificationDb, rowToReport, projectTasksDb } from '../db.js'
 import { buildGraph, getGraphMeta, isGraphStale, enrichNodes } from '../graph.js'
-import { CreatePrOptsSchema, GraphDispatchBodySchema, type ProjectTask, type GithubStatus } from '@k/shared'
+import { CreatePrOptsSchema, GraphDispatchBodySchema, DispatchTasksBodySchema, type ProjectTask, type GithubStatus } from '@k/shared'
 
 // Natural-language prompt that triggers the Layer-2 verify-project skill.
 const DEEP_VERIFY_PROMPT =
@@ -192,6 +193,26 @@ export async function projectsRoutes(app: FastifyInstance) {
       return reply.send(rowToTask({ ...row, status, completed_at: completedAt }))
     }
   )
+
+  // POST /api/projects/:id/tasks/dispatch — launch ONE supervised delegation run
+  // over a batch of selected todos. The selected tasks flip to in_progress and a
+  // workflow_run row tracks the run lifecycle (see workflows.ts). 202 because the
+  // agent run is async (mirrors how skills /trigger returns 202).
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/projects/:id/tasks/dispatch', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    const parsed = DispatchTasksBodySchema.safeParse(req.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+    try {
+      const { workflowRunId, runId } = await dispatchTaskWorkflow(project, parsed.data.taskIds)
+      return reply.status(202).send({ workflowRunId, runId })
+    } catch (e) {
+      // A bad/foreign taskId is a client error → 400; anything else is a 500.
+      if (e instanceof TaskNotFoundError) return reply.status(400).send({ error: 'task not found' })
+      req.log.error(e)
+      return reply.status(500).send({ error: 'dispatch failed' })
+    }
+  })
 
   // POST /api/projects/:id/prs — create a GitHub PR via gh CLI
   app.post<{ Params: { id: string }; Body: unknown }>('/api/projects/:id/prs', async (req, reply) => {

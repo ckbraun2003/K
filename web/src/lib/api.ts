@@ -133,6 +133,12 @@ export const api = {
         }),
       sync: (projectId: string) =>
         req<{ synced: number; degraded: boolean }>(`/projects/${projectId}/tasks/sync`, { method: 'POST' }),
+      dispatchWorkflow: (projectId: string, taskIds: string[]) =>
+        req<{ workflowRunId: string; runId: string }>(`/projects/${projectId}/tasks/dispatch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskIds }),
+        }),
     },
     graph: (id: string) =>
       req<GraphResponse>(`/projects/${id}/graph`),
