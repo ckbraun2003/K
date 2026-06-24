@@ -4,21 +4,22 @@ import ForceGraph2D from 'react-force-graph-2d'
 import type { Project } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
+import { GRAPH_BG, drawGraphNode, paintNodePointerArea } from '../lib/graph'
 
-type FGNode = { id?: string | number; [key: string]: unknown }
+type FGNode = { id?: string | number; color?: string; [key: string]: unknown }
 
 function healthColor(healthScore: number | undefined | null): string {
-  if (healthScore == null) return '#8b8b93'
-  if (healthScore >= 75) return '#22c55e'
-  if (healthScore >= 50) return '#eab308'
-  return '#ef4444'
+  if (healthScore == null) return '#a99bc4'
+  if (healthScore >= 75) return '#34d399'
+  if (healthScore >= 50) return '#fbbf24'
+  return '#f87171'
 }
 
 const FLEET_LEGEND: { color: string; label: string }[] = [
-  { color: '#22c55e', label: 'Healthy (≥75)' },
-  { color: '#eab308', label: 'At risk (≥50)' },
-  { color: '#ef4444', label: 'Failing (<50)' },
-  { color: '#8b8b93', label: 'Unverified' },
+  { color: '#34d399', label: 'Healthy (≥75)' },
+  { color: '#fbbf24', label: 'At risk (≥50)' },
+  { color: '#f87171', label: 'Failing (<50)' },
+  { color: '#a99bc4', label: 'Unverified' },
 ]
 
 export default function FleetGraphPage() {
@@ -51,7 +52,7 @@ export default function FleetGraphPage() {
     nodes: projects.map(p => ({
       id: p.id,
       label: p.name,
-      val: 3,
+      val: 6,
       color: healthColor(p.healthScore),
     })),
     // Cross-project dependency edges aren't derivable yet: the fleet view is fed only
@@ -88,8 +89,10 @@ export default function FleetGraphPage() {
               graphData={graphData}
               width={dims.width}
               height={dims.height}
-              backgroundColor="#0a0a0f"
+              backgroundColor={GRAPH_BG}
               nodeLabel="label"
+              nodeCanvasObject={(node: FGNode, ctx, scale) => drawGraphNode(node, ctx, scale, node.color ?? '#a99bc4', 7)}
+              nodePointerAreaPaint={(node: FGNode, color, ctx) => paintNodePointerArea(node, ctx, color, 7)}
               onNodeClick={(node: FGNode) => {
                 if (node.id) navigate('project', node.id as string)
               }}

@@ -10,6 +10,10 @@ import { dialogCard, overlayFade, sidePanel, fade, microLift, prefersReducedMoti
 import {
   DISPATCH_ACTIONS,
   GRAPH_LEGEND,
+  GRAPH_BG,
+  GRAPH_LINK_COLOR,
+  drawGraphNode,
+  paintNodePointerArea,
   type DispatchAction,
   type GraphNode,
   makeGraphUpdateHandler,
@@ -265,9 +269,13 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                 graphData={filteredData}
                 width={dims.width}
                 height={dims.height}
-                backgroundColor="#0a0a0f"
+                backgroundColor={GRAPH_BG}
                 nodeLabel="label"
-                nodeColor={colorFn}
+                nodeRelSize={5}
+                linkColor={() => GRAPH_LINK_COLOR}
+                linkWidth={1.6}
+                nodeCanvasObject={(node, ctx, scale) => drawGraphNode(node, ctx, scale, colorFn(node), 5)}
+                nodePointerAreaPaint={(node, color, ctx) => paintNodePointerArea(node, ctx, color, 5)}
                 onNodeClick={handleNodeClick}
                 cooldownTicks={100}
                 d3VelocityDecay={0.3}

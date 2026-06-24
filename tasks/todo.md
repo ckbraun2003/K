@@ -67,11 +67,15 @@ border `rgba(255,143,192,.16)`, tint `rgba(255,143,192,.10)`. Radii: 18/14/10px.
       via ConfirmDialog (204) — zero uncaught page errors. Screenshot confirms the midnight-glass look.
 - [x] Verify: typecheck clean · build ✓ · 133 web tests pass
 
-## Wave 6 — Knowledge graph + fleet graph (legible)
-- [ ] `KnowledgeGraphTab.tsx` — linkColor/linkWidth/particles, bigger nodes + glow + labels, bg
-- [ ] `FleetGraphPage.tsx` / `HomeFleetGraph.tsx` — bigger nodes, glow, labels, bg
-- [ ] `graph.ts` — GRAPH_COLORS retune; keep `react-force-graph-2d` import (bundle-guard green)
-- [ ] Review + verify → commit
+## Wave 6 — Knowledge graph + fleet graph (legible)  ✅ DONE
+- [x] `graph.ts` — shared `drawGraphNode` (glow + bright core + zoom-gated label) +
+      `paintNodePointerArea` (hit-area) + `GRAPH_BG`/`GRAPH_LINK_COLOR`
+- [x] `KnowledgeGraphTab.tsx` — visible sky edges (linkColor + linkWidth 1.6), glowing labeled
+      nodes via nodeCanvasObject + nodePointerAreaPaint, new bg
+- [x] `FleetGraphPage.tsx` / `HomeFleetGraph.tsx` — bigger glowing labeled nodes (val 6, size 7),
+      new health palette + legend, new bg
+- [x] Verify: typecheck clean · build ✓ · 133 tests (graph + bundle-guard green) · **live smoke 4/4**
+      (fleet graph screenshot confirms a large glowing labeled node vs. the old dull dot)
 
 ## Wave 7 — Documentation & artifacts
 - [ ] `06-dashboard-ux.md` — tokens table + rules + sidebar + tabs + graph spec

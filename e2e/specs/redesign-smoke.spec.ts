@@ -38,6 +38,15 @@ test('shell + labeled sidebar render; no top-level Docs rail item', async ({ pag
   await screenshot(page, 'redesign-home')
 })
 
+test('fleet graph renders a canvas (legible nodes/edges)', async ({ page }) => {
+  await gotoApp(page, '#/graph')
+  // ForceGraph2D paints into a <canvas>; its presence proves the renderer mounted
+  // (no AFRAME/module-eval crash) and the new node painter ran.
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15_000 })
+  await page.waitForTimeout(1500) // let the force sim settle for a clean shot
+  await screenshot(page, 'redesign-fleet-graph')
+})
+
 test('register → workspace shows Artifacts tab (not Bible) → add+delete a task', async ({ page }) => {
   const repo = makeScratchRepo(PERSONA, NAME)
   await gotoApp(page, '#/projects')

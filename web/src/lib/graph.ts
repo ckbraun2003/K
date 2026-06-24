@@ -56,6 +56,74 @@ export function nodeColor(node: GraphNode, filter: string): string {
   return GRAPH_COLORS.ok
 }
 
+// ─── Canvas paint helpers (shared by every ForceGraph2D surface) ──────────────
+// The default react-force-graph node is a tiny flat dot and its links are a 1px
+// near-invisible hairline on a dark canvas. These helpers draw a glowing node with
+// a bright core + a zoom-gated label, and a matching hit-area, so the graph reads
+// as a legible diagnostic surface (bible §06). Painting only runs during layout +
+// interaction (cooldownTicks settles the sim), so the glow cost isn't continuous.
+
+/** Canvas background for every graph — the new midnight-purple base. */
+export const GRAPH_BG = '#1a0f2e'
+/** Visible edge colour — sky-blue, semi-transparent, so links read on the dark canvas. */
+export const GRAPH_LINK_COLOR = 'rgba(56, 189, 248, 0.4)'
+
+type XYNode = { x?: number; y?: number; label?: string; id?: string | number }
+
+/** Paint a glowing node + (past a zoom threshold) its label. Because this REPLACES
+ *  the default node circle, callers must also pass `nodePointerAreaPaint`
+ *  (see paintNodePointerArea) so clicks still register. */
+export function drawGraphNode(
+  node: XYNode,
+  ctx: CanvasRenderingContext2D,
+  globalScale: number,
+  color: string,
+  size = 5,
+): void {
+  const x = node.x ?? 0
+  const y = node.y ?? 0
+  ctx.save()
+  ctx.shadowColor = color
+  ctx.shadowBlur = 14
+  ctx.beginPath()
+  ctx.arc(x, y, size, 0, 2 * Math.PI)
+  ctx.fillStyle = color
+  ctx.fill()
+  // bright core for depth
+  ctx.shadowBlur = 0
+  ctx.beginPath()
+  ctx.arc(x, y, size * 0.4, 0, 2 * Math.PI)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
+  ctx.fill()
+  ctx.restore()
+
+  const label = String(node.label ?? node.id ?? '')
+  if (label && globalScale > 1.3) {
+    const fontSize = Math.max(11 / globalScale, 2)
+    ctx.font = `${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    ctx.fillStyle = 'rgba(244, 240, 255, 0.9)' // --text
+    ctx.fillText(label, x, y + size + 1.5)
+  }
+}
+
+/** Hit-area paint so clicks register against the painted node. `color` is the
+ *  unique colour react-force-graph assigns for pointer hit-testing — use it as-is. */
+export function paintNodePointerArea(
+  node: XYNode,
+  ctx: CanvasRenderingContext2D,
+  color: string,
+  size = 5,
+): void {
+  const x = node.x ?? 0
+  const y = node.y ?? 0
+  ctx.fillStyle = color
+  ctx.beginPath()
+  ctx.arc(x, y, size + 2, 0, 2 * Math.PI)
+  ctx.fill()
+}
+
 export type DispatchAction = 'investigate' | 'fix' | 'explain'
 
 export const DISPATCH_ACTIONS: { action: DispatchAction; label: string; hint: string }[] = [
