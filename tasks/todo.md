@@ -1,231 +1,71 @@
-# Phase 4 (Multi-Device) + User-Testing Fixes
+# UI Redesign — Vivid Midnight-Glass
 
-Branch: `feat/phase-4-multidevice` (off `main`, after Phase H + Track A readiness merged).
-One reviewable commit per wave via the delegation loop (implementer → spec-review → quality-review →
-controller verifies/commits → CI/live smoke). Controller writes no code; all impl/fix/review/verify
-is delegated. Whole-implementation review before the final `--no-ff` merge.
+Branch: `feat/ui-redesign-midnight-glass`. One reviewable commit per wave via the
+delegation loop (implementer → spec-review → quality-review → controller verifies/commits).
+Plan: `~/.claude/plans/read-and-analyze-the-peaceful-crystal.md`.
 
-**Order of work:** **Track C (user-testing fixes) runs next**, before Phase 4 P2/P3 — highest-impact
-while the system is in active user testing. P1 auth (already built) just needs review + verify +
-commit. P2/P3 follow Track C.
+**Goal:** re-skin the entire dashboard to a vivid midnight-purple / blush-pink / sky-blue
+liquid-glass language; add delete (projects + tasks); fix nav IA (labeled sidebar, Docs
+out of rail, Bible→Artifacts); make the graph legible. Keep all data/logic wiring.
 
-Plans: `~/.claude/plans/read-and-analyze-the-cryptic-pearl.md` (this reconciliation),
-`~/.claude/plans/read-and-analyze-the-linked-bengio.md` (original Phase 4 plan).
+**Palette (vivid):** bg `#1a0f2e` · surface `#241640` · raised `#2e1b52` · border `#3a2a5c`
+· text `#f4f0ff` · muted `#a99bc4` · accent (blush) `#ff8fc0` · accent-hover/transition
+(sky) `#38bdf8` · status `#34d399`/`#fbbf24`/`#f87171`. Glass: bg `rgba(46,27,82,.55)`,
+border `rgba(255,143,192,.16)`, tint `rgba(255,143,192,.10)`. Radii: 18/14/10px.
 
-## Wave 0 — Land Phase H (pnpm dev fix + merge)  ✅ DONE
-- [x] Diagnosed + fixed the `pnpm dev` Vite-proxy/500 bug (`node --watch --import tsx` + `concurrently` + proxy 503 handler); verified proxy 200 in ~3s, typecheck/build green
-- [x] `--no-ff` merge Phase H into `main` (`fb8141c`) + pushed to origin (`224a4a6..fb8141c`)
+## Wave 1 — Foundation tokens + glass/radius primitives  ✅ DONE
+- [x] `web/src/index.css` — `:root` tokens, `.ambient` (blush↔sky), `.glow-focus` (sky),
+      `.card-lift:hover` (sky), `.glass`/`.glass-strong`/`.glass-tint`, `:focus-visible`, radii
+- [x] `web/tailwind.config.ts` — colors + `borderRadius` extension (panel/control/pill)
+- [x] `core/src/ui-artifact.ts` — `uiDemoHtml()` + `uiArtifactShell()` tokens + `.hero` glass
+- [x] `web/src/lib/graph.ts` — `GRAPH_COLORS.ok`/`.dim`
+- [x] Review (code-reviewer) → CRITICAL white-on-blush fixed (dark text on accent fills, hover→sky);
+      MEDIUM `uiArtifactShell` retuned. Verify: web+core typecheck clean · web build ✓ · 139 tests pass
 
-## Track A — User-Testing Readiness  ✅ MERGED (`d87d192`, pushed)
-- [x] **R1** — README quick-start overhaul + `.env.example` RUN_PERMISSION_MODE fix (`de1c956`)
-- [x] **R2** — In-app Getting Started card + surfaced Onboard/Verify/Build-graph + enabled Fleet Graph + nav tooltips/aria (live Playwright smoke green)
-- [x] **R3** — Bible §10 "How to Use K" user guide + in-app **Help** sidebar entry (compiled 10 sections; web typecheck/build clean)
+## Wave 2 — Shell & navigation (labeled sidebar, Docs out of rail)
+- [ ] `Sidebar.tsx` — ~200px labeled rail, glass active pill, sky hover, collapse toggle;
+      remove `docs` from primary DESTINATIONS; Help + Settings → footer cluster
+- [ ] `Shell.tsx` — grid column 52px→200px (+ collapsed variant); rounded stage; keep MotionConfig
+- [ ] `TopBar.tsx` / `CommandBar.tsx` / `ActivityStrip.tsx` — restyle, larger targets, rounder
+- [ ] Review + verify → commit
 
----
+## Wave 3 — Delete projects & tasks (backend + frontend)
+- [ ] `core/src/db.ts` — `deleteProject` / `deleteProjectTask`
+- [ ] `core/src/routes/projects.ts` — `DELETE /:id` + `DELETE /:id/tasks/:taskId` (204);
+      `runs.ts` remove stale TOCTOU comment + make `startRun` delete-resilient
+- [ ] `core/test/` — project-delete + task-delete coverage (200/404, cascade)
+- [ ] `web/src/lib/api.ts` — `projects.delete` / `projects.tasks.delete`
+- [ ] `ProjectCard.tsx` / `ProjectsPage.tsx` / `TasksTab.tsx` — delete affordance + ConfirmDialog
+- [ ] Review + verify (live 204 path) → commit
 
-## Track C — User-Testing Fixes  ⬅ NEXT
+## Wave 4 — Project workspace + Bible→Artifacts tab
+- [ ] `ProjectWorkspace.tsx` — restyle tab bar; rename `bible`→`artifacts` (label "Artifacts")
+- [ ] `BibleTab.tsx`→`ArtifactsTab.tsx` — project-scoped artifact gallery; keep edit + recompile
+- [ ] Restyle Overview / Tasks / Runs / PRs & CI / Verification tab bodies
+- [ ] Review + verify → commit
 
-Folds in the prioritized fix backlog from `artifacts/user-testing-report.md` (38 findings —
-0 Critical · 8 High · 6 Med · 13 Low · 11 Nit). Each wave runs the standard
-implementer → spec-review → quality-review → verify loop and lands one reviewable commit. Report
-backlog item numbers are shown in `(report #N)`.
+## Wave 5 — Home, cards & list pages
+- [ ] Restyle Home, ProjectCard, MetricCard, ProjectsPage, SkillsPage, RunsPage, MetricsPage,
+      RoutingPage, GettingStarted — spacing, rounded glass, blush/sky, mono numerals kept
+- [ ] Review + verify → commit
 
-### Wave C1 — Terminal port + disabled banner  ✅ DONE (committed `a4e5511`)  [clears a High]
-- [x] Fixed `terminalWsUrl()` (`web/src/lib/terminal.ts`) to take a **required** `port` param
-      (no default → a future caller can't silently regress to a hardcoded port); `TerminalPage`
-      computes `VITE_CORE_PORT ?? '3001'` exactly like `web/src/lib/ws.ts:30` and passes it
-      (report #1; finding #8)
-- [x] `TerminalPage.tsx` now renders a **connecting / disabled / failed** status badge + a
-      pane-scoped overlay instead of a silent blank xterm; effect-scoped `reported` flag keeps a
-      server gate frame (e.g. `disabled`) from being clobbered by the unclean-close message
-      (report #2; finding #7). Added `data-testid` `terminal-status` / `terminal-overlay`
-- [x] Spec + quality review (code-reviewer agent) → **APPROVE**, 0 Critical/High/Med; applied the
-      LOW copy-consistency nit; rejected the NIT (unconditional `setConnecting(false)` is the more
-      robust choice — prevents a stuck-"Connecting…" path on a clean close before open)
-- [x] Verify: web typecheck clean · `web test` **96 passed** (+1 new) · `build` ✓ · live Playwright
-      smoke on **non-default** port 3190 (`P09` terminal test) — disabled banner shown and the core
-      logged `GET /ws/terminal` arriving at **:3190** (proves the port is honored, not dead `:3001`)
+## Wave 6 — Knowledge graph + fleet graph (legible)
+- [ ] `KnowledgeGraphTab.tsx` — linkColor/linkWidth/particles, bigger nodes + glow + labels, bg
+- [ ] `FleetGraphPage.tsx` / `HomeFleetGraph.tsx` — bigger nodes, glow, labels, bg
+- [ ] `graph.ts` — GRAPH_COLORS retune; keep `react-force-graph-2d` import (bundle-guard green)
+- [ ] Review + verify → commit
 
-### Wave C2 — Routing + ⌘K dispatch  ✅ DONE (committed)
-- [x] 404 / unknown-route empty-state — `web/src/pages/NotFound.tsx` rendered from `Shell.tsx`'s
-      default branch via the shared `isKnownView()`/`KNOWN_VIEWS` in `web/src/lib/route.ts`; TopBar
-      shows "Not found" (⌀), not "Home"; `data-testid="route-404"` (report #3; finding #13)
-- [x] Dispatch **confirm / preview card** in `CommandBar.tsx` — `execute()` now stages a confirm
-      card (Project / Model / Scope·permission) before `fireDispatch()` calls `api.runs.start`;
-      Enter confirms, Esc cancels (report #4; finding #4). Model/permission shown as **defaults**
-      with explicit "(default · routing/env may override)" caveats so the card can't misrepresent the
-      effective run config — makes bible §10's confirm-card language true without lying
-- [x] Disambiguate navigate-vs-dispatch via `decideEnterMode()` (pure, unit-tested) + a footer
-      mode toggle (Tab flips Navigate/Dispatch, `data-testid="enter-mode-toggle"`); empty-query
-      Enter is now a no-op (report #5; findings #12, #26)
-- [x] Spec + quality review (code-reviewer) → **CHANGES REQUESTED** → fixed: confirm-card `flex-col`
-      stacking, default-caveats, cancel-confirm-on-edit, `role=dialog`+focus+aria, dead Esc/`navMatch`
-      dedup. Re-run clean
-- [x] Verify: web typecheck · `web test` **100 passed** (command-parse 12→16) · build ✓ · **live
-      browser smoke 5/5** (no blank-screen regression, 404 state, confirm card stacks below w/ caveats,
-      empty Enter no-op, mode toggle) — zero console errors
+## Wave 7 — Documentation & artifacts
+- [ ] `06-dashboard-ux.md` — tokens table + rules + sidebar + tabs + graph spec
+- [ ] `08-decision-log.md` — D-011 (vivid-glass redesign, IA changes, delete)
+- [ ] Recompile bible + ui-demo; verify in Artifacts tab
+- [ ] Update this `todo.md` review section; capture lessons
+- [ ] Review + verify → commit
 
-### Wave C3 — Destructive-action confirms + skill feedback  ✅ DONE (committed)
-- [x] Reusable `ConfirmDialog` gates skill **delete** + run **kill** at **both** kill sites
-      (RunConsole + RunList); `api.skills.delete`/`api.runs.kill` only fire from the dialog confirm
-      (report #6; findings #19, #27). testids `skill-delete-*` / `run-kill-*`
-- [x] `Toast` on skill **trigger** linking to the **real** run (trigger returns `{runId}` →
-      `navigate('runs', runId)`); trigger/delete now have error feedback too (report #6; finding #10)
-- [x] `SkillRunHistory` surfaces the previously-dead `api.skills.runs()` (react-query, list/empty/
-      error states, each row links to its run) (report #6; finding #11)
-- [x] Spec + quality review (code-reviewer) → CHANGES (4 MED) → fixed: ConfirmDialog `aria-labelledby`,
-      Toast timer-reset (ref'd onDismiss), trigger/history error states, delete-error in dialog
-- [x] Verify: web typecheck · `web test` **109 passed** (skill-runs + api-204 unit tests) · build ✓ ·
-      **live smoke 5/5** (no blank screen; delete/kill confirm gate; trigger toast+link navigates;
-      history renders). Smoke **caught a real bug** — `DELETE /api/skills/:id` returns 204 but
-      `req<void>()` called `res.json()` → "Unexpected end of JSON input", so a successful delete
-      errored in the UI. Root-caused in `web/src/lib/api.ts` `req()` (204/empty short-circuit) +
-      unit test; **re-verified live** (dialog closes, row clears without reload, zero console errors)
-
-### Wave C4 — Testability hooks  ✅ DONE (committed)  [de-risks the P02/P04 High timeouts]
-- [x] Added stable `data-testid` across the surfaces (report #8; theme e): register dialog
-      (`register-open`/`-dialog`/`-name`/`-source`/`-submit`), project cards + verify action
-      (`project-card-${id}`, `project-verify-btn-${id}` — keyed by id to avoid Playwright strict-mode
-      collisions on the grid), ⌘K input + rows (`cmdk-input`, `cmdk-row-dispatch`/`-nav`), run controls
-      (`run-row` [intentionally non-unique], `run-filter-${f}`; kill `run-kill-btn`/`-dialog` already
-      landed in C3), WS dot (`ws-dot` + `data-ws-status`). Dropped a dead `data-cmdk-row` attr
-- [x] Single-stack repro (`e2e/specs/C4-repro.spec.ts`, gated out of the persona swarm via `PERSONA`)
-      proves **P02 register-dialog (#1,#2) and P04 verify-nav (#5,#6) are harness parallel-load
-      flakiness, NOT product defects**: register #1/#2 close the dialog + render cards in ~1.3s each,
-      verify-nav reaches `#/verify/<id>` in ~85ms; spec asserts dialog-close, card-count ≥2, the URL
-      carries the real project id, and **zero unexpected 4xx/5xx** (so a server error can't pass
-      silently). No product defect → no code fix needed
-- [x] Spec + quality review (code-reviewer) → **CHANGES REQUESTED** (1 HIGH testid-uniqueness, 3 MED
-      repro-rigor, 2 LOW) → all fixed: id-keyed `project-verify-btn`, asserted `net4xx5xx`,
-      URL-carries-id assertion, self-sufficient 2nd register test, swarm gate, `run-row` comment, dead
-      attr removed. Re-run clean
-- [x] Verify: web typecheck · `web test` **109 passed** · build ✓ · repro spec **3/3** on a non-PERSONA
-      single default-port stack (0 console/page errors, 0 HTTP ≥400)
-
-### Wave C5 — Polish & hygiene  ✅ DONE (committed)
-- [x] WS dot now flips to amber + a "connecting…"/"live" text label on outage (`TopBar.tsx`; `ws.ts`
-      already `emitStatus(false)` on close) (report #10; findings #14, #37). **Live-smoke verified**:
-      kill core → amber/"connecting…" → restart → green/"live"
-- [x] Client-side hints before the server round-trip (report #11): register source classified by a new
-      pure `web/src/lib/source.ts` (`classifySource` → path/url/invalid; handles Windows `C:\`, UNC,
-      POSIX, `~`, relative + GitHub URLs) with an inline hint + submit-gate (finding #25); cron shape
-      validated by a new `web/src/lib/cron.ts` `checkCron()` ported to match node-cron v4 at the server
-      boundary (incl. trailing-field tolerance) with an inline hint (finding #18)
-- [x] Metrics axis tick overlap fixed via extracted `axisTickIndices()` in `web/src/lib/chart.ts`
-      (gap rule drops a weekly tick too close to the right-anchored last tick); 30d → `[0,7,14,21,29]`,
-      7/14d unchanged (report #12; finding #22)
-- [x] Keyboard-chord parity — all 9 enabled views now have g-chords (added graph/skills/routing/
-      terminal via `web/src/lib/chords.ts`) + a `?`-toggled, Escape-closing, focus-managed in-app
-      shortcut legend (report #13; finding #24)
-- [x] Bible iframe quieted — `web/src/lib/html.ts` `stripScripts()` removes the compiled bible's inline
-      `<script>` before the script-less sandbox renders it (NO `allow-scripts` — XSS lesson), killing
-      the per-render "Blocked script execution" error; expected-4xx noise left as-is (report #14;
-      finding #16; #29/#38 unchanged)
-- [x] Spec + quality review (code-reviewer) → **CHANGES REQUESTED** (1 HIGH: Windows `\` paths wrongly
-      flagged malformed — would block local register on Windows; 2 MED cron-7-field/legend-focus; LOW/
-      NIT) → all fixed: path classifier extracted + regex `/^[a-zA-Z]:[/\\]/` + `source.test.ts`
-      proving `C:\Users\…`→path; cron trailing-field parity; legend focus + chord-clear-on-open
-- [x] Verify: web typecheck · `web test` **139 passed** (+30: cron/chords/html/source/chart tests) ·
-      build ✓ · WS-dot outage live-smoke green
-
-### Wave C6 — Cold-load / latency investigation  ✅ DONE (committed)  [investigate, don't blind-fix]
-- [x] **Root-caused the request storm (finding #3):** `ProjectCard` ran a **per-card**
-      `useQuery(['github', id])`, so the Home/Projects grid fired **N parallel** `/api/projects/:id/github`
-      requests on cold mount (measured 1:1 — 24 cards→24 in-flight, 60→60), exhausting the browser
-      socket pool. **Fixed N→1:** new `GET /api/projects/github` batch route (same cheap cached SQLite
-      read, behind the global auth `onRequest` hook), a shared `web/src/lib/useFleetGithub()` hook
-      (single `['github-fleet']` query, 60s interval + `staleTime`), and a now-**pure** `ProjectCard`
-      (takes `gh?` prop). Single-project workspace tabs keep the per-id route. Measured after: total
-      requests 60→11, peak in-flight 60→6, fan-out →0
-- [x] **Reframed findings #9 (cold Home ~20s) and #17 (create-skill ~16s) as a measurement artifact,
-      NOT product defects:** they were the **Vite dev-server cold-compile** of the 1.1 MB bundle on
-      first interaction; the **built** bundle is interactive in ~0.7–2s (an order of magnitude below
-      the dev-server figures). No app/server change warranted for those
-- [x] Spec + quality review (code-reviewer, core+web) → **CHANGES REQUESTED** (2 HIGH) → resolved:
-      auth-scope HIGH confirmed a non-issue (global `app.addHook('onRequest')` covers all routes); the
-      throwaway `e2e/perf/` measurement scaffolding (hardcoded path + dead create-skill stub) **dropped**
-      from the commit (numbers captured here); `staleTime` added to the fleet hook
-- [x] Verify: web typecheck · `web test` **139 passed** · build ✓ · core typecheck · `core test`
-      **437 passed** (incl. new `github-fleet-route.test.ts`: map shape, per-id parity, no `:id`
-      shadowing). Before/after request-count deltas measured on the built bundle (see above)
-
----
-
-## Track B — Phase 4 (Multi-Device)
-
-### Wave P1 — Remote-access hardening  ✅ DONE (committed `5d629b1`)
-- [x] Replaced insecure default `HARNESS_TOKEN` flow with a strong **generated + persisted first-run
-      token** (`core/src/auth.ts`: env → `data/auth-token` → `crypto.randomBytes(32)` first-run +
-      banner; `unsafeBootReason` refuses a non-loopback bind with a weak/empty token; constant-time
-      `tokensEqual`/`wsTokenOk`). Wired in `core/src/index.ts` (`resolveHarnessToken`,
-      `unsafeBootReason`, first-run banner). Web: `web/src/lib/auth.ts` + `LoginScreen.tsx` (401 →
-      token login, sessionStorage), `ws.ts`/`api.ts` use `effectiveToken()`
-- [x] Documented Tailscale / reverse-proxy exposure + guardrails — bible §09 "Remote access" section
-      (token resolution, safety gate, Tailscale/HTTPS-proxy guidance, WS `4401` auth)
-- [x] **Security-review (mandatory) + quality + spec-conformance** of the auth surface →
-      security **APPROVE** (post-fix), quality **CHANGES→fixed**, spec **CONFORMS**. Blockers fixed:
-      WS `4401` no longer infinite-reconnects (shared `auth-events` surfaces login on REST+WS),
-      `ws.ts` uses `wss://` over HTTPS, `vite.config` never bakes a real token (DEV-gated
-      `effectiveToken`), Fastify `disableRequestLogging` (no bearer in logs), `terminalGate`
-      constant-time + a non-loopback `TERMINAL_TOKEN` boot gate. Deferred (documented): HMAC-equalized
-      compare (token is fixed-length base64url(32) — length not secret)
-- [x] Verify: core **425** + web **96** tests · build ✓ · **8/8 live runtime smoke** — first-run
-      gen+persist (banner == `data/auth-token`), REST `401`(none/wrong)/`200`(valid), WS `4401`/open,
-      non-loopback weak-token boot refusal for **both** HARNESS_TOKEN and TERMINAL_TOKEN
-- [x] Committed `5d629b1` (auth surface + README remote-access + §09); e2e harness + lockfile landed
-      separately in `4738d01` (`test:`)
-
-### Wave P2 — Tauri desktop app
-- [ ] Tauri shell wrapping the web UI + bundled/launched core, tray icon, native notifications (run completion, CI status); new workspace package + build scripts
-- [ ] Spec + quality (+ build-error-resolver for Rust/Tauri toolchain as needed)
-- [ ] Verify: app launches, connects to core, tray + a native notification fire
-
-### Wave P3 — PWA mobile
-- [ ] Installable PWA (manifest, service worker, icons) + push notifications; responsive dashboard/graph on mobile
-- [ ] Spec + quality
-- [ ] Verify: Lighthouse PWA installability passes; install + push notification verified
-
-## Bible §10 reconciliation (doc-vs-reality)
-- [ ] **Edit-affordance pointer (report #7; findings #15, #28):** §10 already points editing to the
-      project-**workspace Bible tab** (correct), but the **Help → Docs** path lands readers in
-      read-only Docs. Add one sentence making clear that section editing + Recompile live in the
-      workspace Bible tab (not the read-only Docs/Help view) so §10's "edit each section" promise has
-      a real target. _(Doc-only — done in this reconciliation pass; see Review notes.)_
-- [ ] Confirm-card / node-dispatch language in §10 is intentionally **kept** — it converges to reality
-      when **Wave C2** lands the confirm card (node-dispatch is already wired). Do not delete/re-add.
-
-## Whole-implementation review + merge
-- [ ] Whole-impl review across Track C + P1–P3 (security, integration, regressions, lessons adherence, dead-code)
-- [ ] CI green (`pnpm typecheck && pnpm -r test && pnpm build`) + final live smoke
-- [ ] `--no-ff` merge `feat/phase-4-multidevice` into `main`, push
-
-## Deferrals / known coverage gaps (out of scope unless requested)
-- **Live run-config in the ⌘K confirm card (from C2):** the card previews the *default* model +
-  permission mode with an explicit "(default)" caveat. The truly-effective values come from core env
-  (`CLAUDE_MODEL`/`RUN_PERMISSION_MODE`) and the per-project router. A `GET /api/run-config` endpoint
-  (+ per-dispatch routing preview) would make the card show exact effective values — Phase 4 follow-up.
-- Wire coverage signal + agent-layer verification scoring into the health score (bible §05 flags both)
-- Adaptive polling cadence / webhook push / learned routing (bible Phase 5)
-- **Untested in the user-testing swarm (verify before claiming these work):** populated
-  metrics/routing **trends over time** (only empty/low-data rendering tested); real **GitHub clone +
-  PR creation** (only graceful no-remote degradation); `gitnexus analyze` **KG build to terminal
-  state** (only that the canvas renders, no AFRAME blank); **fleet node → workspace click-through**
-  (canvas hit-test; wired but unverified by automation); **edit-mode / long-running / concurrent real
-  dispatch** (only one short plan-mode run per persona)
+## Wave 8 — Whole-redesign verification
+- [ ] `pnpm -r build` + `pnpm -r test` (bundle-guard + new delete tests green)
+- [ ] Live browser smoke (palette, nav, delete 204, artifacts, graph edges, reduced-motion, glass fallback)
+- [ ] Docs-match-source check; whole-redesign review
 
 ## Review notes
-
-### Doc reconciliation pass (2026-06-22)
-Folded the user-testing report's 14-item prioritized backlog into a new **Track C** (Waves C1–C6),
-grouped by theme, each ready for the delegation loop; every backlog item maps to a wave item with its
-`report #N` / `finding #N` reference. Corrected the tracker branch to `feat/phase-4-multidevice`.
-
-Verified against source (not just the report):
-- **P1 auth is built and uncommitted** — `core/src/auth.ts`, `core/src/index.ts` (banner at :47/:226/:262),
-  web login flow, and bible §09 "Remote access" all present; remaining work is security-review +
-  verify + commit only.
-- **Still open, confirmed in source:** `web/src/lib/terminal.ts:11` hardcodes `:3001` (Wave C1);
-  `web/src/shell/CommandBar.tsx:84` `execute()` calls `api.runs.start` with no confirm card (Wave C2).
-
-Bible §10 edit-affordance pointer clarified in this pass; confirm-card language intentionally kept
-(converges when C2 lands). No product/source code touched.
+_(filled in as waves land)_

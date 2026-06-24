@@ -14,10 +14,10 @@ export type GraphNode = {
 // Canonical node colours, shared by the per-node colour function and the legend so
 // they can never drift apart.
 export const GRAPH_COLORS = {
-  failing: '#ef4444', // has critical/error findings
-  untested: '#eab308', // amber — no last run / explicitly untested
-  ok: '#6366f1', // accent
-  dim: '#3a3a44', // filtered out
+  failing: '#f87171', // has critical/error findings
+  untested: '#fbbf24', // amber — no last run / explicitly untested
+  ok: '#ff8fc0', // blush accent — healthy
+  dim: '#4c3a6e', // muted purple — filtered out
 } as const
 
 export const GRAPH_LEGEND: { color: string; label: string }[] = [

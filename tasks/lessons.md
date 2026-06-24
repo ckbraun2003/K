@@ -233,6 +233,27 @@ entries at session start before touching the same area.
   mirror a server validator on the client (cron ↔ node-cron), match it exactly at the boundary
   (node-cron ignores trailing fields → don't reject a 6+field expression the server accepts).
 
+## UI redesign — vivid midnight-glass (2026-06-24)
+
+- **A light accent demands DARK foreground on filled surfaces** — **Pattern:** the redesign moved
+  `--accent` from indigo (#6366f1) to blush pink (#ff8fc0). Every pre-existing primary button used
+  `bg-[var(--accent)] text-white` / `color:#fff`, which on the light blush fill is **2.1:1** — a hard
+  WCAG-AA fail (caught by the Wave-1 review, not by typecheck/build/tests). **Rule:** when the accent
+  is a *light* hue, accent-FILLED elements (primary buttons, solid badges, active pills) must use a
+  **dark** foreground — `text-[var(--bg)]` / `#1a0f2e` (≈5.3:1 on blush) — never `text-white`. Hover
+  transitions to the sky-blue `--accent-hover`. Accent-as-TEXT on a dark surface is fine (blush on
+  surface ≈7.9:1). Sweep `text-white`/`#fff` paired with `bg-accent`/`var(--accent)` in every wave's
+  components and flip to dark. Contrast is invisible to the build — verify ratios in review.
+
+- **One palette, four code locations + one doc — change them together** — **Pattern:** the K palette is
+  duplicated in `web/src/index.css` (`:root` + utility classes), `web/tailwind.config.ts` (`colors`),
+  `core/src/ui-artifact.ts` (`uiDemoHtml()` + `uiArtifactShell()` inline CSS), and `web/src/lib/graph.ts`
+  (`GRAPH_COLORS`), and documented in bible §06. A retune that misses one silently ships a two-tone UI
+  (e.g. the raw-artifact `uiArtifactShell` was nearly left on the old `#0a0a0f`). **Rule:** treat the
+  token set as one unit — grep the old hexes (`6366f1`, `0a0a0f`, `99,102,241`, `34,197,94`) across ALL
+  five locations after a palette change and confirm zero hits (except deliberately-kept chart hues).
+  `graph.test.ts` references `GRAPH_COLORS.*` by name, so color *values* can change without breaking it.
+
 ## Todo-workflow (2026-06-24)
 
 - **Lifecycle that locks state before an await must roll back on throw** — **Pattern:**
