@@ -254,6 +254,32 @@ entries at session start before touching the same area.
   five locations after a palette change and confirm zero hits (except deliberately-kept chart hues).
   `graph.test.ts` references `GRAPH_COLORS.*` by name, so color *values* can change without breaking it.
 
+## UI redesign — delete projects/tasks (2026-06-24)
+
+- **A "cascade delete" is only as complete as the FK declarations — audit EVERY referencing table**
+  — **Pattern:** adding `DELETE /api/projects/:id` looked like a one-liner (`DELETE FROM projects`)
+  because the plan said "FK ON DELETE CASCADE handles dependents." But only `project_tasks`,
+  `workflow_runs`, `project_graphs` declared `ON DELETE CASCADE`; `runs.project_id` and
+  `verification_reports.project_id` declared a bare `REFERENCES` (RESTRICT), `events` references
+  `runs` (no cascade), and `github_cache` has no FK at all. With `PRAGMA foreign_keys = ON`, a plain
+  project delete would THROW "FOREIGN KEY constraint failed" the moment the project had any run or
+  report — invisible to typecheck/build and to a happy-path test on an empty project. **Rule:** before
+  shipping a parent delete, enumerate every table whose FK points at the parent (or at the parent's
+  children, e.g. `events → runs`), confirm each one's `ON DELETE` action, and clean the non-cascading
+  ones explicitly inside ONE `db.transaction()` in FK-safe order (grandchildren before children before
+  parent). Write a cascade test that seeds a row in EVERY dependent table and asserts all are empty
+  after — an empty-project delete test proves nothing. SQLite can't ALTER a column's FK, so adding
+  `ON DELETE CASCADE` to an existing table needs a table-rebuild migration; a transactional explicit
+  cleanup is the lower-risk fix.
+
+- **Guard a destructive parent-delete against in-flight children** — **Pattern:** hard-deleting a
+  project's `runs` rows while the supervisor is still writing events for a live run would make the next
+  event INSERT FK-fail and crash that run. **Rule:** refuse the delete (409) while the parent has
+  active children (`status IN ('running','queued')`) so a row is never deleted out from under a live
+  writer; surface that 409 message in the confirm dialog. And distinguish "delete this child's history"
+  from "this child is scoped elsewhere": skill_runs/skill_evals are skill-scoped, so a project delete
+  intentionally leaves them (their `runId` SET NULL preserves skill history) rather than erasing them.
+
 ## Todo-workflow (2026-06-24)
 
 - **Lifecycle that locks state before an await must roll back on throw** — **Pattern:**

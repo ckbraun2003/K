@@ -5,6 +5,7 @@ import type { Project } from '@k/shared'
 import { api } from '../lib/api'
 import ProjectCard from '../components/ProjectCard'
 import GettingStarted from '../components/GettingStarted'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { useFleetGithub } from '../lib/useFleetGithub'
 import { classifySource } from '../lib/source'
 
@@ -13,6 +14,7 @@ export default function ProjectsPage() {
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
   const githubFor = useFleetGithub()
   const [open, setOpen] = useState(false)
+  const [deleting, setDeleting] = useState<Project | null>(null)
   const [name, setName] = useState('')
   const [source, setSource] = useState('')
   const trimmedSource = source.trim()
@@ -44,6 +46,17 @@ export default function ProjectsPage() {
     },
   })
 
+  const del = useMutation({
+    mutationFn: (id: string) => api.projects.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['github-fleet'] })
+      setDeleting(null)
+    },
+  })
+
+  function closeDelete() { setDeleting(null); del.reset() }
+
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="flex items-center justify-between">
@@ -53,14 +66,16 @@ export default function ProjectsPage() {
         <button
           data-testid="register-open"
           onClick={() => setOpen(true)}
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-90"
+          className="rounded-control bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--bg)] transition-colors duration-150 hover:bg-[var(--accent-hover)]"
         >
           + register project
         </button>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-3">
-        {projects.map(p => <ProjectCard key={p.id} project={p} gh={githubFor(p.id)} />)}
+        {projects.map(p => (
+          <ProjectCard key={p.id} project={p} gh={githubFor(p.id)} onDelete={() => setDeleting(p)} />
+        ))}
       </div>
       {projects.length === 0 && (
         <GettingStarted projects={projects} forceOpen onRegister={() => setOpen(true)} />
@@ -120,7 +135,7 @@ export default function ProjectsPage() {
                   data-testid="register-submit"
                   onClick={() => register.mutate()}
                   disabled={!name.trim() || !trimmedSource || sourceMalformed || register.isPending}
-                  className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-90 disabled:opacity-40"
+                  className="rounded-control bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[var(--bg)] transition-colors duration-150 hover:bg-[var(--accent-hover)] disabled:opacity-40"
                 >
                   {register.isPending ? 'registering…' : 'Register →'}
                 </button>
@@ -129,6 +144,23 @@ export default function ProjectsPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        testid="project-delete"
+        title="Delete project"
+        message={
+          <>
+            Permanently delete <span className="font-semibold text-[var(--text)]">{deleting?.name}</span> and
+            all its runs, tasks, verification history & knowledge graph? This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete project"
+        busy={del.isPending}
+        error={del.isError ? String(del.error) : undefined}
+        onConfirm={() => deleting && del.mutate(deleting.id)}
+        onCancel={closeDelete}
+      />
     </div>
   )
 }

@@ -123,10 +123,10 @@ describe('seedUiDemo — Command Deck', () => {
     expect(html).toContain('<script>')
     expect(html).not.toMatch(/https?:\/\/[^"'\s]+\.(css|js)/)  // no external CDN css/js
     expect(html).not.toContain('<link ')                        // no external stylesheet/font links
-    // reflects the hybrid-glass look shipped in Wave 4
+    // reflects the vivid midnight-glass palette (D-011): midnight-purple base + blush accent
     expect(html).toContain('backdrop-filter')
-    expect(html).toContain('#0a0a0f')
-    expect(html).toContain('#6366f1')
+    expect(html).toContain('#1a0f2e')
+    expect(html).toContain('#ff8fc0')
   })
 })
 

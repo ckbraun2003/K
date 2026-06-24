@@ -104,6 +104,9 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
+    // Hard-delete a project and all its data (204). May 409 if the project has
+    // active runs — the caller surfaces that message in the confirm dialog.
+    delete: (id: string) => req<void>(`/projects/${id}`, { method: 'DELETE' }),
     github: (id: string) => req<GithubStatus>(`/projects/${id}/github`),
     // Fleet-level batch: all projects' cached github status in one request, so
     // the Home/Projects grid doesn't fan out one /github call per card (Wave C6).
@@ -131,6 +134,8 @@ export const api = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status }),
         }),
+      delete: (projectId: string, taskId: string) =>
+        req<void>(`/projects/${projectId}/tasks/${taskId}`, { method: 'DELETE' }),
       sync: (projectId: string) =>
         req<{ synced: number; degraded: boolean }>(`/projects/${projectId}/tasks/sync`, { method: 'POST' }),
       dispatchWorkflow: (projectId: string, taskIds: string[]) =>

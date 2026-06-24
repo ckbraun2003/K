@@ -33,14 +33,19 @@ border `rgba(255,143,192,.16)`, tint `rgba(255,143,192,.10)`. Radii: 18/14/10px.
       hidden filter) all fixed. Verify: typecheck clean · build ✓ · 139 tests pass
       _(live browser smoke deferred to post-Wave-5 checkpoint + Wave 8)_
 
-## Wave 3 — Delete projects & tasks (backend + frontend)
-- [ ] `core/src/db.ts` — `deleteProject` / `deleteProjectTask`
-- [ ] `core/src/routes/projects.ts` — `DELETE /:id` + `DELETE /:id/tasks/:taskId` (204);
-      `runs.ts` remove stale TOCTOU comment + make `startRun` delete-resilient
-- [ ] `core/test/` — project-delete + task-delete coverage (200/404, cascade)
-- [ ] `web/src/lib/api.ts` — `projects.delete` / `projects.tasks.delete`
-- [ ] `ProjectCard.tsx` / `ProjectsPage.tsx` / `TasksTab.tsx` — delete affordance + ConfirmDialog
-- [ ] Review + verify (live 204 path) → commit
+## Wave 3 — Delete projects & tasks (backend + frontend)  ✅ DONE
+- [x] `core/src/db.ts` — transactional `deleteProject` (events→runs→reports→github_cache→project;
+      FK-safe, non-cascading tables cleaned explicitly) + `countActiveProjectRuns` + `deleteProjectTask`
+- [x] `core/src/routes/projects.ts` — `DELETE /:id` (404 / 409-active-runs / 204) +
+      `DELETE /:id/tasks/:taskId` (404/400/204); `runs.ts` startRun try/catch maps FK→400 (TOCTOU)
+- [x] `core/test/delete-routes.test.ts` — 8 tests: task 404/400/cross-project-404/204, project
+      404/409→204/full-cascade
+- [x] `web/src/lib/api.ts` — `projects.delete` / `projects.tasks.delete`
+- [x] `ProjectCard.tsx` (hover trash) / `ProjectsPage.tsx` + `TasksTab.tsx` (per-row trash) +
+      ConfirmDialog; fixed white-on-blush buttons → `text-[var(--bg)]`
+- [x] Review (code-reviewer) → 2 HIGH: cross-project test added; skill_runs orphan evaluated &
+      documented (skill-scoped, intentionally retained — skill runs carry no projectId). Verify:
+      core+web typecheck clean · 460 core + 139 web tests pass
 
 ## Wave 4 — Project workspace + Bible→Artifacts tab
 - [ ] `ProjectWorkspace.tsx` — restyle tab bar; rename `bible`→`artifacts` (label "Artifacts")

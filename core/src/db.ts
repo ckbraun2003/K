@@ -310,7 +310,49 @@ const updateProjectHealth = db.prepare(`
 const getProject = db.prepare(`SELECT * FROM projects WHERE id = ?`)
 const listProjects = db.prepare(`SELECT * FROM projects ORDER BY name`)
 
-export const projectsDb = { insertProject, updateProjectHealth, getProject, listProjects }
+// Count runs still in flight for a project. The delete route refuses while any
+// are live so we never delete a run row out from under the supervisor (its next
+// event INSERT would FK-fail against a now-missing run).
+const countActiveProjectRuns = db.prepare(
+  `SELECT COUNT(*) AS n FROM runs WHERE project_id = ? AND status IN ('running','queued')`,
+)
+
+// Hard-delete a project and everything hanging off it. project_tasks,
+// workflow_runs and project_graphs cascade automatically (ON DELETE CASCADE); but
+// runs, verification_reports, a run's events, and github_cache have NO cascade, so
+// they're cleaned explicitly in FK-safe order inside one transaction. Deleting the
+// runs first lets workflow_runs.run_id (ON DELETE SET NULL) resolve before the
+// project row (and its workflow_runs) cascade away.
+//
+// skill_runs/skill_evals are deliberately NOT touched: they are SKILL-scoped history
+// (anchored to skills.id), and skill-triggered runs are launched with no projectId
+// (skills.ts startRun(skill.source)) so they carry project_id = NULL and are never
+// matched by deleteProjectRuns. If a future skill ever dispatched a project-scoped
+// run, runs(id)'s ON DELETE SET NULL on skill_runs/skill_evals correctly preserves
+// the skill's execution history rather than erasing it on a project delete.
+const deleteProjectRunEvents = db.prepare(
+  `DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+)
+const deleteProjectRuns = db.prepare(`DELETE FROM runs WHERE project_id = ?`)
+const deleteProjectReports = db.prepare(`DELETE FROM verification_reports WHERE project_id = ?`)
+const deleteProjectGithubCache = db.prepare(`DELETE FROM github_cache WHERE project_id = ?`)
+const deleteProjectRow = db.prepare(`DELETE FROM projects WHERE id = ?`)
+const deleteProject = db.transaction((id: string) => {
+  deleteProjectRunEvents.run(id)
+  deleteProjectRuns.run(id)
+  deleteProjectReports.run(id)
+  deleteProjectGithubCache.run(id)
+  deleteProjectRow.run(id) // cascades project_tasks, workflow_runs, project_graphs
+})
+
+export const projectsDb = {
+  insertProject,
+  updateProjectHealth,
+  getProject,
+  listProjects,
+  countActiveProjectRuns,
+  deleteProject,
+}
 
 // ─── Project graph helpers ───────────────────────────────────────────────────
 
@@ -394,6 +436,8 @@ const updateProjectTaskStatus = db.prepare(`
 
 const getProjectTask = db.prepare(`SELECT * FROM project_tasks WHERE id = ? AND project_id = ?`)
 
+const deleteProjectTask = db.prepare(`DELETE FROM project_tasks WHERE id = ? AND project_id = ?`)
+
 // Issue-sync lookup: a task already mirroring a given (project, issue#).
 const getProjectTaskByIssue = db.prepare(`SELECT * FROM project_tasks WHERE project_id = ? AND issue_number = ?`)
 
@@ -411,6 +455,7 @@ export const projectTasksDb = {
   listProjectTasks,
   updateProjectTaskStatus,
   getProjectTask,
+  deleteProjectTask,
   getProjectTaskByIssue,
   updateProjectTaskFromIssue,
 }

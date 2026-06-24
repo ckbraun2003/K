@@ -15,7 +15,15 @@ function ciState(gh?: GithubStatus): 'passing' | 'failing' | 'unknown' {
 // `gh` is supplied by the parent grid via a single fleet-level query
 // (lib/useFleetGithub) rather than a per-card fetch — see Wave C6: N cards used
 // to fire N parallel /github requests, exhausting the browser socket pool.
-export default function ProjectCard({ project, gh }: { project: Project; gh?: GithubStatus }) {
+export default function ProjectCard({
+  project,
+  gh,
+  onDelete,
+}: {
+  project: Project
+  gh?: GithubStatus
+  onDelete?: () => void
+}) {
   const ci = ciState(gh)
   const openPrs = gh?.prs.filter(p => p.state === 'OPEN').length ?? 0
   const lowHealth = project.healthScore != null && project.healthScore < LOW_HEALTH_THRESHOLD
@@ -31,11 +39,22 @@ export default function ProjectCard({ project, gh }: { project: Project; gh?: Gi
       onClick={goWorkspace}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goWorkspace() } }}
       className={cn(
-        'card-lift cursor-pointer rounded-lg border bg-[var(--surface)] p-4',
+        'card-lift group relative cursor-pointer rounded-panel border bg-[var(--surface)] p-4',
         attention ? 'border-amber/40' : 'border-[var(--border)]'
       )}
     >
-      <div className="flex items-center gap-2">
+      {onDelete && (
+        <button
+          data-testid={`project-delete-btn-${project.id}`}
+          onClick={e => { e.stopPropagation(); onDelete() }}
+          aria-label={`Delete project ${project.name}`}
+          title="Delete project"
+          className="absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] opacity-0 transition-all duration-150 hover:bg-red/15 hover:text-[var(--red)] focus:opacity-100 group-hover:opacity-100"
+        >
+          🗑
+        </button>
+      )}
+      <div className="flex items-center gap-2 pr-7">
         <span
           className={cn('h-2 w-2 rounded-full', {
             'bg-[var(--green)]': ci === 'passing',

@@ -5,6 +5,7 @@ import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
 import { navigate } from '../../lib/route'
 import Toast from '../../components/Toast'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 interface Props {
   projectId: string
@@ -47,6 +48,8 @@ export default function TasksTab({ projectId }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // Success toast pointing at the orchestrator run the workflow dispatch created.
   const [dispatched, setDispatched] = useState<{ runId: string; count: number } | null>(null)
+  // Task pending a delete confirm.
+  const [deletingTask, setDeletingTask] = useState<ProjectTask | null>(null)
 
   const { data: tasks = [] } = useQuery<ProjectTask[]>({
     queryKey: ['tasks', projectId],
@@ -106,6 +109,20 @@ export default function TasksTab({ projectId }: Props) {
     },
   })
 
+  const deleteTask = useMutation({
+    mutationFn: (taskId: string) => api.projects.tasks.delete(projectId, taskId),
+    onSuccess: (_d, taskId) => {
+      qc.invalidateQueries({ queryKey: ['tasks', projectId] })
+      // Drop the removed id from any pending selection so the count/payload stay honest.
+      setSelectedIds(s => {
+        if (!s.has(taskId)) return s
+        const n = new Set(s); n.delete(taskId); return n
+      })
+      setDeletingTask(null)
+    },
+  })
+  function closeDeleteTask() { setDeletingTask(null); deleteTask.reset() }
+
   const dispatchAgent = useMutation({
     mutationFn: (task: ProjectTask) =>
       api.runs.start(task.title, { projectId }),
@@ -150,7 +167,7 @@ export default function TasksTab({ projectId }: Props) {
         <button
           onClick={handleAdd}
           disabled={!newTitle.trim() || createTask.isPending}
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          className="rounded-control bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
         >
           {createTask.isPending ? 'Adding…' : 'Add'}
         </button>
@@ -246,9 +263,20 @@ export default function TasksTab({ projectId }: Props) {
               onClick={() => dispatchAgent.mutate(task)}
               disabled={pendingDispatchIds.has(task.id) || dispatchWorkflow.isPending}
               title="Quick single agent run for this task (use the checkboxes + bar below for a delegation workflow: implementer→review→controller)"
-              className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs font-medium text-[var(--text)] hover:border-[var(--accent)] hover:text-[var(--accent-hover)] transition-all disabled:opacity-40"
+              className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 rounded-control border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs font-medium text-[var(--text)] hover:border-[var(--accent-hover)] hover:text-[var(--accent-hover)] transition-all disabled:opacity-40"
             >
               ▶ Dispatch agent
+            </button>
+
+            {/* Delete task */}
+            <button
+              data-testid={`task-delete-btn-${task.id}`}
+              onClick={() => setDeletingTask(task)}
+              aria-label={`Delete task: ${task.title}`}
+              title="Delete task"
+              className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] hover:bg-red/15 hover:text-[var(--red)] transition-all"
+            >
+              🗑
             </button>
           </div>
         ))}
@@ -268,7 +296,7 @@ export default function TasksTab({ projectId }: Props) {
               onClick={() => dispatchWorkflow.mutate([...selectedIds])}
               disabled={dispatchWorkflow.isPending || selectedIds.size === 0}
               title="Run a delegation workflow (implementer→review→controller) across the selected tasks"
-              className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+              className="rounded-control bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
             >
               {dispatchWorkflow.isPending
                 ? 'Dispatching…'
@@ -327,6 +355,23 @@ export default function TasksTab({ projectId }: Props) {
           onClick: () => dispatched && navigate('runs', dispatched.runId),
         }}
         onDismiss={() => setDispatched(null)}
+      />
+
+      <ConfirmDialog
+        open={deletingTask !== null}
+        testid="task-delete"
+        title="Delete task"
+        message={
+          <>
+            Delete <span className="font-semibold text-[var(--text)]">{deletingTask?.title}</span>? This
+            cannot be undone.
+          </>
+        }
+        confirmLabel="Delete task"
+        busy={deleteTask.isPending}
+        error={deleteTask.isError ? String(deleteTask.error) : undefined}
+        onConfirm={() => deletingTask && deleteTask.mutate(deletingTask.id)}
+        onCancel={closeDeleteTask}
       />
     </div>
   )

@@ -8,7 +8,7 @@ import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { dispatchTaskWorkflow, TaskNotFoundError } from '../workflows.js'
-import { verificationDb, rowToReport, projectTasksDb } from '../db.js'
+import { verificationDb, rowToReport, projectTasksDb, projectsDb } from '../db.js'
 import { buildGraph, getGraphMeta, isGraphStale, enrichNodes } from '../graph.js'
 import { CreatePrOptsSchema, GraphDispatchBodySchema, DispatchTasksBodySchema, type ProjectTask, type GithubStatus } from '@k/shared'
 
@@ -36,6 +36,23 @@ export async function projectsRoutes(app: FastifyInstance) {
       req.log.error(e)
       return reply.status(500).send({ error: 'registration failed' })
     }
+  })
+
+  // DELETE /api/projects/:id — hard-delete a project and ALL its data (204).
+  // Refuses with 409 while the project has active (running/queued) runs so a row
+  // is never deleted out from under the live supervisor. Cascade + explicit
+  // cleanup of non-cascading dependents happens transactionally in db.deleteProject.
+  app.delete<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    const active = (projectsDb.countActiveProjectRuns.get(project.id) as { n: number }).n
+    if (active > 0) {
+      return reply
+        .status(409)
+        .send({ error: `project has ${active} active run${active === 1 ? '' : 's'} — stop them first` })
+    }
+    projectsDb.deleteProject(project.id)
+    return reply.status(204).send()
   })
 
   // GET /api/projects/github — fleet-level cached PR + CI status, keyed by id.
@@ -192,6 +209,21 @@ export async function projectsRoutes(app: FastifyInstance) {
       })
       return reply.send(rowToTask({ ...row, status, completed_at: completedAt }))
     }
+  )
+
+  // DELETE /api/projects/:id/tasks/:taskId — remove a single task (204).
+  app.delete<{ Params: { id: string; taskId: string } }>(
+    '/api/projects/:id/tasks/:taskId',
+    async (req, reply) => {
+      const project = getProject(req.params.id)
+      if (!project) return reply.status(404).send({ error: 'not found' })
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!UUID_RE.test(req.params.taskId)) return reply.status(400).send({ error: 'invalid taskId' })
+      const row = projectTasksDb.getProjectTask.get(req.params.taskId, project.id)
+      if (!row) return reply.status(404).send({ error: 'task not found' })
+      projectTasksDb.deleteProjectTask.run(req.params.taskId, project.id)
+      return reply.status(204).send()
+    },
   )
 
   // POST /api/projects/:id/tasks/dispatch — launch ONE supervised delegation run
