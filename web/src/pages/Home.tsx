@@ -21,9 +21,15 @@ export default function Home() {
     metrics ? metrics.daily.map(pick) : undefined
 
   return (
-    <div className="h-full overflow-y-auto p-5">
+    <div className="h-full overflow-y-auto px-6 py-6">
+      {/* hero header */}
+      <div className="mb-5">
+        <h1 className="text-xl font-bold tracking-tight text-[var(--text)]">Command Deck</h1>
+        <p className="mt-0.5 text-sm text-[var(--muted)]">Your fleet at a glance — runs, cost & project health.</p>
+      </div>
+
       {/* metrics row */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-4">
         <MetricCard
           label="Tokens today"
           value={metrics ? `${(metrics.today.tokens / 1000).toFixed(1)}k` : '—'}
@@ -47,8 +53,8 @@ export default function Home() {
       />
 
       {/* projects */}
-      <div className="mt-6 flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Projects</h2>
+      <div className="mt-7 flex items-center justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Projects</h2>
         <button
           onClick={() => navigate('projects')}
           className="text-xs text-[var(--accent-hover)] transition-colors duration-150 hover:text-[var(--text)]"
@@ -59,12 +65,12 @@ export default function Home() {
       {projects.length === 0 ? (
         <button
           onClick={() => navigate('projects')}
-          className="card-lift mt-3 flex w-full items-center justify-center rounded-lg border border-dashed border-[var(--border)] py-10 text-sm text-[var(--muted)]"
+          className="card-lift mt-3 flex w-full items-center justify-center rounded-panel border border-dashed border-[var(--border)] py-10 text-sm text-[var(--muted)] hover:text-[var(--text)]"
         >
           + register your first project
         </button>
       ) : (
-        <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-3">
+        <div className="mt-3 grid grid-cols-2 gap-4 xl:grid-cols-3">
           {projects.map(p => <ProjectCard key={p.id} project={p} gh={githubFor(p.id)} />)}
         </div>
       )}

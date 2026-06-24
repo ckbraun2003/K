@@ -253,7 +253,7 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
               <button
                 onClick={handleBuild}
                 disabled={building || buildMutation.isPending}
-                className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {building ? 'Building…' : dataUnavailable ? 'Rebuild graph' : 'Build graph'}
               </button>
@@ -393,7 +393,7 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
               <motion.button
                 {...microLift}
                 onClick={() => navigate('project', projectId, 'runs')}
-                className="w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                className="w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90"
               >
                 View in Runs
               </motion.button>
@@ -513,7 +513,7 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                   dispatchMutation.mutate({ node: selected, action })
                 }}
                 disabled={dispatchMutation.isPending}
-                className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {dispatchMutation.isPending && (
                   <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />

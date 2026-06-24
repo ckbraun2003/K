@@ -303,7 +303,7 @@ export default function PrsCiTab({ projectId }: Props) {
               <button
                 onClick={() => createPrMutation.mutate()}
                 disabled={createPrMutation.isPending || !prForm.title.trim() || !prForm.head.trim() || !prForm.base.trim()}
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[var(--bg)] hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {createPrMutation.isPending && (
                   <span className="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" aria-hidden />

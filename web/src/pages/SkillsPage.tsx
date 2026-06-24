@@ -125,7 +125,7 @@ export default function SkillsPage() {
         </h2>
         <button
           onClick={() => setFormOpen(o => !o)}
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-90"
+          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity duration-150 hover:opacity-90"
         >
           {formOpen ? '− cancel' : '+ add skill'}
         </button>
@@ -238,7 +238,7 @@ export default function SkillsPage() {
             <button
               type="submit"
               disabled={createMutation.isPending || cronInvalid}
-              className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               {createMutation.isPending ? 'registering…' : 'register'}
             </button>

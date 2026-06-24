@@ -58,10 +58,14 @@ border `rgba(255,143,192,.16)`, tint `rgba(255,143,192,.10)`. Radii: 18/14/10px.
 - [x] Review (code-reviewer) → APPROVE (0 Crit/High; 2 by-design MEDIUM). Verify: typecheck clean ·
       build ✓ · 133 web tests pass
 
-## Wave 5 — Home, cards & list pages
-- [ ] Restyle Home, ProjectCard, MetricCard, ProjectsPage, SkillsPage, RunsPage, MetricsPage,
-      RoutingPage, GettingStarted — spacing, rounded glass, blush/sky, mono numerals kept
-- [ ] Review + verify → commit
+## Wave 5 — Home, cards & list pages  ✅ DONE
+- [x] Swept ALL remaining `text-white`-on-accent/green (11 buttons across 7 pages) → `text-[var(--bg)]`
+- [x] MetricCard — rounded-panel, glass-tint hero for the accent card, larger numerals
+- [x] Home — "Command Deck" hero header, roomier spacing, rounded-panel empty state; ProjectsPage padding
+- [x] **Live browser smoke** (`e2e/specs/redesign-smoke.spec.ts`, 3/3 green): labeled sidebar renders
+      (no Docs rail, Help present), Artifacts tab (not Bible), add+delete task (204), delete project
+      via ConfirmDialog (204) — zero uncaught page errors. Screenshot confirms the midnight-glass look.
+- [x] Verify: typecheck clean · build ✓ · 133 web tests pass
 
 ## Wave 6 — Knowledge graph + fleet graph (legible)
 - [ ] `KnowledgeGraphTab.tsx` — linkColor/linkWidth/particles, bigger nodes + glow + labels, bg

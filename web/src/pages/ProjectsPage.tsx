@@ -58,9 +58,9 @@ export default function ProjectsPage() {
   function closeDelete() { setDeleting(null); del.reset() }
 
   return (
-    <div className="h-full overflow-y-auto p-5">
+    <div className="h-full overflow-y-auto px-6 py-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
           Fleet · {projects.length} project{projects.length === 1 ? '' : 's'}
         </h2>
         <button

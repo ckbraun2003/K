@@ -109,7 +109,7 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
           onClick={() => reRun.mutate()}
           disabled={pending}
           data-testid="verify-rerun"
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-90 disabled:opacity-40"
+          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity duration-150 hover:opacity-90 disabled:opacity-40"
         >
           {reRun.isPending ? 'verifying…' : '▶ Re-run'}
         </button>
