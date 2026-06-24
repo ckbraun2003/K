@@ -232,3 +232,31 @@ entries at session start before touching the same area.
   **literal** — NOT a `new RegExp("[\\/]")` string, where the doubled backslash collapses. When you
   mirror a server validator on the client (cron ↔ node-cron), match it exactly at the boundary
   (node-cron ignores trailing fields → don't reject a 6+field expression the server accepts).
+
+## Todo-workflow (2026-06-24)
+
+- **Lifecycle that locks state before an await must roll back on throw** — **Pattern:**
+  `dispatchTaskWorkflow` flips tasks to `in_progress` + inserts a `'running'` `workflow_runs` row
+  BEFORE `await startRun`; if `startRun` throws, that locked state leaks (tasks stuck `in_progress`,
+  a phantom `running` row). **Rule:** any lifecycle mirroring `triggerSkill` / `runSkillTest` must
+  wrap the await and, on failure, finalize the row (`failed`) + revert the locked state (tasks →
+  `open`) + rethrow — mirror `runSkillTest`'s degrade. This path is exercised only by a throw-path
+  test, not the happy path, so write that test explicitly.
+
+- **Discriminate route errors with a typed Error class, not message-substring matching** —
+  **Pattern:** the dispatch route first mapped to 400 with `msg.includes('Task not found')` — fragile
+  (any internal lib emitting that text misclassifies as 400; a message reword silently breaks the
+  branch). **Rule:** throw a named error class (`TaskNotFoundError`) from the seam and branch on
+  `instanceof` at the route boundary; never key control flow on substring-matched error messages.
+
+- **Thread react-query mutation variables; don't close over component state** — **Pattern:** the
+  dispatch toast read `selectedIds.size` from a closure that could already be `0` after an interval
+  refetch cleared the selection. **Rule:** pass the payload as the mutation variable and read it back
+  in `onSuccess(data, vars)` rather than closing over live component state; also prune stale ids from
+  a Set-selection after every refetch so the count/payload can't reference deleted rows.
+
+- **`reuseExistingServer:true` can reuse a stale-schema core** — **Pattern:** a long-lived dev core
+  started BEFORE this migration lacked the `workflow_runs` table, so a reused e2e core 500s on
+  dispatch even though the code is correct. **Rule:** after a schema change, restart core before a
+  live smoke (or point the smoke at a fresh `CORE_PORT` / `K_DATA_DIR`) — a left-over pre-migration
+  core silently masks new-table features.

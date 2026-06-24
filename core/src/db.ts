@@ -99,6 +99,18 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(project_id, created_at);
 
+  CREATE TABLE IF NOT EXISTS workflow_runs (
+    id           TEXT PRIMARY KEY,
+    project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    run_id       TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    task_ids     TEXT NOT NULL DEFAULT '[]',   -- JSON array of task ids
+    mode         TEXT NOT NULL DEFAULT 'combined',
+    status       TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed')),
+    created_at   INTEGER NOT NULL,
+    completed_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_workflow_runs_project ON workflow_runs(project_id, created_at);
+
   CREATE TABLE IF NOT EXISTS skills (
     id           TEXT PRIMARY KEY,
     name         TEXT NOT NULL UNIQUE,
@@ -401,6 +413,36 @@ export const projectTasksDb = {
   getProjectTask,
   getProjectTaskByIssue,
   updateProjectTaskFromIssue,
+}
+
+// ─── WorkflowRun helpers ─────────────────────────────────────────────────────
+// One supervised delegation-workflow run over a batch of selected todos.
+// task_ids is stored as a JSON array string (bound JSON.stringify'd at the call
+// site). run_id is null until the underlying agent run is created.
+
+const insertWorkflowRun = db.prepare(`
+  INSERT INTO workflow_runs (id, project_id, run_id, task_ids, mode, status, created_at, completed_at)
+  VALUES (@id, @projectId, @runId, @taskIds, @mode, @status, @createdAt, @completedAt)
+`)
+
+const patchWorkflowRunId = db.prepare(`UPDATE workflow_runs SET run_id = ? WHERE id = ?`)
+
+const updateWorkflowRunStatus = db.prepare(`
+  UPDATE workflow_runs SET status = ?, completed_at = ? WHERE id = ?
+`)
+
+const getWorkflowRun = db.prepare(`SELECT * FROM workflow_runs WHERE id = ?`)
+
+const listWorkflowRunsByProject = db.prepare(`
+  SELECT * FROM workflow_runs WHERE project_id = ? ORDER BY created_at DESC
+`)
+
+export const workflowRunsDb = {
+  insertWorkflowRun,
+  patchWorkflowRunId,
+  updateWorkflowRunStatus,
+  getWorkflowRun,
+  listWorkflowRunsByProject,
 }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────

@@ -256,6 +256,15 @@ export const GraphDispatchBodySchema = z.object({
 })
 export type GraphDispatchBody = z.infer<typeof GraphDispatchBodySchema>
 
+// POST /api/projects/:id/tasks/dispatch body — run a single supervised delegation
+// workflow over the selected todos. Validated at the route boundary (400 on
+// invalid) per lessons.md "validate user input at the boundary". Mirrors
+// GraphDispatchBodySchema. Bounded 1..50 so a stray select-all can't fan out.
+export const DispatchTasksBodySchema = z.object({
+  taskIds: z.array(z.string().uuid()).min(1).max(50),
+})
+export type DispatchTasksBody = z.infer<typeof DispatchTasksBodySchema>
+
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
 export const WsMessageSchema = z.discriminatedUnion('type', [
@@ -309,6 +318,22 @@ export const ProjectTaskSchema = z.object({
   issueState: z.string().nullable().optional(),
 })
 export type ProjectTask = z.infer<typeof ProjectTaskSchema>
+
+// ─── WorkflowRun ─────────────────────────────────────────────────────────────
+// One supervised delegation-workflow run over a batch of selected todos. `runId`
+// is null until the underlying agent run is created (patched in after dispatch).
+// `mode` is a literal so adding modes later is an explicit, reviewable change.
+export const WorkflowRunSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  runId: z.string().nullable(),
+  taskIds: z.array(z.string()),
+  mode: z.literal('combined'),
+  status: z.enum(['running', 'completed', 'failed']),
+  createdAt: z.number(),
+  completedAt: z.number().nullable(),
+})
+export type WorkflowRun = z.infer<typeof WorkflowRunSchema>
 
 // A GitHub issue projected from `gh issue list --json number,title,state,url`.
 export const IssueInfoSchema = z.object({

@@ -119,6 +119,17 @@ sync → **Phase 3 (3-7)**; auth hardening (passkey/TOTP) → **Phase 4** (remot
 - [x] **H-6 — `create-web-ui-artifact` skill + bible docs.** New `.claude/skills/create-web-ui-artifact/SKILL.md` (UI counterpart to `onboarding`), seeded into the skills registry as a manual workflow; bible §06 (hybrid glass + motion + graph engine + UI artifact), §07 (this Phase H), §08 (D-009/D-010/D-011); skill-registration + bible-isolation tests.
 - [ ] **H-7 — Verify, CI, whole-implementation review.** `verify-project` / health audit; `pnpm typecheck && pnpm -r test && pnpm build` + CI green on the branch; whole-implementation review across all waves; recompile bible; merge `--no-ff`.
 
+## Todo delegation workflow *(✓ delivered 2026-06-24)*
+
+> The Tasks tab can multi-select todos and run the harness delegation loop over the selection as one supervised orchestrator run. Decision D-012.
+
+- [x] `workflows.ts` seam: `buildDelegationPrompt` (pure) + `dispatchTaskWorkflow` lifecycle (lock tasks → insert `workflow_runs` → `startRun` → finalize on terminal run, with degrade-on-throw) + `deriveWorkflowStatus` / `finalizeWorkflowRun` + typed `TaskNotFoundError`.
+- [x] `workflow_runs` table + `(project_id, created_at)` index + `workflowRunsDb` helpers (`db.ts`).
+- [x] `POST /api/projects/:id/tasks/dispatch` (body `{ taskIds }`, 1..50) → **202** `{ workflowRunId, runId }`; 404 unknown project; 400 invalid body / foreign taskId (`TaskNotFoundError`); 500 otherwise. Web api `api.projects.tasks.dispatchWorkflow`.
+- [x] Tasks-tab multi-select (per-row checkboxes, indeterminate select-all), sticky **Run delegation workflow** action bar, `in_progress`-on-dispatch (never auto-`done`), success toast with **"View run →"**.
+
+**Follow-on:** staged, per-stage visible/retryable execution (Idea 2) — a `workflow_stages` table with `dispatchTaskWorkflow` spawning one `startRun` per stage chained on `eventBus` (shared branch threaded across stages); the route, api client, and UI stay unchanged (D-012).
+
 ## Phase 4 — Multi-Device
 
 - [ ] Tauri desktop app (tray, native notifications, bundled core)
