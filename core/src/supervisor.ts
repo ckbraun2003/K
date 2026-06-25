@@ -33,9 +33,16 @@ const WORKTREES_DIR = path.join(__dirname, '../../.worktrees')
 
 fs.mkdirSync(WORKTREES_DIR, { recursive: true })
 
-// Active processes keyed by runId — minimal interface to avoid execa generic variance
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const activeProcesses = new Map<string, { kill: (...args: any[]) => any }>()
+// Active processes keyed by runId — minimal interface to avoid execa generic
+// variance. `stdin`/`interactive` are populated for interactive runs so
+// sendInput/endSession can write turns / close the session.
+type ActiveProc = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  kill: (...args: any[]) => any
+  stdin?: NodeJS.WritableStream | null
+  interactive: boolean
+}
+const activeProcesses = new Map<string, ActiveProc>()
 
 // Runs terminated by the operator — exit codes alone can't distinguish a kill
 // (non-zero exit) from a genuine agent failure
@@ -46,12 +53,53 @@ const killedRuns = new Set<string>()
 // run-completion path alongside activeProcesses.delete().
 const killTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+// Pending fallback-SIGTERM timers armed by endSession (for a process that ignores
+// stdin EOF), keyed by runId. Tracked like killTimers so a clean exit clears the
+// handle instead of leaving a dangling 4s timer holding the proc reference.
+const endTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+// Per-run monotonic event sequence. Held module-side (not just in runAgent's
+// closure) so sendInput can emit a synthetic operator-turn event with a correct,
+// non-colliding seq while the run is paused at awaiting_input.
+const seqCounters = new Map<string, number>()
+function nextSeq(runId: string): number {
+  const n = seqCounters.get(runId) ?? 0
+  seqCounters.set(runId, n + 1)
+  return n
+}
+
+// Idle timers for interactive runs parked at awaiting_input — if the operator
+// never answers, gracefully end the session so the worktree isn't held forever.
+const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const INTERACTIVE_IDLE_MS = Number(process.env.INTERACTIVE_IDLE_MS) || 10 * 60 * 1000
+
+function clearIdleTimer(runId: string) {
+  const t = idleTimers.get(runId)
+  if (t) { clearTimeout(t); idleTimers.delete(runId) }
+}
+
+/** The stdin envelope claude accepts for one operator turn in stream-json input
+ *  mode (verified live: content as a bare string is accepted). */
+function userTurnEnvelope(text: string): string {
+  return JSON.stringify({ type: 'user', message: { role: 'user', content: text } }) + '\n'
+}
+
+// Atomic guard for sendInput's double-send race: flip awaiting_input → running in a
+// single conditional UPDATE so only one caller can consume a parked turn. A second
+// (stale/concurrent) caller sees changes===0 because the row is already 'running'.
+const claimAwaitingTurn = db.prepare(
+  `UPDATE runs SET status = 'running' WHERE id = ? AND status = 'awaiting_input'`,
+)
+
 export type StartRunOptions = {
   cwd?: string
   model?: string
   preferLocal?: boolean
   maxCostUsd?: number
   projectId?: string
+  /** Keep stdin open for multi-turn HITL (claude only). Default false → today's
+   *  one-shot fire-and-forget run. */
+  interactive?: boolean
 }
 
 export async function startRun(prompt: string, opts: StartRunOptions = {}): Promise<Run> {
@@ -100,8 +148,13 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
     createdAt: run.createdAt,
   })
 
-  // Emit initial status event
-  emitStatusEvent(runId, 'queued', 0, now)
+  // Interactive (multi-turn stdin) is claude-only; an interactive request that
+  // routes to ollama silently falls back to a one-shot local run.
+  const interactive = !!opts.interactive && routeResult.provider === 'claude'
+
+  // Emit initial status event (starts this run's seq counter at 0)
+  seqCounters.set(runId, 0)
+  emitStatusEvent(runId, 'queued', nextSeq(runId), now)
   eventBus.emitRunUpdate(run)
 
   // Try to create a worktree; fall back to cwd if git isn't set up
@@ -121,7 +174,7 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   const inWorktree = effectiveCwd === worktreePath
 
   // Launch in background — don't await
-  void runAgent(run, prompt, effectiveCwd, inWorktree)
+  void runAgent(run, prompt, effectiveCwd, inWorktree, interactive)
 
   return run
 }
@@ -142,7 +195,8 @@ export function kill(runId: string): boolean {
   return true
 }
 
-/** Forget a run's process + clear any pending SIGKILL-escalation timer. */
+/** Forget a run's process + clear any pending SIGKILL-escalation / idle timers and
+ *  its seq counter. Called once on terminal completion. */
 function clearRunTracking(runId: string) {
   activeProcesses.delete(runId)
   const timer = killTimers.get(runId)
@@ -150,6 +204,14 @@ function clearRunTracking(runId: string) {
     clearTimeout(timer)
     killTimers.delete(runId)
   }
+  const endTimer = endTimers.get(runId)
+  if (endTimer) {
+    clearTimeout(endTimer)
+    endTimers.delete(runId)
+  }
+  clearIdleTimer(runId)
+  seqCounters.delete(runId)
+  endingRuns.delete(runId)
 }
 
 // ── Private ──────────────────────────────────────────────────────────────────
@@ -165,17 +227,18 @@ async function removeWorktree(run: Run) {
 // ── Crash recovery (boot sweep) ────────────────────────────────────────────────
 
 /**
- * Flip every `running`/`queued` run to the terminal `interrupted` status and null
- * its worktree column. At boot these statuses are necessarily stale — no in-flight
- * run survives a process restart — so leaving them inflates the activeRuns metric
- * forever. Pure DB mutation (no FS/git); takes the DB handle so it's unit-testable
- * against a temp DB. Returns the number of rows reconciled.
+ * Flip every `running`/`queued`/`awaiting_input` run to the terminal `interrupted`
+ * status and null its worktree column. At boot these statuses are necessarily stale
+ * — no in-flight run (including an interactive session parked on stdin) survives a
+ * process restart — so leaving them inflates the activeRuns metric forever. Pure DB
+ * mutation (no FS/git); takes the DB handle so it's unit-testable against a temp DB.
+ * Returns the number of rows reconciled.
  */
 export function reconcileStaleRuns(d: import('better-sqlite3').Database = db): number {
   const res = d
     .prepare(
       `UPDATE runs SET status = 'interrupted', worktree = NULL, ended_at = ?
-       WHERE status IN ('running', 'queued')`,
+       WHERE status IN ('running', 'queued', 'awaiting_input')`,
     )
     .run(Date.now())
   return res.changes
@@ -225,12 +288,21 @@ export function reconcileOnBoot(): void {
   pruneOrphanWorktrees()
 }
 
-async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boolean) {
-  run.status = 'running'
-  emitStatusEvent(run.id, 'running', 1, Date.now())
-  eventBus.emitRunUpdate({ ...run })
+// Interactive runs whose session the operator gracefully ended (stdin closed) —
+// so the final exit is reported as 'done', not 'killed'/'error'.
+const endingRuns = new Set<string>()
 
-  let seq = 2
+/** True when a stream-json line marks the end of an agent turn (`{type:"result"}`).
+ *  In interactive mode this is the boundary where we park the run at awaiting_input
+ *  instead of completing it (the process stays alive on stdin). */
+function isTurnEndLine(line: string): boolean {
+  try { return (JSON.parse(line) as { type?: string }).type === 'result' } catch { return false }
+}
+
+async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boolean, interactive: boolean) {
+  emitStatusEvent(run.id, 'running', nextSeq(run.id), Date.now())
+  eventBus.emitRunUpdate({ ...run, status: 'running' })
+
   let tokensIn = 0
   let tokensOut = 0
   let costUsd = 0
@@ -242,11 +314,17 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
     const provider = getProvider(run.provider)
     const proc = execa(
       provider.binary,
-      provider.buildArgs(prompt, { inWorktree, permissionMode: PERMISSION_MODE, model: run.model }),
+      provider.buildArgs(prompt, { inWorktree, permissionMode: PERMISSION_MODE, model: run.model, interactive }),
       { cwd, reject: false, all: true }
     )
 
-    activeProcesses.set(run.id, proc)
+    activeProcesses.set(run.id, { kill: proc.kill.bind(proc), stdin: proc.stdin, interactive })
+
+    // Interactive runs read EVERY turn from stdin (the prompt is not in argv), so
+    // seed the first turn here. EPIPE (process already gone) is handled by the exit path.
+    if (interactive && proc.stdin) {
+      try { proc.stdin.write(userTurnEnvelope(prompt)) } catch { /* exit path finalizes */ }
+    }
 
     // Stream output line by line
     if (proc.stdout) {
@@ -257,7 +335,7 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
         buf = lines.pop() ?? ''
         for (const line of lines) {
           if (!line.trim()) continue
-          const s = seq++
+          const s = nextSeq(run.id)
           // Parse with the ROUTED provider's parser, then validate at the ingest
           // boundary so malformed output can't poison the store or WS stream.
           const parsed = provider.parseLine(line, run.id, s, { tokensIn, tokensOut, costUsd })
@@ -267,32 +345,118 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
             ;({ tokensIn, tokensOut, costUsd } = accumulate({ tokensIn, tokensOut, costUsd }, event))
             eventBus.emitEvent(event)
           }
+          // Interactive: a `result` line ends a turn while the process stays alive
+          // on stdin. Park the run at awaiting_input (not done) and arm an idle
+          // timeout; sendInput() flips it back to running with the next turn.
+          if (interactive && !endingRuns.has(run.id) && isTurnEndLine(line)) {
+            emitStatusEvent(run.id, 'awaiting_input', nextSeq(run.id), Date.now())
+            eventBus.emitRunUpdate({ ...run, status: 'awaiting_input', tokensIn, tokensOut, costUsd })
+            clearIdleTimer(run.id)
+            idleTimers.set(run.id, setTimeout(() => { endSession(run.id) }, INTERACTIVE_IDLE_MS))
+          }
         }
       })
     }
 
     const result = await proc
+    const wasKilled = killedRuns.delete(run.id)
+    const wasEnded = endingRuns.delete(run.id)
+    // A gracefully-ended interactive session is 'done' regardless of the exit code
+    // (a fallback SIGTERM may have stopped a process that ignored stdin EOF).
+    const finalStatus: Run['status'] =
+      wasKilled ? 'killed' : wasEnded ? 'done' : result.exitCode === 0 ? 'done' : 'error'
+    const finalRun: Run = { ...run, status: finalStatus, tokensIn, tokensOut, costUsd, endedAt: Date.now() }
+    emitStatusEvent(run.id, finalStatus, nextSeq(run.id), Date.now())
+    eventBus.emitRunUpdate(finalRun)
     clearRunTracking(run.id)
     await removeWorktree(run)
-
-    const wasKilled = killedRuns.delete(run.id)
-    const finalStatus: Run['status'] = wasKilled ? 'killed' : result.exitCode === 0 ? 'done' : 'error'
-    const finalRun: Run = { ...run, status: finalStatus, tokensIn, tokensOut, costUsd, endedAt: Date.now() }
-    emitStatusEvent(run.id, finalStatus, seq, Date.now())
-    eventBus.emitRunUpdate(finalRun)
 
   } catch (err) {
-    clearRunTracking(run.id)
-    await removeWorktree(run)
     const wasKilled = killedRuns.delete(run.id)
+    // endingRuns is cleared by clearRunTracking below; no need to delete it here.
     const errRun: Run = { ...run, status: wasKilled ? 'killed' : 'error', tokensIn, tokensOut, costUsd, endedAt: Date.now() }
     const errEvent: AgentEvent = {
-      id: uuid(), runId: run.id, seq: seq++, type: 'error',
+      id: uuid(), runId: run.id, seq: nextSeq(run.id), type: 'error',
       ts: Date.now(), text: String(err),
     }
     eventBus.emitEvent(errEvent)
     eventBus.emitRunUpdate(errRun)
+    clearRunTracking(run.id)
+    await removeWorktree(run)
   }
+}
+
+/** Map a runs-table row to a Run (the few fields emitRunUpdate + WS run_update need). */
+function loadRun(runId: string): Run | null {
+  const r = runsDb.getRun.get(runId) as Record<string, unknown> | undefined
+  if (!r) return null
+  return {
+    id: r.id as string,
+    prompt: r.prompt as string,
+    cwd: r.cwd as string,
+    worktree: (r.worktree as string | null) ?? undefined,
+    status: r.status as Run['status'],
+    provider: r.provider as Run['provider'],
+    model: r.model as string,
+    tokensIn: Number(r.tokens_in ?? 0),
+    tokensOut: Number(r.tokens_out ?? 0),
+    costUsd: Number(r.cost_usd ?? 0),
+    projectId: (r.project_id as string | null) ?? undefined,
+    createdAt: Number(r.created_at),
+    endedAt: r.ended_at != null ? Number(r.ended_at) : undefined,
+  }
+}
+
+/**
+ * Feed one operator turn into an interactive run that is parked at awaiting_input.
+ * Returns false if the run has no live interactive process or isn't awaiting input
+ * (a stale client can't shove input into a mid-turn or finished run). Persists the
+ * turn as a `user` event so the console shows it, then flips the run back to running.
+ */
+export function sendInput(runId: string, text: string): boolean {
+  const proc = activeProcesses.get(runId)
+  if (!proc || !proc.interactive || !proc.stdin) return false
+
+  // Atomically claim the parked turn: only the caller whose UPDATE actually flips
+  // awaiting_input → running may proceed. A second/concurrent caller sees
+  // changes===0 (the row is already 'running' or otherwise not awaiting) → false.
+  // This replaces the prior read-then-check, which was only safe by virtue of this
+  // function being fully synchronous.
+  if (claimAwaitingTurn.run(runId).changes === 0) return false
+
+  try {
+    proc.stdin.write(userTurnEnvelope(text))
+  } catch {
+    return false // EPIPE — process died after we claimed the turn; the proc-exit path finalizes the run
+  }
+  clearIdleTimer(runId)
+  // loadRun gives us the Run object emitRunUpdate needs (status is now 'running' in
+  // the DB after the claim above; we don't rely on it for the guard).
+  const run = loadRun(runId)
+  eventBus.emitEvent({ id: uuid(), runId, seq: nextSeq(runId), type: 'user', ts: Date.now(), text })
+  emitStatusEvent(runId, 'running', nextSeq(runId), Date.now())
+  if (run) eventBus.emitRunUpdate({ ...run, status: 'running' })
+  return true
+}
+
+/**
+ * Gracefully end an interactive session: close stdin (EOF) so the agent finishes
+ * and exits with status 'done'. A fallback SIGTERM stops a process that ignores
+ * EOF; the run is still finalized as 'done' (endingRuns). No-op (false) for a
+ * non-interactive or already-gone run.
+ */
+export function endSession(runId: string): boolean {
+  const proc = activeProcesses.get(runId)
+  if (!proc || !proc.interactive || !proc.stdin) return false
+  clearIdleTimer(runId)
+  endingRuns.add(runId)
+  try { proc.stdin.end() } catch { /* already closed — exit path finalizes */ }
+  const timer = setTimeout(() => {
+    endTimers.delete(runId)
+    if (activeProcesses.has(runId)) proc.kill('SIGTERM')
+  }, 4000)
+  endTimers.set(runId, timer)
+  return true
 }
 
 type Usage = { tokensIn: number; tokensOut: number; costUsd: number }
@@ -347,4 +511,27 @@ function emitStatusEvent(runId: string, status: string, seq: number, ts: number)
   eventBus.emitEvent({
     id: uuid(), runId, seq, type: 'status', ts, text: status,
   })
+}
+
+/**
+ * Test-only seam for the interactive-HITL failure-mode tests. There is no
+ * production way to register a fake child against `activeProcesses` (it's filled
+ * only by runAgent spawning a real CLI), so these helpers let a test seed/clear
+ * a minimal fake ActiveProc and arm the idle timer without launching `claude`.
+ * NOT part of the public API — keep usage confined to core/test/*.
+ */
+export const __testHooks = {
+  /** Register a fake interactive process for `runId`. */
+  setActiveProc(runId: string, proc: ActiveProc) { activeProcesses.set(runId, proc) },
+  /** Remove a run's fake process + any of its timers/seq state. */
+  clearActiveProc(runId: string) { clearRunTracking(runId) },
+  /** True if an idle timer is currently armed for `runId`. */
+  hasIdleTimer(runId: string): boolean { return idleTimers.has(runId) },
+  /** Arm the awaiting-input idle timer for `runId` exactly as runAgent does. */
+  armIdleTimer(runId: string) {
+    clearIdleTimer(runId)
+    idleTimers.set(runId, setTimeout(() => { endSession(runId) }, INTERACTIVE_IDLE_MS))
+  },
+  /** Initialise the per-run seq counter so emit paths have a base. */
+  initSeq(runId: string) { seqCounters.set(runId, 0) },
 }

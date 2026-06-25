@@ -23,7 +23,7 @@ export type ParseCtx = { tokensIn: number; tokensOut: number; costUsd: number }
 /** `model` is the routed/selected model name — for claude it is forwarded as
  *  `--model <id>` when set (see buildClaudeArgs); for ollama it is the
  *  `ollama run <model>` target. */
-export type BuildArgsOptions = { inWorktree: boolean; permissionMode: PermissionMode; model?: string }
+export type BuildArgsOptions = { inWorktree: boolean; permissionMode: PermissionMode; model?: string; interactive?: boolean }
 
 export interface Provider {
   /** Routed provider name — matches RouteResult.provider. */

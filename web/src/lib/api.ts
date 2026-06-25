@@ -67,7 +67,7 @@ export const api = {
     // Lazy per-event raw fetch — called only when the user expands a timeline row.
     eventRaw: (id: string, seq: number): Promise<string> =>
       req<{ raw: string }>(`/runs/${id}/events/${seq}/raw`).then(r => r.raw),
-    start: (prompt: string, opts?: { cwd?: string; projectId?: string; model?: string; preferLocal?: boolean }) =>
+    start: (prompt: string, opts?: { cwd?: string; projectId?: string; model?: string; preferLocal?: boolean; interactive?: boolean }) =>
       req<Run>('/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -75,6 +75,17 @@ export const api = {
       }),
     kill: (id: string) =>
       req<{ killed: boolean }>(`/runs/${id}/kill`, { method: 'POST' }),
+    // Feed the operator's next turn into an interactive run parked at awaiting_input
+    // (204 on success — the shared req helper returns undefined for no-content).
+    sendInput: (id: string, text: string) =>
+      req<void>(`/runs/${id}/input`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      }),
+    // Gracefully end an interactive session (close stdin → run completes 'done').
+    end: (id: string) =>
+      req<{ ended: boolean }>(`/runs/${id}/end`, { method: 'POST' }),
   },
   artifacts: {
     list: () => req<Omit<Artifact, 'md' | 'html'>[]>('/artifacts'),

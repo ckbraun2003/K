@@ -18,7 +18,7 @@ const summaryWindowStmt = db.prepare(
   `SELECT created_at, status, tokens_in, tokens_out, cost_usd FROM runs WHERE created_at >= ?`
 )
 const totalRunsStmt = db.prepare(`SELECT COUNT(*) AS c FROM runs`)
-const activeRunsStmt = db.prepare(`SELECT COUNT(*) AS c FROM runs WHERE status IN ('running','queued')`)
+const activeRunsStmt = db.prepare(`SELECT COUNT(*) AS c FROM runs WHERE status IN ('running','queued','awaiting_input')`)
 const timeseriesWindowStmt = db.prepare(`
   SELECT r.created_at, r.status, r.tokens_in, r.tokens_out, r.cost_usd,
          r.provider, r.model, r.project_id, p.name AS project_name

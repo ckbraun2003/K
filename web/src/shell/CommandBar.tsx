@@ -42,6 +42,9 @@ export default function CommandBar({ open, onClose }: Props) {
   // Editable prompt draft for the compose-and-confirm card — seeded from the
   // picked dispatch item, then freely edited (multiline) before firing.
   const [promptDraft, setPromptDraft] = useState('')
+  // Interactive (multi-turn): keep the agent's stdin open so the operator can
+  // answer its questions / send follow-ups. Claude-only; ignored for local runs.
+  const [interactive, setInteractive] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const confirmRunRef = useRef<HTMLButtonElement>(null)
@@ -52,7 +55,7 @@ export default function CommandBar({ open, onClose }: Props) {
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list, enabled: open })
 
   useEffect(() => {
-    if (open) { setQuery(''); setSelected(0); setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setPromptDraft(''); setTimeout(() => inputRef.current?.focus(), 50) }
+    if (open) { setQuery(''); setSelected(0); setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setPromptDraft(''); setInteractive(false); setTimeout(() => inputRef.current?.focus(), 50) }
   }, [open])
 
   // A new query invalidates a manual navigate/dispatch override — fall back to the default.
@@ -158,8 +161,8 @@ export default function CommandBar({ open, onClose }: Props) {
     busyRef.current = true; setBusy(true); setError(null)
     try {
       const run = item.kind === 'dispatch-project'
-        ? await api.runs.start(prompt, { cwd: item.project.localPath, projectId: item.project.id, ...modelChoiceToOpts(model) })
-        : await api.runs.start(prompt, { ...modelChoiceToOpts(model) })
+        ? await api.runs.start(prompt, { cwd: item.project.localPath, projectId: item.project.id, ...modelChoiceToOpts(model), interactive })
+        : await api.runs.start(prompt, { ...modelChoiceToOpts(model), interactive })
       onClose()
       navigate('runs', run.id)
     } catch (e) {
@@ -349,6 +352,22 @@ export default function CommandBar({ open, onClose }: Props) {
                   <dd className="text-[var(--text)]">
                     {RUN_DEFAULTS.scope} · <span className="mono">{RUN_DEFAULTS.permissionMode}</span>{' '}
                     <span className="text-[var(--muted)]">({RUN_DEFAULT_CAVEATS.permissionMode})</span>
+                  </dd>
+                  <dt className="text-[var(--muted)]">Mode</dt>
+                  <dd className="text-[var(--text)]">
+                    <label className="inline-flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        data-testid="dispatch-interactive"
+                        checked={interactive}
+                        onChange={e => setInteractive(e.target.checked)}
+                        className="accent-[var(--accent)]"
+                      />
+                      <span>Interactive — answer the agent&apos;s questions mid-run</span>
+                    </label>
+                    {interactive && (
+                      <span className="ml-1 block text-[10px] text-[var(--muted)]">Claude only · keeps the session open for follow-ups</span>
+                    )}
                   </dd>
                 </dl>
                 <p className="border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted)]">

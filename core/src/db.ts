@@ -312,9 +312,11 @@ const listProjects = db.prepare(`SELECT * FROM projects ORDER BY name`)
 
 // Count runs still in flight for a project. The delete route refuses while any
 // are live so we never delete a run row out from under the supervisor (its next
-// event INSERT would FK-fail against a now-missing run).
+// event INSERT would FK-fail against a now-missing run). 'awaiting_input' is an
+// interactive run parked on stdin — still live (holds a worktree, writes events),
+// so it counts as active too.
 const countActiveProjectRuns = db.prepare(
-  `SELECT COUNT(*) AS n FROM runs WHERE project_id = ? AND status IN ('running','queued')`,
+  `SELECT COUNT(*) AS n FROM runs WHERE project_id = ? AND status IN ('running','queued','awaiting_input')`,
 )
 
 // Hard-delete a project and everything hanging off it. project_tasks,

@@ -8,6 +8,7 @@ import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
 import RunTimeline from './RunTimeline'
 import ConfirmDialog from './ConfirmDialog'
+import AutoTextarea from './AutoTextarea'
 
 interface Props {
   runId: string
@@ -39,7 +40,11 @@ export default function RunConsole({ runId }: Props) {
   const [view, setView] = useState<'console' | 'timeline'>('console')
   const [confirmKill, setConfirmKill] = useState(false)
   const [killing, setKilling] = useState(false)
+  // Operator's reply while the run is parked at awaiting_input (interactive HITL).
+  const [answer, setAnswer] = useState('')
+  const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const answerRef = useRef<HTMLTextAreaElement>(null)
 
   const { data: run } = useQuery<Run>({
     queryKey: ['run', runId],
@@ -50,6 +55,7 @@ export default function RunConsole({ runId }: Props) {
   // events can arrive while the backfill request is in flight)
   useEffect(() => {
     setEvents([]) // reset when run changes
+    setAnswer('')
     let cancelled = false
     const unsub = onWsMessage((msg: WsMessage) => {
       if (msg.type === 'event' && msg.event.runId === runId) {
@@ -73,6 +79,13 @@ export default function RunConsole({ runId }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [events])
 
+  // Focus the answer box when the run parks at awaiting_input so the operator can
+  // type their reply immediately without reaching for the mouse.
+  const awaiting = run?.status === 'awaiting_input'
+  useEffect(() => {
+    if (awaiting) answerRef.current?.focus()
+  }, [awaiting])
+
   async function handleKill() {
     setKilling(true)
     try {
@@ -81,6 +94,23 @@ export default function RunConsole({ runId }: Props) {
     } finally {
       setKilling(false)
     }
+  }
+
+  // Send the operator's turn; on success the run flips back to 'running' via a
+  // run_update WS message, which hides the answer box.
+  async function handleSend() {
+    const text = answer.trim()
+    if (!text || sending) return
+    setSending(true)
+    try {
+      await api.runs.sendInput(runId, text)
+      setAnswer('')
+    } catch { /* a 409 means it already left awaiting_input — the WS state will correct the UI */ }
+    finally { setSending(false) }
+  }
+
+  async function handleEnd() {
+    try { await api.runs.end(runId) } catch { /* run may have already completed */ }
   }
 
   if (!run) return <div className="flex-1 flex items-center justify-center text-[var(--muted)]">Loading…</div>
@@ -115,14 +145,15 @@ export default function RunConsole({ runId }: Props) {
           </div>
           <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', {
             'bg-accent/15 text-[var(--accent-hover)] glow-live': run.status === 'running',
+            'bg-amber/25 text-[var(--amber)] glow-live': run.status === 'awaiting_input',
             'bg-green/15 text-[var(--green)]': run.status === 'done',
             'bg-red/15 text-[var(--red)]': run.status === 'error' || run.status === 'interrupted',
             'bg-amber/15 text-[var(--amber)]': run.status === 'queued',
             'bg-muted/15 text-[var(--muted)]': run.status === 'killed',
           })}>
-            {run.status}
+            {run.status === 'awaiting_input' ? 'awaiting input' : run.status}
           </span>
-          {run.status === 'running' && (
+          {(run.status === 'running' || run.status === 'awaiting_input') && (
             <button
               onClick={() => setConfirmKill(true)}
               data-testid="run-kill-btn"
@@ -175,6 +206,43 @@ export default function RunConsole({ runId }: Props) {
             </motion.div>
           ))}
           <div ref={bottomRef} />
+        </div>
+      )}
+
+      {/* HITL answer box — shown while the interactive run is waiting on the operator */}
+      {run.status === 'awaiting_input' && (
+        <div className="flex-shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2" data-testid="run-answer-box">
+          <p className="text-xs font-medium text-[var(--amber)]">⏳ The agent is waiting for your reply.</p>
+          <AutoTextarea
+            ref={answerRef}
+            aria-label="Answer the agent"
+            data-testid="run-answer-input"
+            value={answer}
+            onChange={e => setAnswer(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void handleSend() }
+            }}
+            placeholder="Type your reply…  (↵ send · ⇧↵ newline)"
+            className="glow-focus w-full resize-none rounded-control border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleEnd()}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+            >
+              End session
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSend()}
+              disabled={sending || !answer.trim()}
+              data-testid="run-answer-send"
+              className="ml-auto rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-medium text-[var(--accent-hover)] transition-colors hover:bg-accent/30 disabled:opacity-50"
+            >
+              {sending ? 'Sending…' : 'Send ↵'}
+            </button>
+          </div>
         </div>
       )}
 

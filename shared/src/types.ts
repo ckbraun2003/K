@@ -5,10 +5,13 @@ import { z } from 'zod'
 export const RunStatusSchema = z.enum([
   'queued',
   'running',
+  'awaiting_input', // non-terminal: an interactive run finished a turn and is waiting
+                    // for the operator's next message (stdin held open). Swept to
+                    // 'interrupted' at boot like running/queued (the child can't survive).
   'done',
   'error',
   'killed',
-  'interrupted', // terminal: run was running/queued when the core process restarted
+  'interrupted', // terminal: run was running/queued/awaiting_input when core restarted
 ])
 export type RunStatus = z.infer<typeof RunStatusSchema>
 
@@ -307,8 +310,17 @@ export const StartRunBodySchema = z.object({
   model: z.string().optional(),     // defaults to router decision
   projectId: z.string().uuid().optional(), // explicit project association (overrides cwd inference)
   preferLocal: z.boolean().optional(), // route local-model preference; UI "Ollama (local)" sets this
+  interactive: z.boolean().optional(), // keep stdin open for multi-turn HITL (claude only)
 })
 export type StartRunBody = z.infer<typeof StartRunBodySchema>
+
+/** Body for POST /api/runs/:id/input — the operator's next turn in an interactive
+ *  run. Newlines allowed (multi-line answers); bounded so a huge paste can't be
+ *  shoved down the agent's stdin. */
+export const SendInputBodySchema = z.object({
+  text: z.string().min(1).max(20000),
+})
+export type SendInputBody = z.infer<typeof SendInputBodySchema>
 
 export const RunsQuerySchema = z.object({
   status: RunStatusSchema.optional(),

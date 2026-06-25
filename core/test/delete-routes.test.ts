@@ -138,6 +138,17 @@ describe('DELETE /api/projects/:id', () => {
     expect(projectsDb.getProject.get(projectId)).toBeUndefined()
   })
 
+  it('409 while an interactive run is parked at awaiting_input (still live)', async () => {
+    const projectId = makeProject('proj-del-awaiting')
+    // An interactive run parked on stdin holds a worktree + writes events — deleting
+    // its project would corrupt state, so the delete route must refuse.
+    insertRun(projectId, 'awaiting_input')
+
+    const blocked = await app.inject({ method: 'DELETE', url: `/api/projects/${projectId}`, headers: AUTH })
+    expect(blocked.statusCode).toBe(409)
+    expect(blocked.json().error).toMatch(/active run/i)
+  })
+
   it('204 + cascades every dependent (tasks, runs, events, reports, graph, github cache)', async () => {
     const projectId = makeProject('proj-del-cascade')
 

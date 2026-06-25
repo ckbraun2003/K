@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterAll } from 'vitest'
+import { v4 as uuid } from 'uuid'
 import { summarizeRuns, buildTimeseries, windowStartMs, type RunRow, type TimeseriesRunRow } from '../src/metrics.js'
+import { db } from '../src/db.js'
 
 const DAY = 86_400_000
 // Fixed "now": 2026-06-10T12:00 local
@@ -231,6 +233,46 @@ describe('buildTimeseries', () => {
       expect(ts.series[0].points[i]).toEqual({ runs: 0, tokens: 0, costUsd: 0 })
     }
     expect(ts.series[0].points[6].runs).toBe(1)
+  })
+})
+
+// ─── activeRuns SQL counts in-flight statuses (incl. awaiting_input) ───────────
+// The active-count SQL (not the pure summarizeRuns) decides which statuses count
+// as active. The shared test DB is mutated by other suites in parallel, so we scope
+// the assertion to our own seeded run ids rather than a global baseline delta.
+
+describe('activeRuns status set', () => {
+  const seeded: string[] = []
+
+  function seedRun(status: string): string {
+    const id = uuid()
+    db.prepare(
+      `INSERT INTO runs (id, prompt, cwd, status, created_at) VALUES (?, ?, ?, ?, ?)`,
+    ).run(id, 'p', '/tmp', status, Date.now())
+    seeded.push(id)
+    return id
+  }
+
+  afterAll(() => {
+    for (const id of seeded.splice(0)) db.prepare(`DELETE FROM runs WHERE id = ?`).run(id)
+  })
+
+  it("counts running/queued/awaiting_input as active, excludes terminal statuses", () => {
+    const ids = [
+      seedRun('running'),
+      seedRun('queued'),
+      seedRun('awaiting_input'),
+      seedRun('done'),        // terminal — excluded
+      seedRun('error'),       // terminal — excluded
+      seedRun('killed'),      // terminal — excluded
+      seedRun('interrupted'), // terminal — excluded
+    ]
+    // Same status set as routes/metrics.ts activeRunsStmt, scoped to our rows.
+    const placeholders = ids.map(() => '?').join(',')
+    const { n } = db.prepare(
+      `SELECT COUNT(*) AS n FROM runs WHERE id IN (${placeholders}) AND status IN ('running','queued','awaiting_input')`,
+    ).get(...ids) as { n: number }
+    expect(n).toBe(3) // running + queued + awaiting_input only
   })
 })
 

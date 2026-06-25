@@ -1,86 +1,94 @@
-# Phase 4 — Agent-Interaction UX + Desktop App
+# Phase 4 — Agent-UX + Observability (Monitoring & Visualization)
 
-Branch: `feat/phase4-agent-ux-desktop` (off `main` after the redesign merge `f95e618`).
-Plan: `~/.claude/plans/read-through-and-analyze-rippling-hanrahan.md`.
+Branch: `feat/phase4-agent-ux-desktop` (off `main` after redesign merge `f95e618`).
+Plan: `~/.claude/plans/idempotent-swinging-karp.md`.
 One reviewable commit per wave via the delegation loop (implementer → spec-review →
-quality-review → controller verifies/commits); a code-review agent every wave.
+quality-review → controller verifies/commits); a code-review agent every wave, no exceptions.
+The controller delegates and verifies — does **not** write feature code.
 
-**Goal:** make agent interaction first-class — a working per-run **model picker**, a better
-**multiline prompt** surface, and **interactive HITL** (answer the agent's questions mid-run) —
-then ship the **Phase 4 Tauri desktop app** (bundled-core sidecar, tray, native notifications),
-and document it all in the bible.
+**Goal:** finish interactive HITL, then make the agentic system **observable and editable** —
+surface/edit the prompts & config that drive agents (skill prompts, global system prompt,
+provider/auth status) and visualize what agents actually do at runtime (rich run console,
+workflow graphs, delegated sub-agents, context pressure).
 
-**Verified CLI facts (claude v2.1.186):** `--input-format stream-json` needs `--print`;
-`--permission-prompt-tool` is GONE → HITL is conversational-only (no edit-approval gating);
-exact stdin envelope is unconfirmed → **smoke before coding A3**.
+**Decisions (this session):** context = indicator now + compaction smoke-gated · workflow viz =
+static defined-workflow + live runtime sub-agent tree · Tauri desktop app **deferred** to a later
+phase · CLAUDE.md editor = global-only, guarded (backup + gitnexus-block preserved + confirm).
 
-## Wave 0 — Land redesign, branch new work  ✅ DONE
-- [x] Committed redesign finishing touches (`5ccef12`); merged to `main` no-ff (`f95e618`)
-- [x] Branched `feat/phase4-agent-ux-desktop`; rewrote this todo
-- [x] Verify: typecheck clean on new branch (tests below)
+## Landed
+- [x] Wave 0 — redesign merged (`f95e618`), branch + todo set up
+- [x] Wave A1 — per-run model picker (`b806876`)
+- [x] Wave A2 — multiline prompt composer (`05dc9af`)
 
 ## TRACK A — Agent-interaction UX
 
-### Wave A1 — Make model selection real + per-run picker  ✅ DONE (`b806876`)
-- [x] `core/src/claude-args.ts` — `buildClaudeArgs` appends `--model <model>` (was inert)
-- [x] `shared` — `KNOWN_MODELS` registry (opus-4-8 / sonnet-4-6 / haiku-4.5 / fable-5) + `isKnownModel`; `preferLocal`
-- [x] `core/src/routes/runs.ts` — validate `model` → 400 unknown; thread `preferLocal`; explicit model overrides local hint
-- [x] `web` — model `<select>` (Auto/4 Claude/Ollama) via pure `lib/run-models`; removed dead `RUN_DEFAULTS.model`
-- [x] Tests: claude-args +3, runs-model +3, web run-models +7. Review applied (comment/guard/dead-const/aria/preferLocal test)
-- [x] Verify: typecheck clean · core 466 · web 140 · build ✓  _(live run.model smoke deferred to Wave V)_
+### Wave A3 — Interactive multi-turn HITL  (smoke-gated)  ✅ DONE
+- [x] **A3.0 live CLI smoke** — gate HOLDS vs claude v2.1.186: stdin persists across turns; `{type:"result"}` is the awaiting boundary; envelope `{type:"user",message:{role,content}}` accepted verbatim; `total_cost_usd` cumulative (last-wins `accumulate` correct). Strategy 1 (persistent stdin) confirmed
+- [x] `shared/src/types.ts` — `awaiting_input` event type + run status; `SendInputBodySchema`
+- [x] `core` — `interactive` argv; retain `proc.stdin`; `sendInput`/`endSession`; status transitions;
+      `awaiting_input` in `reconcileStaleRuns` boot-sweep; turn-boundary detection
+- [x] `core/src/routes/runs.ts` — `POST /api/runs/:id/input` (409 if not awaiting; **atomic** conditional-UPDATE transition) + `/end`
+- [x] `web` — `runs.sendInput`/`end`; RunConsole answer box (+autofocus); non-terminal status; CommandBar interactive toggle
+- [x] Tests: proc-exits-while-awaiting, double-send 409, killed-while-awaiting EPIPE, idle-timeout, route 404/400, project-delete-guard, metrics active-set
+- [x] Review applied: 3 HIGH (project-delete guard +awaiting_input, tracked endSession SIGTERM timer, atomic double-send UPDATE) + MEDIUM (activeRuns metric) + autofocus
+- [x] Verify: typecheck clean · core 487 · web 140  _(live ask→answer→continue smoke deferred to Wave V)_
 
-### Wave A2 — Better prompt surface (multiline composer)
-- [ ] ⌘K dispatch path → auto-growing `<textarea>` (Enter send / Shift+Enter newline), glass tokens
-- [ ] Keep nav/jump single-line + `parseProjectQuery` `@project` handling
-- [ ] Verify: build + chord tests + live multiline round-trip
-- [ ] Review → fix → commit
+## TRACK D — Observability: monitoring, visualization & editable config
 
-### Wave A3 — Interactive multi-turn HITL  (smoke-gated)
-- [ ] **A3.0 live CLI smoke FIRST** — stdin stays open? envelope shape? awaiting-input event? cumulative cost?
-- [ ] `shared/src/types.ts` — `awaiting_input` event type + run status; `SendInputBodySchema`
-- [ ] `core` — `interactive` argv; retain `proc.stdin`; `sendInput(runId,text)`; status transitions;
-      add `awaiting_input` to `reconcileStaleRuns` boot-sweep; detect boundary in `parseClaudeLine`
-- [ ] `core/src/routes/runs.ts` — `POST /api/runs/:id/input` (409 if not awaiting; atomic transition)
-- [ ] `web` — `runs.sendInput`; RunConsole answer box; non-terminal status handling
-- [ ] Tests: proc-exits-while-awaiting, double-send 409, killed-while-awaiting EPIPE, idle-timeout
-- [ ] Verify: live ask → answer → continue-same-session
-- [ ] Review → fix → commit
+### Wave D1 — Editable skill prompts  (small, independent)
+- [ ] `shared` + `core/src/routes/skills.ts` — `UpdateSkillSchema`/PATCH accept `source` (+ name/description), bounds reused, trigger-consistency at boundary, `??` not `||`
+- [ ] `web` — `api.skills.update`; edit affordance + `AutoTextarea` editor on SkillsPage; invalidate `['skills']`
+- [ ] Tests: PATCH updates source / rejects invalid; web editor round-trip
+- [ ] Verify: live edit a prompt → re-trigger → new prompt used. Review → commit
 
-## TRACK B — Phase 4 desktop app (Tauri + bundled core sidecar)
+### Wave D2 — Settings page: auth/status + guarded system-prompt (CLAUDE.md) editor
+- [ ] `GET /api/status` — Claude / Ollama / GitHub / auth posture (status only, no secrets); `StatusSchema`
+- [ ] `GET`+`PUT /api/system-prompt` — root CLAUDE.md only (fixed path); backup-on-save; preserve gitnexus block; schema-locked (`additionalProperties:false`, only `md`)
+- [ ] `web` — new Settings page + route/Shell/Sidebar/`g ,` chord; status cards; CLAUDE.md editor with confirm-before-save warning
+- [ ] Tests: `/api/status` shape; system-prompt round-trip + gitnexus-preserve + traversal-reject; web status + save-confirm
+- [ ] Verify: live status accurate; CLAUDE.md edit+save → backup written + gitnexus block intact (`git diff`). Review → commit
 
-### Wave B1 — Packaging smoke + src-tauri scaffold  (smoke-gated)
-- [ ] **B1.0 smoke FIRST** — `core/dist` under standalone `node.exe` from pruned prod `node_modules`,
-      `better-sqlite3` opens DB + `node-pty` imports (ABI match)
-- [ ] Scaffold `src-tauri/` (Cargo/tauri.conf/main.rs/lib.rs/build.rs + bundled node bin)
-- [ ] Verify: `pnpm build` → web/dist+core/dist; smoke passes; `tauri dev` opens window
-- [ ] Review → fix → commit
+### Wave D3 — Event-data enrichment foundation  (smoke-gated; unblocks D4/D5/D6)
+- [ ] **D3.0 smoke FIRST** — capture real stream-json for Bash + Write/Edit + Task; fix the tool field map (`command`, `file_path`, `subagent_type`/`prompt`, tool_result pairing)
+- [ ] `shared` + `core/src/db.ts` — `AgentEvent`/events table: `toolInput`/`toolResult`, `toolKind` (command|file|delegate|other), `subagentType`/`childLabel`; keep `raw`
+- [ ] `core/src/providers.ts` — enrich `parseClaudeLine` (currently discards `block.input`); pure table-driven map; no token/cost behavior change
+- [ ] Tests: parse fixtures for each tool shape; backward-compat for old events
+- [ ] Verify: live run with command + file-write + delegation populates new columns. Review → commit
 
-### Wave B2 — Sidecar spawn + token handoff + web Tauri-adapt
-- [ ] Rust: spawn sidecar (free PORT + K_DATA_DIR), health-poll, read `auth-token`, inject to webview
-- [ ] Web: detect Tauri → absolute API base + Authorization header + injected port (ws.ts/api.ts/TerminalPage)
-- [ ] Lifecycle: kill sidecar tree on quit (no orphan node.exe)
-- [ ] Verify: live launch/auto-auth/stream/quit-no-orphan/relaunch-reuses-token
-- [ ] Review → fix → commit
+### Wave D4 — Rich run console: commands, files, delegated agents  (web only, consumes D3)
+- [ ] `RunConsole.tsx` (+ small components) — expandable tool calls: commands (`$ cmd` + output), file ops (path + diff/preview), delegated agents (parent→child card/tree with subagentType + prompt); group + collapse by default; keep raw/timeline toggle
+- [ ] Tests: render command/file/delegate events from fixtures; collapse/expand; reduced-motion
+- [ ] Verify: live delegation run shows sub-agents + prompts + commands + files. Review → commit
 
-### Wave B3 — Tray, native notifications, installer
-- [ ] Tray menu + `tauri-plugin-notification`; Rust WS subscriber → notify run-complete + awaiting-input
-- [ ] `tauri build` → Windows installer
-- [ ] Verify: live notifications + tray + terminal graceful-degrade
-- [ ] Review → fix → commit
+### Wave D5 — Workflow visualization (static defined-workflow + live runtime tree)
+- [ ] Static: expose delegation workflow definition (`GET /api/workflows/definition` or shared const) from `workflows.ts` roles; diagram with viewable role prompts
+- [ ] Live: pure builder (D3 delegate events → parent→child tree); render via `react-force-graph-2d` + `graph.ts` helpers; click node → prompt + sub-agent events
+- [ ] `web` — new Workflows view (route/Shell/Sidebar/chord); reuse `makeGraphUpdateHandler`
+- [ ] Tests: events→tree builder; definition shape; bundle-guard (force-graph-2d only)
+- [ ] Verify: live run → runtime tree matches console; static diagram renders prompts. Review → commit
+
+### Wave D6 — Context indicators + smoke-gated compaction
+- [ ] Indicator: `contextWindow` per `KNOWN_MODELS` entry; per-run context-pressure indicator (latest-turn input tokens vs limit + warning band); pure tested `lib/context`
+- [ ] **D6.0 smoke** — can an interactive session compact mid-run? If yes → auto-compact at threshold on `awaiting_input` + manual button; if no → manual "summarize & continue" + documented honest limit
+- [ ] Tests: `lib/context` thresholds/percent; indicator bands; compaction trigger gated+debounced (if feasible)
+- [ ] Verify: live long interactive run → indicator climbs; compaction per smoke. Review → commit
 
 ## TRACK C — Documentation
 
-### Wave C1 — Bible, decision log, plan doc
-- [ ] `06-dashboard-ux.md` (composer/picker/HITL); new `11-desktop-app.md` + manifest; tick `07-roadmap.md`
-- [ ] `08-decision-log.md` — D-014 (conversational HITL) + D-015 (Tauri sidecar)
-- [ ] dated plan under `docs/superpowers/plans/`; recompile bible + assert D-014/D-015
-- [ ] capture lessons (stdin smoke, inert model flag, sidecar ABI, dynamic-port parity)
-- [ ] Review → fix → commit
+### Wave C1 — Bible, decision log, plan doc, lessons
+- [ ] `06-dashboard-ux.md` (HITL box, model picker, composer, rich console, context indicator, Settings); new `11-observability.md` + manifest; tick Phase-4 + note desktop deferral in `07-roadmap.md`
+- [ ] `08-decision-log.md` — D-014 HITL · D-015 event-enrichment · D-016 workflow viz · D-017 editable prompts/config · D-018 context+compaction · D-019 desktop deferred
+- [ ] dated plan/spec under `docs/superpowers/plans/`; recompile bible + assert D-014…D-019
+- [ ] capture lessons (stdin smoke, tool-input-discarded, event-derived delegation, gitnexus-block preserve, context-cannot-be-forced)
+- [ ] Review → commit
 
 ## Wave V — Whole-effort verification (before merge)
 - [ ] `pnpm -r typecheck` · `pnpm -r test` · `pnpm -r build` green
-- [ ] Consolidated live smokes (model/multiline/HITL/desktop)
+- [ ] Consolidated live smokes (HITL · skill edit · settings/status · CLAUDE.md edit · rich console · workflow viz · context)
 - [ ] Whole-effort review; fix HIGH/CRITICAL; merge → main no-ff
+
+## Deferred to a later phase
+- Tauri desktop app (bundled-core sidecar, tray, native notifications) — old Track B; full spec retained in `~/.claude/plans/read-through-and-analyze-rippling-hanrahan.md`.
 
 ## Review notes
 _(filled in as waves land)_

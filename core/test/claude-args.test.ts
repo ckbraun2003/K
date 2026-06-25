@@ -69,6 +69,22 @@ describe('buildClaudeArgs', () => {
       }
     }
   })
+
+  // Interactive (multi-turn HITL) argv — verified against the live CLI in the
+  // A3.0 smoke: stdin-driven turns, `--replay-user-messages` echoes each turn,
+  // and the prompt is NOT an argv positional (it's seeded over stdin instead).
+  const INTERACTIVE_BASE = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--replay-user-messages']
+
+  it('interactive: prompt is NOT a positional; stream-json I/O + replay flags are set', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: false, permissionMode: 'acceptEdits', interactive: true })
+    expect(args).toEqual(INTERACTIVE_BASE)
+    expect(args).not.toContain(BASE_PROMPT) // the prompt never reaches argv in interactive mode
+  })
+
+  it('interactive: appends --permission-mode inside a worktree, then --model', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: true, permissionMode: 'plan', model: 'claude-sonnet-4-6', interactive: true })
+    expect(args).toEqual([...INTERACTIVE_BASE, '--permission-mode', 'plan', '--model', 'claude-sonnet-4-6'])
+  })
 })
 
 describe('resolvePermissionMode', () => {
