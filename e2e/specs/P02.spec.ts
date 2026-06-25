@@ -216,7 +216,7 @@ test('opening a card lands in the 7-tab workspace and every tab renders', async 
     await expect(page.getByRole('tablist')).toBeVisible({ timeout: 10_000 })
     await screenshot(page, 'P02-workspace-overview')
 
-    const TABS = ['Overview', 'Knowledge Graph', 'Runs', 'Tasks', 'PRs & CI', 'Verification', 'Bible']
+    const TABS = ['Overview', 'Knowledge Graph', 'Runs', 'Tasks', 'PRs & CI', 'Verification', 'Artifacts']
     const tabCount = await page.getByRole('tab').count()
     if (tabCount !== 7) {
       findings.push({
@@ -225,7 +225,7 @@ test('opening a card lands in the 7-tab workspace and every tab renders', async 
         category: 'Docs-mismatch',
         surface: 'ProjectWorkspace',
         repro: 'Open a project workspace; count role=tab.',
-        expected: '7 tabs: Overview · Knowledge Graph · Runs · Tasks · PRs & CI · Verification · Bible.',
+        expected: '7 tabs: Overview · Knowledge Graph · Runs · Tasks · PRs & CI · Verification · Artifacts.',
         actual: `Found ${tabCount} tabs.`,
         evidence: 'reports/screens/P02-workspace-overview.png',
       })
@@ -622,7 +622,7 @@ test('edit a bible section and recompile; change renders in-app', async ({ page 
     await page.getByText('builder-a', { exact: false }).first().click()
     await page.waitForURL(/#\/project\//, { timeout: 10_000 })
     await waitForWs(page)
-    await page.getByRole('tab', { name: 'Bible' }).click()
+    await page.getByRole('tab', { name: 'Artifacts' }).click()
     await page.waitForTimeout(600)
     await screenshot(page, 'P02-bible-tab')
 
@@ -643,11 +643,11 @@ test('edit a bible section and recompile; change renders in-app', async ({ page 
     const hasSections = await editSelect.isVisible({ timeout: 3000 }).catch(() => false)
     if (!hasSections) {
       findings.push({
-        title: 'No bible sections available to edit in the workspace Bible tab',
+        title: 'No bible sections available to edit in the workspace Artifacts tab',
         severity: 'Med',
         category: 'Missing',
-        surface: 'ProjectWorkspace / Bible',
-        repro: 'Open a fresh local-path project → Bible tab.',
+        surface: 'ProjectWorkspace / Artifacts',
+        repro: 'Open a fresh local-path project → Artifacts tab.',
         expected:
           'Bible §10: "each section has an edit action that opens the markdown source." Sections (e.g. from the harness bible or scaffolded onboarding) should be editable.',
         actual:

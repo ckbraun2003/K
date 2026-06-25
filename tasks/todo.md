@@ -87,10 +87,38 @@ border `rgba(255,143,192,.16)`, tint `rgba(255,143,192,.10)`. Radii: 18/14/10px.
       (compiled HTML is gitignored / runtime-generated)
 - [x] Updated `todo.md` + captured lessons (contrast, partial-cascade delete, token-sync)
 
-## Wave 8 — Whole-redesign verification
-- [ ] `pnpm -r build` + `pnpm -r test` (bundle-guard + new delete tests green)
-- [ ] Live browser smoke (palette, nav, delete 204, artifacts, graph edges, reduced-motion, glass fallback)
-- [ ] Docs-match-source check; whole-redesign review
+## Wave 8 — Whole-redesign verification  ✅ DONE
+- [x] Full monorepo: typecheck clean (shared/core/web) · `pnpm -r test` **core 460 + web 133** ·
+      `pnpm -r build` ✓ (core tsc + web vite)
+- [x] Live browser smoke `redesign-smoke.spec.ts` **4/4** (labeled sidebar/no-Docs-rail, fleet graph
+      canvas, Artifacts tab, project+task delete→204, zero uncaught page errors)
+- [x] Whole-redesign review (code-reviewer) → **APPROVE-WITH-NITS**: 0 Crit/High in product code;
+      contrast AA across all accent fills, delete transaction sound, no dead orphans, nav IA intact,
+      lessons adhered (rfg-2d, MotionConfig, 204, token-sync). One HIGH was a stale `Bible`→`Artifacts`
+      tab name in the `P02` persona spec → fixed (3 load-bearing refs + descriptions; kept
+      `iframe[title="Project Bible"]` and the §10 doc refs)
 
 ## Review notes
-_(filled in as waves land)_
+
+Redesign delivered in 8 waves on `feat/ui-redesign-midnight-glass` (off the todo-workflow merge),
+one reviewable commit per wave, a code-review agent every wave + a whole-redesign review before merge.
+
+**Outcome vs. the original asks:**
+- Vivid midnight-purple base + translucent blush-pink accents + sky-blue hover/active — done (tokens
+  synced across index.css / tailwind.config / ui-artifact.ts / graph.ts; bible §06).
+- Density/whitespace + modern liquid-glass + roundedness — bolder glass (blur 24/sat 180, blush
+  hairline, glass-tint), 18/14/10px radii, roomier spacing, "Command Deck" hero, glass-tint metric card.
+- Delete projects & tasks — added (backend was missing): transactional FK-safe `deleteProject` + 409
+  active-run guard + task delete, ConfirmDialog UX, 8 new route tests.
+- Docs tab off the main sidebar; per-project Artifacts tab replacing Bible — labeled sidebar drops
+  Docs (kept reachable via footer Help + `g d`); `bible`→`artifacts` project tab is now an artifact
+  gallery.
+- Legible knowledge graph — glowing labeled nodes + visible sky-blue edges (shared painters in graph.ts).
+- Docs/bible + ui-demo updated to match (D-013, §06 token table).
+
+**Two extra latent bugs fixed along the way:** ⌘K "Help" navigated to an unknown `help` view (404);
+the `ui-artifact` raw-source shell was still on the old palette.
+
+**Not done (out of scope / follow-ups):** deeper per-tab body restyles beyond the token re-tint
+(Overview/Runs/PRs/Verification inherit tokens); fleet-graph cross-project edges (no backend data
+source yet); a visual "harness vs project" separator in the Artifacts gallery (reviewer LOW).
