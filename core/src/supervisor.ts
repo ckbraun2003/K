@@ -55,7 +55,10 @@ export type StartRunOptions = {
 }
 
 export async function startRun(prompt: string, opts: StartRunOptions = {}): Promise<Run> {
-  const routeResult = route({ prompt, preferLocal: opts.preferLocal, maxCostUsd: opts.maxCostUsd })
+  // An explicitly-named model is always a Claude model id (validated at the route
+  // boundary), so it overrides any local-model preference — never route an
+  // explicit `claude-*` id to `ollama run <id>`.
+  const routeResult = route({ prompt, preferLocal: opts.model ? false : opts.preferLocal, maxCostUsd: opts.maxCostUsd })
   const runId = uuid()
   const cwd = opts.cwd ?? REPO_ROOT
   const worktreePath = path.join(WORKTREES_DIR, runId)

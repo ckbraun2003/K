@@ -67,7 +67,7 @@ export const api = {
     // Lazy per-event raw fetch — called only when the user expands a timeline row.
     eventRaw: (id: string, seq: number): Promise<string> =>
       req<{ raw: string }>(`/runs/${id}/events/${seq}/raw`).then(r => r.raw),
-    start: (prompt: string, opts?: { cwd?: string; projectId?: string }) =>
+    start: (prompt: string, opts?: { cwd?: string; projectId?: string; model?: string; preferLocal?: boolean }) =>
       req<Run>('/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

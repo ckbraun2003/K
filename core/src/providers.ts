@@ -20,8 +20,9 @@ import { buildClaudeArgs, type PermissionMode } from './claude-args.js'
 
 export type ParseCtx = { tokensIn: number; tokensOut: number; costUsd: number }
 
-/** `model` is the routed model name — required by ollama (`ollama run <model>`),
- *  ignored by claude (which uses its CLI/env default to preserve existing argv). */
+/** `model` is the routed/selected model name — for claude it is forwarded as
+ *  `--model <id>` when set (see buildClaudeArgs); for ollama it is the
+ *  `ollama run <model>` target. */
 export type BuildArgsOptions = { inWorktree: boolean; permissionMode: PermissionMode; model?: string }
 
 export interface Provider {

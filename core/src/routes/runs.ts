@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import path from 'path'
-import { StartRunBodySchema, RunsQuerySchema } from '@k/shared'
+import { StartRunBodySchema, RunsQuerySchema, isKnownModel } from '@k/shared'
 import { startRun, kill, REPO_ROOT } from '../supervisor.js'
 import { runsDb, eventsDb, projectsDb } from '../db.js'
 import { matchProjectByCwd, type ProjectPathRow } from '../project-match.js'
@@ -24,7 +24,12 @@ export async function runsRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.flatten() })
     }
-    const { prompt, cwd, model, projectId } = parsed.data
+    const { prompt, cwd, model, projectId, preferLocal } = parsed.data
+    // Validate the model at the boundary (lessons.md): reject anything not in the
+    // known registry so a typo can't silently fall through to the CLI/router.
+    if (model !== undefined && !isKnownModel(model)) {
+      return reply.status(400).send({ error: 'unknown model' })
+    }
     // A project can now be deleted (DELETE /api/projects/:id). This existence
     // check is the fast/clear path; the FK INSERT inside startRun is the source of
     // truth. If the project is removed in the TOCTOU window between the two,
@@ -36,7 +41,7 @@ export async function runsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'cwd not under a registered project' })
     }
     try {
-      const run = await startRun(prompt, { cwd, model, projectId })
+      const run = await startRun(prompt, { cwd, model, projectId, preferLocal })
       return reply.status(201).send(run)
     } catch (e) {
       // The only FK on the runs INSERT is project_id → projects(id), so a SQLite

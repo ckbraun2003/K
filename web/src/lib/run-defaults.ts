@@ -1,10 +1,9 @@
 /**
  * Effective run defaults surfaced in the ⌘K dispatch confirm card.
  *
- * ⌘K dispatch (`api.runs.start`) sends only `prompt`/`cwd`/`projectId`; the core
- * supervisor derives the rest from env. These constants mirror those server-side
- * defaults so the preview card is honest about what will actually run:
- *   - model: ModelRouter's `CLAUDE_MODEL ?? 'claude-sonnet-4-6'` (core/src/router.ts)
+ * The model is now chosen per-run in the confirm card (see lib/run-models.ts), so
+ * it is no longer mirrored here. These remaining constants mirror the server-side
+ * defaults the dispatch path still derives from env:
  *   - permission mode: `RUN_PERMISSION_MODE ?? 'acceptEdits'`, applied inside the
  *     run's isolated worktree (core/src/claude-args.ts)
  *   - scope: every run executes in a throwaway git worktree (core/src/supervisor.ts)
@@ -13,19 +12,17 @@
  * Keep them in sync if the core defaults change.
  */
 export const RUN_DEFAULTS = {
-  model: 'claude-sonnet-4-6',
   permissionMode: 'acceptEdits',
   scope: 'Isolated git worktree',
 } as const
 
 /**
- * Muted caveats for the confirm card: the browser can't read core's env, so
- * model/permission shown are documented defaults that env vars or per-project
- * routing can override. The Project/Prompt rows are exact and need no caveat.
+ * Muted caveats for the confirm card: the browser can't read core's env, so the
+ * permission mode shown is a documented default that env vars can override. The
+ * Project/Prompt rows are exact and need no caveat.
  */
 export const RUN_DEFAULT_CAVEATS = {
-  model: 'default · routing may select another',
   permissionMode: 'default · CLAUDE_MODEL / RUN_PERMISSION_MODE env overrides',
   footer:
-    'Model and permission shown are defaults; env vars or per-project routing can override them.',
+    'Permission mode shown is a default; env vars or per-project routing can override it.',
 } as const

@@ -45,6 +45,22 @@ describe('buildClaudeArgs', () => {
     expect(args).toEqual(BASE_ARGS)
   })
 
+  it('model appends --model <id> after the base args', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: false, permissionMode: 'acceptEdits', model: 'claude-opus-4-8' })
+    expect(args).toEqual([...BASE_ARGS, '--model', 'claude-opus-4-8'])
+  })
+
+  it('model appends --model after --permission-mode inside a worktree', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: true, permissionMode: 'acceptEdits', model: 'claude-sonnet-4-6' })
+    expect(args).toEqual([...BASE_ARGS, '--permission-mode', 'acceptEdits', '--model', 'claude-sonnet-4-6'])
+  })
+
+  it('no model → argv has no --model (byte-identical to before)', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: false, permissionMode: 'acceptEdits' })
+    expect(args).toEqual(BASE_ARGS)
+    expect(args).not.toContain('--model')
+  })
+
   it('base args always start with [-p, prompt, --output-format, stream-json, --verbose]', () => {
     for (const inWorktree of [true, false]) {
       for (const permissionMode of ['default', 'plan', 'acceptEdits', 'bypassPermissions'] as const) {

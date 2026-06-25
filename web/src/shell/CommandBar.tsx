@@ -9,6 +9,7 @@ import { NAV_DESTINATIONS } from './Sidebar'
 import { parseProjectQuery, decideEnterMode } from '../lib/command-parse'
 import { modalCard, overlayFade, dialogCard } from '../lib/motion'
 import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
+import { MODEL_OPTIONS, modelChoiceToOpts } from '../lib/run-models'
 
 export { parseProjectQuery } from '../lib/command-parse'
 
@@ -35,6 +36,8 @@ export default function CommandBar({ open, onClose }: Props) {
   // For a plain query that coincidentally matches a nav label, lets the user flip
   // the Enter default between navigate and dispatch (Tab). null ?? = follow default.
   const [modeOverride, setModeOverride] = useState<'navigate' | 'dispatch' | null>(null)
+  // Per-run model selection for the confirm card. 'auto' preserves router routing.
+  const [model, setModel] = useState('auto')
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const confirmRunRef = useRef<HTMLButtonElement>(null)
@@ -44,7 +47,7 @@ export default function CommandBar({ open, onClose }: Props) {
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list, enabled: open })
 
   useEffect(() => {
-    if (open) { setQuery(''); setSelected(0); setError(null); setConfirm(null); setModeOverride(null); setTimeout(() => inputRef.current?.focus(), 50) }
+    if (open) { setQuery(''); setSelected(0); setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setTimeout(() => inputRef.current?.focus(), 50) }
   }, [open])
 
   // A new query invalidates a manual navigate/dispatch override — fall back to the default.
@@ -137,8 +140,8 @@ export default function CommandBar({ open, onClose }: Props) {
     busyRef.current = true; setBusy(true); setError(null)
     try {
       const run = item.kind === 'dispatch-project'
-        ? await api.runs.start(item.prompt, { cwd: item.project.localPath, projectId: item.project.id })
-        : await api.runs.start(item.label)
+        ? await api.runs.start(item.prompt, { cwd: item.project.localPath, projectId: item.project.id, ...modelChoiceToOpts(model) })
+        : await api.runs.start(item.label, { ...modelChoiceToOpts(model) })
       onClose()
       navigate('runs', run.id)
     } catch (e) {
@@ -287,8 +290,20 @@ export default function CommandBar({ open, onClose }: Props) {
                   </dd>
                   <dt className="text-[var(--muted)]">Model</dt>
                   <dd className="text-[var(--text)]">
-                    <span className="mono">{RUN_DEFAULTS.model}</span>{' '}
-                    <span className="text-[var(--muted)]">({RUN_DEFAULT_CAVEATS.model})</span>
+                    <select
+                      aria-label="Model"
+                      data-testid="dispatch-model-select"
+                      value={model}
+                      onChange={e => setModel(e.target.value)}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]"
+                    >
+                      {MODEL_OPTIONS.map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    <span className="ml-2 text-[var(--muted)]">
+                      {model === 'auto' ? 'routing may select another' : 'sent explicitly'}
+                    </span>
                   </dd>
                   <dt className="text-[var(--muted)]">Scope</dt>
                   <dd className="text-[var(--text)]">

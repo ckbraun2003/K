@@ -288,11 +288,25 @@ export type WsMessage = z.infer<typeof WsMessageSchema>
 
 // ─── API shapes ──────────────────────────────────────────────────────────────
 
+// Model registry — single source of truth for the per-run model picker. The UI
+// builds its options from this list; the route validates `model` against it.
+export const KNOWN_MODELS = [
+  { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+  { id: 'claude-fable-5', label: 'Fable 5' },
+] as const
+export type KnownModelId = typeof KNOWN_MODELS[number]['id']
+export function isKnownModel(id: string): id is KnownModelId {
+  return KNOWN_MODELS.some(m => m.id === id)
+}
+
 export const StartRunBodySchema = z.object({
   prompt: z.string().min(1),
   cwd: z.string().optional(),       // defaults to k/ root
   model: z.string().optional(),     // defaults to router decision
   projectId: z.string().uuid().optional(), // explicit project association (overrides cwd inference)
+  preferLocal: z.boolean().optional(), // route local-model preference; UI "Ollama (local)" sets this
 })
 export type StartRunBody = z.infer<typeof StartRunBodySchema>
 
