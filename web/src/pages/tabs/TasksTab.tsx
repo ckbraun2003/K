@@ -1,8 +1,11 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ProjectTask } from '@k/shared'
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
+import { navigate } from '../../lib/route'
+import Toast from '../../components/Toast'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 interface Props {
   projectId: string
@@ -41,12 +44,46 @@ export default function TasksTab({ projectId }: Props) {
   const [newTitle, setNewTitle] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const [pendingDispatchIds, setPendingDispatchIds] = useState<Set<string>>(new Set())
+  // Multi-select for the "run delegation workflow" path (distinct from the per-row quick dispatch).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Success toast pointing at the orchestrator run the workflow dispatch created.
+  const [dispatched, setDispatched] = useState<{ runId: string; count: number } | null>(null)
+  // Task pending a delete confirm.
+  const [deletingTask, setDeletingTask] = useState<ProjectTask | null>(null)
 
   const { data: tasks = [] } = useQuery<ProjectTask[]>({
     queryKey: ['tasks', projectId],
     queryFn: () => api.projects.tasks.list(projectId),
     refetchInterval: 10_000,
   })
+
+  // Prune ghost ids (deleted/synced-away tasks) from the selection after a refetch
+  // so the toast count and dispatch payload never reference tasks that no longer exist.
+  useEffect(() => {
+    if (!tasks.length) return
+    const valid = new Set(tasks.map(t => t.id))
+    setSelectedIds(s => {
+      const pruned = new Set([...s].filter(id => valid.has(id)))
+      return pruned.size === s.size ? s : pruned
+    })
+  }, [tasks])
+
+  function toggleSelect(id: string) {
+    setSelectedIds(s => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
+  function clearSelection() {
+    setSelectedIds(new Set())
+  }
+  const allSelected = tasks.length > 0 && tasks.every(t => selectedIds.has(t.id))
+  const someSelected = selectedIds.size > 0 && !allSelected
+  function toggleSelectAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(tasks.map(t => t.id)))
+  }
 
   const createTask = useMutation({
     mutationFn: (title: string) => api.projects.tasks.create(projectId, title),
@@ -72,6 +109,20 @@ export default function TasksTab({ projectId }: Props) {
     },
   })
 
+  const deleteTask = useMutation({
+    mutationFn: (taskId: string) => api.projects.tasks.delete(projectId, taskId),
+    onSuccess: (_d, taskId) => {
+      qc.invalidateQueries({ queryKey: ['tasks', projectId] })
+      // Drop the removed id from any pending selection so the count/payload stay honest.
+      setSelectedIds(s => {
+        if (!s.has(taskId)) return s
+        const n = new Set(s); n.delete(taskId); return n
+      })
+      setDeletingTask(null)
+    },
+  })
+  function closeDeleteTask() { setDeletingTask(null); deleteTask.reset() }
+
   const dispatchAgent = useMutation({
     mutationFn: (task: ProjectTask) =>
       api.runs.start(task.title, { projectId }),
@@ -80,6 +131,15 @@ export default function TasksTab({ projectId }: Props) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['runs', 'project', projectId] })
     },
+  })
+
+  const dispatchWorkflow = useMutation({
+    mutationFn: (ids: string[]) => api.projects.tasks.dispatchWorkflow(projectId, ids),
+    onSuccess: (data, ids) => {
+      setDispatched({ runId: data.runId, count: ids.length })
+      setSelectedIds(new Set())
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['tasks', projectId] }), // heal even on error (fix m4)
   })
 
   function handleAdd() {
@@ -107,11 +167,40 @@ export default function TasksTab({ projectId }: Props) {
         <button
           onClick={handleAdd}
           disabled={!newTitle.trim() || createTask.isPending}
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          className="rounded-control bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
         >
           {createTask.isPending ? 'Adding…' : 'Add'}
         </button>
       </div>
+
+      {/* Selection bar: select-all + clear */}
+      {tasks.length > 0 && (
+        <div className="flex-shrink-0 px-4 py-1.5 border-b border-[var(--border)] flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-[11px] text-[var(--muted)] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              data-testid="tasks-select-all"
+              checked={allSelected}
+              ref={el => { if (el) el.indeterminate = someSelected }}
+              onChange={toggleSelectAll}
+              className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
+            />
+            Select all
+          </label>
+          {selectedIds.size > 0 && (
+            <span className="text-[11px] text-[var(--muted)]">
+              {selectedIds.size} selected ·{' '}
+              <button
+                data-testid="tasks-header-clear"
+                onClick={clearSelection}
+                className="text-[var(--accent)] hover:underline"
+              >
+                clear
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Task list */}
       <div className="flex-1 overflow-y-auto">
@@ -125,6 +214,16 @@ export default function TasksTab({ projectId }: Props) {
             key={task.id}
             className="group flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--surface)] transition-colors"
           >
+            {/* Multi-select checkbox (workflow delegation path) */}
+            <input
+              type="checkbox"
+              data-testid={`task-select-${task.id}`}
+              checked={selectedIds.has(task.id)}
+              onChange={() => toggleSelect(task.id)}
+              aria-label={`Select task: ${task.title}`}
+              className="flex-shrink-0 h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
+            />
+
             {/* Status toggle */}
             <button
               onClick={() => updateStatus.mutate({ taskId: task.id, status: STATUS_CYCLE[task.status] })}
@@ -162,15 +261,60 @@ export default function TasksTab({ projectId }: Props) {
             {/* Dispatch agent button */}
             <button
               onClick={() => dispatchAgent.mutate(task)}
-              disabled={pendingDispatchIds.has(task.id)}
-              title="Dispatch an agent run for this task"
-              className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs font-medium text-[var(--text)] hover:border-[var(--accent)] hover:text-[var(--accent-hover)] transition-all disabled:opacity-40"
+              disabled={pendingDispatchIds.has(task.id) || dispatchWorkflow.isPending}
+              title="Quick single agent run for this task (use the checkboxes + bar below for a delegation workflow: implementer→review→controller)"
+              className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 rounded-control border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs font-medium text-[var(--text)] hover:border-[var(--accent-hover)] hover:text-[var(--accent-hover)] transition-all disabled:opacity-40"
             >
               ▶ Dispatch agent
+            </button>
+
+            {/* Delete task */}
+            <button
+              data-testid={`task-delete-btn-${task.id}`}
+              onClick={() => setDeletingTask(task)}
+              aria-label={`Delete task: ${task.title}`}
+              title="Delete task"
+              className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] hover:bg-red/15 hover:text-[var(--red)] transition-all"
+            >
+              🗑
             </button>
           </div>
         ))}
       </div>
+
+      {/* Action bar — pinned below the scroll area by the flex column (not CSS position:sticky); delegation workflow on the current selection */}
+      {selectedIds.size > 0 && (
+        <div
+          data-testid="tasks-workflow-bar"
+          role="region"
+          aria-label="Delegation workflow actions"
+          className="flex-shrink-0 px-4 py-3 border-t border-[var(--border)] flex items-center justify-between gap-3 bg-[var(--raised)]"
+        >
+          <div className="flex items-center gap-2">
+            <button
+              data-testid="tasks-run-workflow"
+              onClick={() => dispatchWorkflow.mutate([...selectedIds])}
+              disabled={dispatchWorkflow.isPending || selectedIds.size === 0}
+              title="Run a delegation workflow (implementer→review→controller) across the selected tasks"
+              className="rounded-control bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
+            >
+              {dispatchWorkflow.isPending
+                ? 'Dispatching…'
+                : `▶ Run delegation workflow on ${selectedIds.size} selected`}
+            </button>
+            {dispatchWorkflow.isError && (
+              <span className="text-[11px] text-[var(--red)]">⚠ {(dispatchWorkflow.error as Error)?.message ?? String(dispatchWorkflow.error)}</span>
+            )}
+          </div>
+          <button
+            data-testid="tasks-bar-clear"
+            onClick={clearSelection}
+            className="text-[11px] text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+          >
+            clear
+          </button>
+        </div>
+      )}
 
       {/* Footer: GitHub Issues sync */}
       <div className="flex-shrink-0 px-4 py-3 border-t border-[var(--border)] flex items-center justify-between gap-3">
@@ -194,6 +338,41 @@ export default function TasksTab({ projectId }: Props) {
           <span className="text-[11px] text-[var(--red)]">⚠ {String(createTask.error)}</span>
         )}
       </div>
+
+      {/* Workflow dispatch feedback: confirm the run fired + jump to its console. */}
+      <Toast
+        open={dispatched !== null}
+        testid="tasks-workflow-toast"
+        message={
+          <>
+            Delegation workflow dispatched on{' '}
+            <span className="font-medium text-[var(--text)]">{dispatched?.count} task{dispatched?.count === 1 ? '' : 's'}</span>
+          </>
+        }
+        action={{
+          label: 'View run →',
+          testid: 'tasks-workflow-toast-link',
+          onClick: () => dispatched && navigate('runs', dispatched.runId),
+        }}
+        onDismiss={() => setDispatched(null)}
+      />
+
+      <ConfirmDialog
+        open={deletingTask !== null}
+        testid="task-delete"
+        title="Delete task"
+        message={
+          <>
+            Delete <span className="font-semibold text-[var(--text)]">{deletingTask?.title}</span>? This
+            cannot be undone.
+          </>
+        }
+        confirmLabel="Delete task"
+        busy={deleteTask.isPending}
+        error={deleteTask.isError ? String(deleteTask.error) : undefined}
+        onConfirm={() => deletingTask && deleteTask.mutate(deletingTask.id)}
+        onCancel={closeDeleteTask}
+      />
     </div>
   )
 }

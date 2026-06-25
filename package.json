@@ -10,9 +10,13 @@
   "scripts": {
     "dev": "concurrently -n core,web -c blue,magenta \"pnpm --filter @k/core dev\" \"pnpm --filter @k/web dev\"",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "e2e:install": "playwright install chromium",
+    "e2e": "playwright test --config e2e/playwright.config.ts",
+    "e2e:one": "playwright test --config e2e/playwright.config.ts --headed"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "concurrently": "^9.1.0"
   }
 }

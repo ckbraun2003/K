@@ -27,14 +27,26 @@ import { reconcileOnBoot } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
 import { startGithubPoller, stopGithubPoller } from './github.js'
-import { isAuthExempt } from './auth.js'
+import {
+  isAuthExempt,
+  resolveHarnessToken,
+  tokensEqual,
+  wsTokenOk,
+  unsafeBootReason,
+  unsafeTerminalBootReason,
+  type ResolvedToken,
+} from './auth.js'
 import { terminalGate, createTerminalSession, type SpawnPty } from './terminal.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
 // loopback by default — Phase 0's security posture assumes localhost-only;
 // set HOST=0.0.0.0 explicitly to expose on the network
 const HOST = process.env.HOST ?? '127.0.0.1'
-const BEARER_TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
+// Resolve the harness token: HARNESS_TOKEN env → persisted file → generated +
+// persisted (first run). No insecure hard-coded default; the safety gate in
+// start() refuses to bind a non-loopback HOST with a weak/empty token.
+const RESOLVED_TOKEN: ResolvedToken = resolveHarnessToken()
+const BEARER_TOKEN = RESOLVED_TOKEN.token
 // Separate, narrower credential for the web terminal. It is embedded in the web
 // bundle (vite.config.ts) so a leaked bundle grants ONLY terminal access — never
 // the full-REST HARNESS_TOKEN. Default-off feature; loopback posture applies.
@@ -52,7 +64,10 @@ let stopGraphAutoReindex: (() => void) | undefined
  * poller) live in `start()`, not here. Non-behavioral extraction.
  */
 export async function buildApp() {
-  const app = Fastify({ logger: { level: 'info' } })
+  // disableRequestLogging: the default per-request log serializes ALL headers,
+  // which would leak `Authorization: Bearer <token>`. The app has its own
+  // run/audit logging, so the per-request line is not needed.
+  const app = Fastify({ logger: { level: 'info' }, disableRequestLogging: true })
 
   await app.register(cors, {
     origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
@@ -67,7 +82,9 @@ export async function buildApp() {
     // Skip auth for WS upgrade and health
     if (isAuthExempt(req.url)) return
     const auth = req.headers.authorization
-    if (!auth || auth !== `Bearer ${BEARER_TOKEN}`) {
+    // Constant-time compare against the expected `Bearer <token>` header to
+    // avoid a timing oracle on the token bytes.
+    if (!auth || !tokensEqual(auth, `Bearer ${BEARER_TOKEN}`)) {
       return reply.status(401).send({ error: 'unauthorized' })
     }
   })
@@ -89,8 +106,20 @@ export async function buildApp() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wsClients = new Set<any>()
 
-  app.get('/ws', { websocket: true }, (connection: SocketStream) => {
+  app.get('/ws', { websocket: true }, (connection: SocketStream, req) => {
     const socket = connection.socket
+
+    // The event gateway streams ALL agent activity, so it must be authenticated.
+    // A browser WS upgrade can't carry an Authorization header, so the token
+    // rides in the `?token=` query param (mirroring /ws/terminal) and is checked
+    // with a constant-time compare BEFORE the socket is subscribed to the bus.
+    const wsToken = ((req.query ?? {}) as { token?: string }).token
+    if (!wsTokenOk(wsToken, BEARER_TOKEN)) {
+      // 4401: application-level "unauthorized" close (4000–4999 is app-reserved).
+      socket.close(4401, 'unauthorized')
+      return
+    }
+
     wsClients.add(socket)
 
     function send(msg: WsMessage) {
@@ -196,6 +225,25 @@ export async function buildApp() {
 // ── Bootstrap + Listen ────────────────────────────────────────────────────────
 
 async function start() {
+  // Safety gate: never serve a weak/empty token on a non-loopback HOST. Checked
+  // before any side effects so an unsafe config fails fast with guidance.
+  const unsafe = unsafeBootReason(HOST, BEARER_TOKEN)
+  if (unsafe) {
+    console.error(`\n✖ ${unsafe}\n`)
+    process.exit(1)
+  }
+  // Same gate for the web terminal: a host shell must never be reachable on a
+  // non-loopback HOST with a weak/default TERMINAL_TOKEN.
+  const unsafeTerminal = unsafeTerminalBootReason(
+    HOST,
+    process.env.ENABLE_TERMINAL === 'true',
+    TERMINAL_TOKEN,
+  )
+  if (unsafeTerminal) {
+    console.error(`\n✖ ${unsafeTerminal}\n`)
+    process.exit(1)
+  }
+
   // Crash recovery: mark runs left `running`/`queued` by a prior crash as
   // interrupted and prune orphaned worktrees, before serving traffic.
   reconcileOnBoot()
@@ -215,7 +263,30 @@ async function start() {
   startOllamaProbe()  // no-op unless ENABLE_OLLAMA; keeps router reachability fresh
   console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
   console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)
-  console.log(`   Bearer token       → ${BEARER_TOKEN}\n`)
+  logTokenStatus(RESOLVED_TOKEN)
+}
+
+/**
+ * Print the token status. On first-run generation, show the full token ONCE
+ * (the operator needs it to log in remotely). On every subsequent boot, print a
+ * masked confirmation (last 4 chars) plus where it is stored — never the full
+ * token. An explicit HARNESS_TOKEN env override is reported as masked too.
+ */
+function logTokenStatus(t: ResolvedToken) {
+  const last4 = t.token.slice(-4)
+  if (t.firstRun) {
+    console.log('\n┌─────────────────────────────────────────────────────────────┐')
+    console.log('│  FIRST-RUN SETUP — a strong harness token was generated.     │')
+    console.log('└─────────────────────────────────────────────────────────────┘')
+    console.log(`   Token : ${t.token}`)
+    console.log(`   Saved : ${t.file}`)
+    console.log('   Use this token to log in when accessing the dashboard remotely.')
+    console.log('   It will NOT be printed again — copy it now if you need it.\n')
+  } else if (t.source === 'env') {
+    console.log(`   Bearer token       → set via HARNESS_TOKEN (…${last4})\n`)
+  } else {
+    console.log(`   Bearer token       → persisted (…${last4}) at ${t.file}\n`)
+  }
 }
 
 // Skip the listen/poller bootstrap when imported for testing (K_SKIP_BOOTSTRAP),

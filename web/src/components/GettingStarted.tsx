@@ -122,7 +122,7 @@ export default function GettingStarted({
                 <span
                   className={
                     step.done
-                      ? 'flex h-5 w-5 items-center justify-center rounded-full bg-[var(--green)] text-[10px] font-bold text-white'
+                      ? 'flex h-5 w-5 items-center justify-center rounded-full bg-[var(--green)] text-[10px] font-bold text-[var(--bg)]'
                       : 'flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] text-[10px] font-semibold text-[var(--muted)]'
                   }
                 >
@@ -136,7 +136,7 @@ export default function GettingStarted({
                 onClick={step.action}
                 className={
                   step.n === 1 && !step.done
-                    ? 'mt-3 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[11px] font-semibold text-white transition-opacity hover:opacity-90'
+                    ? 'mt-3 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[11px] font-semibold text-[var(--bg)] transition-opacity hover:opacity-90'
                     : 'mt-3 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-[11px] font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)]'
                 }
               >

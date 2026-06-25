@@ -10,6 +10,10 @@ import { dialogCard, overlayFade, sidePanel, fade, microLift, prefersReducedMoti
 import {
   DISPATCH_ACTIONS,
   GRAPH_LEGEND,
+  GRAPH_BG,
+  GRAPH_LINK_COLOR,
+  drawGraphNode,
+  paintNodePointerArea,
   type DispatchAction,
   type GraphNode,
   makeGraphUpdateHandler,
@@ -253,7 +257,7 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
               <button
                 onClick={handleBuild}
                 disabled={building || buildMutation.isPending}
-                className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {building ? 'Building…' : dataUnavailable ? 'Rebuild graph' : 'Build graph'}
               </button>
@@ -265,9 +269,13 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                 graphData={filteredData}
                 width={dims.width}
                 height={dims.height}
-                backgroundColor="#0a0a0f"
+                backgroundColor={GRAPH_BG}
                 nodeLabel="label"
-                nodeColor={colorFn}
+                nodeRelSize={5}
+                linkColor={() => GRAPH_LINK_COLOR}
+                linkWidth={1.6}
+                nodeCanvasObject={(node, ctx, scale) => drawGraphNode(node, ctx, scale, colorFn(node), 5)}
+                nodePointerAreaPaint={(node, color, ctx) => paintNodePointerArea(node, ctx, color, 5)}
                 onNodeClick={handleNodeClick}
                 cooldownTicks={100}
                 d3VelocityDecay={0.3}
@@ -393,7 +401,7 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
               <motion.button
                 {...microLift}
                 onClick={() => navigate('project', projectId, 'runs')}
-                className="w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+                className="w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90"
               >
                 View in Runs
               </motion.button>
@@ -513,7 +521,7 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                   dispatchMutation.mutate({ node: selected, action })
                 }}
                 disabled={dispatchMutation.isPending}
-                className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {dispatchMutation.isPending && (
                   <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />

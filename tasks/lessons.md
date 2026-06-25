@@ -146,3 +146,164 @@ entries at session start before touching the same area.
   a clean `503` (not an opaque 500) and throttles logging while the upstream is still starting. Prove
   it by polling the proxy after `pnpm dev` and asserting a 200 within ~15s — build/typecheck never
   catch this because the process simply never starts.
+
+## Phase 4 / user-testing isolation (2026-06-22)
+
+- **Parameterize a service port everywhere, and smoke a non-default port** — **Pattern:** standing up
+  10 isolated parallel stacks (each core on its own port) for the Playwright swarm forced the web
+  client off the default core port 3001. `web/src/lib/ws.ts` was fixed to read `VITE_CORE_PORT`, but
+  `web/src/lib/terminal.ts`'s `terminalWsUrl()` still returned a literal `ws://${hostname}:3001/ws/terminal…`
+  — so the terminal socket dialed a dead port on every non-default stack, and the server's
+  `{error,code:"disabled"}` frame never arrived (the "Terminal disabled" reason became dead code
+  off-default). On the *default* port 3001 the disabled banner works, so single-stack dev never
+  reveals it; only a multi-stack / non-default-port run does. **Rule:** when parameterizing a service
+  port, grep for ALL hardcoded occurrences of it (`grep -rn ':3001' web/src` finds BOTH `ws.ts` AND
+  `terminal.ts`) and fix every site for parity — don't stop at the one the current feature touches.
+  Then run at least one smoke on a NON-default port; a multi-stack / port-shifted run catches the
+  client-side port assumptions that single-stack dev (where the literal happens to equal the default)
+  structurally cannot.
+
+## Phase 4 / remote-access hardening (2026-06-23)
+
+- **When exposing a service beyond loopback, audit every token-leakage path — not just "is the
+  compare correct"** — **Pattern:** Wave P1's auth surface had a correct constant-time compare and a
+  correct boot-time safety gate, yet the review trident found four real leak/UX paths the happy-path
+  implementation missed: (1) the build-time `define` baked a *real* `HARNESS_TOKEN` into the browser
+  bundle whenever it was set during `vite build` (CI sourcing `.env` ships the secret in `dist/*.js`);
+  (2) Fastify's default request logging serializes the `Authorization` header to stdout on every call;
+  (3) the WS client dialed `ws://` unconditionally, sending the `?token=` in plaintext even behind an
+  HTTPS proxy; (4) a `4401` WS close triggered an infinite silent reconnect loop instead of surfacing
+  the login screen. None are caught by unit tests or `tsc`/`vite build`. **Rule:** for any
+  remote-exposed credential, walk the *full* lifecycle, not just the comparison — (a) the build/bundle
+  (never `JSON.stringify` an operator secret into a Vite `define`; gate any dev-token fallback behind
+  `import.meta.env.DEV` so it's inert in prod), (b) the transport (mirror `wss://`/`https:`; treat
+  `?token=` in a URL as logged-everywhere), (c) the logs (set `disableRequestLogging` or a
+  header-redacting serializer so the bearer never lands in stdout), and (d) the failure UX (a rejected
+  token must re-prompt, never loop). Verify these with a **live runtime smoke** (boot the real server;
+  assert REST `401`/`200`, WS `4401`/open, the first-run token file == the printed banner, and that a
+  non-loopback bind with a weak token actually `process.exit`s before `listen`) — the predicates were
+  all green in unit tests while the integration leaks were wide open. Carry this into P2 (Tauri) and
+  P3 (PWA): both re-ship the bundle and re-expose the transport.
+
+## Track C — user-testing fixes (2026-06-23)
+
+- **A fetch wrapper that always calls `res.json()` throws on a 204/empty body** — **Pattern:** the web
+  client's `req<T>()` unconditionally did `return res.json()`. `DELETE /api/skills/:id` answers `204 No
+  Content` with an empty body, so `res.json()` threw "Unexpected end of JSON input" — the delete
+  *succeeded* on the server but the mutation landed in `onError`: the confirm dialog stayed open showing
+  an error and the list never invalidated, so the row lingered until a manual reload. typecheck, the
+  code review, and 105 passing unit tests all missed it because the unit tests mock `fetch` with a JSON
+  body and never exercise a real 204. **Rule:** any shared HTTP helper must handle no-content responses
+  — short-circuit on `res.status === 204` (or `content-length: 0`) and return `undefined` instead of
+  parsing. When you add an endpoint that returns 204/empty, check the client's response-parsing path.
+  And: **a live browser smoke catches integration bugs that mocked unit tests structurally cannot** —
+  the delete looked perfect in code + unit tests; only driving the real DELETE→204→react-query path in
+  a browser surfaced it. Keep doing a live smoke of each user-facing wave, and when it finds a bug, fix
+  the root cause and re-verify the fix live (not just with a new mock).
+
+- **Measure front-end "slowness" against the BUILT bundle, not the dev server** — **Pattern:** the
+  user-testing swarm reported cold Home ~20s (#9) and create-skill ~16s (#17) as High/Med latency
+  defects. Wave C6 reproduced them on the built bundle (`vite preview`-style static+proxy) and found
+  the app is interactive in ~0.7–2s — an order of magnitude faster. The 16–20s was the **Vite dev
+  server cold-compiling the 1.1 MB bundle on first interaction**, which does not exist in production.
+  Two "defects" were really a measurement artifact of the test harness driving `pnpm dev`. **Rule:**
+  when investigating perceived front-end latency, measure the **production-built** bundle before
+  attributing time to app/server code; dev-server cold-transform masquerades as app latency. (Carry
+  into P2/P3: Tauri/PWA ship the built bundle — measure there, not in dev.)
+
+- **A per-list-item `useQuery` fans out to N parallel requests on grid mount** — **Pattern:** every
+  `ProjectCard` ran its own `useQuery(['github', id])`, so a fleet grid of N cards fired N concurrent
+  `/api/projects/:id/github` requests on cold mount (measured exactly 1:1 — 60 cards → 60 in-flight),
+  exhausting the browser socket pool (`net::ERR_INSUFFICIENT_RESOURCES`, finding #3). The endpoint
+  itself was a cheap cached read, so it looked harmless per-call. **Rule:** never fetch per list item
+  in a grid/list — hoist to ONE fleet/batch query at the parent (a `Record<id,…>` endpoint + a shared
+  hook keyed once) and pass each row its slice as a prop. Register the static batch segment
+  (`/projects/github`) before the param route (`/projects/:id/…`); Fastify's radix router prefers the
+  static segment regardless, but assert it with a no-shadowing test. Make the row component pure.
+
+- **Extract input validators to pure, tested modules — and test path/regex logic against the real OS**
+  — **Pattern:** Wave C5's register-source classifier lived inline in the component with a backslash
+  character class that did not match standard Windows paths (`C:\path\to\repo`), so on the very OS K
+  runs on a valid local path was flagged "malformed" and submit was disabled — and there was no unit
+  test for the classifier (cron/chords/html got tests; the path classifier didn't), so the review,
+  typecheck, and build all missed it. **Rule:** extract validation/classification into a pure `lib/*`
+  module and unit-test it with **platform-real inputs** (Windows drive `C:\`, UNC `\\server\share`,
+  POSIX, `~`, relative, plus URLs and garbage). A separator character class is `[/\\]` in a regex
+  **literal** — NOT a `new RegExp("[\\/]")` string, where the doubled backslash collapses. When you
+  mirror a server validator on the client (cron ↔ node-cron), match it exactly at the boundary
+  (node-cron ignores trailing fields → don't reject a 6+field expression the server accepts).
+
+## UI redesign — vivid midnight-glass (2026-06-24)
+
+- **A light accent demands DARK foreground on filled surfaces** — **Pattern:** the redesign moved
+  `--accent` from indigo (#6366f1) to blush pink (#ff8fc0). Every pre-existing primary button used
+  `bg-[var(--accent)] text-white` / `color:#fff`, which on the light blush fill is **2.1:1** — a hard
+  WCAG-AA fail (caught by the Wave-1 review, not by typecheck/build/tests). **Rule:** when the accent
+  is a *light* hue, accent-FILLED elements (primary buttons, solid badges, active pills) must use a
+  **dark** foreground — `text-[var(--bg)]` / `#1a0f2e` (≈5.3:1 on blush) — never `text-white`. Hover
+  transitions to the sky-blue `--accent-hover`. Accent-as-TEXT on a dark surface is fine (blush on
+  surface ≈7.9:1). Sweep `text-white`/`#fff` paired with `bg-accent`/`var(--accent)` in every wave's
+  components and flip to dark. Contrast is invisible to the build — verify ratios in review.
+
+- **One palette, four code locations + one doc — change them together** — **Pattern:** the K palette is
+  duplicated in `web/src/index.css` (`:root` + utility classes), `web/tailwind.config.ts` (`colors`),
+  `core/src/ui-artifact.ts` (`uiDemoHtml()` + `uiArtifactShell()` inline CSS), and `web/src/lib/graph.ts`
+  (`GRAPH_COLORS`), and documented in bible §06. A retune that misses one silently ships a two-tone UI
+  (e.g. the raw-artifact `uiArtifactShell` was nearly left on the old `#0a0a0f`). **Rule:** treat the
+  token set as one unit — grep the old hexes (`6366f1`, `0a0a0f`, `99,102,241`, `34,197,94`) across ALL
+  five locations after a palette change and confirm zero hits (except deliberately-kept chart hues).
+  `graph.test.ts` references `GRAPH_COLORS.*` by name, so color *values* can change without breaking it.
+
+## UI redesign — delete projects/tasks (2026-06-24)
+
+- **A "cascade delete" is only as complete as the FK declarations — audit EVERY referencing table**
+  — **Pattern:** adding `DELETE /api/projects/:id` looked like a one-liner (`DELETE FROM projects`)
+  because the plan said "FK ON DELETE CASCADE handles dependents." But only `project_tasks`,
+  `workflow_runs`, `project_graphs` declared `ON DELETE CASCADE`; `runs.project_id` and
+  `verification_reports.project_id` declared a bare `REFERENCES` (RESTRICT), `events` references
+  `runs` (no cascade), and `github_cache` has no FK at all. With `PRAGMA foreign_keys = ON`, a plain
+  project delete would THROW "FOREIGN KEY constraint failed" the moment the project had any run or
+  report — invisible to typecheck/build and to a happy-path test on an empty project. **Rule:** before
+  shipping a parent delete, enumerate every table whose FK points at the parent (or at the parent's
+  children, e.g. `events → runs`), confirm each one's `ON DELETE` action, and clean the non-cascading
+  ones explicitly inside ONE `db.transaction()` in FK-safe order (grandchildren before children before
+  parent). Write a cascade test that seeds a row in EVERY dependent table and asserts all are empty
+  after — an empty-project delete test proves nothing. SQLite can't ALTER a column's FK, so adding
+  `ON DELETE CASCADE` to an existing table needs a table-rebuild migration; a transactional explicit
+  cleanup is the lower-risk fix.
+
+- **Guard a destructive parent-delete against in-flight children** — **Pattern:** hard-deleting a
+  project's `runs` rows while the supervisor is still writing events for a live run would make the next
+  event INSERT FK-fail and crash that run. **Rule:** refuse the delete (409) while the parent has
+  active children (`status IN ('running','queued')`) so a row is never deleted out from under a live
+  writer; surface that 409 message in the confirm dialog. And distinguish "delete this child's history"
+  from "this child is scoped elsewhere": skill_runs/skill_evals are skill-scoped, so a project delete
+  intentionally leaves them (their `runId` SET NULL preserves skill history) rather than erasing them.
+
+## Todo-workflow (2026-06-24)
+
+- **Lifecycle that locks state before an await must roll back on throw** — **Pattern:**
+  `dispatchTaskWorkflow` flips tasks to `in_progress` + inserts a `'running'` `workflow_runs` row
+  BEFORE `await startRun`; if `startRun` throws, that locked state leaks (tasks stuck `in_progress`,
+  a phantom `running` row). **Rule:** any lifecycle mirroring `triggerSkill` / `runSkillTest` must
+  wrap the await and, on failure, finalize the row (`failed`) + revert the locked state (tasks →
+  `open`) + rethrow — mirror `runSkillTest`'s degrade. This path is exercised only by a throw-path
+  test, not the happy path, so write that test explicitly.
+
+- **Discriminate route errors with a typed Error class, not message-substring matching** —
+  **Pattern:** the dispatch route first mapped to 400 with `msg.includes('Task not found')` — fragile
+  (any internal lib emitting that text misclassifies as 400; a message reword silently breaks the
+  branch). **Rule:** throw a named error class (`TaskNotFoundError`) from the seam and branch on
+  `instanceof` at the route boundary; never key control flow on substring-matched error messages.
+
+- **Thread react-query mutation variables; don't close over component state** — **Pattern:** the
+  dispatch toast read `selectedIds.size` from a closure that could already be `0` after an interval
+  refetch cleared the selection. **Rule:** pass the payload as the mutation variable and read it back
+  in `onSuccess(data, vars)` rather than closing over live component state; also prune stale ids from
+  a Set-selection after every refetch so the count/payload can't reference deleted rows.
+
+- **`reuseExistingServer:true` can reuse a stale-schema core** — **Pattern:** a long-lived dev core
+  started BEFORE this migration lacked the `workflow_runs` table, so a reused e2e core 500s on
+  dispatch even though the code is correct. **Rule:** after a schema change, restart core before a
+  live smoke (or point the smoke at a fresh `CORE_PORT` / `K_DATA_DIR`) — a left-over pre-migration
+  core silently masks new-table features.

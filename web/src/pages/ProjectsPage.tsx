@@ -5,14 +5,25 @@ import type { Project } from '@k/shared'
 import { api } from '../lib/api'
 import ProjectCard from '../components/ProjectCard'
 import GettingStarted from '../components/GettingStarted'
+import ConfirmDialog from '../components/ConfirmDialog'
+import { useFleetGithub } from '../lib/useFleetGithub'
+import { classifySource } from '../lib/source'
 
 export default function ProjectsPage() {
   const qc = useQueryClient()
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
+  const githubFor = useFleetGithub()
   const [open, setOpen] = useState(false)
+  const [deleting, setDeleting] = useState<Project | null>(null)
   const [name, setName] = useState('')
   const [source, setSource] = useState('')
-  const isUrl = /^(https:\/\/|git@)/.test(source.trim())
+  const trimmedSource = source.trim()
+  // Classify the source so we can hint malformed input BEFORE the server 4xx
+  // (finding #25). The pure classifier lives in lib/source.ts (mirrors the
+  // cron.ts/html.ts pattern) so the Windows-path regex is unit-tested.
+  const sourceKind = classifySource(trimmedSource)
+  const isUrl = sourceKind === 'url'
+  const sourceMalformed = trimmedSource !== '' && sourceKind === 'invalid'
 
   // window-level so Escape works even when focus left the panel — disabling
   // the submit button while pending moves focus to <body>
@@ -35,22 +46,36 @@ export default function ProjectsPage() {
     },
   })
 
+  const del = useMutation({
+    mutationFn: (id: string) => api.projects.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['github-fleet'] })
+      setDeleting(null)
+    },
+  })
+
+  function closeDelete() { setDeleting(null); del.reset() }
+
   return (
-    <div className="h-full overflow-y-auto p-5">
+    <div className="h-full overflow-y-auto px-6 py-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
           Fleet · {projects.length} project{projects.length === 1 ? '' : 's'}
         </h2>
         <button
+          data-testid="register-open"
           onClick={() => setOpen(true)}
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-90"
+          className="rounded-control bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--bg)] transition-colors duration-150 hover:bg-[var(--accent-hover)]"
         >
           + register project
         </button>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-3">
-        {projects.map(p => <ProjectCard key={p.id} project={p} />)}
+        {projects.map(p => (
+          <ProjectCard key={p.id} project={p} gh={githubFor(p.id)} onDelete={() => setDeleting(p)} />
+        ))}
       </div>
       {projects.length === 0 && (
         <GettingStarted projects={projects} forceOpen onRegister={() => setOpen(true)} />
@@ -64,6 +89,7 @@ export default function ProjectsPage() {
           >
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
             <motion.div
+              data-testid="register-dialog"
               role="dialog"
               aria-modal="true"
               aria-labelledby="register-project-title"
@@ -76,6 +102,7 @@ export default function ProjectsPage() {
                 Local path registers in place · GitHub URL clones into <span className="mono">workspace/</span>
               </p>
               <input
+                data-testid="register-name"
                 autoFocus
                 value={name}
                 onChange={e => setName(e.target.value)}
@@ -83,19 +110,32 @@ export default function ProjectsPage() {
                 className="mt-4 w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none focus:border-[var(--accent)]"
               />
               <input
+                data-testid="register-source"
                 value={source}
                 onChange={e => setSource(e.target.value)}
                 placeholder="C:\path\to\repo — or — https://github.com/owner/repo"
                 className="mono mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2 text-xs text-[var(--text)] placeholder-[var(--muted)] outline-none focus:border-[var(--accent)]"
               />
               <div className="mt-4 flex items-center justify-between">
-                <span className="text-[11px] text-[var(--muted)]">
-                  {register.isError ? `⚠ ${String(register.error)}` : isUrl ? 'will clone via gh' : source ? 'will register path' : ''}
+                <span
+                  data-testid="register-hint"
+                  className={`text-[11px] ${register.isError || sourceMalformed ? 'text-[var(--red)]' : 'text-[var(--muted)]'}`}
+                >
+                  {register.isError
+                    ? `⚠ ${String(register.error)}`
+                    : sourceMalformed
+                    ? '⚠ enter a local path (C:\\…) or a GitHub URL (https://…)'
+                    : isUrl
+                    ? 'will clone via gh'
+                    : trimmedSource
+                    ? 'will register path'
+                    : ''}
                 </span>
                 <button
+                  data-testid="register-submit"
                   onClick={() => register.mutate()}
-                  disabled={!name.trim() || !source.trim() || register.isPending}
-                  className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-90 disabled:opacity-40"
+                  disabled={!name.trim() || !trimmedSource || sourceMalformed || register.isPending}
+                  className="rounded-control bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[var(--bg)] transition-colors duration-150 hover:bg-[var(--accent-hover)] disabled:opacity-40"
                 >
                   {register.isPending ? 'registering…' : 'Register →'}
                 </button>
@@ -104,6 +144,23 @@ export default function ProjectsPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        testid="project-delete"
+        title="Delete project"
+        message={
+          <>
+            Permanently delete <span className="font-semibold text-[var(--text)]">{deleting?.name}</span> and
+            all its runs, tasks, verification history & knowledge graph? This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete project"
+        busy={del.isPending}
+        error={del.isError ? String(del.error) : undefined}
+        onConfirm={() => deleting && del.mutate(deleting.id)}
+        onCancel={closeDelete}
+      />
     </div>
   )
 }

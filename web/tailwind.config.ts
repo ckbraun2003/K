@@ -5,16 +5,22 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: '#0a0a0f',
-        surface: '#111116',
-        raised: '#16161d',
-        border: '#26262e',
-        text: '#e7e7ea',
-        muted: '#8b8b93',
-        accent: { DEFAULT: '#6366f1', hover: '#818cf8' },
-        green: '#22c55e',
-        amber: '#eab308',
-        red: '#ef4444',
+        bg: '#1a0f2e',
+        surface: '#241640',
+        raised: '#2e1b52',
+        border: '#3a2a5c',
+        text: '#f4f0ff',
+        muted: '#a99bc4',
+        // accent = blush pink (fills/active); accent-hover = sky blue (hover/active transition)
+        accent: { DEFAULT: '#ff8fc0', hover: '#38bdf8' },
+        green: '#34d399',
+        amber: '#fbbf24',
+        red: '#f87171',
+      },
+      borderRadius: {
+        panel: '18px',
+        control: '14px',
+        pill: '9999px',
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],

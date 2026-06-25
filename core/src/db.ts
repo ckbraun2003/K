@@ -99,6 +99,18 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(project_id, created_at);
 
+  CREATE TABLE IF NOT EXISTS workflow_runs (
+    id           TEXT PRIMARY KEY,
+    project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    run_id       TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    task_ids     TEXT NOT NULL DEFAULT '[]',   -- JSON array of task ids
+    mode         TEXT NOT NULL DEFAULT 'combined',
+    status       TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed')),
+    created_at   INTEGER NOT NULL,
+    completed_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_workflow_runs_project ON workflow_runs(project_id, created_at);
+
   CREATE TABLE IF NOT EXISTS skills (
     id           TEXT PRIMARY KEY,
     name         TEXT NOT NULL UNIQUE,
@@ -298,7 +310,49 @@ const updateProjectHealth = db.prepare(`
 const getProject = db.prepare(`SELECT * FROM projects WHERE id = ?`)
 const listProjects = db.prepare(`SELECT * FROM projects ORDER BY name`)
 
-export const projectsDb = { insertProject, updateProjectHealth, getProject, listProjects }
+// Count runs still in flight for a project. The delete route refuses while any
+// are live so we never delete a run row out from under the supervisor (its next
+// event INSERT would FK-fail against a now-missing run).
+const countActiveProjectRuns = db.prepare(
+  `SELECT COUNT(*) AS n FROM runs WHERE project_id = ? AND status IN ('running','queued')`,
+)
+
+// Hard-delete a project and everything hanging off it. project_tasks,
+// workflow_runs and project_graphs cascade automatically (ON DELETE CASCADE); but
+// runs, verification_reports, a run's events, and github_cache have NO cascade, so
+// they're cleaned explicitly in FK-safe order inside one transaction. Deleting the
+// runs first lets workflow_runs.run_id (ON DELETE SET NULL) resolve before the
+// project row (and its workflow_runs) cascade away.
+//
+// skill_runs/skill_evals are deliberately NOT touched: they are SKILL-scoped history
+// (anchored to skills.id), and skill-triggered runs are launched with no projectId
+// (skills.ts startRun(skill.source)) so they carry project_id = NULL and are never
+// matched by deleteProjectRuns. If a future skill ever dispatched a project-scoped
+// run, runs(id)'s ON DELETE SET NULL on skill_runs/skill_evals correctly preserves
+// the skill's execution history rather than erasing it on a project delete.
+const deleteProjectRunEvents = db.prepare(
+  `DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+)
+const deleteProjectRuns = db.prepare(`DELETE FROM runs WHERE project_id = ?`)
+const deleteProjectReports = db.prepare(`DELETE FROM verification_reports WHERE project_id = ?`)
+const deleteProjectGithubCache = db.prepare(`DELETE FROM github_cache WHERE project_id = ?`)
+const deleteProjectRow = db.prepare(`DELETE FROM projects WHERE id = ?`)
+const deleteProject = db.transaction((id: string) => {
+  deleteProjectRunEvents.run(id)
+  deleteProjectRuns.run(id)
+  deleteProjectReports.run(id)
+  deleteProjectGithubCache.run(id)
+  deleteProjectRow.run(id) // cascades project_tasks, workflow_runs, project_graphs
+})
+
+export const projectsDb = {
+  insertProject,
+  updateProjectHealth,
+  getProject,
+  listProjects,
+  countActiveProjectRuns,
+  deleteProject,
+}
 
 // ─── Project graph helpers ───────────────────────────────────────────────────
 
@@ -382,6 +436,8 @@ const updateProjectTaskStatus = db.prepare(`
 
 const getProjectTask = db.prepare(`SELECT * FROM project_tasks WHERE id = ? AND project_id = ?`)
 
+const deleteProjectTask = db.prepare(`DELETE FROM project_tasks WHERE id = ? AND project_id = ?`)
+
 // Issue-sync lookup: a task already mirroring a given (project, issue#).
 const getProjectTaskByIssue = db.prepare(`SELECT * FROM project_tasks WHERE project_id = ? AND issue_number = ?`)
 
@@ -399,8 +455,39 @@ export const projectTasksDb = {
   listProjectTasks,
   updateProjectTaskStatus,
   getProjectTask,
+  deleteProjectTask,
   getProjectTaskByIssue,
   updateProjectTaskFromIssue,
+}
+
+// ─── WorkflowRun helpers ─────────────────────────────────────────────────────
+// One supervised delegation-workflow run over a batch of selected todos.
+// task_ids is stored as a JSON array string (bound JSON.stringify'd at the call
+// site). run_id is null until the underlying agent run is created.
+
+const insertWorkflowRun = db.prepare(`
+  INSERT INTO workflow_runs (id, project_id, run_id, task_ids, mode, status, created_at, completed_at)
+  VALUES (@id, @projectId, @runId, @taskIds, @mode, @status, @createdAt, @completedAt)
+`)
+
+const patchWorkflowRunId = db.prepare(`UPDATE workflow_runs SET run_id = ? WHERE id = ?`)
+
+const updateWorkflowRunStatus = db.prepare(`
+  UPDATE workflow_runs SET status = ?, completed_at = ? WHERE id = ?
+`)
+
+const getWorkflowRun = db.prepare(`SELECT * FROM workflow_runs WHERE id = ?`)
+
+const listWorkflowRunsByProject = db.prepare(`
+  SELECT * FROM workflow_runs WHERE project_id = ? ORDER BY created_at DESC
+`)
+
+export const workflowRunsDb = {
+  insertWorkflowRun,
+  patchWorkflowRunId,
+  updateWorkflowRunStatus,
+  getWorkflowRun,
+  listWorkflowRunsByProject,
 }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────

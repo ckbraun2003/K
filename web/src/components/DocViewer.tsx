@@ -44,7 +44,7 @@ export default function DocViewer({ slug }: Props) {
               onClick={() => setView(v)}
               className={`px-3 py-1 text-xs font-medium transition-colors ${
                 view === v
-                  ? 'bg-[var(--accent)] text-white'
+                  ? 'bg-[var(--accent)] text-[var(--bg)]'
                   : 'text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]'
               }`}
             >

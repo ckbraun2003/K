@@ -7,9 +7,10 @@ import { getGithubStatus, createPR, syncIssues } from '../github.js'
 import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
-import { verificationDb, rowToReport, projectTasksDb } from '../db.js'
+import { dispatchTaskWorkflow, TaskNotFoundError } from '../workflows.js'
+import { verificationDb, rowToReport, projectTasksDb, projectsDb } from '../db.js'
 import { buildGraph, getGraphMeta, isGraphStale, enrichNodes } from '../graph.js'
-import { CreatePrOptsSchema, GraphDispatchBodySchema, type ProjectTask } from '@k/shared'
+import { CreatePrOptsSchema, GraphDispatchBodySchema, DispatchTasksBodySchema, type ProjectTask, type GithubStatus } from '@k/shared'
 
 // Natural-language prompt that triggers the Layer-2 verify-project skill.
 const DEEP_VERIFY_PROMPT =
@@ -37,7 +38,37 @@ export async function projectsRoutes(app: FastifyInstance) {
     }
   })
 
-  // GET /api/projects/:id/github — cached PR + CI status
+  // DELETE /api/projects/:id — hard-delete a project and ALL its data (204).
+  // Refuses with 409 while the project has active (running/queued) runs so a row
+  // is never deleted out from under the live supervisor. Cascade + explicit
+  // cleanup of non-cascading dependents happens transactionally in db.deleteProject.
+  app.delete<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    const active = (projectsDb.countActiveProjectRuns.get(project.id) as { n: number }).n
+    if (active > 0) {
+      return reply
+        .status(409)
+        .send({ error: `project has ${active} active run${active === 1 ? '' : 's'} — stop them first` })
+    }
+    projectsDb.deleteProject(project.id)
+    return reply.status(204).send()
+  })
+
+  // GET /api/projects/github — fleet-level cached PR + CI status, keyed by id.
+  // Collapses the Home/Projects grid's per-card fan-out (one request per card)
+  // into a single batch read so a cold fleet load doesn't fire N parallel
+  // /github requests (Wave C6). Each entry is the same cheap cached SQLite read
+  // as the per-id route. Registered before the `:id` route; Fastify's router
+  // prioritizes the static `github` segment over the `:id` param regardless.
+  app.get('/api/projects/github', async (_req, reply) => {
+    const statuses: Record<string, GithubStatus> = {}
+    for (const project of listProjects()) statuses[project.id] = getGithubStatus(project.id)
+    return reply.send(statuses)
+  })
+
+  // GET /api/projects/:id/github — cached PR + CI status (single project; still
+  // used by the workspace PRs/CI + Overview tabs, which load one project at a time)
   app.get<{ Params: { id: string } }>('/api/projects/:id/github', async (req, reply) => {
     const project = getProject(req.params.id)
     if (!project) return reply.status(404).send({ error: 'not found' })
@@ -179,6 +210,41 @@ export async function projectsRoutes(app: FastifyInstance) {
       return reply.send(rowToTask({ ...row, status, completed_at: completedAt }))
     }
   )
+
+  // DELETE /api/projects/:id/tasks/:taskId — remove a single task (204).
+  app.delete<{ Params: { id: string; taskId: string } }>(
+    '/api/projects/:id/tasks/:taskId',
+    async (req, reply) => {
+      const project = getProject(req.params.id)
+      if (!project) return reply.status(404).send({ error: 'not found' })
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!UUID_RE.test(req.params.taskId)) return reply.status(400).send({ error: 'invalid taskId' })
+      const row = projectTasksDb.getProjectTask.get(req.params.taskId, project.id)
+      if (!row) return reply.status(404).send({ error: 'task not found' })
+      projectTasksDb.deleteProjectTask.run(req.params.taskId, project.id)
+      return reply.status(204).send()
+    },
+  )
+
+  // POST /api/projects/:id/tasks/dispatch — launch ONE supervised delegation run
+  // over a batch of selected todos. The selected tasks flip to in_progress and a
+  // workflow_run row tracks the run lifecycle (see workflows.ts). 202 because the
+  // agent run is async (mirrors how skills /trigger returns 202).
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/projects/:id/tasks/dispatch', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    const parsed = DispatchTasksBodySchema.safeParse(req.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+    try {
+      const { workflowRunId, runId } = await dispatchTaskWorkflow(project, parsed.data.taskIds)
+      return reply.status(202).send({ workflowRunId, runId })
+    } catch (e) {
+      // A bad/foreign taskId is a client error → 400; anything else is a 500.
+      if (e instanceof TaskNotFoundError) return reply.status(400).send({ error: 'task not found' })
+      req.log.error(e)
+      return reply.status(500).send({ error: 'dispatch failed' })
+    }
+  })
 
   // POST /api/projects/:id/prs — create a GitHub PR via gh CLI
   app.post<{ Params: { id: string }; Body: unknown }>('/api/projects/:id/prs', async (req, reply) => {

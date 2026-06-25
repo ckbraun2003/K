@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-06-17
+updated: 2026-06-21
 ---
 
 ## Running locally
@@ -20,8 +20,8 @@ pnpm dev                     # both in parallel
 
 ```
 PORT=3001
-HOST=127.0.0.1                        # loopback default; 0.0.0.0 exposes on network (see Accepted risks)
-HARNESS_TOKEN=dev-token-change-me     # bearer token (Phase 1: passkey/TOTP)
+HOST=127.0.0.1                        # loopback default; only set 0.0.0.0 behind Tailscale / an auth proxy (see Remote access)
+HARNESS_TOKEN=                        # leave UNSET to auto-generate+persist a strong token on first run (see Remote access)
 CORS_ORIGIN=http://localhost:5173
 CLAUDE_MODEL=claude-sonnet-4-6
 RUN_PERMISSION_MODE=acceptEdits       # claude --permission-mode for worktree runs; default acceptEdits.
@@ -38,6 +38,7 @@ ENABLE_GITHUB_POLL=true               # set false to disable
 | What | Where | Versioned |
 |------|-------|-----------|
 | SQLite (runs, events, artifacts, projects, verification) | `core/data/k.db` (WAL) | no |
+| Harness bearer token (first-run generated secret) | `data/auth-token` (0600, gitignored) | no |
 | Bible source | `artifacts/bible/` | yes |
 | Compiled bible | `artifacts/project-bible.html` | no (generated) |
 | Other artifacts | `artifacts/*.md` (+ generated `.html`) | md yes / html no |
@@ -54,6 +55,55 @@ ENABLE_GITHUB_POLL=true               # set false to disable
 ## Onboard / verify scaffold-then-commit workflow
 
 Onboarding (`POST /api/projects/:id/onboard`) and verification (`POST /api/projects/:id/verify`) may scaffold files into the **working tree — uncommitted**: a starter `.github/workflows/ci.yml` and/or a starter bible, written for operator review rather than pushed. Nothing is committed or pushed on your behalf. After running either, inspect the proposed changes with `git status` / `git diff`, then commit manually if you accept them. The score reflects the pre-fix state; the next verify observes the now-present files.
+
+## Remote access (exposing K beyond localhost)
+
+K defaults to a **loopback-only** posture (`HOST=127.0.0.1`). Exposing it on a
+network requires an authentication layer in front of it — never expose the raw
+port to the open internet.
+
+**Token resolution (every boot).** The harness bearer token is resolved in this
+order:
+
+1. `HARNESS_TOKEN` env, if set and non-empty (operator override).
+2. A persisted token at `data/auth-token` (gitignored, `0600` where the FS
+   honours it), if present.
+3. Otherwise a **first run**: a cryptographically strong token
+   (`crypto.randomBytes(32)`, base64url) is generated, persisted to
+   `data/auth-token`, and printed **once** in a prominent setup banner. Copy it
+   then — subsequent boots only print a masked confirmation (last 4 chars) and
+   the file path, never the full token.
+
+There is no insecure hard-coded production default. (`pnpm dev` seeds the
+well-known `dev-token-change-me` via `core/dev-env.mjs` purely for loopback
+ergonomics — it is never on the `pnpm start` / production path.)
+
+**Safety gate.** If `HOST` is non-loopback (anything but `127.0.0.1` / `::1` /
+`localhost`) **and** the effective token is empty or the legacy weak literal,
+core **refuses to start** with an actionable error. Fix it by setting a strong
+`HARNESS_TOKEN` (e.g. `openssl rand -base64 32`) or by removing the override so a
+strong token is generated.
+
+**Recommended exposure.** Put an authenticating layer in front and keep core on
+loopback wherever possible:
+
+- **Tailscale (preferred).** Join the host to your tailnet and reach K at its
+  Tailscale IP/MagicDNS name; leave `HOST=127.0.0.1` and bind Tailscale's
+  userspace proxy, or set `HOST` to the tailnet interface. Access is then gated
+  by your tailnet ACLs *and* the harness token.
+- **Authenticating HTTPS reverse proxy** (Caddy/nginx/Cloudflare Access) doing
+  TLS termination + its own auth, proxying to loopback core. Only then is
+  `HOST=0.0.0.0` acceptable, and only bound to the proxy's interface.
+
+**Dashboard auth.** The browser can't send an `Authorization` header on the WS
+upgrade, so the main `/ws` event gateway authenticates a `?token=` query param
+(constant-time compared) and closes unauthenticated sockets with code `4401`
+before subscribing them to the event bus. On loopback dev the dashboard uses the
+dev token transparently (no login). Accessed remotely, a REST `401` triggers a
+**login screen**: paste the harness token; it is stored in `sessionStorage` and
+attached to subsequent REST (`Authorization: Bearer …`) and WS (`?token=…`)
+calls. The real token is **never** baked into the built bundle — only the
+loopback-only dev token is.
 
 ## Troubleshooting
 
@@ -83,7 +133,7 @@ Beyond the registry/metrics endpoints, the project + verification surface is:
 | `core/src/router.ts` | ModelRouter — the model seam |
 | `core/src/supervisor.ts` | agent lifecycle: worktree + spawn + parse + emit |
 | `core/src/claude-args.ts` | pure: resolve `RUN_PERMISSION_MODE` + build claude CLI argv (worktree-gated `--permission-mode`) |
-| `core/src/auth.ts` | pure: `isAuthExempt(url)` — pathname-based auth exemption (decodes once, no dot-segment bypass) |
+| `core/src/auth.ts` | token resolution/persistence (`resolveHarnessToken`), safety gate (`unsafeBootReason`), constant-time compare (`tokensEqual`/`wsTokenOk`), and `isAuthExempt(url)` pathname exemption (decodes once, no dot-segment bypass) |
 | `core/src/project-match.ts` | pure: `matchProjectByCwd` — deepest-root prefix match for run→project inference |
 | `core/src/bible.ts` | bible compiler (sections + live data → HTML) |
 | `core/src/artifacts.ts` | generic artifact store + md→HTML |
@@ -126,7 +176,12 @@ the REST API with a `git credential` token.
 
 ## Accepted risks
 
-- `/ws` and `/health` are auth-exempt **by design** for the localhost posture
-  (`HOST=127.0.0.1` default). The WS gateway streams run events to anyone who
-  can reach the port. **First thing to close if HOST is ever set to 0.0.0.0**
-  — add token auth to the WS upgrade before exposing on a network.
+- `/health` is auth-exempt **by design** (a liveness probe; no sensitive data).
+- The main `/ws` event gateway is **authenticated** (Phase 4): exempt from the
+  header hook (a browser WS can't send one) but its handler validates a
+  `?token=` query param with a constant-time compare and closes unauthenticated
+  sockets with code `4401` before subscribing them. `/ws/terminal` keeps its own
+  scoped `TERMINAL_TOKEN` gate (default-off feature).
+- Setting `HOST=0.0.0.0` is still only safe **behind** Tailscale or an
+  authenticating HTTPS reverse proxy (see Remote access). The non-loopback safety
+  gate prevents booting that posture with a weak/empty token.

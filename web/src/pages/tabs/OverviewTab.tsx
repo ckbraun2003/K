@@ -208,7 +208,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
         <button
           onClick={() => verify.mutate(false)}
           disabled={pending}
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           {verify.isPending ? 'verifying…' : '▶ Run Verification'}
         </button>

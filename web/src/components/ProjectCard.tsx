@@ -1,6 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
 import type { Project, GithubStatus } from '@k/shared'
-import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
 import { formatTimeAgo } from '../lib/verify'
@@ -14,12 +12,18 @@ function ciState(gh?: GithubStatus): 'passing' | 'failing' | 'unknown' {
   return latest.conclusion === 'success' ? 'passing' : 'failing'
 }
 
-export default function ProjectCard({ project }: { project: Project }) {
-  const { data: gh } = useQuery<GithubStatus>({
-    queryKey: ['github', project.id],
-    queryFn: () => api.projects.github(project.id),
-    refetchInterval: 60_000,
-  })
+// `gh` is supplied by the parent grid via a single fleet-level query
+// (lib/useFleetGithub) rather than a per-card fetch — see Wave C6: N cards used
+// to fire N parallel /github requests, exhausting the browser socket pool.
+export default function ProjectCard({
+  project,
+  gh,
+  onDelete,
+}: {
+  project: Project
+  gh?: GithubStatus
+  onDelete?: () => void
+}) {
   const ci = ciState(gh)
   const openPrs = gh?.prs.filter(p => p.state === 'OPEN').length ?? 0
   const lowHealth = project.healthScore != null && project.healthScore < LOW_HEALTH_THRESHOLD
@@ -29,16 +33,28 @@ export default function ProjectCard({ project }: { project: Project }) {
 
   return (
     <div
+      data-testid={`project-card-${project.id}`}
       role="button"
       tabIndex={0}
       onClick={goWorkspace}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goWorkspace() } }}
       className={cn(
-        'card-lift cursor-pointer rounded-lg border bg-[var(--surface)] p-4',
+        'card-lift group relative cursor-pointer rounded-panel border bg-[var(--surface)] p-4',
         attention ? 'border-amber/40' : 'border-[var(--border)]'
       )}
     >
-      <div className="flex items-center gap-2">
+      {onDelete && (
+        <button
+          data-testid={`project-delete-btn-${project.id}`}
+          onClick={e => { e.stopPropagation(); onDelete() }}
+          aria-label={`Delete project ${project.name}`}
+          title="Delete project"
+          className="absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] opacity-0 transition-all duration-150 hover:bg-red/15 hover:text-[var(--red)] focus:opacity-100 group-hover:opacity-100"
+        >
+          🗑
+        </button>
+      )}
+      <div className="flex items-center gap-2 pr-7">
         <span
           className={cn('h-2 w-2 rounded-full', {
             'bg-[var(--green)]': ci === 'passing',
@@ -69,6 +85,7 @@ export default function ProjectCard({ project }: { project: Project }) {
           {formatTimeAgo(project.lastVerifiedAt)}
         </span>
         <button
+          data-testid={`project-verify-btn-${project.id}`}
           onClick={e => { e.stopPropagation(); goVerify() }}
           className="text-[11px] font-medium text-[var(--accent-hover)] transition-opacity duration-150 hover:opacity-80"
         >

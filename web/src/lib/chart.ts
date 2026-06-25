@@ -42,6 +42,24 @@ export function stackDays(data: MetricsTimeseries, metric: Metric): { days: Stac
   return { days, maxTotal }
 }
 
+/**
+ * Date-axis tick indices for `n` columns: first, every ~7th, last — but any
+ * weekly tick within 3 slots of the final index (inclusive) is dropped so the
+ * right-aligned last label (translateX(-100%)) doesn't overprint the preceding
+ * -50%-anchored tick (finding #22: the 30d window collided at index 28 vs 29).
+ * `<= 3` also widens the exactly-3 gap at n=60 without altering 7/14/30d.
+ */
+export function axisTickIndices(n: number): number[] {
+  if (n <= 0) return []
+  const ticks = [0]
+  for (let i = 7; i < n - 1; i += 7) {
+    if (n > 1 && n - 1 - i <= 3) break
+    ticks.push(i)
+  }
+  if (n > 1) ticks.push(n - 1)
+  return ticks
+}
+
 /** Format a metric value for display. */
 export function formatMetricValue(metric: Metric, v: number): string {
   if (!Number.isFinite(v)) return '—'

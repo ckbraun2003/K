@@ -25,17 +25,29 @@ export async function runsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: parsed.error.flatten() })
     }
     const { prompt, cwd, model, projectId } = parsed.data
-    // TOCTOU note: if a project-delete route ever lands, a project could be
-    // removed between this check and the FK INSERT in startRun, producing a 500.
-    // That path is unreachable today (no delete route exists), so this is acceptable.
+    // A project can now be deleted (DELETE /api/projects/:id). This existence
+    // check is the fast/clear path; the FK INSERT inside startRun is the source of
+    // truth. If the project is removed in the TOCTOU window between the two,
+    // SQLite raises a FOREIGN KEY error — caught below and mapped to 400, not 500.
     if (projectId && !projectsDb.getProject.get(projectId)) {
       return reply.status(400).send({ error: 'unknown projectId' })
     }
     if (cwd !== undefined && !isCwdAllowed(cwd)) {
       return reply.status(400).send({ error: 'cwd not under a registered project' })
     }
-    const run = await startRun(prompt, { cwd, model, projectId })
-    return reply.status(201).send(run)
+    try {
+      const run = await startRun(prompt, { cwd, model, projectId })
+      return reply.status(201).send(run)
+    } catch (e) {
+      // The only FK on the runs INSERT is project_id → projects(id), so a SQLite
+      // "FOREIGN KEY constraint failed" here means the project was deleted in the
+      // TOCTOU window — a client 400, not a 500. (Revisit this mapping if runs ever
+      // gains another foreign key.)
+      const msg = e instanceof Error ? e.message : String(e)
+      if (/FOREIGN KEY/i.test(msg)) return reply.status(400).send({ error: 'unknown projectId' })
+      req.log.error(e)
+      return reply.status(500).send({ error: 'run failed' })
+    }
   })
 
   // GET /api/runs — list recent runs; optional ?status=, ?limit=, ?projectId= query params

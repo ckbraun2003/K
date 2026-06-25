@@ -1,18 +1,19 @@
 import ForceGraph2D from 'react-force-graph-2d'
 import type { Project } from '@k/shared'
 import { navigate } from '../lib/route'
+import { GRAPH_BG, drawGraphNode, paintNodePointerArea } from '../lib/graph'
 
-type FGNode = { id?: string | number; [key: string]: unknown }
+type FGNode = { id?: string | number; color?: string; [key: string]: unknown }
 
 interface Props {
   projects: Project[]
 }
 
 function healthColor(healthScore: number | undefined | null): string {
-  if (healthScore == null) return '#8b8b93'
-  if (healthScore >= 75) return '#22c55e'
-  if (healthScore >= 50) return '#eab308'
-  return '#ef4444'
+  if (healthScore == null) return '#a99bc4'
+  if (healthScore >= 75) return '#34d399'
+  if (healthScore >= 50) return '#fbbf24'
+  return '#f87171'
 }
 
 export default function HomeFleetGraph({ projects }: Props) {
@@ -20,7 +21,7 @@ export default function HomeFleetGraph({ projects }: Props) {
     nodes: projects.map(p => ({
       id: p.id,
       label: p.name,
-      val: 3,
+      val: 6,
       color: healthColor(p.healthScore),
     })),
     // Nodes-only: cross-project dependency edges aren't derivable from GET /projects yet.
@@ -50,8 +51,10 @@ export default function HomeFleetGraph({ projects }: Props) {
           <ForceGraph2D
             graphData={graphData}
             height={280}
-            backgroundColor="#0a0a0f"
+            backgroundColor={GRAPH_BG}
             nodeLabel="label"
+            nodeCanvasObject={(node: FGNode, ctx, scale) => drawGraphNode(node, ctx, scale, node.color ?? '#a99bc4', 7)}
+            nodePointerAreaPaint={(node: FGNode, color, ctx) => paintNodePointerArea(node, ctx, color, 7)}
             onNodeClick={(node: FGNode) => {
               if (node.id) navigate('project', node.id as string)
             }}

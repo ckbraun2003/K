@@ -5,9 +5,10 @@ import type { Run, Project } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
-import { DESTINATIONS } from './Sidebar'
-import { parseProjectQuery } from '../lib/command-parse'
-import { modalCard, overlayFade } from '../lib/motion'
+import { NAV_DESTINATIONS } from './Sidebar'
+import { parseProjectQuery, decideEnterMode } from '../lib/command-parse'
+import { modalCard, overlayFade, dialogCard } from '../lib/motion'
+import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
 
 export { parseProjectQuery } from '../lib/command-parse'
 
@@ -20,68 +21,96 @@ type Item =
   | { kind: 'project-ambiguous'; label: string }
   | { kind: 'nav'; label: string; icon: string; view: string; param?: string }
 
+/** A dispatch item the user has selected — held while the confirm/preview card
+ *  is shown, before `runs.start` actually fires. */
+type DispatchItem = Extract<Item, { kind: 'dispatch' | 'dispatch-project' }>
+
 export default function CommandBar({ open, onClose }: Props) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // null until the user picks a dispatch; holds it while the confirm card previews.
+  const [confirm, setConfirm] = useState<DispatchItem | null>(null)
+  // For a plain query that coincidentally matches a nav label, lets the user flip
+  // the Enter default between navigate and dispatch (Tab). null ?? = follow default.
+  const [modeOverride, setModeOverride] = useState<'navigate' | 'dispatch' | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
+  const confirmRunRef = useRef<HTMLButtonElement>(null)
   const busyRef = useRef(false)
 
   const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list(), enabled: open })
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list, enabled: open })
 
   useEffect(() => {
-    if (open) { setQuery(''); setSelected(0); setError(null); setTimeout(() => inputRef.current?.focus(), 50) }
+    if (open) { setQuery(''); setSelected(0); setError(null); setConfirm(null); setModeOverride(null); setTimeout(() => inputRef.current?.focus(), 50) }
   }, [open])
 
-  const items = useMemo<Item[]>(() => {
+  // A new query invalidates a manual navigate/dispatch override — fall back to the default.
+  useEffect(() => { setModeOverride(null) }, [query])
+
+  // Move focus to the Run button when the confirm card opens (a11y).
+  useEffect(() => { if (confirm) confirmRunRef.current?.focus() }, [confirm])
+
+  const { items, navMatch } = useMemo<{ items: Item[]; navMatch: boolean }>(() => {
     const q = query.trim().toLowerCase()
     const parsed = parseProjectQuery(query.trim(), projects)
 
     if (parsed.type === 'dispatch') {
-      return [{
+      return { navMatch: false, items: [{
         kind: 'dispatch-project',
         label: `Dispatch in ${parsed.project.name}: ${parsed.rest}`,
         prompt: parsed.rest,
         project: parsed.project,
-      }]
+      }] }
     }
 
     if (parsed.type === 'ambiguous') {
-      return [{
+      return { navMatch: false, items: [{
         kind: 'project-ambiguous',
         label: `@${parsed.prefix} — no unique project match`,
-      }]
+      }] }
     }
 
     if (parsed.type === 'completion') {
-      return parsed.matches.map(p => ({
+      return { navMatch: false, items: parsed.matches.map(p => ({
         kind: 'project-completion' as const,
         label: p.name,
         project: p,
-      }))
+      })) }
     }
 
-    // Plain query — original behavior unchanged
-    const navs: Item[] = DESTINATIONS.filter(d => d.enabled)
+    // Plain query
+    const navs: Item[] = NAV_DESTINATIONS
       .filter(d => !q || d.label.toLowerCase().includes(q))
-      .map(d => ({ kind: 'nav' as const, label: d.label.split(' ·')[0], icon: d.icon, view: d.id }))
+      .map(d => ({ kind: 'nav' as const, label: d.label.split(' ·')[0], icon: d.icon, view: d.view ?? d.id, param: d.param }))
     const runItems: Item[] = runs
       .filter(r => q && r.prompt.toLowerCase().includes(q))
       .slice(0, 4)
       .map(r => ({ kind: 'nav' as const, label: `▶ ${r.prompt.slice(0, 60)}`, icon: '·', view: 'runs', param: r.id }))
     const dispatch: Item[] = query.trim() ? [{ kind: 'dispatch', label: query.trim() }] : []
-    // a query matching a destination (e.g. "doc") is a jump, not a prompt —
-    // rank navs first so Enter navigates; real prompts won't substring-match a label
-    return q && navs.length ? [...navs, ...dispatch, ...runItems] : [...dispatch, ...navs, ...runItems]
-  }, [query, runs, projects])
+    // A query matching a destination (e.g. "doc") coincidentally substring-matches
+    // a nav label. decideEnterMode picks the default (navigate when matched), but a
+    // Tab override lets the user force dispatch so a real prompt isn't out-ranked.
+    const navMatch = q.length > 0 && navs.length > 0
+    const mode = modeOverride ?? decideEnterMode(query, navMatch)
+    const ordered = mode === 'navigate' ? [...navs, ...dispatch, ...runItems] : [...dispatch, ...navs, ...runItems]
+    return { items: ordered, navMatch }
+  }, [query, runs, projects, modeOverride])
 
   useEffect(() => { setSelected(0) }, [items])
   useEffect(() => { listRef.current?.children[selected]?.scrollIntoView({ block: 'nearest' }) }, [selected])
 
-  async function execute(item: Item) {
+  // Mode hint shown for a plain query that coincidentally matches a nav label —
+  // only then is the navigate-vs-dispatch choice ambiguous and worth a Tab toggle.
+  // navMatch comes from the items memo (single source) — it's false for @ queries.
+  const plainQuery = query.trim().length > 0 && !query.startsWith('@')
+  const enterMode: 'navigate' | 'dispatch' | null =
+    plainQuery ? (modeOverride ?? (navMatch ? 'navigate' : 'dispatch')) : null
+
+  // Selecting a dispatch previews it in the confirm card; non-dispatch items act now.
+  function execute(item: Item) {
     if (busy || busyRef.current) return
     if (item.kind === 'nav') {
       navigate(item.view, item.param)
@@ -97,25 +126,46 @@ export default function CommandBar({ open, onClose }: Props) {
       // not selectable — do nothing
       return
     }
+    // dispatch / dispatch-project → confirm card before firing runs.start
+    setError(null)
+    setConfirm(item)
+  }
+
+  // Fire the previewed dispatch for real (Enter / Run on the confirm card).
+  async function fireDispatch(item: DispatchItem) {
+    if (busy || busyRef.current) return
     busyRef.current = true; setBusy(true); setError(null)
     try {
-      let run: Run
-      if (item.kind === 'dispatch-project') {
-        run = await api.runs.start(item.prompt, { cwd: item.project.localPath, projectId: item.project.id })
-      } else {
-        run = await api.runs.start(item.label)
-      }
+      const run = item.kind === 'dispatch-project'
+        ? await api.runs.start(item.prompt, { cwd: item.project.localPath, projectId: item.project.id })
+        : await api.runs.start(item.label)
       onClose()
       navigate('runs', run.id)
     } catch (e) {
-      setError(String(e))
+      setError(e instanceof Error ? e.message : String(e))
     } finally { busyRef.current = false; setBusy(false) }
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
+    // While the confirm card is up, Enter fires the previewed dispatch and Esc
+    // cancels back to the query — the list below is inert.
+    if (confirm) {
+      if (e.key === 'Enter') { e.preventDefault(); void fireDispatch(confirm) }
+      if (e.key === 'Escape') { e.preventDefault(); setConfirm(null) }
+      return
+    }
+    // Tab flips the navigate/dispatch default when the query is ambiguous.
+    if (e.key === 'Tab' && enterMode) {
+      e.preventDefault()
+      setModeOverride(enterMode === 'navigate' ? 'dispatch' : 'navigate')
+      return
+    }
     if (e.key === 'ArrowDown') { e.preventDefault(); setSelected(s => Math.min(s + 1, items.length - 1)) }
     if (e.key === 'ArrowUp') { e.preventDefault(); setSelected(s => Math.max(s - 1, 0)) }
-    if (e.key === 'Enter' && items[selected]) { e.preventDefault(); void execute(items[selected]) }
+    // Enter on an empty query is a no-op — don't silently jump to the first nav item.
+    if (e.key === 'Enter' && !query.trim()) { e.preventDefault(); return }
+    if (e.key === 'Enter' && items[selected]) { e.preventDefault(); execute(items[selected]) }
+    // A pending confirm is handled by the early-return above; here confirm is null.
     if (e.key === 'Escape') onClose()
   }
 
@@ -123,7 +173,7 @@ export default function CommandBar({ open, onClose }: Props) {
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-28"
+          className="fixed inset-0 z-50 flex flex-col items-center px-4 pt-28"
           variants={overlayFade} initial="hidden" animate="visible" exit="exit"
         >
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
@@ -132,9 +182,10 @@ export default function CommandBar({ open, onClose }: Props) {
             variants={modalCard} initial="hidden" animate="visible" exit="exit"
           >
             <input
+              data-testid="cmdk-input"
               ref={inputRef}
               value={query}
-              onChange={e => setQuery(e.target.value)}
+              onChange={e => { setQuery(e.target.value); if (confirm) setConfirm(null) }}
               onKeyDown={onKeyDown}
               placeholder="Ask K — or type to jump…"
               className="w-full border-b border-[var(--border)] bg-transparent px-4 py-3.5 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
@@ -149,8 +200,9 @@ export default function CommandBar({ open, onClose }: Props) {
                     </div>
                   ) : (
                     <button
+                      data-testid={item.kind === 'dispatch' || item.kind === 'dispatch-project' ? 'cmdk-row-dispatch' : 'cmdk-row-nav'}
                       onMouseEnter={() => setSelected(i)}
-                      onClick={() => void execute(item)}
+                      onClick={() => execute(item)}
                       className={cn(
                         'flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors duration-100',
                         i === selected ? 'bg-[var(--raised)] text-[var(--text)]' : 'text-[var(--muted)]'
@@ -187,10 +239,89 @@ export default function CommandBar({ open, onClose }: Props) {
                 </li>
               ))}
             </ul>
-            <div className="border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted)]">
-              {busy ? '⏳ dispatching…' : error ? `⚠ ${error}` : '↑↓ select · ↵ run · esc close'}
+            <div className="flex items-center gap-3 border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted)]">
+              {enterMode && (
+                <button
+                  type="button"
+                  data-testid="enter-mode-toggle"
+                  onClick={() => { setModeOverride(enterMode === 'navigate' ? 'dispatch' : 'navigate'); inputRef.current?.focus() }}
+                  className="flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[var(--text)] transition-colors duration-100 hover:border-accent/50"
+                  title="Toggle whether Enter navigates or dispatches"
+                >
+                  <span className="text-[var(--accent)]">{enterMode === 'navigate' ? '↪' : '⚡'}</span>
+                  <span>↵ {enterMode === 'navigate' ? 'Navigate' : 'Dispatch'}</span>
+                  <kbd className="mono text-[10px] opacity-70">tab</kbd>
+                </button>
+              )}
+              <span className="ml-auto">
+                {busy ? '⏳ dispatching…' : error ? `⚠ ${error}` : '↑↓ select · ↵ run · esc close'}
+              </span>
             </div>
           </motion.div>
+
+          {/* Dispatch confirm / preview card — fires runs.start only on confirm. */}
+          <AnimatePresence>
+            {confirm && (
+              <motion.div
+                data-testid="dispatch-confirm"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="dispatch-confirm-heading"
+                className="glass glow-focus relative mt-4 w-full max-w-md overflow-hidden rounded-xl"
+                variants={dialogCard} initial="hidden" animate="visible" exit="exit"
+                onClick={e => e.stopPropagation()}
+              >
+                <div id="dispatch-confirm-heading" className="border-b border-[var(--border)] px-4 py-3 text-sm font-semibold text-[var(--text)]">
+                  <span className="mr-2 text-[var(--accent)]">⚡</span>Confirm dispatch
+                </div>
+                <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 px-4 py-3 text-xs">
+                  <dt className="text-[var(--muted)]">Prompt</dt>
+                  <dd className="truncate text-[var(--text)]">
+                    {confirm.kind === 'dispatch-project' ? confirm.prompt : confirm.label}
+                  </dd>
+                  <dt className="text-[var(--muted)]">Project</dt>
+                  <dd className="text-[var(--text)]">
+                    {confirm.kind === 'dispatch-project'
+                      ? <span className="text-[var(--accent)]">{confirm.project.name}</span>
+                      : <span className="text-[var(--muted)]">harness default (repo root)</span>}
+                  </dd>
+                  <dt className="text-[var(--muted)]">Model</dt>
+                  <dd className="text-[var(--text)]">
+                    <span className="mono">{RUN_DEFAULTS.model}</span>{' '}
+                    <span className="text-[var(--muted)]">({RUN_DEFAULT_CAVEATS.model})</span>
+                  </dd>
+                  <dt className="text-[var(--muted)]">Scope</dt>
+                  <dd className="text-[var(--text)]">
+                    {RUN_DEFAULTS.scope} · <span className="mono">{RUN_DEFAULTS.permissionMode}</span>{' '}
+                    <span className="text-[var(--muted)]">({RUN_DEFAULT_CAVEATS.permissionMode})</span>
+                  </dd>
+                </dl>
+                <p className="border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted)]">
+                  {RUN_DEFAULT_CAVEATS.footer}
+                </p>
+                <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-2.5">
+                  <button
+                    type="button"
+                    onClick={() => { setConfirm(null); inputRef.current?.focus() }}
+                    className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors duration-100 hover:text-[var(--text)]"
+                  >
+                    Cancel <kbd className="mono ml-1 text-[10px]">esc</kbd>
+                  </button>
+                  <button
+                    ref={confirmRunRef}
+                    type="button"
+                    data-testid="dispatch-confirm-run"
+                    aria-label="Run dispatch"
+                    disabled={busy}
+                    onClick={() => void fireDispatch(confirm)}
+                    className="ml-auto rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-medium text-[var(--accent-hover)] transition-colors duration-100 hover:bg-accent/30 disabled:opacity-50"
+                  >
+                    {busy ? '⏳ Dispatching…' : <>Run <kbd className="mono ml-1 text-[10px]">↵</kbd></>}
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       )}
     </AnimatePresence>

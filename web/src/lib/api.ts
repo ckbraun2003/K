@@ -1,4 +1,9 @@
 import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody } from '@k/shared'
+import { authHeader, clearSessionToken } from './auth'
+import { notifyUnauthorized } from './auth-events'
+import type { SkillRun } from './skill-runs'
+
+export type { SkillRun } from './skill-runs'
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
 export interface OnboardResult {
@@ -12,11 +17,36 @@ export interface OnboardResult {
 
 const BASE = '/api'
 
+/** Notified on a 401/4401 so the app can show the login screen (remote access). */
+export { onUnauthorized } from './auth-events'
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init)
+  // Attach the harness token. In dev the Vite proxy also injects one, but the
+  // explicit header lets the same code authenticate against core directly
+  // (remote / production) where no proxy exists. When there's no token to add
+  // (dev with proxy-injected auth), pass `init` through untouched so the request
+  // shape is unchanged.
+  const auth = authHeader()
+  const effectiveInit =
+    Object.keys(auth).length > 0
+      ? { ...init, headers: { ...(init?.headers ?? {}), ...auth } }
+      : init
+  const res = await fetch(`${BASE}${path}`, effectiveInit)
+  if (res.status === 401) {
+    // Stale/absent token → drop it and surface the login screen.
+    clearSessionToken()
+    notifyUnauthorized()
+  }
   if (!res.ok) {
     const detail = await res.json().then(b => (b as { error?: string }).error, () => undefined)
     throw new Error(detail ?? `${res.status} ${res.statusText}`)
+  }
+  // Some endpoints answer with 204 No Content (e.g. DELETE /api/skills/:id) or an
+  // otherwise empty body. Calling res.json() on an empty body throws "Unexpected
+  // end of JSON input", which would land a successful mutation in onError. Detect
+  // the no-body case and resolve as undefined so req<void>() callers are clean.
+  if (res.status === 204 || res.headers?.get('content-length') === '0') {
+    return undefined as T
   }
   return res.json() as Promise<T>
 }
@@ -74,7 +104,13 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
+    // Hard-delete a project and all its data (204). May 409 if the project has
+    // active runs — the caller surfaces that message in the confirm dialog.
+    delete: (id: string) => req<void>(`/projects/${id}`, { method: 'DELETE' }),
     github: (id: string) => req<GithubStatus>(`/projects/${id}/github`),
+    // Fleet-level batch: all projects' cached github status in one request, so
+    // the Home/Projects grid doesn't fan out one /github call per card (Wave C6).
+    githubFleet: () => req<Record<string, GithubStatus>>('/projects/github'),
     onboard: (id: string) =>
       req<OnboardResult>(`/projects/${id}/onboard`, { method: 'POST' }),
     verify: (id: string, opts?: { deep?: boolean }) =>
@@ -98,8 +134,16 @@ export const api = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status }),
         }),
+      delete: (projectId: string, taskId: string) =>
+        req<void>(`/projects/${projectId}/tasks/${taskId}`, { method: 'DELETE' }),
       sync: (projectId: string) =>
         req<{ synced: number; degraded: boolean }>(`/projects/${projectId}/tasks/sync`, { method: 'POST' }),
+      dispatchWorkflow: (projectId: string, taskIds: string[]) =>
+        req<{ workflowRunId: string; runId: string }>(`/projects/${projectId}/tasks/dispatch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskIds }),
+        }),
     },
     graph: (id: string) =>
       req<GraphResponse>(`/projects/${id}/graph`),
@@ -142,15 +186,6 @@ export const api = {
     test: (id: string) =>
       req<{ evalId: string; runId: string }>(`/skills/${id}/test`, { method: 'POST' }),
     evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),
-    runs: (id: string) =>
-      req<Array<{
-        id: string
-        skillId: string
-        runId: string | null
-        triggeredBy: string
-        startedAt: number
-        completedAt: number | null
-        status: string
-      }>>(`/skills/${id}/runs`),
+    runs: (id: string) => req<SkillRun[]>(`/skills/${id}/runs`),
   },
 }

@@ -38,3 +38,19 @@ export function parseProjectQuery(
     : projects
   return { type: 'completion', matches }
 }
+
+/** What pressing Enter in the ⌘K palette should do for a plain (non-@) query.
+ *
+ *   - 'noop'     — empty query: do nothing (don't silently jump away)
+ *   - 'navigate' — query coincidentally matches a nav label; default to jumping
+ *   - 'dispatch' — query has no nav match; default to dispatching a run
+ *
+ * `navMatch` is whether the trimmed query substring-matches any enabled nav label.
+ * The palette renders a mode hint so the user can flip this default with Tab.
+ */
+export type EnterMode = 'noop' | 'navigate' | 'dispatch'
+
+export function decideEnterMode(query: string, navMatch: boolean): EnterMode {
+  if (!query.trim()) return 'noop'
+  return navMatch ? 'navigate' : 'dispatch'
+}

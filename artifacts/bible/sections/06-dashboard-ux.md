@@ -2,10 +2,10 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-06-20
+updated: 2026-06-24
 ---
 
-The dashboard is the operator's **source of truth** and is held to product quality, not internal-tool quality. IA: **Command Deck** (decision D-006, mockups approved 2026-06-10). Design language: **precision minimal** (decision D-007).
+The dashboard is the operator's **source of truth** and is held to product quality, not internal-tool quality. IA: **Command Deck** (decision D-006, mockups approved 2026-06-10). Design language: **vivid midnight-glass** (decision D-013) — a midnight-purple base with translucent blush-pink accents and a sky-blue interaction colour, extending the hybrid-glass layer (D-009) over the original precision-minimal density discipline (D-007).
 
 ## Frame — four persistent zones
 
@@ -23,9 +23,9 @@ The dashboard is the operator's **source of truth** and is held to product quali
 └──┴─────────────────────────────────────────────────┘
 ```
 
-### Icon sidebar (52px, left)
+### Labeled sidebar (~220px, collapsible to a 60px icon rail; D-013)
 
-⌂ **Home** · ▦ **Projects** · ◉ **Fleet Graph** · ▶ **Runs** · ✓ **Tasks** · ⚒ **Skills** · ∿ **Metrics** · ▤ **Docs** · ⚙ **Settings** — tooltips on hover, active destination gets the indigo pill, keyboard `g` then first letter (`g p` → Projects).
+Primary destinations carry an icon **and** a text label: ⌂ **Home** · ▦ **Projects** · ◉ **Fleet Graph** · ▶ **Runs** · ⚒ **Skills** · ∿ **Metrics** · ⇄ **Routing** · `>_` **Terminal**. A footer cluster holds ❔ **Help** and ⚙ **Settings**. **Docs is no longer a top-level destination** — artifacts now live per-project in the workspace **Artifacts** tab; the harness bible stays reachable via footer Help (and the `g d` chord). The active destination sits on a translucent-blush glass pill with its icon in sky-blue; hover transitions the row border to sky-blue. Keyboard `g` then first letter (`g p` → Projects); the rail collapses to icons-only (state persisted).
 
 ### ⌘K command bar
 
@@ -53,7 +53,7 @@ Live runs with pulsing status dots and one-line progress, last completed action,
 | **Tasks** | project tickets, optional GitHub Issues sync, dispatch-agent-on-task |
 | **PRs & CI** | open PRs with check status, diff links, Actions run history |
 | **Verification** | report timeline, findings list with severity, fixes applied, re-run button |
-| **Bible** | compiled bible rendered in-app; per-section edit (md) + recompile |
+| **Artifacts** | this project's artifacts as a gallery (compiled bible + its UI demo + harness ui-demo), each rendered in a sandboxed iframe; per-artifact markdown edit + bible recompile (formerly "Bible" — renamed in D-013) |
 
 ## Knowledge graph spec (fleet + per-project)
 
@@ -62,22 +62,29 @@ Live runs with pulsing status dots and one-line progress, last completed action,
 - **Level of detail:** modules → files → symbols, plus a *hot paths* overlay (recent run activity). Double-click expands a node one level; breadcrumb chips track depth.
 - **Node inspector** (right panel on select): live facts — file/symbol counts, failing tests originating here, last-touched-by (run/PR), bible links — and **dispatch actions**: "fix failing tests in this module", "explain this subsystem", "open impact analysis".
 - **Interactions:** scroll = zoom, drag = pan, `f` = fit, search filters in place by dimming non-matches (never re-layouts under the user).
-- Health/status colors the graph: failing modules glow red, untested amber — the graph is a *diagnostic surface*, not decoration.
+- Health/status colors the graph: failing modules glow red, untested amber, healthy blush — the graph is a *diagnostic surface*, not decoration.
+- **Legible nodes & edges (D-013):** nodes are painted with a soft glow + bright core and a zoom-gated label (`drawGraphNode` in `web/src/lib/graph.ts`), and edges render in semi-transparent **sky-blue** at `linkWidth` 1.6 so relationships read on the midnight canvas — replacing the old tiny flat dots and near-invisible 1px hairlines. Painting only runs during layout + interaction (`cooldownTicks` settles the sim) to keep 60fps.
 
-## Design tokens
+## Design tokens (vivid midnight-glass — D-013)
+
+Values are the single source in `web/src/index.css` `:root`, mirrored into
+`web/tailwind.config.ts` (`colors`/`borderRadius`) and `core/src/ui-artifact.ts`
+(the `ui-demo` inline CSS). Change all three together.
 
 | Token | Value |
 |-------|-------|
-| bg / surface / raised | `#0a0a0f` / `#111116` / `#16161d` |
-| hairline border | `1px #26262e` |
-| text / muted | `#e7e7ea` / `#8b8b93` |
-| accent — interactive only | `#6366f1` (hover `#818cf8`) |
-| status | `#22c55e` · `#eab308` · `#ef4444` |
+| bg / surface / raised | `#1a0f2e` / `#241640` / `#2e1b52` (midnight purple) |
+| hairline border | `1px #3a2a5c` |
+| text / muted | `#f4f0ff` / `#a99bc4` |
+| accent — fills / active / badges | **blush** `#ff8fc0` |
+| accent-hover — hover / active / focus | **sky** `#38bdf8` |
+| status | `#34d399` · `#fbbf24` · `#f87171` |
+| glass | bg `rgba(46,27,82,.55)` · border `rgba(255,143,192,.16)` · tint `rgba(255,143,192,.10)` · `blur(24px) saturate(180%)` |
 | type | Inter 13/14px UI · JetBrains Mono for numerals, ids, code |
-| radius | 8px panels · 6px controls |
+| radius | 18px panels · 14px controls · 10px small (rounder, liquid-glass) |
 | motion | 150ms ease-out micro · 250ms stage transitions · pulse only on genuinely live elements |
 
-**Rules:** color carries meaning or stays out; density over whitespace; no decorative animation; charts and graphs are the heroes and the chrome stays quiet; every number is mono so columns of metrics align.
+**Rules:** color carries meaning or stays out (status stays green/amber/red); the accent is split — **blush** for fills/active, **sky** for the hover/active/focus transition; **accent FILLS use dark `--bg` text** (white on the light blush fails WCAG AA — accent-as-text only on dark surfaces); glass is reserved for hero surfaces (command bar, dialogs, inspector, activity strip, the accent metric card) while dense data views stay opaque; every number is mono so columns of metrics align.
 
 ## Component inventory (shadcn/ui base)
 
@@ -137,7 +144,7 @@ Phase H takes the Phase-G surfaces from "wired" to "finished": the per-project g
 
 Precision-minimal (D-007) still governs density, color discipline, and mono numerals. Hybrid glass adds a thin translucent layer to **hero surfaces only** — never to dense data tables — so depth never fights legibility.
 
-- **Glass tokens / utilities** (`web/src/index.css`): a `--glass-bg` surface (`rgba(20, 20, 27, 0.62)`), `backdrop-filter: blur(20px) saturate(160%)` (with the `-webkit-` prefix), and a hairline border + soft drop-shadow. Exposed as a reusable utility so hero surfaces opt in consistently.
+- **Glass tokens / utilities** (`web/src/index.css`): a `--glass-bg` surface (`rgba(46, 27, 82, 0.55)` — translucent midnight purple under D-013), a translucent-blush hairline (`--glass-border rgba(255,143,192,.16)`), an optional blush wash (`--glass-tint`), `backdrop-filter: blur(24px) saturate(180%)` (with the `-webkit-` prefix), and a soft drop-shadow. Exposed as `.glass` / `.glass-tint` / `.glass-strong` utilities so hero surfaces opt in consistently.
 - **`@supports` fallback:** an `@supports not (backdrop-filter: blur(1px))` block swaps the translucent fill for an opaque `--raised` surface, so browsers without backdrop-filter still get a solid, legible panel (no transparent-over-text failure mode).
 - **Applied to hero surfaces only:** command bar, modals/confirm-cards, the graph node inspector, and the activity strip. Data tables, run lists, and the bible body stay flat per D-007.
 
@@ -161,3 +168,12 @@ The graph spec above describes the *experience*; Phase H adds the *engine* behin
 
 - The interactive **`ui-demo`** (a self-contained mini Command Deck in the hybrid-glass look) is compiled to a first-class artifact via `core/src/ui-artifact.ts` (`compileUiArtifact`) and `POST /api/ui-artifact/compile`. Its rich inline CSS+JS are written to disk **verbatim** (bypassing the generic artifact sanitizer) and served back through the DocViewer's sandboxed iframe (`allow-scripts`, **no** `allow-same-origin`), so the demo is fully offline and sandbox-safe (no CDN/font fetches, no `localStorage` reliance).
 - The **`create-web-ui-artifact` skill** (`.claude/skills/create-web-ui-artifact/SKILL.md`) is the UI counterpart to `onboarding`: for a web-UI project it inspects routes/components, authors a project-specific self-contained demo, and compiles it (with `{ projectId }`) into a per-project artifact (`project-<id>-ui-demo`). It is seeded into the skills registry as a manual-trigger workflow, so it is triggerable from the **Skills** tab alongside `onboarding` and `verify-project`.
+
+## Tasks tab — run a delegation workflow over selected todos
+
+The **Tasks** tab (`web/src/pages/tabs/TasksTab.tsx`) can now multi-select todos and launch a supervised delegation workflow over the selection — turning the per-task "dispatch-agent-on-task" shortcut into a batch action backed by `core/src/workflows.ts` (see §02).
+
+- **Selection:** each todo row has a checkbox; a header **select-all** checkbox shows the indeterminate state on a partial selection. The Set of selected ids is pruned after every interval refetch so it can never reference a deleted row.
+- **Action bar:** a sticky bar appears while at least one todo is selected, with a **Run delegation workflow** action that calls `api.projects.tasks.dispatchWorkflow` (`POST /api/projects/:id/tasks/dispatch`). One supervised orchestrator run is launched for the whole selection (one reviewable commit / PR), not one run per todo.
+- **`in_progress` on dispatch, never auto-`done`:** the selected todos flip to `in_progress` the moment the workflow is dispatched, and are **never** auto-marked `done` — the agent's PR decides completion (mirrors the lifecycle in §02).
+- **View-run toast:** on success a Sonner toast confirms dispatch and offers **"View run →"**, which navigates to the new run's console (`navigate('runs', runId)`). The toast reads its count/ids from the mutation's variables (not component state), so an interval refetch clearing the selection can't make it report a stale count.

@@ -8,7 +8,7 @@ import { cn } from '../lib/cn'
 import { fade } from '../lib/motion'
 import OverviewTab from './tabs/OverviewTab'
 import VerificationTab from './tabs/VerificationTab'
-import BibleTab from './tabs/BibleTab'
+import ArtifactsTab from './tabs/ArtifactsTab'
 import RunsTab from './tabs/RunsTab'
 import TasksTab from './tabs/TasksTab'
 import PrsCiTab from './tabs/PrsCiTab'
@@ -23,7 +23,7 @@ const TABS = [
   { id: 'tasks',          label: 'Tasks' },
   { id: 'prs-ci',         label: 'PRs & CI' },
   { id: 'verification',   label: 'Verification' },
-  { id: 'bible',          label: 'Bible' },
+  { id: 'artifacts',      label: 'Artifacts' },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -114,7 +114,7 @@ export default function ProjectWorkspace({
       <div
         role="tablist"
         aria-label="Project workspace tabs"
-        className="flex gap-0 border-b border-[var(--border)] bg-[var(--surface)] px-5"
+        className="flex flex-wrap gap-1 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2"
       >
         {TABS.map((t, idx) => {
           const isActive = t.id === activeTab
@@ -130,20 +130,13 @@ export default function ProjectWorkspace({
               onClick={() => goTab(t.id)}
               onKeyDown={e => handleTabKeyDown(e, idx)}
               className={cn(
-                'relative px-3 py-2.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-1',
+                'rounded-control px-3.5 py-1.5 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-hover)]',
                 isActive
-                  ? 'text-[var(--text)]'
-                  : 'text-[var(--muted)] hover:text-[var(--text)]',
+                  ? 'border border-[color:rgba(255,143,192,0.3)] bg-[color:rgba(255,143,192,0.14)] text-[var(--text)]'
+                  : 'border border-transparent text-[var(--muted)] hover:bg-[var(--raised)] hover:text-[var(--text)]',
               )}
             >
               {t.label}
-              {/* Active indicator — bottom hairline */}
-              {isActive && (
-                <span
-                  className="absolute inset-x-0 bottom-0 h-[2px] rounded-t-sm bg-[var(--accent)]"
-                  aria-hidden
-                />
-              )}
             </button>
           )
         })}
@@ -172,7 +165,7 @@ export default function ProjectWorkspace({
                 >
                   {t.id === 'overview'      && <OverviewTab      projectId={projectId!} />}
                   {t.id === 'verification'  && <VerificationTab  projectId={projectId!} />}
-                  {t.id === 'bible'         && <BibleTab         projectId={projectId} />}
+                  {t.id === 'artifacts'     && <ArtifactsTab     projectId={projectId} />}
                   {t.id === 'runs'          && <RunsTab          projectId={projectId!} />}
                   {t.id === 'tasks'         && <TasksTab         projectId={projectId!} />}
                   {t.id === 'prs-ci'        && <PrsCiTab         projectId={projectId!} />}
