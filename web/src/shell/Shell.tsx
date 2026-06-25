@@ -15,6 +15,7 @@ import ProjectWorkspace from '../pages/ProjectWorkspace'
 import FleetGraphPage from '../pages/FleetGraphPage'
 import SkillsPage from '../pages/SkillsPage'
 import TerminalPage from '../pages/TerminalPage'
+import SettingsPage from '../pages/SettingsPage'
 import NotFound from '../pages/NotFound'
 import { useHashRoute, navigate, isKnownView } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
@@ -119,6 +120,7 @@ export default function Shell() {
             {route.view === 'graph' && <FleetGraphPage />}
             {route.view === 'skills' && <SkillsPage />}
             {route.view === 'terminal' && <TerminalPage />}
+            {route.view === 'settings' && <SettingsPage />}
             {!isKnownView(route.view) && <NotFound route={route.view} />}
           </motion.div>
         </AnimatePresence>

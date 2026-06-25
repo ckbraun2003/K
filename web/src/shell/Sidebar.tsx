@@ -29,7 +29,7 @@ export const DESTINATIONS: Destination[] = [
   { id: 'terminal', icon: '>_', label: 'Terminal', hint: 'Embedded shell', enabled: true, section: 'primary' },
   // Footer cluster — secondary, lives below the spacer.
   { id: 'help', icon: '❔', label: 'Help', hint: 'How to use K — the user guide', enabled: true, view: 'docs', param: 'project-bible', section: 'footer' },
-  { id: 'settings', icon: '⚙', label: 'Settings', hint: 'Settings · Phase 1', enabled: false, section: 'footer' },
+  { id: 'settings', icon: '⚙', label: 'Settings', hint: 'Provider/auth status & global system prompt', enabled: true, section: 'footer' },
   // Hidden: not a top-level destination (artifacts live in each project now), but kept
   // so TopBar/⌘K can resolve the "Docs" label for the view Help deep-links into.
   { id: 'docs', icon: '▤', label: 'Docs', hint: 'Harness bible & artifacts', enabled: true, view: 'docs', param: 'project-bible', section: 'hidden' },

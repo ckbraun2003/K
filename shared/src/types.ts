@@ -464,3 +464,41 @@ export const RoutingStatsSchema = z.object({
   recommendation: z.string(),
 })
 export type RoutingStats = z.infer<typeof RoutingStatsSchema>
+
+// ─── Settings: provider / auth status ────────────────────────────────────────
+// GET /api/status — provider availability + harness auth posture for the Settings
+// page. NEVER carries the token value or any secret: tokenSource is the *origin*
+// ('env' vs 'generated'/persisted), not the credential.
+
+export const StatusSchema = z.object({
+  claude: z.object({
+    available: z.boolean(),
+    version: z.string().optional(),
+  }),
+  ollama: z.object({
+    enabled: z.boolean(),
+    reachable: z.boolean(),
+    baseUrl: z.string(),
+    model: z.string(),
+  }),
+  github: z.object({
+    authenticated: z.boolean(),
+    user: z.string().optional(),
+  }),
+  auth: z.object({
+    // 'env' = HARNESS_TOKEN override; 'generated' = generated/persisted on first run.
+    tokenSource: z.enum(['env', 'generated']),
+    host: z.string(),
+    loopbackOnly: z.boolean(),
+    terminalEnabled: z.boolean(),
+  }),
+})
+export type Status = z.infer<typeof StatusSchema>
+
+// PUT /api/system-prompt body — replaces only the human-editable region of the
+// repo-root CLAUDE.md. Schema-locked: extra keys / oversize → 400.
+export const SystemPromptBodySchema = z
+  // .max() bounds by JS string length (UTF-16 code units / characters), not bytes — on-disk byte size may be larger for multi-byte content.
+  .object({ md: z.string().max(200_000) })
+  .strict()
+export type SystemPromptBody = z.infer<typeof SystemPromptBodySchema>

@@ -92,6 +92,17 @@ export function resolveHarnessToken(opts?: {
   return { token, source: 'generated', file, firstRun: true }
 }
 
+/**
+ * Report the harness token's ORIGIN without ever exposing the token value — for
+ * the Settings status endpoint. A non-empty HARNESS_TOKEN env override is 'env';
+ * everything else (persisted file or first-run generation) collapses to
+ * 'generated' (i.e. "the harness owns this credential"). Pure: reads only the
+ * env var, returns no secret.
+ */
+export function harnessTokenSource(env = process.env.HARNESS_TOKEN): 'env' | 'generated' {
+  return (env ?? '').trim() ? 'env' : 'generated'
+}
+
 // ── Safety gate ──────────────────────────────────────────────────────────────
 
 /** Loopback hosts that are safe to serve a weak/dev token on. */

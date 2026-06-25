@@ -43,12 +43,13 @@ phase · CLAUDE.md editor = global-only, guarded (backup + gitnexus-block preser
 - [x] Review applied: HIGH stale-editor remount key · MEDIUM trim-diff rename / clear→null / label a11y · LOW Esc-cancel
 - [x] Verify: typecheck clean · core 494 · web 143  _(live edit→re-trigger smoke deferred to Wave V)_
 
-### Wave D2 — Settings page: auth/status + guarded system-prompt (CLAUDE.md) editor
-- [ ] `GET /api/status` — Claude / Ollama / GitHub / auth posture (status only, no secrets); `StatusSchema`
-- [ ] `GET`+`PUT /api/system-prompt` — root CLAUDE.md only (fixed path); backup-on-save; preserve gitnexus block; schema-locked (`additionalProperties:false`, only `md`)
-- [ ] `web` — new Settings page + route/Shell/Sidebar/`g ,` chord; status cards; CLAUDE.md editor with confirm-before-save warning
-- [ ] Tests: `/api/status` shape; system-prompt round-trip + gitnexus-preserve + traversal-reject; web status + save-confirm
-- [ ] Verify: live status accurate; CLAUDE.md edit+save → backup written + gitnexus block intact (`git diff`). Review → commit
+### Wave D2 — Settings page: auth/status + guarded system-prompt (CLAUDE.md) editor  ✅ DONE
+- [x] `GET /api/status` — Claude / Ollama / GitHub / auth posture via pure `buildStatus` + real probes (`claude --version` 2s, `gh auth status` 3s, never-throw via execa no-shell; `isOllamaReachable`); status only, no secrets; `StatusSchema`; 15s probe cache
+- [x] `GET`+`PUT /api/system-prompt` — root CLAUDE.md only (fixed path, env override tests-only); backup-on-save (eviction keeps last 50) + atomic temp+rename write; preserve gitnexus block via pure `splitSystemPrompt`/`composeSystemPrompt`; schema-locked (`.strict()`, only `md`); rejects submitted gitnexus markers → 400
+- [x] `web` — new Settings page + route/Shell/Sidebar/`g ,` chord; status cards (pure `settings-status` verdict mapping); CLAUDE.md editor with `ConfirmDialog` before-save warning
+- [x] Tests: `/api/status` shape + no-secret; system-prompt round-trip + gitnexus-preserve + backup + extra-key/oversize/marker-reject 400; web status + save-confirm
+- [x] Review applied: 2 HIGH (reject gitnexus markers in body → 400 + test; atomic temp+rename write w/ cleanup) · 2 MEDIUM (15s probe cache; backup eviction keep-50) · LOW (char-vs-byte schema comment). Security review: 0 CRITICAL (no token leak / traversal / injection / XSS / auth bypass)
+- [x] Verify: typecheck clean · core 507 · web 152 · repo-root CLAUDE.md untouched (`git status`)  _(live status + edit→save smoke deferred to Wave V)_
 
 ### Wave D3 — Event-data enrichment foundation  (smoke-gated; unblocks D4/D5/D6)
 - [ ] **D3.0 smoke FIRST** — capture real stream-json for Bash + Write/Edit + Task; fix the tool field map (`command`, `file_path`, `subagent_type`/`prompt`, tool_result pairing)

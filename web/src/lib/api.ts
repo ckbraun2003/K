@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -204,5 +204,16 @@ export const api = {
       req<{ evalId: string; runId: string }>(`/skills/${id}/test`, { method: 'POST' }),
     evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),
     runs: (id: string) => req<SkillRun[]>(`/skills/${id}/runs`),
+  },
+  // Settings — provider/auth status + the global system prompt (repo-root CLAUDE.md).
+  status: () => req<Status>('/status'),
+  systemPrompt: {
+    get: () => req<{ md: string }>('/system-prompt'),
+    save: (md: string) =>
+      req<{ savedAt: number }>('/system-prompt', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ md }),
+      }),
   },
 }
