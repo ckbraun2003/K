@@ -4,7 +4,7 @@ import ForceGraph2D from 'react-force-graph-2d'
 import type { Project } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
-import { GRAPH_BG, drawGraphNode, paintNodePointerArea } from '../lib/graph'
+import { GRAPH_BG, drawGraphNode, paintNodePointerArea, configureGraphForces } from '../lib/graph'
 
 type FGNode = { id?: string | number; color?: string; [key: string]: unknown }
 
@@ -30,6 +30,8 @@ export default function FleetGraphPage() {
   })
 
   const containerRef = useRef<HTMLDivElement>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const graphRef = useRef<any>(undefined)
   const [dims, setDims] = useState({ width: 1200, height: 700 })
 
   useEffect(() => {
@@ -47,6 +49,11 @@ export default function FleetGraphPage() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+
+  // Space nodes out + prevent overlap once the project set is known.
+  useEffect(() => {
+    configureGraphForces(graphRef.current, { nodeSize: 7 })
+  }, [projects.length])
 
   const graphData = {
     nodes: projects.map(p => ({
@@ -86,6 +93,7 @@ export default function FleetGraphPage() {
         ) : (
           <>
             <ForceGraph2D
+              ref={graphRef}
               graphData={graphData}
               width={dims.width}
               height={dims.height}

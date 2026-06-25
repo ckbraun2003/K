@@ -64,10 +64,11 @@ phase · CLAUDE.md editor = global-only, guarded (backup + gitnexus-block preser
 - [x] Review applied: HIGH (race-tolerant ALTER) · MEDIUM (guarded JSON.parse) · LOW (first-wins doc). LOW size-cap on toolResult deferred (raw already duplicates; revisit if rows bloat)
 - [x] Verify: typecheck clean · core 524 · web 152 · CLAUDE.md untouched  _(live enriched-run column-populate smoke deferred to Wave V)_
 
-### Graph fix — prevent node/edge overlap in force-graph surfaces  (small, web-only, with D3)
-- [ ] `web` add `d3-force-3d@^3.0.6` dep (the exact engine react-force-graph-2d uses — no version split); pure `configureGraphForces(fg)` helper in `lib/graph.ts` registering a `forceCollide` (radius = node size + label pad) + tuned link distance / charge so nodes never overlap and edges rarely cross nodes
-- [ ] apply via ref `useEffect` on all three surfaces: `KnowledgeGraphTab` (has ref), `FleetGraphPage`, `HomeFleetGraph` (add refs); honest note that edge–edge crossings can't be fully eliminated (non-planar)
-- [ ] Tests: collide-radius/force-config helper unit test; `bundle-guard` still passes (force-graph-2d only). Review → commit (separate from D3)
+### Graph fix — prevent node/edge overlap in force-graph surfaces  (small, web-only)  ✅ DONE
+- [x] `web` added `d3-force-3d@^3.0.6` (the exact engine react-force-graph-2d uses — lockfile-confirmed same 3.0.6, no version split); pure `collideRadius()` + `configureGraphForces(fg)` in `lib/graph.ts` registering `forceCollide(size+pad)` + tuned `GRAPH_LINK_DISTANCE`/`GRAPH_CHARGE_STRENGTH` so nodes never overlap & edges rarely cross nodes; null-ref no-op
+- [x] applied via ref `useEffect` on all three surfaces: `KnowledgeGraphTab` (had ref), `FleetGraphPage` + `HomeFleetGraph` (refs added); comment notes edge–edge crossings can't be fully eliminated (non-planar)
+- [x] Tests: `graph-forces.test.ts` (+8) collide-radius invariant + force-wiring spies + no-op safety; `bundle-guard` still green (force-graph-2d only)
+- [x] Review: APPROVED — 0 CRITICAL/HIGH; API names verified vs the lib `.d.ts`; only optional LOW nits (left per minimize-impact). Verify: typecheck clean · web 160
 
 ### Wave D4 — Rich run console: commands, files, delegated agents  (web only, consumes D3)
 - [ ] `RunConsole.tsx` (+ small components) — expandable tool calls: commands (`$ cmd` + output), file ops (path + diff/preview), delegated agents (parent→child card/tree with subagentType + prompt); group + collapse by default; keep raw/timeline toggle

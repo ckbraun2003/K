@@ -1,3 +1,8 @@
+// Import the SAME force engine react-force-graph-2d uses internally (d3-force-3d) so
+// we don't run two competing d3 instances. The package ships no type declarations, so
+// the import is `any` — suppressed here rather than via a separate global .d.ts file.
+// @ts-expect-error d3-force-3d has no bundled type declarations
+import { forceCollide } from 'd3-force-3d'
 import type { GraphNodeEnrichment, WsMessage } from '@k/shared'
 
 // ─── Knowledge-graph render helpers (pure, unit-tested in web/test/graph.test.ts) ──
@@ -122,6 +127,53 @@ export function paintNodePointerArea(
   ctx.beginPath()
   ctx.arc(x, y, size + 2, 0, 2 * Math.PI)
   ctx.fill()
+}
+
+// ─── Force-simulation tuning (shared by every ForceGraph2D surface) ───────────
+// d3 force defaults pack nodes tightly: no collision force, a short link distance,
+// and a weak charge, so nodes overlap and links pass through them. These constants
+// (tuned for a ~30-node graph) space the layout out, and configureGraphForces adds
+// the missing collision force.
+
+/** Target rest length of a link, in canvas units. */
+export const GRAPH_LINK_DISTANCE = 60
+/** Many-body charge: negative = repulsive, so disconnected clusters push apart. */
+export const GRAPH_CHARGE_STRENGTH = -240
+
+/**
+ * Collision radius for a node = its painted size + a small pad, so the painted
+ * circles (and their labels' anchor) never touch. PURE — unit-tested.
+ */
+export function collideRadius(nodeSize: number, labelPad = 4): number {
+  return nodeSize + labelPad
+}
+
+// Minimal structural type for the bits of a ForceGraph2D ref we touch. Typed loosely
+// (the library's own types expose these as `any`); a fake satisfying this is used in tests.
+interface ForceGraphInstance {
+  d3Force(name: string): { distance?: (d: number) => unknown; strength?: (s: number) => unknown } | undefined
+  d3Force(name: string, force: unknown): unknown
+  d3ReheatSimulation?: () => void
+}
+
+/**
+ * Apply layout forces to a ForceGraph2D instance so nodes don't overlap and edges
+ * rarely cross through nodes. NOTE: this prevents NODE overlap (a collision force) and
+ * spaces nodes out (link distance + charge); it does NOT eliminate EDGE–EDGE crossings,
+ * which is a graph-planarity problem that's generally impossible for non-planar graphs.
+ *
+ * Safe to call with a null/undefined ref (refs start null) — it's a no-op then. The
+ * link/charge forces are created by the library once the graph has data, so we guard
+ * their tuning with optional-chaining.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function configureGraphForces(fg: any, opts?: { nodeSize?: number }): void {
+  if (!fg) return
+  const instance = fg as ForceGraphInstance
+  instance.d3Force('collide', forceCollide(collideRadius(opts?.nodeSize ?? 5)))
+  instance.d3Force('link')?.distance?.(GRAPH_LINK_DISTANCE)
+  instance.d3Force('charge')?.strength?.(GRAPH_CHARGE_STRENGTH)
+  instance.d3ReheatSimulation?.()
 }
 
 export type DispatchAction = 'investigate' | 'fix' | 'explain'

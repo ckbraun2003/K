@@ -1,7 +1,8 @@
+import { useEffect, useRef } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 import type { Project } from '@k/shared'
 import { navigate } from '../lib/route'
-import { GRAPH_BG, drawGraphNode, paintNodePointerArea } from '../lib/graph'
+import { GRAPH_BG, drawGraphNode, paintNodePointerArea, configureGraphForces } from '../lib/graph'
 
 type FGNode = { id?: string | number; color?: string; [key: string]: unknown }
 
@@ -17,6 +18,14 @@ function healthColor(healthScore: number | undefined | null): string {
 }
 
 export default function HomeFleetGraph({ projects }: Props) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const graphRef = useRef<any>(undefined)
+
+  // Space nodes out + prevent overlap once the project set is known.
+  useEffect(() => {
+    configureGraphForces(graphRef.current, { nodeSize: 7 })
+  }, [projects.length])
+
   const graphData = {
     nodes: projects.map(p => ({
       id: p.id,
@@ -49,6 +58,7 @@ export default function HomeFleetGraph({ projects }: Props) {
           </div>
         ) : (
           <ForceGraph2D
+            ref={graphRef}
             graphData={graphData}
             height={280}
             backgroundColor={GRAPH_BG}

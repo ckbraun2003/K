@@ -14,6 +14,7 @@ import {
   GRAPH_LINK_COLOR,
   drawGraphNode,
   paintNodePointerArea,
+  configureGraphForces,
   type DispatchAction,
   type GraphNode,
   makeGraphUpdateHandler,
@@ -147,6 +148,12 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
       graphRef.current?.zoom(2.5, ms)
     }
   }, [])
+
+  // Apply collision + spacing forces once the graph has data (and whenever the node
+  // set changes), so nodes don't overlap and edges rarely cross through nodes.
+  useEffect(() => {
+    configureGraphForces(graphRef.current, { nodeSize: 5 })
+  }, [graph.nodes.length])
 
   const colorFn = useCallback((node: object) => nodeColor(node as GraphNode, filter), [filter])
 
