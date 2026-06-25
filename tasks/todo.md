@@ -21,13 +21,13 @@ exact stdin envelope is unconfirmed → **smoke before coding A3**.
 
 ## TRACK A — Agent-interaction UX
 
-### Wave A1 — Make model selection real + per-run picker
-- [ ] `core/src/claude-args.ts` — `buildClaudeArgs` appends `--model <model>` (currently inert)
-- [ ] `shared` — `KNOWN_MODELS` registry (opus-4-8 / sonnet-4-6 / haiku-4.5 / fable-5 + ollama)
-- [ ] `core/src/routes/runs.ts` — validate `model` against registry → 400 on unknown
-- [ ] `web` — model `<select>` in ⌘K dispatch confirm card (default "Auto"); thread via `api.runs.start`
-- [ ] Verify: unit (argv has `--model`, route 400s unknown) + live (run.model reflects choice)
-- [ ] Review → fix → commit
+### Wave A1 — Make model selection real + per-run picker  ✅ DONE (`b806876`)
+- [x] `core/src/claude-args.ts` — `buildClaudeArgs` appends `--model <model>` (was inert)
+- [x] `shared` — `KNOWN_MODELS` registry (opus-4-8 / sonnet-4-6 / haiku-4.5 / fable-5) + `isKnownModel`; `preferLocal`
+- [x] `core/src/routes/runs.ts` — validate `model` → 400 unknown; thread `preferLocal`; explicit model overrides local hint
+- [x] `web` — model `<select>` (Auto/4 Claude/Ollama) via pure `lib/run-models`; removed dead `RUN_DEFAULTS.model`
+- [x] Tests: claude-args +3, runs-model +3, web run-models +7. Review applied (comment/guard/dead-const/aria/preferLocal test)
+- [x] Verify: typecheck clean · core 466 · web 140 · build ✓  _(live run.model smoke deferred to Wave V)_
 
 ### Wave A2 — Better prompt surface (multiline composer)
 - [ ] ⌘K dispatch path → auto-growing `<textarea>` (Enter send / Shift+Enter newline), glass tokens
