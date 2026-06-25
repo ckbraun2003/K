@@ -135,11 +135,27 @@ function dbRowToRun(r: Record<string, unknown>) {
   }
 }
 
+/** Parse a JSON DB column defensively: null/undefined → undefined; malformed →
+ *  undefined (a single corrupt row must not 500 the whole event list). */
+function safeJsonColumn(v: unknown): unknown {
+  if (v == null) return undefined
+  try { return JSON.parse(v as string) } catch { return undefined }
+}
+
 function dbRowToEvent(r: Record<string, unknown>, includeRaw = false) {
   return {
     id: r.id, runId: r.run_id, seq: r.seq, type: r.type, ts: r.ts,
     text: r.text, tool: r.tool,
     tokensIn: r.tokens_in, tokensOut: r.tokens_out, costUsd: r.cost_usd,
+    // Enriched tool metadata (Wave D3). JSON columns are parsed back to objects;
+    // only include keys when present to avoid a flood of undefineds on the wire.
+    ...(r.tool_use_id != null ? { toolUseId: r.tool_use_id as string } : {}),
+    ...(r.tool_kind != null ? { toolKind: r.tool_kind as string } : {}),
+    ...(r.tool_input != null ? { toolInput: safeJsonColumn(r.tool_input) } : {}),
+    ...(r.tool_result != null ? { toolResult: safeJsonColumn(r.tool_result) } : {}),
+    ...(r.tool_result_is_error != null ? { toolResultIsError: r.tool_result_is_error === 1 } : {}),
+    ...(r.subagent_type != null ? { subagentType: r.subagent_type as string } : {}),
+    ...(r.child_label != null ? { childLabel: r.child_label as string } : {}),
     ...(includeRaw && r.raw != null ? { raw: r.raw as string } : {}),
   }
 }

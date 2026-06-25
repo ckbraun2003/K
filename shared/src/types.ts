@@ -58,6 +58,17 @@ export const AgentEventSchema = z.object({
   tokensIn: z.number().optional(),
   tokensOut: z.number().optional(),
   costUsd: z.number().optional(),
+  // ── enriched tool metadata (populated by the enriched parseClaudeLine) ──────
+  // A tool_use block (on an `assistant` event) and its matching tool_result
+  // block (on a later `user` event) PAIR by `toolUseId`. Later waves render
+  // commands / file ops / delegated sub-agents from these structured fields.
+  toolUseId: z.string().optional(),                                  // join key: block.id (tool_use) / block.tool_use_id (tool_result)
+  toolKind: z.enum(['command', 'file', 'delegate', 'other']).optional(), // discriminator for rendering
+  toolInput: z.unknown().optional(),                                 // raw tool_use input object (JSON)
+  toolResult: z.unknown().optional(),                                // tool_result content, as-is (string or array)
+  toolResultIsError: z.boolean().optional(),                         // tool_result is_error (omitted when absent)
+  subagentType: z.string().optional(),                              // delegate only; absent → default agent
+  childLabel: z.string().optional(),                               // delegate only: human label for the spawned agent
 })
 export type AgentEvent = z.infer<typeof AgentEventSchema>
 

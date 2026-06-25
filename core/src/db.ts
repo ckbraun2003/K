@@ -43,7 +43,14 @@ db.exec(`
     tool        TEXT,
     tokens_in   INTEGER,
     tokens_out  INTEGER,
-    cost_usd    REAL
+    cost_usd    REAL,
+    tool_use_id          TEXT,
+    tool_kind            TEXT,
+    tool_input           TEXT,
+    tool_result          TEXT,
+    tool_result_is_error INTEGER,
+    subagent_type        TEXT,
+    child_label          TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id, seq);
 
@@ -174,6 +181,18 @@ function hasTable(d: Database.Database, table: string): boolean {
   return !!d.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(table)
 }
 
+/** Idempotent, race-tolerant ADD COLUMN: skips if present, and tolerates a
+ *  concurrent connection having just added it (better-sqlite3 throws
+ *  'duplicate column name'). Any other error still propagates. */
+function addColumn(d: Database.Database, table: string, col: string, decl: string): void {
+  if (hasColumn(d, table, col)) return
+  try {
+    d.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`)
+  } catch (e) {
+    if (!/duplicate column name/i.test(String(e))) throw e
+  }
+}
+
 /** Guarded, idempotent schema evolution — runs at every boot; exported for tests. */
 export function migrate(d: Database.Database): void {
   if (!hasColumn(d, 'runs', 'project_id')) {
@@ -209,14 +228,27 @@ export function migrate(d: Database.Database): void {
     `)
     d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq)`)
   }
+  // events enriched tool-metadata columns (Wave D3): appended via guarded ALTERs
+  // (not only in CREATE TABLE) so existing DBs gain them; fresh installs get them
+  // from the DDL above too since migrate() runs at boot. hasTable guard keeps
+  // migrate() safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'events')) {
+    addColumn(d, 'events', 'tool_use_id', 'TEXT')
+    addColumn(d, 'events', 'tool_kind', 'TEXT')
+    addColumn(d, 'events', 'tool_input', 'TEXT')
+    addColumn(d, 'events', 'tool_result', 'TEXT')
+    addColumn(d, 'events', 'tool_result_is_error', 'INTEGER')
+    addColumn(d, 'events', 'subagent_type', 'TEXT')
+    addColumn(d, 'events', 'child_label', 'TEXT')
+  }
   // project_tasks GitHub Issues sync columns (Wave 3-7): appended via guarded
   // ALTERs (not in CREATE TABLE) so existing DBs gain them; fresh installs get
   // them here too since migrate() runs at boot. hasTable guard keeps migrate()
   // safe against old-schema fixtures predating the table.
   if (hasTable(d, 'project_tasks')) {
-    if (!hasColumn(d, 'project_tasks', 'issue_number')) d.exec(`ALTER TABLE project_tasks ADD COLUMN issue_number INTEGER`)
-    if (!hasColumn(d, 'project_tasks', 'issue_url')) d.exec(`ALTER TABLE project_tasks ADD COLUMN issue_url TEXT`)
-    if (!hasColumn(d, 'project_tasks', 'issue_state')) d.exec(`ALTER TABLE project_tasks ADD COLUMN issue_state TEXT`)
+    addColumn(d, 'project_tasks', 'issue_number', 'INTEGER')
+    addColumn(d, 'project_tasks', 'issue_url', 'TEXT')
+    addColumn(d, 'project_tasks', 'issue_state', 'TEXT')
     d.exec(`CREATE INDEX IF NOT EXISTS idx_project_tasks_issue ON project_tasks(project_id, issue_number)`)
   }
 }
@@ -265,8 +297,10 @@ export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, cl
 // duplicate seq silently drops instead of throwing into the live event-stream
 // handler and aborting the run.
 const insertEvent = db.prepare(`
-  INSERT OR IGNORE INTO events (id, run_id, seq, type, ts, raw, text, tool, tokens_in, tokens_out, cost_usd)
-  VALUES (@id, @runId, @seq, @type, @ts, @raw, @text, @tool, @tokensIn, @tokensOut, @costUsd)
+  INSERT OR IGNORE INTO events (id, run_id, seq, type, ts, raw, text, tool, tokens_in, tokens_out, cost_usd,
+    tool_use_id, tool_kind, tool_input, tool_result, tool_result_is_error, subagent_type, child_label)
+  VALUES (@id, @runId, @seq, @type, @ts, @raw, @text, @tool, @tokensIn, @tokensOut, @costUsd,
+    @toolUseId, @toolKind, @toolInput, @toolResult, @toolResultIsError, @subagentType, @childLabel)
 `)
 
 const listEvents = db.prepare(`SELECT * FROM events WHERE run_id = ? ORDER BY seq ASC`)

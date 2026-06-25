@@ -52,11 +52,22 @@ phase · CLAUDE.md editor = global-only, guarded (backup + gitnexus-block preser
 - [x] Verify: typecheck clean · core 507 · web 152 · repo-root CLAUDE.md untouched (`git status`)  _(live status + edit→save smoke deferred to Wave V)_
 
 ### Wave D3 — Event-data enrichment foundation  (smoke-gated; unblocks D4/D5/D6)
-- [ ] **D3.0 smoke FIRST** — capture real stream-json for Bash + Write/Edit + Task; fix the tool field map (`command`, `file_path`, `subagent_type`/`prompt`, tool_result pairing)
-- [ ] `shared` + `core/src/db.ts` — `AgentEvent`/events table: `toolInput`/`toolResult`, `toolKind` (command|file|delegate|other), `subagentType`/`childLabel`; keep `raw`
-- [ ] `core/src/providers.ts` — enrich `parseClaudeLine` (currently discards `block.input`); pure table-driven map; no token/cost behavior change
-- [ ] Tests: parse fixtures for each tool shape; backward-compat for old events
-- [ ] Verify: live run with command + file-write + delegation populates new columns. Review → commit
+- [x] **D3.0 smoke** (live, user-authorized; `claude -p ... --output-format stream-json --verbose --allowedTools "Bash Write Task"`). Verified field map:
+      · Bash → `input.command` (+`description`); `tool_result.content` = **string**
+      · Write/Edit → `input.file_path` (+`content`); result string; `is_error` often **absent**
+      · **delegate tool is named `Agent` (also accept `Task`)**; `input` = `description`+`prompt`, **`subagent_type` absent when default**; `tool_result.content` = **array of `{type:"text",text}`** (incl. an `agentId:` line)
+      · **pairing is by `tool_use_id`** — `tool_use` (assistant) and `tool_result` (user) arrive in SEPARATE events → need a stored `toolUseId` to join
+- [x] `shared` + `core/src/db.ts` — extended `AgentEvent`/events table: `toolUseId`, `toolKind` (command|file|delegate|other), `toolInput`/`toolResult` (JSON), `toolResultIsError`, `subagentType`/`childLabel`; kept `raw`. New cols in CREATE TABLE + **race-tolerant** `addColumn()` migration (tolerates `duplicate column` → multi-process/CI safe; project_tasks ALTERs hardened too)
+- [x] `core/src/providers.ts` — enriched `parseClaudeLine`: pure `classifyTool()` table-map; captures FIRST tool_use's structured fields (legacy `event.tool` now first-wins, full line kept in `raw`); new `user`/tool_result branch (string|array content, tri-state `is_error`); **zero** token/cost behavior change (result branch byte-identical)
+- [x] `core/src/events.ts` + `routes/runs.ts` `dbRowToEvent` — persist (JSON-stringify w/ `!== undefined` guard) + project the new columns via defensive `safeJsonColumn()` (one corrupt row can't 500 the list)
+- [x] Tests: `providers-enrich.test.ts` (+17) — Bash/Write/Agent(no subagent_type)/Task(with) fixtures, tool_result string-vs-array, is_error tri-state, classifyTool, backward-compat + token/cost unchanged, DB round-trip
+- [x] Review applied: HIGH (race-tolerant ALTER) · MEDIUM (guarded JSON.parse) · LOW (first-wins doc). LOW size-cap on toolResult deferred (raw already duplicates; revisit if rows bloat)
+- [x] Verify: typecheck clean · core 524 · web 152 · CLAUDE.md untouched  _(live enriched-run column-populate smoke deferred to Wave V)_
+
+### Graph fix — prevent node/edge overlap in force-graph surfaces  (small, web-only, with D3)
+- [ ] `web` add `d3-force-3d@^3.0.6` dep (the exact engine react-force-graph-2d uses — no version split); pure `configureGraphForces(fg)` helper in `lib/graph.ts` registering a `forceCollide` (radius = node size + label pad) + tuned link distance / charge so nodes never overlap and edges rarely cross nodes
+- [ ] apply via ref `useEffect` on all three surfaces: `KnowledgeGraphTab` (has ref), `FleetGraphPage`, `HomeFleetGraph` (add refs); honest note that edge–edge crossings can't be fully eliminated (non-planar)
+- [ ] Tests: collide-radius/force-config helper unit test; `bundle-guard` still passes (force-graph-2d only). Review → commit (separate from D3)
 
 ### Wave D4 — Rich run console: commands, files, delegated agents  (web only, consumes D3)
 - [ ] `RunConsole.tsx` (+ small components) — expandable tool calls: commands (`$ cmd` + output), file ops (path + diff/preview), delegated agents (parent→child card/tree with subagentType + prompt); group + collapse by default; keep raw/timeline toggle

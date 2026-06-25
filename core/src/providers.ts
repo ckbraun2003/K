@@ -46,6 +46,23 @@ function mapType(raw: string): AgentEvent['type'] {
   return 'assistant'
 }
 
+/** Pure, table-driven mapper from a tool name to its rendering kind.
+ *  `Bash` → command; the edit family → file; `Task`/`Agent` (this environment
+ *  names the delegation tool `Agent`) → delegate; anything else → other. */
+const TOOL_KIND: Record<string, 'command' | 'file' | 'delegate'> = {
+  Bash: 'command',
+  Write: 'file',
+  Edit: 'file',
+  MultiEdit: 'file',
+  NotebookEdit: 'file',
+  Task: 'delegate',
+  Agent: 'delegate',
+}
+
+export function classifyTool(name: string): 'command' | 'file' | 'delegate' | 'other' {
+  return TOOL_KIND[name] ?? 'other'
+}
+
 /** Parse one line of `claude --output-format stream-json` output. */
 export function parseClaudeLine(
   line: string,
@@ -71,9 +88,33 @@ export function parseClaudeLine(
       const msg = obj.message as Record<string, unknown>
       const content = msg.content as Array<Record<string, unknown>> | undefined
       if (Array.isArray(content)) {
+        // The captured stream emits one tool_use per assistant line in practice;
+        // if a line ever batches multiple tool_use blocks we enrich the FIRST one
+        // (one-event-per-line, seq model unchanged) — `raw` retains the rest.
+        // NB: this flips the legacy `event.tool` from last-wins to first-wins on a
+        // multi-tool_use line (the prior loop overwrote it down to the last block).
+        let toolUseSeen = false
         for (const block of content) {
           if (block.type === 'text') event.text = String(block.text ?? '')
-          if (block.type === 'tool_use') event.tool = String(block.name ?? '')
+          if (block.type === 'tool_use' && !toolUseSeen) {
+            toolUseSeen = true
+            const name = String(block.name ?? '')
+            const input = (block.input as Record<string, unknown> | undefined) ?? undefined
+            event.tool = name
+            event.toolUseId = typeof block.id === 'string' ? block.id : undefined
+            event.toolKind = classifyTool(name)
+            if (input !== undefined) event.toolInput = input
+            if (event.toolKind === 'delegate' && input) {
+              // subagent_type is OPTIONAL (absent → default agent).
+              if (typeof input.subagent_type === 'string') event.subagentType = input.subagent_type
+              // Human label: description, else the first ~60 chars of the prompt.
+              if (typeof input.description === 'string' && input.description.length > 0) {
+                event.childLabel = input.description
+              } else if (typeof input.prompt === 'string') {
+                event.childLabel = input.prompt.slice(0, 60)
+              }
+            }
+          }
         }
       }
       // Usage from message
@@ -81,6 +122,24 @@ export function parseClaudeLine(
       if (usage) {
         if (usage.input_tokens != null) event.tokensIn = usage.input_tokens
         if (usage.output_tokens != null) event.tokensOut = usage.output_tokens
+      }
+    }
+
+    // User turn: a tool_result block pairs back to its tool_use by tool_use_id.
+    // content may be an ARRAY of blocks; tool_result `content` is preserved as-is
+    // (string for Bash/Write, array of {type,text} for Agent). Leave event.text
+    // undefined — the structured fields carry the result.
+    if (type === 'user' && obj.message) {
+      const msg = obj.message as Record<string, unknown>
+      const content = msg.content
+      if (Array.isArray(content)) {
+        const block = (content as Array<Record<string, unknown>>).find(b => b.type === 'tool_result')
+        if (block) {
+          if (typeof block.tool_use_id === 'string') event.toolUseId = block.tool_use_id
+          if (block.content !== undefined) event.toolResult = block.content
+          // is_error is often absent → leave undefined; only set when present.
+          if (block.is_error === true || block.is_error === false) event.toolResultIsError = block.is_error
+        }
       }
     }
 
