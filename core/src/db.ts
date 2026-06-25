@@ -521,6 +521,12 @@ const updateSkillEnabled = db.prepare(`UPDATE skills SET enabled = ? WHERE id = 
 
 const updateSkillSchedule = db.prepare(`UPDATE skills SET schedule = ?, eventTrigger = ? WHERE id = ?`)
 
+// Editable content fields (name/description/source). Caller passes the current
+// value for any field not being changed, mirroring updateSkillSchedule.
+const updateSkillContent = db.prepare(
+  `UPDATE skills SET name = @name, description = @description, source = @source WHERE id = @id`,
+)
+
 const deleteSkill = db.prepare(`DELETE FROM skills WHERE id = ?`)
 
 const insertSkillRun = db.prepare(`
@@ -543,6 +549,7 @@ export const skillsDb = {
   getSkillByName,
   updateSkillEnabled,
   updateSkillSchedule,
+  updateSkillContent,
   deleteSkill,
   insertSkillRun,
   listSkillRuns,

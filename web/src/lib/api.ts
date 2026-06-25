@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -189,6 +189,12 @@ export const api = {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
+      }),
+    update: (id: string, body: UpdateSkill) =>
+      req<Skill>(`/skills/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       }),
     delete: (id: string) =>
       req<void>(`/skills/${id}`, { method: 'DELETE' }),

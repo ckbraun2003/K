@@ -35,11 +35,13 @@ phase · CLAUDE.md editor = global-only, guarded (backup + gitnexus-block preser
 
 ## TRACK D — Observability: monitoring, visualization & editable config
 
-### Wave D1 — Editable skill prompts  (small, independent)
-- [ ] `shared` + `core/src/routes/skills.ts` — `UpdateSkillSchema`/PATCH accept `source` (+ name/description), bounds reused, trigger-consistency at boundary, `??` not `||`
-- [ ] `web` — `api.skills.update`; edit affordance + `AutoTextarea` editor on SkillsPage; invalidate `['skills']`
-- [ ] Tests: PATCH updates source / rejects invalid; web editor round-trip
-- [ ] Verify: live edit a prompt → re-trigger → new prompt used. Review → commit
+### Wave D1 — Editable skill prompts  (small, independent)  ✅ DONE
+- [x] `shared` — extracted shared `skillName/skillDescription/skillSource` bounds; `UpdateSkillSchema` accepts optional `source`/`name`/`description` (`.strict()`); unset-vs-empty via `!== undefined`
+- [x] `core` — `db.updateSkillContent` stmt; PATCH applies content fields (read-modify-write), 409 on name collision (self-rename ok), cleared description → NULL → undefined
+- [x] `web` — `api.skills.update`; per-row `SkillEditor` (`AutoTextarea`) on SkillsPage; partial PATCH (trimmed-diff), invalidate `['skills']`, surfaces 400/409
+- [x] Tests: core +7 (update/partial-preserve/400/409/clear); web +3 (api shape/errors)
+- [x] Review applied: HIGH stale-editor remount key · MEDIUM trim-diff rename / clear→null / label a11y · LOW Esc-cancel
+- [x] Verify: typecheck clean · core 494 · web 143  _(live edit→re-trigger smoke deferred to Wave V)_
 
 ### Wave D2 — Settings page: auth/status + guarded system-prompt (CLAUDE.md) editor
 - [ ] `GET /api/status` — Claude / Ollama / GitHub / auth posture (status only, no secrets); `StatusSchema`

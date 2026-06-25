@@ -396,23 +396,34 @@ export const SkillSchema = z.object({
 })
 export type Skill = z.infer<typeof SkillSchema>
 
+// Shared field constraints so create and update agree on the same bounds
+// (don't duplicate the limits — a single source of truth keeps them in sync).
+const skillName = z.string().min(1).max(255)
+const skillDescription = z.string().max(2000)
+const skillSource = z.string().min(1).max(2000)
+
 export const CreateSkillSchema = z.object({
-  name: z.string().min(1).max(255),
-  description: z.string().max(2000).optional(),
+  name: skillName,
+  description: skillDescription.optional(),
   type: z.enum(['skill', 'hook', 'workflow']),
-  source: z.string().min(1).max(2000),
+  source: skillSource,
   triggerType: z.enum(['manual', 'schedule', 'event']),
   schedule: z.string().nullable().optional(),
   eventTrigger: z.string().nullable().optional(),
 })
 export type CreateSkill = z.infer<typeof CreateSkillSchema>
 
-// PATCH /api/skills/:id body — only the mutable fields, all optional.
+// PATCH /api/skills/:id body — only the mutable fields, all optional (partial
+// update). `name`/`description`/`source` reuse the create-time bounds above so a
+// PATCH can never store a value POST would have rejected.
 export const UpdateSkillSchema = z
   .object({
     enabled: z.boolean().optional(),
     schedule: z.string().nullable().optional(),
     eventTrigger: z.string().nullable().optional(),
+    name: skillName.optional(),
+    description: skillDescription.optional(),
+    source: skillSource.optional(),
   })
   .strict()
 export type UpdateSkill = z.infer<typeof UpdateSkillSchema>

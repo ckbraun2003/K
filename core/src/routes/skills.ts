@@ -35,7 +35,8 @@ export async function skillsRoutes(app: FastifyInstance) {
     return reply.status(201).send(skill)
   })
 
-  // PATCH /api/skills/:id — update enabled flag and/or schedule/eventTrigger
+  // PATCH /api/skills/:id — update enabled / schedule / eventTrigger and/or the
+  // editable content fields (name, description, source). All fields optional.
   app.patch<{ Params: { id: string } }>('/api/skills/:id', async (req, reply) => {
     const row = skillsDb.getSkill.get(req.params.id)
     if (!row) return reply.status(404).send({ error: 'not found' })
@@ -52,6 +53,16 @@ export async function skillsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'schedule must be a valid cron expression' })
     }
 
+    // A rename that collides with another skill's UNIQUE name fails gracefully
+    // (409) instead of bubbling the SQLite constraint error as a 500 — mirrors
+    // the POST uniqueness check. Skip when the name is unchanged (self-match).
+    if (body.name !== undefined) {
+      const clash = skillsDb.getSkillByName.get(body.name) as { id?: string } | undefined
+      if (clash && clash.id !== req.params.id) {
+        return reply.status(409).send({ error: `a skill named '${body.name}' already exists` })
+      }
+    }
+
     if (body.enabled !== undefined) {
       skillsDb.updateSkillEnabled.run(body.enabled ? 1 : 0, req.params.id)
     }
@@ -62,6 +73,26 @@ export async function skillsRoutes(app: FastifyInstance) {
         body.eventTrigger !== undefined ? body.eventTrigger : current.eventTrigger ?? null,
         req.params.id,
       )
+    }
+    // Editable content fields. Update only when PRESENT in the parsed body
+    // (`!== undefined`) — never `||` — so a PATCH that omits a field preserves
+    // its stored value. A cleared description ('') normalizes to NULL so
+    // "cleared" and "never set" are indistinguishable at the API (rowToSkill maps
+    // NULL → undefined). (`source`/`name` have a min(1) bound so '' is rejected
+    // at the schema.)
+    if (body.name !== undefined || body.description !== undefined || body.source !== undefined) {
+      const current = rowToSkill(row as Record<string, unknown>)
+      skillsDb.updateSkillContent.run({
+        id: req.params.id,
+        name: body.name !== undefined ? body.name : current.name,
+        description:
+          body.description !== undefined
+            ? body.description === ''
+              ? null
+              : body.description
+            : current.description ?? null,
+        source: body.source !== undefined ? body.source : current.source,
+      })
     }
 
     const updated = skillsDb.getSkill.get(req.params.id) as Record<string, unknown>
