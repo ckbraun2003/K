@@ -1,10 +1,11 @@
 import { useRef, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import ForceGraph2D from 'react-force-graph-2d'
+import ForceGraph3D from 'react-force-graph-3d'
 import type { Project } from '@k/shared'
 import { api } from '../lib/api'
+import GraphErrorBoundary from '../components/GraphErrorBoundary'
 import { navigate } from '../lib/route'
-import { GRAPH_BG, drawGraphNode, paintNodePointerArea, configureGraphForces } from '../lib/graph'
+import { GRAPH_BG, configureGraphForces } from '../lib/graph'
 
 type FGNode = { id?: string | number; color?: string; [key: string]: unknown }
 
@@ -92,25 +93,27 @@ export default function FleetGraphPage() {
           </div>
         ) : (
           <>
-            <ForceGraph2D
-              ref={graphRef}
-              graphData={graphData}
-              width={dims.width}
-              height={dims.height}
-              backgroundColor={GRAPH_BG}
-              nodeLabel="label"
-              nodeCanvasObject={(node: FGNode, ctx, scale) => drawGraphNode(node, ctx, scale, node.color ?? '#a99bc4', 7)}
-              nodePointerAreaPaint={(node: FGNode, color, ctx) => paintNodePointerArea(node, ctx, color, 7)}
-              onNodeClick={(node: FGNode) => {
-                if (node.id) navigate('project', node.id as string)
-              }}
-              cooldownTicks={100}
-              d3VelocityDecay={0.3}
-              d3AlphaDecay={0.02}
-              enableNodeDrag
-              enableZoomInteraction
-              enablePanInteraction
-            />
+            <GraphErrorBoundary>
+              <ForceGraph3D
+                ref={graphRef}
+                graphData={graphData}
+                width={dims.width}
+                height={dims.height}
+                backgroundColor={GRAPH_BG}
+                nodeLabel="label"
+                nodeColor={(n: FGNode) => (n.color as string) ?? '#a99bc4'}
+                nodeVal={7}
+                nodeOpacity={0.9}
+                nodeResolution={16}
+                onNodeClick={(node: FGNode) => {
+                  if (node.id) navigate('project', node.id as string)
+                }}
+                cooldownTicks={100}
+                d3VelocityDecay={0.3}
+                d3AlphaDecay={0.02}
+                enableNodeDrag
+              />
+            </GraphErrorBoundary>
             {/* Legend */}
             <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)]/80 px-3 py-2 backdrop-blur-sm">
               {FLEET_LEGEND.map(item => (

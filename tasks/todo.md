@@ -70,6 +70,14 @@ phase · CLAUDE.md editor = global-only, guarded (backup + gitnexus-block preser
 - [x] Tests: `graph-forces.test.ts` (+8) collide-radius invariant + force-wiring spies + no-op safety; `bundle-guard` still green (force-graph-2d only)
 - [x] Review: APPROVED — 0 CRITICAL/HIGH; API names verified vs the lib `.d.ts`; only optional LOW nits (left per minimize-impact). Verify: typecheck clean · web 160
 
+### Graph 3D — move all force-graph surfaces into 3D space (edges stop intersecting)  (user-requested: ALL surfaces)  ✅ DONE
+- [x] swapped `react-force-graph-2d` → `react-force-graph-3d` (Three.js; deps `3d-force-graph`/`react-kapsule`/`three@0.185` — **no AFRAME** pulled, blank-screen lesson not retriggered) on all three: `KnowledgeGraphTab`, `FleetGraphPage`, `HomeFleetGraph`
+- [x] 3D render: declarative `nodeColor`/`nodeVal`/`nodeOpacity`/`nodeResolution`/`nodeLabel`(hover) replace canvas paint; `configureGraphForces` kept (d3-force-3d/forceCollide 3D-native); node-click → 3D `cameraPosition(...)` fly-to (origin-NaN guarded); `zoomToFit` for 'f'; orbit nav controls on
+- [x] `GraphErrorBoundary` wraps every WebGL surface — a context-creation throw degrades to a fallback instead of blanking the route (neutralizes the old failure SHAPE with a new trigger)
+- [x] `bundle-guard` — widened to forbid aggregate + `-vr`/`-ar` across `from`/side-effect/dynamic imports; allows `-2d`/`-3d`; comment updated
+- [x] live render verify: `pnpm --filter web build` ✓ AND word-boundary `\bAFRAME\b` grep of `web/dist` → **absent**; no `aframe` package in store  _(full in-browser rotate smoke folded into Wave V)_
+- [x] Review: 0 CRITICAL/HIGH (API verified vs lib `.d.ts`; AFRAME re-proven). Applied: MEDIUM error boundary · LOW origin-camera · LOW guard regex. Deferred LOW: three-spritetext in-scene labels, manualChunks lazy-load of graph pages, drop unused `react-force-graph-2d` dep. Verify: typecheck clean · web 160 · build ✓
+
 ### Wave D4 — Rich run console: commands, files, delegated agents  (web only, consumes D3)
 - [ ] `RunConsole.tsx` (+ small components) — expandable tool calls: commands (`$ cmd` + output), file ops (path + diff/preview), delegated agents (parent→child card/tree with subagentType + prompt); group + collapse by default; keep raw/timeline toggle
 - [ ] Tests: render command/file/delegate events from fixtures; collapse/expand; reduced-motion

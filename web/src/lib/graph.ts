@@ -77,7 +77,9 @@ type XYNode = { x?: number; y?: number; label?: string; id?: string | number }
 
 /** Paint a glowing node + (past a zoom threshold) its label. Because this REPLACES
  *  the default node circle, callers must also pass `nodePointerAreaPaint`
- *  (see paintNodePointerArea) so clicks still register. */
+ *  (see paintNodePointerArea) so clicks still register.
+ *  2D-canvas helper — retained (and unit-tested) for potential reuse; the app graphs
+ *  now render in 3D and no longer call this. */
 export function drawGraphNode(
   node: XYNode,
   ctx: CanvasRenderingContext2D,
@@ -114,7 +116,9 @@ export function drawGraphNode(
 }
 
 /** Hit-area paint so clicks register against the painted node. `color` is the
- *  unique colour react-force-graph assigns for pointer hit-testing — use it as-is. */
+ *  unique colour react-force-graph assigns for pointer hit-testing — use it as-is.
+ *  2D-canvas helper — retained (and unit-tested) for potential reuse; the app graphs
+ *  now render in 3D and no longer call this. */
 export function paintNodePointerArea(
   node: XYNode,
   ctx: CanvasRenderingContext2D,
