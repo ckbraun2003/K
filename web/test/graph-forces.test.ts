@@ -54,10 +54,14 @@ describe('configureGraphForces', () => {
     expect(charge.strength).toHaveBeenCalledWith(GRAPH_CHARGE_STRENGTH)
   })
 
-  it('reheats the simulation so the new forces take effect', () => {
+  it('does NOT reheat the simulation (regression: 3D tick-on-undefined crash)', () => {
+    // In the 3D three-forcegraph engine, reheating before the first graphData digest
+    // sets engineRunning=true while state.layout is still undefined → tick() crash +
+    // black canvas. The graphData digest reheats (alpha=1) with our forces already
+    // registered, so an explicit reheat is unnecessary and must not happen here.
     const { fg, d3ReheatSimulation } = makeFakeFg()
     configureGraphForces(fg)
-    expect(d3ReheatSimulation).toHaveBeenCalledTimes(1)
+    expect(d3ReheatSimulation).not.toHaveBeenCalled()
   })
 
   it('is a no-op (does not throw) when given null or undefined', () => {
@@ -68,6 +72,6 @@ describe('configureGraphForces', () => {
   it('does not throw when the link/charge forces are absent (getter returns undefined)', () => {
     const fg = { d3Force: vi.fn().mockReturnValue(undefined), d3ReheatSimulation: vi.fn() }
     expect(() => configureGraphForces(fg)).not.toThrow()
-    expect(fg.d3ReheatSimulation).toHaveBeenCalled()
+    expect(fg.d3ReheatSimulation).not.toHaveBeenCalled()
   })
 })

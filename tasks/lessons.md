@@ -307,3 +307,20 @@ entries at session start before touching the same area.
   dispatch even though the code is correct. **Rule:** after a schema change, restart core before a
   live smoke (or point the smoke at a fresh `CORE_PORT` / `K_DATA_DIR`) — a left-over pre-migration
   core silently masks new-table features.
+
+## 3D force-graph migration (2026-06-25)
+
+- **Don't reheat a force-graph before its first graphData digest** — **Pattern:**
+  `configureGraphForces()` called `instance.d3ReheatSimulation?.()` after registering the
+  collide/charge/link forces. In the 3D `three-forcegraph` engine, `state.layout` is `undefined`
+  until the first graphData digest runs; reheating sets `engineRunning = true` prematurely, so the
+  next animation frame calls `state.layout.tick()` and throws
+  `Cannot read properties of undefined (reading 'tick')` — and the WebGL canvas stays black. The
+  identical code never crashed in 2D because the `force-graph` engine inits its layout eagerly;
+  only the 3D migration exposed it. The graphData digest already reheats with `alpha(1)` and our
+  forces are registered on `state.d3ForceLayout` before that digest, so the explicit reheat was
+  unnecessary anyway. **Rule:** never programmatically reheat a force-graph before it has digested
+  data — let the graphData digest (alpha=1) do the reheat. **Corollary:** WebGL/canvas render seams
+  MUST be verified in a real browser — typecheck, `vite build`, and all unit tests passed while the
+  canvas was black. (This superseded an earlier wrong hypothesis — `React.StrictMode` double-mount —
+  already ruled out because removing StrictMode did not fix the crash.)

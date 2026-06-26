@@ -157,11 +157,10 @@ export function collideRadius(nodeSize: number, labelPad = 4): number {
 interface ForceGraphInstance {
   d3Force(name: string): { distance?: (d: number) => unknown; strength?: (s: number) => unknown } | undefined
   d3Force(name: string, force: unknown): unknown
-  d3ReheatSimulation?: () => void
 }
 
 /**
- * Apply layout forces to a ForceGraph2D instance so nodes don't overlap and edges
+ * Apply layout forces to a ForceGraph instance so nodes don't overlap and edges
  * rarely cross through nodes. NOTE: this prevents NODE overlap (a collision force) and
  * spaces nodes out (link distance + charge); it does NOT eliminate EDGE–EDGE crossings,
  * which is a graph-planarity problem that's generally impossible for non-planar graphs.
@@ -169,6 +168,17 @@ interface ForceGraphInstance {
  * Safe to call with a null/undefined ref (refs start null) — it's a no-op then. The
  * link/charge forces are created by the library once the graph has data, so we guard
  * their tuning with optional-chaining.
+ *
+ * We deliberately do NOT call `d3ReheatSimulation()` here. In the 3D `three-forcegraph`
+ * engine, `state.layout` is `undefined` until the first graphData digest runs; reheating
+ * before that digest flips `engineRunning = true` while `state.layout` is still undefined,
+ * so the next animation frame calls `state.layout.tick()` and crashes
+ * (`Cannot read properties of undefined (reading 'tick')`) — the WebGL canvas then stays
+ * black. The graphData digest already reheats the sim with `alpha(1)`, and our
+ * collide/charge/link forces are registered on `state.d3ForceLayout` before that digest,
+ * so they still take effect without any explicit reheat. (The 2D `force-graph` engine
+ * inits its layout eagerly so the same code never crashed there — only after the 3D
+ * migration.)
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function configureGraphForces(fg: any, opts?: { nodeSize?: number }): void {
@@ -177,7 +187,6 @@ export function configureGraphForces(fg: any, opts?: { nodeSize?: number }): voi
   instance.d3Force('collide', forceCollide(collideRadius(opts?.nodeSize ?? 5)))
   instance.d3Force('link')?.distance?.(GRAPH_LINK_DISTANCE)
   instance.d3Force('charge')?.strength?.(GRAPH_CHARGE_STRENGTH)
-  instance.d3ReheatSimulation?.()
 }
 
 export type DispatchAction = 'investigate' | 'fix' | 'explain'
