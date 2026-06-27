@@ -23,7 +23,9 @@ export const CHORDS: Chord[] = [
   { key: 'm', view: 'metrics', label: 'Metrics' },
   { key: 'x', view: 'routing', label: 'Routing' },
   { key: 't', view: 'terminal', label: 'Terminal' },
+  { key: 'w', view: 'workflows', label: 'Workflows' },
   { key: 'd', view: 'docs', label: 'Docs' },
+  { key: ',', view: 'settings', label: 'Settings' },
 ]
 
 /** key → view lookup for the keydown handler. */

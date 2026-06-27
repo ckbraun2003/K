@@ -1,7 +1,9 @@
-import ForceGraph2D from 'react-force-graph-2d'
+import { useEffect, useRef } from 'react'
+import ForceGraph3D from 'react-force-graph-3d'
 import type { Project } from '@k/shared'
+import GraphErrorBoundary from '../components/GraphErrorBoundary'
 import { navigate } from '../lib/route'
-import { GRAPH_BG, drawGraphNode, paintNodePointerArea } from '../lib/graph'
+import { GRAPH_BG, configureGraphForces } from '../lib/graph'
 
 type FGNode = { id?: string | number; color?: string; [key: string]: unknown }
 
@@ -17,6 +19,14 @@ function healthColor(healthScore: number | undefined | null): string {
 }
 
 export default function HomeFleetGraph({ projects }: Props) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const graphRef = useRef<any>(undefined)
+
+  // Space nodes out + prevent overlap once the project set is known.
+  useEffect(() => {
+    configureGraphForces(graphRef.current, { nodeSize: 7 })
+  }, [projects.length])
+
   const graphData = {
     nodes: projects.map(p => ({
       id: p.id,
@@ -48,23 +58,26 @@ export default function HomeFleetGraph({ projects }: Props) {
             No projects yet.
           </div>
         ) : (
-          <ForceGraph2D
-            graphData={graphData}
-            height={280}
-            backgroundColor={GRAPH_BG}
-            nodeLabel="label"
-            nodeCanvasObject={(node: FGNode, ctx, scale) => drawGraphNode(node, ctx, scale, node.color ?? '#a99bc4', 7)}
-            nodePointerAreaPaint={(node: FGNode, color, ctx) => paintNodePointerArea(node, ctx, color, 7)}
-            onNodeClick={(node: FGNode) => {
-              if (node.id) navigate('project', node.id as string)
-            }}
-            cooldownTicks={100}
-            d3VelocityDecay={0.3}
-            d3AlphaDecay={0.02}
-            enableNodeDrag={false}
-            enableZoomInteraction
-            enablePanInteraction
-          />
+          <GraphErrorBoundary className="flex h-[280px] flex-col items-center justify-center gap-2 text-sm text-[var(--muted)]">
+            <ForceGraph3D
+              ref={graphRef}
+              graphData={graphData}
+              height={280}
+              backgroundColor={GRAPH_BG}
+              nodeLabel="label"
+              nodeColor={(n: FGNode) => (n.color as string) ?? '#a99bc4'}
+              nodeVal={7}
+              nodeOpacity={0.9}
+              nodeResolution={16}
+              onNodeClick={(node: FGNode) => {
+                if (node.id) navigate('project', node.id as string)
+              }}
+              cooldownTicks={100}
+              d3VelocityDecay={0.3}
+              d3AlphaDecay={0.02}
+              enableNodeDrag={false}
+            />
+          </GraphErrorBoundary>
         )}
       </div>
     </div>

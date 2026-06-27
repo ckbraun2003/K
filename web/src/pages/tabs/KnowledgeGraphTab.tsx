@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import ForceGraph2D from 'react-force-graph-2d'
+import ForceGraph3D from 'react-force-graph-3d'
 import type { GraphResponse, Run } from '@k/shared'
 import { api } from '../../lib/api'
+import GraphErrorBoundary from '../../components/GraphErrorBoundary'
 import { navigate } from '../../lib/route'
 import { onWsMessage } from '../../lib/ws'
 import { dialogCard, overlayFade, sidePanel, fade, microLift, prefersReducedMotion } from '../../lib/motion'
@@ -12,8 +13,7 @@ import {
   GRAPH_LEGEND,
   GRAPH_BG,
   GRAPH_LINK_COLOR,
-  drawGraphNode,
-  paintNodePointerArea,
+  configureGraphForces,
   type DispatchAction,
   type GraphNode,
   makeGraphUpdateHandler,
@@ -138,15 +138,31 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
   }, [])
 
   const handleNodeClick = useCallback((node: object) => {
-    const n = node as GraphNode & { x?: number; y?: number }
+    const n = node as GraphNode & { x?: number; y?: number; z?: number }
     setSelected(n)
-    // Smoothly centre + zoom to the clicked node (respect reduced-motion).
-    if (typeof n.x === 'number' && typeof n.y === 'number') {
-      const ms = prefersReducedMotion() ? 0 : 400
-      graphRef.current?.centerAt(n.x, n.y, ms)
-      graphRef.current?.zoom(2.5, ms)
+    // Fly the 3D camera to look at the clicked node (respect reduced-motion).
+    const fg = graphRef.current
+    if (fg && typeof n.x === 'number' && typeof n.y === 'number' && typeof n.z === 'number') {
+      const ms = prefersReducedMotion() ? 0 : 600
+      const distance = 120
+      const hyp = Math.hypot(n.x, n.y, n.z)
+      if (hyp < 1e-6) {
+        // Node sits at the origin: a ratio-scaled position would equal the lookAt
+        // target (0,0,0), giving three.js a NaN view orientation (black view).
+        // Pull straight back along +z instead.
+        fg.cameraPosition({ x: 0, y: 0, z: distance }, n, ms)
+      } else {
+        const ratio = 1 + distance / hyp
+        fg.cameraPosition({ x: n.x * ratio, y: n.y * ratio, z: n.z * ratio }, n, ms)
+      }
     }
   }, [])
+
+  // Apply collision + spacing forces once the graph has data (and whenever the node
+  // set changes), so nodes don't overlap and edges rarely cross through nodes.
+  useEffect(() => {
+    configureGraphForces(graphRef.current, { nodeSize: 5 })
+  }, [graph.nodes.length])
 
   const colorFn = useCallback((node: object) => nodeColor(node as GraphNode, filter), [filter])
 
@@ -264,26 +280,28 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
             </div>
           ) : (
             <>
-              <ForceGraph2D
-                ref={graphRef}
-                graphData={filteredData}
-                width={dims.width}
-                height={dims.height}
-                backgroundColor={GRAPH_BG}
-                nodeLabel="label"
-                nodeRelSize={5}
-                linkColor={() => GRAPH_LINK_COLOR}
-                linkWidth={1.6}
-                nodeCanvasObject={(node, ctx, scale) => drawGraphNode(node, ctx, scale, colorFn(node), 5)}
-                nodePointerAreaPaint={(node, color, ctx) => paintNodePointerArea(node, ctx, color, 5)}
-                onNodeClick={handleNodeClick}
-                cooldownTicks={100}
-                d3VelocityDecay={0.3}
-                d3AlphaDecay={0.02}
-                enableNodeDrag
-                enableZoomInteraction
-                enablePanInteraction
-              />
+              <GraphErrorBoundary>
+                <ForceGraph3D
+                  ref={graphRef}
+                  graphData={filteredData}
+                  width={dims.width}
+                  height={dims.height}
+                  backgroundColor={GRAPH_BG}
+                  nodeLabel="label"
+                  nodeColor={colorFn}
+                  nodeVal={5}
+                  nodeOpacity={0.9}
+                  nodeResolution={16}
+                  linkColor={() => GRAPH_LINK_COLOR}
+                  linkWidth={1}
+                  linkOpacity={0.5}
+                  onNodeClick={handleNodeClick}
+                  cooldownTicks={100}
+                  d3VelocityDecay={0.3}
+                  d3AlphaDecay={0.02}
+                  enableNodeDrag
+                />
+              </GraphErrorBoundary>
               {/* Legend */}
               <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)]/80 px-3 py-2 backdrop-blur-sm">
                 {GRAPH_LEGEND.map(item => (

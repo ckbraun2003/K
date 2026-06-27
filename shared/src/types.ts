@@ -5,10 +5,13 @@ import { z } from 'zod'
 export const RunStatusSchema = z.enum([
   'queued',
   'running',
+  'awaiting_input', // non-terminal: an interactive run finished a turn and is waiting
+                    // for the operator's next message (stdin held open). Swept to
+                    // 'interrupted' at boot like running/queued (the child can't survive).
   'done',
   'error',
   'killed',
-  'interrupted', // terminal: run was running/queued when the core process restarted
+  'interrupted', // terminal: run was running/queued/awaiting_input when core restarted
 ])
 export type RunStatus = z.infer<typeof RunStatusSchema>
 
@@ -55,6 +58,22 @@ export const AgentEventSchema = z.object({
   tokensIn: z.number().optional(),
   tokensOut: z.number().optional(),
   costUsd: z.number().optional(),
+  // total input context size for this assistant turn (fresh input_tokens +
+  // cache_creation_input_tokens + cache_read_input_tokens). Distinct from
+  // `tokensIn` (fresh input only) so cost/metrics accounting is unchanged; used
+  // by the context-pressure indicator.
+  contextTokens: z.number().optional(),
+  // ── enriched tool metadata (populated by the enriched parseClaudeLine) ──────
+  // A tool_use block (on an `assistant` event) and its matching tool_result
+  // block (on a later `user` event) PAIR by `toolUseId`. Later waves render
+  // commands / file ops / delegated sub-agents from these structured fields.
+  toolUseId: z.string().optional(),                                  // join key: block.id (tool_use) / block.tool_use_id (tool_result)
+  toolKind: z.enum(['command', 'file', 'delegate', 'other']).optional(), // discriminator for rendering
+  toolInput: z.unknown().optional(),                                 // raw tool_use input object (JSON)
+  toolResult: z.unknown().optional(),                                // tool_result content, as-is (string or array)
+  toolResultIsError: z.boolean().optional(),                         // tool_result is_error (omitted when absent)
+  subagentType: z.string().optional(),                              // delegate only; absent → default agent
+  childLabel: z.string().optional(),                               // delegate only: human label for the spawned agent
 })
 export type AgentEvent = z.infer<typeof AgentEventSchema>
 
@@ -288,13 +307,45 @@ export type WsMessage = z.infer<typeof WsMessageSchema>
 
 // ─── API shapes ──────────────────────────────────────────────────────────────
 
+// Model registry — single source of truth for the per-run model picker. The UI
+// builds its options from this list; the route validates `model` against it.
+// `contextWindow` is the standard 200k Claude context window for all four models
+// (Fable 5 assumed 200k pending confirmation); it powers the context-pressure
+// indicator (web/src/lib/context.ts).
+export const KNOWN_MODELS = [
+  { id: 'claude-opus-4-8', label: 'Opus 4.8', contextWindow: 200_000 },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', contextWindow: 200_000 },
+  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', contextWindow: 200_000 },
+  { id: 'claude-fable-5', label: 'Fable 5', contextWindow: 200_000 },
+] as const
+export type KnownModelId = typeof KNOWN_MODELS[number]['id']
+export function isKnownModel(id: string): id is KnownModelId {
+  return KNOWN_MODELS.some(m => m.id === id)
+}
+
+/** The model's context-window size in tokens, or `undefined` for an unknown id
+ *  (e.g. a local/Ollama model). Used by the context-pressure indicator. */
+export function modelContextWindow(id: string): number | undefined {
+  return KNOWN_MODELS.find(m => m.id === id)?.contextWindow
+}
+
 export const StartRunBodySchema = z.object({
   prompt: z.string().min(1),
   cwd: z.string().optional(),       // defaults to k/ root
   model: z.string().optional(),     // defaults to router decision
   projectId: z.string().uuid().optional(), // explicit project association (overrides cwd inference)
+  preferLocal: z.boolean().optional(), // route local-model preference; UI "Ollama (local)" sets this
+  interactive: z.boolean().optional(), // keep stdin open for multi-turn HITL (claude only)
 })
 export type StartRunBody = z.infer<typeof StartRunBodySchema>
+
+/** Body for POST /api/runs/:id/input — the operator's next turn in an interactive
+ *  run. Newlines allowed (multi-line answers); bounded so a huge paste can't be
+ *  shoved down the agent's stdin. */
+export const SendInputBodySchema = z.object({
+  text: z.string().min(1).max(20000),
+})
+export type SendInputBody = z.infer<typeof SendInputBodySchema>
 
 export const RunsQuerySchema = z.object({
   status: RunStatusSchema.optional(),
@@ -370,23 +421,34 @@ export const SkillSchema = z.object({
 })
 export type Skill = z.infer<typeof SkillSchema>
 
+// Shared field constraints so create and update agree on the same bounds
+// (don't duplicate the limits — a single source of truth keeps them in sync).
+const skillName = z.string().min(1).max(255)
+const skillDescription = z.string().max(2000)
+const skillSource = z.string().min(1).max(2000)
+
 export const CreateSkillSchema = z.object({
-  name: z.string().min(1).max(255),
-  description: z.string().max(2000).optional(),
+  name: skillName,
+  description: skillDescription.optional(),
   type: z.enum(['skill', 'hook', 'workflow']),
-  source: z.string().min(1).max(2000),
+  source: skillSource,
   triggerType: z.enum(['manual', 'schedule', 'event']),
   schedule: z.string().nullable().optional(),
   eventTrigger: z.string().nullable().optional(),
 })
 export type CreateSkill = z.infer<typeof CreateSkillSchema>
 
-// PATCH /api/skills/:id body — only the mutable fields, all optional.
+// PATCH /api/skills/:id body — only the mutable fields, all optional (partial
+// update). `name`/`description`/`source` reuse the create-time bounds above so a
+// PATCH can never store a value POST would have rejected.
 export const UpdateSkillSchema = z
   .object({
     enabled: z.boolean().optional(),
     schedule: z.string().nullable().optional(),
     eventTrigger: z.string().nullable().optional(),
+    name: skillName.optional(),
+    description: skillDescription.optional(),
+    source: skillSource.optional(),
   })
   .strict()
 export type UpdateSkill = z.infer<typeof UpdateSkillSchema>
@@ -427,3 +489,110 @@ export const RoutingStatsSchema = z.object({
   recommendation: z.string(),
 })
 export type RoutingStats = z.infer<typeof RoutingStatsSchema>
+
+// ─── Settings: provider / auth status ────────────────────────────────────────
+// GET /api/status — provider availability + harness auth posture for the Settings
+// page. NEVER carries the token value or any secret: tokenSource is the *origin*
+// ('env' vs 'generated'/persisted), not the credential.
+
+export const StatusSchema = z.object({
+  claude: z.object({
+    available: z.boolean(),
+    version: z.string().optional(),
+  }),
+  ollama: z.object({
+    enabled: z.boolean(),
+    reachable: z.boolean(),
+    baseUrl: z.string(),
+    model: z.string(),
+  }),
+  github: z.object({
+    authenticated: z.boolean(),
+    user: z.string().optional(),
+  }),
+  auth: z.object({
+    // 'env' = HARNESS_TOKEN override; 'generated' = generated/persisted on first run.
+    tokenSource: z.enum(['env', 'generated']),
+    host: z.string(),
+    loopbackOnly: z.boolean(),
+    terminalEnabled: z.boolean(),
+  }),
+})
+export type Status = z.infer<typeof StatusSchema>
+
+// PUT /api/system-prompt body — replaces only the human-editable region of the
+// repo-root CLAUDE.md. Schema-locked: extra keys / oversize → 400.
+export const SystemPromptBodySchema = z
+  // .max() bounds by JS string length (UTF-16 code units / characters), not bytes — on-disk byte size may be larger for multi-byte content.
+  .object({ md: z.string().max(200_000) })
+  .strict()
+export type SystemPromptBody = z.infer<typeof SystemPromptBodySchema>
+
+// ─── Delegation workflow definition ──────────────────────────────────────────
+// Static, hand-authored description of the harness delegation loop — the single
+// source of truth both the web UI (Workflows view) and any server-side consumer
+// import. It mirrors core's buildDelegationPrompt + CLAUDE.md "Delegation loop for
+// code waves"; it is a plain constant (not a zod schema) like KNOWN_MODELS, since
+// it is fixed content, not validated input. Descriptions state each role's
+// responsibility — the controller authors its sub-prompts ad hoc, so this never
+// claims a role is handed a canned prompt string.
+
+export interface WorkflowRole {
+  /** Stable id; edges reference roles by this. */
+  id: string
+  /** Human label for the diagram box. */
+  label: string
+  /** Read-only responsibility shown when the role is selected. */
+  description: string
+}
+
+export interface WorkflowEdge {
+  /** Source role id. */
+  from: string
+  /** Target role id. */
+  to: string
+  /** Optional connector label (e.g. "fixes"). */
+  label?: string
+}
+
+export interface WorkflowDefinition {
+  roles: WorkflowRole[]
+  edges: WorkflowEdge[]
+}
+
+/** The harness code-wave delegation loop. */
+export const DELEGATION_WORKFLOW: WorkflowDefinition = {
+  roles: [
+    {
+      id: 'controller',
+      label: 'Controller',
+      description:
+        'Owns the wave. Dispatched via buildDelegationPrompt to address a batch of selected todos, the controller spawns one sub-agent per role instead of doing the work in a single context, applies the reviewers’ fixes, and ships ONE reviewable commit / PR for the whole batch — never a PR per todo, and never a push to the default branch.',
+    },
+    {
+      id: 'implementer',
+      label: 'Implementer',
+      description:
+        'Carries out the wave’s code changes against the spec in a focused context, then hands its output to the reviewers.',
+    },
+    {
+      id: 'spec-review',
+      label: 'Spec review',
+      description:
+        'Reviews the implementer’s output against the wave spec: does the change do what was asked, and nothing more? Runs every wave, no exceptions, and reports fixes back to the controller.',
+    },
+    {
+      id: 'quality-review',
+      label: 'Quality review',
+      description:
+        'Reviews the implementer’s output for code quality, simplicity, and regressions. Runs every wave, no exceptions, and reports fixes back to the controller.',
+    },
+  ],
+  edges: [
+    { from: 'controller', to: 'implementer', label: 'delegates' },
+    { from: 'implementer', to: 'spec-review', label: 'review' },
+    { from: 'implementer', to: 'quality-review', label: 'review' },
+    { from: 'spec-review', to: 'controller', label: 'fixes' },
+    { from: 'quality-review', to: 'controller', label: 'fixes' },
+  ],
+}

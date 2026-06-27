@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Skill, CreateSkill, SkillEval } from '@k/shared'
+import type { Skill, CreateSkill, UpdateSkill, SkillEval } from '@k/shared'
 import { api } from '../lib/api'
+import AutoTextarea from '../components/AutoTextarea'
 import type { SkillRun } from '../lib/skill-runs'
 import { sortSkillRunsNewestFirst } from '../lib/skill-runs'
 import { checkCron } from '../lib/cron'
@@ -349,6 +350,7 @@ function SkillRow({
   })
   const latestEval = evals[0]
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)]">
       <div className="flex items-center gap-3 px-4 py-3">
@@ -398,6 +400,14 @@ function SkillRow({
         {/* Actions */}
         <div className="flex flex-shrink-0 gap-2">
           <button
+            onClick={() => setEditOpen(o => !o)}
+            aria-expanded={editOpen}
+            data-testid="skill-edit-toggle"
+            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          >
+            {editOpen ? '▾ edit' : '▸ edit'}
+          </button>
+          <button
             onClick={() => setHistoryOpen(o => !o)}
             aria-expanded={historyOpen}
             data-testid="skill-history-toggle"
@@ -429,7 +439,127 @@ function SkillRow({
         </div>
       </div>
 
+      {editOpen && (
+        <SkillEditor
+          key={`${skill.id}-${skill.name}-${skill.source}-${skill.description ?? ''}`}
+          skill={skill}
+          onDone={() => setEditOpen(false)}
+        />
+      )}
       {historyOpen && <SkillRunHistory skillId={skill.id} />}
+    </div>
+  )
+}
+
+/** Inline editor for a skill's prompt + metadata (name / description / source). */
+function SkillEditor({ skill, onDone }: { skill: Skill; onDone: () => void }) {
+  const qc = useQueryClient()
+  const [name, setName] = useState(skill.name)
+  const [description, setDescription] = useState(skill.description ?? '')
+  const [source, setSource] = useState(skill.source)
+
+  const updateMutation = useMutation({
+    mutationFn: (body: UpdateSkill) => api.skills.update(skill.id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['skills'] })
+      onDone()
+    },
+  })
+
+  const inputCls =
+    'w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:border-[var(--accent)] focus:outline-none'
+
+  // Only send fields that actually changed (partial PATCH). Compare
+  // trimmed-vs-trimmed so a stored value with stray whitespace doesn't trigger
+  // an unintended rename/rewrite on a no-op save. description can be cleared to
+  // ''; name/source are required and trimmed.
+  function handleSave() {
+    const body: UpdateSkill = {}
+    const trimmedName = name.trim()
+    const trimmedSource = source.trim()
+    if (trimmedName !== skill.name.trim()) body.name = trimmedName
+    if (trimmedSource !== skill.source.trim()) body.source = trimmedSource
+    if (description.trim() !== (skill.description ?? '').trim()) body.description = description
+    if (Object.keys(body).length === 0) {
+      onDone()
+      return
+    }
+    updateMutation.mutate(body)
+  }
+
+  const dirty =
+    name.trim() !== skill.name.trim() ||
+    source.trim() !== skill.source.trim() ||
+    description.trim() !== (skill.description ?? '').trim()
+  const invalid = name.trim().length === 0 || source.trim().length === 0
+
+  return (
+    <div
+      data-testid="skill-editor"
+      className="border-t border-[var(--border)] px-4 py-3"
+      onKeyDown={e => {
+        // Esc cancels the editor, matching the app's close-on-Escape convention.
+        // Escape isn't a newline, so handling it at the container is safe for the
+        // multiline source textarea.
+        if (e.key === 'Escape' || e.key === 'Esc') onDone()
+      }}
+    >
+      <div className="flex flex-col gap-3">
+        <div>
+          <label htmlFor={`skill-edit-name-${skill.id}`} className="mb-1 block text-xs text-[var(--muted)]">Name</label>
+          <input
+            id={`skill-edit-name-${skill.id}`}
+            data-testid="skill-edit-name"
+            className={inputCls}
+            value={name}
+            onChange={e => setName(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor={`skill-edit-description-${skill.id}`} className="mb-1 block text-xs text-[var(--muted)]">Description (optional)</label>
+          <input
+            id={`skill-edit-description-${skill.id}`}
+            data-testid="skill-edit-description"
+            className={inputCls}
+            placeholder="Short human-readable description"
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor={`skill-edit-source-${skill.id}`} className="mb-1 block text-xs text-[var(--muted)]">
+            Source (prompt sent to the agent)
+          </label>
+          <AutoTextarea
+            id={`skill-edit-source-${skill.id}`}
+            data-testid="skill-edit-source"
+            className={`${inputCls} resize-none`}
+            value={source}
+            onChange={e => setSource(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          data-testid="skill-edit-save"
+          onClick={handleSave}
+          disabled={updateMutation.isPending || invalid || !dirty}
+          className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {updateMutation.isPending ? 'saving…' : 'save'}
+        </button>
+        <button
+          onClick={onDone}
+          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+        >
+          cancel
+        </button>
+        {updateMutation.isError && (
+          <span data-testid="skill-edit-error" className="text-xs text-red-400">
+            {(updateMutation.error as Error).message}
+          </span>
+        )}
+      </div>
     </div>
   )
 }

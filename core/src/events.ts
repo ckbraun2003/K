@@ -48,6 +48,19 @@ export const eventBus = {
       tokensIn: e.tokensIn ?? null,
       tokensOut: e.tokensOut ?? null,
       costUsd: e.costUsd ?? null,
+      // Enriched tool metadata (Wave D3). Object columns are JSON-stringified
+      // when present (guard: JSON.stringify(undefined) is undefined, not a
+      // string, which better-sqlite3 rejects). is_error → 1/0/null tri-state.
+      toolUseId: e.toolUseId ?? null,
+      toolKind: e.toolKind ?? null,
+      toolInput: e.toolInput !== undefined ? JSON.stringify(e.toolInput) : null,
+      toolResult: e.toolResult !== undefined ? JSON.stringify(e.toolResult) : null,
+      toolResultIsError: e.toolResultIsError === undefined ? null : e.toolResultIsError ? 1 : 0,
+      subagentType: e.subagentType ?? null,
+      childLabel: e.childLabel ?? null,
+      // Context size for the indicator (Wave D6) — a plain number, persisted so a
+      // reloaded run shows true pressure (not the cache-excluding tokensIn).
+      contextTokens: e.contextTokens ?? null,
     })
     // Then push to live subscribers
     for (const sub of eventSubs) {

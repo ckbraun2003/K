@@ -23,13 +23,14 @@ export const DESTINATIONS: Destination[] = [
   { id: 'projects', icon: '▦', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary' },
   { id: 'graph', icon: '◉', label: 'Fleet Graph', hint: 'Visualize every project by health', enabled: true, section: 'primary' },
   { id: 'runs', icon: '▶', label: 'Runs', hint: 'Live & past agent runs', enabled: true, section: 'primary' },
+  { id: 'workflows', icon: '⋔', label: 'Workflows', hint: 'Delegation workflow & live sub-agent trees', enabled: true, section: 'primary' },
   { id: 'skills', icon: '⚒', label: 'Skills', hint: 'Author & trigger reusable skills', enabled: true, section: 'primary' },
   { id: 'metrics', icon: '∿', label: 'Metrics', hint: 'Tokens, cost & run trends', enabled: true, section: 'primary' },
   { id: 'routing', icon: '⇄', label: 'Routing', hint: 'Model routing stats', enabled: true, section: 'primary' },
   { id: 'terminal', icon: '>_', label: 'Terminal', hint: 'Embedded shell', enabled: true, section: 'primary' },
   // Footer cluster — secondary, lives below the spacer.
   { id: 'help', icon: '❔', label: 'Help', hint: 'How to use K — the user guide', enabled: true, view: 'docs', param: 'project-bible', section: 'footer' },
-  { id: 'settings', icon: '⚙', label: 'Settings', hint: 'Settings · Phase 1', enabled: false, section: 'footer' },
+  { id: 'settings', icon: '⚙', label: 'Settings', hint: 'Provider/auth status & global system prompt', enabled: true, section: 'footer' },
   // Hidden: not a top-level destination (artifacts live in each project now), but kept
   // so TopBar/⌘K can resolve the "Docs" label for the view Help deep-links into.
   { id: 'docs', icon: '▤', label: 'Docs', hint: 'Harness bible & artifacts', enabled: true, view: 'docs', param: 'project-bible', section: 'hidden' },

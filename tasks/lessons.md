@@ -307,3 +307,84 @@ entries at session start before touching the same area.
   dispatch even though the code is correct. **Rule:** after a schema change, restart core before a
   live smoke (or point the smoke at a fresh `CORE_PORT` / `K_DATA_DIR`) — a left-over pre-migration
   core silently masks new-table features.
+
+## Wave D4 — web component tests (2026-06-27)
+
+- **Pin jsdom to the version your vitest major was tested against; scope the DOM env to `.test.tsx`** —
+  **Pattern:** the web suite was pure-function only (vitest `node` env, `test/**/*.test.ts`). Adding RTL
+  component tests pulled `jsdom@latest` (29), whose `html-encoding-sniffer@6` → ESM-only `@exodus/bytes`
+  can't be `require()`d by vitest 1.6's CJS loader — the `.test.tsx` file silently didn't run and threw
+  an unhandled error (typecheck/build stayed green). **Rule:** when introducing `@testing-library/react`
+  + `jsdom` into a vitest-1.6 web suite, pin `jsdom@^24` (the compatible pairing), add `@vitejs/plugin-react`
+  to `plugins` (automatic JSX runtime), and scope the browser env narrowly so existing node tests are
+  untouched: `include: ['test/**/*.test.{ts,tsx}']` + `environmentMatchGlobs: [['**/*.test.tsx','jsdom']]`.
+  jsdom lacks `Element.prototype.scrollIntoView` and `window.matchMedia` — stub both in any test that
+  renders a component using them (RunConsole auto-scrolls; framer-motion probes matchMedia).
+
+- **Don't run `npx gitnexus analyze` while `CLAUDE.md` has uncommitted edits** — **Pattern:** the
+  post-commit hook reported the index stale and suggested `npx gitnexus analyze`, but the working tree
+  had unrelated *uncommitted user edits* to `CLAUDE.md`. analyze appends the gitnexus block on top of
+  those edits, and the standard `git checkout -- CLAUDE.md` cleanup would then revert (destroy) the
+  user's changes. **Rule:** before running the analyzer (or letting the cleanup run), confirm `CLAUDE.md`
+  has no uncommitted changes you'd lose (`git status --short CLAUDE.md`). If it does, defer the analyze —
+  a stale index is a non-blocking advisory; clobbering a user's working-tree edits is not recoverable.
+
+## Wave D6 — context indicators + compaction smoke (2026-06-27)
+
+- **Run the smoke BEFORE you document a "limitation" — the assumed limit was wrong** — **Pattern:**
+  D6 was planned around the premise "stream-json input mode delivers content as a literal user turn,
+  so REPL slash-commands (e.g. `/compact`) are NOT honored over the wire; on-demand compaction can't
+  be forced — degrade to a soft summarize." The implementer even shipped a button tooltip + code
+  comment ASSERTING that. The D6.0 live smoke (claude **v2.1.195**, interactive stream-json mirroring
+  `buildClaudeArgs`/`userTurnEnvelope`) REFUTED it: writing one `{type:"user",message:{role:"user",
+  content:"/compact"}}` turn made the CLI emit `{"type":"system","subtype":"status","status":
+  "compacting"}` then `compact_result:"failed"` / `compact_error:"Not enough messages to compact."`
+  (it failed only because the fresh probe session had no messages). The CLI's compaction machinery
+  ran — `/compact` over the stream-json wire **is** honored. **Rule:** never bake an assumed
+  capability/limitation into shipped copy, tooltips, comments, or a "documented honest limit" without
+  a live probe first; an architectural-sounding premise ("slash-commands are a REPL-only feature") can
+  be false for the actual binary/version. When a smoke contradicts the plan, STOP, correct the
+  shipped copy immediately, and surface the finding to the controller rather than shipping the now-false
+  rationale. **Outcome:** once the smoke proved it, the wave took the plan's "yes" branch and shipped
+  REAL compaction — a manual `sendInput('/compact')` button AND a guarded/debounced auto-compact —
+  instead of the soft summarize. (Structural safety holds because a `/compact` turn ends with
+  `{type:"result"}`, the existing `isTurnEndLine` turn boundary, so the run re-parks at
+  `awaiting_input` after compacting.) Still unverified end-to-end: the compact-and-CONTINUE SUCCESS
+  path on a NON-empty session — the smoke only proved the trigger fires (it failed on an empty
+  session by design); that live confirmation folds into Wave V.
+
+- **A heavy SessionStart hook environment can swallow a short smoke window and fake a positive** —
+  **Pattern:** the first 10s `/compact` probe returned `compactSignalInOutput: true`, but that was a
+  FALSE positive — this env's SessionStart hooks (superpowers + previous-session-summary injection)
+  dominated the whole window, and the regex matched "[Compaction occurred at …]" text inside the
+  *injected previous-session summary*, not any response to the turn. **Rule:** when smoking an
+  interactive CLI in an environment with SessionStart hooks, (a) send the turn AFTER the init/hook
+  lines settle, (b) classify output by parsed line `type`/`subtype` and only count lines that arrive
+  AFTER the turn was written, and (c) don't substring-match on free text that hooks may have injected.
+  Keep the probe hard-bounded (kill + force-exit timers) so it can never hang.
+
+- **`usage.input_tokens` per assistant turn is FRESH input only — context size needs the cache fields**
+  — **Pattern:** the per-assistant-turn `usage.input_tokens` excludes cache; using it for a "context
+  pressure" indicator would wildly under-report true context occupancy on cached runs. **Rule:** the
+  real input context size for a turn is `input_tokens + cache_creation_input_tokens +
+  cache_read_input_tokens` (the same sum the `result` branch already computes for `tokensIn`). Carry it
+  as a SEPARATE field (`AgentEvent.contextTokens`) so cost/metrics accounting that depends on
+  fresh-input `tokensIn` stays byte-identical, and feed the indicator from `contextTokens` (falling
+  back to `tokensIn` only when absent). Scan for the latest signal by MAX `seq`, not array order.
+
+## 3D force-graph migration (2026-06-25)
+
+- **Don't reheat a force-graph before its first graphData digest** — **Pattern:**
+  `configureGraphForces()` called `instance.d3ReheatSimulation?.()` after registering the
+  collide/charge/link forces. In the 3D `three-forcegraph` engine, `state.layout` is `undefined`
+  until the first graphData digest runs; reheating sets `engineRunning = true` prematurely, so the
+  next animation frame calls `state.layout.tick()` and throws
+  `Cannot read properties of undefined (reading 'tick')` — and the WebGL canvas stays black. The
+  identical code never crashed in 2D because the `force-graph` engine inits its layout eagerly;
+  only the 3D migration exposed it. The graphData digest already reheats with `alpha(1)` and our
+  forces are registered on `state.d3ForceLayout` before that digest, so the explicit reheat was
+  unnecessary anyway. **Rule:** never programmatically reheat a force-graph before it has digested
+  data — let the graphData digest (alpha=1) do the reheat. **Corollary:** WebGL/canvas render seams
+  MUST be verified in a real browser — typecheck, `vite build`, and all unit tests passed while the
+  canvas was black. (This superseded an earlier wrong hypothesis — `React.StrictMode` double-mount —
+  already ruled out because removing StrictMode did not fix the crash.)

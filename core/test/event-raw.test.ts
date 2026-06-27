@@ -34,6 +34,14 @@ eventsDb.insertEvent.run({
   tokensIn: null,
   tokensOut: null,
   costUsd: null,
+  toolUseId: null,
+  toolKind: null,
+  toolInput: null,
+  toolResult: null,
+  toolResultIsError: null,
+  subagentType: null,
+  childLabel: null,
+  contextTokens: null,
 })
 
 eventsDb.insertEvent.run({
@@ -48,6 +56,14 @@ eventsDb.insertEvent.run({
   tokensIn: 10,
   tokensOut: 20,
   costUsd: 0.001,
+  toolUseId: null,
+  toolKind: null,
+  toolInput: null,
+  toolResult: null,
+  toolResultIsError: null,
+  subagentType: null,
+  childLabel: null,
+  contextTokens: null,
 })
 
 afterAll(() => {

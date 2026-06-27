@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import type { Run, AgentEvent, WsMessage } from '@k/shared'
@@ -6,8 +6,13 @@ import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
+import { pairToolCalls, groupConsoleItems } from '../lib/console'
+import { contextPressure, nextAutoCompact, type AutoCompactState } from '../lib/context'
 import RunTimeline from './RunTimeline'
+import ToolCall from './ToolCall'
 import ConfirmDialog from './ConfirmDialog'
+import AutoTextarea from './AutoTextarea'
+import ContextMeter from './ContextMeter'
 
 interface Props {
   runId: string
@@ -24,6 +29,16 @@ export function mergeEvents(history: AgentEvent[], live: AgentEvent[]): AgentEve
   return [...history, ...live.filter(e => !seen.has(e.id))].sort((a, b) => a.seq - b.seq)
 }
 
+/**
+ * The CLI `/compact` slash-command, delivered as a normal operator turn over the
+ * stream-json input wire. Smoke D6.0 confirmed the CLI HONORS this — it runs its
+ * real compaction machinery (`system/status:"compacting"` → `compact_result`)
+ * and ends the turn with a `{type:"result"}` line, so the supervisor re-parks the
+ * run at `awaiting_input` after compacting. This is REAL context compaction, not
+ * a soft self-summary.
+ */
+export const COMPACT_COMMAND = '/compact'
+
 export const EVENT_COLOR: Record<string, string> = {
   system:    'text-[var(--muted)]',
   assistant: 'text-[var(--text)]',
@@ -33,27 +48,84 @@ export const EVENT_COLOR: Record<string, string> = {
   status:    'text-[var(--amber)]',
 }
 
+/**
+ * Render a non-tool event exactly as the flat console always has (status / usage
+ * / error / assistant text / system+user text). Assistant events that carry a
+ * tool name but no enriched `toolUseId` (pre-D3 history) keep the old `⚙ tool()`
+ * line so older runs still read correctly.
+ */
+function EventLine({ event: e }: { event: AgentEvent }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.1 }}
+      className={cn('leading-relaxed whitespace-pre-wrap break-words', EVENT_COLOR[e.type] ?? 'text-[var(--text)]')}
+    >
+      {e.type === 'status' && (
+        <span className="text-[var(--muted)]">── {e.text} ──</span>
+      )}
+      {e.type === 'usage' && (
+        <span>
+          ▸ {e.tokensIn?.toLocaleString()} in / {e.tokensOut?.toLocaleString()} out
+          {e.costUsd ? ` / $${e.costUsd.toFixed(4)}` : ''}
+        </span>
+      )}
+      {e.type === 'error' && (
+        <span>⚠ {e.text}</span>
+      )}
+      {e.type === 'assistant' && e.tool && (
+        <span className="text-[var(--accent-hover)]">⚙ {e.tool}()</span>
+      )}
+      {e.type === 'assistant' && !e.tool && e.text && (
+        <span>{e.text}</span>
+      )}
+      {(e.type === 'system' || e.type === 'user') && e.text && (
+        <span className="opacity-60">{e.text}</span>
+      )}
+    </motion.div>
+  )
+}
+
 export default function RunConsole({ runId }: Props) {
   const qc = useQueryClient()
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [view, setView] = useState<'console' | 'timeline'>('console')
   const [confirmKill, setConfirmKill] = useState(false)
   const [killing, setKilling] = useState(false)
+  // Operator's reply while the run is parked at awaiting_input (interactive HITL).
+  const [answer, setAnswer] = useState('')
+  const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const answerRef = useRef<HTMLTextAreaElement>(null)
+  // Hysteresis state for auto-`/compact` — armed initially, disarmed after a fire,
+  // re-armed only when context recovers to the 'ok' band (see nextAutoCompact).
+  // The ref is the synchronous re-entrancy guard; `autoCompactFired` is a
+  // display-only mirror used solely to vary the danger-hint copy.
+  const autoCompactRef = useRef<AutoCompactState>({ armed: true })
+  const [autoCompactFired, setAutoCompactFired] = useState(false)
 
   const { data: run } = useQuery<Run>({
     queryKey: ['run', runId],
     queryFn: () => api.runs.get(runId),
   })
 
+  // Pair tool_use↔tool_result and coalesce consecutive tool calls once per event
+  // change, not on every render (each WS event would otherwise rebuild ~2N objects).
+  const segments = useMemo(() => groupConsoleItems(pairToolCalls(events)), [events])
+
   // Persisted history + live events via WS (deduped by event id — live
   // events can arrive while the backfill request is in flight)
   useEffect(() => {
     setEvents([]) // reset when run changes
+    setAnswer('')
     let cancelled = false
     const unsub = onWsMessage((msg: WsMessage) => {
       if (msg.type === 'event' && msg.event.runId === runId) {
-        setEvents(prev => [...prev, msg.event])
+        // Reuse mergeEvents so the array stays deduped-by-id AND seq-sorted on
+        // every append — keeps tool grouping/expand state stable even when live
+        // events arrive out of order. (prev = "history", the new event = "live".)
+        setEvents(prev => mergeEvents(prev, [msg.event]))
       }
       if (msg.type === 'run_update' && msg.run.id === runId) {
         qc.setQueryData(['run', runId], msg.run)
@@ -73,6 +145,13 @@ export default function RunConsole({ runId }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [events])
 
+  // Focus the answer box when the run parks at awaiting_input so the operator can
+  // type their reply immediately without reaching for the mouse.
+  const awaiting = run?.status === 'awaiting_input'
+  useEffect(() => {
+    if (awaiting) answerRef.current?.focus()
+  }, [awaiting])
+
   async function handleKill() {
     setKilling(true)
     try {
@@ -83,6 +162,67 @@ export default function RunConsole({ runId }: Props) {
     }
   }
 
+  // Send one operator turn; on success the run flips back to 'running' via a
+  // run_update WS message, which hides the answer box. Shared by the manual
+  // reply, the manual "Compact context" button, and the auto-compact effect so
+  // all three get the same send/disable/error handling. Returns whether the send
+  // succeeded. Memoized (stable per runId/sending) so the auto-compact effect can
+  // list it as a dependency without re-firing every render.
+  const submitTurn = useCallback(async (text: string): Promise<boolean> => {
+    if (!text.trim() || sending) return false
+    setSending(true)
+    try {
+      await api.runs.sendInput(runId, text)
+      return true
+    } catch { /* a 409 means it already left awaiting_input — the WS state will correct the UI */
+      return false
+    } finally { setSending(false) }
+  }, [runId, sending])
+
+  async function handleSend() {
+    if (await submitTurn(answer)) setAnswer('')
+  }
+
+  // Real CLI context compaction: sends `/compact` as an operator turn. The CLI
+  // honors it over the stream-json wire (smoke D6.0), runs its compaction, and
+  // ends with a `result` line so the run re-parks at awaiting_input.
+  async function handleCompact() {
+    await submitTurn(COMPACT_COMMAND)
+  }
+
+  async function handleEnd() {
+    try { await api.runs.end(runId) } catch { /* run may have already completed */ }
+  }
+
+  // Context-pressure for the header indicator. Computed above the `!run` guard
+  // (run may be undefined before load) with a tolerant `run?.model`.
+  const pressure = useMemo(() => contextPressure(events, run?.model), [events, run?.model])
+
+  // Guarded + debounced auto-compaction. The pure `nextAutoCompact` decides
+  // (hysteresis: fire once per danger episode, re-arm at 'ok'); we only own the
+  // side effect. The web Run type carries no explicit `interactive` flag, so we
+  // use `awaiting_input` as the interactivity proxy — only interactive runs ever
+  // reach that status. Never fires during initial load (run undefined), while a
+  // send is in flight, or while the operator is mid-answer.
+  useEffect(() => {
+    if (!run) return
+    const awaiting = run.status === 'awaiting_input'
+    const { state, fire } = nextAutoCompact(autoCompactRef.current, {
+      band: pressure.band,
+      awaiting,
+      interactive: awaiting, // proxy: only interactive runs reach awaiting_input
+      sending,
+      operatorTyping: answer.trim().length > 0,
+    })
+    autoCompactRef.current = state
+    if (fire) {
+      setAutoCompactFired(true)
+      void submitTurn(COMPACT_COMMAND)
+    }
+    // Re-arm episode → clear the display mirror (guarded so it can't loop).
+    if (pressure.band === 'ok' && autoCompactFired) setAutoCompactFired(false)
+  }, [run, pressure.band, sending, answer, submitTurn, autoCompactFired])
+
   if (!run) return <div className="flex-1 flex items-center justify-center text-[var(--muted)]">Loading…</div>
 
   return (
@@ -91,8 +231,12 @@ export default function RunConsole({ runId }: Props) {
       <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-[var(--text)] truncate">{run.prompt}</p>
-          <p className="text-xs text-[var(--muted)]">
-            {run.model} · {run.tokensIn.toLocaleString()} in / {run.tokensOut.toLocaleString()} out · ${run.costUsd.toFixed(4)}
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--muted)]">
+            <span>
+              {run.model} · {run.tokensIn.toLocaleString()} in / {run.tokensOut.toLocaleString()} out · ${run.costUsd.toFixed(4)}
+            </span>
+            <span aria-hidden>·</span>
+            <ContextMeter pressure={pressure} />
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -115,14 +259,15 @@ export default function RunConsole({ runId }: Props) {
           </div>
           <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', {
             'bg-accent/15 text-[var(--accent-hover)] glow-live': run.status === 'running',
+            'bg-amber/25 text-[var(--amber)] glow-live': run.status === 'awaiting_input',
             'bg-green/15 text-[var(--green)]': run.status === 'done',
             'bg-red/15 text-[var(--red)]': run.status === 'error' || run.status === 'interrupted',
             'bg-amber/15 text-[var(--amber)]': run.status === 'queued',
             'bg-muted/15 text-[var(--muted)]': run.status === 'killed',
           })}>
-            {run.status}
+            {run.status === 'awaiting_input' ? 'awaiting input' : run.status}
           </span>
-          {run.status === 'running' && (
+          {(run.status === 'running' || run.status === 'awaiting_input') && (
             <button
               onClick={() => setConfirmKill(true)}
               data-testid="run-kill-btn"
@@ -138,43 +283,83 @@ export default function RunConsole({ runId }: Props) {
         // key={runId} remounts on run switch so per-seq raw cache never leaks across runs
         <RunTimeline key={runId} events={events} runId={runId} />
       ) : (
-        /* Event stream */
-        <div className="flex-1 overflow-y-auto px-5 py-4 font-mono text-sm space-y-0.5">
+        /* Event stream — tool calls rendered richly & collapsed, grouped when consecutive */
+        <div className="flex-1 overflow-y-auto px-5 py-4 font-mono text-sm space-y-1">
           {events.length === 0 && (
             <div className="text-[var(--muted)] italic">Waiting for output…</div>
           )}
-          {events.map(e => (
-            <motion.div
-              key={e.id}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.1 }}
-              className={cn('leading-relaxed whitespace-pre-wrap break-words', EVENT_COLOR[e.type] ?? 'text-[var(--text)]')}
-            >
-              {e.type === 'status' && (
-                <span className="text-[var(--muted)]">── {e.text} ──</span>
-              )}
-              {e.type === 'usage' && (
-                <span>
-                  ▸ {e.tokensIn?.toLocaleString()} in / {e.tokensOut?.toLocaleString()} out
-                  {e.costUsd ? ` / $${e.costUsd.toFixed(4)}` : ''}
-                </span>
-              )}
-              {e.type === 'error' && (
-                <span>⚠ {e.text}</span>
-              )}
-              {e.type === 'assistant' && e.tool && (
-                <span className="text-[var(--accent-hover)]">⚙ {e.tool}()</span>
-              )}
-              {e.type === 'assistant' && !e.tool && e.text && (
-                <span>{e.text}</span>
-              )}
-              {(e.type === 'system' || e.type === 'user') && e.text && (
-                <span className="opacity-60">{e.text}</span>
-              )}
-            </motion.div>
-          ))}
+          {segments.map(seg =>
+            seg.type === 'tools' ? (
+              <div key={seg.key} className="space-y-1 border-l border-[var(--border)] pl-2">
+                {seg.items.map(it => (
+                  <ToolCall key={it.call.id} item={it} />
+                ))}
+              </div>
+            ) : (
+              <EventLine key={seg.event.id} event={seg.event} />
+            ),
+          )}
           <div ref={bottomRef} />
+        </div>
+      )}
+
+      {/* HITL answer box — shown while the interactive run is waiting on the operator */}
+      {run.status === 'awaiting_input' && (
+        <div className="flex-shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2" data-testid="run-answer-box">
+          <p className="text-xs font-medium text-[var(--amber)]">⏳ The agent is waiting for your reply.</p>
+          <AutoTextarea
+            ref={answerRef}
+            aria-label="Answer the agent"
+            data-testid="run-answer-input"
+            value={answer}
+            onChange={e => setAnswer(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void handleSend() }
+            }}
+            placeholder="Type your reply…  (↵ send · ⇧↵ newline)"
+            className="glow-focus w-full resize-none rounded-control border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
+          />
+          {pressure.band === 'danger' && (
+            <p
+              data-testid="run-compact-hint"
+              className="text-xs text-[var(--red)]"
+            >
+              <span aria-hidden>⚠ </span>
+              {autoCompactFired
+                ? 'Context near limit — automatic compaction attempted. Press “Compact context” to retry.'
+                : 'Context near limit — compacting automatically. You can also press “Compact context” now.'}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleEnd()}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+            >
+              End session
+            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCompact()}
+                disabled={sending}
+                data-testid="run-compact-btn"
+                title="Runs the CLI's /compact to condense the conversation and free up context."
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)] disabled:opacity-50"
+              >
+                Compact context
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSend()}
+                disabled={sending || !answer.trim()}
+                data-testid="run-answer-send"
+                className="rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-medium text-[var(--accent-hover)] transition-colors hover:bg-accent/30 disabled:opacity-50"
+              >
+                {sending ? 'Sending…' : 'Send ↵'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

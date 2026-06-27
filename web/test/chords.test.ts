@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { CHORDS, CHORD_MAP } from '../src/lib/chords'
 import { DESTINATIONS } from '../src/shell/Sidebar'
+import { KNOWN_VIEWS } from '../src/lib/route'
 
 describe('keyboard chords', () => {
   it('covers every enabled, routable Sidebar destination', () => {
@@ -31,5 +32,10 @@ describe('keyboard chords', () => {
     // ⌘K/Ctrl+K opens the palette. None of these may appear as a chord key.
     const keys = new Set(CHORDS.map(c => c.key))
     for (const reserved of ['?', 'Escape']) expect(keys.has(reserved)).toBe(false)
+  })
+
+  it('routes the Workflows view (known view + `g w` chord)', () => {
+    expect(KNOWN_VIEWS.has('workflows')).toBe(true)
+    expect(CHORD_MAP['w']).toBe('workflows')
   })
 })

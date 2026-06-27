@@ -9,6 +9,8 @@ import { NAV_DESTINATIONS } from './Sidebar'
 import { parseProjectQuery, decideEnterMode } from '../lib/command-parse'
 import { modalCard, overlayFade, dialogCard } from '../lib/motion'
 import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
+import { MODEL_OPTIONS, modelChoiceToOpts } from '../lib/run-models'
+import AutoTextarea from '../components/AutoTextarea'
 
 export { parseProjectQuery } from '../lib/command-parse'
 
@@ -35,23 +37,39 @@ export default function CommandBar({ open, onClose }: Props) {
   // For a plain query that coincidentally matches a nav label, lets the user flip
   // the Enter default between navigate and dispatch (Tab). null ?? = follow default.
   const [modeOverride, setModeOverride] = useState<'navigate' | 'dispatch' | null>(null)
+  // Per-run model selection for the confirm card. 'auto' preserves router routing.
+  const [model, setModel] = useState('auto')
+  // Editable prompt draft for the compose-and-confirm card — seeded from the
+  // picked dispatch item, then freely edited (multiline) before firing.
+  const [promptDraft, setPromptDraft] = useState('')
+  // Interactive (multi-turn): keep the agent's stdin open so the operator can
+  // answer its questions / send follow-ups. Claude-only; ignored for local runs.
+  const [interactive, setInteractive] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const confirmRunRef = useRef<HTMLButtonElement>(null)
+  const composeRef = useRef<HTMLTextAreaElement>(null)
   const busyRef = useRef(false)
 
   const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list(), enabled: open })
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list, enabled: open })
 
   useEffect(() => {
-    if (open) { setQuery(''); setSelected(0); setError(null); setConfirm(null); setModeOverride(null); setTimeout(() => inputRef.current?.focus(), 50) }
+    if (open) { setQuery(''); setSelected(0); setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setPromptDraft(''); setInteractive(false); setTimeout(() => inputRef.current?.focus(), 50) }
   }, [open])
 
   // A new query invalidates a manual navigate/dispatch override — fall back to the default.
   useEffect(() => { setModeOverride(null) }, [query])
 
-  // Move focus to the Run button when the confirm card opens (a11y).
-  useEffect(() => { if (confirm) confirmRunRef.current?.focus() }, [confirm])
+  // Move focus into the compose textarea when the confirm card opens, caret at
+  // the end so the user can immediately edit/extend the seeded prompt.
+  useEffect(() => {
+    if (!confirm) return
+    const el = composeRef.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  }, [confirm])
 
   const { items, navMatch } = useMemo<{ items: Item[]; navMatch: boolean }>(() => {
     const q = query.trim().toLowerCase()
@@ -126,19 +144,25 @@ export default function CommandBar({ open, onClose }: Props) {
       // not selectable — do nothing
       return
     }
-    // dispatch / dispatch-project → confirm card before firing runs.start
+    // dispatch / dispatch-project → compose-and-confirm card before firing.
+    // Seed the editable draft from the picked item's prompt text.
     setError(null)
+    setPromptDraft(item.kind === 'dispatch-project' ? item.prompt : item.label)
     setConfirm(item)
   }
 
-  // Fire the previewed dispatch for real (Enter / Run on the confirm card).
+  // Fire the composed dispatch for real (Enter / Run on the confirm card). The
+  // prompt comes from the editable draft, not the original item, so multiline
+  // edits in the composer are what actually run.
   async function fireDispatch(item: DispatchItem) {
     if (busy || busyRef.current) return
+    const prompt = promptDraft.trim()
+    if (!prompt) { composeRef.current?.focus(); return }
     busyRef.current = true; setBusy(true); setError(null)
     try {
       const run = item.kind === 'dispatch-project'
-        ? await api.runs.start(item.prompt, { cwd: item.project.localPath, projectId: item.project.id })
-        : await api.runs.start(item.label)
+        ? await api.runs.start(prompt, { cwd: item.project.localPath, projectId: item.project.id, ...modelChoiceToOpts(model), interactive })
+        : await api.runs.start(prompt, { ...modelChoiceToOpts(model), interactive })
       onClose()
       navigate('runs', run.id)
     } catch (e) {
@@ -146,12 +170,22 @@ export default function CommandBar({ open, onClose }: Props) {
     } finally { busyRef.current = false; setBusy(false) }
   }
 
+  // Compose-box keys: Enter sends, Shift+Enter inserts a newline, Esc cancels
+  // back to the query. The main input's handler is bypassed once focus is here.
+  function onComposeKeyDown(e: React.KeyboardEvent) {
+    if (!confirm) return // also narrows `confirm` to non-null for fireDispatch below
+    // Don't submit while an IME candidate is being composed (CJK etc.) — Enter
+    // there selects a candidate, it must not also fire the dispatch.
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void fireDispatch(confirm) }
+    if (e.key === 'Escape') { e.preventDefault(); setConfirm(null); inputRef.current?.focus() }
+  }
+
   function onKeyDown(e: React.KeyboardEvent) {
     // While the confirm card is up, Enter fires the previewed dispatch and Esc
     // cancels back to the query — the list below is inert.
     if (confirm) {
       if (e.key === 'Enter') { e.preventDefault(); void fireDispatch(confirm) }
-      if (e.key === 'Escape') { e.preventDefault(); setConfirm(null) }
+      if (e.key === 'Escape') { e.preventDefault(); setConfirm(null); inputRef.current?.focus() }
       return
     }
     // Tab flips the navigate/dispatch default when the query is ambiguous.
@@ -272,13 +306,25 @@ export default function CommandBar({ open, onClose }: Props) {
                 onClick={e => e.stopPropagation()}
               >
                 <div id="dispatch-confirm-heading" className="border-b border-[var(--border)] px-4 py-3 text-sm font-semibold text-[var(--text)]">
-                  <span className="mr-2 text-[var(--accent)]">⚡</span>Confirm dispatch
+                  <span className="mr-2 text-[var(--accent)]">⚡</span>Compose &amp; dispatch
+                </div>
+                <div className="px-4 pt-3">
+                  <label htmlFor="dispatch-compose" className="mb-1 block text-xs text-[var(--muted)]">Prompt</label>
+                  <AutoTextarea
+                    id="dispatch-compose"
+                    ref={composeRef}
+                    data-testid="dispatch-compose"
+                    value={promptDraft}
+                    onChange={e => setPromptDraft(e.target.value)}
+                    onKeyDown={onComposeKeyDown}
+                    placeholder="Describe the task for the agent…"
+                    className="glow-focus w-full resize-none rounded-control border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
+                  />
+                  <p className="mt-1 text-[10px] text-[var(--muted)]">
+                    <kbd className="mono">↵</kbd> send · <kbd className="mono">⇧↵</kbd> newline
+                  </p>
                 </div>
                 <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 px-4 py-3 text-xs">
-                  <dt className="text-[var(--muted)]">Prompt</dt>
-                  <dd className="truncate text-[var(--text)]">
-                    {confirm.kind === 'dispatch-project' ? confirm.prompt : confirm.label}
-                  </dd>
                   <dt className="text-[var(--muted)]">Project</dt>
                   <dd className="text-[var(--text)]">
                     {confirm.kind === 'dispatch-project'
@@ -287,13 +333,41 @@ export default function CommandBar({ open, onClose }: Props) {
                   </dd>
                   <dt className="text-[var(--muted)]">Model</dt>
                   <dd className="text-[var(--text)]">
-                    <span className="mono">{RUN_DEFAULTS.model}</span>{' '}
-                    <span className="text-[var(--muted)]">({RUN_DEFAULT_CAVEATS.model})</span>
+                    <select
+                      aria-label="Model"
+                      data-testid="dispatch-model-select"
+                      value={model}
+                      onChange={e => setModel(e.target.value)}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]"
+                    >
+                      {MODEL_OPTIONS.map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    <span className="ml-2 text-[var(--muted)]">
+                      {model === 'auto' ? 'routing may select another' : 'sent explicitly'}
+                    </span>
                   </dd>
                   <dt className="text-[var(--muted)]">Scope</dt>
                   <dd className="text-[var(--text)]">
                     {RUN_DEFAULTS.scope} · <span className="mono">{RUN_DEFAULTS.permissionMode}</span>{' '}
                     <span className="text-[var(--muted)]">({RUN_DEFAULT_CAVEATS.permissionMode})</span>
+                  </dd>
+                  <dt className="text-[var(--muted)]">Mode</dt>
+                  <dd className="text-[var(--text)]">
+                    <label className="inline-flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        data-testid="dispatch-interactive"
+                        checked={interactive}
+                        onChange={e => setInteractive(e.target.checked)}
+                        className="accent-[var(--accent)]"
+                      />
+                      <span>Interactive — answer the agent&apos;s questions mid-run</span>
+                    </label>
+                    {interactive && (
+                      <span className="ml-1 block text-[10px] text-[var(--muted)]">Claude only · keeps the session open for follow-ups</span>
+                    )}
                   </dd>
                 </dl>
                 <p className="border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted)]">
@@ -312,7 +386,7 @@ export default function CommandBar({ open, onClose }: Props) {
                     type="button"
                     data-testid="dispatch-confirm-run"
                     aria-label="Run dispatch"
-                    disabled={busy}
+                    disabled={busy || !promptDraft.trim()}
                     onClick={() => void fireDispatch(confirm)}
                     className="ml-auto rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-medium text-[var(--accent-hover)] transition-colors duration-100 hover:bg-accent/30 disabled:opacity-50"
                   >

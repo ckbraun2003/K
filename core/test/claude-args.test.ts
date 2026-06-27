@@ -45,6 +45,22 @@ describe('buildClaudeArgs', () => {
     expect(args).toEqual(BASE_ARGS)
   })
 
+  it('model appends --model <id> after the base args', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: false, permissionMode: 'acceptEdits', model: 'claude-opus-4-8' })
+    expect(args).toEqual([...BASE_ARGS, '--model', 'claude-opus-4-8'])
+  })
+
+  it('model appends --model after --permission-mode inside a worktree', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: true, permissionMode: 'acceptEdits', model: 'claude-sonnet-4-6' })
+    expect(args).toEqual([...BASE_ARGS, '--permission-mode', 'acceptEdits', '--model', 'claude-sonnet-4-6'])
+  })
+
+  it('no model → argv has no --model (byte-identical to before)', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: false, permissionMode: 'acceptEdits' })
+    expect(args).toEqual(BASE_ARGS)
+    expect(args).not.toContain('--model')
+  })
+
   it('base args always start with [-p, prompt, --output-format, stream-json, --verbose]', () => {
     for (const inWorktree of [true, false]) {
       for (const permissionMode of ['default', 'plan', 'acceptEdits', 'bypassPermissions'] as const) {
@@ -52,6 +68,22 @@ describe('buildClaudeArgs', () => {
         expect(args.slice(0, 5)).toEqual(BASE_ARGS)
       }
     }
+  })
+
+  // Interactive (multi-turn HITL) argv — verified against the live CLI in the
+  // A3.0 smoke: stdin-driven turns, `--replay-user-messages` echoes each turn,
+  // and the prompt is NOT an argv positional (it's seeded over stdin instead).
+  const INTERACTIVE_BASE = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--replay-user-messages']
+
+  it('interactive: prompt is NOT a positional; stream-json I/O + replay flags are set', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: false, permissionMode: 'acceptEdits', interactive: true })
+    expect(args).toEqual(INTERACTIVE_BASE)
+    expect(args).not.toContain(BASE_PROMPT) // the prompt never reaches argv in interactive mode
+  })
+
+  it('interactive: appends --permission-mode inside a worktree, then --model', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: true, permissionMode: 'plan', model: 'claude-sonnet-4-6', interactive: true })
+    expect(args).toEqual([...INTERACTIVE_BASE, '--permission-mode', 'plan', '--model', 'claude-sonnet-4-6'])
   })
 })
 

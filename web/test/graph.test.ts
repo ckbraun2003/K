@@ -7,6 +7,7 @@ import {
   hasFailingFindings,
   nodeColor,
   makeGraphUpdateHandler,
+  configureGraphForces,
   type GraphNode,
 } from '../src/lib/graph'
 import { api } from '../src/lib/api'
@@ -100,6 +101,43 @@ describe('graph_update WS handler', () => {
     const invalidateQueries = vi.fn()
     makeGraphUpdateHandler(projectId, { invalidateQueries })({ type: 'ping' } as WsMessage)
     expect(invalidateQueries).not.toHaveBeenCalled()
+  })
+})
+
+describe('configureGraphForces', () => {
+  function fakeForceGraph() {
+    const link = { distance: vi.fn(), strength: vi.fn() }
+    const charge = { distance: vi.fn(), strength: vi.fn() }
+    const d3Force = vi.fn((name: string) => {
+      // One-arg getter form returns a tunable force object.
+      if (name === 'link') return link
+      if (name === 'charge') return charge
+      return undefined
+    })
+    return { d3Force, d3ReheatSimulation: vi.fn(), link, charge }
+  }
+
+  it('registers a collision force and tunes the link/charge forces', () => {
+    const fg = fakeForceGraph()
+    configureGraphForces(fg, { nodeSize: 7 })
+    // collide is registered (2-arg setter form: name + a force fn).
+    expect(fg.d3Force).toHaveBeenCalledWith('collide', expect.anything())
+    // link/charge getters used, then their tuners applied.
+    expect(fg.d3Force).toHaveBeenCalledWith('link')
+    expect(fg.d3Force).toHaveBeenCalledWith('charge')
+    expect(fg.link.distance).toHaveBeenCalled()
+    expect(fg.charge.strength).toHaveBeenCalled()
+  })
+
+  it('does NOT reheat the simulation (regression: 3D tick-on-undefined crash)', () => {
+    const fg = fakeForceGraph()
+    configureGraphForces(fg, { nodeSize: 7 })
+    expect(fg.d3ReheatSimulation).not.toHaveBeenCalled()
+  })
+
+  it('is a no-op for a null/undefined ref', () => {
+    expect(() => configureGraphForces(null)).not.toThrow()
+    expect(() => configureGraphForces(undefined)).not.toThrow()
   })
 })
 
