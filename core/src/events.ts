@@ -58,6 +58,9 @@ export const eventBus = {
       toolResultIsError: e.toolResultIsError === undefined ? null : e.toolResultIsError ? 1 : 0,
       subagentType: e.subagentType ?? null,
       childLabel: e.childLabel ?? null,
+      // Context size for the indicator (Wave D6) — a plain number, persisted so a
+      // reloaded run shows true pressure (not the cache-excluding tokensIn).
+      contextTokens: e.contextTokens ?? null,
     })
     // Then push to live subscribers
     for (const sub of eventSubs) {

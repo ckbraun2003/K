@@ -11,7 +11,9 @@
  * never spawns a claude process. DB is isolated via vitest.config.ts K_DATA_DIR.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { v4 as uuid } from 'uuid'
 import type { FastifyInstance } from 'fastify'
+import { runsDb, eventsDb, db } from '../src/db.js'
 
 // Mock the supervisor so a 201 path never spawns a real process. Keep REPO_ROOT
 // real so the default-cwd allow path still resolves (mirrors runs-cwd.test.ts).
@@ -147,6 +149,37 @@ describe('GET /api/runs/:id/events/:seq/raw', () => {
   it('valid seq but unknown run → 404 (no such event)', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/runs/no-such-run/events/0/raw', headers: AUTH })
     expect(res.statusCode).toBe(404)
+  })
+})
+
+// ── events list projection: context_tokens → contextTokens (Wave D6) ─────────────
+
+describe('GET /api/runs/:id/events — contextTokens projection', () => {
+  const RID = uuid()
+  beforeAll(() => {
+    runsDb.insertRun.run({
+      id: RID, prompt: 'ctx projection', cwd: '/tmp', worktree: null, status: 'done',
+      provider: 'claude', model: 'claude-opus-4-8', tokensIn: 100, tokensOut: 20,
+      costUsd: 0, projectId: null, createdAt: Date.now(),
+    })
+    eventsDb.insertEvent.run({
+      id: uuid(), runId: RID, seq: 1, type: 'assistant', ts: Date.now(),
+      raw: null, text: 'hi', tool: null, tokensIn: 100, tokensOut: 20, costUsd: null,
+      toolUseId: null, toolKind: null, toolInput: null, toolResult: null,
+      toolResultIsError: null, subagentType: null, childLabel: null, contextTokens: 6100,
+    })
+  })
+  afterAll(() => {
+    db.prepare('DELETE FROM events WHERE run_id = ?').run(RID)
+    db.prepare('DELETE FROM runs WHERE id = ?').run(RID)
+  })
+
+  it('projects the persisted context_tokens column back as contextTokens', async () => {
+    const res = await app.inject({ method: 'GET', url: `/api/runs/${RID}/events`, headers: AUTH })
+    expect(res.statusCode).toBe(200)
+    const ev = (res.json() as Array<Record<string, unknown>>).find(e => e.seq === 1)!
+    expect(ev.contextTokens).toBe(6100)
+    expect(ev.tokensIn).toBe(100) // fresh-input projection unchanged
   })
 })
 

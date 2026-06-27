@@ -156,6 +156,8 @@ function dbRowToEvent(r: Record<string, unknown>, includeRaw = false) {
     ...(r.tool_result_is_error != null ? { toolResultIsError: r.tool_result_is_error === 1 } : {}),
     ...(r.subagent_type != null ? { subagentType: r.subagent_type as string } : {}),
     ...(r.child_label != null ? { childLabel: r.child_label as string } : {}),
+    // context_tokens (Wave D6): a plain number — no JSON parse needed.
+    ...(r.context_tokens != null ? { contextTokens: r.context_tokens as number } : {}),
     ...(includeRaw && r.raw != null ? { raw: r.raw as string } : {}),
   }
 }

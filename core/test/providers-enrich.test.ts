@@ -209,4 +209,22 @@ describe('persistence round-trip — enriched fields survive emit → list', () 
     expect(row.tool_result_is_error).toBe(0)
     expect(JSON.parse(row.tool_result as string)).toEqual([{ type: 'text', text: 'done' }])
   })
+
+  it('contextTokens persists to the context_tokens column (Wave D6)', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'text', text: 'hi' }],
+        usage: { input_tokens: 100, cache_creation_input_tokens: 1000, cache_read_input_tokens: 5000, output_tokens: 20 },
+      },
+    })
+    const ev = parseClaudeLine(line, RID, 3, CTX)!
+    expect(ev.contextTokens).toBe(6100)
+    eventBus.emitEvent(ev)
+
+    const rows = eventsDb.listEvents.all(RID) as Array<Record<string, unknown>>
+    const row = rows.find(r => r.seq === 3)!
+    expect(row.context_tokens).toBe(6100) // full input sum persisted
+    expect(row.tokens_in).toBe(100)       // fresh-input accounting unchanged
+  })
 })

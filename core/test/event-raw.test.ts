@@ -41,6 +41,7 @@ eventsDb.insertEvent.run({
   toolResultIsError: null,
   subagentType: null,
   childLabel: null,
+  contextTokens: null,
 })
 
 eventsDb.insertEvent.run({
@@ -62,6 +63,7 @@ eventsDb.insertEvent.run({
   toolResultIsError: null,
   subagentType: null,
   childLabel: null,
+  contextTokens: null,
 })
 
 afterAll(() => {

@@ -50,7 +50,8 @@ db.exec(`
     tool_result          TEXT,
     tool_result_is_error INTEGER,
     subagent_type        TEXT,
-    child_label          TEXT
+    child_label          TEXT,
+    context_tokens       INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id, seq);
 
@@ -240,6 +241,10 @@ export function migrate(d: Database.Database): void {
     addColumn(d, 'events', 'tool_result_is_error', 'INTEGER')
     addColumn(d, 'events', 'subagent_type', 'TEXT')
     addColumn(d, 'events', 'child_label', 'TEXT')
+    // context_tokens (Wave D6): full input context size for the turn (fresh +
+    // cache_creation + cache_read) powering the context-pressure indicator, so a
+    // reloaded historical run shows the pressure it actually reached.
+    addColumn(d, 'events', 'context_tokens', 'INTEGER')
   }
   // project_tasks GitHub Issues sync columns (Wave 3-7): appended via guarded
   // ALTERs (not in CREATE TABLE) so existing DBs gain them; fresh installs get
@@ -298,9 +303,9 @@ export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, cl
 // handler and aborting the run.
 const insertEvent = db.prepare(`
   INSERT OR IGNORE INTO events (id, run_id, seq, type, ts, raw, text, tool, tokens_in, tokens_out, cost_usd,
-    tool_use_id, tool_kind, tool_input, tool_result, tool_result_is_error, subagent_type, child_label)
+    tool_use_id, tool_kind, tool_input, tool_result, tool_result_is_error, subagent_type, child_label, context_tokens)
   VALUES (@id, @runId, @seq, @type, @ts, @raw, @text, @tool, @tokensIn, @tokensOut, @costUsd,
-    @toolUseId, @toolKind, @toolInput, @toolResult, @toolResultIsError, @subagentType, @childLabel)
+    @toolUseId, @toolKind, @toolInput, @toolResult, @toolResultIsError, @subagentType, @childLabel, @contextTokens)
 `)
 
 const listEvents = db.prepare(`SELECT * FROM events WHERE run_id = ? ORDER BY seq ASC`)
