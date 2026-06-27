@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import type { Run, AgentEvent, WsMessage } from '@k/shared'
@@ -6,7 +6,9 @@ import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
+import { pairToolCalls, groupConsoleItems } from '../lib/console'
 import RunTimeline from './RunTimeline'
+import ToolCall from './ToolCall'
 import ConfirmDialog from './ConfirmDialog'
 import AutoTextarea from './AutoTextarea'
 
@@ -34,6 +36,45 @@ export const EVENT_COLOR: Record<string, string> = {
   status:    'text-[var(--amber)]',
 }
 
+/**
+ * Render a non-tool event exactly as the flat console always has (status / usage
+ * / error / assistant text / system+user text). Assistant events that carry a
+ * tool name but no enriched `toolUseId` (pre-D3 history) keep the old `⚙ tool()`
+ * line so older runs still read correctly.
+ */
+function EventLine({ event: e }: { event: AgentEvent }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.1 }}
+      className={cn('leading-relaxed whitespace-pre-wrap break-words', EVENT_COLOR[e.type] ?? 'text-[var(--text)]')}
+    >
+      {e.type === 'status' && (
+        <span className="text-[var(--muted)]">── {e.text} ──</span>
+      )}
+      {e.type === 'usage' && (
+        <span>
+          ▸ {e.tokensIn?.toLocaleString()} in / {e.tokensOut?.toLocaleString()} out
+          {e.costUsd ? ` / $${e.costUsd.toFixed(4)}` : ''}
+        </span>
+      )}
+      {e.type === 'error' && (
+        <span>⚠ {e.text}</span>
+      )}
+      {e.type === 'assistant' && e.tool && (
+        <span className="text-[var(--accent-hover)]">⚙ {e.tool}()</span>
+      )}
+      {e.type === 'assistant' && !e.tool && e.text && (
+        <span>{e.text}</span>
+      )}
+      {(e.type === 'system' || e.type === 'user') && e.text && (
+        <span className="opacity-60">{e.text}</span>
+      )}
+    </motion.div>
+  )
+}
+
 export default function RunConsole({ runId }: Props) {
   const qc = useQueryClient()
   const [events, setEvents] = useState<AgentEvent[]>([])
@@ -51,6 +92,10 @@ export default function RunConsole({ runId }: Props) {
     queryFn: () => api.runs.get(runId),
   })
 
+  // Pair tool_use↔tool_result and coalesce consecutive tool calls once per event
+  // change, not on every render (each WS event would otherwise rebuild ~2N objects).
+  const segments = useMemo(() => groupConsoleItems(pairToolCalls(events)), [events])
+
   // Persisted history + live events via WS (deduped by event id — live
   // events can arrive while the backfill request is in flight)
   useEffect(() => {
@@ -59,7 +104,10 @@ export default function RunConsole({ runId }: Props) {
     let cancelled = false
     const unsub = onWsMessage((msg: WsMessage) => {
       if (msg.type === 'event' && msg.event.runId === runId) {
-        setEvents(prev => [...prev, msg.event])
+        // Reuse mergeEvents so the array stays deduped-by-id AND seq-sorted on
+        // every append — keeps tool grouping/expand state stable even when live
+        // events arrive out of order. (prev = "history", the new event = "live".)
+        setEvents(prev => mergeEvents(prev, [msg.event]))
       }
       if (msg.type === 'run_update' && msg.run.id === runId) {
         qc.setQueryData(['run', runId], msg.run)
@@ -169,42 +217,22 @@ export default function RunConsole({ runId }: Props) {
         // key={runId} remounts on run switch so per-seq raw cache never leaks across runs
         <RunTimeline key={runId} events={events} runId={runId} />
       ) : (
-        /* Event stream */
-        <div className="flex-1 overflow-y-auto px-5 py-4 font-mono text-sm space-y-0.5">
+        /* Event stream — tool calls rendered richly & collapsed, grouped when consecutive */
+        <div className="flex-1 overflow-y-auto px-5 py-4 font-mono text-sm space-y-1">
           {events.length === 0 && (
             <div className="text-[var(--muted)] italic">Waiting for output…</div>
           )}
-          {events.map(e => (
-            <motion.div
-              key={e.id}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.1 }}
-              className={cn('leading-relaxed whitespace-pre-wrap break-words', EVENT_COLOR[e.type] ?? 'text-[var(--text)]')}
-            >
-              {e.type === 'status' && (
-                <span className="text-[var(--muted)]">── {e.text} ──</span>
-              )}
-              {e.type === 'usage' && (
-                <span>
-                  ▸ {e.tokensIn?.toLocaleString()} in / {e.tokensOut?.toLocaleString()} out
-                  {e.costUsd ? ` / $${e.costUsd.toFixed(4)}` : ''}
-                </span>
-              )}
-              {e.type === 'error' && (
-                <span>⚠ {e.text}</span>
-              )}
-              {e.type === 'assistant' && e.tool && (
-                <span className="text-[var(--accent-hover)]">⚙ {e.tool}()</span>
-              )}
-              {e.type === 'assistant' && !e.tool && e.text && (
-                <span>{e.text}</span>
-              )}
-              {(e.type === 'system' || e.type === 'user') && e.text && (
-                <span className="opacity-60">{e.text}</span>
-              )}
-            </motion.div>
-          ))}
+          {segments.map(seg =>
+            seg.type === 'tools' ? (
+              <div key={seg.key} className="space-y-1 border-l border-[var(--border)] pl-2">
+                {seg.items.map(it => (
+                  <ToolCall key={it.call.id} item={it} />
+                ))}
+              </div>
+            ) : (
+              <EventLine key={seg.event.id} event={seg.event} />
+            ),
+          )}
           <div ref={bottomRef} />
         </div>
       )}

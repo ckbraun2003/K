@@ -78,10 +78,15 @@ phase · CLAUDE.md editor = global-only, guarded (backup + gitnexus-block preser
 - [x] live render verify: `pnpm --filter web build` ✓ AND word-boundary `\bAFRAME\b` grep of `web/dist` → **absent**; no `aframe` package in store  _(full in-browser rotate smoke folded into Wave V)_
 - [x] Review: 0 CRITICAL/HIGH (API verified vs lib `.d.ts`; AFRAME re-proven). Applied: MEDIUM error boundary · LOW origin-camera · LOW guard regex. Deferred LOW: three-spritetext in-scene labels, manualChunks lazy-load of graph pages, drop unused `react-force-graph-2d` dep. Verify: typecheck clean · web 160 · build ✓
 
-### Wave D4 — Rich run console: commands, files, delegated agents  (web only, consumes D3)
-- [ ] `RunConsole.tsx` (+ small components) — expandable tool calls: commands (`$ cmd` + output), file ops (path + diff/preview), delegated agents (parent→child card/tree with subagentType + prompt); group + collapse by default; keep raw/timeline toggle
-- [ ] Tests: render command/file/delegate events from fixtures; collapse/expand; reduced-motion
-- [ ] Verify: live delegation run shows sub-agents + prompts + commands + files. Review → commit
+### Wave D4 — Rich run console: commands, files, delegated agents  (web only, consumes D3)  ✅ DONE
+**Decision (this session):** test approach = **add RTL + jsdom** (user-chosen) — true component render/collapse-expand/reduced-motion tests, scoped to `.test.tsx` (existing `.test.ts` stay node-env). Pairing/grouping kept as pure helpers (also unit-tested). Delegate display = inline expandable card (the graph/tree is D5). No backend changes.
+- [x] `lib/console.ts` (NEW, pure) — `pairToolCalls` joins tool_use↔tool_result by `toolUseId` (dedupes duplicate ids, drops orphan/consumed result rows), `groupConsoleItems` coalesces consecutive tools, + defensive derivation helpers (command/file write-preview & edit/multiedit-diff/delegate label+prompt+result); `??` data layer, never throws
+- [x] `ToolCall.tsx` (NEW) — collapsed-by-default `ExpandableRow` + `CommandCall`/`FileCall`/`DelegateCall`/`OtherCall`; framer-motion reveal (honors global `MotionConfig` reduced-motion); error styling only when `toolResultIsError===true`; `||` placeholders kept (empty-string→placeholder)
+- [x] `RunConsole.tsx` — console branch renders `useMemo(groupConsoleItems(pairToolCalls(events)))` in left-rail groups; `EventLine` preserves legacy/non-tool rendering verbatim (pre-D3 `⚙ tool()` fallback); live WS append now `mergeEvents(prev,[e])` (seq-sorted/deduped → stable grouping). HITL box, toggle, RunTimeline, footer, Kill, `EVENT_COLOR` export untouched
+- [x] Added `@testing-library/react`+`user-event`+`jsdom@24` (web only); `environmentMatchGlobs` jsdom for `*.test.tsx`; include `test/**/*.test.{ts,tsx}`; `plugins:[react()]`
+- [x] Tests: `console-items.test.ts` (23 pure) + `tool-call.test.tsx` (10 RTL: command/write/edit/multiedit/delegate render, collapse→expand, pending badge, error tri-state, reduced-motion)
+- [x] Review: spec + quality both APPROVE-WITH-NITS (0 CRITICAL/0 happy-path bugs/0 XSS). Applied: HIGH seq-sorted live append · MEDIUM memoize / exported+tested grouping / drop orphan results · LOW dedupe toolUseId / MultiEdit+pending tests. Kept `||` placeholders; CLAUDE.md (user edits) out of commit
+- [x] Verify: typecheck clean · web **196** (+33 D4) · build ✓  _(live delegation-run in-browser smoke folded into Wave V)_
 
 ### Wave D5 — Workflow visualization (static defined-workflow + live runtime tree)
 - [ ] Static: expose delegation workflow definition (`GET /api/workflows/definition` or shared const) from `workflows.ts` roles; diagram with viewable role prompts
