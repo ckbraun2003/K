@@ -115,10 +115,11 @@ phase · CLAUDE.md editor = global-only, guarded (backup + gitnexus-block preser
 - [ ] capture lessons (stdin smoke, tool-input-discarded, event-derived delegation, gitnexus-block preserve, context-cannot-be-forced)
 - [ ] Review → commit
 
-## Wave V — Whole-effort verification (before merge)
-- [ ] `pnpm -r typecheck` · `pnpm -r test` · `pnpm -r build` green
-- [ ] Consolidated live smokes (HITL · skill edit · settings/status · CLAUDE.md edit · rich console · workflow viz · context)
-- [ ] Whole-effort review; fix HIGH/CRITICAL; merge → main no-ff
+## Wave V — Whole-effort verification (before merge)  ✅ DONE
+- [x] `pnpm -r typecheck` clean · `pnpm -r test` (core **530** · web **251**) · `pnpm -r build` ✓ (pre-existing >500 kB three.js chunk warning only)
+- [x] Consolidated live smokes via the Playwright harness (`e2e/specs/phase4.spec.ts`, real browser + console capture, isolated core on 3199/4199): **8/8 + interactive HITL = 9 tests, 0 Critical/High/Med/Low.** Settings status cards (no secrets) · CLAUDE.md editor confirm-guard **cancel-only (real file never written)** · skill edit PATCH round-trip · Workflows defined-roles + run-tree · **Fleet/KnowledgeGraph 3D — ZERO AFRAME/tick-crash** (the hardest-won regression) · real dispatch → rich console + `context-meter` + Console↔Timeline · **multi-turn HITL end-to-end** (running→awaiting_input→answer→running→awaiting_input) · `/compact` button fires a real operator turn. _Deferred (documented): compact-and-CONTINUE success on a long non-empty context._
+- [x] Whole-effort review (code-reviewer over the full 13-commit branch): **MERGE-READY**, 0 Critical/High/Med, 1 LOW (contextTokens not persisted) → **fixed + committed `93953ff`** (context_tokens column, round-trip). Security pass clean: no secrets in /api/status, no path traversal / gitnexus-block preserved in the prompt editor, /compact JSON-encoded not shell-injected, no dangerouslySetInnerHTML, bundle-guard regex verified.
+- [x] Merge → `main` no-ff (local, not pushed)
 
 ## Deferred to a later phase
 - Tauri desktop app (bundled-core sidecar, tray, native notifications) — old Track B; full spec retained in `~/.claude/plans/read-through-and-analyze-rippling-hanrahan.md`.
