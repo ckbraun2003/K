@@ -108,12 +108,12 @@ phase · CLAUDE.md editor = global-only, guarded (backup + gitnexus-block preser
 
 ## TRACK C — Documentation
 
-### Wave C1 — Bible, decision log, plan doc, lessons
-- [ ] `06-dashboard-ux.md` (HITL box, model picker, composer, rich console, context indicator, Settings); new `11-observability.md` + manifest; tick Phase-4 + note desktop deferral in `07-roadmap.md`
-- [ ] `08-decision-log.md` — D-014 HITL · D-015 event-enrichment · D-016 workflow viz · D-017 editable prompts/config · D-018 context+compaction · D-019 desktop deferred
-- [ ] dated plan/spec under `docs/superpowers/plans/`; recompile bible + assert D-014…D-019
-- [ ] capture lessons (stdin smoke, tool-input-discarded, event-derived delegation, gitnexus-block preserve, context-cannot-be-forced)
-- [ ] Review → commit
+### Wave C1 — Bible, decision log, plan doc, lessons  ✅ DONE (pending review/commit)
+- [x] `06-dashboard-ux.md` (Phase-4 section: HITL answer box + Compact, model picker, composer, interactive toggle, rich console, context indicator, Settings, Workflows, 3D graphs; `updated:` 2026-06-27); new `11-observability.md` (full observability story) + wired into `manifest.json`; `07-roadmap.md` Phase-4 block rewritten to the delivered Track A + D scope (all ticked) + explicit desktop/PWA/remote deferral (`updated:` 2026-06-27)
+- [x] `08-decision-log.md` — appended **D-014** HITL · **D-015** event-enrichment · **D-016** workflow viz · **D-017** editable prompts/config · **D-018** context+compaction (honest `/compact`-forceable reversal) · **D-019** desktop deferred (newest LAST, after D-013; `updated:` 2026-06-27; no history rewritten)
+- [x] dated plan/spec `docs/superpowers/plans/2026-06-27-phase4-agent-ux-observability.md`; recompiled bible + asserted D-014…D-019 + `Observability` + Phase-4 terms present
+- [x] captured lessons (A3 persistent-stdin/result-boundary; D3 enrich-at-parse + pair by `tool_use_id`; D5 event-derived in-process delegation tree; D2 guarded gitnexus-block-preserving global-config editor; D6 already corrected: context = full input incl. cache + **`/compact` IS forceable** over the stream-json wire — no "cannot be forced" lesson)
+- [ ] Review → commit (controller)
 
 ## Wave V — Whole-effort verification (before merge)  ✅ DONE
 - [x] `pnpm -r typecheck` clean · `pnpm -r test` (core **530** · web **251**) · `pnpm -r build` ✓ (pre-existing >500 kB three.js chunk warning only)

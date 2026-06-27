@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-06-24
+updated: 2026-06-27
 ---
 
 The dashboard is the operator's **source of truth** and is held to product quality, not internal-tool quality. IA: **Command Deck** (decision D-006, mockups approved 2026-06-10). Design language: **vivid midnight-glass** (decision D-013) — a midnight-purple base with translucent blush-pink accents and a sky-blue interaction colour, extending the hybrid-glass layer (D-009) over the original precision-minimal density discipline (D-007).
@@ -177,3 +177,50 @@ The **Tasks** tab (`web/src/pages/tabs/TasksTab.tsx`) can now multi-select todos
 - **Action bar:** a sticky bar appears while at least one todo is selected, with a **Run delegation workflow** action that calls `api.projects.tasks.dispatchWorkflow` (`POST /api/projects/:id/tasks/dispatch`). One supervised orchestrator run is launched for the whole selection (one reviewable commit / PR), not one run per todo.
 - **`in_progress` on dispatch, never auto-`done`:** the selected todos flip to `in_progress` the moment the workflow is dispatched, and are **never** auto-marked `done` — the agent's PR decides completion (mirrors the lifecycle in §02).
 - **View-run toast:** on success a Sonner toast confirms dispatch and offers **"View run →"**, which navigates to the new run's console (`navigate('runs', runId)`). The toast reads its count/ids from the mutation's variables (not component state), so an interval refetch clearing the selection can't make it report a stale count.
+
+## Phase 4 — Agent-UX + Observability *(✓ merged 2026-06-27)*
+
+Phase 4 makes the agentic system **operable and observable** from the dashboard: you can talk back to a running agent, choose how a run is dispatched, watch what the agent actually does in structured detail, see and edit the prompts/config that drive agents, and watch context pressure. (The observability story end-to-end — event enrichment, the rich console internals, workflow viz, and compaction — lives in §11; this section covers the dashboard *surfaces*.)
+
+### Interactive multi-turn HITL — the answer box (Track A, D-014)
+
+A run dispatched with the **interactive** toggle keeps its stdin open and, at each turn boundary (`{type:"result"}`), parks at the non-terminal **`awaiting_input`** status instead of finishing. The `RunConsole` then shows an **answer box** (autofocused) so the operator can carry on a real conversation — ask → answer → continue — across turns in the same process/context:
+
+- **Send ↵** feeds the next turn (`POST /api/runs/:id/input`; ⇧↵ for a newline). The run flips back to `running` via a `run_update` WS message, which hides the box.
+- **End session** closes stdin so the agent finishes cleanly (`done`), rather than being killed.
+- **Compact context** sends the CLI `/compact` slash-command as an operator turn — **real** context compaction (see §11 and D-018), not a soft summary. It's disabled while a send is in flight.
+- When context hits the **danger** band the box shows an honest inline hint ("compacting automatically" while armed; "automatic compaction attempted — press Compact to retry" after a fired-but-still-danger episode).
+
+### ⌘K dispatch card — model picker, composer, interactive toggle (Track A, D-006)
+
+The dispatch confirm-card gained three controls:
+- **Per-run model picker (A1):** a dropdown built from the shared `KNOWN_MODELS` registry (Opus 4.8 · Sonnet 4.6 · Haiku 4.5 · Fable 5, plus an "Ollama (local)" preference); the route validates the chosen `model` against the same registry.
+- **Multiline composer (A2):** an auto-growing textarea (⏎ submit · ⇧⏎ newline) so a real multi-paragraph brief can be written without leaving the bar.
+- **Interactive toggle:** opt a run into the multi-turn HITL lifecycle above.
+
+### Rich run console (Track D, D4)
+
+The run console renders the agent's actions as **structured, collapsed-by-default** items instead of a flat text dump (see §11 / D-015 for the data foundation):
+- **Commands** (`$ …` with output on expand), **file ops** (Write content preview, Edit/MultiEdit old→new diff hunks), and **delegated sub-agents** (agent type + label, with the full prompt + result on expand). Error styling shows only when a result is explicitly flagged an error.
+- Consecutive tool calls coalesce into one visual group; non-tool events render exactly as before (pre-enrichment runs keep the legacy `⚙ tool()` line).
+- The header keeps the **Console ↔ Timeline** toggle (Timeline = replayable per-seq event log with raw JSON).
+
+### Context-pressure indicator (Track D, D6, D-018)
+
+The run header carries a compact **`ctx X / Y · Z%`** meter with a band-colored bar — **ok** below 70%, **warn ≥70%**, **danger ≥90%** — plus a muted `ctx —` when the model's context window is unknown (local/unrecognized). It counts the **full input context** for the latest turn (fresh `input_tokens` **plus** `cache_creation_input_tokens` + `cache_read_input_tokens`), honestly reflecting cache occupancy rather than fresh input alone, and it's persisted (`context_tokens`) so a reloaded historical run shows the pressure it actually reached. It pairs with the manual + auto `/compact` above.
+
+### Settings page (Track D, D2, D-017)
+
+A new sidebar-footer **Settings** destination (chord `g ,`) with:
+- **Provider/auth status cards** from `GET /api/status` — claude (available + version), ollama (enabled/reachable/base URL/model), github (authenticated user), and the harness auth posture (token *source*, host, loopback-only, terminal-enabled). It carries **no secrets** — never the token value.
+- A **guarded global CLAUDE.md editor** — edits only the human-authored region of the repo-root `CLAUDE.md` (fixed path), preserves the gitnexus block, writes atomically (temp+rename) with rolling backups, and requires a confirm-before-save. (CLAUDE.md is the *global* harness prompt; project facts live here in the bible.)
+
+### Workflows page (Track D, D5, D-016)
+
+A **Workflows** destination (`⋔`, chord `g w`) with two tabs:
+- **Defined** — a hand-laid diagram of the harness delegation loop (controller → implementer → spec-review / quality-review → controller) from the shared `DELEGATION_WORKFLOW` constant; click a role for its responsibility.
+- **Run** — a **live runtime sub-agent tree** for a chosen run, built from that run's `delegate` tool calls (sub-agents run in-process via the Agent/Task tool), with per-node status (running/done/error) and the delegated prompt + result on select.
+
+### Force-graph surfaces → 3D
+
+All three force-graph surfaces (per-project Knowledge Graph, Fleet Graph, Home fleet pane) were moved into **3D** (`react-force-graph-3d`, Three.js) with a collision force so nodes don't overlap and edges read clearly; each WebGL surface is wrapped in an error boundary so a context-creation failure degrades to a fallback instead of blanking the route. The renderer-subpackage rule still holds (never the `react-force-graph` aggregate — it references a non-existent `AFRAME` and blanks every route).

@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-06-20
+updated: 2026-06-27
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -39,7 +39,9 @@ Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verific
 
 **Deferred out of Phase 1** (re-homed to their target phases so this phase reflects only its
 delivered scope): web terminal → **Phase 3 (3-6)**; structured task/goal records + GitHub Issues
-sync → **Phase 3 (3-7)**; auth hardening (passkey/TOTP) → **Phase 4** (remote-access hardening).
+sync → **Phase 3 (3-7)**; auth hardening (passkey/TOTP) → originally targeted **Phase 4**
+(remote-access hardening), but the re-scoped Phase 4 (Agent-UX + Observability) did **not** ship it —
+passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *Deferred* list, D-019).
 
 ## Phase G — Command Deck + Knowledge + Verification *(✓ complete 2026-06-18)*
 
@@ -109,7 +111,7 @@ sync → **Phase 3 (3-7)**; auth hardening (passkey/TOTP) → **Phase 4** (remot
 
 > Every registered project gets a live, navigable, actionable code graph; the interface feels finished (hybrid glass + motion); the bible self-demonstrates via a real UI artifact. One reviewable commit per wave (implementer → spec-review → quality-review → controller → CI).
 
-> *Phase H is experience-focused and lettered like Phase G; it slots in before Phase 4 (Multi-Device).*
+> *Phase H is experience-focused and lettered like Phase G; it slots in before Phase 4 (originally Multi-Device).*
 
 - [x] **H-1 — Graph build engine (core).** `project_graphs` table (status/built_at/last_commit/node+edge counts/error); `buildGraph()` runs `npx gitnexus analyze` via an injected seam with an in-flight guard + EventBus emit; `POST /api/projects/:id/graph/build` + status/stale on `GET …/graph`; transient `graph_update` WS; shared graph-status schema; `graph.test.ts` (CI never invokes real GitNexus).
 - [x] **H-2 — Enrichment, dispatch, auto-reindex (core).** Live node enrichment in `GET …/graph` (last-touched run, verify findings, bible — bible scoped to the harness project only); `POST /api/projects/:id/graph/dispatch` (node-scoped run via `startRun`, single-line input guard → 400); auto-reindex via an `onRunUpdate` subscriber (per-project debounced, guarded; env flag `GRAPH_AUTO_REINDEX`, default on).
@@ -130,11 +132,28 @@ sync → **Phase 3 (3-7)**; auth hardening (passkey/TOTP) → **Phase 4** (remot
 
 **Follow-on:** staged, per-stage visible/retryable execution (Idea 2) — a `workflow_stages` table with `dispatchTaskWorkflow` spawning one `startRun` per stage chained on `eventBus` (shared branch threaded across stages); the route, api client, and UI stay unchanged (D-012).
 
-## Phase 4 — Multi-Device
+## Phase 4 — Agent-UX + Observability *(✓ merged 2026-06-27, commit 30228fa)*
 
-- [ ] Tauri desktop app (tray, native notifications, bundled core)
-- [ ] PWA mobile (installable, push notifications)
-- [ ] Remote access hardening (reverse proxy / Tailscale)
+> Finish interactive HITL, then make the agentic system **observable and editable** — surface/edit the prompts & config that drive agents and visualize what agents actually do at runtime. One reviewable commit per wave (implementer → spec-review → quality-review → controller → CI); a whole-effort review + live Playwright smoke before merge.
+
+> *The originally-planned "Phase 4 — Multi-Device" was re-scoped: the desktop/mobile surfaces are deferred (see below, D-019) and this phase delivered the agent-interaction UX (Track A) and observability (Track D) instead.*
+
+**Track A — Agent-interaction UX**
+- [x] **A1 — Per-run model picker.** `KNOWN_MODELS` registry drives the dispatch dropdown; the route validates `model` against it.
+- [x] **A2 — Multiline prompt composer** + an **interactive toggle** in the ⌘K dispatch card.
+- [x] **A3 — Interactive multi-turn HITL.** Persistent stdin; `{type:"result"}` turn boundary → park at non-terminal `awaiting_input`; answer box (ask → answer → continue), End session, atomic conditional-UPDATE double-send guard; boot-sweep handling (D-014).
+
+**Track D — Observability: monitoring, visualization & editable config**
+- [x] **D1 — Editable skill prompts.** PATCH partial update, name-collision → 409, clear→NULL (D-017).
+- [x] **D2 — Settings page.** Provider/auth status cards (no secrets) + a guarded global CLAUDE.md editor (fixed path, gitnexus block preserved, atomic temp+rename, backups, confirm) (D-017).
+- [x] **D3 — Event-data enrichment foundation.** Structured tool fields + `tool_use`↔`tool_result` pairing by `tool_use_id`; race-tolerant ALTER migration (D-015).
+- [x] **D4 — Rich run console.** Commands / file diffs / delegated sub-agents rendered structured + collapsed; Console ↔ Timeline.
+- [x] **D5 — Workflow visualization.** Static defined-loop diagram (shared `DELEGATION_WORKFLOW`) + live runtime sub-agent tree from `delegate` tool calls (D-016).
+- [x] **D6 — Context-pressure indicator + real `/compact`.** Full-input (incl. cache) `context_tokens`, persisted; manual Compact button + guarded/debounced auto-compaction (D-018).
+- [x] **Graph polish → 3D.** Node/edge overlap fix; all three force-graph surfaces moved to 3D (`react-force-graph-3d`) with an error boundary per WebGL surface.
+- [x] **Wave V — whole-effort verification.** Gates green (typecheck · core/web tests · build), whole-effort pre-merge review (MERGE-READY; in-scope review-fixes landed incl. `context_tokens` persistence round-trip), live Playwright smoke; merged `--no-ff` to `main`.
+
+**Deferred to a later phase** (D-019): the **Tauri desktop app** (bundled-core sidecar, tray, native notifications) — old Track B; full spec retained in `~/.claude/plans/read-through-and-analyze-rippling-hanrahan.md`. Also deferred: **PWA mobile** (installable + push), further **remote-access hardening** (reverse proxy / Tailscale), and **passkey/TOTP auth hardening** (the Phase-1 → Phase-4 re-homing above — not shipped in the re-scoped Phase 4).
 
 ## Phase 5 — Intelligence & Scale *(optional)*
 

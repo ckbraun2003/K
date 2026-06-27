@@ -372,6 +372,50 @@ entries at session start before touching the same area.
   fresh-input `tokensIn` stays byte-identical, and feed the indicator from `contextTokens` (falling
   back to `tokensIn` only when absent). Scan for the latest signal by MAX `seq`, not array order.
 
+## Phase 4 — Track A + D feature lessons (2026-06-27)
+
+- **Multi-turn HITL needs persistent stdin + the `result` line as the only turn boundary** —
+  **Pattern:** a real ask→answer→continue conversation can't re-spawn the CLI per turn (it loses
+  context, conversation, and cumulative cost), and there is no explicit "your turn" signal on the
+  stream-json wire. **Rule (A3.0 smoke-confirmed vs the real CLI):** run the agent in interactive
+  stream-json mode, keep `proc.stdin` open, deliver each operator turn as one
+  `{type:"user",message:{role,content}}` line, and treat `{type:"result"}` as the turn boundary —
+  park the run at a NON-terminal `awaiting_input` instead of completing it; `/end` closes stdin so
+  the agent finishes `done`. Make the awaiting→running transition an ATOMIC conditional UPDATE
+  (`WHERE status='awaiting_input'`) so a double-send races safely (second send → 409), and sweep
+  stale `awaiting_input` runs on boot like running/queued (the child can't survive a core restart).
+
+- **Enrich the agent stream at parse time; pair tool_use↔tool_result by a stored `tool_use_id`** —
+  **Pattern:** keeping only a display string + token/cost projections throws away the structured tool
+  data every richer view (console, workflow tree, future analytics) needs, and a `tool_use` block and
+  its `tool_result` arrive on SEPARATE events (assistant then user) — there's no in-event linkage.
+  **Rule:** enrich `parseClaudeLine` once to persist structured fields (`toolUseId`, a table-mapped
+  `toolKind`, `toolInput`/`toolResult` as JSON, tri-state `toolResultIsError`, delegate
+  `subagentType`/`childLabel`) and store `tool_use_id` as the durable JOIN key; pair on the client by
+  equal id (a missing result = pending). Add the columns with a RACE-TOLERANT `ALTER TABLE ADD
+  COLUMN` (tolerate "duplicate column" for multi-process/CI) and project JSON back defensively so one
+  corrupt row can't 500 the list. Derive every view from these fields — never re-parse `raw` per
+  render.
+
+- **A run's delegated sub-agents ARE its `delegate` tool calls — derive the tree from events, not a new table** —
+  **Pattern:** the live workflow tree looked like it needed a sub-run registry or a new endpoint.
+  **Rule:** in this harness, delegated agents run IN-PROCESS via the Agent/Task tool, so a run's
+  sub-agents are exactly its `delegate`-kind tool calls. Build the runtime tree by reusing the D3/D4
+  pairing helpers over the run's own events (`eventsToWorkflowTree`); status = running (no result) /
+  done / error (tri-state). Keep the STATIC defined-loop as a shared constant both client and server
+  import (no endpoint for fixed data), and render it with a purpose-built diagram — a force-graph is
+  the wrong tool for a tiny fixed hierarchy (and risks the WebGL/AFRAME blank-screen).
+
+- **A guarded global-config editor must preserve machine-managed regions + write atomically** —
+  **Pattern:** exposing the repo-root CLAUDE.md to an in-app editor risks (a) clobbering the
+  `<!-- gitnexus:start -->…<!-- gitnexus:end -->` block that the analyzer owns, (b) path traversal if
+  the path is a param, and (c) a half-written file on a crash mid-save. **Rule:** edit only the
+  human-authored region — split off and re-compose the gitnexus block (`splitSystemPrompt` /
+  `composeSystemPrompt`), pin a FIXED path (never a user-supplied path param), write atomically
+  (temp file + rename) with rolling backups, schema-lock the request body, and confirm-before-save.
+  Reject a submitted body that itself contains the gitnexus markers (→ 400) so the machine block
+  can't be smuggled in.
+
 ## 3D force-graph migration (2026-06-25)
 
 - **Don't reheat a force-graph before its first graphData digest** — **Pattern:**
