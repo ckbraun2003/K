@@ -513,3 +513,72 @@ export const SystemPromptBodySchema = z
   .object({ md: z.string().max(200_000) })
   .strict()
 export type SystemPromptBody = z.infer<typeof SystemPromptBodySchema>
+
+// ─── Delegation workflow definition ──────────────────────────────────────────
+// Static, hand-authored description of the harness delegation loop — the single
+// source of truth both the web UI (Workflows view) and any server-side consumer
+// import. It mirrors core's buildDelegationPrompt + CLAUDE.md "Delegation loop for
+// code waves"; it is a plain constant (not a zod schema) like KNOWN_MODELS, since
+// it is fixed content, not validated input. Descriptions state each role's
+// responsibility — the controller authors its sub-prompts ad hoc, so this never
+// claims a role is handed a canned prompt string.
+
+export interface WorkflowRole {
+  /** Stable id; edges reference roles by this. */
+  id: string
+  /** Human label for the diagram box. */
+  label: string
+  /** Read-only responsibility shown when the role is selected. */
+  description: string
+}
+
+export interface WorkflowEdge {
+  /** Source role id. */
+  from: string
+  /** Target role id. */
+  to: string
+  /** Optional connector label (e.g. "fixes"). */
+  label?: string
+}
+
+export interface WorkflowDefinition {
+  roles: WorkflowRole[]
+  edges: WorkflowEdge[]
+}
+
+/** The harness code-wave delegation loop. */
+export const DELEGATION_WORKFLOW: WorkflowDefinition = {
+  roles: [
+    {
+      id: 'controller',
+      label: 'Controller',
+      description:
+        'Owns the wave. Dispatched via buildDelegationPrompt to address a batch of selected todos, the controller spawns one sub-agent per role instead of doing the work in a single context, applies the reviewers’ fixes, and ships ONE reviewable commit / PR for the whole batch — never a PR per todo, and never a push to the default branch.',
+    },
+    {
+      id: 'implementer',
+      label: 'Implementer',
+      description:
+        'Carries out the wave’s code changes against the spec in a focused context, then hands its output to the reviewers.',
+    },
+    {
+      id: 'spec-review',
+      label: 'Spec review',
+      description:
+        'Reviews the implementer’s output against the wave spec: does the change do what was asked, and nothing more? Runs every wave, no exceptions, and reports fixes back to the controller.',
+    },
+    {
+      id: 'quality-review',
+      label: 'Quality review',
+      description:
+        'Reviews the implementer’s output for code quality, simplicity, and regressions. Runs every wave, no exceptions, and reports fixes back to the controller.',
+    },
+  ],
+  edges: [
+    { from: 'controller', to: 'implementer', label: 'delegates' },
+    { from: 'implementer', to: 'spec-review', label: 'review' },
+    { from: 'implementer', to: 'quality-review', label: 'review' },
+    { from: 'spec-review', to: 'controller', label: 'fixes' },
+    { from: 'quality-review', to: 'controller', label: 'fixes' },
+  ],
+}

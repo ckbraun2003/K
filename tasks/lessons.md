@@ -308,6 +308,27 @@ entries at session start before touching the same area.
   live smoke (or point the smoke at a fresh `CORE_PORT` / `K_DATA_DIR`) — a left-over pre-migration
   core silently masks new-table features.
 
+## Wave D4 — web component tests (2026-06-27)
+
+- **Pin jsdom to the version your vitest major was tested against; scope the DOM env to `.test.tsx`** —
+  **Pattern:** the web suite was pure-function only (vitest `node` env, `test/**/*.test.ts`). Adding RTL
+  component tests pulled `jsdom@latest` (29), whose `html-encoding-sniffer@6` → ESM-only `@exodus/bytes`
+  can't be `require()`d by vitest 1.6's CJS loader — the `.test.tsx` file silently didn't run and threw
+  an unhandled error (typecheck/build stayed green). **Rule:** when introducing `@testing-library/react`
+  + `jsdom` into a vitest-1.6 web suite, pin `jsdom@^24` (the compatible pairing), add `@vitejs/plugin-react`
+  to `plugins` (automatic JSX runtime), and scope the browser env narrowly so existing node tests are
+  untouched: `include: ['test/**/*.test.{ts,tsx}']` + `environmentMatchGlobs: [['**/*.test.tsx','jsdom']]`.
+  jsdom lacks `Element.prototype.scrollIntoView` and `window.matchMedia` — stub both in any test that
+  renders a component using them (RunConsole auto-scrolls; framer-motion probes matchMedia).
+
+- **Don't run `npx gitnexus analyze` while `CLAUDE.md` has uncommitted edits** — **Pattern:** the
+  post-commit hook reported the index stale and suggested `npx gitnexus analyze`, but the working tree
+  had unrelated *uncommitted user edits* to `CLAUDE.md`. analyze appends the gitnexus block on top of
+  those edits, and the standard `git checkout -- CLAUDE.md` cleanup would then revert (destroy) the
+  user's changes. **Rule:** before running the analyzer (or letting the cleanup run), confirm `CLAUDE.md`
+  has no uncommitted changes you'd lose (`git status --short CLAUDE.md`). If it does, defer the analyze —
+  a stale index is a non-blocking advisory; clobbering a user's working-tree edits is not recoverable.
+
 ## 3D force-graph migration (2026-06-25)
 
 - **Don't reheat a force-graph before its first graphData digest** — **Pattern:**

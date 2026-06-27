@@ -88,12 +88,14 @@ phase · CLAUDE.md editor = global-only, guarded (backup + gitnexus-block preser
 - [x] Review: spec + quality both APPROVE-WITH-NITS (0 CRITICAL/0 happy-path bugs/0 XSS). Applied: HIGH seq-sorted live append · MEDIUM memoize / exported+tested grouping / drop orphan results · LOW dedupe toolUseId / MultiEdit+pending tests. Kept `||` placeholders; CLAUDE.md (user edits) out of commit
 - [x] Verify: typecheck clean · web **196** (+33 D4) · build ✓  _(live delegation-run in-browser smoke folded into Wave V)_
 
-### Wave D5 — Workflow visualization (static defined-workflow + live runtime tree)
-- [ ] Static: expose delegation workflow definition (`GET /api/workflows/definition` or shared const) from `workflows.ts` roles; diagram with viewable role prompts
-- [ ] Live: pure builder (D3 delegate events → parent→child tree); render via `react-force-graph-2d` + `graph.ts` helpers; click node → prompt + sub-agent events
-- [ ] `web` — new Workflows view (route/Shell/Sidebar/chord); reuse `makeGraphUpdateHandler`
-- [ ] Tests: events→tree builder; definition shape; bundle-guard (force-graph-2d only)
-- [ ] Verify: live run → runtime tree matches console; static diagram renders prompts. Review → commit
+### Wave D5 — Workflow visualization (static defined-workflow + live runtime tree)  ✅ DONE
+**Decisions (this session):** (1) definition = **shared constant** `DELEGATION_WORKFLOW` in `@k/shared` (no new endpoint — client+server agree via one import; data is static). (2) rendering = **purpose-built SVG/CSS tree/diagram** (user-chosen) — NOT a force-graph; data is a small shallow hierarchy, so no WebGL/AFRAME/tick risk, bundle-guard trivially green. (3) live tree reuses D4 `lib/console.ts` helpers (a delegate child = a paired delegate tool-call). No core logic changes.
+- [x] `shared/src/types.ts` — `DELEGATION_WORKFLOW` const + `WorkflowRole`/`WorkflowEdge`/`WorkflowDefinition` types: 4 roles (controller/implementer/spec-review/quality-review) with honest responsibility descriptions (no canned-prompt claims) + 5 edges forming the loop
+- [x] `web/src/lib/workflow.ts` (pure) — `eventsToWorkflowTree(events, run?)` via `pairToolCalls` → keep delegate tool-calls → child per delegate (status running/done/error via `isPending`/`isError`, prompt/result via D4 readers); root from run; never throws
+- [x] `web` — `WorkflowsPage` (Defined/Run tabs + run picker + `#/workflows/:runId` deep-link; backfill `api.runs.events` + WS live append via `mergeEvents`, `useMemo` tree); `WorkflowDiagram` (hand-laid CSS hierarchy, click role → description) + `RunTree` (indented tree, click node → prompt/result; `key={selectedRunId}` resets selection on switch). Registered: `route.ts`, `Sidebar` (`⋔`), `chords.ts` (`g w`), `Shell`
+- [x] Tests: `workflow.test.ts` (8) · `workflow-def.test.ts` (6, incl. exact edge-topology drift guard) · `workflows-page.test.tsx` (5) · `chords.test.ts` (+1)
+- [x] Review: spec + quality both APPROVE-WITH-NITS (0 CRITICAL/HIGH, WS effect mirrors RunConsole, 0 XSS, defensive builder). Applied: MEDIUM `key` selection-reset · LOW deep-link tab sync / tab a11y / edge-drift guard. Kept `||` placeholders + honest descriptions; CLAUDE.md out of commit
+- [x] Verify: typecheck shared+web clean · web **216** (+20 D5) · build ✓  _(live delegation-run in-browser smoke folded into Wave V)_
 
 ### Wave D6 — Context indicators + smoke-gated compaction
 - [ ] Indicator: `contextWindow` per `KNOWN_MODELS` entry; per-run context-pressure indicator (latest-turn input tokens vs limit + warning band); pure tested `lib/context`
