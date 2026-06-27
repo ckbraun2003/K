@@ -329,6 +329,49 @@ entries at session start before touching the same area.
   has no uncommitted changes you'd lose (`git status --short CLAUDE.md`). If it does, defer the analyze —
   a stale index is a non-blocking advisory; clobbering a user's working-tree edits is not recoverable.
 
+## Wave D6 — context indicators + compaction smoke (2026-06-27)
+
+- **Run the smoke BEFORE you document a "limitation" — the assumed limit was wrong** — **Pattern:**
+  D6 was planned around the premise "stream-json input mode delivers content as a literal user turn,
+  so REPL slash-commands (e.g. `/compact`) are NOT honored over the wire; on-demand compaction can't
+  be forced — degrade to a soft summarize." The implementer even shipped a button tooltip + code
+  comment ASSERTING that. The D6.0 live smoke (claude **v2.1.195**, interactive stream-json mirroring
+  `buildClaudeArgs`/`userTurnEnvelope`) REFUTED it: writing one `{type:"user",message:{role:"user",
+  content:"/compact"}}` turn made the CLI emit `{"type":"system","subtype":"status","status":
+  "compacting"}` then `compact_result:"failed"` / `compact_error:"Not enough messages to compact."`
+  (it failed only because the fresh probe session had no messages). The CLI's compaction machinery
+  ran — `/compact` over the stream-json wire **is** honored. **Rule:** never bake an assumed
+  capability/limitation into shipped copy, tooltips, comments, or a "documented honest limit" without
+  a live probe first; an architectural-sounding premise ("slash-commands are a REPL-only feature") can
+  be false for the actual binary/version. When a smoke contradicts the plan, STOP, correct the
+  shipped copy immediately, and surface the finding to the controller rather than shipping the now-false
+  rationale. **Outcome:** once the smoke proved it, the wave took the plan's "yes" branch and shipped
+  REAL compaction — a manual `sendInput('/compact')` button AND a guarded/debounced auto-compact —
+  instead of the soft summarize. (Structural safety holds because a `/compact` turn ends with
+  `{type:"result"}`, the existing `isTurnEndLine` turn boundary, so the run re-parks at
+  `awaiting_input` after compacting.) Still unverified end-to-end: the compact-and-CONTINUE SUCCESS
+  path on a NON-empty session — the smoke only proved the trigger fires (it failed on an empty
+  session by design); that live confirmation folds into Wave V.
+
+- **A heavy SessionStart hook environment can swallow a short smoke window and fake a positive** —
+  **Pattern:** the first 10s `/compact` probe returned `compactSignalInOutput: true`, but that was a
+  FALSE positive — this env's SessionStart hooks (superpowers + previous-session-summary injection)
+  dominated the whole window, and the regex matched "[Compaction occurred at …]" text inside the
+  *injected previous-session summary*, not any response to the turn. **Rule:** when smoking an
+  interactive CLI in an environment with SessionStart hooks, (a) send the turn AFTER the init/hook
+  lines settle, (b) classify output by parsed line `type`/`subtype` and only count lines that arrive
+  AFTER the turn was written, and (c) don't substring-match on free text that hooks may have injected.
+  Keep the probe hard-bounded (kill + force-exit timers) so it can never hang.
+
+- **`usage.input_tokens` per assistant turn is FRESH input only — context size needs the cache fields**
+  — **Pattern:** the per-assistant-turn `usage.input_tokens` excludes cache; using it for a "context
+  pressure" indicator would wildly under-report true context occupancy on cached runs. **Rule:** the
+  real input context size for a turn is `input_tokens + cache_creation_input_tokens +
+  cache_read_input_tokens` (the same sum the `result` branch already computes for `tokensIn`). Carry it
+  as a SEPARATE field (`AgentEvent.contextTokens`) so cost/metrics accounting that depends on
+  fresh-input `tokensIn` stays byte-identical, and feed the indicator from `contextTokens` (falling
+  back to `tokensIn` only when absent). Scan for the latest signal by MAX `seq`, not array order.
+
 ## 3D force-graph migration (2026-06-25)
 
 - **Don't reheat a force-graph before its first graphData digest** — **Pattern:**

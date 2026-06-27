@@ -124,6 +124,52 @@ describe('parseClaudeLine — backward compatibility', () => {
   })
 })
 
+describe('parseClaudeLine — contextTokens (input context size for the indicator)', () => {
+  it('assistant: contextTokens = input + cache_creation + cache_read; tokensIn stays fresh input', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'text', text: 'hi' }],
+        usage: { input_tokens: 100, cache_creation_input_tokens: 1000, cache_read_input_tokens: 5000, output_tokens: 20 },
+      },
+    })
+    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    expect(ev.type).toBe('assistant')
+    expect(ev.contextTokens).toBe(6100)
+    expect(ev.tokensIn).toBe(100) // fresh input only — cost/metrics unchanged
+    expect(ev.tokensOut).toBe(20)
+  })
+
+  it('assistant: omits contextTokens when no usage is present', () => {
+    const line = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } })
+    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    expect(ev.contextTokens).toBeUndefined()
+  })
+
+  it('assistant: tolerates missing cache fields (contextTokens = input_tokens)', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 42, output_tokens: 7 } },
+    })
+    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    expect(ev.contextTokens).toBe(42)
+    expect(ev.tokensIn).toBe(42)
+  })
+
+  it('result: contextTokens equals the full input sum (matches tokensIn)', () => {
+    const line = JSON.stringify({
+      type: 'result',
+      usage: { input_tokens: 100, cache_creation_input_tokens: 10, cache_read_input_tokens: 5, output_tokens: 50 },
+      total_cost_usd: 0.012,
+      result: 'done',
+    })
+    const ev = parseClaudeLine(line, RUN_ID, 9, CTX)!
+    expect(ev.type).toBe('usage')
+    expect(ev.contextTokens).toBe(115)
+    expect(ev.tokensIn).toBe(115)
+  })
+})
+
 describe('persistence round-trip — enriched fields survive emit → list', () => {
   const RID = uuid()
   runsDb.insertRun.run({

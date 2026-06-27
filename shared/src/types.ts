@@ -58,6 +58,11 @@ export const AgentEventSchema = z.object({
   tokensIn: z.number().optional(),
   tokensOut: z.number().optional(),
   costUsd: z.number().optional(),
+  // total input context size for this assistant turn (fresh input_tokens +
+  // cache_creation_input_tokens + cache_read_input_tokens). Distinct from
+  // `tokensIn` (fresh input only) so cost/metrics accounting is unchanged; used
+  // by the context-pressure indicator.
+  contextTokens: z.number().optional(),
   // ── enriched tool metadata (populated by the enriched parseClaudeLine) ──────
   // A tool_use block (on an `assistant` event) and its matching tool_result
   // block (on a later `user` event) PAIR by `toolUseId`. Later waves render
@@ -304,15 +309,24 @@ export type WsMessage = z.infer<typeof WsMessageSchema>
 
 // Model registry — single source of truth for the per-run model picker. The UI
 // builds its options from this list; the route validates `model` against it.
+// `contextWindow` is the standard 200k Claude context window for all four models
+// (Fable 5 assumed 200k pending confirmation); it powers the context-pressure
+// indicator (web/src/lib/context.ts).
 export const KNOWN_MODELS = [
-  { id: 'claude-opus-4-8', label: 'Opus 4.8' },
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
-  { id: 'claude-fable-5', label: 'Fable 5' },
+  { id: 'claude-opus-4-8', label: 'Opus 4.8', contextWindow: 200_000 },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', contextWindow: 200_000 },
+  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', contextWindow: 200_000 },
+  { id: 'claude-fable-5', label: 'Fable 5', contextWindow: 200_000 },
 ] as const
 export type KnownModelId = typeof KNOWN_MODELS[number]['id']
 export function isKnownModel(id: string): id is KnownModelId {
   return KNOWN_MODELS.some(m => m.id === id)
+}
+
+/** The model's context-window size in tokens, or `undefined` for an unknown id
+ *  (e.g. a local/Ollama model). Used by the context-pressure indicator. */
+export function modelContextWindow(id: string): number | undefined {
+  return KNOWN_MODELS.find(m => m.id === id)?.contextWindow
 }
 
 export const StartRunBodySchema = z.object({

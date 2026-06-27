@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import type { Run, AgentEvent, WsMessage } from '@k/shared'
@@ -7,10 +7,12 @@ import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
 import { pairToolCalls, groupConsoleItems } from '../lib/console'
+import { contextPressure, nextAutoCompact, type AutoCompactState } from '../lib/context'
 import RunTimeline from './RunTimeline'
 import ToolCall from './ToolCall'
 import ConfirmDialog from './ConfirmDialog'
 import AutoTextarea from './AutoTextarea'
+import ContextMeter from './ContextMeter'
 
 interface Props {
   runId: string
@@ -26,6 +28,16 @@ export function mergeEvents(history: AgentEvent[], live: AgentEvent[]): AgentEve
   const seen = new Set(history.map(e => e.id))
   return [...history, ...live.filter(e => !seen.has(e.id))].sort((a, b) => a.seq - b.seq)
 }
+
+/**
+ * The CLI `/compact` slash-command, delivered as a normal operator turn over the
+ * stream-json input wire. Smoke D6.0 confirmed the CLI HONORS this — it runs its
+ * real compaction machinery (`system/status:"compacting"` → `compact_result`)
+ * and ends the turn with a `{type:"result"}` line, so the supervisor re-parks the
+ * run at `awaiting_input` after compacting. This is REAL context compaction, not
+ * a soft self-summary.
+ */
+export const COMPACT_COMMAND = '/compact'
 
 export const EVENT_COLOR: Record<string, string> = {
   system:    'text-[var(--muted)]',
@@ -86,6 +98,12 @@ export default function RunConsole({ runId }: Props) {
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const answerRef = useRef<HTMLTextAreaElement>(null)
+  // Hysteresis state for auto-`/compact` — armed initially, disarmed after a fire,
+  // re-armed only when context recovers to the 'ok' band (see nextAutoCompact).
+  // The ref is the synchronous re-entrancy guard; `autoCompactFired` is a
+  // display-only mirror used solely to vary the danger-hint copy.
+  const autoCompactRef = useRef<AutoCompactState>({ armed: true })
+  const [autoCompactFired, setAutoCompactFired] = useState(false)
 
   const { data: run } = useQuery<Run>({
     queryKey: ['run', runId],
@@ -144,22 +162,66 @@ export default function RunConsole({ runId }: Props) {
     }
   }
 
-  // Send the operator's turn; on success the run flips back to 'running' via a
-  // run_update WS message, which hides the answer box.
-  async function handleSend() {
-    const text = answer.trim()
-    if (!text || sending) return
+  // Send one operator turn; on success the run flips back to 'running' via a
+  // run_update WS message, which hides the answer box. Shared by the manual
+  // reply, the manual "Compact context" button, and the auto-compact effect so
+  // all three get the same send/disable/error handling. Returns whether the send
+  // succeeded. Memoized (stable per runId/sending) so the auto-compact effect can
+  // list it as a dependency without re-firing every render.
+  const submitTurn = useCallback(async (text: string): Promise<boolean> => {
+    if (!text.trim() || sending) return false
     setSending(true)
     try {
       await api.runs.sendInput(runId, text)
-      setAnswer('')
-    } catch { /* a 409 means it already left awaiting_input — the WS state will correct the UI */ }
-    finally { setSending(false) }
+      return true
+    } catch { /* a 409 means it already left awaiting_input — the WS state will correct the UI */
+      return false
+    } finally { setSending(false) }
+  }, [runId, sending])
+
+  async function handleSend() {
+    if (await submitTurn(answer)) setAnswer('')
+  }
+
+  // Real CLI context compaction: sends `/compact` as an operator turn. The CLI
+  // honors it over the stream-json wire (smoke D6.0), runs its compaction, and
+  // ends with a `result` line so the run re-parks at awaiting_input.
+  async function handleCompact() {
+    await submitTurn(COMPACT_COMMAND)
   }
 
   async function handleEnd() {
     try { await api.runs.end(runId) } catch { /* run may have already completed */ }
   }
+
+  // Context-pressure for the header indicator. Computed above the `!run` guard
+  // (run may be undefined before load) with a tolerant `run?.model`.
+  const pressure = useMemo(() => contextPressure(events, run?.model), [events, run?.model])
+
+  // Guarded + debounced auto-compaction. The pure `nextAutoCompact` decides
+  // (hysteresis: fire once per danger episode, re-arm at 'ok'); we only own the
+  // side effect. The web Run type carries no explicit `interactive` flag, so we
+  // use `awaiting_input` as the interactivity proxy — only interactive runs ever
+  // reach that status. Never fires during initial load (run undefined), while a
+  // send is in flight, or while the operator is mid-answer.
+  useEffect(() => {
+    if (!run) return
+    const awaiting = run.status === 'awaiting_input'
+    const { state, fire } = nextAutoCompact(autoCompactRef.current, {
+      band: pressure.band,
+      awaiting,
+      interactive: awaiting, // proxy: only interactive runs reach awaiting_input
+      sending,
+      operatorTyping: answer.trim().length > 0,
+    })
+    autoCompactRef.current = state
+    if (fire) {
+      setAutoCompactFired(true)
+      void submitTurn(COMPACT_COMMAND)
+    }
+    // Re-arm episode → clear the display mirror (guarded so it can't loop).
+    if (pressure.band === 'ok' && autoCompactFired) setAutoCompactFired(false)
+  }, [run, pressure.band, sending, answer, submitTurn, autoCompactFired])
 
   if (!run) return <div className="flex-1 flex items-center justify-center text-[var(--muted)]">Loading…</div>
 
@@ -169,8 +231,12 @@ export default function RunConsole({ runId }: Props) {
       <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-[var(--text)] truncate">{run.prompt}</p>
-          <p className="text-xs text-[var(--muted)]">
-            {run.model} · {run.tokensIn.toLocaleString()} in / {run.tokensOut.toLocaleString()} out · ${run.costUsd.toFixed(4)}
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--muted)]">
+            <span>
+              {run.model} · {run.tokensIn.toLocaleString()} in / {run.tokensOut.toLocaleString()} out · ${run.costUsd.toFixed(4)}
+            </span>
+            <span aria-hidden>·</span>
+            <ContextMeter pressure={pressure} />
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -253,6 +319,17 @@ export default function RunConsole({ runId }: Props) {
             placeholder="Type your reply…  (↵ send · ⇧↵ newline)"
             className="glow-focus w-full resize-none rounded-control border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
           />
+          {pressure.band === 'danger' && (
+            <p
+              data-testid="run-compact-hint"
+              className="text-xs text-[var(--red)]"
+            >
+              <span aria-hidden>⚠ </span>
+              {autoCompactFired
+                ? 'Context near limit — automatic compaction attempted. Press “Compact context” to retry.'
+                : 'Context near limit — compacting automatically. You can also press “Compact context” now.'}
+            </p>
+          )}
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -261,15 +338,27 @@ export default function RunConsole({ runId }: Props) {
             >
               End session
             </button>
-            <button
-              type="button"
-              onClick={() => void handleSend()}
-              disabled={sending || !answer.trim()}
-              data-testid="run-answer-send"
-              className="ml-auto rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-medium text-[var(--accent-hover)] transition-colors hover:bg-accent/30 disabled:opacity-50"
-            >
-              {sending ? 'Sending…' : 'Send ↵'}
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCompact()}
+                disabled={sending}
+                data-testid="run-compact-btn"
+                title="Runs the CLI's /compact to condense the conversation and free up context."
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)] disabled:opacity-50"
+              >
+                Compact context
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSend()}
+                disabled={sending || !answer.trim()}
+                data-testid="run-answer-send"
+                className="rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-medium text-[var(--accent-hover)] transition-colors hover:bg-accent/30 disabled:opacity-50"
+              >
+                {sending ? 'Sending…' : 'Send ↵'}
+              </button>
+            </div>
           </div>
         </div>
       )}

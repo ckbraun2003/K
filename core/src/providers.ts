@@ -117,11 +117,15 @@ export function parseClaudeLine(
           }
         }
       }
-      // Usage from message
+      // Usage from message. `tokensIn` stays FRESH input only (cost/metrics
+      // accounting unchanged); `contextTokens` is the full input context size
+      // for this turn (fresh + cache_creation + cache_read) for the indicator.
       const usage = msg.usage as Record<string, number> | undefined
       if (usage) {
         if (usage.input_tokens != null) event.tokensIn = usage.input_tokens
         if (usage.output_tokens != null) event.tokensOut = usage.output_tokens
+        const ctx = (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0)
+        if (ctx > 0) event.contextTokens = ctx
       }
     }
 
@@ -154,6 +158,9 @@ export function parseClaudeLine(
       const tokensOut = usage?.output_tokens ?? (typeof stats.output_tokens === 'number' ? stats.output_tokens : 0)
       if (tokensIn != null) event.tokensIn = tokensIn
       if (tokensOut != null) event.tokensOut = tokensOut
+      // The full input sum is also the turn's context size — carry it on the
+      // final 'usage' event so the indicator reflects the end-of-run context.
+      if (tokensIn > 0) event.contextTokens = tokensIn
       const cost = typeof stats.total_cost_usd === 'number' ? stats.total_cost_usd
         : typeof stats.cost_usd === 'number' ? stats.cost_usd : 0
       if (cost != null) event.costUsd = cost
