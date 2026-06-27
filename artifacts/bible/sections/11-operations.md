@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-06-21
+updated: 2026-06-27
 ---
 
 ## Running locally
@@ -117,7 +117,7 @@ Beyond the registry/metrics endpoints, the project + verification surface is:
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/projects/:id/onboard` | scaffold the three §3 invariants (starter bible + CI) for whatever is missing; idempotent |
+| `POST /api/projects/:id/onboard` | scaffold the three §05 invariants (starter bible + CI) for whatever is missing; idempotent |
 | `POST /api/projects/:id/verify` | deterministic single-shot verification → `VerificationReport`. Optional body `{ deep?: boolean }`: `deep: true` also fire-and-forgets the Layer-2 `verify-project` agent run (the deterministic report is always returned immediately) |
 | `GET /api/projects/:id/verifications` | report history, newest first |
 | `GET /api/runs/:id/events/:seq/raw` | lazy per-event raw stream-json (404 on missing/null-raw seq, 400 on non-numeric) |
@@ -141,7 +141,7 @@ Beyond the registry/metrics endpoints, the project + verification surface is:
 | `core/src/github.ts` | GitHubProvider — gh CLI, cache, poller |
 | `core/src/projects.ts` | project registry (register/clone) |
 | `core/src/scaffold.ts` | pure bible/CI scaffolders (idempotent, path-guarded) |
-| `core/src/onboard.ts` | enforce the 3 §3 project invariants (delegates to the scaffolders) |
+| `core/src/onboard.ts` | enforce the 3 §05 project invariants (delegates to the scaffolders) |
 | `core/src/verify.ts` | health-score engine + auditors + `runVerification` orchestration |
 | `core/src/metrics.ts` | metrics summary + `buildTimeseries` (day × project\|model, top-8 + other) |
 | `artifacts/bible/` | this document's source |
@@ -159,7 +159,7 @@ exported so tests can run it against an old-schema temp DB. First boot after a
 new migration: run with the dev server stopped to avoid a concurrent-migration race.
 
 `verification_reports.score_breakdown` (TEXT, JSON) was added via one of these
-guarded idempotent ALTERs — it stores the four §5 score components (`ci`,
+guarded idempotent ALTERs — it stores the four §07 score components (`ci`,
 `coverage`, `bible`, `findings`) so the Verification tab can render per-weight
 bars without recomputing. Older reports without the column still validate
 (the breakdown is optional on read).
@@ -185,3 +185,31 @@ the REST API with a `git credential` token.
 - Setting `HOST=0.0.0.0` is still only safe **behind** Tailscale or an
   authenticating HTTPS reverse proxy (see Remote access). The non-loopback safety
   gate prevents booting that posture with a weak/empty token.
+
+## Phase 5 — Agent Organization (PLANNED storage / env / key files)
+
+None of the following exists yet; it is recorded here so the operational surface of the agent org
+(§03, §04) is planned, not discovered. All new SQLite tables follow the existing guarded-ALTER
+migration discipline above.
+
+**New tables (planned).**
+
+| Table | Holds |
+|-------|-------|
+| `agent_profiles` | one row per durable tier (K · Chief · each lead): `tier`, `charter`, `default_model`, `allowed_tools` (JSON), `mcp_servers` (JSON), `skills` (JSON) |
+| `agent_memory` | per-profile lessons (layer A): `profile_id`, `lesson`, `status` (`pending`/`approved`/`rejected`), `source_run_id`, `created_at` — the gated-reflection store |
+| `workflow_definitions` | named workflows: `name`, `roles` (JSON), `prompt_scaffold`, `cross_project` — generalizing today's single `buildDelegationPrompt` |
+| `work_items` | unified scoped task store (replaces the `agent_tasks` / `project_tasks` split): `scope` (`personal`/`org`/`project`), `text`, `status`, `project_id` (set iff `scope='project'`), `created_at` |
+
+**New env (planned).** Per-tier MCP server endpoints/toggles (`LOGISTICS_MCP_*`, `MGMT_MCP_*`,
+status-write MCP), the Google connector credentials K mounts (Calendar/Gmail/Drive), and a flag for
+K's hybrid idle-timeout (when an idle K session is torn down and re-seeded on the next message/wake).
+
+**New key files (planned).**
+
+| File | Purpose |
+|------|---------|
+| `core/src/profiles.ts` | `AgentProfile` registry + `startAgentRun` (generalizes `startRun`) |
+| `core/src/authority.ts` | tier → allowed tools/skills/MCPs resolution; the `--allowedTools` allowlist + MCP mount gating |
+| `core/src/memory.ts` | layer-A lessons store + gated end-of-run reflection (propose → approve) |
+| `core/src/workflows.ts` | extended from the single delegation loop to named `WorkflowDefinition`s |

@@ -2,10 +2,17 @@
 title: User Guide
 icon: "❔"
 status: active
-updated: 2026-06-22
+updated: 2026-06-27
 ---
 
-A task-oriented walkthrough for a new operator. It mirrors the README quick-start and stays consistent with §06 (Dashboard) and §09 (Operations) — those sections hold the design spec and the full operations reference; this one is the *how do I actually use it* guide. Reach it any time from the **Help** entry in the sidebar (it opens this bible in **Docs**).
+The mental model is **you direct an agent organization**: you talk to **K** (a friendly secretary),
+K handles logistics and hands engineering work to the **Chief**, and the Chief staffs it to
+**staff-engineer leads** who do the coding (§03). The org tiers, the K-home chat, and the
+Direct/Observe IA are **PLANNED for Phase 5** — so this guide covers **how you use the harness
+today** (dispatching runs, projects, verification, the graph) and notes where the org reshapes it.
+It mirrors the README quick-start and stays consistent with §08 (Dashboard) and §11 (Operations) —
+those hold the design spec and the full operations reference; this is the *how do I actually use it*
+guide. Reach it any time from the **Help** entry in the sidebar.
 
 ## Getting started — install & run
 
@@ -16,7 +23,7 @@ pnpm install      # native deps build automatically
 pnpm dev          # core (http://localhost:3001) + dashboard (http://localhost:5173) in parallel
 ```
 
-Open **http://localhost:5173**. Core boots in a few seconds; until it's ready the dashboard's API proxy returns a brief `503 {"error":"core starting"}` — that's expected, the dashboard connects automatically once core is up. To run the services in separate terminals use `pnpm --filter @k/core dev` and `pnpm --filter @k/web dev`. Configuration is optional (sane defaults) — copy `.env.example` to `core/.env` to customize; see §09 for the full variable list.
+Open **http://localhost:5173**. Core boots in a few seconds; until it's ready the dashboard's API proxy returns a brief `503 {"error":"core starting"}` — that's expected, the dashboard connects automatically once core is up. To run the services in separate terminals use `pnpm --filter @k/core dev` and `pnpm --filter @k/web dev`. Configuration is optional (sane defaults) — copy `.env.example` to `core/.env` to customize; see §11 for the full variable list.
 
 ## Registering a project
 
@@ -25,13 +32,13 @@ Go to **Projects** (▦ in the sidebar) and use the **Register** action. A proje
 - a **local path** — point K at a repo already on disk, or
 - a **GitHub URL** — K clones it into `workspace/` for you.
 
-Once registered, the project appears as a card on **Home** and in the Projects list, and opens into its 7-tab **project workspace** (Overview · Knowledge Graph · Runs · Tasks · PRs & CI · Verification · Bible).
+Once registered, the project appears as a card on **Home** and in the Projects list, and opens into its 7-tab **project workspace** (Overview · Knowledge Graph · Runs · Tasks · PRs & CI · Verification · Artifacts).
 
 ## Dashboard tour
 
 The shell has four persistent zones: the icon **sidebar** (left), the **command bar** (top), the swappable **stage** (center), and the **activity strip** (bottom).
 
-**Sidebar destinations:**
+**Sidebar destinations (today):**
 
 | Icon | Destination | What it's for |
 |------|-------------|---------------|
@@ -40,11 +47,14 @@ The shell has four persistent zones: the icon **sidebar** (left), the **command 
 | ◉ | **Fleet Graph** | Every project as a node, sized by activity and colored by health |
 | ▶ | **Runs** | Live and past agent runs, with replayable consoles |
 | ⚒ | **Skills** | Author and trigger reusable skills (onboarding, verify-project, …) |
+| ⋔ | **Workflows** | The delegation loop as designed + a live sub-agent tree for a chosen run |
 | ∿ | **Metrics** | Tokens, cost, and run trends over time |
 | ⇄ | **Routing** | Model routing stats |
-| ▤ | **Docs** | This bible and other compiled artifacts (the **Help** entry lands here) |
+| `>_` | **Terminal** | Guarded web terminal (default-off; needs `ENABLE_TERMINAL` + a `TERMINAL_TOKEN`) |
+| ⚙ | **Settings** *(footer)* | Provider/auth status (no secrets) + the guarded global CLAUDE.md editor |
+| ❔ | **Help** *(footer)* | Opens this bible |
 
-Each icon shows a tooltip on hover/focus; the active destination gets the accent pill. Keyboard `g` then a letter jumps (`g p` → Projects, `g d` → Docs).
+Each icon shows a tooltip on hover/focus; the active destination gets the accent pill. Keyboard `g` then a letter jumps (`g p` → Projects, `g w` → Workflows, `g ,` → Settings). **Phase 5** regroups these into **Direct** (K-home · Chief · Orchestrators · Workflows · Projects) and **Observe** (Runs · Graph · Metrics · Routing · Terminal), with K-home as the landing (§08).
 
 **⌘K command bar** — one input, two behaviors ranked in a single result list:
 
@@ -85,10 +95,10 @@ Onboarding enforces the project invariants by **scaffolding** whatever is missin
 
 ## Editing a project's bible
 
-Open the project workspace's **Bible** tab. The compiled bible renders in-app; each section has an **edit** action that opens the markdown source. Save your edit, then **recompile** — the tab triggers a fresh compile and re-renders. (Under the hood: sections live as markdown under the bible directory; the compiler regenerates the self-contained HTML. Never hand-edit the compiled HTML — it's regenerated and your changes would be lost.)
+Open the project workspace's **Artifacts** tab (formerly "Bible"). The compiled bible renders in-app; each section has an **edit** action that opens the markdown source. Save your edit, then **recompile** — the tab triggers a fresh compile and re-renders. (Under the hood: sections live as markdown under the bible directory; the compiler regenerates the self-contained HTML. Never hand-edit the compiled HTML — it's regenerated and your changes would be lost.)
 
-The section **edit** and **Recompile** actions live **only** in this project-workspace Bible tab. The sidebar **Docs**/**Help** view (▤) — where the Help entry opens this guide — is **read-only** (it just renders compiled artifacts), so reach for the workspace Bible tab when you actually want to change a section.
+The section **edit** and **Recompile** actions live **only** in this project-workspace Artifacts tab. The sidebar **Help** view — where the Help entry opens this guide — is **read-only** (it just renders compiled artifacts), so reach for the workspace Artifacts tab when you actually want to change a section.
 
 ## Troubleshooting
 
-Most first-run hiccups (dashboard errors on first load, `EADDRINUSE` port conflicts, SQLite "database is locked", stale worktrees after a crash) are covered in the **README Troubleshooting** section and, in depth, in **§09 Operations**. Start there.
+Most first-run hiccups (dashboard errors on first load, `EADDRINUSE` port conflicts, SQLite "database is locked", stale worktrees after a crash) are covered in the **README Troubleshooting** section and, in depth, in **§11 Operations**. Start there.

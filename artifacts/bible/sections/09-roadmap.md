@@ -61,7 +61,7 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
 - [x] Task CRUD: `project_tasks` table + `GET/POST/PATCH /api/projects/:id/tasks`
 - [x] `createPR` via `gh` CLI (argv array, sanitized errors) + `POST /api/projects/:id/prs`
 - [x] "Create PR from Run →" footer in RunConsole
-- [x] G-6: tasks-route tests, create-pr tests, bible §06+§07 updates, .env.example
+- [x] G-6: tasks-route tests, create-pr tests, bible §08+§09 updates, .env.example
 
 ## Phase 3 — Automation & Skills *(✓ complete 2026-06-18)*
 
@@ -118,7 +118,7 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
 - [x] **H-3 — Knowledge Graph UI.** Build/Refresh button + building spinner + last-built/stale/error chips + WS-driven auto-refresh; node inspector enriched facts + enabled Dispatch Agent (confirm-card → dispatch → transient notice); graph polish (status coloring, legend, spring physics, center/zoom on click, reduced-motion); fleet-graph polish (nodes-only, no invented edges).
 - [x] **H-4 — Hybrid glass + motion.** Glass tokens + backdrop-blur utilities + `@supports` fallback (`index.css`); glass applied to hero surfaces only (command bar, modals, node inspector, activity strip); centralized `lib/motion.ts` variants + `MotionConfig` reduced-motion; 60fps check.
 - [x] **H-5 — UI artifact system.** `core/src/ui-artifact.ts` (`compileUiArtifact` writes rich HTML to disk verbatim + upserts md); `POST /api/ui-artifact/compile`; seeded harness `ui-demo` (interactive mini Command Deck, hybrid-glass); DocViewer UI badge/link; `ui-artifact.test.ts` (preserves interactive HTML, output-path isolation).
-- [x] **H-6 — `create-web-ui-artifact` skill + bible docs.** New `.claude/skills/create-web-ui-artifact/SKILL.md` (UI counterpart to `onboarding`), seeded into the skills registry as a manual workflow; bible §06 (hybrid glass + motion + graph engine + UI artifact), §07 (this Phase H), §08 (D-009/D-010/D-011); skill-registration + bible-isolation tests.
+- [x] **H-6 — `create-web-ui-artifact` skill + bible docs.** New `.claude/skills/create-web-ui-artifact/SKILL.md` (UI counterpart to `onboarding`), seeded into the skills registry as a manual workflow; bible §08 (hybrid glass + motion + graph engine + UI artifact), §09 (this Phase H), §10 (D-009/D-010/D-011); skill-registration + bible-isolation tests.
 - [ ] **H-7 — Verify, CI, whole-implementation review.** `verify-project` / health audit; `pnpm typecheck && pnpm -r test && pnpm build` + CI green on the branch; whole-implementation review across all waves; recompile bible; merge `--no-ff`.
 
 ## Todo delegation workflow *(✓ delivered 2026-06-24)*
@@ -155,8 +155,50 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
 
 **Deferred to a later phase** (D-019): the **Tauri desktop app** (bundled-core sidecar, tray, native notifications) — old Track B; full spec retained in `~/.claude/plans/read-through-and-analyze-rippling-hanrahan.md`. Also deferred: **PWA mobile** (installable + push), further **remote-access hardening** (reverse proxy / Tailscale), and **passkey/TOTP auth hardening** (the Phase-1 → Phase-4 re-homing above — not shipped in the re-scoped Phase 4).
 
-## Phase 5 — Intelligence & Scale *(optional)*
+## Phase 5 — Agentic Org *(next — headline program)*
+
+> Re-frame the product from "an operator drives a dashboard" to "the user directs an agent
+> **organization**" (§03, §04): **K** the friendly secretary → the **Chief** manager → staff-engineer
+> **orchestrator leads** → workflow definitions → role subagents. All three durable tiers are one
+> `AgentProfile` entity gated by an **authority tier**, enforced by **tier-scoped MCP servers** +
+> the `--allowedTools` allowlist. Memory starts at **layer A** (file lessons + gated reflection).
+> Decisions D-020 → D-025. One reviewable commit per wave (delegation loop + review every wave).
+
+### 5.1 — Foundation + K
+
+- [ ] `AgentProfile` entity (tier · charter · defaultModel · allowedTools · mcpServers · skills) + storage
+- [ ] `startAgentRun(profileId, { trigger, goal|thread, projectId?, workflowId? })` generalizing `startRun`
+- [ ] Authority gating: `--allowedTools` allowlist per tier (coding tools at lead tier only)
+- [ ] `logistics-mcp` (K) + reuse Google Calendar / Gmail / Drive connectors
+- [ ] Memory layer A: per-profile markdown lessons + gated end-of-run reflection (operator-approved)
+- [ ] K runtime (hybrid): durable thread + warm interactive session + fresh-seeded run on restart/idle/wake
+- [ ] `agent_tasks` (K-owned global checklists) distinct from `project_tasks`
+- [ ] K-home dashboard surface (the friendly landing)
+
+### 5.2 — Chief
+
+- [ ] Chief profile (chief tier) + `mgmt-mcp` (assign-lead / pick-workflow / scope-projects / report)
+- [ ] Reuse GitNexus MCP read-only for the Chief
+- [ ] Autonomous wake via the Phase-3 scheduler + event listener (schedule/event triggers)
+- [ ] K → Chief delegation (engineering work only) + report-back up the chain
+- [ ] Chief dashboard surface (assignments board, wake history, read-only control-plane mirror)
+
+### 5.3 — Roster + Workflows
+
+- [ ] Orchestrator leads (Frontend · Backend · Systems · Security · Network) as profiles + charters
+- [ ] Status-write MCP for leads; per-lead skills/tools/MCP scoping (the control plane)
+- [ ] `WorkflowDefinition` generalizing `buildDelegationPrompt`; `implement+review` as the first definition
+- [ ] Cross-project scope flag in the schema (multi-project execution deferred)
+- [ ] Orchestrator-detail surface: charter/skills/tools/MCP/memory editors + persistent authority panel + live delegation tree
+- [ ] Settings org / MCP authority-tier panel
+
+### 5.4 — Voice
+
+- [ ] Voice in/out for the K conversation (talk to K hands-free)
+
+## Phase 6 — Intelligence & Scale *(optional)*
 
 - [ ] EventBus → NATS/Redis Streams + worker processes
-- [ ] Analytics on run data for routing improvement
+- [ ] Analytics on run data for routing improvement (memory layer B: structured store + outcome-weighted retrieval)
+- [ ] Verification/eval-derived lessons (memory layer C)
 - [ ] Knowledge-graph-driven agent context (GitNexus → agent prompts)

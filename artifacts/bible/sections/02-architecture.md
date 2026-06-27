@@ -2,7 +2,7 @@
 title: Architecture
 icon: "⬡"
 status: stable
-updated: 2026-06-18
+updated: 2026-06-27
 ---
 
 **Architecture A with B-seams** — a single monolithic core (Architecture A) with three deliberate **B-seams** built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected).
@@ -39,8 +39,8 @@ updated: 2026-06-18
 
 | B-seam | Interface | Today | Later |
 |------|-----------|-------|-------|
-| **EventBus** | `emit/onEvent/onRunUpdate` | in-process + SQLite `events` table | NATS/Redis Streams + worker processes (Phase 5) |
-| **ModelRouter** | `route(task) → provider/model` | cost-aware routing across claude + ollama (Phase 3) | learned routing from accumulated run-outcome data (Phase 5) |
+| **EventBus** | `emit/onEvent/onRunUpdate` | in-process + SQLite `events` table | NATS/Redis Streams + worker processes (Phase 6) |
+| **ModelRouter** | `route(task) → provider/model` | cost-aware routing across claude + ollama (Phase 3) | learned routing from accumulated run-outcome data (Phase 6) |
 | **GitHubProvider** | `listPRs/prStatus/ciRuns/createPR/syncIssues` | `gh` CLI + polling (Phase 1) | webhook push (only if polling lag ever hurts) |
 
 ### ModelRouter — cost-aware routing (Phase 3)
@@ -60,6 +60,35 @@ Ollama binary/endpoint is unreachable, the router falls back to `claudeProvider`
 warning — a routing decision can never make a run *fail* for lack of a local model (the same
 posture the GitHub poller takes when `gh` is absent). The supervisor dispatches strictly on the
 routed provider's name, so choosing "ollama" can never silently run claude, and vice-versa.
+
+## Agent substrate (PLANNED — Phase 5)
+
+The architecture above is the substrate; Phase 5 mounts an **agent organization** on top of it
+without a rewrite (full design in §03 Agent Organization, §04 Workflows & Memory). The substrate
+already provides everything the org needs to ride — this subsection records *how the org maps onto
+the existing seams*.
+
+- **Three tiers, one entity.** K (secretary), the Chief, and the orchestrator leads are a single
+  `AgentProfile` entity differentiated by an **authority tier** (`secretary | chief | orchestrator`).
+  A profile is durable state — charter + memory + thread + allowed capabilities + default model.
+- **One activation primitive.** `startAgentRun(profileId, { trigger, goal|thread, projectId?,
+  workflowId? })` generalizes today's `startRun`: it seeds a bounded run from a profile's charter +
+  memory and dispatches it through the **same supervisor** (worktree + claude CLI + stream-json
+  parse). "Persistent identity, ephemeral execution."
+- **Activation triggers.** `user-message` (interactive HITL), `schedule`/`event` (the **Phase-3
+  scheduler + event listener**, reused, wakes a tier autonomously), and `delegation` (tier → tier).
+- **The tier-scoped MCP control plane** is the new addition, and it composes *with* the B-seams
+  rather than replacing them:
+  - Authority is gated by **per-tier MCP servers** (`logistics-mcp` → K, `mgmt-mcp` → Chief, a
+    status-write MCP → leads) **plus** the claude `--allowedTools` allowlist — coding tools
+    (Bash/Write/Edit/Agent) exist only at the lead tier.
+  - The **EventBus** still carries every tier's events (K's, the Chief's, each lead's) on one wire.
+  - The **ModelRouter** still picks each activation's provider/model (each profile carries a default).
+  - The **GitHubProvider** is still the only path to GitHub — leads open PRs through it; nothing
+    merges outside CI. K and the Chief have no coding tools, so they cannot reach it directly.
+
+The control plane is therefore a **gating layer**, not a fourth seam: it decides *which* capabilities
+a given activation may touch, while the three B-seams remain how events, models, and GitHub flow.
 
 ## Tech stack
 

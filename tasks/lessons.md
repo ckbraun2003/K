@@ -432,3 +432,28 @@ entries at session start before touching the same area.
   MUST be verified in a real browser — typecheck, `vite build`, and all unit tests passed while the
   canvas was black. (This superseded an earlier wrong hypothesis — `React.StrictMode` double-mount —
   already ruled out because removing StrictMode did not fix the crash.)
+
+## UI-demo quality — render it, don't read it (2026-06-27)
+
+- **A UI mockup built and reviewed BLIND ships as a spec, not a product** — **Pattern:** the
+  Phase-5 ui-demo was authored by delegated agents and reviewed by me from HTML source + a
+  constraint-only test (no `<link>`, required literals present). It passed all of that, but when
+  finally RENDERED + screenshotted it read as a low-quality spec: visible **"default / empty /
+  loading / error" state-toggle pills baked into product screens**, a **descriptive subtitle on
+  nearly every screen** restating the obvious ("Your right-hand man: objectives…", "Every domain
+  lead — status, load, charter…", "Register and manage projects…"), whole **explainer panels**
+  holding one button the global front door already provides ("Dispatch via Chief — work is
+  dispatched through the one K composer…"), **duplicated metrics** (Chief health in the header AND
+  an Org-health panel), and **top-weighted layouts with ~50% dead vertical space**. None of this is
+  visible in source review or to a passing constraint test. **Rule:** (1) **verify UI by rendering
+  in a real browser and screenshotting every screen** (Playwright → PNG → Read the image), never by
+  reading the HTML — spacing, redundancy, dead space, and the "spec-vs-product" feel are invisible
+  in source and to constraint tests. (2) A product demo shows **one clean default state** —
+  empty/loading/error variants and "STATE" toggles are review scaffolding and must NOT live on the
+  product surface. (3) **Cut descriptive subtitles and explainer panels** — a good UI is
+  self-evident from title + content; never add a panel whose only job is to explain, or to hold a
+  button the global affordance already offers. (4) **Each metric appears once per screen.** (5)
+  Balance the vertical composition (cap stage width, right-size hero/card padding, let the primary
+  panel fill) so content doesn't cram into the top over a void. **Tip:** to screenshot in this pnpm
+  workspace, import Playwright by absolute store path
+  (`node_modules/.pnpm/playwright@<v>/node_modules/playwright/index.js`) — it isn't hoisted to root.

@@ -10,14 +10,16 @@
   "sections": [
     "01-vision",
     "02-architecture",
-    "03-project-model",
-    "04-github-integration",
-    "05-verification-system",
-    "06-dashboard-ux",
-    "07-roadmap",
-    "08-decision-log",
-    "09-operations",
-    "10-user-guide",
-    "11-observability"
+    "03-agent-organization",
+    "04-workflows-and-memory",
+    "05-project-model",
+    "06-github-integration",
+    "07-verification-system",
+    "08-dashboard-ux",
+    "09-roadmap",
+    "10-decision-log",
+    "11-operations",
+    "12-user-guide",
+    "13-observability"
   ]
 }
