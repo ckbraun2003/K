@@ -21,6 +21,7 @@ e2e/.data/
 e2e/.fixtures/
 test-results/
 playwright-report/
+CLAUDE.md
 AGENTS.md
 .claude/skills/gitnexus/
 .claude/worktrees/
