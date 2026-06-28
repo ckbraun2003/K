@@ -19,7 +19,9 @@ export default defineConfig({
     include: ['test/regressions/**/*.test.ts'],
     passWithNoTests: true,
     env: {
-      K_DATA_DIR: path.join(os.tmpdir(), 'k-core-regressions-data'),
+      // Honor an external override (parallel agent teams isolate per run);
+      // default to a dir separate from the gating suite when unset.
+      K_DATA_DIR: process.env.K_DATA_DIR ?? path.join(os.tmpdir(), 'k-core-regressions-data'),
       HARNESS_TOKEN: 'dev-token-change-me',
     },
   },
