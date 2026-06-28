@@ -1,0 +1,32 @@
+{
+  "_note": "Base Claude Code settings.json that the synthesizer (core/src/agent-config.ts, Wave 2) fills per run. Placeholders the synthesizer rewrites: `__HOOK__` -> the run's hooks dir (where gitnexus-hook.cjs is copied). Product-clean defaults: `enabledPlugins` is empty (no host plugins are inherited). The synthesizer may also inject model/env/allowedTools per tier; this template only carries what is constant across runs.",
+  "enabledPlugins": {},
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Grep|Glob|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"__HOOK__/gitnexus-hook.cjs\"",
+            "timeout": 10,
+            "statusMessage": "Enriching with GitNexus graph context..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"__HOOK__/gitnexus-hook.cjs\"",
+            "timeout": 10,
+            "statusMessage": "Checking GitNexus index freshness..."
+          }
+        ]
+      }
+    ]
+  }
+}

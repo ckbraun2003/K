@@ -1,0 +1,9 @@
+{
+  "_note": "orchestrator lead tier (PLANNED — Phase 5) — `claude --mcp-config` shape. Portable gitnexus stdio server via npx. Charter-scoped MCPs and the status-write MCP are added in Phase 5.",
+  "mcpServers": {
+    "gitnexus": {
+      "command": "npx",
+      "args": ["gitnexus", "mcp"]
+    }
+  }
+}

@@ -16,14 +16,15 @@
 
 import { v4 as uuid } from 'uuid'
 import type { AgentEvent } from '@k/shared'
-import { buildClaudeArgs, type PermissionMode } from './claude-args.js'
+import { buildClaudeArgs, type PermissionMode, type ClaudeConfigArgs } from './claude-args.js'
 
 export type ParseCtx = { tokensIn: number; tokensOut: number; costUsd: number }
 
 /** `model` is the routed/selected model name — for claude it is forwarded as
  *  `--model <id>` when set (see buildClaudeArgs); for ollama it is the
- *  `ollama run <model>` target. */
-export type BuildArgsOptions = { inWorktree: boolean; permissionMode: PermissionMode; model?: string; interactive?: boolean }
+ *  `ollama run <model>` target. `claudeConfig` carries the per-run K-owned
+ *  isolation config for managed claude runs; ollama ignores it. */
+export type BuildArgsOptions = { inWorktree: boolean; permissionMode: PermissionMode; model?: string; interactive?: boolean; claudeConfig?: ClaudeConfigArgs }
 
 export interface Provider {
   /** Routed provider name — matches RouteResult.provider. */

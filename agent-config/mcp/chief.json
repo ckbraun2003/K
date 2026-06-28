@@ -1,0 +1,9 @@
+{
+  "_note": "chief tier (PLANNED — Phase 5) — `claude --mcp-config` shape. Same portable gitnexus stdio server, used READ-ONLY: read-only is a usage convention for the Chief (code intelligence without write authority); the absence of coding tools in chief.json allowlist is what actually enforces it. The Phase-5 mgmt-mcp is added later.",
+  "mcpServers": {
+    "gitnexus": {
+      "command": "npx",
+      "args": ["gitnexus", "mcp"]
+    }
+  }
+}

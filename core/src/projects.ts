@@ -130,7 +130,7 @@ export async function registerProject(b: RegistrationBody): Promise<Project> {
       localPath,
       githubRemote,
       workspaceManaged,
-      bibleDir: 'docs/bible',
+      bibleDir: 'artifacts/bible',
       createdAt: Date.now(),
     }
     projectsDb.insertProject.run({

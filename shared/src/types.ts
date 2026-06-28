@@ -300,6 +300,17 @@ export const WsMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('verification_update'), report: VerificationReportSchema }),
   // Knowledge-graph build state transition (building → ready/error) + reindex marks
   z.object({ type: z.literal('graph_update'), projectId: z.string(), meta: ProjectGraphMetaSchema }),
+  // Ollama model pull progress — transient, not persisted
+  z.object({
+    type: z.literal('ollama_pull'),
+    name: z.string(),
+    status: z.string(),
+    completed: z.number().optional(),
+    total: z.number().optional(),
+    percent: z.number().optional(),   // 0..100, computed when total>0
+    done: z.boolean(),
+    error: z.string().optional(),
+  }),
   z.object({ type: z.literal('ping') }),
   z.object({ type: z.literal('pong') }),
 ])
@@ -516,6 +527,12 @@ export const StatusSchema = z.object({
     host: z.string(),
     loopbackOnly: z.boolean(),
     terminalEnabled: z.boolean(),
+  }),
+  voice: z.object({
+    enabled: z.boolean(),
+    reachable: z.boolean(),
+    baseUrl: z.string(),
+    model: z.string(),
   }),
 })
 export type Status = z.infer<typeof StatusSchema>

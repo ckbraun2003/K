@@ -13,7 +13,7 @@ import { describe, it, expect, afterAll } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { compileUiArtifact, seedUiDemo, projectUiDemoSlug } from '../src/ui-artifact.js'
+import { compileUiArtifact, seedUiDemo, projectUiDemoSlug, uiDemoHtml } from '../src/ui-artifact.js'
 import { getArtifact, ARTIFACTS_DIR } from '../src/artifacts.js'
 import { db } from '../src/db.js'
 
@@ -127,6 +127,77 @@ describe('seedUiDemo — Command Deck', () => {
     expect(html).toContain('backdrop-filter')
     expect(html).toContain('#1a0f2e')
     expect(html).toContain('#ff8fc0')
+  })
+})
+
+describe('uiDemoHtml — Phase 5 full-scale "Agentic Org" demo', () => {
+  const html = uiDemoHtml()
+
+  it('maps every redesigned screen as an in-memory navigable section', () => {
+    const screens = [
+      'k-home', 'chief', 'orchestrators', 'orchestrator-detail', 'workflows',
+      'workflow-detail', 'projects', 'project-workspace', 'runs',
+      'metrics', 'routing', 'terminal', 'settings', 'help', 'notfound', 'login',
+    ]
+    for (const v of screens) {
+      expect(html, `missing screen ${v}`).toContain(`data-view="${v}"`)
+    }
+    // sidebar DIRECT + OBSERVE groups + the ⌘K Ask-K trigger + activity strip
+    expect(html).toContain('>Direct<')
+    expect(html).toContain('>Observe<')
+    expect(html).toContain('Ask K or jump anywhere')
+    expect(html).toContain('org pulse')
+  })
+
+  it('keeps the offline / sandbox-safe hard constraints (no CDN / link / storage)', () => {
+    expect(html).toContain('<style>')
+    expect(html).toContain('<script>')
+    expect(html).not.toMatch(/https?:\/\/[^"'\s]+\.(css|js)/)
+    expect(html).not.toContain('<link ')
+    expect(html).not.toContain('localStorage')
+    expect(html).not.toContain('sessionStorage')
+    expect(html).not.toMatch(/\bfetch\(/)
+    // required palette literals (also asserted for the seed artifact)
+    expect(html).toContain('backdrop-filter')
+    expect(html).toContain('#1a0f2e')
+    expect(html).toContain('#ff8fc0')
+  })
+
+  it('applies the warmed token deltas + a11y / motion rules from the brief', () => {
+    // warmed additions
+    expect(html).toContain('#1b1030')   // warmed --bg
+    expect(html).toContain('#ffb0d2')   // --accent-soft (blush text on dark)
+    expect(html).toContain('#ffd9a8')   // --warm-glow (K-home greeting)
+    expect(html).toContain('--surface-warm')
+    expect(html).toContain('--lead-fe')
+    // dark --bg ink on blush fills, never white-on-blush
+    expect(html).toContain('color: var(--ink)')
+    // motion + responsive + focus
+    expect(html).toContain('@media (prefers-reduced-motion: reduce)')
+    expect(html).toMatch(/max-width:\s*720px/)
+    expect(html).toContain(':focus-visible')
+  })
+
+  it('renders the universal confirm-card + authority-tier control plane + terminal banners', () => {
+    expect(html).toContain('confirm-ok')          // generic confirm dialog wiring (escalation/destructive)
+    expect(html).toContain('Authority tier')      // MCP/authority control plane
+    expect(html).toContain('T3 Privileged')
+    expect(html).toContain('Terminal disabled')   // explicit terminal banner (never a silent blank pane)
+    expect(html).toContain('ENABLE_TERMINAL')      // the env hint + enable affordance
+  })
+
+  it('makes ⌘K the ONE front door: low-friction one-Send dispatch with inline routing + undo', () => {
+    // ordinary dispatch is a single Send (no heavy Compose & Dispatch confirm-card)
+    expect(html).toContain('cmd-send')            // the one Send wiring
+    expect(html).not.toContain('id="compose"')    // the heavy compose confirm-card is gone
+    expect(html).not.toContain('Compose &amp; dispatch')
+    // K shows its route INLINE before send, and Send raises a 5s UNDO toast
+    expect(html).toContain('routeline')           // inline routing preview component
+    expect(html).toContain('toast-undo')          // 5s undo toast on dispatch
+    // per-screen ⚡ are pre-scoped into the K composer, not independent flows
+    expect(html).toContain('Ask K — dispatch to Frontend Lead')
+    // one unified work-item component appears across scopes
+    expect(html).toContain('witem')
   })
 })
 

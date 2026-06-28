@@ -30,9 +30,9 @@ describe('scaffoldBible', () => {
 
     // one manifest + five sections = 6 files
     expect(created).toHaveLength(6)
-    expect(created).toContain('docs/bible/manifest.json')
+    expect(created).toContain('artifacts/bible/manifest.json')
     for (const id of ['01-vision','02-architecture','03-roadmap','04-decision-log','05-operations']) {
-      expect(created).toContain(`docs/bible/sections/${id}.md`)
+      expect(created).toContain(`artifacts/bible/sections/${id}.md`)
     }
 
     // all paths reported actually exist on disk
@@ -44,7 +44,7 @@ describe('scaffoldBible', () => {
   it('manifest.json is valid JSON with a sections array of length 5', () => {
     const tmp = makeTmp()
     scaffoldBible(tmp)
-    const raw = fs.readFileSync(path.join(tmp, 'docs', 'bible', 'manifest.json'), 'utf8')
+    const raw = fs.readFileSync(path.join(tmp, 'artifacts', 'bible', 'manifest.json'), 'utf8')
     const manifest = JSON.parse(raw)
     expect(manifest.sections).toEqual([
       '01-vision', '02-architecture', '03-roadmap', '04-decision-log', '05-operations',
@@ -54,7 +54,7 @@ describe('scaffoldBible', () => {
   it('every section parses through parseFrontmatter with a non-empty title', () => {
     const tmp = makeTmp()
     scaffoldBible(tmp)
-    const sectionsDir = path.join(tmp, 'docs', 'bible', 'sections')
+    const sectionsDir = path.join(tmp, 'artifacts', 'bible', 'sections')
     for (const file of fs.readdirSync(sectionsDir)) {
       const raw = fs.readFileSync(path.join(sectionsDir, file), 'utf8')
       const { meta } = parseFrontmatter(raw)
@@ -66,7 +66,7 @@ describe('scaffoldBible', () => {
     const tmp = makeTmp()
     scaffoldBible(tmp)
     const raw = fs.readFileSync(
-      path.join(tmp, 'docs', 'bible', 'sections', '03-roadmap.md'),
+      path.join(tmp, 'artifacts', 'bible', 'sections', '03-roadmap.md'),
       'utf8'
     )
     const { body } = parseFrontmatter(raw)
@@ -80,7 +80,7 @@ describe('scaffoldBible', () => {
     scaffoldBible(tmp)
 
     // write a sentinel into the manifest before the second run
-    const manifestPath = path.join(tmp, 'docs', 'bible', 'manifest.json')
+    const manifestPath = path.join(tmp, 'artifacts', 'bible', 'manifest.json')
     const sentinel = '/* sentinel */'
     fs.appendFileSync(manifestPath, sentinel)
 
@@ -92,11 +92,11 @@ describe('scaffoldBible', () => {
     expect(content).toContain(sentinel)
   })
 
-  it('only creates docs/ under tmp — nothing outside', () => {
+  it('only creates artifacts/ under tmp — nothing outside', () => {
     const tmp = makeTmp()
     scaffoldBible(tmp)
     const entries = fs.readdirSync(tmp)
-    expect(entries).toEqual(['docs'])
+    expect(entries).toEqual(['artifacts'])
   })
 })
 

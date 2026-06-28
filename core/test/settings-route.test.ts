@@ -3,11 +3,12 @@
  *
  * Registers settingsRoutes on a bare Fastify app (like artifacts-route.test) so
  * no bootstrap/socket/poller runs. The system-prompt target is redirected to a
- * temp file via SYSTEM_PROMPT_PATH so the REAL repo CLAUDE.md is never touched.
+ * temp file via SYSTEM_PROMPT_PATH so the REAL L0 base operating prompt
+ * (agent-config/base-operating-prompt.md) is never touched.
  * Status shape is asserted via the PURE builder (buildStatus) with fake probes so
  * it is deterministic regardless of whether claude/gh exist in CI.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi, afterEach } from 'vitest'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
@@ -22,6 +23,15 @@ import {
   type StatusProbes,
   type StatusEnv,
 } from '../src/routes/settings.js'
+
+// Stub probeWhisper in settings.ts so /api/status tests never hit a real server.
+vi.mock('../src/transcription.js', () => ({
+  probeWhisper: vi.fn().mockResolvedValue(false),
+}))
+
+afterEach(() => {
+  vi.clearAllMocks()
+})
 
 let tmpDir: string
 let promptFile: string
@@ -52,6 +62,9 @@ describe('buildStatus (pure)', () => {
     ollamaReachable: false,
     ollamaBaseUrl: 'http://localhost:11434',
     ollamaModel: 'llama3.2',
+    voiceEnabled: false,
+    voiceBaseUrl: 'http://localhost:9000',
+    voiceModel: 'whisper-base.en',
     tokenSource: 'generated',
     host: '127.0.0.1',
     terminalEnabled: false,
@@ -59,9 +72,10 @@ describe('buildStatus (pure)', () => {
   const probes: StatusProbes = {
     claude: { available: true, version: '1.2.3' },
     github: { authenticated: true, user: 'octocat' },
+    whisperReachable: false,
   }
 
-  it('shapes the response with all four sections and no secrets', () => {
+  it('shapes the response with all five sections and no secrets', () => {
     const s = buildStatus(probes, env)
     expect(s.claude).toEqual({ available: true, version: '1.2.3' })
     expect(s.ollama).toEqual({
@@ -71,11 +85,19 @@ describe('buildStatus (pure)', () => {
     expect(s.auth.tokenSource).toBe('generated')
     expect(s.auth.loopbackOnly).toBe(true) // derived from 127.0.0.1
     expect(JSON.stringify(s)).not.toMatch(/dev-token|HARNESS_TOKEN/)
+    expect(s.voice).toEqual({
+      enabled: false, reachable: false, baseUrl: 'http://localhost:9000', model: 'whisper-base.en',
+    })
   })
 
   it('marks a non-loopback host as not loopbackOnly', () => {
     const s = buildStatus(probes, { ...env, host: '0.0.0.0' })
     expect(s.auth.loopbackOnly).toBe(false)
+  })
+
+  it('voice.reachable reflects the probe result', () => {
+    const s = buildStatus({ ...probes, whisperReachable: true }, env)
+    expect(s.voice.reachable).toBe(true)
   })
 })
 
@@ -114,13 +136,18 @@ describe('GET /api/status', () => {
       const res = await app.inject({ method: 'GET', url: '/api/status' })
       expect(res.statusCode).toBe(200)
       const body = res.json()
-      expect(Object.keys(body).sort()).toEqual(['auth', 'claude', 'github', 'ollama'])
+      expect(Object.keys(body).sort()).toEqual(['auth', 'claude', 'github', 'ollama', 'voice'])
       expect(typeof body.claude.available).toBe('boolean')
       expect(typeof body.ollama.reachable).toBe('boolean')
       expect(typeof body.github.authenticated).toBe('boolean')
       expect(['env', 'generated']).toContain(body.auth.tokenSource)
       // never leak the token value
       expect(JSON.stringify(body)).not.toMatch(/dev-token-change-me/)
+      // voice section
+      expect(typeof body.voice.enabled).toBe('boolean')
+      expect(typeof body.voice.reachable).toBe('boolean')
+      expect(typeof body.voice.baseUrl).toBe('string')
+      expect(typeof body.voice.model).toBe('string')
     } finally {
       await app.close()
     }

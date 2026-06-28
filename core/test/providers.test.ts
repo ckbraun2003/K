@@ -37,6 +37,19 @@ describe('claudeProvider — preserves existing behavior', () => {
     const ev = claudeProvider.parseLine(line, '00000000-0000-0000-0000-000000000000', 1, { tokensIn: 0, tokensOut: 0, costUsd: 0 })
     expect(ev!.text).toBe('yo')
   })
+
+  it('buildArgs forwards claudeConfig through to the isolation flags', () => {
+    const claudeConfig = {
+      allowedTools: ['Bash', 'Read'],
+      mcpConfigPath: '/c/mcp.json',
+      settingsPath: '/c/settings.json',
+      appendSystemPromptFile: '/c/system-prompt.md',
+    }
+    const args = claudeProvider.buildArgs('hi', { inWorktree: false, permissionMode: 'acceptEdits', claudeConfig })
+    expect(args).toContain('--settings')
+    const i = args.indexOf('--allowedTools')
+    expect(args.slice(i, i + 3)).toEqual(['--allowedTools', 'Bash', 'Read'])
+  })
 })
 
 describe('ollamaProvider — local model dispatch', () => {
@@ -50,6 +63,14 @@ describe('ollamaProvider — local model dispatch', () => {
     expect(args[0]).toBe('run')
     expect(args[1]).toBeTruthy()       // some model name
     expect(args[2]).toBe('hi')
+  })
+
+  it('buildArgs ignores claudeConfig (local runs get no isolation flags)', () => {
+    const claudeConfig = {
+      allowedTools: ['Bash'], mcpConfigPath: 'm', settingsPath: 's', appendSystemPromptFile: 'a',
+    }
+    const args = ollamaProvider.buildArgs('do a thing', { inWorktree: true, permissionMode: 'acceptEdits', model: 'llama3.1', claudeConfig })
+    expect(args).toEqual(['run', 'llama3.1', 'do a thing'])
   })
 
   it('parseLine treats a plain-text line as assistant output', () => {

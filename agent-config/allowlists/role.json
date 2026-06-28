@@ -1,0 +1,15 @@
+{
+  "_note": "ephemeral role subagent tier (PLANNED — Phase 5) — implementer / spec-review / quality-review. Coding authority is inherited from the workflow; the coding roles get the full set. Passed to `claude --allowedTools`. Subagent-spawn tool is `Task` (verified against the claude CLI binary).",
+  "allowedTools": [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit",
+    "Grep",
+    "Glob",
+    "Task",
+    "WebFetch",
+    "WebSearch",
+    "mcp__gitnexus"
+  ]
+}

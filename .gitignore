@@ -9,8 +9,8 @@ data/
 *.db-wal
 # persisted harness bearer token (first-run generated secret) — never commit
 auth-token
-artifacts/*.html
-!artifacts/.gitkeep
+artifacts/
+tasks/
 .superpowers/
 workspace/
 .gitnexus/
@@ -21,6 +21,7 @@ e2e/.data/
 e2e/.fixtures/
 test-results/
 playwright-report/
+CLAUDE.md
 AGENTS.md
 .claude/skills/gitnexus/
 .claude/worktrees/

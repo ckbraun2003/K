@@ -8,9 +8,9 @@
  * saveArtifact's generic sanitizing render. getArtifact's prefer-on-disk path
  * then serves the interactive HTML untouched in the DocViewer sandboxed iframe.
  *
- * The harness ships its own `ui-demo` artifact — a Command Deck mock reflecting
- * the hybrid-glass look (see uiDemoHtml below). Projects can register their own
- * via the `project-<id>-ui-demo` slug.
+ * The harness ships its own `ui-demo` artifact — a full-scale Phase-5
+ * "Agentic Org" mock mapping every screen + key control (see uiDemoHtml below).
+ * Projects can register their own via the `project-<id>-ui-demo` slug.
  */
 
 import fs from 'fs'
@@ -149,18 +149,21 @@ export function projectUiDemoSlug(projectId: string): string {
 }
 
 const UI_DEMO_SOURCE =
-  '# Command Deck — UI Demo\n\n' +
-  'A self-contained interactive mock of the K Command Deck (sidebar · stage · ' +
-  'activity strip) in the hybrid-glass look. Switch to the **.html** view to interact.'
+  '# K — Agentic Org · UI Demo\n\n' +
+  'A self-contained, offline mock of the redesigned K dashboard — the full ' +
+  '"you direct an organization" surface (K home, Chief, Orchestrators, ' +
+  'Workflows, Projects, Runs, Graph, Metrics, Routing, Terminal, Settings, ' +
+  'Help) with in-memory navigation and every key control present. Switch to ' +
+  'the **.html** view to interact.'
 
 /**
  * Compile the harness's seed `ui-demo` artifact. Invoked at startup (alongside
- * compileBible) so the Command Deck demo is always present. Idempotent.
+ * compileBible) so the demo is always present. Idempotent.
  */
 export async function seedUiDemo(outDir = ARTIFACTS_DIR): Promise<CompileUiArtifactResult> {
   return compileUiArtifact({
     slug: UI_DEMO_SLUG,
-    title: 'Command Deck — UI Demo',
+    title: 'K — Agentic Org · UI Demo',
     html: uiDemoHtml(),
     source: UI_DEMO_SOURCE,
     outDir,
@@ -169,7 +172,7 @@ export async function seedUiDemo(outDir = ARTIFACTS_DIR): Promise<CompileUiArtif
 
 /**
  * Compile a project-scoped UI demo (slug `project-<id>-ui-demo`). Reuses the
- * Command Deck demo HTML so the per-project artifact is a real interactive demo.
+ * demo HTML so the per-project artifact is a real interactive demo.
  */
 export async function compileProjectUiDemo(
   projectId: string,
@@ -177,7 +180,7 @@ export async function compileProjectUiDemo(
 ): Promise<CompileUiArtifactResult> {
   return compileUiArtifact({
     slug: projectUiDemoSlug(projectId),
-    title: `Command Deck — UI Demo · ${projectId}`,
+    title: `K — Agentic Org · UI Demo · ${projectId}`,
     html: uiDemoHtml(),
     source: UI_DEMO_SOURCE,
     outDir,
@@ -185,231 +188,1788 @@ export async function compileProjectUiDemo(
 }
 
 /**
- * The Command Deck demo — a single self-contained HTML document with inline
- * CSS + JS, working offline in a sandboxed iframe (allow-scripts, NO
- * allow-same-origin): no external CDN/font fetches, no localStorage reliance.
+ * The full-scale "Agentic Org" demo — a single self-contained HTML document
+ * with inline CSS + JS, working offline in a sandboxed iframe (allow-scripts,
+ * NO allow-same-origin): no external CDN/font fetches, no `<link>` tags, no
+ * localStorage / fetch / cookies. In-memory JS state drives navigation across
+ * every redesigned screen; every consequential control opens a confirm-card or
+ * raises a toast. Authored verbatim (no backticks / no `${}` / no backslashes
+ * inside the document, so it survives this template literal untouched).
  */
-function uiDemoHtml(): string {
+export function uiDemoHtml(): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Command Deck — UI Demo</title>
+<title>K — Agentic Org · UI Demo</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   :root {
-    --bg: #1a0f2e; --surface: #241640; --raised: #2e1b52; --border: #3a2a5c;
-    --text: #f4f0ff; --muted: #a99bc4; --accent: #ff8fc0; --accent-hover: #38bdf8;
+    /* warmed vivid-midnight-glass tokens (Phase 5 brief §2.1) */
+    --bg: #1b1030;            /* warmed midnight base */
+    --bg-deep: #1a0f2e;       /* deepest midnight (ambient floor, ink-on-blush) */
+    --surface: #241640;       /* dense cards / panels (opaque) */
+    --raised: #33205c;        /* inputs, raised controls (warmer lift) */
+    --surface-warm: #2a1a47;  /* K-home gentle side panels */
+    --border: #3a2a5c;
+    --border-warm: rgba(255,176,210,0.14);
+    --text: #f4f0ff;
+    --muted: #b3a6cd;
+    --accent: #ff8fc0;        /* blush — fills / active pills (DARK text on it) */
+    --accent-soft: #ffb0d2;   /* blush TEXT on dark surfaces */
+    --accent-hover: #38bdf8;  /* sky — hover / focus rings / links */
+    --warm-glow: #ffd9a8;     /* warm sand — K-home greeting only */
+    --ink: #1a0f2e;           /* dark text used on blush fills */
     --green: #34d399; --amber: #fbbf24; --red: #f87171;
+    /* lead identity hues — muted/secondary, deliberately NOT the saturated
+       green/amber/red that carry status meaning (D-013 §7) */
+    --lead-fe: #6fa8dd; --lead-be: #a07cd6; --lead-sys: #5fb3a8;
+    --lead-sec: #d488a6; --lead-net: #8a93c2;
     --mono: 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
-    --glass: rgba(46,27,82,.55);
+    --radius-lg: 18px; --radius: 14px; --radius-sm: 10px; --radius-pill: 999px;
+    --glass-bg: rgba(46,27,82,.55);
+    --glass-border: rgba(255,176,210,.16);
+    --glass-highlight: rgba(255,255,255,.08);
+    --glass-tint: rgba(255,176,210,.12);
   }
   html, body { height: 100%; }
   body {
-    margin: 0; background:
-      radial-gradient(1100px 540px at 78% -8%, rgba(255,143,192,.18), transparent 60%),
-      radial-gradient(820px 420px at -6% 8%, rgba(56,189,248,.12), transparent 55%),
-      var(--bg);
-    color: var(--text); font-family: Inter, system-ui, -apple-system, sans-serif;
-    font-size: 14px; line-height: 1.6;
+    margin: 0;
+    background:
+      radial-gradient(1100px 540px at 80% -10%, rgba(255,176,210,.16), transparent 60%),
+      radial-gradient(820px 440px at -6% 8%, rgba(56,189,248,.10), transparent 55%),
+      linear-gradient(var(--bg), var(--bg-deep));
+    color: var(--text);
+    font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-size: 13px; line-height: 1.55; overflow: hidden;
   }
   .mono { font-family: var(--mono); }
-  .deck { display: grid; grid-template-columns: 224px 1fr; grid-template-rows: 1fr auto;
-    height: 100vh; gap: 0; }
+  .muted { color: var(--muted); }
+  .gi { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 1.6;
+    stroke-linecap: round; stroke-linejoin: round; vertical-align: -0.16em; flex-shrink: 0; }
 
-  /* ── Sidebar ── */
-  aside {
-    grid-row: 1 / span 2; background: var(--surface);
-    border-right: 1px solid var(--border); padding: 1.2rem 1rem; display: flex; flex-direction: column;
-  }
-  .brand { display: flex; align-items: baseline; gap: .5rem; padding: 0 .4rem 1.3rem; }
-  .brand b { font-size: 1.05rem; letter-spacing: .16em; }
-  .brand span { color: var(--muted); font-size: .68rem; letter-spacing: .04em; }
-  .nav { display: flex; flex-direction: column; gap: .2rem; }
-  .nav button {
-    display: flex; align-items: center; gap: .6rem; padding: .55rem .7rem; border-radius: 12px;
-    color: var(--muted); background: none; border: 1px solid transparent; cursor: pointer;
-    font: inherit; text-align: left; transition: color .15s, background .15s, border-color .15s;
-  }
-  .nav button:hover { color: var(--text); background: var(--raised); border-color: rgba(56,189,248,.35); }
-  .nav button.active {
-    color: var(--text); background: rgba(255,143,192,.14); border-color: rgba(255,143,192,.3);
-  }
-  .nav button.active .ico { color: var(--accent-hover); }
-  .ico { width: 1.1em; text-align: center; opacity: .9; }
+  /* ── ambient ── */
+  .ambient { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(40rem 28rem at 72% -12%, rgba(255,176,210,.10), transparent 60%),
+      radial-gradient(34rem 24rem at 6% 110%, rgba(56,189,248,.08), transparent 60%);
+    animation: drift 26s ease-in-out infinite alternate; will-change: transform; }
+  @keyframes drift { from { transform: translateX(-2%); opacity: .8; } to { transform: translateX(2%) translateY(1.4%); opacity: 1; } }
+
+  /* ── shell grid ── */
+  .deck { position: relative; z-index: 10; display: grid;
+    grid-template-columns: 232px 1fr; grid-template-rows: 52px 1fr 40px;
+    height: 100vh; }
+  .deck.rail { grid-template-columns: 60px 1fr; }
+
+  /* ── sidebar ── */
+  aside { grid-row: 1 / span 3; background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: .7rem .6rem; overflow: hidden; }
+  .brand { display: flex; align-items: center; gap: .5rem; padding: .3rem .5rem .8rem; }
+  .brand .logo { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--ink); }
+  .brand b { font-size: 1rem; letter-spacing: .14em; }
+  .brand .col { display: flex; flex-direction: column; line-height: 1.05; }
+  .brand small { color: var(--muted); font-size: .58rem; letter-spacing: .06em; }
+  .collapse { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: .25rem .35rem; border-radius: 8px; font-size: .9rem; }
+  .collapse:hover { color: var(--text); background: var(--raised); }
+  .grouplabel { color: var(--muted); font-size: .62rem; letter-spacing: .16em; text-transform: uppercase;
+    padding: .9rem .6rem .35rem; }
+  .nav { display: flex; flex-direction: column; gap: .12rem; }
+  .nav button { display: flex; align-items: center; gap: .6rem; width: 100%; padding: .48rem .6rem;
+    border-radius: 10px; color: var(--muted); background: none; border: 1px solid transparent;
+    cursor: pointer; font: inherit; text-align: left; position: relative;
+    transition: color .15s, background .15s, border-color .15s; }
+  .nav button:hover { color: var(--text); background: var(--raised); border-color: rgba(56,189,248,.3); }
+  .nav button.active { color: var(--text); background: rgba(255,143,192,.14);
+    border-color: rgba(255,143,192,.28); }
+  .nav button.active::before { content: ''; position: absolute; left: -2px; top: 7px; bottom: 7px;
+    width: 3px; border-radius: 3px; background: var(--accent); }
+  .nav button.active .gi { color: var(--accent-hover); }
+  .nav .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav .badge { font-family: var(--mono); font-size: .64rem; min-width: 16px; height: 16px;
+    padding: 0 4px; border-radius: 999px; display: grid; place-items: center;
+    background: rgba(255,143,192,.2); color: var(--accent-soft); }
+  .nav .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .nav .cdot.off { background: var(--red); }
+  .divider { height: 1px; background: var(--border); margin: .55rem .4rem; }
   .spacer { flex: 1; }
-  .sidefoot { color: var(--muted); font-size: .68rem; padding: .8rem .4rem 0;
-    border-top: 1px solid var(--border); }
+  .deck.rail .lbl, .deck.rail .grouplabel, .deck.rail .brand .col, .deck.rail .badge { display: none; }
+  .deck.rail .nav button { justify-content: center; }
+  .deck.rail .brand { justify-content: center; }
 
-  /* ── Stage ── */
-  main { padding: 1.6rem 1.8rem; overflow-y: auto; }
-  .hero {
-    background: linear-gradient(rgba(255,143,192,.10), rgba(255,143,192,.10)), var(--glass);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 1px solid rgba(255,143,192,.16); border-radius: 18px; padding: 1.4rem 1.5rem;
-    box-shadow: inset 0 1px 0 0 rgba(255,255,255,.08), 0 18px 50px -28px rgba(0,0,0,.8); margin-bottom: 1.3rem;
-  }
-  .hero h1 { margin: 0 0 .2rem; font-size: 1.45rem; font-weight: 700; letter-spacing: -.01em; }
-  .hero p { margin: 0; color: var(--muted); font-size: .85rem; }
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; margin-top: 1.1rem; }
-  .stat {
-    background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: .75rem .9rem;
-  }
-  .stat .label { display: block; color: var(--muted); font-size: .62rem; letter-spacing: .12em; text-transform: uppercase; }
-  .stat .value { font-family: var(--mono); font-size: 1.4rem; font-weight: 600; }
+  /* ── top bar ── */
+  .topbar { grid-column: 2; display: flex; align-items: center; gap: .8rem;
+    padding: 0 1.1rem; background: rgba(36,22,64,.5);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    border-bottom: 1px solid var(--border); }
+  .topbar .title { display: flex; align-items: center; gap: .45rem; font-weight: 600; font-size: .95rem; }
+  .topbar .crumb { color: var(--muted); font-size: .82rem; }
+  .topbar .crumb .sep { opacity: .6; margin: 0 .2rem; }
+  .askk { margin-left: auto; display: flex; align-items: center; gap: .55rem; min-width: 320px;
+    background: var(--raised); border: 1px solid var(--border); border-radius: 11px;
+    padding: .4rem .7rem; color: var(--muted); cursor: pointer; font: inherit;
+    transition: border-color .15s, box-shadow .15s; }
+  .askk:hover { border-color: var(--accent-hover); }
+  .askk .kbd { margin-left: auto; font-family: var(--mono); font-size: .66rem; color: var(--text);
+    background: rgba(56,189,248,.16); border-radius: 6px; padding: 1px 6px; }
+  .conn { display: inline-flex; align-items: center; gap: .4rem; font-size: .76rem; cursor: pointer;
+    padding: .3rem .55rem; border-radius: 999px; border: 1px solid var(--border); }
+  .conn .d { width: 8px; height: 8px; border-radius: 50%; }
+  .conn.live { color: var(--green); } .conn.live .d { background: var(--green); animation: pulse 2s infinite; }
+  .conn.connecting { color: var(--amber); } .conn.connecting .d { background: var(--amber); animation: pulse 1s infinite; }
+  .conn.offline { color: var(--red); } .conn.offline .d { background: var(--red); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
-  .panel {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-    padding: 1.1rem 1.2rem; margin-bottom: 1.1rem;
-  }
-  .panel h2 { margin: 0 0 .8rem; font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
-  .row { display: flex; align-items: center; gap: .7rem; padding: .55rem .2rem; border-bottom: 1px solid var(--border); font-size: .82rem; }
-  .row:last-child { border-bottom: none; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .dot.green { background: var(--green); } .dot.amber { background: var(--amber); }
-  .dot.accent { background: var(--accent); box-shadow: 0 0 0 3px rgba(255,143,192,.2); }
-  .row .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .row .meta { color: var(--muted); font-size: .72rem; }
+  /* ── stage ── */
+  main { grid-column: 2; overflow-y: auto; padding: 1.3rem 1.5rem 2rem; position: relative; }
+  .screen { display: none; }
+  .screen.active { display: block; animation: rise .22s ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  /* signed-out: login is full-bleed — the authed shell (sidebar / topbar / strip) is hidden */
+  .deck.authmode { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  .deck.authmode aside, .deck.authmode .topbar, .deck.authmode .strip { display: none; }
+  .deck.authmode main { grid-column: 1; grid-row: 1; display: grid; place-items: center; }
+  .deck.authmode .dialog-wrap { margin: 0; }
+  h1.page { margin: 0 0 .15rem; font-size: 1.35rem; font-weight: 700; letter-spacing: -.01em; }
+  .sub { color: var(--muted); margin: 0 0 1.1rem; font-size: .85rem; }
+  .rowhead { display: flex; align-items: center; gap: .6rem; margin: 0 0 1rem; }
+  .rowhead h1 { margin: 0; }
+  .rowhead .right { margin-left: auto; display: flex; gap: .5rem; align-items: center; }
 
-  .cmd { display: flex; gap: .6rem; margin-top: .2rem; }
-  .cmd input {
-    flex: 1; background: var(--raised); border: 1px solid var(--border); border-radius: 9px;
-    color: var(--text); font: inherit; font-size: .85rem; padding: .6rem .8rem; outline: none;
-    transition: border-color .15s, box-shadow .15s;
+  /* ── surfaces ── */
+  .glass { background: var(--glass-bg); border: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+    box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 14px 44px -24px rgba(0,0,0,.7); }
+  .glass-tint-warm { border: 1px solid var(--border-warm);
+    background: linear-gradient(135deg, rgba(255,176,210,.12), rgba(255,217,168,.06)), var(--glass-bg);
+    -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+    box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 18px 50px -26px rgba(0,0,0,.75); }
+  .glass-strong { background: rgba(36,22,64,.86); border: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: blur(32px) saturate(190%); backdrop-filter: blur(32px) saturate(190%);
+    box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 28px 64px -24px rgba(0,0,0,.8); }
+  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .glass, .glass-tint-warm { background: var(--raised); border-color: var(--border); }
+    .glass-strong { background: var(--surface); }
   }
-  .cmd input:focus { border-color: var(--accent-hover); box-shadow: 0 0 0 3px rgba(56,189,248,.22); }
-  .cmd button {
-    /* dark text on the light blush pill — white-on-blush fails WCAG AA (2.1:1) */
-    background: var(--accent); color: #1a0f2e; border: none; border-radius: 11px; cursor: pointer;
-    font: inherit; font-weight: 700; font-size: .82rem; padding: 0 1.1rem;
-    transition: background .15s, opacity .15s;
-  }
-  .cmd button:hover { background: var(--accent-hover); }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1rem 1.1rem; margin-bottom: 1rem; }
+  .panel.warm { background: var(--surface-warm); border-color: var(--border-warm); }
+  .panel h2 { margin: 0 0 .75rem; font-size: .68rem; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--muted); display: flex; align-items: center; gap: .4rem; }
+  .panel h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1rem; transition: transform .15s, border-color .15s, box-shadow .15s; }
+  .card.lift:hover { transform: translateY(-2px); border-color: rgba(56,189,248,.45);
+    box-shadow: 0 12px 32px -16px rgba(56,189,248,.4); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  .split { display: grid; grid-template-columns: 1.5fr 1fr; gap: 1rem; align-items: start; }
+  .split.wide { grid-template-columns: 1fr 1fr; }
+  .stack > * + * { margin-top: .55rem; }
 
-  /* ── Activity strip ── */
-  footer {
-    grid-column: 2; background: var(--surface); border-top: 1px solid var(--border);
-    padding: .6rem 1.2rem; display: flex; align-items: center; gap: 1rem; font-size: .74rem; color: var(--muted);
-  }
-  footer .pulse { display: inline-flex; align-items: center; gap: .45rem; }
-  footer .pulse .dot { animation: pulse 1.8s ease-in-out infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
-  footer .clock { margin-left: auto; }
+  /* ── hero / greeting ── */
+  .hero { border-radius: var(--radius-lg); padding: 1.35rem 1.6rem 1.2rem; margin-bottom: 1.1rem; }
+  .greeting { font-size: 1.7rem; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+  .greeting .glow { background: linear-gradient(90deg, var(--warm-glow), var(--accent-soft));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    border-bottom: 2px solid var(--warm-glow); animation: sparkle 3s ease-in-out infinite; }
+  @keyframes sparkle { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.18); } }
+  .hero .lead { color: var(--muted); margin: .25rem 0 1.1rem; font-size: .92rem; }
+  .composer { display: flex; align-items: center; gap: .6rem; background: var(--raised);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: .55rem .7rem; }
+  .composer:focus-within { border-color: var(--accent-hover); box-shadow: 0 0 0 3px rgba(56,189,248,.22); }
+  .composer .gi { color: var(--accent-soft); }
+  .composer input { flex: 1; background: none; border: none; outline: none; color: var(--text);
+    font: inherit; font-size: .9rem; }
+  .composer .picker { font-family: var(--mono); font-size: .72rem; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .2rem .5rem; cursor: pointer; }
+  .composer-actions { display: flex; align-items: center; gap: .6rem; margin-top: .7rem; flex-wrap: wrap; }
+  .composer .micbtn { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--accent-soft); cursor: pointer; flex-shrink: 0;
+    transition: border-color .15s, color .15s, background .15s; }
+  .composer .micbtn:hover { border-color: var(--accent-hover); color: var(--accent-hover); }
+  .composer .micbtn .gi { color: inherit; }
+  .composer .micbtn.rec { color: var(--ink); background: var(--accent); border-color: var(--accent); animation: live 2s ease-out infinite; }
 
+  /* ── buttons ── */
+  .btn { display: inline-flex; align-items: center; gap: .4rem; font: inherit; font-size: .8rem;
+    font-weight: 600; padding: .42rem .8rem; border-radius: 10px; cursor: pointer;
+    border: 1px solid transparent; transition: background .15s, border-color .15s, color .15s, opacity .15s; }
+  .btn.primary { background: var(--accent); color: var(--ink); }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.secondary { background: var(--raised); color: var(--text); border-color: var(--border); }
+  .btn.secondary:hover { border-color: var(--accent-hover); }
+  .btn.ghost { background: none; color: var(--muted); }
+  .btn.ghost:hover { color: var(--text); background: var(--raised); }
+  .btn.danger { background: none; color: var(--red); border-color: rgba(248,113,113,.5); }
+  .btn.danger:hover { background: var(--red); color: var(--ink); }
+  .btn.sky { background: none; color: var(--accent-hover); border-color: rgba(56,189,248,.5); }
+  .btn.sky:hover { background: rgba(56,189,248,.16); }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .btn.sm { padding: .28rem .55rem; font-size: .72rem; }
+
+  /* ── pills / dots / bars ── */
+  .pill { display: inline-flex; align-items: center; gap: .35rem; font-size: .68rem; font-weight: 600;
+    padding: .15rem .55rem; border-radius: var(--radius-pill); border: 1px solid currentColor; }
+  .pill .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.running { color: var(--accent); } .pill.running .d { box-shadow: 0 0 0 0 rgba(255,143,192,.5);
+    animation: live 2.2s ease-out infinite; }
+  .pill.done { color: var(--green); } .pill.queued { color: var(--amber); }
+  .pill.error { color: var(--red); } .pill.killed { color: var(--muted); }
+  /* health bands (consistent app-wide): Healthy >=80 · Watch 50-79 · At-risk <50 */
+  .pill.healthy { color: var(--green); } .pill.watch { color: var(--amber); } .pill.risk { color: var(--red); }
+  .bar.healthy > span { background: var(--green); } .bar.watch > span { background: var(--amber); }
+  .bar.risk > span { background: var(--red); }
+  .bar.data > span { background: var(--accent-hover); }  /* calm sky for analytic volume/spend bars */
+  @keyframes live { 0% { box-shadow: 0 0 0 0 rgba(255,143,192,.5); } 70% { box-shadow: 0 0 0 5px rgba(255,143,192,0); } 100% { box-shadow: 0 0 0 0 rgba(255,143,192,0); } }
+  .ldot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .fe { color: var(--lead-fe); } .be { color: var(--lead-be); } .sys { color: var(--lead-sys); }
+  .sec { color: var(--lead-sec); } .net { color: var(--lead-net); }
+  .ldot.fe { background: var(--lead-fe); } .ldot.be { background: var(--lead-be); }
+  .ldot.sys { background: var(--lead-sys); } .ldot.sec { background: var(--lead-sec); } .ldot.net { background: var(--lead-net); }
+  .bar { height: 7px; border-radius: 999px; background: var(--raised); overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-hover)); }
+  .kv { display: flex; gap: .5rem; align-items: baseline; }
+  .kv .v { font-family: var(--mono); font-weight: 600; }
+  .tier-chip { font-size: .64rem; font-family: var(--mono); padding: .1rem .45rem; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); }
+
+  /* ── work-item (ONE model, every scope: personal / org / project) ── */
+  .witem { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: .5rem .6rem; }
+  .witem + .witem { margin-top: .45rem; }
+  .witem-top { display: flex; align-items: center; gap: .55rem; font-size: .82rem; }
+  .witem-top .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .witem .bar { margin: .4rem 0; }
+
+  /* ── inline routing preview (the K composer shows its route BEFORE send) ── */
+  .routeline { display: flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: .74rem;
+    color: var(--accent-soft); margin-top: .55rem; }
+  .routeline .seg-sep { color: var(--muted); }
+  .adv { display: flex; align-items: center; gap: .55rem; font-size: .74rem; color: var(--muted);
+    margin-top: .5rem; flex-wrap: wrap; }
+  .adv select { background: var(--raised); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font: inherit; font-size: .72rem; padding: .12rem .4rem; }
+  .glance a { font-weight: 600; }
+
+  /* ── rows / lists ── */
+  .list .row { display: flex; align-items: center; gap: .6rem; padding: .5rem .15rem;
+    border-bottom: 1px solid var(--border); font-size: .82rem; }
+  .list .row:last-child { border-bottom: none; }
+  .list .row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list .row .meta { color: var(--muted); font-size: .72rem; font-family: var(--mono); }
+  .selrow { cursor: pointer; border-radius: 8px; }
+  .selrow:hover { background: var(--raised); }
+  .selrow.sel { background: rgba(56,189,248,.12); border-color: rgba(56,189,248,.4); }
+
+  /* ── stats ── */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem; }
+  .stat { background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: .45rem .65rem; display: flex; align-items: baseline; gap: .5rem; justify-content: space-between; }
+  .stat .label { color: var(--muted); font-size: .58rem; letter-spacing: .1em; text-transform: uppercase; }
+  .stat .value { font-family: var(--mono); font-size: 1.05rem; font-weight: 600; }
+
+  /* ── tree ── */
+  .tree { font-size: .82rem; }
+  .tnode { margin: 0; }
+  .tnode-row { display: flex; align-items: center; gap: .45rem; padding: .35rem .4rem; border-radius: 8px;
+    cursor: pointer; border: 1px solid transparent; }
+  .tnode-row:hover { background: var(--raised); }
+  .tnode-row.sel { background: rgba(56,189,248,.12); border-color: rgba(56,189,248,.4); }
+  .tnode .kids { margin-left: 1rem; padding-left: .5rem; border-left: 1px solid var(--border);
+    display: none; }
+  .tnode.open > .kids { display: block; }
+  .tnode-row .caret { width: 1em; color: var(--muted); transition: transform .15s; }
+  .tnode.open > .tnode-row .caret { transform: rotate(90deg); }
+
+  /* ── editor ── */
+  .editor { width: 100%; min-height: 160px; resize: vertical; background: var(--bg-deep);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);
+    font-family: var(--mono); font-size: .8rem; line-height: 1.6; padding: .7rem .8rem; outline: none; }
+  .editor:focus { border-color: var(--accent-hover); box-shadow: 0 0 0 3px rgba(56,189,248,.2); }
+  .dirty { color: var(--amber); font-size: .72rem; }
+  .tabbar { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin-bottom: .9rem;
+    flex-wrap: wrap; }
+  .tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted);
+    font: inherit; font-size: .8rem; padding: .45rem .7rem; cursor: pointer; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  [data-tabpanel] { display: none; }
+  [data-tabpanel].active { display: block; }
+
+  /* ── toggles (tools grid) ── */
+  .toggle { display: inline-flex; width: 34px; height: 19px; border-radius: 999px; background: var(--raised);
+    border: 1px solid var(--border); position: relative; cursor: pointer; flex-shrink: 0; }
+  .toggle::after { content: ''; position: absolute; top: 1px; left: 1px; width: 15px; height: 15px;
+    border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+  .toggle.on { background: rgba(56,189,248,.25); border-color: var(--accent-hover); }
+  .toggle.on::after { transform: translateX(15px); background: var(--accent-hover); }
+
+  /* ── radios (authority) ── */
+  .radio { display: flex; gap: .6rem; align-items: flex-start; padding: .5rem .6rem; border-radius: 10px;
+    border: 1px solid var(--border); margin-bottom: .4rem; cursor: pointer; }
+  .radio:hover { border-color: var(--accent-hover); }
+  .radio.on { border-color: var(--accent); background: rgba(255,143,192,.1); }
+  .radio .knob { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--muted); margin-top: 2px; flex-shrink: 0; }
+  .radio.on .knob { border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--accent); }
+  .radio .t { font-weight: 600; } .radio .desc { color: var(--muted); font-size: .76rem; }
+
+  /* ── connection banners (terminal/graph/kg) ── */
+  .banner { display: flex; align-items: center; gap: .5rem; padding: .55rem .8rem; border-radius: 10px;
+    font-size: .82rem; margin-bottom: .55rem; border: 1px solid var(--border); }
+  .banner.connecting { color: var(--amber); border-color: rgba(251,191,36,.4); background: rgba(251,191,36,.08); }
+  .banner.disabled { color: var(--muted); border-color: var(--border); background: var(--surface); }
+  .banner.connected { color: var(--green); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.08); }
+  .banner.error { color: var(--red); border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.08); }
+  .term { background: var(--bg-deep); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-family: var(--mono); font-size: .8rem; padding: .9rem 1rem; min-height: 220px; color: var(--green); }
+  .caret-blink { animation: blink 1.1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ── console ── */
+  .console { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; }
+  .console .chead { display: flex; align-items: center; gap: .6rem; padding: .6rem .8rem;
+    border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { background: var(--surface); border: none; color: var(--muted); font: inherit; font-size: .72rem;
+    padding: .25rem .6rem; cursor: pointer; }
+  .seg button.active { background: var(--raised); color: var(--text); }
+  .ctx { flex: 1; max-width: 220px; display: flex; align-items: center; gap: .4rem; font-size: .7rem; color: var(--muted); }
+  .ctx .bar { flex: 1; }
+  .ctx .bar.warn > span { background: var(--amber); } .ctx .bar.hot > span { background: var(--red); }
+  .event { padding: .5rem .8rem; border-bottom: 1px solid var(--border); font-size: .8rem; }
+  .event .cmdline { font-family: var(--mono); display: flex; align-items: center; gap: .5rem; }
+  .diff { font-family: var(--mono); font-size: .74rem; background: var(--bg-deep); border-radius: 8px;
+    margin-top: .4rem; padding: .5rem .7rem; border: 1px solid var(--border); }
+  .diff .add { color: var(--green); } .diff .del { color: var(--red); }
+  .hitl { background: rgba(56,189,248,.08); border: 1px solid rgba(56,189,248,.35); border-radius: 10px;
+    padding: .6rem .8rem; margin: .6rem .8rem; }
+  .hitl input { background: var(--raised); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    font: inherit; padding: .35rem .55rem; width: 60%; outline: none; }
+
+  /* ── empty state (kept: project-workspace KG / runs placeholders) ── */
+  .empty { text-align: center; color: var(--muted); padding: 2rem 1rem; }
+  .empty .gi { width: 1.6em; height: 1.6em; opacity: .7; margin-bottom: .4rem; }
+
+  /* ── stage composition: cap + center the content, fill vertical so short
+       screens read complete rather than crammed over a void ── */
+  .screen { max-width: 1240px; margin-inline: auto; }
+  .fill { min-height: calc(100vh - 300px); }
+  .split.balance, .grid2.balance { align-items: stretch; }
+  .split.balance > * , .grid2.balance > * { display: flex; flex-direction: column; }
+  .split.balance > * > .panel, .grid2.balance > * > .panel { flex: 1; }
+  /* let a flagged panel's primary region grow to consume its own height */
+  .panel.col { display: flex; flex-direction: column; }
+  .panel.col > .grow-area { flex: 1; }
+  .console.col { display: flex; flex-direction: column; }
+  .console.col > .pin-bottom { margin-top: auto; }
+  /* stretch a card grid to fill, pinning each card's action row to its base */
+  .cards { grid-auto-rows: 1fr; }
+  .cards > .card { display: flex; flex-direction: column; }
+  .cards > .card > .kv:last-child { margin-top: auto; }
+
+  /* ── shared vertical rhythm (replaces ad-hoc inline margins) ── */
+  .vstack > * + * { margin-top: .55rem; }
+  .vstack-sm > * + * { margin-top: .35rem; }
+  .pcard .acts { margin-top: auto; padding-top: .2rem; }
+
+  /* ── segmented control (Projects: Cards | Graph) ── */
+  .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    overflow: hidden; background: var(--surface); }
+  .segmented button { background: none; border: none; color: var(--muted); font: inherit; font-size: .76rem;
+    font-weight: 600; padding: .34rem .8rem; cursor: pointer; display: inline-flex; align-items: center; gap: .35rem;
+    transition: color .15s, background .15s; }
+  .segmented button + button { border-left: 1px solid var(--border); }
+  .segmented button:hover { color: var(--text); }
+  .segmented button.active { color: var(--ink); background: var(--accent); }
+
+  /* ── health derivation (discoverable breakdown via native <details>) ── */
+  .hbreak { border-top: 1px solid var(--border); margin-top: .55rem; padding-top: .5rem; }
+  .hbreak[open] { }
+  .hbreak summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: .4rem;
+    font-size: .72rem; color: var(--muted); user-select: none; }
+  .hbreak summary::-webkit-details-marker { display: none; }
+  .hbreak summary .chev { transition: transform .15s; color: var(--muted); }
+  .hbreak[open] summary .chev { transform: rotate(90deg); }
+  .hbreak summary:hover { color: var(--text); }
+  .hbreak .factors { margin-top: .45rem; display: flex; flex-direction: column; gap: .28rem; font-size: .72rem; }
+  .hbreak .frow { display: flex; align-items: center; gap: .5rem; }
+  .hbreak .frow .grow { flex: 1; color: var(--muted); }
+  .hbreak .frow .delta { font-family: var(--mono); }
+  .hbreak .frow .delta.neg { color: var(--red); } .hbreak .frow .delta.pos { color: var(--green); }
+  .hbreak .frow .delta.zero { color: var(--muted); }
+  .rubric { font-size: .72rem; color: var(--muted); }
+  .rubric summary { cursor: pointer; display: inline-flex; align-items: center; gap: .35rem; list-style: none;
+    color: var(--accent-hover); font-weight: 600; }
+  .rubric summary::-webkit-details-marker { display: none; }
+  .rubric .body { margin-top: .5rem; line-height: 1.7; }
+  .rubric .band-key { display: inline-flex; align-items: center; gap: .3rem; margin-right: .7rem; }
+  .info-q { width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--muted); color: var(--muted);
+    font-size: .62rem; font-weight: 700; display: inline-grid; place-items: center; cursor: help; flex-shrink: 0; }
+
+  /* ── workflow pipeline (designed diagram, replaces text-arrow stack) ── */
+  .pipeline { display: flex; flex-direction: column; align-items: center; padding: .4rem 0; }
+  .pnode { width: 210px; max-width: 100%; display: flex; align-items: center; gap: .5rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: .5rem .7rem; }
+  .pnode .role { font-weight: 600; flex: 1; }
+  .pnode .pt { font-family: var(--mono); font-size: .62rem; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: .05rem .4rem; }
+  .pnode .pdot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .pnode.sel { border-color: var(--accent); background: rgba(255,143,192,.1); box-shadow: 0 0 0 3px rgba(255,143,192,.12); }
+  .pnode.sel .pdot { background: var(--accent); }
+  .pconn { width: 2px; height: 20px; background: linear-gradient(var(--border), var(--accent-hover)); position: relative; }
+  .pconn::after { content: ''; position: absolute; left: 50%; bottom: -1px; transform: translateX(-50%);
+    border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--accent-hover); }
+  /* detail variant: wider nodes that carry a one-line role purpose, so the
+     pipeline uses the panel width instead of floating as a narrow column */
+  .pipeline.detail .pnode { width: 360px; align-items: flex-start; }
+  .pipeline.detail .pnode .pdot { margin-top: .34rem; }
+  .pipeline.detail .pcol { flex: 1; display: flex; flex-direction: column; gap: .08rem; min-width: 0; }
+  .pipeline.detail .pcol .role { flex: none; }
+  .pipeline.detail .psub { font-size: .68rem; font-weight: 400; color: var(--muted); }
+
+  /* ── metrics dashboard (dense responsive chart grid, equal-height cards) ── */
+  .mgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: .8rem;
+    grid-auto-rows: 1fr; }
+  .mcard { display: flex; flex-direction: column; }
+  .mcard h2 { margin: 0 0 .55rem; }
+  .mcard .chart { width: 100%; height: auto; display: block; margin: auto 0; }
+  .mcard .mlist { margin: .1rem 0 auto; }
+  .mcard .big { font-family: var(--mono); font-size: 1.5rem; font-weight: 600; }
+  .mcard .legend { display: flex; gap: .8rem; flex-wrap: wrap; font-size: .7rem; color: var(--muted); margin-top: .5rem; }
+  .mcard .legend .lk { display: inline-flex; align-items: center; gap: .3rem; }
+  .mcard .legend .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .gridline { stroke: #2a1f48; stroke-width: 1; } .axis { stroke: #3a2a5c; stroke-width: 1; }
+  .axlabel { fill: var(--muted); font-size: 9px; font-family: var(--mono); }
+
+  /* ── orchestrators: slim roster cards + recent-dispatches panel ── */
+  .och-card { padding: .8rem .85rem; }
+  .och-card .charter { margin: .35rem 0 .6rem; font-size: .76rem; }
+  .och-card .health { font-size: .74rem; gap: .45rem; }
+  .och-card .acts { margin-top: auto; gap: .4rem; }
+  .och-status { margin-left: auto; }
+
+  /* ── orchestrator-detail: editor + right column grow to fill (no bottom void) ── */
+  .od-left > [data-tabpanel].active { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .od-left > [data-tabpanel].active > .editor { flex: 1; min-height: 0; }
+  .od-right { display: flex; flex-direction: column; }
+  .od-recent { margin-top: auto; padding-top: .7rem; }
+  .od-recent h2 { margin: .2rem 0 .5rem; }
+  [data-view="orchestrator-detail"] .split.fill { min-height: calc(100vh - 232px); }
+
+  /* ── activity strip ── */
+  .strip { grid-column: 2; display: flex; align-items: center; gap: 1rem; padding: 0 1.1rem; font-size: .72rem;
+    color: var(--muted); border-top: 1px solid var(--glass-border);
+    background: var(--glass-bg); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); will-change: transform; }
+  .strip .seg-lead { display: inline-flex; align-items: center; gap: .35rem; }
+  .strip .clock { font-family: var(--mono); }
+  .strip .right { margin-left: auto; display: flex; align-items: center; gap: .9rem; }
+
+  /* ── overlays ── */
+  .overlay { position: fixed; inset: 0; z-index: 50; display: none; }
+  .overlay.show { display: block; }
+  .scrim { position: absolute; inset: 0; background: rgba(8,4,18,.6); }
+  .cmd-wrap { position: relative; max-width: 640px; margin: 7rem auto 0; }
+  .cmdbar { border-radius: var(--radius-lg); overflow: hidden; box-shadow: 0 0 0 1px var(--accent-hover), 0 24px 60px -20px rgba(0,0,0,.8); }
+  .cmd-input { display: flex; align-items: center; gap: .6rem; padding: .9rem 1rem; border-bottom: 1px solid var(--glass-border); }
+  .cmd-input input { flex: 1; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: 1rem; }
+  .cmd-input .scope { font-family: var(--mono); font-size: .72rem; color: var(--accent-soft);
+    border: 1px solid var(--border); border-radius: 8px; padding: .15rem .5rem; }
+  .cmd-results { max-height: 320px; overflow-y: auto; }
+  .cmd-row { display: flex; align-items: center; gap: .6rem; padding: .6rem 1rem; cursor: pointer; font-size: .85rem; }
+  .cmd-row:hover, .cmd-row.hi { background: rgba(56,189,248,.12); }
+  .cmd-row .k { margin-left: auto; font-family: var(--mono); font-size: .68rem; color: var(--muted); }
+  .cmd-row.dispatch .gi { color: var(--accent); }
+  .cmd-foot { display: flex; align-items: center; gap: .8rem; padding: .6rem 1rem; border-top: 1px solid var(--glass-border);
+    font-size: .72rem; color: var(--muted); }
+  .modepill { font-family: var(--mono); font-size: .7rem; padding: .2rem .55rem; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--accent-hover); cursor: pointer; }
+  .modepill.disp { color: var(--ink); background: var(--accent); border-color: var(--accent); }
+  .check { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+  .check .box { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--muted); }
+  .check.on .box { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+  .dialog-wrap { position: relative; max-width: 460px; margin: 9rem auto 0; }
+  .dialog { border-radius: var(--radius-lg); padding: 1.2rem 1.3rem; }
+  .dialog h3 { margin: 0 0 .5rem; display: flex; align-items: center; gap: .5rem; font-size: 1rem; }
+  .dialog .fields { background: var(--bg-deep); border: 1px solid var(--border); border-radius: 10px;
+    padding: .6rem .8rem; margin: .7rem 0; font-size: .8rem; }
+  .dialog .fields label { display: block; color: var(--muted); font-size: .68rem; margin: .4rem 0 .15rem; }
+  .dialog .fields input, .dialog .fields textarea, .dialog .fields select { width: 100%; background: var(--raised);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text); font: inherit; padding: .35rem .5rem; outline: none; }
+  .dialog .actions { display: flex; gap: .6rem; margin-top: 1rem; }
+  .dialog .actions .grow { flex: 1; }
+
+  /* ── toasts ── */
+  .toasts { position: fixed; right: 1.1rem; bottom: 3.3rem; z-index: 60; display: flex; flex-direction: column;
+    gap: .5rem; align-items: flex-end; }
+  .toast { display: flex; align-items: center; gap: .55rem; padding: .6rem .8rem; border-radius: 12px; font-size: .82rem;
+    border: 1px solid var(--glass-border); background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); animation: rise .2s ease-out; max-width: 360px; }
+  .toast.out { opacity: 0; transform: translateY(6px); transition: .3s; }
+  .toast.success { color: var(--green); } .toast.error { color: var(--red); } .toast.info { color: var(--accent-hover); }
+  .toast .toast-link { margin-left: .4rem; background: none; border: none; color: var(--accent-hover);
+    font: inherit; font-weight: 600; cursor: pointer; }
+  .toast span { color: var(--text); }
+
+  a, .link { color: var(--accent-hover); text-decoration: none; cursor: pointer; }
   :focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; border-radius: 6px; }
-  @media (prefers-reduced-motion: reduce) { footer .pulse .dot { animation: none; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ambient, .greeting .glow, .pill.running .d, .conn .d, .caret-blink, .skel { animation: none !important; }
+    * { transition-duration: .01ms !important; }
+  }
+  @media (max-width: 1024px) { .deck { grid-template-columns: 60px 1fr; } .lbl, .grouplabel, .brand .col, .badge { display: none; } }
   @media (max-width: 720px) {
-    .deck { grid-template-columns: 1fr; }
+    .deck { grid-template-columns: 1fr; grid-template-rows: 52px 1fr 40px; }
     aside { display: none; }
-    footer { grid-column: 1; }
-    .stats { grid-template-columns: 1fr; }
+    .topbar, main, .strip { grid-column: 1; }
+    .grid2, .grid3, .split, .stats { grid-template-columns: 1fr; }
+    .askk { min-width: 0; }
   }
 </style>
 </head>
 <body>
-<div class="deck">
+<div class="ambient"></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5 10v9h14v-9"/></symbol>
+  <symbol id="i-crown" viewBox="0 0 24 24"><path d="M4 18h16"/><path d="M4 18 5 8l4 4 3-6 3 6 4-4 1 10"/></symbol>
+  <symbol id="i-net" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8.2 11 15.8 7"/><path d="M8.2 13 15.8 17"/></symbol>
+  <symbol id="i-flow" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="12" r="2.2"/><path d="M6 8.2v7.6"/><path d="M8.2 6h4.4a3 3 0 0 1 3 3v.8"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><path d="M4 4h7v7H4z"/><path d="M13 4h7v7h-7z"/><path d="M4 13h7v7H4z"/><path d="M13 13h7v7h-7z"/></symbol>
+  <symbol id="i-runs" viewBox="0 0 24 24"><path d="M7 5 19 12 7 19z"/></symbol>
+  <symbol id="i-graph" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="17" cy="18" r="2.2"/><path d="M8 11 16 7"/><path d="M8 13 15 17"/></symbol>
+  <symbol id="i-metrics" viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><path d="M16 4h4v4"/><path d="M20 4 4 20"/><path d="M4 5l5 5"/><path d="M16 20h4v-4"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3"/><path d="M13 15h4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.6 2.2c-1 .6-1.6 1.2-1.6 2.3"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13h6l-1 8 8-11h-6z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 22 19H2z"/><path d="M12 10v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><path d="M8 4h8l4 4v8l-4 4H8l-4-4V8z"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-11"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M9 15 15 9"/><path d="M10 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M14 18l-1 1a4 4 0 0 1-6-6l1-1"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></symbol>
+  <symbol id="i-idea" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.3 1 2.5h6c0-1.2.3-1.8 1-2.5A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M8.5 21h7"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v11"/><path d="M8 10l4 4 4-4"/><path d="M5 20h14"/></symbol>
+</svg>
+
+<div class="deck" id="deck">
   <aside>
-    <div class="brand"><b>K</b><span>command deck</span></div>
+    <div class="brand">
+      <span class="logo"><svg class="gi" style="stroke-width:2"><use href="#i-bolt"></use></svg></span>
+      <span class="col"><b>K</b><small>agentic org</small></span>
+      <button class="collapse" data-action="rail" title="Collapse sidebar" aria-label="Collapse sidebar">«</button>
+    </div>
+
+    <div class="grouplabel">Direct</div>
     <nav class="nav" id="nav">
-      <button class="active" data-view="overview"><span class="ico">◆</span> Overview</button>
-      <button data-view="runs"><span class="ico">▸</span> Runs</button>
-      <button data-view="graph"><span class="ico">⬡</span> Knowledge Graph</button>
-      <button data-view="bible"><span class="ico">§</span> Bible</button>
+      <button data-action="route" data-arg="k-home"><svg class="gi"><use href="#i-home"></use></svg><span class="lbl">K</span></button>
+      <button data-action="route" data-arg="chief"><svg class="gi"><use href="#i-crown"></use></svg><span class="lbl">Chief</span></button>
+      <button data-action="route" data-arg="orchestrators"><svg class="gi"><use href="#i-net"></use></svg><span class="lbl">Orchestrators</span></button>
+      <button data-action="route" data-arg="workflows"><svg class="gi"><use href="#i-flow"></use></svg><span class="lbl">Workflows</span></button>
+      <button data-action="route" data-arg="projects"><svg class="gi"><use href="#i-grid"></use></svg><span class="lbl">Projects</span></button>
     </nav>
+
+    <div class="grouplabel">Observe</div>
+    <nav class="nav">
+      <button data-action="route" data-arg="runs"><svg class="gi"><use href="#i-runs"></use></svg><span class="lbl">Runs</span><span class="badge">2</span></button>
+      <button data-action="route" data-arg="metrics"><svg class="gi"><use href="#i-metrics"></use></svg><span class="lbl">Metrics</span></button>
+      <button data-action="route" data-arg="routing"><svg class="gi"><use href="#i-route"></use></svg><span class="lbl">Routing</span></button>
+      <button data-action="route" data-arg="terminal"><svg class="gi"><use href="#i-term"></use></svg><span class="lbl">Terminal</span><span class="cdot off" title="terminal disabled"></span></button>
+    </nav>
+
     <div class="spacer"></div>
-    <div class="sidefoot mono">demo · offline<br>hybrid-glass</div>
+    <div class="divider"></div>
+    <nav class="nav">
+      <button data-action="route" data-arg="settings"><svg class="gi"><use href="#i-settings"></use></svg><span class="lbl">Settings</span></button>
+      <button data-action="route" data-arg="help"><svg class="gi"><use href="#i-help"></use></svg><span class="lbl">Help</span></button>
+    </nav>
   </aside>
 
-  <main>
-    <section class="hero">
-      <h1 id="heroTitle">Overview</h1>
-      <p id="heroSub">A self-contained mock of the K Command Deck — fully interactive, zero network.</p>
-      <div class="stats">
-        <div class="stat"><span class="label">Runs</span><span class="value" id="sRuns">128</span></div>
-        <div class="stat"><span class="label">Tokens</span><span class="value">1.4M</span></div>
-        <div class="stat"><span class="label">Cost</span><span class="value">$7.92</span></div>
+  <div class="topbar">
+    <span class="title"><span id="barIcon"><svg class="gi"><use href="#i-home"></use></svg></span><span id="barTitle">K</span></span>
+    <span class="crumb" id="crumb"></span>
+    <button class="askk" data-action="cmd-open">
+      <svg class="gi"><use href="#i-search"></use></svg>
+      <span>Ask K or jump anywhere…</span>
+      <span class="kbd">Ctrl K</span>
+    </button>
+    <span class="conn live" id="conn" data-action="cycle-conn" title="click to cycle connection state">
+      <span class="d"></span><span id="connLabel">live</span>
+    </span>
+  </div>
+
+  <main id="main">
+
+    <!-- ============ K HOME ============ -->
+    <section class="screen" data-view="k-home">
+      <div class="hero glass-tint-warm">
+        <h2 class="greeting"><span class="glow" id="greet">Good evening, Cameron.</span></h2>
+        <p class="lead glance">3 agents working · <a class="link" data-action="route" data-arg="chief">Chief on the auth refactor →</a></p>
+        <div class="composer">
+          <svg class="gi"><use href="#i-bolt"></use></svg>
+          <input id="homeQ" placeholder="Ask K…  e.g. refactor the auth module — or hold the mic to talk" aria-label="Ask K" />
+          <button class="micbtn" data-action="toast" data-msg="Listening… hold to talk, release to send" data-variant="info" title="Hold to talk (Alt Space)" aria-label="Hold to talk"><svg class="gi"><use href="#i-mic"></use></svg></button>
+          <span class="picker">model: auto</span>
+        </div>
+        <div class="routeline"><span class="muted">K routes</span> → Chief <span class="seg-sep">→</span> Backend Lead</div>
+        <div class="composer-actions">
+          <button class="btn primary" data-action="cmd-send" data-q="refactor the auth module" data-route="→ Chief → Backend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> Send</button>
+          <span class="check" data-action="toggle-check"><span class="box"></span> Interactive</span>
+          <span class="adv"><span class="muted">Advanced:</span> <a class="link" data-action="cmd-dispatch" data-q="refactor the auth module" data-scope="force a specific lead">force a specific lead →</a></span>
+        </div>
+      </div>
+
+      <div class="grid3 cards">
+        <div class="card lift panel warm" style="margin:0">
+          <h2><svg class="gi"><use href="#i-edit"></use></svg> Notes</h2>
+          <div class="list stack" style="font-size:.82rem">
+            <div class="row"><span class="grow">call re: API rate limits</span><button class="btn ghost sm" data-action="toast" data-msg="Note marked done" data-variant="info"><svg class="gi"><use href="#i-check"></use></svg></button></div>
+            <div class="row"><span class="grow">idea: cache the graph layout</span><button class="btn ghost sm" data-action="confirm" data-title="Delete note?" data-body="This note will be removed." data-variant="danger" data-confirm="Delete" data-toast-msg="Note deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
+            <div class="row"><span class="grow">ask Chief for a security pass</span><button class="btn ghost sm" data-action="toast" data-msg="Note marked done" data-variant="info"><svg class="gi"><use href="#i-check"></use></svg></button></div>
+          </div>
+          <button class="btn ghost sm" style="margin-top:.5rem" data-action="toast" data-msg="Inline note composer opened" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add note</button>
+        </div>
+
+        <div class="card lift panel warm" style="margin:0">
+          <h2><svg class="gi"><use href="#i-home"></use></svg> Schedule</h2>
+          <div class="list" style="font-size:.82rem">
+            <div class="row"><span class="meta">09:00</span><span class="grow">standup</span></div>
+            <div class="row"><span class="meta">14:00</span><span class="grow">design sync</span></div>
+            <div class="row"><span class="meta">16:30</span><span class="grow">review auth PR</span></div>
+          </div>
+          <button class="btn ghost sm" style="margin-top:.5rem" data-action="toast" data-msg="Event composer opened" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add event</button>
+        </div>
+
+        <div class="card lift panel warm" style="margin:0">
+          <h2><svg class="gi"><use href="#i-check"></use></svg> Your work <span class="right muted">personal</span></h2>
+          <div class="witem"><div class="witem-top"><span class="check" data-action="toggle-check"><span class="box"></span></span><span class="grow">triage PR #42</span><span class="tier-chip">Chief</span></div></div>
+          <div class="witem"><div class="witem-top"><span class="check on" data-action="toggle-check"><span class="box"></span></span><span class="grow">build graph</span><span class="pill done"><span class="d"></span>done</span></div></div>
+          <div class="witem"><div class="witem-top"><span class="check" data-action="toggle-check"><span class="box"></span></span><span class="grow">verify core</span><span class="pill queued"><span class="d"></span>queued</span></div>
+            <div class="adv"><a class="link" data-action="toast" data-msg="Promoted to an org objective — see Chief" data-variant="info">promote to objective →</a></div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Recent from your org</h2>
+        <div class="grid3">
+          <div class="card"><div class="kv"><span class="ldot fe"></span><b>Frontend</b></div><p class="muted" style="margin:.3rem 0">added focus ring to the cmd bar</p><div class="kv"><span class="pill done"><span class="d"></span>done</span><a class="link" data-action="route" data-arg="runs">View run</a></div></div>
+          <div class="card"><div class="kv"><span class="ldot be"></span><b>Backend</b></div><p class="muted" style="margin:.3rem 0">auth refactor — diff +120 −44</p><div class="kv"><span class="pill running"><span class="d"></span>running</span><a class="link" data-action="route" data-arg="runs">View run</a></div></div>
+          <div class="card"><div class="kv"><span class="ldot sec"></span><b>Security</b></div><p class="muted" style="margin:.3rem 0">API surface audit blocked</p><div class="kv"><span class="pill error"><span class="d"></span>needs you</span><a class="link" data-action="route" data-arg="chief">Open Chief</a></div></div>
+        </div>
       </div>
     </section>
 
-    <section class="panel">
-      <h2>Recent Activity</h2>
-      <div id="activity"></div>
+    <!-- ============ CHIEF ============ -->
+    <section class="screen" data-view="chief">
+      <div class="rowhead"><h1 class="page">Chief — org overview</h1>
+        <div class="right" style="font-size:.78rem"><span class="muted">health</span><span class="bar watch" style="width:120px"><span style="width:78%"></span></span><span class="mono">78/100</span><span class="pill watch"><span class="d"></span>watch</span>
+          <span class="muted">· 3 leads active · CI 4/5</span>
+          <a class="link" data-action="route" data-arg="metrics">Metrics →</a>
+          <a class="link" data-action="route" data-arg="projects">Projects →</a></div></div>
+
+      <div class="split wide">
+        <div class="panel">
+          <h2>Objectives <span class="right muted">org</span> <button class="right btn ghost sm" data-action="confirm" data-title="New objective" data-body="Describe an objective for Chief to delegate." data-confirm="Create" data-toast-msg="Objective created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new</button></h2>
+          <div class="witem"><div class="witem-top"><b class="grow">Ship auth refactor</b><span class="tier-chip be">Backend</span><span class="muted">70%</span></div>
+            <div class="bar"><span style="width:70%"></span></div>
+            <div class="witem-top muted" style="font-size:.74rem">2 runs · 1 PR<span style="margin-left:auto"></span>
+              <button class="btn ghost sm" data-action="confirm" data-title="Reassign objective?" data-body="Reassign 'Ship auth refactor' from Backend to Systems?" data-confirm="Reassign" data-toast-msg="Reassigned to Systems Lead" data-toast-link="1">Reassign</button>
+              <button class="btn ghost sm" data-action="confirm" data-title="Escalate to you?" data-body="Mark 'Ship auth refactor' as needs-your-decision and raise it to the top?" data-confirm="Escalate" data-toast-msg="Escalated — flagged for you">Escalate</button></div></div>
+          <div class="witem"><div class="witem-top"><b class="grow">Harden API surface</b><span class="tier-chip sec">Security</span><span class="muted">25%</span></div>
+            <div class="bar"><span style="width:25%"></span></div>
+            <div class="witem-top" style="font-size:.74rem"><span class="pill error"><span class="d"></span>blocked: needs you</span><span style="margin-left:auto"></span>
+              <button class="btn ghost sm" data-action="confirm" data-title="Reassign objective?" data-body="Reassign 'Harden API surface' to another lead?" data-confirm="Reassign" data-toast-msg="Reassigned" data-toast-link="1">Reassign</button></div></div>
+          <div class="witem"><div class="witem-top"><b class="grow">Ship 3D project graph</b><span class="tier-chip fe">Frontend</span><span class="muted">90%</span></div>
+            <div class="bar"><span style="width:90%"></span></div>
+            <div class="witem-top muted" style="font-size:.74rem">3 runs · in review<span style="margin-left:auto"></span>
+              <button class="btn ghost sm" data-action="route" data-arg="runs">View runs</button></div></div>
+          <div class="witem"><div class="witem-top"><b class="grow">Cut CI time to 5 min</b><span class="tier-chip sys">Systems</span><span class="muted">40%</span></div>
+            <div class="bar"><span style="width:40%"></span></div>
+            <div class="witem-top muted" style="font-size:.74rem">1 run<span style="margin-left:auto"></span>
+              <button class="btn ghost sm" data-action="confirm" data-title="Escalate to you?" data-body="Raise 'Cut CI time' for your decision?" data-confirm="Escalate" data-toast-msg="Escalated — flagged for you">Escalate</button></div></div>
+        </div>
+
+        <div class="panel">
+          <h2>Delegation tree</h2>
+          <ul class="tree" style="list-style:none;padding:0;margin:0">
+            <li class="tnode open"><div class="tnode-row" data-action="tree"><span class="caret">›</span><svg class="gi"><use href="#i-crown"></use></svg><b>Chief</b></div>
+              <ul class="kids" style="list-style:none;padding:0">
+                <li class="tnode"><div class="tnode-row" data-action="tree-sel" data-insp="chiefInsp"><span class="caret">›</span><span class="ldot fe"></span>Frontend <span class="muted">82 · 2</span><span class="pill healthy" style="margin-left:auto"><span class="d"></span>healthy</span></div>
+                  <ul class="kids" style="list-style:none;padding:0"><li class="tnode-row" data-action="tree-sel" data-insp="chiefInsp">implementer <span class="pill running" style="margin-left:auto"><span class="d"></span>running</span></li><li class="tnode-row">spec-review <span class="pill queued" style="margin-left:auto"><span class="d"></span>queued</span></li></ul></li>
+                <li class="tnode-row" data-action="tree-sel" data-insp="chiefInsp"><span class="ldot be"></span>Backend <span class="muted">76 · 1</span><span class="pill watch" style="margin-left:auto"><span class="d"></span>watch</span></li>
+                <li class="tnode-row"><span class="ldot sys"></span>Systems <span class="muted">68 · idle</span><span class="pill watch" style="margin-left:auto"><span class="d"></span>watch</span></li>
+                <li class="tnode-row" data-action="tree-sel" data-insp="chiefInsp"><span class="ldot sec"></span>Security <span class="muted">46 · 1</span><span class="pill risk" style="margin-left:auto"><span class="d"></span>at-risk</span></li>
+                <li class="tnode-row"><span class="ldot net"></span>Network <span class="muted">88 · idle</span><span class="pill healthy" style="margin-left:auto"><span class="d"></span>healthy</span></li>
+              </ul></li>
+          </ul>
+          <div class="card" id="chiefInsp" style="margin-top:.8rem;background:var(--bg-deep)">
+            <div class="muted" style="font-size:.7rem">INSPECTOR — select a node</div>
+            <div class="kv" style="margin-top:.3rem"><span class="ldot fe"></span><b>Frontend Lead</b></div>
+            <p class="muted" style="margin:.3rem 0;font-size:.78rem">health 82 · load 60% · 2 live · latest: focus-ring diff +12 −3</p>
+            <div class="kv" style="gap:.4rem;flex-wrap:wrap">
+              <button class="btn sky sm" data-action="route" data-arg="orchestrator-detail">Open lead</button>
+              <button class="btn ghost sm" data-action="route" data-arg="runs">View run</button>
+              <button class="btn ghost sm" data-action="confirm" data-title="Pause lead?" data-body="Pause all of Frontend Lead's running agents?" data-variant="danger" data-confirm="Pause" data-toast-msg="Frontend Lead paused" data-toast-variant="info">Pause</button>
+            </div>
+          </div>
+          <div class="kv" style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--border);font-size:.74rem;flex-wrap:wrap;gap:.5rem">
+            <span class="muted">Chief actions:</span>
+            <button class="btn ghost sm" data-action="cmd-dispatch" data-q="describe an objective" data-scope="via Chief"><svg class="gi"><use href="#i-crown"></use></svg> Hand Chief work</button>
+            <button class="btn ghost sm" data-action="confirm" data-title="Rebalance the org?" data-body="Let Chief rebalance in-flight work across leads by current load and health?" data-confirm="Rebalance" data-toast-msg="Rebalancing work across leads">Rebalance load</button>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section class="panel">
-      <h2>Dispatch</h2>
-      <form class="cmd" id="cmdForm">
-        <input id="cmdInput" placeholder="Describe a task for the agent…" aria-label="Dispatch a task" />
-        <button type="submit">Dispatch</button>
-      </form>
+    <!-- ============ ORCHESTRATORS ============ -->
+    <section class="screen" data-view="orchestrators">
+      <div class="rowhead"><h1 class="page">Orchestrators</h1><span class="muted">· 5 leads · 3 active</span>
+        <div class="right">
+          <button class="btn primary" data-action="confirm" data-title="New orchestrator" data-body="Create a new domain lead: name, domain, hue, starter charter and base skills/tools." data-confirm="Create" data-toast-msg="Orchestrator created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new orchestrator</button>
+        </div></div>
+
+      <div class="grid3 cards">
+        <div class="card lift och-card" style="border-left:3px solid var(--lead-fe)"><div class="kv"><span class="ldot fe"></span><b>Frontend</b><span class="pill running och-status"><span class="d"></span>2 running</span></div>
+          <p class="muted charter">Owns web UI, a11y, perf</p>
+          <div class="kv health"><span class="muted">health</span><span class="mono">82</span><span class="bar healthy" style="width:54px"><span style="width:82%"></span></span><span class="pill healthy"><span class="d"></span>healthy</span></div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 94%</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">1 retry</span><span class="delta neg">−6</span></div></div></details>
+          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Frontend Lead" data-scope="dispatch to Frontend Lead" aria-label="Ask K — dispatch to Frontend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
+
+        <div class="card lift och-card" style="border-left:3px solid var(--lead-be)"><div class="kv"><span class="ldot be"></span><b>Backend</b><span class="pill running och-status"><span class="d"></span>1 running</span></div>
+          <p class="muted charter">APIs, data, migrations</p>
+          <div class="kv health"><span class="muted">health</span><span class="mono">76</span><span class="bar watch" style="width:54px"><span style="width:76%"></span></span><span class="pill watch"><span class="d"></span>watch</span></div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 92%</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div></div></details>
+          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Backend Lead" data-scope="dispatch to Backend Lead" aria-label="Ask K — dispatch to Backend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
+
+        <div class="card lift och-card" style="border-left:3px solid var(--lead-sys)"><div class="kv"><span class="ldot sys"></span><b>Systems</b><span class="muted och-status">idle</span></div>
+          <p class="muted charter">CI, infra, releases</p>
+          <div class="kv health"><span class="muted">health</span><span class="mono">68</span><span class="bar watch" style="width:54px"><span style="width:68%"></span></span><span class="pill watch"><span class="d"></span>watch</span></div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 88%</span><span class="delta neg">−18</span></div><div class="frow"><span class="grow">slow CI / staleness</span><span class="delta neg">−14</span></div></div></details>
+          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Systems Lead" data-scope="dispatch to Systems Lead" aria-label="Ask K — dispatch to Systems Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
+
+        <div class="card lift och-card" style="border-left:3px solid var(--lead-sec)"><div class="kv"><span class="ldot sec"></span><b>Security</b><span class="pill running och-status"><span class="d"></span>1 running</span></div>
+          <p class="muted charter">audit, secrets, supply-chain</p>
+          <div class="kv health"><span class="muted">health</span><span class="mono">46</span><span class="bar risk" style="width:54px"><span style="width:46%"></span></span><span class="pill risk"><span class="d"></span>at-risk</span></div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">1 blocked: needs you</span><span class="delta neg">−30</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">run success 88%</span><span class="delta neg">−12</span></div></div></details>
+          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Security Lead" data-scope="dispatch to Security Lead" aria-label="Ask K — dispatch to Security Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
+
+        <div class="card lift och-card" style="border-left:3px solid var(--lead-net)"><div class="kv"><span class="ldot net"></span><b>Network</b><span class="muted och-status">idle</span></div>
+          <p class="muted charter">edge, DNS, delivery</p>
+          <div class="kv health"><span class="muted">health</span><span class="mono">88</span><span class="bar healthy" style="width:54px"><span style="width:88%"></span></span><span class="pill healthy"><span class="d"></span>healthy</span></div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 94%</span><span class="delta neg">−12</span></div></div></details>
+          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Network Lead" data-scope="dispatch to Network Lead" aria-label="Ask K — dispatch to Network Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
+
+        <button class="card lift" style="border:1px dashed var(--border);color:var(--muted);background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;min-height:122px" data-action="confirm" data-title="New orchestrator" data-body="Create a new domain lead." data-confirm="Create" data-toast-msg="Orchestrator created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new orchestrator</button>
+      </div>
+
+      <div class="panel" style="margin-top:1rem"><h2>Recent dispatches <span class="right muted">last hour</span></h2>
+        <div class="list">
+          <div class="row"><span class="ldot fe"></span><b>Frontend</b><span class="grow muted">add focus ring to cmd bar</span><span class="pill running"><span class="d"></span>running</span><span class="meta">now</span></div>
+          <div class="row"><span class="ldot fe"></span><b>Frontend</b><span class="grow muted">visual-diff sweep</span><span class="pill running"><span class="d"></span>running</span><span class="meta">6m</span></div>
+          <div class="row"><span class="ldot be"></span><b>Backend</b><span class="grow muted">auth refactor</span><span class="pill running"><span class="d"></span>running</span><span class="meta">9m</span></div>
+          <div class="row"><span class="ldot sec"></span><b>Security</b><span class="grow muted">secret scan</span><span class="pill running"><span class="d"></span>running</span><span class="meta">14m</span></div>
+          <div class="row"><span class="ldot sys"></span><b>Systems</b><span class="grow muted">release v2.1</span><span class="pill done"><span class="d"></span>done</span><span class="meta">41m</span></div>
+        </div>
+      </div>
     </section>
+
+    <!-- ============ ORCHESTRATOR DETAIL (FLAGSHIP) ============ -->
+    <section class="screen" data-view="orchestrator-detail">
+      <div class="rowhead"><h1 class="page"><span class="ldot fe"></span> Frontend Lead</h1>
+        <div class="right" style="gap:.5rem;align-items:center"><span class="muted" style="font-size:.78rem">health</span><span class="mono">82</span><span class="pill healthy"><span class="d"></span>healthy</span><span class="muted" style="font-size:.78rem">· 2 live</span></div></div>
+      <div class="kv muted" style="font-size:.74rem;margin:-.6rem 0 .6rem;gap:.9rem;flex-wrap:wrap">
+        <span>load <span class="bar" style="width:90px;display:inline-block;vertical-align:middle"><span style="width:60%"></span></span> <span class="mono">60%</span></span>
+        <span>6 skills</span><span>9 tools</span><span class="mono">spark ∿∿∿</span></div>
+      <details class="hbreak" style="margin:0 0 1rem;border-top:none;padding-top:0">
+        <summary><svg class="gi chev" style="width:.9em;height:.9em"><use href="#i-arrow"></use></svg>health 82 · Healthy — how it's scored</summary>
+        <div class="factors" style="max-width:360px">
+          <div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div>
+          <div class="frow"><span class="grow">run success 94% (last 20)</span><span class="delta neg">−12</span></div>
+          <div class="frow"><span class="grow">1 retry</span><span class="delta neg">−6</span></div>
+          <div class="frow"><span class="grow">CI passing · 0 blocked · bible fresh</span><span class="delta zero">0</span></div>
+          <div class="frow" style="border-top:1px solid var(--border);padding-top:.3rem;margin-top:.1rem"><span class="grow"><b>score</b></span><span class="delta"><b class="mono">82</b></span></div>
+        </div>
+      </details>
+
+      <div class="split wide balance fill">
+        <div class="panel col od-left">
+          <div class="tabbar">
+            <button class="tab active" data-action="tab" data-group="od" data-arg="charter">Charter</button>
+            <button class="tab" data-action="tab" data-group="od" data-arg="skills">Skills</button>
+            <button class="tab" data-action="tab" data-group="od" data-arg="tools">Tools</button>
+            <button class="tab" data-action="tab" data-group="od" data-arg="mcp">MCP · Authority</button>
+            <button class="tab" data-action="tab" data-group="od" data-arg="memory">Memory</button>
+          </div>
+
+          <div data-tabpanel="od" data-arg="charter" class="active">
+            <textarea class="editor" style="min-height:300px"># Frontend Lead
+
+You own the web surface: accessibility, performance, visual polish.
+Delegate implementation to a code-wave (controller -> implementer ->
+spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
+
+## Operating rules
+- Run a11y + visual-diff checks before every PR.
+- Prefer tokens over bespoke hex; glass is hero-only, dense views opaque.
+- Hand security-sensitive changes to the Security lead via Chief.</textarea>
+            <div class="kv" style="margin-top:.6rem"><span class="dirty">unsaved ●</span><span style="margin-left:auto"></span>
+              <button class="btn ghost sm">Revert</button>
+              <button class="btn primary sm" data-action="confirm" data-title="Update charter?" data-body="Update Frontend Lead's charter? Applies to its next dispatches." data-confirm="Save" data-toast-msg="Charter saved">Save</button></div>
+          </div>
+
+          <div data-tabpanel="od" data-arg="skills">
+            <div class="list">
+              <div class="row"><svg class="gi"><use href="#i-flow"></use></svg><span class="grow">create-web-ui-artifact <span class="muted">· authored · 12 runs</span></span><button class="btn ghost sm" data-action="route" data-arg="runs">history</button><button class="btn ghost sm" data-action="confirm" data-title="Remove skill?" data-body="Detach create-web-ui-artifact from Frontend Lead?" data-variant="danger" data-confirm="Remove" data-toast-msg="Skill removed" data-toast-variant="info"><svg class="gi"><use href="#i-x"></use></svg></button></div>
+              <div class="row"><svg class="gi"><use href="#i-flow"></use></svg><span class="grow">liquid-glass-design <span class="muted">· plugin · 4 runs</span></span><button class="btn ghost sm" data-action="route" data-arg="runs">history</button><button class="btn ghost sm" data-action="confirm" data-title="Remove skill?" data-body="Detach liquid-glass-design?" data-variant="danger" data-confirm="Remove" data-toast-msg="Skill removed" data-toast-variant="info"><svg class="gi"><use href="#i-x"></use></svg></button></div>
+            </div>
+            <button class="btn ghost sm" style="margin-top:.5rem" data-action="toast" data-msg="Attach-skill picker" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add skill</button>
+          </div>
+
+          <div data-tabpanel="od" data-arg="tools">
+            <div class="grid2" style="gap:.5rem">
+              <div class="kv"><span class="toggle on" data-action="toggle-switch"></span> Read</div>
+              <div class="kv"><span class="toggle on" data-action="toggle-switch"></span> Edit</div>
+              <div class="kv"><span class="toggle" data-action="toggle-danger" data-tool="Bash"></span> <span class="sec">●</span> Bash</div>
+              <div class="kv"><span class="toggle" data-action="toggle-danger" data-tool="Write"></span> <span class="sec">●</span> Write</div>
+              <div class="kv"><span class="toggle on" data-action="toggle-switch"></span> WebFetch</div>
+              <div class="kv"><span class="toggle on" data-action="toggle-switch"></span> Grep</div>
+            </div>
+            <p class="muted" style="font-size:.72rem;margin-top:.6rem"><span class="sec">●</span> danger tools require confirm to enable.</p>
+          </div>
+
+          <div data-tabpanel="od" data-arg="mcp">
+            <div class="panel" style="margin:0 0 .8rem;background:var(--bg-deep)">
+              <h2>Authority tier — Frontend Lead <span class="right tier-chip">override</span></h2>
+              <p class="muted" style="font-size:.74rem;margin:0 0 .55rem">Inherits the org default (T1 Standard, set in Settings) unless overridden here.</p>
+              <div class="radio" data-action="tier" data-tier="t0"><span class="knob"></span><div><div class="t">T0 Read-only</div><div class="desc">query and read; no writes, no network</div></div></div>
+              <div class="radio on" data-action="tier" data-tier="t1"><span class="knob"></span><div><div class="t">T1 Standard</div><div class="desc">edit files, run safe tools; no secrets, no deploy</div></div></div>
+              <div class="radio" data-action="tier" data-tier="t2"><span class="knob"></span><div><div class="t">T2 Elevated</div><div class="desc">network + MCP servers; guarded writes</div></div></div>
+              <div class="radio" data-action="tier" data-tier="t3"><span class="knob"></span><div><div class="t">T3 Privileged <span class="sec">⚠ requires you</span></div><div class="desc">deploy, secrets, destructive ops</div></div></div>
+              <div class="kv" style="margin-top:.5rem"><span class="muted" style="font-size:.74rem">Changing tier affects EVERY agent this lead dispatches.</span>
+                <button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Raise to T3 Privileged?" data-body="Raise Frontend Lead to T3 Privileged? This grants deploy + secrets to its agents." data-variant="danger" data-confirm="Apply T3" data-toast-msg="Authority tier applied">Apply</button></div>
+            </div>
+            <div class="panel" style="margin:0;background:var(--bg-deep)">
+              <h2>MCP servers</h2>
+              <div class="list">
+                <div class="row"><svg class="gi"><use href="#i-check"></use></svg><span class="grow">Gmail <span class="tier-chip">tier ≥ T2</span></span><span class="pill done"><span class="d"></span>connected</span><button class="btn ghost sm" data-action="confirm" data-title="Revoke Gmail?" data-body="Revoke the Gmail MCP server for this lead?" data-variant="danger" data-confirm="Revoke" data-toast-msg="Gmail revoked" data-toast-variant="info">revoke</button></div>
+                <div class="row"><svg class="gi"><use href="#i-check"></use></svg><span class="grow">Google Calendar <span class="tier-chip">tier ≥ T2</span></span><span class="pill done"><span class="d"></span>connected</span><button class="btn ghost sm" data-action="confirm" data-title="Revoke Calendar?" data-body="Revoke the Google Calendar MCP server?" data-variant="danger" data-confirm="Revoke" data-toast-msg="Calendar revoked" data-toast-variant="info">revoke</button></div>
+                <div class="row"><svg class="gi"><use href="#i-x"></use></svg><span class="grow muted">Google Drive <span class="tier-chip">tier ≥ T2</span></span><span class="pill killed"><span class="d"></span>not connected</span><button class="btn sky sm" data-action="confirm" data-title="Connect Drive?" data-body="Connect the Google Drive MCP server for this lead?" data-confirm="Connect" data-toast-msg="Google Drive connected">connect</button></div>
+              </div>
+              <button class="btn ghost sm" style="margin-top:.5rem" data-action="toast" data-msg="Add-MCP-server dialog" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add MCP server</button>
+            </div>
+          </div>
+
+          <div data-tabpanel="od" data-arg="memory">
+            <div class="list">
+              <div class="row"><span class="grow">Prefers tailwind utility classes over bespoke CSS.</span><button class="btn ghost sm"><svg class="gi"><use href="#i-edit"></use></svg></button><button class="btn ghost sm" data-action="confirm" data-title="Delete memory?" data-body="Delete this memory note?" data-variant="danger" data-confirm="Delete" data-toast-msg="Memory deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
+              <div class="row"><span class="grow">Run a11y checks before every PR.</span><button class="btn ghost sm"><svg class="gi"><use href="#i-edit"></use></svg></button><button class="btn ghost sm" data-action="confirm" data-title="Delete memory?" data-body="Delete this memory note?" data-variant="danger" data-confirm="Delete" data-toast-msg="Memory deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
+            </div>
+            <button class="btn ghost sm" style="margin-top:.5rem" data-action="toast" data-msg="Add-memory composer" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add memory</button>
+          </div>
+        </div>
+
+        <div class="panel od-right">
+          <h2>Live delegation</h2>
+          <ul class="tree" style="list-style:none;padding:0;margin:0">
+            <li class="tnode open"><div class="tnode-row" data-action="tree"><span class="caret">›</span><span class="ldot fe"></span><b>Frontend</b></div>
+              <ul class="kids" style="list-style:none;padding:0">
+                <li class="tnode-row" data-action="tree-sel" data-insp="odInsp">controller <span class="pill running" style="margin-left:auto"><span class="d"></span>running</span></li>
+                <li class="tnode-row sel" data-action="tree-sel" data-insp="odInsp">implementer <span class="pill running" style="margin-left:auto"><span class="d"></span>running</span></li>
+                <li class="tnode-row" data-action="tree-sel" data-insp="odInsp">spec-review <span class="pill queued" style="margin-left:auto"><span class="d"></span>queued</span></li>
+                <li class="tnode-row" data-action="tree-sel" data-insp="odInsp">quality-review <span class="pill killed" style="margin-left:auto"><span class="d"></span>idle</span></li>
+              </ul></li>
+          </ul>
+          <div class="card" id="odInsp" style="margin-top:.8rem;background:var(--bg-deep)">
+            <div class="muted" style="font-size:.7rem">INSPECTOR</div>
+            <div style="margin:.3rem 0"><b>role:</b> implementer</div>
+            <div class="muted" style="font-size:.78rem"><b>prompt:</b> add focus ring to the cmd bar…</div>
+            <div style="margin:.3rem 0"><span class="pill done"><span class="d"></span>diff +12 −3</span></div>
+            <div class="kv" style="gap:.4rem;flex-wrap:wrap"><button class="btn sky sm" data-action="route" data-arg="runs">Open run</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="re-dispatch implementer" data-scope="on implementer role">Re-dispatch</button><button class="btn ghost sm" data-action="confirm" data-title="Pause role?" data-body="Pause the implementer agent?" data-variant="danger" data-confirm="Pause" data-toast-msg="implementer paused" data-toast-variant="info">Pause</button></div>
+          </div>
+          <div class="od-recent"><h2>Recent role activity</h2>
+            <div class="list">
+              <div class="row"><span class="grow">controller <span class="muted">· planned the wave</span></span><span class="pill done"><span class="d"></span>done</span><span class="meta">2m</span></div>
+              <div class="row"><span class="grow">implementer <span class="muted">· add focus ring</span></span><span class="pill running"><span class="d"></span>running</span><span class="meta">now</span></div>
+              <div class="row"><span class="grow">spec-review <span class="muted">· awaiting diff</span></span><span class="pill queued"><span class="d"></span>queued</span><span class="meta">—</span></div>
+              <div class="row"><span class="grow">quality-review <span class="muted">· not started</span></span><span class="pill killed"><span class="d"></span>idle</span><span class="meta">—</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ WORKFLOWS ============ -->
+    <section class="screen" data-view="workflows">
+      <div class="rowhead"><h1 class="page">Workflows</h1><span class="muted">· 4 definitions</span>
+        <div class="right"><button class="btn primary" data-action="confirm" data-title="New workflow" data-body="Start from the Code-wave template or an empty role graph." data-confirm="Create" data-toast-msg="Workflow created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new workflow</button></div></div>
+
+      <div class="split">
+        <div class="panel"><h2>Definitions</h2>
+          <div class="list">
+            <div class="row selrow sel" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Code wave</b> <span class="muted">(default)</span><br><span class="muted" style="font-size:.72rem">controller → impl → spec → qa</span></div><span class="meta">42 runs</span></div>
+            <div class="row selrow" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Hotfix</b><br><span class="muted" style="font-size:.72rem">controller → implementer</span></div><span class="meta">11 runs</span></div>
+            <div class="row selrow" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Research spike</b><br><span class="muted" style="font-size:.72rem">researcher → synthesizer</span></div><span class="meta">7 runs</span></div>
+            <div class="row selrow" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Security audit</b><br><span class="muted" style="font-size:.72rem">auditor → fixer → verifier</span></div><span class="meta">5 runs</span></div>
+          </div>
+        </div>
+        <div class="panel"><h2>Preview <span class="right muted">Code wave</span></h2>
+          <div>
+          <div class="pipeline">
+            <div class="pnode"><span class="pdot"></span><span class="role">controller</span><span class="pt">T1</span></div>
+            <div class="pconn"></div>
+            <div class="pnode"><span class="pdot"></span><span class="role">implementer</span><span class="pt">T1</span></div>
+            <div class="pconn"></div>
+            <div class="pnode"><span class="pdot"></span><span class="role">spec-review</span><span class="pt">T1</span></div>
+            <div class="pconn"></div>
+            <div class="pnode"><span class="pdot"></span><span class="role">quality-review</span><span class="pt">T1</span></div>
+          </div>
+          <p class="muted" style="font-size:.78rem;text-align:center;margin-top:.85rem">used by <span class="fe">Frontend</span>, <span class="be">Backend</span> · 42 runs</p>
+          <div class="kv" style="justify-content:center;margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="workflow-detail">Open</button><button class="btn primary sm" data-action="confirm" data-title="Run this workflow?" data-body="Run the Code-wave workflow now?" data-confirm="Run" data-toast-msg="Code-wave dispatched" data-toast-link="1"><svg class="gi"><use href="#i-bolt"></use></svg> run this workflow</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ WORKFLOW DETAIL ============ -->
+    <section class="screen" data-view="workflow-detail">
+      <div class="rowhead"><h1 class="page">Code wave</h1>
+        <div class="right muted">used by <span class="fe">Frontend</span>, <span class="be">Backend</span> · 42 runs</div></div>
+
+      <div class="split">
+        <div class="panel"><h2>Role graph</h2>
+          <p class="muted" style="font-size:.74rem;margin:-.35rem 0 .8rem">4 roles · sequential · tier T1 · used by <span class="fe">Frontend</span>, <span class="be">Backend</span></p>
+          <div>
+          <div class="pipeline detail">
+            <div class="pnode selrow" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">controller</span><span class="psub">plans the wave · splits the work</span></span><span class="pt">T1</span></div>
+            <div class="pconn"></div>
+            <div class="pnode selrow" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">implementer</span><span class="psub">writes the diff against the spec</span></span><span class="pt">T1</span></div>
+            <div class="pconn"></div>
+            <div class="pnode selrow sel" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">spec-review</span><span class="psub">checks the diff · blocks on drift</span></span><span class="pt">T1</span></div>
+            <div class="pconn"></div>
+            <div class="pnode selrow" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">quality-review</span><span class="psub">final gate before the PR</span></span><span class="pt">T1</span></div>
+          </div>
+          <div class="kv" style="justify-content:center;margin-top:1rem;gap:.4rem">
+            <button class="btn ghost sm" data-action="toast" data-msg="Add-role dialog" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add role</button>
+            <button class="btn ghost sm" data-action="toast" data-msg="Reorder mode" data-variant="info">reorder</button>
+            <button class="btn ghost sm" data-action="confirm" data-title="Delete role?" data-body="Remove spec-review from the Code-wave graph?" data-variant="danger" data-confirm="Delete" data-toast-msg="Role deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg> delete</button>
+          </div>
+          </div>
+        </div>
+        <div class="panel col"><h2>Role prompt — spec-review</h2>
+          <textarea class="editor grow-area" style="min-height:220px">Review the implementer's diff against the spec. Block on missing
+tests, contract drift, or unhandled errors. Return a verdict + reasons.</textarea>
+          <div class="kv" style="margin-top:.6rem;font-size:.74rem"><span class="muted">model: inherit</span><span class="tier-chip">tier T1</span><span class="dirty" style="margin-left:auto">unsaved ●</span></div>
+          <div class="kv" style="margin-top:.5rem"><button class="btn ghost sm">Revert</button><button class="btn primary sm" data-action="confirm" data-title="Update prompt?" data-body="Update the Code-wave spec-review prompt?" data-confirm="Save" data-toast-msg="Prompt saved">Save</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PROJECTS ============ -->
+    <section class="screen" data-view="projects">
+      <div class="rowhead"><h1 class="page">Projects</h1><span class="muted">· 4 projects</span>
+        <div class="right">
+          <details class="rubric" style="position:relative">
+            <summary><span class="info-q">?</span> How health is scored</summary>
+            <div class="body glass" style="position:absolute;right:0;top:135%;width:330px;z-index:40;padding:.85rem .95rem;border-radius:12px">
+              <b style="color:var(--text)">Health 0–100</b> = 100 − weighted deductions from observable signals:
+              <div class="vstack-sm" style="margin:.5rem 0 .6rem">
+                <div>· CI / build status</div>
+                <div>· run success rate (last 20)</div>
+                <div>· open escalations / blocked runs</div>
+                <div>· staleness — last green run, bible freshness</div>
+                <div>· error / retry rate</div>
+              </div>
+              <span class="band-key"><span class="pill healthy"><span class="d"></span></span>Healthy ≥ 80</span>
+              <span class="band-key"><span class="pill watch"><span class="d"></span></span>Watch 50–79</span>
+              <span class="band-key"><span class="pill risk"><span class="d"></span></span>At-risk &lt; 50</span>
+            </div>
+          </details>
+          <div class="segmented">
+            <button class="active" data-action="tab" data-group="proj" data-arg="cards"><svg class="gi"><use href="#i-grid"></use></svg> Cards</button>
+            <button data-action="tab" data-group="proj" data-arg="graph"><svg class="gi"><use href="#i-graph"></use></svg> Graph</button>
+          </div>
+          <button class="btn primary" data-action="register" data-title="Register project"><svg class="gi"><use href="#i-plus"></use></svg> register project</button>
+        </div></div>
+
+      <div data-tabpanel="proj" data-arg="cards" class="active">
+      <div class="grid2 cards">
+        <div class="card lift pcard"><div class="kv"><b>gitnexus</b><span class="tier-chip" style="margin-left:auto">github.com/…/gitnexus</span></div>
+          <div class="kv health" style="margin-top:.55rem"><span class="muted">health</span><span class="mono">82</span><span class="bar healthy" style="flex:1;max-width:130px"><span style="width:82%"></span></span><span class="pill healthy"><span class="d"></span>healthy</span></div>
+          <div class="kv muted" style="font-size:.74rem;margin-top:.4rem">CI ok · PRs 2 · bible ok · spark ∿∿∿</div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how 82 is scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 94%</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">1 retry</span><span class="delta neg">−6</span></div></div></details>
+          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> suggested: open PR #42</div>
+          <div class="kv muted" style="font-size:.72rem;margin-top:.5rem">last run: <span style="color:var(--text)">code-wave</span> · 8m</div>
+          <div class="kv acts" style="margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="project-workspace">Open workspace</button><button class="btn ghost sm" data-action="confirm" data-title="Delete gitnexus?" data-body="Permanently delete gitnexus and all its runs / tasks / KG? Cannot be undone." data-variant="danger" data-confirm="Delete" data-toast-msg="gitnexus deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div></div>
+
+        <div class="card lift pcard"><div class="kv"><b>k-harness</b><span class="tier-chip" style="margin-left:auto">local · ~/desktop/k</span></div>
+          <div class="kv health" style="margin-top:.55rem"><span class="muted">health</span><span class="mono">48</span><span class="bar risk" style="flex:1;max-width:130px"><span style="width:48%"></span></span><span class="pill risk"><span class="d"></span>at-risk</span></div>
+          <div class="kv muted" style="font-size:.74rem;margin-top:.4rem">CI fail · PRs 0 · bible stale · spark ∿∿</div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how 48 is scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">CI failing</span><span class="delta neg">−30</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">bible stale</span><span class="delta neg">−10</span></div></div></details>
+          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> suggested: fix CI</div>
+          <div class="kv muted" style="font-size:.72rem;margin-top:.5rem">last run: <span style="color:var(--text)">ci-repair</span> · 3m</div>
+          <div class="kv acts" style="margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="project-workspace">Open workspace</button><button class="btn ghost sm" data-action="confirm" data-title="Delete k-harness?" data-body="Permanently delete k-harness and all its runs / tasks / KG? Cannot be undone." data-variant="danger" data-confirm="Delete" data-toast-msg="k-harness deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div></div>
+
+        <div class="card lift pcard"><div class="kv"><b>docs-site</b><span class="tier-chip" style="margin-left:auto">github.com/…/docs-site</span></div>
+          <div class="kv health" style="margin-top:.55rem"><span class="muted">health</span><span class="mono">91</span><span class="bar healthy" style="flex:1;max-width:130px"><span style="width:91%"></span></span><span class="pill healthy"><span class="d"></span>healthy</span></div>
+          <div class="kv muted" style="font-size:.74rem;margin-top:.4rem">CI ok · PRs 1 · bible ok · spark ∿∿∿</div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how 91 is scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 99%</span><span class="delta neg">−3</span></div><div class="frow"><span class="grow">1 retry</span><span class="delta neg">−6</span></div></div></details>
+          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> suggested: merge PR #18</div>
+          <div class="kv muted" style="font-size:.72rem;margin-top:.5rem">last run: <span style="color:var(--text)">build-docs</span> · 1h</div>
+          <div class="kv acts" style="margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="project-workspace">Open workspace</button><button class="btn ghost sm" data-action="confirm" data-title="Delete docs-site?" data-body="Permanently delete docs-site and all its runs / tasks / KG? Cannot be undone." data-variant="danger" data-confirm="Delete" data-toast-msg="docs-site deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div></div>
+
+        <div class="card lift pcard"><div class="kv"><b>api-gateway</b><span class="tier-chip" style="margin-left:auto">local · ~/work/api-gw</span></div>
+          <div class="kv health" style="margin-top:.55rem"><span class="muted">health</span><span class="mono">67</span><span class="bar watch" style="flex:1;max-width:130px"><span style="width:67%"></span></span><span class="pill watch"><span class="d"></span>watch</span></div>
+          <div class="kv muted" style="font-size:.74rem;margin-top:.4rem">CI ok · PRs 3 · bible stale · spark ∿∿</div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how 67 is scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 89%</span><span class="delta neg">−11</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">bible stale</span><span class="delta neg">−10</span></div></div></details>
+          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> suggested: refresh bible</div>
+          <div class="kv muted" style="font-size:.72rem;margin-top:.5rem">last run: <span style="color:var(--text)">bible-refresh</span> · 26m</div>
+          <div class="kv acts" style="margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="project-workspace">Open workspace</button><button class="btn ghost sm" data-action="confirm" data-title="Delete api-gateway?" data-body="Permanently delete api-gateway and all its runs / tasks / KG? Cannot be undone." data-variant="danger" data-confirm="Delete" data-toast-msg="api-gateway deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div></div>
+      </div>
+
+      <div class="panel" style="margin-top:1rem"><h2>Needs attention <span class="right muted">all projects</span></h2>
+        <div class="list">
+          <div class="row"><b>k-harness</b><span class="grow muted" style="font-size:.82rem">CI failing — fix-CI suggested</span><span class="pill risk"><span class="d"></span>at-risk</span><a class="link" data-action="route" data-arg="project-workspace">Open →</a></div>
+          <div class="row"><b>api-gateway</b><span class="grow muted" style="font-size:.82rem">bible stale — refresh suggested</span><span class="pill watch"><span class="d"></span>watch</span><a class="link" data-action="route" data-arg="project-workspace">Open →</a></div>
+          <div class="row"><b>gitnexus</b><span class="grow muted" style="font-size:.82rem">PR #42 ready to open</span><span class="pill done"><span class="d"></span>ready</span><a class="link" data-action="route" data-arg="project-workspace">Open →</a></div>
+          <div class="row"><b>docs-site</b><span class="grow muted" style="font-size:.82rem">PR #18 ready to merge</span><span class="pill done"><span class="d"></span>ready</span><a class="link" data-action="route" data-arg="project-workspace">Open →</a></div>
+        </div>
+      </div>
+      </div>
+
+      <div data-tabpanel="proj" data-arg="graph">
+      <div class="split">
+        <div class="panel" style="position:relative;padding:.6rem .7rem">
+          <h2>Structure <span class="right muted">● leads · ◯ projects (ring = health band)</span></h2>
+          <svg viewBox="0 0 600 440" width="100%" style="flex:1;min-height:420px;display:block" role="img" aria-label="project and lead structure graph">
+            <g stroke="#3a2a5c" stroke-width="1.4">
+              <line x1="300" y1="64" x2="205" y2="150"/><line x1="300" y1="64" x2="420" y2="112"/>
+              <line x1="498" y1="202" x2="205" y2="150"/><line x1="498" y1="202" x2="428" y2="320"/>
+              <line x1="300" y1="398" x2="172" y2="320"/><line x1="300" y1="398" x2="428" y2="320"/>
+              <line x1="112" y1="232" x2="172" y2="320"/><line x1="112" y1="232" x2="205" y2="150"/>
+              <line x1="538" y1="330" x2="428" y2="320"/><line x1="538" y1="330" x2="420" y2="112"/>
+            </g>
+            <g fill="#241640" stroke-width="2.5">
+              <circle cx="205" cy="150" r="19" stroke="#34d399"/>
+              <circle cx="420" cy="112" r="19" stroke="#34d399"/>
+              <circle cx="172" cy="320" r="19" stroke="#f87171"/>
+              <circle cx="428" cy="320" r="19" stroke="#fbbf24"/>
+            </g>
+            <circle cx="300" cy="64" r="9" fill="#6fa8dd"/><circle cx="498" cy="202" r="9" fill="#a07cd6"/>
+            <circle cx="300" cy="398" r="9" fill="#5fb3a8"/><circle cx="112" cy="232" r="9" fill="#d488a6"/>
+            <circle cx="538" cy="330" r="9" fill="#8a93c2"/>
+            <g font-size="11" text-anchor="middle" font-family="system-ui,sans-serif">
+              <text x="205" y="185" fill="#f4f0ff">gitnexus</text><text x="420" y="147" fill="#f4f0ff">docs-site</text>
+              <text x="172" y="355" fill="#f4f0ff">k-harness</text><text x="428" y="355" fill="#f4f0ff">api-gateway</text>
+              <text x="300" y="48" fill="#b3a6cd">Frontend</text><text x="498" y="188" fill="#b3a6cd">Backend</text>
+              <text x="300" y="420" fill="#b3a6cd">Systems</text><text x="112" y="218" fill="#b3a6cd">Security</text>
+              <text x="538" y="316" fill="#b3a6cd">Network</text>
+            </g>
+          </svg>
+        </div>
+        <div class="panel glass"><h2>Inspector</h2>
+          <div class="kv"><span class="ldot fe"></span><b>Frontend Lead</b></div>
+          <p class="muted" style="font-size:.78rem;margin:.3rem 0">health 82 · load 60% · 2 live</p>
+          <p class="muted" style="font-size:.74rem;margin:.4rem 0 0">Owns web UI, a11y, perf.</p>
+          <div class="kv" style="margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn primary sm" data-action="cmd-dispatch" data-q="dispatch on Frontend Lead" data-scope="on Frontend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div>
+          <h2 style="margin:1rem 0 .5rem">Linked nodes</h2>
+          <div class="list" style="font-size:.78rem">
+            <div class="row"><span class="ldot be"></span><span class="grow">Backend Lead</span><span class="meta">shared API types</span></div>
+            <div class="row"><span class="ldot sec"></span><span class="grow">Security Lead</span><span class="meta">auth surface</span></div>
+            <div class="row"><span class="ldot sys"></span><span class="grow">Systems Lead</span><span class="meta">build pipeline</span></div>
+            <div class="row"><svg class="gi muted"><use href="#i-grid"></use></svg><span class="grow">gitnexus</span><span class="meta">project</span></div>
+            <div class="row"><svg class="gi muted"><use href="#i-grid"></use></svg><span class="grow">docs-site</span><span class="meta">project</span></div>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <!-- ============ PROJECT WORKSPACE (7 tabs) ============ -->
+    <section class="screen" data-view="project-workspace">
+      <div class="rowhead"><h1 class="page">gitnexus</h1><span class="muted">· github.com/…/gitnexus · health 82/100</span>
+        <div class="right"><button class="btn primary sm" data-action="cmd-dispatch" data-q="dispatch in gitnexus" data-scope="in project gitnexus"><svg class="gi"><use href="#i-bolt"></use></svg> Ask K</button></div></div>
+      <div class="tabbar">
+        <button class="tab active" data-action="tab" data-group="ws" data-arg="overview">Overview</button>
+        <button class="tab" data-action="tab" data-group="ws" data-arg="kg">Knowledge Graph</button>
+        <button class="tab" data-action="tab" data-group="ws" data-arg="runs">Runs</button>
+        <button class="tab" data-action="tab" data-group="ws" data-arg="tasks">Tasks</button>
+        <button class="tab" data-action="tab" data-group="ws" data-arg="prs">PRs &amp; CI</button>
+        <button class="tab" data-action="tab" data-group="ws" data-arg="verify">Verification</button>
+        <button class="tab" data-action="tab" data-group="ws" data-arg="artifacts">Artifacts</button>
+      </div>
+
+      <div data-tabpanel="ws" data-arg="overview" class="active">
+        <div class="stats" style="margin-bottom:.8rem">
+          <div class="stat"><span class="label">Runs</span><span class="value">342</span></div>
+          <div class="stat"><span class="label">Cost</span><span class="value">$612</span></div>
+          <div class="stat"><span class="label">PRs</span><span class="value">2</span></div>
+          <div class="stat"><span class="label">Bible</span><span class="value">4/5</span></div>
+        </div>
+        <div class="panel"><h2>Suggested next action</h2><div class="kv"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> Open PR #42 from the auth-refactor run.<button class="btn sky sm" style="margin-left:auto" data-action="route" data-arg="runs">Go</button></div></div>
+        <div class="panel"><h2>Recent activity <span class="right"><a class="link" data-action="route" data-arg="metrics">cost &amp; token trends →</a></span></h2>
+          <div class="list">
+            <div class="row"><span class="pill done"><span class="d"></span></span><span class="grow">auth refactor — diff +120 −44</span><span class="meta">12m ago</span></div>
+            <div class="row"><span class="pill done"><span class="d"></span></span><span class="grow">build graph — 3D layout shipped</span><span class="meta">1h ago</span></div>
+            <div class="row"><span class="pill running"><span class="d"></span></span><span class="grow">verify core — running</span><span class="meta">now</span></div>
+            <div class="row"><span class="pill done"><span class="d"></span></span><span class="grow">bible recompiled</span><span class="meta">3h ago</span></div>
+            <div class="row"><span class="pill queued"><span class="d"></span></span><span class="grow">lint — queued behind verify</span><span class="meta">now</span></div>
+            <div class="row"><span class="pill done"><span class="d"></span></span><span class="grow">PR #41 merged — graph layout</span><span class="meta">5h ago</span></div>
+            <div class="row"><span class="pill done"><span class="d"></span></span><span class="grow">gitnexus analyze — KG refreshed</span><span class="meta">6h ago</span></div>
+            <div class="row"><span class="pill killed"><span class="d"></span></span><span class="grow">flaky test quarantined</span><span class="meta">1d ago</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div data-tabpanel="ws" data-arg="kg">
+        <div class="banner connecting"><svg class="gi"><use href="#i-info"></use></svg> Graph not built yet — run gitnexus analyze.</div>
+        <div class="panel"><div class="empty"><svg class="gi"><use href="#i-graph"></use></svg><div>No graph yet for this project.</div><button class="btn primary" style="margin-top:.7rem" data-action="confirm" data-title="Build graph?" data-body="Run gitnexus analyze to build the knowledge graph?" data-confirm="Build" data-toast-msg="Graph build started" data-toast-link="1"><svg class="gi"><use href="#i-graph"></use></svg> Build graph</button></div></div>
+      </div>
+
+      <div data-tabpanel="ws" data-arg="runs">
+        <div class="panel"><div class="empty"><svg class="gi"><use href="#i-runs"></use></svg><div>No runs for this project yet — use Tasks to dispatch.</div><button class="btn primary" style="margin-top:.7rem" data-action="route" data-arg="runs">Open Runs</button></div></div>
+      </div>
+
+      <div data-tabpanel="ws" data-arg="tasks">
+        <div class="panel"><h2>Tasks <span class="right muted">project</span></h2>
+          <div class="witem"><div class="witem-top"><span class="grow">verify core</span><span class="tier-chip sys">Systems</span><span class="pill queued"><span class="d"></span>queued</span></div></div>
+          <div class="witem"><div class="witem-top"><span class="grow">auth refactor</span><span class="tier-chip be">Backend</span><span class="pill running"><span class="d"></span>running</span></div></div>
+          <div class="witem"><div class="witem-top"><span class="grow">build graph</span><span class="pill done"><span class="d"></span>done</span></div></div>
+          <button class="btn primary" style="margin-top:.8rem" data-action="cmd-dispatch" data-q="new task" data-scope="in project gitnexus"><svg class="gi"><use href="#i-plus"></use></svg> Ask K — new task</button>
+        </div>
+      </div>
+
+      <div data-tabpanel="ws" data-arg="prs">
+        <div class="panel"><h2>Pull requests</h2>
+          <div class="list">
+            <div class="row"><span class="mono">#42</span><span class="grow">auth: add focus ring + tests</span><span class="pill done"><span class="d"></span>CI ok</span></div>
+            <div class="row"><span class="mono">#41</span><span class="grow">graph: 3D layout</span><span class="pill queued"><span class="d"></span>CI running</span></div>
+          </div>
+          <button class="btn primary sm" style="margin-top:.6rem" data-action="confirm" data-title="Create PR from run?" data-body="Open a PR from run 2d35… on branch feat/auth-refactor?" data-confirm="Create PR" data-toast-msg="PR #43 opened" data-toast-link="1"><svg class="gi"><use href="#i-link"></use></svg> Create PR from a run</button>
+        </div>
+      </div>
+
+      <div data-tabpanel="ws" data-arg="verify">
+        <div class="rowhead"><h2 style="margin:0">Verification</h2><button class="btn primary" style="margin-left:auto" data-action="confirm" data-title="Run verification?" data-body="Run the full verify suite for gitnexus?" data-confirm="Run" data-toast-msg="Verification started" data-toast-link="1"><svg class="gi"><use href="#i-runs"></use></svg> Run verification</button></div>
+        <div class="panel"><div class="kv"><span class="pill done"><span class="d"></span>last verdict: pass</span></div>
+          <div class="list" style="margin-top:.5rem">
+            <div class="row"><span class="grow">typecheck</span><span class="pill done"><span class="d"></span>ok</span><span class="meta">1.2s</span></div>
+            <div class="row"><span class="grow">unit tests</span><span class="pill done"><span class="d"></span>ok</span><span class="meta">8.4s</span></div>
+            <div class="row"><span class="grow">lint</span><span class="pill queued"><span class="d"></span>queued</span><span class="meta">—</span></div>
+          </div></div>
+      </div>
+
+      <div data-tabpanel="ws" data-arg="artifacts">
+        <div class="split">
+          <div class="panel"><h2>Artifacts</h2><div class="list">
+            <div class="row selrow sel" data-action="select-row"><span class="grow">project bible</span><span class="meta">.html</span></div>
+            <div class="row selrow" data-action="select-row"><span class="grow">ui-demo</span><span class="meta">.html</span></div>
+          </div></div>
+          <div class="panel"><h2>Viewer <span class="right seg"><button class="active">.md</button><button>.html</button></span></h2>
+            <p class="muted" style="font-size:.8rem">Project bible §01 — Vision …</p>
+            <button class="btn sky sm" data-action="toast" data-msg="Section editor opened" data-variant="info"><svg class="gi"><use href="#i-edit"></use></svg> edit section</button>
+            <button class="btn primary sm" data-action="confirm" data-title="Recompile bible?" data-body="Recompile the bible with your edits?" data-confirm="Recompile" data-toast-msg="Bible recompiled" data-toast-link="1">Recompile</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ RUNS + CONSOLE ============ -->
+    <section class="screen" data-view="runs">
+      <div class="rowhead"><h1 class="page">Runs</h1><span class="muted">· 5 recent</span></div>
+
+      <div class="split">
+          <div class="panel"><h2>Run list</h2><div class="list">
+            <div class="row selrow sel" data-action="select-row"><span class="pill running"><span class="d"></span></span><span class="grow">refactor auth</span><span class="meta">$0.04</span></div>
+            <div class="row selrow" data-action="select-row"><span class="pill running"><span class="d"></span></span><span class="grow">harden API surface</span><span class="meta">$0.03</span></div>
+            <div class="row selrow" data-action="select-row"><span class="pill done"><span class="d"></span></span><span class="grow">build graph</span><span class="meta">$0.01</span></div>
+            <div class="row selrow" data-action="select-row"><span class="pill error"><span class="d"></span></span><span class="grow">verify core</span><span class="meta">$0.00</span></div>
+            <div class="row selrow" data-action="select-row"><span class="pill killed"><span class="d"></span></span><span class="grow">lint</span><span class="meta">$0.00</span></div>
+          </div></div>
+
+          <div class="console col">
+            <div class="chead">
+              <b style="font-size:.82rem">refactor auth</b><span class="muted" style="font-size:.72rem"><span class="ldot fe" style="display:inline-block;vertical-align:middle"></span> Frontend ▸ implementer · claude-opus</span>
+              <span class="seg" style="margin-left:auto"><button class="active" data-action="seg">Console</button><button data-action="seg">Timeline</button></span>
+            </div>
+            <div class="chead" style="border-top:none">
+              <div class="ctx"><span>ctx</span><span class="bar warn"><span style="width:72%"></span></span><span class="mono">72%</span></div>
+              <button class="btn ghost sm" data-action="confirm" data-title="Compact context?" data-body="Compact this run's context? This is lossy and cannot be undone." data-confirm="Compact" data-toast-msg="Context compacted" data-toast-variant="info">Compact</button>
+            </div>
+            <div class="event"><div class="cmdline"><svg class="gi"><use href="#i-runs"></use></svg> Bash <span class="mono muted">pnpm test</span><span class="mono" style="margin-left:auto;color:var(--green)">exit 0 · 1.2s</span></div></div>
+            <div class="event"><div class="cmdline"><svg class="gi"><use href="#i-edit"></use></svg> Edit <span class="mono muted">src/auth.ts</span><span class="mono" style="margin-left:auto">+12 −3</span></div>
+              <div class="diff"><div class="add">+ const ring = focusRing(el)</div><div class="del">− // old: no focus ring</div></div></div>
+            <div class="event"><div class="cmdline"><svg class="gi"><use href="#i-net"></use></svg> Delegate → spec-review <span class="pill queued" style="margin-left:auto"><span class="d"></span>queued</span></div></div>
+            <div class="hitl"><div class="kv"><svg class="gi"><use href="#i-help"></use></svg> Agent asks: "Proceed to migrate the schema?"</div>
+              <div style="margin-top:.4rem"><input placeholder="answer…" aria-label="Answer the agent" /><button class="btn primary sm" data-action="toast" data-msg="Answer sent to agent" data-variant="info">Send</button></div></div>
+            <div class="chead pin-bottom" style="border-top:1px solid var(--border)">
+              <button class="btn danger sm" data-action="confirm" data-title="Kill this run?" data-body="Kill this run? It will stop immediately." data-variant="danger" data-confirm="Kill" data-toast-msg="Run killed" data-toast-variant="error"><svg class="gi"><use href="#i-stop"></use></svg> Kill</button>
+              <button class="btn secondary sm" style="margin-left:auto" data-action="confirm" data-title="Create PR from run?" data-body="Open a PR from this run's branch?" data-confirm="Create PR" data-toast-msg="PR #43 opened" data-toast-link="1"><svg class="gi"><use href="#i-link"></use></svg> Create PR from run</button>
+            </div>
+          </div>
+      </div>
+    </section>
+
+    <!-- ============ METRICS ============ -->
+    <section class="screen" data-view="metrics">
+      <div class="rowhead"><h1 class="page">Metrics</h1>
+        <div class="right"><span class="picker">metric: cost</span><span class="picker">groupBy: day</span><span class="picker">range: 30d</span></div></div>
+
+      <div class="stats" style="margin-bottom:.8rem">
+        <div class="stat"><span class="label">Today</span><span class="value">$7.92</span></div>
+        <div class="stat"><span class="label">7d</span><span class="value">$48.10</span></div>
+        <div class="stat"><span class="label">Tokens 7d</span><span class="value">1.4M</span></div>
+        <div class="stat"><span class="label">Success</span><span class="value">94%</span></div>
+      </div>
+
+      <div class="mgrid">
+        <div class="card mcard"><h2>Cost / day <span class="right muted">$ · 30d</span></h2>
+          <svg class="chart" viewBox="0 0 300 130" aria-label="cost per day">
+            <line class="gridline" x1="28" y1="44" x2="290" y2="44"/><line class="gridline" x1="28" y1="77" x2="290" y2="77"/>
+            <line class="axis" x1="28" y1="110" x2="290" y2="110"/>
+            <text class="axlabel" x="24" y="20" text-anchor="end">$12</text><text class="axlabel" x="24" y="114" text-anchor="end">$0</text>
+            <polygon fill="#38bdf8" fill-opacity=".14" points="28,92 56,84 84,66 112,78 140,52 168,70 196,42 224,58 252,30 290,46 290,110 28,110"/>
+            <polyline fill="none" stroke="#38bdf8" stroke-width="2" points="28,92 56,84 84,66 112,78 140,52 168,70 196,42 224,58 252,30 290,46"/>
+          </svg>
+        </div>
+
+        <div class="card mcard"><h2>Runs / day <span class="right muted">30d</span></h2>
+          <svg class="chart" viewBox="0 0 300 130" aria-label="runs per day">
+            <line class="gridline" x1="28" y1="44" x2="296" y2="44"/><line class="gridline" x1="28" y1="77" x2="296" y2="77"/>
+            <line class="axis" x1="28" y1="110" x2="296" y2="110"/>
+            <text class="axlabel" x="24" y="20" text-anchor="end">60</text><text class="axlabel" x="24" y="114" text-anchor="end">0</text>
+            <g fill="#38bdf8" fill-opacity=".85">
+              <rect x="30" y="70" width="15" height="40" rx="2"/><rect x="52" y="55" width="15" height="55" rx="2"/>
+              <rect x="74" y="62" width="15" height="48" rx="2"/><rect x="96" y="48" width="15" height="62" rx="2"/>
+              <rect x="118" y="52" width="15" height="58" rx="2"/><rect x="140" y="40" width="15" height="70" rx="2"/>
+              <rect x="162" y="58" width="15" height="52" rx="2"/><rect x="184" y="44" width="15" height="66" rx="2"/>
+              <rect x="206" y="36" width="15" height="74" rx="2"/><rect x="228" y="50" width="15" height="60" rx="2"/>
+              <rect x="250" y="30" width="15" height="80" rx="2"/><rect x="272" y="42" width="15" height="68" rx="2"/>
+            </g>
+          </svg>
+        </div>
+
+        <div class="card mcard"><h2>Success rate <span class="right muted">% · 30d</span></h2>
+          <svg class="chart" viewBox="0 0 300 130" aria-label="success rate trend">
+            <line class="gridline" x1="28" y1="34" x2="290" y2="34"/><line class="gridline" x1="28" y1="72" x2="290" y2="72"/>
+            <line class="axis" x1="28" y1="110" x2="290" y2="110"/>
+            <text class="axlabel" x="24" y="38" text-anchor="end">100</text><text class="axlabel" x="24" y="114" text-anchor="end">80</text>
+            <polyline fill="none" stroke="#34d399" stroke-width="2" points="28,58 56,50 84,40 112,52 140,34 168,46 196,30 224,42 252,28 290,32"/>
+          </svg>
+        </div>
+
+        <div class="card mcard"><h2>Token usage <span class="right muted">M · 30d</span></h2>
+          <svg class="chart" viewBox="0 0 300 130" aria-label="token usage">
+            <line class="gridline" x1="28" y1="44" x2="290" y2="44"/><line class="gridline" x1="28" y1="77" x2="290" y2="77"/>
+            <line class="axis" x1="28" y1="110" x2="290" y2="110"/>
+            <text class="axlabel" x="24" y="20" text-anchor="end">2M</text><text class="axlabel" x="24" y="114" text-anchor="end">0</text>
+            <polygon fill="#38bdf8" fill-opacity=".14" points="28,84 56,72 84,76 112,58 140,64 168,46 196,54 224,40 252,48 290,34 290,110 28,110"/>
+            <polyline fill="none" stroke="#38bdf8" stroke-width="2" points="28,84 56,72 84,76 112,58 140,64 168,46 196,54 224,40 252,48 290,34"/>
+          </svg>
+        </div>
+
+        <div class="card mcard"><h2>Latency <span class="right muted">ms · p50 · p95</span></h2>
+          <svg class="chart" viewBox="0 0 300 130" aria-label="latency p50 p95">
+            <line class="gridline" x1="28" y1="44" x2="290" y2="44"/><line class="gridline" x1="28" y1="77" x2="290" y2="77"/>
+            <line class="axis" x1="28" y1="110" x2="290" y2="110"/>
+            <polyline fill="none" stroke="#fbbf24" stroke-width="2" points="28,52 56,46 84,54 112,42 140,48 168,36 196,44 224,34 252,38 290,30"/>
+            <polyline fill="none" stroke="#38bdf8" stroke-width="2" points="28,86 56,82 84,84 112,78 140,80 168,74 196,78 224,72 252,70 290,68"/>
+          </svg>
+          <div class="legend"><span class="lk"><span class="sw" style="background:#38bdf8"></span>p50 2.1s</span><span class="lk"><span class="sw" style="background:#fbbf24"></span>p95 6.0s</span></div>
+        </div>
+
+        <div class="card mcard"><h2>Cost by lead <span class="right muted">7d</span></h2>
+          <div class="mlist vstack-sm" style="font-size:.76rem">
+            <div class="kv" style="gap:.55rem"><span class="ldot fe"></span><span style="width:34px">FE</span><span class="bar" style="flex:1"><span style="width:100%;background:var(--lead-fe)"></span></span><span class="mono">$18</span></div>
+            <div class="kv" style="gap:.55rem"><span class="ldot be"></span><span style="width:34px">BE</span><span class="bar" style="flex:1"><span style="width:78%;background:var(--lead-be)"></span></span><span class="mono">$14</span></div>
+            <div class="kv" style="gap:.55rem"><span class="ldot sec"></span><span style="width:34px">SEC</span><span class="bar" style="flex:1"><span style="width:39%;background:var(--lead-sec)"></span></span><span class="mono">$7</span></div>
+            <div class="kv" style="gap:.55rem"><span class="ldot sys"></span><span style="width:34px">SYS</span><span class="bar" style="flex:1"><span style="width:33%;background:var(--lead-sys)"></span></span><span class="mono">$6</span></div>
+            <div class="kv" style="gap:.55rem"><span class="ldot net"></span><span style="width:34px">NET</span><span class="bar" style="flex:1"><span style="width:17%;background:var(--lead-net)"></span></span><span class="mono">$3</span></div>
+          </div>
+        </div>
+
+        <div class="card mcard"><h2>Cost by model <span class="right muted">30d</span></h2>
+          <div class="mlist vstack-sm" style="font-size:.76rem">
+            <div class="kv" style="gap:.55rem"><span class="grow mono">opus</span><span class="bar data" style="flex:1;max-width:120px"><span style="width:100%"></span></span><span class="mono">$410</span></div>
+            <div class="kv" style="gap:.55rem"><span class="grow mono">sonnet</span><span class="bar data" style="flex:1;max-width:120px"><span style="width:30%"></span></span><span class="mono">$120</span></div>
+            <div class="kv" style="gap:.55rem"><span class="grow mono">haiku</span><span class="bar data" style="flex:1;max-width:120px"><span style="width:12%"></span></span><span class="mono">$48</span></div>
+            <div class="kv" style="gap:.55rem"><span class="grow mono">ollama</span><span class="bar data" style="flex:1;max-width:120px"><span style="width:3%"></span></span><span class="mono">$0</span></div>
+          </div>
+        </div>
+
+        <div class="card mcard"><h2>Top projects by spend <span class="right muted">total</span></h2>
+          <div class="mlist vstack-sm" style="font-size:.76rem">
+            <div class="kv" style="gap:.55rem"><span class="grow">gitnexus</span><span class="bar data" style="flex:1;max-width:110px"><span style="width:100%"></span></span><span class="mono">$612</span></div>
+            <div class="kv" style="gap:.55rem"><span class="grow">docs-site</span><span class="bar data" style="flex:1;max-width:110px"><span style="width:34%"></span></span><span class="mono">$210</span></div>
+            <div class="kv" style="gap:.55rem"><span class="grow">api-gateway</span><span class="bar data" style="flex:1;max-width:110px"><span style="width:29%"></span></span><span class="mono">$180</span></div>
+            <div class="kv" style="gap:.55rem"><span class="grow">k-harness</span><span class="bar data" style="flex:1;max-width:110px"><span style="width:16%"></span></span><span class="mono">$96</span></div>
+          </div>
+        </div>
+
+        <div class="card mcard"><h2>Error / retry rate <span class="right muted">7d</span></h2>
+          <div class="mlist">
+            <div class="kv" style="justify-content:space-between;align-items:baseline"><span class="muted" style="font-size:.74rem">error rate</span><span class="big" style="font-size:1.25rem">2.4%</span></div>
+            <div class="bar watch" style="margin:.3rem 0 .8rem"><span style="width:24%"></span></div>
+            <div class="kv" style="justify-content:space-between;align-items:baseline"><span class="muted" style="font-size:.74rem">retry rate</span><span class="mono" style="font-size:1.05rem">3.1%</span></div>
+            <div class="bar watch" style="margin:.3rem 0"><span style="width:31%"></span></div>
+          </div>
+          <svg class="chart" viewBox="0 0 300 46" aria-label="error rate sparkline" style="margin-top:.5rem">
+            <polyline fill="none" stroke="#fbbf24" stroke-width="2" points="6,30 40,22 74,28 108,18 142,26 176,20 210,30 244,16 290,22"/>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ROUTING ============ -->
+    <section class="screen" data-view="routing">
+      <h1 class="page">Routing</h1>
+      <div class="panel" style="border-color:rgba(255,143,192,.4)"><div class="kv"><svg class="gi" style="color:var(--accent-soft)"><use href="#i-idea"></use></svg> Recommendation: route default → claude-opus (96% success, $0.04/run).
+        <button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Apply recommendation?" data-body="Set the default route to claude-opus? Changes routing for new runs." data-confirm="Apply" data-toast-msg="Default route updated">Apply</button></div></div>
+      <div class="panel"><h2>Models <span class="right"><a class="link" data-action="route" data-arg="settings">manage local models →</a></span></h2>
+        <div class="list" style="font-size:.78rem">
+          <div class="row muted mono" style="font-size:.68rem;letter-spacing:.04em"><span class="grow">provider · model</span><span style="width:46px;text-align:right">runs</span><span style="width:58px;text-align:right">$/run</span><span style="width:42px;text-align:right">p50</span><span style="width:42px;text-align:right">p95</span><span style="width:96px;text-align:right">success</span></div>
+          <div class="row mono"><span class="grow">anthropic · claude-opus</span><span style="width:46px;text-align:right">82</span><span style="width:58px;text-align:right">$0.041</span><span style="width:42px;text-align:right">2.1s</span><span style="width:42px;text-align:right">6.0s</span><span style="width:96px;display:inline-flex;align-items:center;gap:.4rem;justify-content:flex-end"><span class="bar" style="width:48px"><span style="width:96%;background:var(--green)"></span></span>96%</span></div>
+          <div class="row mono"><span class="grow">anthropic · claude-sonnet</span><span style="width:46px;text-align:right">40</span><span style="width:58px;text-align:right">$0.012</span><span style="width:42px;text-align:right">1.4s</span><span style="width:42px;text-align:right">3.2s</span><span style="width:96px;display:inline-flex;align-items:center;gap:.4rem;justify-content:flex-end"><span class="bar" style="width:48px"><span style="width:92%;background:var(--green)"></span></span>92%</span></div>
+          <div class="row mono"><span class="grow">anthropic · claude-haiku</span><span style="width:46px;text-align:right">26</span><span style="width:58px;text-align:right">$0.004</span><span style="width:42px;text-align:right">0.8s</span><span style="width:42px;text-align:right">1.9s</span><span style="width:96px;display:inline-flex;align-items:center;gap:.4rem;justify-content:flex-end"><span class="bar" style="width:48px"><span style="width:88%;background:var(--green)"></span></span>88%</span></div>
+          <div class="row mono"><span class="grow">local · ollama</span><span style="width:46px;text-align:right">18</span><span style="width:58px;text-align:right">$0.000</span><span style="width:42px;text-align:right">0.9s</span><span style="width:42px;text-align:right">2.1s</span><span style="width:96px;display:inline-flex;align-items:center;gap:.4rem;justify-content:flex-end"><span class="bar" style="width:48px"><span style="width:71%;background:var(--amber)"></span></span>71%</span></div>
+          <div class="row mono"><span class="grow">local · llama-3.1</span><span style="width:46px;text-align:right">9</span><span style="width:58px;text-align:right">$0.000</span><span style="width:42px;text-align:right">1.1s</span><span style="width:42px;text-align:right">2.6s</span><span style="width:96px;display:inline-flex;align-items:center;gap:.4rem;justify-content:flex-end"><span class="bar" style="width:48px"><span style="width:64%;background:var(--amber)"></span></span>64%</span></div>
+        </div>
+      </div>
+      <div class="panel"><h2>Recent routing decisions</h2>
+        <div class="list" style="font-size:.8rem">
+          <div class="row"><span class="grow">refactor auth</span><span class="meta">→ Backend Lead</span><span class="mono">claude-opus</span></div>
+          <div class="row"><span class="grow">build 3D graph</span><span class="meta">→ Frontend Lead</span><span class="mono">claude-sonnet</span></div>
+          <div class="row"><span class="grow">summarize bible diff</span><span class="meta">→ K</span><span class="mono">claude-haiku</span></div>
+          <div class="row"><span class="grow">verify core</span><span class="meta">→ Systems Lead</span><span class="mono">ollama</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TERMINAL ============ -->
+    <section class="screen" data-view="terminal">
+      <div class="rowhead"><h1 class="page">Terminal</h1>
+        <div class="right"><button class="btn secondary sm" data-action="confirm" data-title="Enable terminal?" data-body="Set ENABLE_TERMINAL=true and start an embedded shell at the project root?" data-confirm="Enable" data-toast-msg="Terminal enabling…" data-toast-variant="info"><svg class="gi"><use href="#i-term"></use></svg> Enable terminal</button></div></div>
+
+      <div class="banner disabled"><svg class="gi"><use href="#i-stop"></use></svg> Terminal disabled — set ENABLE_TERMINAL=true to enable. <button class="btn ghost sm" style="margin-left:auto" data-action="route" data-arg="help">docs</button></div>
+      <div class="term fill">$ <span class="caret-blink">_</span></div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section class="screen" data-view="settings">
+      <h1 class="page">Settings</h1>
+
+      <div class="panel"><h2>Status</h2>
+        <div class="kv" style="gap:1.2rem;flex-wrap:wrap">
+          <span class="pill done"><span class="d"></span>Claude ready</span>
+          <span class="pill done"><span class="d"></span>Ollama ready</span>
+          <span class="pill done"><span class="d"></span>Voice ready</span>
+          <span class="pill done"><span class="d"></span>GitHub ok</span>
+          <span class="pill done"><span class="d"></span>Harness auth ok</span>
+        </div>
+      </div>
+
+      <div class="panel"><h2>Local models · Ollama <span class="right"><a class="link" data-action="route" data-arg="routing">routing performance →</a></span></h2>
+        <p class="muted" style="font-size:.74rem;margin:0 0 .7rem">Pull models and choose the one K's router uses when it routes to Ollama. Selecting a model applies immediately — no restart. <span class="mono">28.4 GB free</span></p>
+
+        <div class="grouplabel" style="padding:.2rem 0 .35rem">Installed</div>
+        <div class="list" style="font-size:.82rem">
+          <div class="row"><span class="grow mono">llama3.2:3b</span><span class="tier-chip">2.0 GB</span><span class="pill" style="color:var(--accent-soft)"><span class="d"></span>active</span><button class="btn ghost sm" data-action="confirm" data-title="Remove llama3.2:3b?" data-body="Delete this model from disk? You can pull it again later." data-variant="danger" data-confirm="Remove" data-toast-msg="llama3.2:3b removed" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
+          <div class="row"><span class="grow mono">qwen2.5:0.5b</span><span class="tier-chip">0.4 GB</span><button class="btn sky sm" data-action="confirm" data-title="Make qwen2.5:0.5b the active local model?" data-body="K's router will use qwen2.5:0.5b for local runs from now on. Applies immediately — no restart." data-confirm="Set active" data-toast-msg="qwen2.5:0.5b is now the active local model">set active</button><button class="btn ghost sm" data-action="confirm" data-title="Remove qwen2.5:0.5b?" data-body="Delete this model from disk?" data-variant="danger" data-confirm="Remove" data-toast-msg="qwen2.5:0.5b removed" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
+        </div>
+
+        <div class="witem" style="margin-top:.6rem">
+          <div class="witem-top"><svg class="gi" style="color:var(--accent-hover)"><use href="#i-download"></use></svg><span class="grow mono">phi4 — downloading…</span><span class="mono muted" style="font-size:.72rem">5.6 / 9.1 GB · 62%</span><button class="btn ghost sm" data-action="confirm" data-title="Cancel download?" data-body="Stop pulling phi4?" data-variant="danger" data-confirm="Cancel" data-toast-msg="phi4 download cancelled" data-toast-variant="info"><svg class="gi"><use href="#i-x"></use></svg></button></div>
+          <div class="bar data" style="margin-top:.4rem"><span style="width:62%"></span></div>
+        </div>
+
+        <div class="grouplabel" style="padding:.85rem 0 .35rem">Catalog</div>
+        <div class="grid3 cards">
+          <div class="card"><div class="kv"><b class="mono">qwen2.5:0.5b</b><span class="pill done" style="margin-left:auto"><span class="d"></span>installed</span></div><p class="muted" style="font-size:.74rem;margin:.35rem 0">Tiny &amp; fast — quick local checks.</p><div class="kv"><span class="tier-chip">0.4 GB</span><span class="pill healthy"><svg class="gi" style="width:.95em;height:.95em"><use href="#i-check"></use></svg> fits</span></div></div>
+          <div class="card"><div class="kv"><b class="mono">mistral:7b</b></div><p class="muted" style="font-size:.74rem;margin:.35rem 0">Balanced general model.</p><div class="kv"><span class="tier-chip">4.1 GB</span><span class="pill healthy"><svg class="gi" style="width:.95em;height:.95em"><use href="#i-check"></use></svg> fits</span><button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Pull mistral:7b?" data-body="Download mistral:7b (4.1 GB)? Progress shows here; you can keep working." data-confirm="Pull" data-toast-msg="Pulling mistral:7b…" data-toast-variant="info"><svg class="gi"><use href="#i-download"></use></svg> Pull</button></div></div>
+          <div class="card"><div class="kv"><b class="mono">qwen2.5-coder:7b</b></div><p class="muted" style="font-size:.74rem;margin:.35rem 0">Code-tuned — diffs &amp; reviews.</p><div class="kv"><span class="tier-chip">4.7 GB</span><span class="pill healthy"><svg class="gi" style="width:.95em;height:.95em"><use href="#i-check"></use></svg> fits</span><button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Pull qwen2.5-coder:7b?" data-body="Download qwen2.5-coder:7b (4.7 GB)?" data-confirm="Pull" data-toast-msg="Pulling qwen2.5-coder:7b…" data-toast-variant="info"><svg class="gi"><use href="#i-download"></use></svg> Pull</button></div></div>
+          <div class="card"><div class="kv"><b class="mono">llama3.3:70b</b></div><p class="muted" style="font-size:.74rem;margin:.35rem 0">Frontier-class — needs space.</p><div class="kv"><span class="tier-chip">43 GB</span><span class="pill risk"><svg class="gi" style="width:.95em;height:.95em"><use href="#i-alert"></use></svg> won't fit</span><button class="btn primary sm" style="margin-left:auto" disabled><svg class="gi"><use href="#i-download"></use></svg> Pull</button></div></div>
+        </div>
+
+        <div class="adv" style="margin-top:.7rem"><span class="muted">Advanced — pull any tag:</span>
+          <input style="flex:1;min-width:140px;background:var(--raised);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit;font-size:.74rem;padding:.22rem .5rem" placeholder="e.g. gemma2:9b" aria-label="Pull any Ollama tag" />
+          <button class="btn secondary sm" data-action="toast" data-msg="Pulling — the model size is checked against free disk before the download starts" data-variant="info"><svg class="gi"><use href="#i-download"></use></svg> Pull</button></div>
+      </div>
+
+      <div class="panel"><h2>Voice transcription</h2>
+        <p class="muted" style="font-size:.74rem;margin:0 0 .7rem">Push-to-talk dictation into the K composer and any reply box. Audio is transcribed by a local Whisper service and never leaves your machine.</p>
+        <div class="list" style="font-size:.82rem">
+          <div class="row"><span class="grow">Engine</span><span class="pill done"><span class="d"></span>local Whisper · ready</span><span class="mono muted" style="font-size:.72rem">localhost:9000 · whisper-base.en</span></div>
+          <div class="row"><span class="grow">Push-to-talk</span><span class="muted" style="font-size:.74rem">hold the mic in any composer, or press</span><span class="mono" style="background:rgba(56,189,248,.16);border-radius:6px;padding:1px 6px;font-size:.7rem">Alt Space</span></div>
+          <div class="row"><span class="grow">Enable voice</span><span class="toggle on" data-action="toast" data-msg="Voice stays enabled in this demo" data-variant="info"></span></div>
+        </div>
+        <div class="kv" style="margin-top:.6rem"><span class="muted" style="font-size:.72rem">Whisper runs as a separate local service (faster-whisper). Set <span class="mono">ENABLE_VOICE</span> + <span class="mono">WHISPER_BASE_URL</span> to point K at it.</span>
+          <button class="btn secondary sm" style="margin-left:auto" data-action="toast" data-msg="Mic check — say a few words" data-variant="info"><svg class="gi"><use href="#i-mic"></use></svg> Test mic</button></div>
+      </div>
+
+      <div class="panel"><h2>Org &amp; MCP authority (default control plane)</h2>
+        <p class="muted" style="font-size:.74rem;margin:0 0 .55rem">The org default every new lead inherits. Override per lead in Orchestrator → MCP · Authority.</p>
+        <div class="kv"><span class="muted">Default authority tier for new leads:</span>
+          <span class="radio on" style="margin:0"><span class="knob"></span><span class="t">T1 Standard</span></span>
+          <button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Change org default tier?" data-body="Set the default authority tier for new leads to T1?" data-confirm="Apply" data-toast-msg="Org default tier applied">Apply</button></div>
+        <div class="list" style="margin-top:.6rem">
+          <div class="row"><span class="grow">Gmail</span><span class="pill done"><span class="d"></span>connected</span><button class="btn ghost sm" data-action="confirm" data-title="Revoke Gmail (org)?" data-body="Revoke Gmail at the org level?" data-variant="danger" data-confirm="Revoke" data-toast-msg="Gmail revoked" data-toast-variant="info">revoke</button></div>
+          <div class="row"><span class="grow">Google Calendar</span><span class="pill done"><span class="d"></span>connected</span><button class="btn ghost sm" data-action="confirm" data-title="Revoke Calendar (org)?" data-body="Revoke Calendar at the org level?" data-variant="danger" data-confirm="Revoke" data-toast-msg="Calendar revoked" data-toast-variant="info">revoke</button></div>
+          <div class="row"><span class="grow muted">Google Drive</span><span class="pill killed"><span class="d"></span>not connected</span><button class="btn sky sm" data-action="confirm" data-title="Connect Drive (org)?" data-body="Connect Google Drive at the org level?" data-confirm="Connect" data-toast-msg="Drive connected">connect</button></div>
+        </div>
+      </div>
+
+      <div class="panel"><h2>Global system prompt (CLAUDE.md)<span class="right dirty">unsaved ●</span></h2>
+        <textarea class="editor"># Harness — Global Operating Prompt
+
+This is the shared system prompt for every agent the harness runs.</textarea>
+        <div class="kv" style="margin-top:.6rem"><span class="muted" style="font-size:.72rem">Previous version is backed up on save.</span>
+          <button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Change the global prompt?" data-body="This changes the global system prompt for EVERY agent. The previous version is backed up." data-confirm="Save" data-toast-msg="Global prompt saved">Save</button></div>
+      </div>
+    </section>
+
+    <!-- ============ HELP / DOCS ============ -->
+    <section class="screen" data-view="help">
+      <h1 class="page">Help / Docs</h1>
+      <div class="split balance">
+        <div class="panel"><h2>Contents</h2>
+          <div class="list">
+            <div class="row selrow sel" data-action="select-row"><span class="grow">Getting started</span></div>
+            <div class="row selrow" data-action="select-row"><span class="grow">1. Concepts</span></div>
+            <div class="row selrow" data-action="select-row"><span class="grow">10. User guide</span></div>
+          </div>
+          <h2 style="margin-top:1rem">Shortcuts</h2>
+          <div class="list mono" style="font-size:.74rem">
+            <div class="row"><span class="grow">Ask K</span><span class="meta">Ctrl K</span></div>
+            <div class="row"><span class="grow">Go: K / Chief / Runs</span><span class="meta">g h / g c / g r</span></div>
+            <div class="row"><span class="grow">Projects / Metrics / Terminal</span><span class="meta">g p / g m / g t</span></div>
+            <div class="row"><span class="grow">Shortcut help</span><span class="meta">?</span></div>
+          </div>
+        </div>
+        <div class="panel"><h2>Viewer <span class="right seg"><button class="active">.md</button><button>.html</button></span></h2>
+          <div class="banner disabled"><svg class="gi"><use href="#i-info"></use></svg> This viewer is read-only. To edit a project's bible, open Projects → project → Artifacts.</div>
+          <p class="muted" style="font-size:.82rem"># K — User Guide … talk to K, direct the org.</p>
+
+          <h2 style="margin-top:1rem">Pattern gallery (design reference)</h2>
+          <p class="muted" style="font-size:.78rem;margin:0 0 .6rem">Ordinary dispatch is one Send + a 5s undo toast (no confirm-card). A full confirm-card appears ONLY on escalation: T3 authority, cross-project, or destructive (kill / delete / reassign).</p>
+          <div class="grid2">
+            <div class="dialog glass-strong" style="margin:0"><h3><svg class="gi" style="color:var(--red)"><use href="#i-alert"></use></svg> Escalation — confirm required</h3>
+              <p class="muted" style="font-size:.78rem">Cross-project dispatch to k-harness. Reaches outside the current project.</p>
+              <div class="actions"><span class="grow"></span><button class="btn ghost sm">Cancel</button><button class="btn danger sm">Confirm ↵</button></div></div>
+            <div class="stack">
+              <div class="toast success" style="position:static"><svg class="gi"><use href="#i-check"></use></svg><span>Dispatched · → Chief → Backend Lead</span><button class="toast-link">Undo</button></div>
+              <div class="toast error" style="position:static"><svg class="gi"><use href="#i-alert"></use></svg><span>Run failed to start</span><button class="toast-link">Retry</button></div>
+              <div class="toast info" style="position:static"><svg class="gi"><use href="#i-trash"></use></svg><span>Note deleted</span><button class="toast-link">Undo</button></div>
+            </div>
+          </div>
+          <div class="kv" style="margin-top:.8rem"><button class="btn ghost sm" data-action="route" data-arg="login">View login screen</button><button class="btn ghost sm" data-action="route" data-arg="notfound">View not-found</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ NOT FOUND ============ -->
+    <section class="screen" data-view="notfound">
+      <div class="empty" style="padding:5rem 1rem">
+        <div style="font-size:2.4rem">⌀</div>
+        <h1 class="page" style="margin-top:.5rem">Not found</h1>
+        <p class="sub">That screen doesn't exist.</p>
+        <div class="kv" style="justify-content:center"><button class="btn primary" data-action="route" data-arg="k-home">Back to K</button><button class="btn ghost" data-action="cmd-open">Press Ctrl K to go anywhere</button></div>
+      </div>
+    </section>
+
+    <!-- ============ LOGIN ============ -->
+    <section class="screen" data-view="login">
+      <div class="dialog-wrap" style="margin-top:4rem">
+        <div class="dialog glass-strong">
+          <div class="kv" style="justify-content:center"><span class="logo" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent-hover));color:var(--ink)"><svg class="gi" style="stroke-width:2"><use href="#i-bolt"></use></svg></span></div>
+          <h3 style="justify-content:center;margin-top:.5rem">Sign in to direct your org</h3>
+          <div class="fields"><label>Access key</label><input type="password" value="••••••••••" aria-label="Access key" /></div>
+          <div class="actions"><button class="btn primary grow" data-action="route" data-arg="k-home">Sign in</button></div>
+          <p class="muted" style="text-align:center;font-size:.72rem;margin:.6rem 0 0">Demo · no real auth</p>
+        </div>
+      </div>
+    </section>
+
   </main>
 
-  <footer>
-    <span class="pulse"><span class="dot accent"></span> supervisor online</span>
-    <span id="status">idle</span>
-    <span class="clock mono" id="clock">--:--:--</span>
-  </footer>
+  <div class="strip">
+    <svg class="gi"><use href="#i-graph"></use></svg>
+    <span>org pulse:</span>
+    <span class="seg-lead"><span class="ldot fe"></span>Frontend 2</span>
+    <span class="seg-lead"><span class="ldot be"></span>Backend 1</span>
+    <span class="seg-lead"><span class="ldot sec"></span>Security idle</span>
+    <span class="muted">· last <a class="link done" data-action="route" data-arg="runs">ok verify core →</a></span>
+    <span class="right">
+      <button class="btn ghost sm" data-action="confirm" data-title="Pause all running agents?" data-body="Pause every running agent across the org?" data-variant="danger" data-confirm="Pause all" data-toast-msg="All agents paused" data-toast-variant="info"><svg class="gi"><use href="#i-pause"></use></svg> pause all</button>
+      <span class="muted">day totals in <a class="link" data-action="route" data-arg="metrics">Metrics →</a></span>
+      <span class="clock mono">--:--:--</span>
+    </span>
+  </div>
 </div>
+
+<!-- ============ COMMAND BAR ============ -->
+<div class="overlay" id="cmd">
+  <div class="scrim" data-action="cmd-close"></div>
+  <div class="cmd-wrap"><div class="cmdbar glass">
+    <div class="cmd-input"><svg class="gi"><use href="#i-search"></use></svg>
+      <input id="cmdInput" placeholder="Ask K — or type to jump…" aria-label="Ask K" />
+      <span class="scope" id="cmdScope">@gitnexus</span></div>
+    <div class="routeline" id="cmdRoute" style="padding:.5rem 1rem;margin:0;border-bottom:1px solid var(--glass-border)"><span class="muted">routes</span> → Chief <span class="seg-sep">→</span> Backend Lead</div>
+    <div class="cmd-results">
+      <div class="cmd-row dispatch" data-action="cmd-send"><svg class="gi"><use href="#i-bolt"></use></svg> Dispatch: "refactor the auth module"<span class="k">↵</span></div>
+      <div class="cmd-row" data-action="route" data-arg="k-home"><svg class="gi"><use href="#i-home"></use></svg> Go to K (home)</div>
+      <div class="cmd-row" data-action="route" data-arg="runs"><svg class="gi"><use href="#i-runs"></use></svg> refactor auth (run 2d35…) · done</div>
+    </div>
+    <div class="adv" style="padding:.5rem 1rem;border-top:1px solid var(--glass-border);margin:0">
+      <span class="muted">Advanced:</span>
+      <span class="check" data-action="toggle-check"><span class="box"></span> force a specific lead</span>
+      <select aria-label="Force a specific lead"><option>auto-route</option><option>Frontend Lead</option><option>Backend Lead</option><option>Security Lead</option><option>Chief</option></select>
+    </div>
+    <div class="cmd-foot">
+      <span class="modepill" id="cmdMode" data-action="cmd-mode">↵ Navigate</span><span>tab to switch</span>
+      <span class="picker" style="margin-left:auto">model: auto</span>
+      <span class="check" data-action="toggle-check"><span class="box"></span> Interactive</span>
+      <button class="btn primary sm" data-action="cmd-send"><svg class="gi"><use href="#i-bolt"></use></svg> Send ↵</button>
+      <span class="muted">esc</span>
+    </div>
+  </div></div>
+</div>
+
+<!-- ============ GENERIC CONFIRM (escalation / destructive only) ============ -->
+<div class="overlay" id="confirm">
+  <div class="scrim" data-action="confirm-cancel"></div>
+  <div class="dialog-wrap"><div class="dialog glass-strong">
+    <h3 id="confirmTitle">Confirm</h3>
+    <div class="fields" id="confirmBody"></div>
+    <div class="actions"><button class="btn ghost" data-action="confirm-cancel">Cancel <span class="muted">esc</span></button><span class="grow"></span><button class="btn primary" id="confirmOk" data-action="confirm-ok">Confirm ↵</button></div>
+  </div></div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script>
   (function () {
-    var rows = [
-      { dot: 'green',  text: 'compileBible — 9 sections', meta: 'done · $0.004' },
-      { dot: 'accent', text: 'graph build — feat/phase-h', meta: 'running' },
-      { dot: 'amber',  text: 'verify — core suite', meta: 'queued' },
-    ];
-    var act = document.getElementById('activity');
-    function render() {
-      act.innerHTML = rows.map(function (r) {
-        return '<div class="row"><span class="dot ' + r.dot + '"></span>' +
-          '<span class="grow">' + r.text + '</span>' +
-          '<span class="meta mono">' + r.meta + '</span></div>';
-      }).join('');
-    }
-    render();
+    var $ = function (s, r) { return (r || document).querySelector(s); };
+    var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 
-    var views = {
-      overview: ['Overview', 'A self-contained mock of the K Command Deck — fully interactive, zero network.'],
-      runs:     ['Runs', 'Every agent run, streamed live with token + cost accounting.'],
-      graph:    ['Knowledge Graph', 'Per-project symbol graph — explore blast radius before you edit.'],
-      bible:    ['Bible', 'The living project spec, compiled to a self-contained HTML artifact.'],
+    var state = { view: 'k-home', cmdMode: 'navigate' };
+
+    var meta = {
+      'k-home':        { nav: 'k-home', title: 'K', icon: 'i-home', crumb: '' },
+      'chief':         { nav: 'chief', title: 'Chief', icon: 'i-crown', crumb: '' },
+      'orchestrators': { nav: 'orchestrators', title: 'Orchestrators', icon: 'i-net', crumb: '' },
+      'orchestrator-detail': { nav: 'orchestrators', title: 'Frontend Lead', icon: 'i-net', crumb: 'Orchestrators › Frontend Lead' },
+      'workflows':     { nav: 'workflows', title: 'Workflows', icon: 'i-flow', crumb: '' },
+      'workflow-detail': { nav: 'workflows', title: 'Code wave', icon: 'i-flow', crumb: 'Workflows › Code wave' },
+      'projects':      { nav: 'projects', title: 'Projects', icon: 'i-grid', crumb: '' },
+      'project-workspace': { nav: 'projects', title: 'gitnexus', icon: 'i-grid', crumb: 'Projects › gitnexus' },
+      'runs':          { nav: 'runs', title: 'Runs', icon: 'i-runs', crumb: '' },
+      'metrics':       { nav: 'metrics', title: 'Metrics', icon: 'i-metrics', crumb: '' },
+      'routing':       { nav: 'routing', title: 'Routing', icon: 'i-route', crumb: '' },
+      'terminal':      { nav: 'terminal', title: 'Terminal', icon: 'i-term', crumb: '' },
+      'settings':      { nav: 'settings', title: 'Settings', icon: 'i-settings', crumb: '' },
+      'help':          { nav: 'help', title: 'Help', icon: 'i-help', crumb: '' },
+      'login':         { nav: '', title: 'Sign in', icon: 'i-home', crumb: '' },
+      'notfound':      { nav: '', title: 'Not found', icon: 'i-help', crumb: '' }
     };
-    var nav = document.getElementById('nav');
-    nav.addEventListener('click', function (e) {
-      var btn = e.target.closest('button'); if (!btn) return;
-      [].forEach.call(nav.querySelectorAll('button'), function (b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-      var v = views[btn.dataset.view] || views.overview;
-      document.getElementById('heroTitle').textContent = v[0];
-      document.getElementById('heroSub').textContent = v[1];
+
+    function route(view) {
+      var m = meta[view] || meta.notfound;
+      state.view = view;
+      $$('.screen').forEach(function (s) { s.classList.toggle('active', s.dataset.view === view); });
+      var dk = $('#deck'); if (dk) dk.classList.toggle('authmode', view === 'login');
+      $$('aside .nav button').forEach(function (b) { b.classList.toggle('active', b.dataset.arg === m.nav); });
+      $('#barTitle').textContent = m.title;
+      $('#barIcon').innerHTML = '<svg class="gi"><use href="#' + m.icon + '"></use></svg>';
+      $('#crumb').innerHTML = m.crumb ? ('<span class="sep">›</span> ' + m.crumb) : '';
+      var main = $('#main'); if (main) main.scrollTop = 0;
+    }
+
+    function open(sel) { $(sel).classList.add('show'); }
+    function close(sel) { $(sel).classList.remove('show'); }
+
+    // The ⌘K composer is the ONE front door. Topbar opens it in Navigate mode;
+    // a per-screen ⚡ opens it pre-scoped in Dispatch mode with the route shown.
+    function openCmd() {
+      state.cmdMode = 'navigate'; open('#cmd'); renderMode();
+      var sc = $('#cmdScope'); if (sc) sc.textContent = '@gitnexus';
+      renderRoute('');
+      var i = $('#cmdInput'); if (i) { i.value = ''; setTimeout(function () { i.focus(); }, 20); }
+    }
+    function openCmdScoped(q, scope) {
+      state.cmdMode = 'dispatch'; open('#cmd'); renderMode();
+      var sc = $('#cmdScope'); if (sc) sc.textContent = scope || '@gitnexus';
+      renderRoute(scope || '');
+      var i = $('#cmdInput'); if (i) { i.value = q || ''; setTimeout(function () { i.focus(); }, 20); }
+    }
+    function toggleMode() { state.cmdMode = state.cmdMode === 'navigate' ? 'dispatch' : 'navigate'; renderMode(); }
+    function renderMode() {
+      var p = $('#cmdMode'); if (!p) return;
+      var d = state.cmdMode === 'dispatch';
+      p.textContent = d ? '↵ Dispatch' : '↵ Navigate';
+      p.classList.toggle('disp', d);
+    }
+    function renderRoute(scope) {
+      var rl = $('#cmdRoute'); if (!rl) return;
+      var s = (scope || '').toLowerCase(), dest = 'Chief <span class="seg-sep">→</span> Backend Lead';
+      if (s.indexOf('frontend') >= 0) dest = 'Frontend Lead';
+      else if (s.indexOf('backend') >= 0) dest = 'Backend Lead';
+      else if (s.indexOf('security') >= 0) dest = 'Security Lead';
+      else if (s.indexOf('systems') >= 0) dest = 'Systems Lead';
+      else if (s.indexOf('network') >= 0) dest = 'Network Lead';
+      else if (s.indexOf('implementer') >= 0 || s.indexOf('role') >= 0) dest = 'Frontend ▸ implementer';
+      else if (s.indexOf('chief') >= 0) dest = 'Chief';
+      rl.innerHTML = '<span class="muted">routes</span> → ' + dest;
+    }
+    // Low-friction: Send fires immediately and raises a 5s UNDO toast showing the
+    // route. Escalations (T3 / cross-project / destructive) keep their confirm-card.
+    function dispatchSend(rt) {
+      var r = rt;
+      if (!r) { var rl = $('#cmdRoute'); r = rl ? rl.textContent.replace(/^routes\s*/, '').trim() : '→ Chief'; }
+      close('#cmd'); route('runs'); toast('Dispatched · ' + r, 'success', '', true);
+    }
+
+    function openConfirm(ds) {
+      $('#confirmTitle').textContent = ds.title || 'Confirm';
+      $('#confirmBody').innerHTML = '<div>' + (ds.body || '') + '</div>';
+      var ok = $('#confirmOk');
+      ok.textContent = (ds.confirm || 'Confirm') + ' ↵';
+      ok.className = 'btn ' + (ds.variant === 'danger' ? 'danger' : 'primary');
+      var dlg = $('#confirm');
+      dlg.dataset.toastMsg = ds.toastMsg || '';
+      dlg.dataset.toastVariant = ds.toastVariant || 'success';
+      dlg.dataset.toastLink = ds.toastLink || '';
+      open('#confirm');
+    }
+
+    function toast(msg, variant, link, undo) {
+      var wrap = $('#toasts');
+      var el = document.createElement('div');
+      el.className = 'toast ' + (variant || 'success');
+      var ic = variant === 'error' ? 'i-alert' : (variant === 'info' ? 'i-info' : 'i-check');
+      var tail = undo ? '<button class="toast-link" data-action="toast-undo">Undo</button>'
+        : (link ? '<button class="toast-link" data-action="route" data-arg="runs">View →</button>' : '');
+      el.innerHTML = '<svg class="gi"><use href="#' + ic + '"></use></svg><span>' + msg + '</span>' + tail;
+      wrap.appendChild(el);
+      // ordinary dispatch shows a 5s UNDO window; other toasts auto-dismiss at 4s.
+      var ttl = undo ? 5000 : 4000;
+      setTimeout(function () { el.classList.add('out'); setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 320); }, ttl);
+    }
+
+    function activateTab(btn) {
+      var g = btn.dataset.group, target = btn.dataset.arg;
+      $$('[data-action="tab"][data-group="' + g + '"]').forEach(function (b) { b.classList.toggle('active', b === btn); });
+      $$('[data-tabpanel="' + g + '"]').forEach(function (p) { p.classList.toggle('active', p.dataset.arg === target); });
+    }
+
+    var conns = ['live', 'connecting', 'offline'], ci = 0;
+    function setConn(s) {
+      $('#conn').className = 'conn ' + s;
+      $('#connLabel').textContent = { live: 'live', connecting: 'connecting…', offline: 'offline' }[s];
+    }
+
+    document.addEventListener('click', function (e) {
+      var seg = e.target.closest('.seg button');
+      if (seg) { $$('button', seg.parentNode).forEach(function (b) { b.classList.remove('active'); }); seg.classList.add('active'); }
+
+      var sel = e.target.closest('.selrow');
+      if (sel && sel.dataset.action === 'select-row') {
+        $$('.selrow.sel', sel.closest('.panel') || document).forEach(function (x) { x.classList.remove('sel'); });
+        sel.classList.add('sel');
+      }
+
+      var t = e.target.closest('[data-action]');
+      if (!t) return;
+      var a = t.dataset.action;
+      if (a === 'route') { route(t.dataset.arg); return; }
+      if (a === 'rail') { $('#deck').classList.toggle('rail'); return; }
+      if (a === 'cycle-conn') { ci = (ci + 1) % 3; setConn(conns[ci]); return; }
+      if (a === 'cmd-open') { openCmd(); return; }
+      if (a === 'cmd-close') { close('#cmd'); return; }
+      if (a === 'cmd-mode') { toggleMode(); return; }
+      if (a === 'cmd-dispatch') { openCmdScoped(t.dataset.q || '', t.dataset.scope || ''); return; }
+      if (a === 'cmd-send') { dispatchSend(t.dataset.route || ''); return; }
+      if (a === 'toast-undo') { var tn = t.closest('.toast'); if (tn && tn.parentNode) tn.parentNode.removeChild(tn); toast('Dispatch undone', 'info'); return; }
+      if (a === 'confirm') { openConfirm(t.dataset); return; }
+      if (a === 'confirm-cancel') { close('#confirm'); return; }
+      if (a === 'confirm-ok') {
+        var d = $('#confirm').dataset; close('#confirm');
+        if (d.toastMsg) toast(d.toastMsg, d.toastVariant || 'success', d.toastLink || '');
+        return;
+      }
+      if (a === 'toast') { toast(t.dataset.msg || 'Done', t.dataset.variant || 'success', t.dataset.link || ''); return; }
+      if (a === 'tab') { activateTab(t); return; }
+      if (a === 'tree') { var n = t.closest('.tnode'); if (n) n.classList.toggle('open'); return; }
+      if (a === 'tree-sel') {
+        $$('.tnode-row.sel').forEach(function (x) { x.classList.remove('sel'); });
+        t.classList.add('sel');
+        return;
+      }
+      if (a === 'toggle-check') { t.classList.toggle('on'); return; }
+      if (a === 'toggle-switch') { t.classList.toggle('on'); return; }
+      if (a === 'toggle-danger') {
+        if (t.classList.contains('on')) { t.classList.remove('on'); toast((t.dataset.tool || 'Tool') + ' disabled', 'info'); return; }
+        openConfirm({ title: 'Enable ' + (t.dataset.tool || 'tool') + '?', body: 'This is a danger tool — it can modify the system. Enable it for this lead?', variant: 'danger', confirm: 'Enable', toastMsg: (t.dataset.tool || 'Tool') + ' enabled' });
+        t.classList.add('on');
+        return;
+      }
+      if (a === 'tier') {
+        $$('.radio[data-action="tier"]').forEach(function (r) { r.classList.remove('on'); });
+        t.classList.add('on');
+        return;
+      }
+      if (a === 'register') {
+        openConfirm({ title: 'Register project', body: 'Enter a path or URL. The form classifies it client-side ("will register path" / "will clone via gh") before submit.', confirm: 'Register', toastMsg: 'Project registered', toastLink: 1 });
+        return;
+      }
     });
 
-    var n = 128;
-    var sRuns = document.getElementById('sRuns');
-    var statusEl = document.getElementById('status');
-    document.getElementById('cmdForm').addEventListener('submit', function (e) {
-      e.preventDefault();
-      var input = document.getElementById('cmdInput');
-      var task = input.value.trim(); if (!task) return;
-      rows.unshift({ dot: 'accent', text: task.slice(0, 48), meta: 'dispatched' });
-      if (rows.length > 5) rows.pop();
-      render();
-      sRuns.textContent = String(++n);
-      statusEl.textContent = 'dispatched ✓';
-      input.value = '';
-      setTimeout(function () { statusEl.textContent = 'idle'; }, 1600);
+    document.addEventListener('keydown', function (e) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openCmd(); return; }
+      if (e.key === 'Escape') {
+        ['#confirm', '#cmd'].some(function (s) {
+          var o = $(s); if (o && o.classList.contains('show')) { o.classList.remove('show'); return true; } return false;
+        });
+        return;
+      }
+      if (e.key === 'Tab' && $('#cmd').classList.contains('show')) { e.preventDefault(); toggleMode(); }
     });
 
-    var clock = document.getElementById('clock');
+    // greeting (time-aware) + clock
+    var hr = new Date().getHours();
+    var g = hr < 12 ? 'Good morning' : (hr < 18 ? 'Good afternoon' : 'Good evening');
+    var greet = $('#greet'); if (greet) greet.textContent = g + ', Cameron.';
+    function pad(x) { return (x < 10 ? '0' : '') + x; }
     function tick() {
-      var d = new Date();
-      clock.textContent = [d.getHours(), d.getMinutes(), d.getSeconds()]
-        .map(function (x) { return String(x).padStart(2, '0'); }).join(':');
+      var d = new Date(), t = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+      $$('.clock').forEach(function (c) { c.textContent = t; });
     }
     tick(); setInterval(tick, 1000);
+
+    route('k-home');
   })();
 </script>
 </body>
