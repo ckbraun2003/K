@@ -21,7 +21,8 @@ import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vites
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { fileURLToPath } from 'url'
+import { createRequire } from 'module'
+import { fileURLToPath, pathToFileURL } from 'url'
 import { synthesizeConfigDir, pruneOrphanAgentRuns } from '../src/agent-config.js'
 import type { SynthesizeOpts } from '../src/agent-config.js'
 import { DEFAULT_PROFILE, type CharterName } from '../src/profiles.js'
@@ -115,15 +116,34 @@ describe('synthesizeConfigDir', () => {
 
   it('leaks no host config path in the synthesizer-written files', () => {
     const cfg = synth()
-    const configDirFwd = cfg.configDir.split(path.sep).join('/')
     const homeClaude = path.join(os.homedir(), '.claude')
+    // Paths that LEGITIMATELY appear in K's own config: the run's configDir (the
+    // settings hook path), its parent dataDir + the kstore K_DATA_DIR, the kstore
+    // server module, and the node binary that launches it (mcp.json command/args).
+    // These are K-owned, not the host ~/.claude — strip them so the scan catches
+    // only foreign/host leakage. (On Windows os.tmpdir() nests under os.homedir(),
+    // so the run/data paths would otherwise contain C:\Users / AppData.)
+    const dataDir = path.resolve(cfg.configDir, '..', '..', '..')
+    const mcpDir = path.join(__dirname, '..', 'src', 'mcp')
+    // the dev args carry the absolute tsx loader URL (under K's own node_modules)
+    const tsxHref = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+    const legit = [
+      cfg.configDir,
+      dataDir,
+      path.join(mcpDir, 'k-store-server.ts'),
+      path.join(mcpDir, 'k-store-server.js'),
+      process.execPath,
+      tsxHref,
+    ]
+    // Strip the native, forward-slash, AND JSON-escaped (C:\\Users\\…) forms of
+    // each legit path — mcp.json stores absolute paths JSON-escaped.
+    const variants = (p: string): string[] => [p, p.split(path.sep).join('/'), JSON.stringify(p).slice(1, -1)]
+    const strip = (s: string): string => {
+      for (const p of legit) for (const v of variants(p)) s = s.split(v).join('<K>')
+      return s
+    }
     for (const name of ['system-prompt.md', 'settings.json', 'mcp.json']) {
-      let body = fs.readFileSync(path.join(cfg.configDir, name), 'utf8')
-      // The run's OWN configDir path legitimately appears (settings hook path);
-      // strip it before scanning so we catch only foreign/host-path leakage.
-      // (On Windows os.tmpdir() is nested under os.homedir(), so the run path
-      // would otherwise contain C:\Users / AppData / os.homedir().)
-      body = body.split(cfg.configDir).join('<RUN>').split(configDirFwd).join('<RUN>')
+      const body = strip(fs.readFileSync(path.join(cfg.configDir, name), 'utf8'))
       expect(body, name).not.toContain('AppData')
       expect(body, name).not.toContain('C:\\Users')
       expect(body, name).not.toContain('C:/Users')
@@ -182,6 +202,110 @@ describe('synthesizeConfigDir', () => {
     expect(() =>
       synthesizeConfigDir(evil, { runId: 'run-x', dataDir, assetsDir: ASSET_DIR }),
     ).toThrow(/unsafe charterTier/)
+  })
+})
+
+describe('bundle-driven mounting + kstore wiring (Wave 6)', () => {
+  /** Synthesize as a given charter tier (DEFAULT_PROFILE is orchestrator). */
+  function synthAs(charterTier: CharterName) {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-agcfg-'))
+    tmpDirs.push(dataDir)
+    const runId = 'run-' + Math.random().toString(36).slice(2)
+    const profile = { ...DEFAULT_PROFILE, tier: charterTier, charterTier }
+    const cfg = synthesizeConfigDir(profile, { runId, dataDir, assetsDir: ASSET_DIR })
+    return { cfg, dataDir, runId }
+  }
+  const dirNames = (root: string): string[] =>
+    fs.existsSync(root)
+      ? fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)
+      : []
+  const agentNames = (configDir: string): string[] => {
+    const dir = path.join(configDir, 'agents')
+    return fs.existsSync(dir)
+      ? fs.readdirSync(dir).filter(f => f.endsWith('.md')).map(f => f.replace(/\.md$/, '')).sort()
+      : []
+  }
+
+  it('orchestrator mounts the full skill set AND the worker-agent roster', () => {
+    const { cfg } = synthAs('orchestrator')
+    const skills = dirNames(path.join(cfg.configDir, 'skills'))
+    expect(skills).toContain('gitnexus')
+    expect(skills).toContain('subagent-driven-development')
+    expect(agentNames(cfg.configDir)).toEqual([
+      'debugger',
+      'implementer',
+      'planner',
+      'quality-reviewer',
+      'security-reviewer',
+      'spec-reviewer',
+    ])
+  })
+
+  it('secretary mounts ONLY its bundle skills and NO worker-agents', () => {
+    const { cfg } = synthAs('secretary')
+    const skills = dirNames(path.join(cfg.configDir, 'skills')).sort()
+    expect(skills).toEqual([
+      'capturing-lessons',
+      'iterative-retrieval',
+      'search-first',
+      'strategic-compact',
+    ])
+    expect(skills).not.toContain('gitnexus')
+    expect(skills).not.toContain('test-driven-development')
+    expect(agentNames(cfg.configDir)).toEqual([])
+  })
+
+  it('chief mounts exactly its bundle skills (incl. gitnexus) but NO worker-agents', () => {
+    const { cfg } = synthAs('chief')
+    expect(dirNames(path.join(cfg.configDir, 'skills')).sort()).toEqual([
+      'capturing-lessons',
+      'gitnexus',
+      'iterative-retrieval',
+      'search-first',
+      'strategic-compact',
+    ])
+    expect(agentNames(cfg.configDir)).toEqual([])
+  })
+
+  it('rejects a safe-but-unknown charterTier (allowlist guard)', () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-agcfg-'))
+    tmpDirs.push(dataDir)
+    const profile = { ...DEFAULT_PROFILE, charterTier: 'wizard' as unknown as CharterName }
+    expect(() =>
+      synthesizeConfigDir(profile, { runId: 'run-x', dataDir, assetsDir: ASSET_DIR }),
+    ).toThrow(/unknown charterTier/)
+  })
+
+  it('rewrites the kstore MCP server: real node command/args + injected K_DATA_DIR/K_RUN_ID, no placeholders left', () => {
+    const { cfg, dataDir, runId } = synthAs('orchestrator')
+    const mcp = JSON.parse(fs.readFileSync(cfg.mcpConfigPath, 'utf8'))
+    // No placeholder survives in the actual server config (the descriptive _note
+    // may still name them — scan the resolved servers, not the whole file).
+    const servers = JSON.stringify(mcp.mcpServers)
+    expect(servers).not.toContain('__KSTORE__')
+    expect(servers).not.toContain('__K_DATA_DIR__')
+    expect(servers).not.toContain('__K_RUN_ID__')
+    const k = mcp.mcpServers.kstore
+    expect(k.command).toBe(process.execPath)
+    const args = k.args as string[]
+    // dev launch: node --import <absolute tsx loader> <abs serverPath>
+    expect(args).toContain('--import')
+    expect(args[args.length - 1].replace(/\\/g, '/')).toMatch(/\/mcp\/k-store-server\.(ts|js)$/)
+    // the tsx loader is pinned to an absolute path, never the bare specifier
+    const loader = args[args.indexOf('--import') + 1]
+    expect(loader).not.toBe('tsx')
+    expect(loader.startsWith('file://')).toBe(true)
+    expect(k.env.K_DATA_DIR).toBe(dataDir)
+    expect(k.env.K_RUN_ID).toBe(runId)
+    // gitnexus passes through untouched
+    expect(mcp.mcpServers.gitnexus.command).toBe('npx')
+  })
+
+  it('secretary mcp also carries a rewritten kstore bound to its run', () => {
+    const { cfg, runId } = synthAs('secretary')
+    const mcp = JSON.parse(fs.readFileSync(cfg.mcpConfigPath, 'utf8'))
+    expect(mcp.mcpServers.kstore.env.K_RUN_ID).toBe(runId)
+    expect(mcp.mcpServers.kstore.command).toBe(process.execPath)
   })
 })
 

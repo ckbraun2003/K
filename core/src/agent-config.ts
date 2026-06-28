@@ -21,13 +21,18 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { fileURLToPath } from 'url'
+import { createRequire } from 'module'
+import { fileURLToPath, pathToFileURL } from 'url'
 import type { AgentProfile } from './profiles.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ASSETS_DIR = path.join(__dirname, '../../agent-config')
 // Mirrors claude-args / db DATA_DIR: env override, else repo-root data/.
 const DEFAULT_DATA_DIR = path.join(__dirname, '../../data')
+// The durable tiers a charter may resolve to. assertSafeSegment blocks traversal;
+// this blocks a safe-but-unknown tier (e.g. a poisoned Phase-5 DB profile row)
+// from silently selecting an unintended bundle/allowlist/charter.
+const KNOWN_CHARTERS = new Set(['orchestrator', 'chief', 'secretary'])
 
 export interface SynthesizedConfig {
   configDir: string                 // → CLAUDE_CONFIG_DIR for the spawn
@@ -97,6 +102,19 @@ function copyDirGuarded(root: string, src: string, dest: string): void {
   }
 }
 
+/** Absolute file:// URL of K's OWN tsx ESM loader (cwd-independent), for the dev
+ *  `node --import <loader>` launch of the kstore server. Resolving from this
+ *  module's location pins tsx to K's install; never bare `tsx` (cwd-relative,
+ *  could load a planted node_modules/tsx). Falls back to bare only if resolution
+ *  fails (shouldn't in a dev tree; the built path never calls this). */
+function resolveTsxLoader(): string {
+  try {
+    return pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  } catch {
+    return 'tsx'
+  }
+}
+
 // ── public API ───────────────────────────────────────────────────────────────
 
 export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts): SynthesizedConfig {
@@ -110,6 +128,9 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   // tier asset name (interpolated into asset read paths) before any fs use.
   assertSafeSegment(opts.runId, 'runId')
   assertSafeSegment(charter, 'charterTier')
+  if (!KNOWN_CHARTERS.has(charter)) {
+    throw new Error(`agent-config: unknown charterTier "${charter}" — not one of ${[...KNOWN_CHARTERS].join(', ')}`)
+  }
 
   // 1. run config dir (path-guarded root for every write below)
   const runDir = path.join(dataDir, 'agent-runs', opts.runId)
@@ -131,13 +152,56 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   const settingsPath = path.join(configDir, 'settings.json')
   guardedWrite(configDir, settingsPath, template.split('__HOOK__').join(hooksDirFwd))
 
-  // 4 & 5. vendor skills/ and hooks/ into the run dir.
-  copyDirGuarded(configDir, path.join(assetsDir, 'skills'), path.join(configDir, 'skills'))
+  // 4. mount ONLY the skills + worker-agent defs the tier's bundle lists — not the
+  //    whole library. The orchestrator bundle carries the full roster; chief and
+  //    secretary carry no coding agents. Every listed name is segment-checked
+  //    before it is interpolated into a read path.
+  const bundlePath = path.join(assetsDir, 'bundles', `${charter}.json`)
+  if (!fs.existsSync(bundlePath)) throw new Error(`agent-config: bundle for tier "${charter}" not found`)
+  const bundle = JSON.parse(fs.readFileSync(bundlePath, 'utf8')) as {
+    skills?: string[]
+    agents?: string[]
+  }
+  for (const skill of bundle.skills ?? []) {
+    assertSafeSegment(skill, 'bundle skill')
+    const src = path.join(assetsDir, 'skills', skill)
+    if (!fs.existsSync(src)) throw new Error(`agent-config: bundle skill "${skill}" not found`)
+    copyDirGuarded(configDir, src, path.join(configDir, 'skills', skill))
+  }
+  for (const agent of bundle.agents ?? []) {
+    assertSafeSegment(agent, 'bundle agent')
+    const src = path.join(assetsDir, 'agents', `${agent}.md`)
+    if (!fs.existsSync(src)) throw new Error(`agent-config: bundle agent "${agent}" not found`)
+    guardedCopy(configDir, src, path.join(configDir, 'agents', `${agent}.md`))
+  }
+
+  // 5. vendor hooks/ into the run dir.
   copyDirGuarded(configDir, path.join(assetsDir, 'hooks'), path.join(configDir, 'hooks'))
 
-  // 6. MCP config for the tier → mcp.json.
+  // 6. MCP config for the tier → mcp.json. Copy the template, then resolve the
+  //    kstore server: its placeholder command/args become THIS core's k-store-server
+  //    launch (dev runs the .ts via tsx; a build runs the .js), and its env gets the
+  //    run's K_DATA_DIR / K_RUN_ID so the child opens the right k.db and resolves the
+  //    right run. Other servers (gitnexus) pass through untouched.
+  const mcp = JSON.parse(
+    fs.readFileSync(path.join(assetsDir, 'mcp', `${charter}.json`), 'utf8'),
+  ) as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> }
+  const kstore = mcp.mcpServers?.kstore
+  if (kstore) {
+    const ext = path.extname(fileURLToPath(import.meta.url)) // '.ts' under tsx, '.js' built
+    const serverPath = path.join(__dirname, 'mcp', `k-store-server${ext}`)
+    if (!fs.existsSync(serverPath)) {
+      throw new Error(`agent-config: kstore server module not found at ${serverPath}`)
+    }
+    kstore.command = process.execPath
+    // Dev (.ts) needs the tsx loader. Pin it to an ABSOLUTE path resolved from
+    // K's own install — never bare `tsx`, whose resolution is cwd-relative and
+    // could load a malicious node_modules/tsx planted in the agent's project.
+    kstore.args = ext === '.ts' ? ['--import', resolveTsxLoader(), serverPath] : [serverPath]
+    kstore.env = { ...(kstore.env ?? {}), K_DATA_DIR: dataDir, K_RUN_ID: opts.runId }
+  }
   const mcpConfigPath = path.join(configDir, 'mcp.json')
-  guardedCopy(configDir, path.join(assetsDir, 'mcp', `${charter}.json`), mcpConfigPath)
+  guardedWrite(configDir, mcpConfigPath, JSON.stringify(mcp, null, 2))
 
   // 7. allowlist for the tier.
   const allowlist = JSON.parse(
