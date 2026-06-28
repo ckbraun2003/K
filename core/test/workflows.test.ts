@@ -53,6 +53,9 @@ describe('buildDelegationPrompt', () => {
     expect(prompt).toContain('implementer → spec-review → quality-review')
     expect(prompt).toContain('NEVER push to a default branch')
     expect(prompt).toContain('ONE reviewable commit')
+    // reports progress through the kstore status-write tools (Wave 7)
+    expect(prompt).toContain('workflow_step_set')
+    expect(prompt).toContain('workflow_status_set')
   })
 
   it('multiple tasks — every title appears in a numbered checklist', () => {

@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -64,6 +64,10 @@ export const api = {
     get: (id: string) => req<Run>(`/runs/${id}`),
     events: (id: string, opts?: { raw?: boolean }) =>
       req<AgentEvent[]>(`/runs/${id}/events${opts?.raw ? '?raw=1' : ''}`),
+    // Explicit progress checklist the orchestrator reports via the kstore
+    // status-write tools. workflowRun is null when the run isn't a workflow.
+    workflowSteps: (id: string) =>
+      req<{ workflowRun: WorkflowRun | null; steps: WorkflowStep[] }>(`/runs/${id}/workflow-steps`),
     // Lazy per-event raw fetch — called only when the user expands a timeline row.
     eventRaw: (id: string, seq: number): Promise<string> =>
       req<{ raw: string }>(`/runs/${id}/events/${seq}/raw`).then(r => r.raw),

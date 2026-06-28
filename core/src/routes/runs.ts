@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import path from 'path'
 import { StartRunBodySchema, RunsQuerySchema, SendInputBodySchema, isKnownModel } from '@k/shared'
 import { startRun, kill, sendInput, endSession, REPO_ROOT } from '../supervisor.js'
-import { runsDb, eventsDb, projectsDb } from '../db.js'
+import { runsDb, eventsDb, projectsDb, workflowStepsDb } from '../db.js'
 import { matchProjectByCwd, type ProjectPathRow } from '../project-match.js'
 
 /**
@@ -97,6 +97,19 @@ export async function runsRoutes(app: FastifyInstance) {
     return reply.send({ raw: row.raw })
   })
 
+  // GET /api/runs/:id/workflow-steps — the explicit progress checklist the
+  // orchestrator reports through the kstore status-write tools, resolved via the
+  // run's workflow_run. Returns { workflowRun: null, steps: [] } when the run is
+  // not a delegation workflow (so the UI can cleanly omit the panel).
+  app.get<{ Params: { id: string } }>('/api/runs/:id/workflow-steps', async (req, reply) => {
+    const wf = workflowStepsDb.getWorkflowRunByRunId.get(req.params.id) as
+      | Record<string, unknown>
+      | undefined
+    if (!wf) return reply.send({ workflowRun: null, steps: [] })
+    const steps = workflowStepsDb.listWorkflowSteps.all(wf.id) as Array<Record<string, unknown>>
+    return reply.send({ workflowRun: dbRowToWorkflowRun(wf), steps: steps.map(dbRowToWorkflowStep) })
+  })
+
   // POST /api/runs/:id/kill — kill a running agent
   app.post<{ Params: { id: string } }>('/api/runs/:id/kill', async (req, reply) => {
     const killed = kill(req.params.id)
@@ -140,6 +153,24 @@ function dbRowToRun(r: Record<string, unknown>) {
 function safeJsonColumn(v: unknown): unknown {
   if (v == null) return undefined
   try { return JSON.parse(v as string) } catch { return undefined }
+}
+
+/** workflow_runs row → WorkflowRun shape (snake→camel; task_ids JSON → array). */
+function dbRowToWorkflowRun(r: Record<string, unknown>) {
+  return {
+    id: r.id, projectId: r.project_id, runId: r.run_id ?? null,
+    taskIds: safeJsonColumn(r.task_ids) ?? [], mode: r.mode, status: r.status,
+    createdAt: r.created_at, completedAt: r.completed_at ?? null,
+  }
+}
+
+/** workflow_steps row → WorkflowStep shape (snake→camel; nullable cols → null). */
+function dbRowToWorkflowStep(r: Record<string, unknown>) {
+  return {
+    id: r.id, workflowRunId: r.workflow_run_id, seq: r.seq, label: r.label, kind: r.kind,
+    workItemId: r.work_item_id ?? null, status: r.status,
+    detail: r.detail ?? null, updatedAt: r.updated_at,
+  }
 }
 
 function dbRowToEvent(r: Record<string, unknown>, includeRaw = false) {
