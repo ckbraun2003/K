@@ -9,8 +9,8 @@
  * at compile time:  <!-- @live:stats -->  <!-- @live:recent-runs -->
  *                   <!-- @live:roadmap-progress -->  <!-- @live:health -->
  *
- * Agents edit sections, never the compiled HTML. The harness bible (project zero)
- * lives at artifacts/bible/; registered projects use <repo>/docs/bible/.
+ * Agents edit sections, never the compiled HTML. Every project's bible lives at
+ * <repo>/artifacts/bible/ (gitignored, K-owned) — the harness's own included.
  */
 
 import fs from 'fs'

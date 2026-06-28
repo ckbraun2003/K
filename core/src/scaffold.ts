@@ -1,6 +1,6 @@
 /**
  * Pure file-scaffolders for bible §3 invariants:
- *   - scaffoldBible → docs/bible/ starter sections + manifest
+ *   - scaffoldBible → artifacts/bible/ starter sections + manifest
  *   - scaffoldCi    → .github/workflows/ci.yml node/pnpm template
  *
  * Both are idempotent (skip existing files) and path-guarded (writes stay
@@ -130,7 +130,7 @@ ${s.body}`
 // ── public API ─────────────────────────────────────────────────────────────────
 
 /**
- * Write a starter docs/bible/ tree under localPath.
+ * Write a starter artifacts/bible/ tree under localPath.
  * Returns relative forward-slash paths of files actually created (skips existing).
  */
 export function scaffoldBible(localPath: string): string[] {
@@ -146,16 +146,16 @@ export function scaffoldBible(localPath: string): string[] {
       name,
       localPath: '.',
       githubRemote: null,
-      bibleDir: 'docs/bible',
+      bibleDir: 'artifacts/bible',
     },
     sections: SECTIONS.map(s => s.id),
   }
-  const r0 = writeIfAbsent(root, 'docs/bible/manifest.json', JSON.stringify(manifest, null, 2) + '\n')
+  const r0 = writeIfAbsent(root, 'artifacts/bible/manifest.json', JSON.stringify(manifest, null, 2) + '\n')
   if (r0) created.push(r0)
 
   // sections
   for (const s of SECTIONS) {
-    const rel = `docs/bible/sections/${s.id}.md`
+    const rel = `artifacts/bible/sections/${s.id}.md`
     const r = writeIfAbsent(root, rel, sectionContent(s))
     if (r) created.push(r)
   }

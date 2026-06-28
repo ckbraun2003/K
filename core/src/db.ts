@@ -72,7 +72,7 @@ db.exec(`
     local_path        TEXT NOT NULL,
     github_remote     TEXT,
     workspace_managed INTEGER NOT NULL DEFAULT 0,
-    bible_dir         TEXT NOT NULL DEFAULT 'docs/bible',
+    bible_dir         TEXT NOT NULL DEFAULT 'artifacts/bible',
     health_score      INTEGER,
     last_verified_at  INTEGER,
     created_at        INTEGER NOT NULL

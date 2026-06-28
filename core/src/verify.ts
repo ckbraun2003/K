@@ -194,7 +194,7 @@ export function auditCi(ghStatus: GithubStatus, hasWorkflow: boolean): Finding[]
  */
 export function auditBible(freshnessDays: number | null, hasBibleDir: boolean): Finding[] {
   if (!hasBibleDir) {
-    return [{ severity: 'critical', area: 'bible', message: 'no project bible at docs/bible' }]
+    return [{ severity: 'critical', area: 'bible', message: 'no project bible at artifacts/bible' }]
   }
   if (freshnessDays == null) {
     return [{ severity: 'warn', area: 'bible', message: 'bible freshness unknown: no commits touch the bible' }]
@@ -219,12 +219,12 @@ export function bibleFreshFromDays(freshnessDays: number | null, hasBibleDir: bo
 /** Pre-gathered presence facts for the three bible §3 invariants that require
  *  disk reads. The githubRemote invariant is read from the project itself. */
 export interface InvariantFacts {
-  hasBible: boolean      // docs/bible/ present (real bible — manifest sentinel)
+  hasBible: boolean      // artifacts/bible/ present (real bible — manifest sentinel)
   hasWorkflow: boolean   // .github/workflows/ holds ≥1 workflow file
 }
 
 /**
- * Registry-level invariants auditor (bible §3): GitHub remote, docs/bible/,
+ * Registry-level invariants auditor (bible §3): GitHub remote, artifacts/bible/,
  * .github/workflows/. PURE — like the other auditors it receives already-gathered
  * facts (the two disk-presence booleans) and reads only plain fields off the
  * project; it never touches the filesystem itself. Task 7's orchestration gathers
@@ -246,7 +246,7 @@ export const MSG_NO_REMOTE = 'no GitHub remote configured for project'
 
 export function auditInvariants(project: Project, facts: InvariantFacts): Finding[] {
   const findings: Finding[] = []
-  const bibleDir = project.bibleDir || 'docs/bible'
+  const bibleDir = project.bibleDir || 'artifacts/bible'
 
   if (!project.githubRemote) {
     findings.push({ severity: 'critical', area: 'invariants', message: MSG_NO_REMOTE })

@@ -9,8 +9,8 @@ data/
 *.db-wal
 # persisted harness bearer token (first-run generated secret) — never commit
 auth-token
-artifacts/*.html
-!artifacts/.gitkeep
+artifacts/
+tasks/
 .superpowers/
 workspace/
 .gitnexus/
