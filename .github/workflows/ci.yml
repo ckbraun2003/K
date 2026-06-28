@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'feat/**', 'fix/**']
+    branches: [main, 'feat/**', 'fix/**', 'test/**']
   pull_request:
     branches: [main]
 
@@ -27,3 +27,19 @@ jobs:
       - run: pnpm typecheck               # pnpm -r typecheck (shared + core + web)
       - run: pnpm -r test                  # vitest (core + web)
       - run: pnpm build                   # pnpm -r build (core tsc + web tsc && vite build)
+
+  # Non-gating: the rigorous-testing campaign's confirmed-fault quarantine.
+  # Tests here are RED by design (one per open fault) and MUST NOT block merges —
+  # `continue-on-error` keeps them visible without failing the required `ci` job.
+  regressions:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:regressions        # core + web quarantine (passWithNoTests when empty)

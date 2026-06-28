@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:regressions": "vitest run --config vitest.regressions.config.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
