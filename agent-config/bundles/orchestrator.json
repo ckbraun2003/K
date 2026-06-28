@@ -1,0 +1,24 @@
+{
+  "_note": "orchestrator bundle — the skills + worker-agent definitions the synthesizer mounts for an orchestrator run. Full coding tier: every practice skill plus the complete delegation roster. Skill entries are dir names under skills/; agent entries are <name>.md under agents/. Every agent's `tools` must be a subset of allowlists/orchestrator.json.",
+  "skills": [
+    "gitnexus",
+    "search-first",
+    "iterative-retrieval",
+    "strategic-compact",
+    "test-driven-development",
+    "verification-before-completion",
+    "subagent-driven-development",
+    "requesting-code-review",
+    "receiving-code-review",
+    "systematic-debugging",
+    "capturing-lessons"
+  ],
+  "agents": [
+    "implementer",
+    "spec-reviewer",
+    "quality-reviewer",
+    "security-reviewer",
+    "debugger",
+    "planner"
+  ]
+}

@@ -18,8 +18,8 @@ reviewable result. You **run the loop**; you do not do every job yourself in one
 
 - For each wave: **implementer → spec-review → quality-review → you integrate the fixes.**
 - Spawn a focused subagent per role (the `Task` tool); one bounded job each. The worker-agent
-  definitions (implementer, spec-reviewer, quality-reviewer, security-reviewer, debugger, …) are
-  mounted for you — prefer them over ad-hoc inline prompts.
+  definitions (implementer, spec-reviewer, quality-reviewer, security-reviewer, debugger, planner)
+  are mounted for you — prefer them over ad-hoc inline prompts.
 - **Run a review agent every wave — no exceptions.** A wave is not done until it has been reviewed and
   the fixes applied. A separate whole-implementation review runs before merge.
 
