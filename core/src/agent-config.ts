@@ -186,3 +186,31 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     cleanup,
   }
 }
+
+/**
+ * Best-effort boot sweep of orphaned per-run config dirs left by crashed runs.
+ * Removes every `<dataDir>/agent-runs/<id>` whose `id` is NOT in `activeRunIds`.
+ * Mirrors supervisor.pruneOrphanWorktrees: every step is guarded and logged, the
+ * function never throws (a Windows file lock can make a removal fail), and it uses
+ * the same default dataDir resolution as `synthesizeConfigDir`. Call from the boot
+ * reconciliation once the set of in-flight run ids is known.
+ */
+export function pruneOrphanAgentRuns(activeRunIds: Set<string>, dataDir?: string): void {
+  const runsDir = path.join(dataDir ?? process.env.K_DATA_DIR ?? DEFAULT_DATA_DIR, 'agent-runs')
+  try {
+    if (!fs.existsSync(runsDir)) return
+    for (const entry of fs.readdirSync(runsDir)) {
+      // Active runs hold their config dir; anything else here is orphaned by a
+      // crash (a clean exit calls cleanup()). Remove best-effort.
+      if (activeRunIds.has(entry)) continue
+      const dir = path.join(runsDir, entry)
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+      } catch (err) {
+        console.warn(`[agent-config] could not remove orphan agent-run ${dir}:`, (err as Error).message)
+      }
+    }
+  } catch (err) {
+    console.warn('[agent-config] agent-runs sweep failed:', (err as Error).message)
+  }
+}

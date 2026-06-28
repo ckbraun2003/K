@@ -22,7 +22,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { synthesizeConfigDir } from '../src/agent-config.js'
+import { synthesizeConfigDir, pruneOrphanAgentRuns } from '../src/agent-config.js'
 import type { SynthesizeOpts } from '../src/agent-config.js'
 import { DEFAULT_PROFILE } from '../src/profiles.js'
 
@@ -182,5 +182,25 @@ describe('synthesizeConfigDir', () => {
     expect(() =>
       synthesizeConfigDir(evil, { runId: 'run-x', dataDir, assetsDir: ASSET_DIR }),
     ).toThrow(/unsafe charterTier/)
+  })
+})
+
+describe('pruneOrphanAgentRuns', () => {
+  it('removes agent-run dirs not in activeRunIds and keeps the active ones', () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-agcfg-prune-'))
+    tmpDirs.push(dataDir)
+    fs.mkdirSync(path.join(dataDir, 'agent-runs', 'a', 'config'), { recursive: true })
+    fs.mkdirSync(path.join(dataDir, 'agent-runs', 'b', 'config'), { recursive: true })
+
+    pruneOrphanAgentRuns(new Set(['a']), dataDir)
+
+    expect(fs.existsSync(path.join(dataDir, 'agent-runs', 'a'))).toBe(true)
+    expect(fs.existsSync(path.join(dataDir, 'agent-runs', 'b'))).toBe(false)
+  })
+
+  it('does not throw when agent-runs/ is absent', () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-agcfg-prune-'))
+    tmpDirs.push(dataDir)
+    expect(() => pruneOrphanAgentRuns(new Set(['x']), dataDir)).not.toThrow()
   })
 })

@@ -85,6 +85,48 @@ describe('buildClaudeArgs', () => {
     const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: true, permissionMode: 'plan', model: 'claude-sonnet-4-6', interactive: true })
     expect(args).toEqual([...INTERACTIVE_BASE, '--permission-mode', 'plan', '--model', 'claude-sonnet-4-6'])
   })
+
+  // Wave 3 — K-owned isolated config. When `claudeConfig` is supplied (every
+  // managed claude run synthesizes one) the per-run settings/MCP/allowlist/prompt
+  // flags are appended AFTER the base + permission + model flags, in a fixed order.
+  const CLAUDE_CONFIG = {
+    allowedTools: ['Bash', 'Read', 'Task'],
+    mcpConfigPath: '/run/cfg/mcp.json',
+    settingsPath: '/run/cfg/settings.json',
+    appendSystemPromptFile: '/run/cfg/system-prompt.md',
+  }
+
+  it('claudeConfig appends settings/mcp/allowedTools/append-system-prompt-file after the base + model flags', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, {
+      inWorktree: true, permissionMode: 'acceptEdits', model: 'claude-sonnet-4-6', claudeConfig: CLAUDE_CONFIG,
+    })
+    expect(args).toEqual([
+      ...BASE_ARGS,
+      '--permission-mode', 'acceptEdits',
+      '--model', 'claude-sonnet-4-6',
+      '--settings', '/run/cfg/settings.json',
+      '--mcp-config', '/run/cfg/mcp.json',
+      '--strict-mcp-config',
+      '--allowedTools', 'Bash', 'Read', 'Task',
+      '--append-system-prompt-file', '/run/cfg/system-prompt.md',
+    ])
+  })
+
+  it('claudeConfig: each allowed tool is a SEPARATE argv element right after --allowedTools', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: false, permissionMode: 'default', claudeConfig: CLAUDE_CONFIG })
+    const i = args.indexOf('--allowedTools')
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(args.slice(i, i + 4)).toEqual(['--allowedTools', 'Bash', 'Read', 'Task'])
+  })
+
+  it('without claudeConfig argv is byte-identical to BASE_ARGS (no isolation flags leak)', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: false, permissionMode: 'acceptEdits' })
+    expect(args).toEqual(BASE_ARGS)
+    expect(args).not.toContain('--settings')
+    expect(args).not.toContain('--mcp-config')
+    expect(args).not.toContain('--allowedTools')
+    expect(args).not.toContain('--append-system-prompt-file')
+  })
 })
 
 describe('resolvePermissionMode', () => {

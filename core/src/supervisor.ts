@@ -23,6 +23,8 @@ import { route } from './router.js'
 import { resolvePermissionMode } from './claude-args.js'
 import { getProvider, parseClaudeLine, type ParseCtx } from './providers.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
+import { synthesizeConfigDir, pruneOrphanAgentRuns, type SynthesizedConfig } from './agent-config.js'
+import { DEFAULT_PROFILE } from './profiles.js'
 
 const PERMISSION_MODE = resolvePermissionMode(process.env.RUN_PERMISSION_MODE)
 
@@ -286,6 +288,9 @@ export function reconcileOnBoot(): void {
     console.warn('[supervisor] reconcileStaleRuns failed:', (err as Error).message)
   }
   pruneOrphanWorktrees()
+  // Sweep per-run config dirs orphaned by a crash — same key space (run id) as
+  // worktrees, so anything not held by an active process is stale.
+  pruneOrphanAgentRuns(new Set(activeProcesses.keys()))
 }
 
 // Interactive runs whose session the operator gracefully ended (stdin closed) —
@@ -307,15 +312,41 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
   let tokensOut = 0
   let costUsd = 0
 
+  // Per-run K-owned config dir for managed claude runs (undefined for ollama).
+  // Declared before the try so both terminal paths can clean it up.
+  let synth: SynthesizedConfig | undefined
+
   try {
     // Dispatch on the routed provider — never hard-code "claude". buildArgs and
     // parseLine both come from the routed provider, so an ollama run is spawned
     // AND parsed as ollama (a routing/parsing mismatch is structurally impossible).
     const provider = getProvider(run.provider)
+
+    // Claude is K's agent engine: synthesize an isolated CLAUDE_CONFIG_DIR so the
+    // host ~/.claude is NEVER loaded and the run gets K's per-tier allowlist, MCP,
+    // settings, and injected L0+L1 system prompt. ollama runs are unaffected.
+    if (provider.name === 'claude') {
+      synth = synthesizeConfigDir(DEFAULT_PROFILE, { runId: run.id })
+    }
+
     const proc = execa(
       provider.binary,
-      provider.buildArgs(prompt, { inWorktree, permissionMode: PERMISSION_MODE, model: run.model, interactive }),
-      { cwd, reject: false, all: true }
+      provider.buildArgs(prompt, {
+        inWorktree, permissionMode: PERMISSION_MODE, model: run.model, interactive,
+        claudeConfig: synth
+          ? {
+              allowedTools: synth.allowedTools,
+              mcpConfigPath: synth.mcpConfigPath,
+              settingsPath: synth.settingsPath,
+              appendSystemPromptFile: synth.appendSystemPromptFile,
+            }
+          : undefined,
+      }),
+      // Point CLAUDE_CONFIG_DIR at the synthesized dir (+ resolved auth) for claude;
+      // ollama keeps today's env-free spawn options byte-for-byte unchanged.
+      synth
+        ? { cwd, reject: false, all: true, env: { ...process.env, CLAUDE_CONFIG_DIR: synth.configDir, ...synth.authEnv } }
+        : { cwd, reject: false, all: true }
     )
 
     activeProcesses.set(run.id, { kill: proc.kill.bind(proc), stdin: proc.stdin, interactive })
@@ -370,6 +401,7 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
     eventBus.emitRunUpdate(finalRun)
     clearRunTracking(run.id)
     await removeWorktree(run)
+    try { synth?.cleanup() } catch { /* best-effort */ }
 
   } catch (err) {
     const wasKilled = killedRuns.delete(run.id)
@@ -383,6 +415,7 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
     eventBus.emitRunUpdate(errRun)
     clearRunTracking(run.id)
     await removeWorktree(run)
+    try { synth?.cleanup() } catch { /* best-effort */ }
   }
 }
 

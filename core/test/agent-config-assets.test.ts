@@ -66,7 +66,7 @@ describe('agent-config assets', () => {
         allowedTools: string[]
       }
       expect(Array.isArray(cfg.allowedTools)).toBe(true)
-      for (const tool of ['Bash', 'Write', 'Edit', 'Task']) {
+      for (const tool of ['Bash', 'Write', 'Edit', 'Task', 'mcp__gitnexus']) {
         expect(cfg.allowedTools, `${tier} should allow ${tool}`).toContain(tool)
       }
     }

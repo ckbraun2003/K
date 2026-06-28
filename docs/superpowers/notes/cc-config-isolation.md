@@ -59,3 +59,27 @@ and a bible §11 note.
   explicit `--mcp-config <file> --strict-mcp-config` route for determinism over editing `.claude.json`.
 - Skills load from `<config_dir>/skills/` (same dir family as MCP/plugins), so relocation isolates
   them by the same mechanism; provisioning = drop the curated skills into `<config_dir>/skills/`.
+
+## Wave 3 — live end-to-end findings (real `claude` spawns)
+
+Drove the real synthesizer + spawn path (as `runAgent` does) on this workstation:
+
+- ✅ **Pipeline works.** Auth fell back to the host credential copy (no K token set), the run
+  **authenticated and completed (exit 0, returned `PIPELINE_OK`)**, argv carried every flag
+  (`--settings --mcp-config --strict-mcp-config --allowedTools … --append-system-prompt-file`),
+  and `cleanup()` removed the run dir.
+- ✅ **Host-config isolation holds at the tool layer.** With the run's real flags, the agent
+  self-reported **NONE** of the account's Google connectors (Drive/Gmail/Calendar) as available.
+- ⚠️ **Credential fallback re-surfaces account-managed MCP at the *management* layer.** Plain
+  `claude mcp list` under the synth dir shows the claude.ai Google connectors — because copying the
+  host `.credentials.json` authenticates as the user's **account**, whose managed connectors are
+  account-level, not config-dir-level. They are **visible** in `mcp list` but **not usable** in a
+  `--strict-mcp-config` + allowlisted run (above). A dedicated K token on an account without those
+  connectors removes even the visibility. Documented; not a tool-usage leak.
+- ⚠️ **OPEN — gitnexus MCP did not surface tools in managed runs.** Even with `mcp__gitnexus`
+  allowlisted, the agent reported no gitnexus tools. `npx gitnexus` resolves fine (v1.6.0 global),
+  so the command is valid; the likely causes are Windows MCP-stdio startup timing in a short `-p`
+  run and that a fresh worktree has no gitnexus index. **Mitigation in place:** the coding allowlists
+  now include `mcp__gitnexus` (so a loaded server is usable), and leads retain gitnexus via the
+  **vendored skills + `npx gitnexus` CLI through Bash**. Verifying reliable MCP-stdio load + an
+  actual `mcp__gitnexus__*` tool call is a tracked follow-up (does not block the isolation/pipeline).
