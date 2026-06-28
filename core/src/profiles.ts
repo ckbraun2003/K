@@ -10,13 +10,22 @@
  * router.ts's CLAUDE_DEFAULT_MODEL so a routed model and a profiled model agree.
  */
 
+/** Authority tier (bible §03): the station that gates what a profile may touch. */
 export type AgentTier = 'secretary' | 'chief' | 'orchestrator' | 'controller' | 'role'
+
+/** The asset basename a profile materializes from agent-config/
+ *  (tiers/<name>.charter.md, allowlists/<name>.json, mcp/<name>.json). MUST match
+ *  a SHIPPED asset — only these five exist. Kept distinct from AgentTier so a
+ *  profile can carry an authority tier like 'orchestrator' while loading the
+ *  'lead' charter assets; constraining the type means a profile can never name a
+ *  charter with no backing asset (which would crash synthesis at read time). */
+export type CharterName = 'controller' | 'lead' | 'chief' | 'secretary' | 'role'
 
 export interface AgentProfile {
   id: string
   name: string
-  tier: AgentTier      // selects which agent-config/<...>/<tier>.* assets to use
-  charterTier: string  // the asset basename to read (e.g. 'controller'); usually === tier
+  tier: AgentTier           // authority tier (bible §03)
+  charterTier: CharterName  // which agent-config/ asset set to materialize
   defaultModel: string
 }
 

@@ -24,7 +24,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { synthesizeConfigDir, pruneOrphanAgentRuns } from '../src/agent-config.js'
 import type { SynthesizeOpts } from '../src/agent-config.js'
-import { DEFAULT_PROFILE } from '../src/profiles.js'
+import { DEFAULT_PROFILE, type CharterName } from '../src/profiles.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ASSET_DIR = path.join(__dirname, '../../agent-config')
@@ -178,7 +178,8 @@ describe('synthesizeConfigDir', () => {
   it('rejects a traversal charterTier before reading assets', () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-agcfg-'))
     tmpDirs.push(dataDir)
-    const evil = { ...DEFAULT_PROFILE, charterTier: '../../secret' }
+    // deliberately invalid (simulates an untyped DB value) — cast past CharterName
+    const evil = { ...DEFAULT_PROFILE, charterTier: '../../secret' as unknown as CharterName }
     expect(() =>
       synthesizeConfigDir(evil, { runId: 'run-x', dataDir, assetsDir: ASSET_DIR }),
     ).toThrow(/unsafe charterTier/)
