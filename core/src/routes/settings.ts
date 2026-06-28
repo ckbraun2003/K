@@ -1,6 +1,6 @@
 /**
  * Settings routes — provider/auth status + the guarded GLOBAL system-prompt
- * (repo-root CLAUDE.md) editor.
+ * (the L0 base operating prompt, agent-config/base-operating-prompt.md) editor.
  *
  * Two design rules drive this file:
  *
@@ -13,7 +13,7 @@
  *  2. No secrets, no traversal. /status never carries the token value (only its
  *     origin). The system-prompt endpoints operate ONLY on a single fixed file
  *     path (no slug, no params) — overridable via SYSTEM_PROMPT_PATH purely so
- *     tests target a temp file instead of the real repo CLAUDE.md.
+ *     tests target a temp file instead of the real base operating prompt.
  */
 
 import { execa } from 'execa'
@@ -29,11 +29,12 @@ import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 
 // ── System-prompt file location ───────────────────────────────────────────────
 
-/** The fixed, global system prompt = repo-root CLAUDE.md. Overridable ONLY via
- *  SYSTEM_PROMPT_PATH so tests can target a temp file (the real path is the
+/** The fixed, global system prompt = the L0 base operating prompt injected into
+ *  every K-managed run (agent-config/base-operating-prompt.md). Overridable ONLY
+ *  via SYSTEM_PROMPT_PATH so tests can target a temp file (the real path is the
  *  default). No request input ever influences this — no traversal is possible. */
 export function systemPromptPath(): string {
-  return process.env.SYSTEM_PROMPT_PATH ?? path.join(REPO_ROOT, 'CLAUDE.md')
+  return process.env.SYSTEM_PROMPT_PATH ?? path.join(REPO_ROOT, 'agent-config', 'base-operating-prompt.md')
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -41,13 +42,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
 const BACKUP_DIR = path.join(DATA_DIR, 'system-prompt-backups')
 
-// GitNexus may append a managed block to the END of CLAUDE.md after a commit.
-// The operator never edits it; we preserve it verbatim across saves.
+// GitNexus may append a managed block to the END of the edited file after a
+// commit. The operator never edits it; we preserve it verbatim across saves.
+// (The base operating prompt carries no such block — the split handles that fine.)
 export const GITNEXUS_START = '<!-- gitnexus:start -->'
 export const GITNEXUS_END = '<!-- gitnexus:end -->'
 
 /**
- * Split a CLAUDE.md file into its human-editable region and the trailing,
+ * Split the edited prompt file into its human-editable region and the trailing,
  * gitnexus-managed block (if present). Pure — the round-trip core of the editor.
  *
  * Both regions are returned with trailing whitespace trimmed so the round-trip is
@@ -177,7 +179,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     return reply.send(buildStatus(await cachedProbes(), liveStatusEnv()))
   })
 
-  // GET /api/system-prompt — the human-editable region of CLAUDE.md only.
+  // GET /api/system-prompt — the human-editable region of the prompt file only.
   app.get('/api/system-prompt', async (_req, reply) => {
     let content = ''
     try {
@@ -242,7 +244,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     const composed = composeSystemPrompt(parsed.data.md, block)
 
     // Atomic write: write to a sibling temp file then rename over the target, so a
-    // failed/partial write can never truncate CLAUDE.md to empty. The backup above
+    // failed/partial write can never truncate the prompt file to empty. The backup above
     // still holds the prior content if anything here throws. (rename is atomic on
     // POSIX and clobbers on Windows same-volume.)
     const tmp = `${target}.tmp.${randomBytes(4).toString('hex')}`

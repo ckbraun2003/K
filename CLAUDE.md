@@ -1,111 +1,81 @@
-# Harness — Global Operating Prompt
+# K — Project Guide
 
-This is the shared system prompt for **every agent the harness runs**, across all projects. It is
-the global ruleset — planning, delegation, verification, tone. Project-specific facts (stack, how
-to run, module map) live in that project's own docs/instructions and its compiled bible, not here.
+How to develop **K** itself. This is the L2 project file: both a contributor's Claude Code
+session and a K-managed agent working on the K repo read it. It is **not** the operating
+prompt for managed runs — see "Agent operating prompt" below.
 
-## Workflow Orchestration
+## What K is
 
-### 1. Plan Node Default
+A self-hosted agentic engineering harness. **Architecture A with B-seams**: one monolithic
+`core` with three swappable interfaces — `EventBus` (events), `ModelRouter` (model choice),
+`GitHubProvider` (GitHub) — so transport/model/GitHub can scale out later without a rewrite.
+The agent engine is the **Claude Code CLI**, spawned per run (worktree + `stream-json`) by
+`core/src/supervisor.ts`. Full design: `artifacts/bible/sections/02-architecture.md`.
 
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decision)
-- If something goes sideways, STOP and re-plan immediately — don't keep pushing
-- Use plan mode for verification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
-- Plans live in the plan file the harness assigns (`~/.claude/plans/…`); the working checklist
-  lives in `tasks/todo.md`
+## Stack & layout
 
-### 2. Subagent Strategy
+pnpm monorepo, TypeScript ESM:
 
-- Use subagents liberally to keep the main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
-- One task per agent for focused execution
-- **Delegation loop for code waves:** implementer → spec-review → quality-review → controller
-  applies fixes → one reviewable commit → CI verifies. Run a review agent for every wave, no
-  exceptions. A separate whole-implementation review runs before merge.
+| Package | Stack | Role |
+|---------|-------|------|
+| `shared/` | Zod | **Single type source** — schemas in `shared/src/types.ts` |
+| `core/` | Node 20 · Fastify · ws · better-sqlite3 · execa | API + WS + agent supervisor |
+| `web/` | Vite · React · Tailwind · shadcn/ui · TanStack Query | the Command Deck dashboard |
 
-### 3. Self-Improvement Loop
+## How to run
 
-- After ANY correction from the user: update `tasks/lessons.md` with the pattern
-- Write rules for yourself that prevent the same mistake
-- Ruthlessly iterate on these lessons until the mistake rate drops
-- Review lessons at session start for the relevant project
+```bash
+pnpm install
+pnpm --filter @k/core dev     # core API + WS  → http://localhost:3001
+pnpm --filter @k/web dev      # dashboard      → http://localhost:5173
+pnpm dev                      # both in parallel
 
-### 4. Verification Before Done
+pnpm typecheck                # tsc across all packages
+pnpm -r test                  # vitest across all packages
+pnpm build                    # build all packages
+```
 
-- Never mark a task complete without proving it works
-- Diff behavior between main and your changes when relevant
-- Ask yourself: "Would a staff engineer approve this?"
-- Run tests, check logs, demonstrate correctness
+Prereqs: Node 20, pnpm 10, `claude` CLI authenticated, `gh` CLI authenticated. Env lives in
+`core/.env` (see `artifacts/bible/sections/11-operations.md`).
 
-### 5. Demand Elegance (Balanced)
+## Module map (`core/src/`)
 
-- For non-trivial changes: pause and ask "Is there a more elegant way?"
-- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution."
-- Skip this for simple, obvious fixes — don't over-engineer
-- Challenge your own work before presenting it
+| File | Purpose |
+|------|---------|
+| `supervisor.ts` | agent lifecycle: worktree + spawn claude CLI + parse stream-json + emit |
+| `events.ts` | `EventBus` B-seam (persist to SQLite + push to WS) |
+| `router.ts` | `ModelRouter` B-seam (cost-aware route → claude \| ollama) |
+| `providers.ts` | how a routed provider is dispatched (binary, argv, NDJSON parse) |
+| `claude-args.ts` | pure: resolve permission mode + build claude CLI argv |
+| `agent-config.ts` | per-run config-dir synthesizer (injects L0+L1 — see below) |
+| `db.ts` | better-sqlite3 (WAL) schema + prepared-statement helpers |
+| `bible.ts` | bible compiler (sections + live data → HTML) |
+| `github.ts` | `GitHubProvider` B-seam (gh CLI + cache + poller) |
+| `verify.ts` | health-score engine + auditors + `runVerification` |
 
-### 6. Autonomous Bug Fixing
+Full file list: `artifacts/bible/sections/11-operations.md` ("Key files").
 
-- When given a bug report: just fix it. Don't ask for hand-holding
-- Point at logs, errors, failing tests — then resolve them
-- Zero context switching required from the user
-- Go fix failing CI tests without being told
+## Conventions
 
-## Task Management
+- **LF** line endings; **ESM** — use `.js` import specifiers in TS source.
+- `shared/src/types.ts` Zod schemas are the **single source of type truth** for core + web.
+- Harness working files: `tasks/todo.md` (active tracker) + `tasks/lessons.md` (corrections).
+- Bible **source** is `artifacts/bible/sections/` (edit the markdown; never the compiled HTML).
+- CI runs `pnpm typecheck → pnpm -r test → pnpm build` — keep all three green.
 
-1. **Plan First**: Write the plan to `tasks/todo.md` with checkable items
-2. **Verify Plan**: Check in before starting implementation
-3. **Track Progress**: Mark items complete as you go
-4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add a review section to `tasks/todo.md`
-6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
+## Agent operating prompt — NOT this file
 
-## Core Principles
+The operating prompt injected into **K-managed agent runs** is *not* `CLAUDE.md`. It is layered:
 
-- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
-- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-- **Minimize Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+- **L0** — `agent-config/base-operating-prompt.md` (K-owned global ruleset: planning,
+  delegation, verification, tone).
+- **L1** — `agent-config/tiers/<tier>.charter.md` (per-tier charter).
 
-## Communication & Tone
+`core/src/agent-config.ts` materializes **L0 + L1** into each run's ephemeral config dir at
+spawn. **To change how managed agents behave, edit those files — not this one.** The dashboard
+"Global system prompt" editor edits the L0 file (`agent-config/base-operating-prompt.md`).
 
-- Direct and concise. No flattery, no filler, no narrating options you won't pursue.
-- Report outcomes faithfully: if tests fail, say so with the output; if a step was skipped, say
-  it; when something is verified, state it plainly without hedging.
-- Surface disagreement or risk early rather than agreeing to be agreeable.
+## AGENTS.md
 
-## Must / Must Not
-
-- **MUST** plan non-trivial work, verify before claiming done, and capture lessons after a correction.
-- **MUST** keep each wave's commit reviewable in isolation; don't mix unrelated changes.
-- **MUST NOT** ship temporary patches, mark work done unverified, or broaden scope beyond the task.
-- **MUST NOT** commit or push unless the user asked (an approved plan that commits per wave counts);
-  branch off the default branch before committing when on it.
-
-## Conventions & Locations
-
-The harness uses consistent locations across every project it manages, so any agent knows where to
-look and where to write:
-
-- `tasks/todo.md` — the active execution tracker (plan + checkboxes + review notes)
-- `tasks/lessons.md` — accumulated correction patterns with prevention rules
-- `docs/` — per-phase plans and design specs (the methodology of record)
-- the project **bible** (`docs/bible/` or `artifacts/bible/`, compiled to HTML) — the living spec;
-  edit the markdown sections, never the compiled output
-- `.claude/skills/` — authored skills, hooks, and workflows for that project
-
-## GitNexus — Code Intelligence
-
-When the current project is indexed by GitNexus, use the GitNexus MCP tools to understand code,
-assess impact, and navigate safely (full reference: the `gitnexus-*` skills and the project's
-`AGENTS.md`). Non-negotiable rules:
-
-- **MUST run impact analysis before editing any symbol** — `gitnexus_impact({target, direction:"upstream"})`
-  — and report the blast radius (direct callers, affected processes, risk level). **Warn** on HIGH/CRITICAL.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only touch the
-  expected symbols and flows.
-- **MUST use `gitnexus_rename(... dry_run:true)`** for renames — never blind find-and-replace.
-- When exploring, prefer `gitnexus_query({query})` / `gitnexus_context({name})` over grepping.
-- If a tool reports the index is stale, run `npx gitnexus analyze` first (a PostToolUse hook
-  re-analyzes automatically after `git commit`/`git merge`).
+`AGENTS.md` is the same project guidance for non-Claude tools — it mirrors this file, is
+gitignored / locally generated, and also carries the GitNexus code-intelligence block.

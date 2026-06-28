@@ -3,7 +3,8 @@
  *
  * Registers settingsRoutes on a bare Fastify app (like artifacts-route.test) so
  * no bootstrap/socket/poller runs. The system-prompt target is redirected to a
- * temp file via SYSTEM_PROMPT_PATH so the REAL repo CLAUDE.md is never touched.
+ * temp file via SYSTEM_PROMPT_PATH so the REAL L0 base operating prompt
+ * (agent-config/base-operating-prompt.md) is never touched.
  * Status shape is asserted via the PURE builder (buildStatus) with fake probes so
  * it is deterministic regardless of whether claude/gh exist in CI.
  */
