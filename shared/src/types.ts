@@ -616,7 +616,7 @@ export type SystemPromptBody = z.infer<typeof SystemPromptBodySchema>
 // import. It mirrors core's buildDelegationPrompt + CLAUDE.md "Delegation loop for
 // code waves"; it is a plain constant (not a zod schema) like KNOWN_MODELS, since
 // it is fixed content, not validated input. Descriptions state each role's
-// responsibility — the controller authors its sub-prompts ad hoc, so this never
+// responsibility — the orchestrator authors its sub-prompts ad hoc, so this never
 // claims a role is handed a canned prompt string.
 
 export interface WorkflowRole {
@@ -646,10 +646,10 @@ export interface WorkflowDefinition {
 export const DELEGATION_WORKFLOW: WorkflowDefinition = {
   roles: [
     {
-      id: 'controller',
-      label: 'Controller',
+      id: 'orchestrator',
+      label: 'Orchestrator',
       description:
-        'Owns the wave. Dispatched via buildDelegationPrompt to address a batch of selected todos, the controller spawns one sub-agent per role instead of doing the work in a single context, applies the reviewers’ fixes, and ships ONE reviewable commit / PR for the whole batch — never a PR per todo, and never a push to the default branch.',
+        'Owns the wave. Dispatched via buildDelegationPrompt to address a batch of selected todos, the orchestrator spawns one sub-agent per role instead of doing the work in a single context, applies the reviewers’ fixes, reports progress through the workflow status-write tools, and ships ONE reviewable commit / PR for the whole batch — never a PR per todo, and never a push to the default branch.',
     },
     {
       id: 'implementer',
@@ -671,10 +671,10 @@ export const DELEGATION_WORKFLOW: WorkflowDefinition = {
     },
   ],
   edges: [
-    { from: 'controller', to: 'implementer', label: 'delegates' },
+    { from: 'orchestrator', to: 'implementer', label: 'delegates' },
     { from: 'implementer', to: 'spec-review', label: 'review' },
     { from: 'implementer', to: 'quality-review', label: 'review' },
-    { from: 'spec-review', to: 'controller', label: 'fixes' },
-    { from: 'quality-review', to: 'controller', label: 'fixes' },
+    { from: 'spec-review', to: 'orchestrator', label: 'fixes' },
+    { from: 'quality-review', to: 'orchestrator', label: 'fixes' },
   ],
 }

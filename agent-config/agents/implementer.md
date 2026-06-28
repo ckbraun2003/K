@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Implements ONE task from a brief end to end — TDD, tests, a focused commit, self-review — then reports status and concerns. Spawned per task by an orchestrator. Never signs off on its own work.
-tools: ["Bash", "Read", "Write", "Edit", "Grep", "Glob", "Task"]
+tools: ["Bash", "Read", "Write", "Edit", "Grep", "Glob", "Task", "mcp__kstore"]
 model: sonnet
 ---
 

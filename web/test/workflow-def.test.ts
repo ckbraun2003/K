@@ -9,7 +9,7 @@ describe('DELEGATION_WORKFLOW', () => {
 
   it('includes the four expected roles', () => {
     const ids = new Set(DELEGATION_WORKFLOW.roles.map(r => r.id))
-    for (const id of ['controller', 'implementer', 'spec-review', 'quality-review']) {
+    for (const id of ['orchestrator', 'implementer', 'spec-review', 'quality-review']) {
       expect(ids.has(id), `missing role "${id}"`).toBe(true)
     }
   })
@@ -29,10 +29,10 @@ describe('DELEGATION_WORKFLOW', () => {
     }
   })
 
-  it('forms the loop: both reviews report back to the controller', () => {
-    const backToController = DELEGATION_WORKFLOW.edges.filter(e => e.to === 'controller').map(e => e.from)
-    expect(backToController).toContain('spec-review')
-    expect(backToController).toContain('quality-review')
+  it('forms the loop: both reviews report back to the orchestrator', () => {
+    const backToOrchestrator = DELEGATION_WORKFLOW.edges.filter(e => e.to === 'orchestrator').map(e => e.from)
+    expect(backToOrchestrator).toContain('spec-review')
+    expect(backToOrchestrator).toContain('quality-review')
   })
 
   it('has EXACTLY the expected edge topology', () => {
@@ -41,11 +41,11 @@ describe('DELEGATION_WORKFLOW', () => {
     // diagram. Pin the exact (from→to) set so any change trips this test and
     // forces a diagram review. (Order-independent; labels are not pinned.)
     const expected = [
-      'controller->implementer',
+      'orchestrator->implementer',
       'implementer->spec-review',
       'implementer->quality-review',
-      'spec-review->controller',
-      'quality-review->controller',
+      'spec-review->orchestrator',
+      'quality-review->orchestrator',
     ].sort()
     const actual = DELEGATION_WORKFLOW.edges.map(e => `${e.from}->${e.to}`).sort()
     expect(actual).toEqual(expected)

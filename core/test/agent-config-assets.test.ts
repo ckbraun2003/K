@@ -98,6 +98,25 @@ describe('agent-config assets', () => {
     }
   })
 
+  it('every MCP server mounted in a tier is granted in that tier allowlist', () => {
+    // The integration seam: a server in mcp/<tier>.json is useless unless the
+    // tier's allowlist carries `mcp__<server>` (server-level) or an `mcp__<server>__<tool>`
+    // (per-tool) grant — otherwise its tools are silently denied in headless `-p`.
+    for (const tier of ['chief', 'orchestrator', 'secretary']) {
+      const mcp = readJson(path.join(ASSET_DIR, 'mcp', `${tier}.json`)) as {
+        mcpServers?: Record<string, unknown>
+      }
+      const allow = (
+        readJson(path.join(ASSET_DIR, 'allowlists', `${tier}.json`)) as { allowedTools: string[] }
+      ).allowedTools
+      for (const server of Object.keys(mcp.mcpServers ?? {})) {
+        const granted =
+          allow.includes(`mcp__${server}`) || allow.some(t => t.startsWith(`mcp__${server}__`))
+        expect(granted, `${tier}: server "${server}" is mounted but not allowlisted (add mcp__${server})`).toBe(true)
+      }
+    }
+  })
+
   it('every mcp/*.json has an mcpServers object', () => {
     const dir = path.join(ASSET_DIR, 'mcp')
     const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))

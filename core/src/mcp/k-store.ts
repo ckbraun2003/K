@@ -226,6 +226,10 @@ function workflowStepSet(args: unknown, ctx: KStoreContext): WorkflowStep | NotI
 }
 
 const WorkflowStatusSetInput = { status: z.enum(['running', 'completed', 'failed']) }
+// NB: the agent's overall-status write is a MID-RUN signal. When the run reaches a
+// terminal state, workflows.ts::finalizeWorkflowRun re-derives and overwrites this
+// from the actual run outcome (done→completed, else failed) — the supervisor is the
+// authoritative source at termination. Per-step (workflow_step_set) is the durable surface.
 function workflowStatusSet(args: unknown, ctx: KStoreContext): { ok: true; status: string } | NotInWorkflow {
   const a = z.object(WorkflowStatusSetInput).parse(args)
   const wf = resolveWorkflowRun(ctx)
