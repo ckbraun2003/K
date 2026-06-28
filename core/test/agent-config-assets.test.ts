@@ -120,3 +120,59 @@ describe('agent-config assets', () => {
     expect(skillFiles.length).toBeGreaterThan(0)
   })
 })
+
+describe('vendored practice skills', () => {
+  // The curated methodology skills mounted into every managed run, plus K's own
+  // memory-practice skill. Each is an adapted copy — de-coupled from any host or
+  // plugin paths — so it must stay inside the project worktree's idiom.
+  const VENDORED = [
+    'search-first',
+    'strategic-compact',
+    'iterative-retrieval',
+    'test-driven-development',
+    'verification-before-completion',
+    'subagent-driven-development',
+    'requesting-code-review',
+    'receiving-code-review',
+    'systematic-debugging',
+    'capturing-lessons',
+  ]
+
+  // Markers that would mean the skill still points outside K (host config dirs,
+  // plugin commands, or the file-based stores K replaced with tools).
+  const OUT_OF_K_MARKERS = [
+    'docs/superpowers/',
+    '~/.claude',
+    '/learn',
+    'learned/',
+    'tasks/todo.md',
+    'tasks/lessons.md',
+  ]
+
+  /** Pull the `name:` value from the leading `---`-fenced YAML frontmatter. */
+  function frontmatterName(body: string): string | undefined {
+    const fence = body.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+    if (!fence) return undefined
+    const line = fence[1].split(/\r?\n/).find(l => /^name:\s*/.test(l))
+    return line?.replace(/^name:\s*/, '').trim()
+  }
+
+  for (const skill of VENDORED) {
+    it(`${skill}/SKILL.md exists, is non-empty, and its frontmatter name matches the dir`, () => {
+      const file = path.join(ASSET_DIR, 'skills', skill, 'SKILL.md')
+      expect(fs.existsSync(file), `${skill}/SKILL.md should exist`).toBe(true)
+      const body = fs.readFileSync(file, 'utf8')
+      expect(body.trim().length, `${skill} should be non-empty`).toBeGreaterThan(0)
+      expect(frontmatterName(body), `${skill} frontmatter name`).toBe(skill)
+    })
+  }
+
+  it('no vendored skill body references an out-of-K location', () => {
+    for (const skill of VENDORED) {
+      const body = fs.readFileSync(path.join(ASSET_DIR, 'skills', skill, 'SKILL.md'), 'utf8')
+      for (const marker of OUT_OF_K_MARKERS) {
+        expect(body.includes(marker), `${skill} must not contain "${marker}"`).toBe(false)
+      }
+    }
+  })
+})
