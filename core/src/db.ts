@@ -173,6 +173,56 @@ db.exec(`
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  -- ── kstore (Phase 5) ───────────────────────────────────────────────────────
+  -- The working store managed agents reach through the kstore MCP server, in
+  -- place of the home-dev tasks/*.md files. work_items = tickets; agent_memory =
+  -- gated lessons (layer A); workflow_steps = the live status/progress checklist.
+
+  -- A ticket. run_id is the managed run that created it (resolved from K_RUN_ID);
+  -- ON DELETE SET NULL keeps the ticket if its run is later removed.
+  CREATE TABLE IF NOT EXISTS work_items (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    title       TEXT NOT NULL,
+    body        TEXT,
+    status      TEXT NOT NULL DEFAULT 'open'
+                  CHECK(status IN ('open','in_progress','blocked','done','cancelled')),
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_work_items_run ON work_items(run_id, created_at);
+
+  -- A proposed lesson, held 'pending' until an operator accepts it (gated
+  -- reflection). run_id SET NULL on run delete so durable memory outlives the run.
+  CREATE TABLE IF NOT EXISTS agent_memory (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    lesson      TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending'
+                  CHECK(status IN ('pending','accepted','rejected')),
+    created_at  INTEGER NOT NULL,
+    reviewed_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_memory_status ON agent_memory(status, created_at);
+
+  -- One checklist line keyed to a workflow_runs row. UNIQUE(workflow_run_id,label)
+  -- makes the label the upsert key (workflow_step_set upserts by label per run).
+  -- Cascades with its workflow_run; work_item_id SET NULL if the linked ticket goes.
+  CREATE TABLE IF NOT EXISTS workflow_steps (
+    id              TEXT PRIMARY KEY,
+    workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+    seq             INTEGER NOT NULL,
+    label           TEXT NOT NULL,
+    kind            TEXT NOT NULL CHECK(kind IN ('task','phase','review','ci')),
+    work_item_id    TEXT REFERENCES work_items(id) ON DELETE SET NULL,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                      CHECK(status IN ('pending','in_progress','done','blocked','failed')),
+    detail          TEXT,
+    updated_at      INTEGER NOT NULL,
+    UNIQUE(workflow_run_id, label)
+  );
+  CREATE INDEX IF NOT EXISTS idx_workflow_steps_run ON workflow_steps(workflow_run_id, seq);
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -537,6 +587,116 @@ export const workflowRunsDb = {
   updateWorkflowRunStatus,
   getWorkflowRun,
   listWorkflowRunsByProject,
+}
+
+// ─── kstore: work-item helpers ───────────────────────────────────────────────
+// Backs the kstore MCP work-item tools. Tickets are run-scoped (run_id), not
+// project-scoped — work_items↔project_tasks unification is a Phase-5 follow-up.
+
+const insertWorkItem = db.prepare(`
+  INSERT INTO work_items (id, run_id, title, body, status, created_at, updated_at)
+  VALUES (@id, @runId, @title, @body, @status, @createdAt, @updatedAt)
+`)
+const updateWorkItem = db.prepare(`
+  UPDATE work_items SET title = @title, body = @body, status = @status, updated_at = @updatedAt
+  WHERE id = @id
+`)
+const getWorkItem = db.prepare(`SELECT * FROM work_items WHERE id = ?`)
+// Run-scoped fetch — `IS` is null-safe so a null owner (no/unknown run) only
+// matches null-owner rows. The tools resolve ownership through this so one run
+// can never read or mutate another run's tickets.
+const getWorkItemOwned = db.prepare(`SELECT * FROM work_items WHERE id = ? AND run_id IS ?`)
+const listWorkItemsByRun = db.prepare(
+  `SELECT * FROM work_items WHERE run_id IS ? ORDER BY created_at DESC LIMIT ?`,
+)
+const listWorkItemsByRunStatus = db.prepare(
+  `SELECT * FROM work_items WHERE run_id IS ? AND status = ? ORDER BY created_at DESC LIMIT ?`,
+)
+
+export const workItemsDb = {
+  insertWorkItem,
+  updateWorkItem,
+  getWorkItem,
+  getWorkItemOwned,
+  listWorkItemsByRun,
+  listWorkItemsByRunStatus,
+}
+
+// ─── kstore: agent-memory (lesson) helpers ───────────────────────────────────
+// Backs lesson_propose / lesson_list. A proposed lesson lands 'pending'; the
+// operator accepts/rejects out of band (memory layer A — no retrieval here).
+
+const insertLesson = db.prepare(`
+  INSERT INTO agent_memory (id, run_id, lesson, status, created_at, reviewed_at)
+  VALUES (@id, @runId, @lesson, @status, @createdAt, @reviewedAt)
+`)
+const getLesson = db.prepare(`SELECT * FROM agent_memory WHERE id = ?`)
+// Run-scoped lists (null-safe `IS`) so a run only sees the lessons it proposed.
+const listLessonsByRun = db.prepare(
+  `SELECT * FROM agent_memory WHERE run_id IS ? ORDER BY created_at DESC LIMIT ?`,
+)
+const listLessonsByRunStatus = db.prepare(
+  `SELECT * FROM agent_memory WHERE run_id IS ? AND status = ? ORDER BY created_at DESC LIMIT ?`,
+)
+
+export const agentMemoryDb = { insertLesson, getLesson, listLessonsByRun, listLessonsByRunStatus }
+
+// ─── kstore: workflow-step (status-write) helpers ────────────────────────────
+// Backs workflow_step_set / workflow_status_set. The MCP server resolves the
+// workflow_runs row from the injected K_RUN_ID (run_id), so the agent never
+// handles the workflowRunId itself.
+
+const getWorkflowRunByRunId = db.prepare(`SELECT * FROM workflow_runs WHERE run_id = ?`)
+const getWorkflowStepByLabel = db.prepare(
+  `SELECT * FROM workflow_steps WHERE workflow_run_id = ? AND label = ?`,
+)
+const listWorkflowSteps = db.prepare(
+  `SELECT * FROM workflow_steps WHERE workflow_run_id = ? ORDER BY seq ASC, updated_at ASC`,
+)
+const nextWorkflowStepSeq = db.prepare(
+  `SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM workflow_steps WHERE workflow_run_id = ?`,
+)
+const upsertWorkflowStepRow = db.prepare(`
+  INSERT INTO workflow_steps (id, workflow_run_id, seq, label, kind, work_item_id, status, detail, updated_at)
+  VALUES (@id, @workflowRunId, @seq, @label, @kind, @workItemId, @status, @detail, @updatedAt)
+  ON CONFLICT(workflow_run_id, label) DO UPDATE SET
+    kind         = excluded.kind,
+    work_item_id = excluded.work_item_id,
+    status       = excluded.status,
+    detail       = excluded.detail,
+    updated_at   = excluded.updated_at
+`)
+
+// Upsert a step by (workflow_run_id, label) in one transaction: a new label gets
+// the next seq; an existing label keeps its seq (only kind/status/detail/link
+// refresh). Returns the resulting row.
+const setWorkflowStep = db.transaction(
+  (s: {
+    id: string
+    workflowRunId: string
+    label: string
+    kind: string
+    workItemId: string | null
+    status: string
+    detail: string | null
+    updatedAt: number
+  }) => {
+    const existing = getWorkflowStepByLabel.get(s.workflowRunId, s.label) as
+      | { seq: number }
+      | undefined
+    const seq = existing
+      ? existing.seq
+      : (nextWorkflowStepSeq.get(s.workflowRunId) as { next: number }).next
+    upsertWorkflowStepRow.run({ ...s, seq })
+    return getWorkflowStepByLabel.get(s.workflowRunId, s.label)
+  },
+)
+
+export const workflowStepsDb = {
+  getWorkflowRunByRunId,
+  getWorkflowStepByLabel,
+  listWorkflowSteps,
+  setWorkflowStep,
 }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────

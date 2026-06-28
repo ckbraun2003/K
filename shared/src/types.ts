@@ -397,6 +397,71 @@ export const WorkflowRunSchema = z.object({
 })
 export type WorkflowRun = z.infer<typeof WorkflowRunSchema>
 
+// ─── WorkItem (kstore) ─────────────────────────────────────────────────────
+// A "ticket" in K's working store — STORAGE, not execution. Managed agents
+// create/track work items through the kstore MCP tool instead of the home-dev
+// `tasks/*.md` files. `runId` is the managed run that created it (resolved from
+// the injected K_RUN_ID), null for items not tied to a run.
+export const WorkItemStatusSchema = z.enum(['open', 'in_progress', 'blocked', 'done', 'cancelled'])
+export type WorkItemStatus = z.infer<typeof WorkItemStatusSchema>
+
+export const WorkItemSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  title: z.string(),
+  body: z.string().nullable(),
+  status: WorkItemStatusSchema,
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type WorkItem = z.infer<typeof WorkItemSchema>
+
+// ─── Lesson (agent memory, layer A) ────────────────────────────────────────
+// Gated reflection: an agent PROPOSES a durable lesson through the kstore tool;
+// it lands `pending` and joins memory only when an operator accepts it. Memory
+// is a tool, never a file.
+export const LessonStatusSchema = z.enum(['pending', 'accepted', 'rejected'])
+export type LessonStatus = z.infer<typeof LessonStatusSchema>
+
+export const LessonSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  lesson: z.string(),
+  status: LessonStatusSchema,
+  createdAt: z.number(),
+  reviewedAt: z.number().nullable(),
+})
+export type Lesson = z.infer<typeof LessonSchema>
+
+// ─── WorkflowStep (status / progress checklist) ────────────────────────────
+// One checklist line the orchestrator reports through the kstore status-write
+// tool, keyed to a workflow_runs row. `kind` distinguishes a ticket, a loop
+// phase, a review, and a CI gate; `label` is the upsert key within a run.
+export const WorkflowStepKindSchema = z.enum(['task', 'phase', 'review', 'ci'])
+export type WorkflowStepKind = z.infer<typeof WorkflowStepKindSchema>
+
+export const WorkflowStepStatusSchema = z.enum([
+  'pending',
+  'in_progress',
+  'done',
+  'blocked',
+  'failed',
+])
+export type WorkflowStepStatus = z.infer<typeof WorkflowStepStatusSchema>
+
+export const WorkflowStepSchema = z.object({
+  id: z.string(),
+  workflowRunId: z.string(),
+  seq: z.number().int(),
+  label: z.string(),
+  kind: WorkflowStepKindSchema,
+  workItemId: z.string().nullable(),
+  status: WorkflowStepStatusSchema,
+  detail: z.string().nullable(),
+  updatedAt: z.number(),
+})
+export type WorkflowStep = z.infer<typeof WorkflowStepSchema>
+
 // A GitHub issue projected from `gh issue list --json number,title,state,url`.
 export const IssueInfoSchema = z.object({
   number: z.number().int(),
