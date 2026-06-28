@@ -387,6 +387,12 @@ export function uiDemoHtml(): string {
   .composer .picker { font-family: var(--mono); font-size: .72rem; color: var(--muted);
     background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .2rem .5rem; cursor: pointer; }
   .composer-actions { display: flex; align-items: center; gap: .6rem; margin-top: .7rem; flex-wrap: wrap; }
+  .composer .micbtn { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--accent-soft); cursor: pointer; flex-shrink: 0;
+    transition: border-color .15s, color .15s, background .15s; }
+  .composer .micbtn:hover { border-color: var(--accent-hover); color: var(--accent-hover); }
+  .composer .micbtn .gi { color: inherit; }
+  .composer .micbtn.rec { color: var(--ink); background: var(--accent); border-color: var(--accent); animation: live 2s ease-out infinite; }
 
   /* ── buttons ── */
   .btn { display: inline-flex; align-items: center; gap: .4rem; font: inherit; font-size: .8rem;
@@ -758,6 +764,8 @@ export function uiDemoHtml(): string {
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></symbol>
   <symbol id="i-idea" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.3 1 2.5h6c0-1.2.3-1.8 1-2.5A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M8.5 21h7"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v11"/><path d="M8 10l4 4 4-4"/><path d="M5 20h14"/></symbol>
 </svg>
 
 <div class="deck" id="deck">
@@ -815,7 +823,8 @@ export function uiDemoHtml(): string {
         <p class="lead glance">3 agents working · <a class="link" data-action="route" data-arg="chief">Chief on the auth refactor →</a></p>
         <div class="composer">
           <svg class="gi"><use href="#i-bolt"></use></svg>
-          <input id="homeQ" placeholder="Ask K…  e.g. refactor the auth module" aria-label="Ask K" />
+          <input id="homeQ" placeholder="Ask K…  e.g. refactor the auth module — or hold the mic to talk" aria-label="Ask K" />
+          <button class="micbtn" data-action="toast" data-msg="Listening… hold to talk, release to send" data-variant="info" title="Hold to talk (Alt Space)" aria-label="Hold to talk"><svg class="gi"><use href="#i-mic"></use></svg></button>
           <span class="picker">model: auto</span>
         </div>
         <div class="routeline"><span class="muted">K routes</span> → Chief <span class="seg-sep">→</span> Backend Lead</div>
@@ -1540,7 +1549,7 @@ tests, contract drift, or unhandled errors. Return a verdict + reasons.</textare
       <h1 class="page">Routing</h1>
       <div class="panel" style="border-color:rgba(255,143,192,.4)"><div class="kv"><svg class="gi" style="color:var(--accent-soft)"><use href="#i-idea"></use></svg> Recommendation: route default → claude-opus (96% success, $0.04/run).
         <button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Apply recommendation?" data-body="Set the default route to claude-opus? Changes routing for new runs." data-confirm="Apply" data-toast-msg="Default route updated">Apply</button></div></div>
-      <div class="panel"><h2>Models</h2>
+      <div class="panel"><h2>Models <span class="right"><a class="link" data-action="route" data-arg="settings">manage local models →</a></span></h2>
         <div class="list" style="font-size:.78rem">
           <div class="row muted mono" style="font-size:.68rem;letter-spacing:.04em"><span class="grow">provider · model</span><span style="width:46px;text-align:right">runs</span><span style="width:58px;text-align:right">$/run</span><span style="width:42px;text-align:right">p50</span><span style="width:42px;text-align:right">p95</span><span style="width:96px;text-align:right">success</span></div>
           <div class="row mono"><span class="grow">anthropic · claude-opus</span><span style="width:46px;text-align:right">82</span><span style="width:58px;text-align:right">$0.041</span><span style="width:42px;text-align:right">2.1s</span><span style="width:42px;text-align:right">6.0s</span><span style="width:96px;display:inline-flex;align-items:center;gap:.4rem;justify-content:flex-end"><span class="bar" style="width:48px"><span style="width:96%;background:var(--green)"></span></span>96%</span></div>
@@ -1577,9 +1586,48 @@ tests, contract drift, or unhandled errors. Return a verdict + reasons.</textare
         <div class="kv" style="gap:1.2rem;flex-wrap:wrap">
           <span class="pill done"><span class="d"></span>Claude ready</span>
           <span class="pill done"><span class="d"></span>Ollama ready</span>
+          <span class="pill done"><span class="d"></span>Voice ready</span>
           <span class="pill done"><span class="d"></span>GitHub ok</span>
           <span class="pill done"><span class="d"></span>Harness auth ok</span>
         </div>
+      </div>
+
+      <div class="panel"><h2>Local models · Ollama <span class="right"><a class="link" data-action="route" data-arg="routing">routing performance →</a></span></h2>
+        <p class="muted" style="font-size:.74rem;margin:0 0 .7rem">Pull models and choose the one K's router uses when it routes to Ollama. Selecting a model applies immediately — no restart. <span class="mono">28.4 GB free</span></p>
+
+        <div class="grouplabel" style="padding:.2rem 0 .35rem">Installed</div>
+        <div class="list" style="font-size:.82rem">
+          <div class="row"><span class="grow mono">llama3.2:3b</span><span class="tier-chip">2.0 GB</span><span class="pill" style="color:var(--accent-soft)"><span class="d"></span>active</span><button class="btn ghost sm" data-action="confirm" data-title="Remove llama3.2:3b?" data-body="Delete this model from disk? You can pull it again later." data-variant="danger" data-confirm="Remove" data-toast-msg="llama3.2:3b removed" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
+          <div class="row"><span class="grow mono">qwen2.5:0.5b</span><span class="tier-chip">0.4 GB</span><button class="btn sky sm" data-action="confirm" data-title="Make qwen2.5:0.5b the active local model?" data-body="K's router will use qwen2.5:0.5b for local runs from now on. Applies immediately — no restart." data-confirm="Set active" data-toast-msg="qwen2.5:0.5b is now the active local model">set active</button><button class="btn ghost sm" data-action="confirm" data-title="Remove qwen2.5:0.5b?" data-body="Delete this model from disk?" data-variant="danger" data-confirm="Remove" data-toast-msg="qwen2.5:0.5b removed" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
+        </div>
+
+        <div class="witem" style="margin-top:.6rem">
+          <div class="witem-top"><svg class="gi" style="color:var(--accent-hover)"><use href="#i-download"></use></svg><span class="grow mono">phi4 — downloading…</span><span class="mono muted" style="font-size:.72rem">5.6 / 9.1 GB · 62%</span><button class="btn ghost sm" data-action="confirm" data-title="Cancel download?" data-body="Stop pulling phi4?" data-variant="danger" data-confirm="Cancel" data-toast-msg="phi4 download cancelled" data-toast-variant="info"><svg class="gi"><use href="#i-x"></use></svg></button></div>
+          <div class="bar data" style="margin-top:.4rem"><span style="width:62%"></span></div>
+        </div>
+
+        <div class="grouplabel" style="padding:.85rem 0 .35rem">Catalog</div>
+        <div class="grid3 cards">
+          <div class="card"><div class="kv"><b class="mono">qwen2.5:0.5b</b><span class="pill done" style="margin-left:auto"><span class="d"></span>installed</span></div><p class="muted" style="font-size:.74rem;margin:.35rem 0">Tiny &amp; fast — quick local checks.</p><div class="kv"><span class="tier-chip">0.4 GB</span><span class="pill healthy"><svg class="gi" style="width:.95em;height:.95em"><use href="#i-check"></use></svg> fits</span></div></div>
+          <div class="card"><div class="kv"><b class="mono">mistral:7b</b></div><p class="muted" style="font-size:.74rem;margin:.35rem 0">Balanced general model.</p><div class="kv"><span class="tier-chip">4.1 GB</span><span class="pill healthy"><svg class="gi" style="width:.95em;height:.95em"><use href="#i-check"></use></svg> fits</span><button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Pull mistral:7b?" data-body="Download mistral:7b (4.1 GB)? Progress shows here; you can keep working." data-confirm="Pull" data-toast-msg="Pulling mistral:7b…" data-toast-variant="info"><svg class="gi"><use href="#i-download"></use></svg> Pull</button></div></div>
+          <div class="card"><div class="kv"><b class="mono">qwen2.5-coder:7b</b></div><p class="muted" style="font-size:.74rem;margin:.35rem 0">Code-tuned — diffs &amp; reviews.</p><div class="kv"><span class="tier-chip">4.7 GB</span><span class="pill healthy"><svg class="gi" style="width:.95em;height:.95em"><use href="#i-check"></use></svg> fits</span><button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Pull qwen2.5-coder:7b?" data-body="Download qwen2.5-coder:7b (4.7 GB)?" data-confirm="Pull" data-toast-msg="Pulling qwen2.5-coder:7b…" data-toast-variant="info"><svg class="gi"><use href="#i-download"></use></svg> Pull</button></div></div>
+          <div class="card"><div class="kv"><b class="mono">llama3.3:70b</b></div><p class="muted" style="font-size:.74rem;margin:.35rem 0">Frontier-class — needs space.</p><div class="kv"><span class="tier-chip">43 GB</span><span class="pill risk"><svg class="gi" style="width:.95em;height:.95em"><use href="#i-alert"></use></svg> won't fit</span><button class="btn primary sm" style="margin-left:auto" disabled><svg class="gi"><use href="#i-download"></use></svg> Pull</button></div></div>
+        </div>
+
+        <div class="adv" style="margin-top:.7rem"><span class="muted">Advanced — pull any tag:</span>
+          <input style="flex:1;min-width:140px;background:var(--raised);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit;font-size:.74rem;padding:.22rem .5rem" placeholder="e.g. gemma2:9b" aria-label="Pull any Ollama tag" />
+          <button class="btn secondary sm" data-action="toast" data-msg="Pulling — the model size is checked against free disk before the download starts" data-variant="info"><svg class="gi"><use href="#i-download"></use></svg> Pull</button></div>
+      </div>
+
+      <div class="panel"><h2>Voice transcription</h2>
+        <p class="muted" style="font-size:.74rem;margin:0 0 .7rem">Push-to-talk dictation into the K composer and any reply box. Audio is transcribed by a local Whisper service and never leaves your machine.</p>
+        <div class="list" style="font-size:.82rem">
+          <div class="row"><span class="grow">Engine</span><span class="pill done"><span class="d"></span>local Whisper · ready</span><span class="mono muted" style="font-size:.72rem">localhost:9000 · whisper-base.en</span></div>
+          <div class="row"><span class="grow">Push-to-talk</span><span class="muted" style="font-size:.74rem">hold the mic in any composer, or press</span><span class="mono" style="background:rgba(56,189,248,.16);border-radius:6px;padding:1px 6px;font-size:.7rem">Alt Space</span></div>
+          <div class="row"><span class="grow">Enable voice</span><span class="toggle on" data-action="toast" data-msg="Voice stays enabled in this demo" data-variant="info"></span></div>
+        </div>
+        <div class="kv" style="margin-top:.6rem"><span class="muted" style="font-size:.72rem">Whisper runs as a separate local service (faster-whisper). Set <span class="mono">ENABLE_VOICE</span> + <span class="mono">WHISPER_BASE_URL</span> to point K at it.</span>
+          <button class="btn secondary sm" style="margin-left:auto" data-action="toast" data-msg="Mic check — say a few words" data-variant="info"><svg class="gi"><use href="#i-mic"></use></svg> Test mic</button></div>
       </div>
 
       <div class="panel"><h2>Org &amp; MCP authority (default control plane)</h2>
