@@ -22,6 +22,12 @@ const KEYS = {
   model:   'ollama.model',
 } as const
 
+const VOICE_KEYS = {
+  enabled: 'voice.enabled',
+  baseUrl: 'voice.baseUrl',
+  model:   'voice.model',
+} as const
+
 /** Read key from cache → DB → env default (in that order). */
 function readKey(key: string, envDefault: string): string {
   if (cache.has(key)) return cache.get(key)!
@@ -64,6 +70,39 @@ export function setOllamaBaseUrl(v: string): void {
 export function setActiveOllamaModel(v: string): void {
   configDb.set(KEYS.model, v)
   cache.set(KEYS.model, v)
+}
+
+// ── Voice getters ─────────────────────────────────────────────────────────────
+
+export function voiceEnabled(): boolean {
+  const v = readKey(VOICE_KEYS.enabled, process.env.ENABLE_VOICE === 'true' ? 'true' : 'false')
+  return v === 'true'
+}
+
+export function whisperBaseUrl(): string {
+  return readKey(VOICE_KEYS.baseUrl, process.env.WHISPER_BASE_URL ?? 'http://localhost:9000')
+}
+
+export function whisperModel(): string {
+  return readKey(VOICE_KEYS.model, process.env.WHISPER_MODEL ?? 'whisper-base.en')
+}
+
+// ── Voice setters ─────────────────────────────────────────────────────────────
+
+export function setVoiceEnabled(v: boolean): void {
+  const s = v ? 'true' : 'false'
+  configDb.set(VOICE_KEYS.enabled, s)
+  cache.set(VOICE_KEYS.enabled, s)
+}
+
+export function setWhisperBaseUrl(v: string): void {
+  configDb.set(VOICE_KEYS.baseUrl, v)
+  cache.set(VOICE_KEYS.baseUrl, v)
+}
+
+export function setWhisperModel(v: string): void {
+  configDb.set(VOICE_KEYS.model, v)
+  cache.set(VOICE_KEYS.model, v)
 }
 
 // ── Test seam ────────────────────────────────────────────────────────────────

@@ -528,6 +528,12 @@ export const StatusSchema = z.object({
     loopbackOnly: z.boolean(),
     terminalEnabled: z.boolean(),
   }),
+  voice: z.object({
+    enabled: z.boolean(),
+    reachable: z.boolean(),
+    baseUrl: z.string(),
+    model: z.string(),
+  }),
 })
 export type Status = z.infer<typeof StatusSchema>
 

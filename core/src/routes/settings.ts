@@ -25,8 +25,9 @@ import type { FastifyInstance } from 'fastify'
 import { type Status, SystemPromptBodySchema } from '@k/shared'
 import { REPO_ROOT } from '../supervisor.js'
 import { isOllamaReachable } from '../router.js'
-import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel } from '../config-store.js'
+import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
+import { probeWhisper } from '../transcription.js'
 
 // ── System-prompt file location ───────────────────────────────────────────────
 
@@ -86,6 +87,7 @@ export function composeSystemPrompt(human: string, block: string | null): string
 export interface StatusProbes {
   claude: { available: boolean; version?: string }
   github: { authenticated: boolean; user?: string }
+  whisperReachable: boolean
 }
 
 export interface StatusEnv {
@@ -93,6 +95,9 @@ export interface StatusEnv {
   ollamaReachable: boolean
   ollamaBaseUrl: string
   ollamaModel: string
+  voiceEnabled: boolean
+  voiceBaseUrl: string
+  voiceModel: string
   tokenSource: 'env' | 'generated'
   host: string
   terminalEnabled: boolean
@@ -115,6 +120,12 @@ export function buildStatus(probes: StatusProbes, env: StatusEnv): Status {
       host: env.host,
       loopbackOnly: isLoopbackHost(env.host),
       terminalEnabled: env.terminalEnabled,
+    },
+    voice: {
+      enabled: env.voiceEnabled,
+      reachable: probes.whisperReachable,
+      baseUrl: env.voiceBaseUrl,
+      model: env.voiceModel,
     },
   }
 }
@@ -154,8 +165,12 @@ let probeCache: { result: StatusProbes; ts: number } | null = null
 
 async function cachedProbes(): Promise<StatusProbes> {
   if (probeCache && Date.now() - probeCache.ts < PROBE_TTL_MS) return probeCache.result
-  const [claude, github] = await Promise.all([probeClaude(), probeGithub()])
-  const result: StatusProbes = { claude, github }
+  const [claude, github, whisperReachable] = await Promise.all([
+    probeClaude(),
+    probeGithub(),
+    voiceEnabled() ? probeWhisper() : Promise.resolve(false),
+  ])
+  const result: StatusProbes = { claude, github, whisperReachable }
   probeCache = { result, ts: Date.now() }
   return result
 }
@@ -166,6 +181,9 @@ function liveStatusEnv(): StatusEnv {
     ollamaReachable: isOllamaReachable(),
     ollamaBaseUrl: ollamaBaseUrl(),
     ollamaModel: activeOllamaModel(),
+    voiceEnabled: voiceEnabled(),
+    voiceBaseUrl: whisperBaseUrl(),
+    voiceModel: whisperModel(),
     tokenSource: harnessTokenSource(),
     host: process.env.HOST ?? '127.0.0.1',
     terminalEnabled: process.env.ENABLE_TERMINAL === 'true',

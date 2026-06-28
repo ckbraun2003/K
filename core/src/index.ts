@@ -20,6 +20,7 @@ import { projectsRoutes } from './routes/projects.js'
 import { skillsRoutes } from './routes/skills.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
+import { voiceRoutes } from './routes/voice.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { compileBible } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
@@ -104,6 +105,7 @@ export async function buildApp() {
   await app.register(skillsRoutes)
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
+  await app.register(voiceRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 

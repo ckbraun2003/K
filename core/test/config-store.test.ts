@@ -14,6 +14,12 @@ import {
   setOllamaEnabled,
   setOllamaBaseUrl,
   setActiveOllamaModel,
+  voiceEnabled,
+  whisperBaseUrl,
+  whisperModel,
+  setVoiceEnabled,
+  setWhisperBaseUrl,
+  setWhisperModel,
   __resetConfigCache,
 } from '../src/config-store.js'
 
@@ -28,6 +34,9 @@ beforeEach(() => {
   delete process.env.ENABLE_OLLAMA
   delete process.env.OLLAMA_BASE_URL
   delete process.env.OLLAMA_MODEL
+  delete process.env.ENABLE_VOICE
+  delete process.env.WHISPER_BASE_URL
+  delete process.env.WHISPER_MODEL
 })
 
 describe('ollamaEnabled — seeds from env', () => {
@@ -139,5 +148,98 @@ describe('bool round-trips', () => {
     setOllamaEnabled(false)
     __resetConfigCache()
     expect(ollamaEnabled()).toBe(false)
+  })
+})
+
+// ── Voice config ─────────────────────────────────────────────────────────────
+
+describe('voiceEnabled — seeds from env', () => {
+  it('returns true when ENABLE_VOICE=true and app_config is empty', () => {
+    process.env.ENABLE_VOICE = 'true'
+    expect(voiceEnabled()).toBe(true)
+    delete process.env.ENABLE_VOICE
+  })
+
+  it('returns false when ENABLE_VOICE is absent', () => {
+    delete process.env.ENABLE_VOICE
+    expect(voiceEnabled()).toBe(false)
+  })
+})
+
+describe('whisperBaseUrl — seeds from env', () => {
+  it('returns WHISPER_BASE_URL env when app_config is empty', () => {
+    process.env.WHISPER_BASE_URL = 'http://my-whisper:9000'
+    __resetConfigCache()
+    expect(whisperBaseUrl()).toBe('http://my-whisper:9000')
+    delete process.env.WHISPER_BASE_URL
+  })
+
+  it('returns the default when env is absent', () => {
+    delete process.env.WHISPER_BASE_URL
+    __resetConfigCache()
+    expect(whisperBaseUrl()).toBe('http://localhost:9000')
+  })
+})
+
+describe('whisperModel — seeds from env', () => {
+  it('returns WHISPER_MODEL env when app_config is empty', () => {
+    process.env.WHISPER_MODEL = 'large-v3'
+    __resetConfigCache()
+    expect(whisperModel()).toBe('large-v3')
+    delete process.env.WHISPER_MODEL
+  })
+
+  it('returns the default when env is absent', () => {
+    delete process.env.WHISPER_MODEL
+    __resetConfigCache()
+    expect(whisperModel()).toBe('whisper-base.en')
+  })
+})
+
+describe('voice set* → getter reads new value (cache path)', () => {
+  it('setVoiceEnabled(true) → voiceEnabled() returns true', () => {
+    setVoiceEnabled(true)
+    expect(voiceEnabled()).toBe(true)
+  })
+
+  it('setVoiceEnabled(false) → voiceEnabled() returns false', () => {
+    setVoiceEnabled(false)
+    expect(voiceEnabled()).toBe(false)
+  })
+
+  it('setWhisperBaseUrl → whisperBaseUrl() returns new value', () => {
+    setWhisperBaseUrl('http://other:9000')
+    expect(whisperBaseUrl()).toBe('http://other:9000')
+  })
+
+  it('setWhisperModel → whisperModel() returns new value', () => {
+    setWhisperModel('medium.en')
+    expect(whisperModel()).toBe('medium.en')
+  })
+})
+
+describe('voice set* persists to DB (round-trip through cache reset)', () => {
+  it('setVoiceEnabled persists — cache-reset re-reads from DB', () => {
+    setVoiceEnabled(true)
+    __resetConfigCache()
+    expect(voiceEnabled()).toBe(true)
+  })
+
+  it('setVoiceEnabled false persists', () => {
+    setVoiceEnabled(false)
+    __resetConfigCache()
+    expect(voiceEnabled()).toBe(false)
+  })
+
+  it('setWhisperBaseUrl persists', () => {
+    setWhisperBaseUrl('http://persisted:9001')
+    __resetConfigCache()
+    expect(whisperBaseUrl()).toBe('http://persisted:9001')
+  })
+
+  it('setWhisperModel persists', () => {
+    setWhisperModel('tiny.en')
+    __resetConfigCache()
+    expect(whisperModel()).toBe('tiny.en')
   })
 })
