@@ -1,5 +1,5 @@
 {
-  "_note": "chief tier (PLANNED — Phase 5) — the right-hand manager. Delegates only; NO code authority. Coding tools (Bash, Write, Edit, Agent) are deliberately ABSENT so the tier cannot edit a file or spawn a coding subagent even if a prompt asks. Read-only intelligence + web research only.",
+  "_note": "chief tier (PLANNED — Phase 5) — the right-hand manager. Delegates only; NO code authority. Coding tools (Bash, Write, Edit, Task) are deliberately ABSENT so the tier cannot edit a file or spawn a coding subagent even if a prompt asks. Read-only intelligence + web research only.",
   "allowedTools": [
     "Read",
     "Grep",

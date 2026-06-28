@@ -49,6 +49,21 @@ describe('agent-config assets', () => {
     }
   })
 
+  it('ships exactly the three durable tiers (secretary, chief, orchestrator) for every asset kind', () => {
+    const expected = ['chief', 'orchestrator', 'secretary']
+    const tiers = fs.readdirSync(path.join(ASSET_DIR, 'tiers')).map(f => f.replace('.charter.md', '')).sort()
+    expect(tiers).toEqual(expected)
+    for (const sub of ['allowlists', 'mcp']) {
+      const names = fs.readdirSync(path.join(ASSET_DIR, sub)).filter(f => f.endsWith('.json')).map(f => f.replace('.json', '')).sort()
+      expect(names, `${sub} tiers`).toEqual(expected)
+    }
+    // the removed taxonomy must not linger anywhere
+    for (const dead of ['controller', 'lead', 'role']) {
+      expect(fs.existsSync(path.join(ASSET_DIR, 'tiers', `${dead}.charter.md`)), `tiers/${dead}`).toBe(false)
+      expect(fs.existsSync(path.join(ASSET_DIR, 'allowlists', `${dead}.json`)), `allowlists/${dead}`).toBe(false)
+    }
+  })
+
   it('every allowlists/*.json and mcp/*.json parses as valid JSON', () => {
     for (const sub of ['allowlists', 'mcp']) {
       const dir = path.join(ASSET_DIR, sub)
@@ -60,8 +75,8 @@ describe('agent-config assets', () => {
     }
   })
 
-  it('coding tiers (controller, lead, role) allow Bash/Write/Edit', () => {
-    for (const tier of ['controller', 'lead', 'role']) {
+  it('the coding tier (orchestrator) allows Bash/Write/Edit/Task', () => {
+    for (const tier of ['orchestrator']) {
       const cfg = readJson(path.join(ASSET_DIR, 'allowlists', `${tier}.json`)) as {
         allowedTools: string[]
       }

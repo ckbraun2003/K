@@ -10,14 +10,15 @@ The prompt model is layered:
 - **L0 — `base-operating-prompt.md`** — the base operating prompt injected into every managed run
   (canonical copy of the repo-root `CLAUDE.md`; edit it here).
 - **L1 — `tiers/<tier>.charter.md`** — the per-tier role/identity charter, layered on L0. Only
-  `controller` is active today; `secretary | chief | lead | role` are PLANNED (Phase 5) stubs.
+  `orchestrator` is active today; `secretary | chief` are PLANNED (Phase 5) stubs. Worker agents
+  (implementer, reviewers) are subagent DEFINITIONS (`agents/*.md`) an orchestrator spawns — not a tier.
 - **L2** — the target project's own files (`CLAUDE.md`, `AGENTS.md`, bible) — not stored here.
 
-Per-tier capability assets (tiers: `controller, lead, role, chief, secretary`):
+Per-tier capability assets (durable tiers: `secretary, chief, orchestrator`):
 
 - **`allowlists/<tier>.json`** — `{ "allowedTools": [...] }` for `claude --allowedTools`. Coding
-  tools (`Bash`, `Write`, `Edit`, `Agent`) are present only at the coding tiers; `chief`/`secretary`
-  get none.
+  tools (`Bash`, `Write`, `Edit`, `Task`) are present only at the orchestrator tier; `chief`/`secretary`
+  get none. (`Task` is the literal CLI subagent-spawn tool id; "agent" stays the prose concept.)
 - **`mcp/<tier>.json`** — `{ "mcpServers": {...} }` for `claude --mcp-config`. Portable `gitnexus`
   server invoked via `npx` (no host paths).
 - **`skills/gitnexus/`** — K's pinned, vendored copy of the gitnexus skills (`*/SKILL.md`).

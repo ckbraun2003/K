@@ -76,15 +76,14 @@ afterAll(() => {
 })
 
 describe('synthesizeConfigDir', () => {
-  it('writes a layered system prompt with BOTH the L0 base and the L1 controller charter', () => {
+  it('writes a layered system prompt with BOTH the L0 base and the L1 orchestrator charter', () => {
     const cfg = synth()
     expect(fs.existsSync(cfg.configDir)).toBe(true)
     expect(cfg.appendSystemPromptFile).toBe(path.join(cfg.configDir, 'system-prompt.md'))
     const prompt = fs.readFileSync(cfg.appendSystemPromptFile, 'utf8')
     // L0 marker (base operating prompt) …
     expect(prompt).toMatch(/Harness|Must \/ Must Not/)
-    // … AND the controller charter marker (L1). The charter renders the role in
-    // markdown bold (**controller**), so match the contiguous tail of the phrase.
+    // … AND the orchestrator charter marker (L1).
     expect(prompt).toContain('harness delegation loop')
   })
 
@@ -108,7 +107,7 @@ describe('synthesizeConfigDir', () => {
     expect(mcp.mcpServers?.gitnexus).toBeDefined()
   })
 
-  it('exposes the controller allowlist including Bash and Task', () => {
+  it('exposes the orchestrator allowlist including Bash and Task', () => {
     const cfg = synth()
     expect(cfg.allowedTools).toContain('Bash')
     expect(cfg.allowedTools).toContain('Task')

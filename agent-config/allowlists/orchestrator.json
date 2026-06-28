@@ -1,5 +1,5 @@
 {
-  "_note": "controller / lead tier — full coding authority. Passed to `claude --allowedTools`. Coding tools (Bash, Write, Edit, Task) are present at this tier. The subagent-spawn tool is `Task` (verified against the claude CLI binary).",
+  "_note": "orchestrator tier — full coding authority within charter. Passed to `claude --allowedTools`. Coding tools (Bash, Write, Edit, Task) are present at this tier. The subagent-spawn tool is `Task` (verified against the claude CLI binary) — agents are the concept, `Task` is the tool id the CLI keys on.",
   "allowedTools": [
     "Bash",
     "Read",

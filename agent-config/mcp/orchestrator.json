@@ -1,5 +1,5 @@
 {
-  "_note": "controller / lead tier — `claude --mcp-config` shape. Portable gitnexus stdio server (invoked via npx so it does not depend on any host install path).",
+  "_note": "orchestrator tier — `claude --mcp-config` shape. Portable gitnexus stdio server (invoked via npx so it does not depend on any host install path). The K-owned kstore server (work-items, lessons, workflow status-write) is added by a later wave.",
   "mcpServers": {
     "gitnexus": {
       "command": "npx",
