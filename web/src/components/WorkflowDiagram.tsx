@@ -6,8 +6,8 @@ import { cn } from '../lib/cn'
 /**
  * Static, purpose-built CSS hierarchy of the harness delegation loop (Wave D5).
  *
- * NOT a force-graph: the role set is fixed (controller → implementer →
- * {spec-review, quality-review} → controller applies fixes), so the layout is
+ * NOT a force-graph: the role set is fixed (orchestrator → implementer →
+ * {spec-review, quality-review} → orchestrator applies fixes), so the layout is
  * hand-authored. Each role is an accessible <button>; selecting one reveals its
  * read-only responsibility in the side panel. Purely decorative connectors are
  * aria-hidden. Reveal uses framer-motion (honours the app-wide
@@ -70,7 +70,7 @@ export default function WorkflowDiagram({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const get = (id: string) => definition.roles.find(r => r.id === id)
-  const controller = get('controller')
+  const orchestrator = get('orchestrator')
   const implementer = get('implementer')
   const spec = get('spec-review')
   const quality = get('quality-review')
@@ -90,7 +90,7 @@ export default function WorkflowDiagram({
     <div className="flex flex-col gap-6 lg:flex-row">
       {/* Diagram */}
       <div className="flex flex-1 flex-col items-center py-2">
-        {box('controller', controller)}
+        {box('orchestrator', orchestrator)}
         <VEdge label="delegates" />
         {box('implementer', implementer)}
 
@@ -112,7 +112,7 @@ export default function WorkflowDiagram({
 
         <p className="mt-4 max-w-md text-center text-[11px] text-[var(--muted)]">
           ↑ Spec &amp; quality review report{' '}
-          <span className="text-[var(--accent-hover)]">fixes</span> back to the controller, which
+          <span className="text-[var(--accent-hover)]">fixes</span> back to the orchestrator, which
           applies them and ships one reviewable commit (the loop).
         </p>
       </div>

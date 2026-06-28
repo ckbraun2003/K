@@ -1,0 +1,17 @@
+{
+  "_note": "orchestrator tier — `claude --mcp-config` shape. Portable gitnexus stdio server (invoked via npx so it does not depend on any host install path) + the K-owned kstore working store (work-items, lessons, workflow status-write). The synthesizer rewrites the `__KSTORE__` command and the `__K_DATA_DIR__`/`__K_RUN_ID__` env placeholders at run time (Wave 6).",
+  "mcpServers": {
+    "gitnexus": {
+      "command": "npx",
+      "args": ["gitnexus", "mcp"]
+    },
+    "kstore": {
+      "command": "__KSTORE__",
+      "args": [],
+      "env": {
+        "K_DATA_DIR": "__K_DATA_DIR__",
+        "K_RUN_ID": "__K_RUN_ID__"
+      }
+    }
+  }
+}

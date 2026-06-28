@@ -397,6 +397,71 @@ export const WorkflowRunSchema = z.object({
 })
 export type WorkflowRun = z.infer<typeof WorkflowRunSchema>
 
+// ─── WorkItem (kstore) ─────────────────────────────────────────────────────
+// A "ticket" in K's working store — STORAGE, not execution. Managed agents
+// create/track work items through the kstore MCP tool instead of the home-dev
+// `tasks/*.md` files. `runId` is the managed run that created it (resolved from
+// the injected K_RUN_ID), null for items not tied to a run.
+export const WorkItemStatusSchema = z.enum(['open', 'in_progress', 'blocked', 'done', 'cancelled'])
+export type WorkItemStatus = z.infer<typeof WorkItemStatusSchema>
+
+export const WorkItemSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  title: z.string(),
+  body: z.string().nullable(),
+  status: WorkItemStatusSchema,
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type WorkItem = z.infer<typeof WorkItemSchema>
+
+// ─── Lesson (agent memory, layer A) ────────────────────────────────────────
+// Gated reflection: an agent PROPOSES a durable lesson through the kstore tool;
+// it lands `pending` and joins memory only when an operator accepts it. Memory
+// is a tool, never a file.
+export const LessonStatusSchema = z.enum(['pending', 'accepted', 'rejected'])
+export type LessonStatus = z.infer<typeof LessonStatusSchema>
+
+export const LessonSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  lesson: z.string(),
+  status: LessonStatusSchema,
+  createdAt: z.number(),
+  reviewedAt: z.number().nullable(),
+})
+export type Lesson = z.infer<typeof LessonSchema>
+
+// ─── WorkflowStep (status / progress checklist) ────────────────────────────
+// One checklist line the orchestrator reports through the kstore status-write
+// tool, keyed to a workflow_runs row. `kind` distinguishes a ticket, a loop
+// phase, a review, and a CI gate; `label` is the upsert key within a run.
+export const WorkflowStepKindSchema = z.enum(['task', 'phase', 'review', 'ci'])
+export type WorkflowStepKind = z.infer<typeof WorkflowStepKindSchema>
+
+export const WorkflowStepStatusSchema = z.enum([
+  'pending',
+  'in_progress',
+  'done',
+  'blocked',
+  'failed',
+])
+export type WorkflowStepStatus = z.infer<typeof WorkflowStepStatusSchema>
+
+export const WorkflowStepSchema = z.object({
+  id: z.string(),
+  workflowRunId: z.string(),
+  seq: z.number().int(),
+  label: z.string(),
+  kind: WorkflowStepKindSchema,
+  workItemId: z.string().nullable(),
+  status: WorkflowStepStatusSchema,
+  detail: z.string().nullable(),
+  updatedAt: z.number(),
+})
+export type WorkflowStep = z.infer<typeof WorkflowStepSchema>
+
 // A GitHub issue projected from `gh issue list --json number,title,state,url`.
 export const IssueInfoSchema = z.object({
   number: z.number().int(),
@@ -551,7 +616,7 @@ export type SystemPromptBody = z.infer<typeof SystemPromptBodySchema>
 // import. It mirrors core's buildDelegationPrompt + CLAUDE.md "Delegation loop for
 // code waves"; it is a plain constant (not a zod schema) like KNOWN_MODELS, since
 // it is fixed content, not validated input. Descriptions state each role's
-// responsibility — the controller authors its sub-prompts ad hoc, so this never
+// responsibility — the orchestrator authors its sub-prompts ad hoc, so this never
 // claims a role is handed a canned prompt string.
 
 export interface WorkflowRole {
@@ -581,10 +646,10 @@ export interface WorkflowDefinition {
 export const DELEGATION_WORKFLOW: WorkflowDefinition = {
   roles: [
     {
-      id: 'controller',
-      label: 'Controller',
+      id: 'orchestrator',
+      label: 'Orchestrator',
       description:
-        'Owns the wave. Dispatched via buildDelegationPrompt to address a batch of selected todos, the controller spawns one sub-agent per role instead of doing the work in a single context, applies the reviewers’ fixes, and ships ONE reviewable commit / PR for the whole batch — never a PR per todo, and never a push to the default branch.',
+        'Owns the wave. Dispatched via buildDelegationPrompt to address a batch of selected todos, the orchestrator spawns one sub-agent per role instead of doing the work in a single context, applies the reviewers’ fixes, reports progress through the workflow status-write tools, and ships ONE reviewable commit / PR for the whole batch — never a PR per todo, and never a push to the default branch.',
     },
     {
       id: 'implementer',
@@ -606,10 +671,10 @@ export const DELEGATION_WORKFLOW: WorkflowDefinition = {
     },
   ],
   edges: [
-    { from: 'controller', to: 'implementer', label: 'delegates' },
+    { from: 'orchestrator', to: 'implementer', label: 'delegates' },
     { from: 'implementer', to: 'spec-review', label: 'review' },
     { from: 'implementer', to: 'quality-review', label: 'review' },
-    { from: 'spec-review', to: 'controller', label: 'fixes' },
-    { from: 'quality-review', to: 'controller', label: 'fixes' },
+    { from: 'spec-review', to: 'orchestrator', label: 'fixes' },
+    { from: 'quality-review', to: 'orchestrator', label: 'fixes' },
   ],
 }

@@ -262,7 +262,7 @@ export default function TasksTab({ projectId }: Props) {
             <button
               onClick={() => dispatchAgent.mutate(task)}
               disabled={pendingDispatchIds.has(task.id) || dispatchWorkflow.isPending}
-              title="Quick single agent run for this task (use the checkboxes + bar below for a delegation workflow: implementer→review→controller)"
+              title="Quick single agent run for this task (use the checkboxes + bar below for a delegation workflow: implementer→review→orchestrator)"
               className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 rounded-control border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs font-medium text-[var(--text)] hover:border-[var(--accent-hover)] hover:text-[var(--accent-hover)] transition-all disabled:opacity-40"
             >
               ▶ Dispatch agent
@@ -295,7 +295,7 @@ export default function TasksTab({ projectId }: Props) {
               data-testid="tasks-run-workflow"
               onClick={() => dispatchWorkflow.mutate([...selectedIds])}
               disabled={dispatchWorkflow.isPending || selectedIds.size === 0}
-              title="Run a delegation workflow (implementer→review→controller) across the selected tasks"
+              title="Run a delegation workflow (implementer→review→orchestrator) across the selected tasks"
               className="rounded-control bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
             >
               {dispatchWorkflow.isPending

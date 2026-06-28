@@ -8,9 +8,14 @@ import { cn } from '../lib/cn'
 import { mergeEvents } from '../components/RunConsole'
 import { eventsToWorkflowTree } from '../lib/workflow'
 import WorkflowDiagram from '../components/WorkflowDiagram'
+import WorkflowChecklist from '../components/WorkflowChecklist'
 import RunTree from '../components/RunTree'
 
 type Tab = 'defined' | 'run'
+
+// Non-terminal run statuses — while the run is live we poll the checklist so the
+// orchestrator's status-writes surface without a dedicated WS channel.
+const LIVE_STATUSES = new Set(['queued', 'running', 'awaiting_input'])
 
 /** Short, readable label for a run in the picker. */
 function runOptionLabel(run: Run): string {
@@ -71,6 +76,15 @@ function RunTreeSection({ initialRunId }: { initialRunId?: string }) {
 
   const tree = useMemo(() => eventsToWorkflowTree(events, run), [events, run])
 
+  // Explicit progress checklist (kstore status-writes). Polls while the run is
+  // live; one final fetch once it terminates. Absent for non-workflow runs.
+  const { data: wf } = useQuery({
+    queryKey: ['workflow-steps', selectedRunId],
+    queryFn: () => api.runs.workflowSteps(selectedRunId as string),
+    enabled: !!selectedRunId,
+    refetchInterval: run && LIVE_STATUSES.has(run.status) ? 4000 : false,
+  })
+
   function pick(id: string) {
     setSelectedRunId(id)
     navigate('workflows', id)
@@ -98,11 +112,16 @@ function RunTreeSection({ initialRunId }: { initialRunId?: string }) {
       </div>
 
       {selectedRunId ? (
-        // key by run id so RunTree remounts (resetting its internal node
-        // selection) when the operator switches runs — WorkflowsPage stays
-        // mounted across hash changes, so without this the prior run's
-        // selected-child id would linger and nothing would show as selected.
-        <RunTree key={selectedRunId} tree={tree} />
+        <div className="space-y-4">
+          {/* Explicit checklist (only for delegation-workflow runs) above the
+              inferred runtime tree, which always stays. */}
+          {wf?.workflowRun && <WorkflowChecklist steps={wf.steps} workflowRun={wf.workflowRun} />}
+          {/* key by run id so RunTree remounts (resetting its internal node
+              selection) when the operator switches runs — WorkflowsPage stays
+              mounted across hash changes, so without this the prior run's
+              selected-child id would linger and nothing would show as selected. */}
+          <RunTree key={selectedRunId} tree={tree} />
+        </div>
       ) : (
         <p className="text-xs italic text-[var(--muted)]">
           {runs && runs.length === 0 ? 'No runs yet.' : 'Select a run to view its sub-agent tree.'}

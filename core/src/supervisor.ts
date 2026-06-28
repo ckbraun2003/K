@@ -343,9 +343,12 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
           : undefined,
       }),
       // Point CLAUDE_CONFIG_DIR at the synthesized dir (+ resolved auth) for claude;
-      // ollama keeps today's env-free spawn options byte-for-byte unchanged.
+      // K_RUN_ID identifies the run to the kstore MCP child (it also reads it from
+      // mcp.json env; the spawn env is the process-wide, defense-in-depth copy, and
+      // K_DATA_DIR already propagates via ...process.env). ollama keeps today's
+      // env-free spawn options byte-for-byte unchanged.
       synth
-        ? { cwd, reject: false, all: true, env: { ...process.env, CLAUDE_CONFIG_DIR: synth.configDir, ...synth.authEnv } }
+        ? { cwd, reject: false, all: true, env: { ...process.env, CLAUDE_CONFIG_DIR: synth.configDir, K_RUN_ID: run.id, ...synth.authEnv } }
         : { cwd, reject: false, all: true }
     )
 

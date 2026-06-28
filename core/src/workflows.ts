@@ -2,7 +2,7 @@
  * Workflows module — supervised delegation runs over a batch of selected todos.
  *
  * Provides:
- *   - buildDelegationPrompt: pure prompt-builder (the controller of the harness
+ *   - buildDelegationPrompt: pure prompt-builder (the orchestrator of the harness
  *     delegation loop, spawning its own subagents)
  *   - dispatchTaskWorkflow: lifecycle — load + lock tasks, insert a workflow_run,
  *     start one supervised run, finalize the row when the run terminates
@@ -43,22 +43,27 @@ function rowToTask(r: Record<string, unknown>): ProjectTask {
   }
 }
 
-/** Build the delegation prompt: instruct the agent to act as the controller of
+/** Build the delegation prompt: instruct the agent to act as the orchestrator of
  *  the harness delegation loop over the selected todos. Pure + exported for
  *  unit-testing — deterministic (no Date.now/random). */
 export function buildDelegationPrompt(tasks: ProjectTask[]): string {
   if (tasks.length === 0) throw new Error('buildDelegationPrompt requires at least one task')
   const checklist = tasks.map((t, i) => `${i + 1}. [ ] ${t.title}`).join('\n')
   return [
-    `You are the controller of the harness delegation loop. Address the following`,
+    `You are the orchestrator of the harness delegation loop. Address the following`,
     `selected todos as a single coordinated batch:`,
     ``,
     checklist,
     ``,
     `Run the delegation loop: implementer → spec-review → quality-review → you`,
-    `(the controller) apply fixes. Spawn your own subagents for each role — do not`,
+    `(the orchestrator) apply fixes. Spawn your own subagents for each role — do not`,
     `do all the work in one context. Run a review agent for every wave, no`,
     `exceptions.`,
+    ``,
+    `Report progress through the workflow status-write tools as you go: call`,
+    `workflow_step_set for each todo, loop phase, review, and the CI gate (marking`,
+    `it in_progress / done / blocked / failed), and workflow_status_set for the`,
+    `overall run — the operator watches this checklist, not your transcript.`,
     ``,
     `Produce ONE reviewable commit / a single PR for the whole batch — do not open`,
     `a separate PR per todo.`,

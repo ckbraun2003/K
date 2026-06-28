@@ -1,0 +1,16 @@
+{
+  "_note": "orchestrator tier — full coding authority within charter. Passed to `claude --allowedTools`. Coding tools (Bash, Write, Edit, Task) are present at this tier. The subagent-spawn tool is `Task` (verified against the claude CLI binary) — agents are the concept, `Task` is the tool id the CLI keys on. `mcp__<server>` grants every tool on that MCP server: gitnexus (code intelligence) + kstore (work-items, lessons, workflow status-write — must be granted or the mounted server's tools are denied in headless `-p`).",
+  "allowedTools": [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit",
+    "Grep",
+    "Glob",
+    "Task",
+    "WebFetch",
+    "WebSearch",
+    "mcp__gitnexus",
+    "mcp__kstore"
+  ]
+}

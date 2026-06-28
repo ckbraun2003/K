@@ -1,9 +1,0 @@
-{
-  "_note": "controller / lead tier — `claude --mcp-config` shape. Portable gitnexus stdio server (invoked via npx so it does not depend on any host install path).",
-  "mcpServers": {
-    "gitnexus": {
-      "command": "npx",
-      "args": ["gitnexus", "mcp"]
-    }
-  }
-}
