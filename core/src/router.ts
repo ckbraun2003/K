@@ -16,6 +16,7 @@
  */
 
 import { db } from './db.js'
+import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel } from './config-store.js'
 
 export type RoutingTask = {
   prompt: string
@@ -30,9 +31,6 @@ export type RouteResult = {
 }
 
 const CLAUDE_DEFAULT_MODEL = process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-6'
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434'
-const OLLAMA_DEFAULT_MODEL = process.env.OLLAMA_MODEL ?? 'llama3.2'
-const ENABLE_OLLAMA = process.env.ENABLE_OLLAMA === 'true'
 
 // Reachability is updated by the background probe. It defaults to false so the
 // router never routes to an unproven Ollama before the first successful probe.
@@ -50,13 +48,13 @@ export type RouteDeps = {
 export function route(task: RoutingTask, deps: RouteDeps = {}): RouteResult {
   const claude: RouteResult = { provider: 'claude', model: CLAUDE_DEFAULT_MODEL }
 
-  const enabled = deps.enableOllama ?? ENABLE_OLLAMA
+  const enabled = deps.enableOllama ?? ollamaEnabled()
   if (!enabled) return claude
 
   const reachable = deps.ollamaReachable ?? ollamaReachable
   if (!reachable) return claude   // degrade — never fail a run for an absent local model
 
-  const ollama: RouteResult = { provider: 'ollama', model: OLLAMA_DEFAULT_MODEL, baseUrl: OLLAMA_BASE_URL }
+  const ollama: RouteResult = { provider: 'ollama', model: activeOllamaModel(), baseUrl: ollamaBaseUrl() }
 
   // Explicit hint wins.
   if (task.preferLocal) return ollama
@@ -88,7 +86,7 @@ export function avgClaudeCostUsd(): number | null {
 
 /** Probe Ollama reachability via HTTP GET /api/tags. Never throws; updates the
  *  cached flag and returns it. */
-export async function probeOllama(baseUrl = OLLAMA_BASE_URL, timeoutMs = 2000): Promise<boolean> {
+export async function probeOllama(baseUrl = ollamaBaseUrl(), timeoutMs = 2000): Promise<boolean> {
   try {
     const ctrl = new AbortController()
     const t = setTimeout(() => ctrl.abort(), timeoutMs)
@@ -103,7 +101,7 @@ export async function probeOllama(baseUrl = OLLAMA_BASE_URL, timeoutMs = 2000): 
 /** Start periodic reachability probing. No-op unless ENABLE_OLLAMA is set, so a
  *  machine without Ollama never logs probe noise. Wired into core bootstrap. */
 export function startOllamaProbe(intervalMs = 60_000): void {
-  if (!ENABLE_OLLAMA) return
+  if (!ollamaEnabled()) return
   void probeOllama()
   const timer = setInterval(() => { void probeOllama() }, intervalMs)
   timer.unref?.()

@@ -25,6 +25,7 @@ import type { FastifyInstance } from 'fastify'
 import { type Status, SystemPromptBodySchema } from '@k/shared'
 import { REPO_ROOT } from '../supervisor.js'
 import { isOllamaReachable } from '../router.js'
+import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 
 // ── System-prompt file location ───────────────────────────────────────────────
@@ -161,10 +162,10 @@ async function cachedProbes(): Promise<StatusProbes> {
 
 function liveStatusEnv(): StatusEnv {
   return {
-    ollamaEnabled: process.env.ENABLE_OLLAMA === 'true',
+    ollamaEnabled: ollamaEnabled(),
     ollamaReachable: isOllamaReachable(),
-    ollamaBaseUrl: process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434',
-    ollamaModel: process.env.OLLAMA_MODEL ?? 'llama3.2',
+    ollamaBaseUrl: ollamaBaseUrl(),
+    ollamaModel: activeOllamaModel(),
     tokenSource: harnessTokenSource(),
     host: process.env.HOST ?? '127.0.0.1',
     terminalEnabled: process.env.ENABLE_TERMINAL === 'true',

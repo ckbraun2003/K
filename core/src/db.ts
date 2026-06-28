@@ -165,6 +165,14 @@ db.exec(`
     error       TEXT,
     updated_at  INTEGER NOT NULL
   );
+
+  -- Runtime config store (Wave 1): persisted key/value pairs that override boot-time
+  -- env constants without requiring a server restart. Keys are namespaced dotted
+  -- strings (e.g. 'ollama.enabled'). Writers UPSERT; readers fall back to env.
+  CREATE TABLE IF NOT EXISTS app_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -628,4 +636,22 @@ export const skillEvalsDb = {
   latestCompletedSkillEval,
   patchSkillEvalRunId,
   updateSkillEvalResult,
+}
+
+// ─── Runtime config helpers ──────────────────────────────────────────────────
+
+const getConfigRow = db.prepare(`SELECT value FROM app_config WHERE key = ?`)
+const upsertConfigRow = db.prepare(`
+  INSERT INTO app_config (key, value) VALUES (?, ?)
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value
+`)
+
+export const configDb = {
+  get(key: string): string | undefined {
+    const row = getConfigRow.get(key) as { value: string } | undefined
+    return row?.value
+  },
+  set(key: string, value: string): void {
+    upsertConfigRow.run(key, value)
+  },
 }
