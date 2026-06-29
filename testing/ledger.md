@@ -19,16 +19,16 @@ Quarantine + eval harness: scaffolded empty (no findings yet).
 | Wave | Suite | Status | Findings (C/H/M/L+Nit) | LOCK tests | FAULT (quarantine) | Commit |
 |------|-------|--------|--------------------|-----------|--------------------|--------|
 | 0 | Scaffold + baseline | ✅ done | — | — | — | c4fcef0, 4842c86 |
-| 1 | S1 Database & Persistence | ✅ done | 0/0/1/23 | 23 (7 files) | 1 — S1-018 | (S1 commit) |
-| 2 | S2 Memory & Work-Tracking | ✅ done | 0/0/4/13 | 16 (5 files) | 1 — S2-017 | (S2 commit) |
-| 3 | S3 MCP Working Store (kstore) | ✅ done | 0/0/0/11 | 10 (2 files) | 1 — S3-001 | (S3 commit) |
+| 1 | S1 Database & Persistence | ✅ done | 0/0/1/23 | 37 (7 files) | 1 — S1-018 | (S1 commit) |
+| 2 | S2 Memory & Work-Tracking | ✅ done | 0/0/4/13 | 20 (5 files) | 1 — S2-017 | (S2 commit) |
+| 3 | S3 MCP Working Store (kstore) | ✅ done | 0/0/0/11 | 26 (2 files) | 1 — S3-001 | (S3 commit) |
 | 4 | S4 Prompt & Delegation Synthesis | ✅ done | 0/0/5/13 | 29 (6 files) | 1 — S4-018 | a50ac31 |
 | 5 | S5 Supervisor/Providers/Routing | ✅ done | 0/0/0/24 | 124 (6 files) | 4 — S5-001..004 | a2d8b27 |
 | 6 | S6 Voice & Bible | ✅ done | 0/0/2/12 | 30 (4 files) | 4 — S6-001..004 | 923d594 |
 | 7 | S7 Verify/Skills/GitHub/Graph | ✅ done | 0/0/6/8 | 31 (4 files) | 1 — S7-001 | 8ca48d3 |
 | 8 | S8 Web/UI & E2E | ✅ done | 0/2/2/7+1Nit | 25 (5 files, S8a) | 5 — S8-001..005 | 7f0f3db (S8a), 1dbf21e (S8b) |
 | 9 | T-EVAL prompt-eval harness | ✅ done | 0/0/1/2 | 0 (eval, not vitest) | 0 — see T-EVAL-001..003 | (W9 commit) |
-| 10 | Consolidate | ⬜ pending | — | — | — | — |
+| 10 | Consolidate | ✅ done | — | 322 total (LOCK) | 18 files total (FAULT) | (W10 commit) |
 
 **Batch A integration (S1–S3):** full core gating suite **green + stable ×3** (797 tests, up from
 714 baseline); quarantine **red ×3 faults** as designed. Test-runner hardened to a single serial
@@ -86,6 +86,30 @@ it, matching the no-bypass rule). Independent reviewer **recomputed all 192 aggr
 detection, resume-retries-errored) or deferred to the next baseline (L0-07 commit-check, format-array
 tightening — held to keep cases consistent with the frozen baselines). Gating suite unchanged (no vitest
 file touched): **core 1011 + web 279** green; quarantine **18 files** red-by-design.
+
+**Wave 10 (Consolidate — reconciliation + summary; no token spend):** re-ran every gate from a clean
+tree at HEAD `8a5fcbd` and reconciled the ledger against ground truth.
+- **Gating GREEN:** core **1011 passed / 93 files**, web **279 passed / 31 files** (1290 total). The
+  campaign added exactly **+34 core files (714→1011, +297)** and **+5 web files (254→279, +25)** =
+  **322 new passing LOCK tests** over the Wave-0 baseline.
+- **Quarantine RED-by-design:** core **13 files / 28 tests failed**; web **5 files / 14 failed + 1
+  passed** (the cron-DoS `worker_threads` self-check sanity guard) = **18 fault files**, one per
+  confirmed finding.
+- **LOCK reconciliation:** total committed gating tests (322) now equals the sum of the wave-table LOCK
+  column. Correction applied this wave: the S1/S2/S3 LOCK cells were recorded at ~their *finding* counts
+  (23/16/10) rather than their actual vitest *case* counts (**37/20/26**, confirmed by re-run); S4–S7
+  (29/124/30/31) and S8a-web (25) already matched. The integration-note running totals were always
+  consistent (Batch A 797 = 714+83 where 37+20+26=83; B 950 = 797+153 where 29+124=153; C 1011 =
+  950+61 where 30+31=61) — only the per-row column was understated.
+- **FAULT reconciliation:** 18 wave-table FAULT rows (S1-018, S2-017, S3-001, S4-018, S5-001..004,
+  S6-001..004, S7-001, S8-001..005) == 18 files in `core/test/regressions/**` (13) + `web/test/
+  regressions/**` (5); every row links to a real, currently-RED test path.
+- **T-EVAL exempt** (Wave 9): operator-triggered eval, not vitest → 0 LOCK / 0 FAULT, per the
+  reconciliation rule.
+- **Document-only invariant HELD across all 10 waves:** zero drift in `core/src`, `web/src`,
+  `shared/src`, `agent-config/**`, or any vitest config beyond the additive campaign env-honoring change
+  committed in Wave 0. Every confirmed source-affecting issue is a quarantined FINDING, never an edit.
+- Campaign summary written to `testing/SUMMARY.md` (waves, severity tally, repeatable-pipeline record).
 
 ## Finding index
 

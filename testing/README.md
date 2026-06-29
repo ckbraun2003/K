@@ -70,6 +70,7 @@ pnpm build                # core tsc + web tsc && vite build
 ```
 testing/
   README.md           # this runbook
+  SUMMARY.md          # campaign closeout: results, severity tally, repeatable-pipeline record
   suites.md           # the S1–S8 + T-EVAL charters + scope matrix (seed for "Scope")
   ledger.md           # campaign ledger: waves, statuses, finding index, baseline
   findings/           # per-suite V&V findings reports (S<n>-<name>.md)
