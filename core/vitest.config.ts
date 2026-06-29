@@ -9,6 +9,18 @@ export default defineConfig({
     // test/regressions/** and are RED by design — keep them OUT of the gating
     // run (run them via vitest.regressions.config.ts / `pnpm test:regressions`).
     exclude: [...configDefaults.exclude, 'test/regressions/**'],
+    // Every core test shares one on-disk SQLite file (a single-operator,
+    // single-connection design — see db.ts). Run the whole suite in ONE child
+    // process, serially:
+    //  - `forks` (child process) not `threads`: the native better-sqlite3 addon
+    //    can segfault (0xC0000005) during worker-THREAD teardown on Windows;
+    //    a child-process exit tears native handles down cleanly.
+    //  - `singleFork`: serial files → no concurrent writers colliding on the WAL
+    //    lock (the intermittent SQLITE_BUSY / documented shared-temp-dir flake).
+    // Serial execution is just one ordering the (already order-independent) suite
+    // must tolerate, so it removes flakes without adding any. (Web has no DB.)
+    pool: 'forks',
+    poolOptions: { forks: { singleFork: true } },
     // Pin the harness token so the in-process buildApp() auth hook is
     // deterministic (integration tests inject `Bearer dev-token-change-me`).
     // Without this, resolveHarnessToken() would generate a random token at

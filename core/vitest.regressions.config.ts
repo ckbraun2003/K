@@ -18,6 +18,11 @@ export default defineConfig({
   test: {
     include: ['test/regressions/**/*.test.ts'],
     passWithNoTests: true,
+    // Same rationale as the gating config: one serial child process avoids both
+    // the WAL-lock SQLITE_BUSY collision and the native better-sqlite3
+    // worker-THREAD teardown segfault on Windows.
+    pool: 'forks',
+    poolOptions: { forks: { singleFork: true } },
     env: {
       // Honor an external override (parallel agent teams isolate per run);
       // default to a dir separate from the gating suite when unset.
