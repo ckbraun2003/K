@@ -288,13 +288,19 @@ describe('graph routes', () => {
     expect(res.statusCode).toBe(202)
     expect(['building', 'ready']).toContain(res.json().status)
 
-    // build is fire-and-forget; allow microtasks to settle
-    await new Promise(r => setTimeout(r, 20))
-    const get = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/graph`, headers: AUTH })
-    const body = get.json()
-    expect(body.status).toBe('ready')
-    expect(body.nodes.length).toBe(2)
-    expect(body.nodeCount).toBe(4)
+    // build is fire-and-forget; poll until it settles. A fixed 20ms sleep races
+    // under heavy full-suite load (intermittently observed status still 'building'),
+    // so poll up to ~2s for the background analyze to flip the row to 'ready'.
+    let body: { status: string; nodes: unknown[]; nodeCount: number } | undefined
+    for (let i = 0; i < 100; i++) {
+      const get = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/graph`, headers: AUTH })
+      body = get.json()
+      if (body!.status === 'ready') break
+      await new Promise(r => setTimeout(r, 20))
+    }
+    expect(body!.status).toBe('ready')
+    expect(body!.nodes.length).toBe(2)
+    expect(body!.nodeCount).toBe(4)
   })
 })
 
