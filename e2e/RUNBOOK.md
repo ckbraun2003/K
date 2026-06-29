@@ -58,6 +58,21 @@ Fixtures (local only — NO GitHub URLs, NO real PRs): `makeScratchRepo('P0N','n
 - Verify page has real `data-testid`s: `verify-rerun`, `verify-deep`, `bar-<key>`.
 - Keyboard chords exist: `g` then `h/p/r/d/m`.
 
+## Persona registry (ports & charters)
+
+Each persona owns a unique `CORE_PORT` (`31NN`) / `WEB_PORT` (`41NN`) pair. Pick the next free id
+and matching ports when extending the swarm.
+
+| Persona | Ports (core/web) | Surface / charter |
+| --- | --- | --- |
+| P01–P10 | 3101–3110 / 4101–4110 | Original swarm: first-run, projects, runs, ⌘K, graph, skills, metrics/routing, docs/help, resilience/edge (see each `P0N.spec.ts` header). |
+| **P11** | **3111 / 4111** | **Workflow status checklist (Phase-5):** Workflows shell + tabs crash-check, Run-tree empty-DB degrade, `GET /api/runs/:id/workflow-steps` graceful degradation (missing/non-workflow/malformed run id → 200, never 500), bogus deep-link resilience, and the populated-checklist observability gap (no token-free way to render `wf-checklist` without a real delegation dispatch). |
+| **P12** | **3112 / 4112** | **Settings surface + Voice affordance (Phase-5):** Settings reachability (the cheatsheet's "Settings disabled by design" is now stale — Settings is enabled, Tasks is gone), status cards + no-token-leak, CLAUDE.md confirm-guard (CANCEL only), and voice — no UI affordance exists, `ENABLE_VOICE` gating/degradation asserted at `POST /api/transcribe` (503 when off), voice state in `/api/status` but not surfaced in Settings. NEVER uses a real key/mic/dispatch. |
+
+> Note (verified by P12): the **selector cheatsheet above is stale** — `Settings` is an **enabled**
+> footer nav entry (`#/settings`), and `Tasks` is no longer a destination at all. New personas
+> should treat Settings as reachable.
+
 ## Deliverable
 
 A clean run of `e2e/specs/P0N.spec.ts` that writes `e2e/reports/P0N.md` with every finding in
