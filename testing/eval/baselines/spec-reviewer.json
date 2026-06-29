@@ -1,0 +1,50 @@
+{
+  "system": "spec-reviewer",
+  "frozenAt": "2026-06-29T05:25:29.654Z",
+  "real": {
+    "judgeMean": 0.838,
+    "detPassRate": 1,
+    "detScoreMean": 1,
+    "formatMean": 1,
+    "refusalCorrectRate": 0.5,
+    "costUsd": 4.165,
+    "latencyMsMean": 48160.625,
+    "turnsMean": 4.625
+  },
+  "degraded": {
+    "judgeMean": 0.742,
+    "detPassRate": 0.875,
+    "detScoreMean": 0.909
+  },
+  "discriminationJudge": 0.096,
+  "discriminationDet": 0.091,
+  "discriminationPass": false,
+  "perModel": {
+    "sonnet": {
+      "real": {
+        "judgeMean": 0.836,
+        "detPassRate": 1,
+        "detScoreMean": 1
+      },
+      "degraded": {
+        "judgeMean": 0.696,
+        "detPassRate": 0.75,
+        "detScoreMean": 0.819
+      },
+      "discriminationJudge": 0.14
+    },
+    "opus": {
+      "real": {
+        "judgeMean": 0.839,
+        "detPassRate": 1,
+        "detScoreMean": 1
+      },
+      "degraded": {
+        "judgeMean": 0.788,
+        "detPassRate": 1,
+        "detScoreMean": 1
+      },
+      "discriminationJudge": 0.051
+    }
+  }
+}

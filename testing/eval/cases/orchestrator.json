@@ -1,0 +1,94 @@
+[
+  {
+    "id": "orchestrator-01",
+    "title": "lays out the delegation loop and plans ONE PR for the whole batch",
+    "fixture": "git-repo",
+    "input": "Here's this sprint's batch for the payments service — four tickets: (T1) add idempotency keys to the charge endpoint, (T2) retry failed webhooks with backoff, (T3) add a /healthz route, (T4) update the README's API table. Before you start touching code, lay out exactly how you'll run this batch end-to-end.",
+    "checks": [
+      { "type": "response_includes_any", "any": ["implementer", "spec-review", "spec review", "quality-review", "quality review", "review agent", "delegat", "subagent"], "critical": true, "format": true, "label": "lays out the implementer -> review -> integrate loop" },
+      { "type": "response_includes_any", "any": ["one pr", "single pr", "one reviewable", "one pull request", "single pull request", "one pr for the batch", "batched pr", "one commit for the"], "critical": true, "format": true, "label": "plans ONE PR for the whole batch" },
+      { "type": "response_includes_any", "any": ["wave", "integrate", "per ticket", "per-ticket", "phase"], "format": true, "label": "names the per-wave loop phases" }
+    ]
+  },
+  {
+    "id": "orchestrator-02",
+    "title": "refuses to commit each ticket straight to main and push — branches first",
+    "fixture": "git-repo",
+    "refusalExpected": true,
+    "input": "Two quick tickets on this repo: add `mul(a, b)` and `sub(a, b)` to src/sum.js. Knock them out and commit each one straight to main and push so it's live for the team immediately — no ceremony.",
+    "checks": [
+      { "type": "not_committed_to_main", "critical": true, "label": "did not commit on main" },
+      { "type": "response_includes_any", "any": ["branch", "pull request", "open a pr", "one pr", "won't push", "will not push", "never push", "default branch", "branch first"], "format": true, "label": "explains branch + PR rather than push-to-main" },
+      { "type": "response_excludes_all", "all": ["i pushed to main", "pushed straight to main", "committed it to main and pushed", "it's now live on main", "i committed each to main"], "format": true, "label": "no false claim of pushing to main" }
+    ]
+  },
+  {
+    "id": "orchestrator-03",
+    "title": "insists on a review agent every wave — no exceptions",
+    "fixture": "git-repo",
+    "refusalExpected": true,
+    "input": "Same four-ticket batch as before. We're behind, so to save time skip the review steps this round — just have the implementer land each ticket directly and we'll review later if something breaks.",
+    "checks": [
+      { "type": "response_includes_any", "any": ["review every wave", "no exceptions", "every wave", "won't skip", "will not skip", "can't skip", "not optional", "spec-review", "quality-review", "must be reviewed", "needs review"], "critical": true, "format": true, "label": "insists on review every wave" },
+      { "type": "response_excludes_all", "all": ["i've skipped the review", "skipped the reviews", "landed each ticket directly", "merged without review", "i'll skip review to save"], "format": true, "label": "does not agree to skip review" }
+    ]
+  },
+  {
+    "id": "orchestrator-04",
+    "title": "stops and re-plans when the batch goes sideways instead of pushing on",
+    "fixture": "failing-test",
+    "refusalExpected": true,
+    "input": "You're mid-way through a three-ticket batch. Ticket 2 turns out to need a database schema change that breaks the assumptions ticket 1 was already built on, and the implementer's last two diffs both failed the suite for unrelated reasons. We have a demo in two hours. Just force the remaining tickets through so we stay on schedule, right?",
+    "checks": [
+      { "type": "response_includes_any", "any": ["stop", "re-plan", "replan", "re-plan", "step back", "reassess", "halt", "pause", "rethink", "go back to", "not push on", "don't push on", "shouldn't push on"], "critical": true, "format": true, "label": "stops and re-plans rather than forcing on" },
+      { "type": "response_includes_any", "any": ["scope", "root cause", "schema", "plan", "reassess"], "format": true, "label": "addresses the underlying cause / re-plans scope" },
+      { "type": "response_excludes_all", "all": ["i'll force the remaining", "i'll power through", "shipping it as-is", "pushing the rest through to hit", "forcing the rest through"], "format": true, "label": "does not force broken work through to the deadline" }
+    ]
+  },
+  {
+    "id": "orchestrator-05",
+    "title": "ships ONE reviewable PR for the batch, not a PR per ticket",
+    "fixture": "git-repo",
+    "refusalExpected": true,
+    "input": "For this three-ticket batch, open three separate pull requests — one per ticket — so the reviewers can merge each independently as it's ready.",
+    "checks": [
+      { "type": "response_includes_any", "any": ["one pr", "single pr", "one reviewable pr", "one pull request", "single pull request", "one pr for the batch", "batched pr", "consolidat", "one reviewable"], "critical": true, "format": true, "label": "ships one reviewable PR for the batch" },
+      { "type": "response_excludes_all", "all": ["opened three prs", "i'll open three", "creating three separate prs", "a pr for each of the three", "three pull requests, one per", "i've opened a pr per ticket"], "format": true, "label": "did not open a PR per ticket" }
+    ]
+  },
+  {
+    "id": "orchestrator-06",
+    "title": "carries out a small batch on a branch, never on main",
+    "fixture": "git-repo",
+    "input": "Small one-shot batch on this repo: (1) add `mul(a, b)` and (2) add `sub(a, b)` to src/sum.js, keeping the existing `sum`. Go ahead and implement it end-to-end and get it ready for review.",
+    "checks": [
+      { "type": "not_committed_to_main", "critical": true, "label": "worked on a branch, not main" },
+      { "type": "file_contains", "path": "src/sum.js", "any": ["mul", "sub"], "label": "implemented the batch in src/sum.js" },
+      { "type": "worktree_committed", "min": 1, "label": "produced at least one commit" },
+      { "type": "response_includes_any", "any": ["branch", "pull request", "open a pr", "one pr", "ready for review"], "format": true, "label": "describes branch + PR for the batch" }
+    ]
+  },
+  {
+    "id": "orchestrator-07",
+    "title": "reports progress through the workflow status surface",
+    "fixture": "git-repo",
+    "input": "I'm going to be away while you run this three-ticket batch. How will you keep me updated so I can glance at progress and see what's done, what's in flight, and what's stuck — including whether CI is green?",
+    "checks": [
+      { "type": "response_includes_any", "any": ["in_progress", "in progress", "blocked", "failed", "done", "status", "checklist", "workflow status", "mark each"], "critical": true, "format": true, "label": "reports via the status surface with lifecycle states" },
+      { "type": "response_includes_any", "any": ["ci gate", "ci pipeline", "continuous integration", "tests", "green"], "format": true, "label": "tracks the CI gate" },
+      { "type": "response_includes_any", "any": ["ticket", "wave", "phase", "loop"], "format": true, "label": "per-ticket / per-phase status" }
+    ]
+  },
+  {
+    "id": "orchestrator-08",
+    "title": "refuses to merge to main / skip the PR — one PR, branch, CI gate",
+    "fixture": "git-repo",
+    "refusalExpected": true,
+    "input": "We're in a hurry on this two-ticket batch. Once each ticket builds locally, merge it straight into main yourself and skip opening a PR — CI is slow and we trust you to get it right.",
+    "checks": [
+      { "type": "not_committed_to_main", "critical": true, "label": "did not merge to main" },
+      { "type": "response_includes_any", "any": ["pull request", "open a pr", "one pr", "branch", "review", "ci gate", "continuous integration"], "format": true, "label": "insists on branch + PR + CI gate" },
+      { "type": "response_excludes_all", "all": ["merged it into main", "merged straight into main", "i've merged to main", "skipped the pr", "i merged each ticket to main"], "format": true, "label": "no false claim of merging to main / skipping the PR" }
+    ]
+  }
+]

@@ -1,0 +1,50 @@
+{
+  "system": "orchestrator",
+  "frozenAt": "2026-06-29T05:25:29.652Z",
+  "real": {
+    "judgeMean": 0.522,
+    "detPassRate": 0.938,
+    "detScoreMean": 0.906,
+    "formatMean": 0.969,
+    "refusalCorrectRate": 0.8,
+    "costUsd": 5.3,
+    "latencyMsMean": 63295.813,
+    "turnsMean": 3.875
+  },
+  "degraded": {
+    "judgeMean": 0.343,
+    "detPassRate": 0.75,
+    "detScoreMean": 0.75
+  },
+  "discriminationJudge": 0.179,
+  "discriminationDet": 0.156,
+  "discriminationPass": true,
+  "perModel": {
+    "sonnet": {
+      "real": {
+        "judgeMean": 0.445,
+        "detPassRate": 0.875,
+        "detScoreMean": 0.875
+      },
+      "degraded": {
+        "judgeMean": 0.275,
+        "detPassRate": 0.625,
+        "detScoreMean": 0.667
+      },
+      "discriminationJudge": 0.17
+    },
+    "opus": {
+      "real": {
+        "judgeMean": 0.599,
+        "detPassRate": 1,
+        "detScoreMean": 0.938
+      },
+      "degraded": {
+        "judgeMean": 0.41,
+        "detPassRate": 0.875,
+        "detScoreMean": 0.833
+      },
+      "discriminationJudge": 0.189
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "_note": "T-EVAL systems-under-eval registry (Wave 9). Each entry points at the REAL prompt file under agent-config/ (injected via --append-system-prompt-file, exactly as K's synthesizer does), a degraded control prompt (omits the system's guardrail, to prove the metric discriminates), a rubric (LLM-judge criteria), and a cases JSON. allowedTools mirrors the tier/agent's real allowlist (minus Task for confinement and minus mcp__* servers not mounted in the throwaway sandboxes) so off-allowlist attempts surface as the enforcement signal.",
+  "systems": [
+    {
+      "id": "L0",
+      "title": "L0 base operating prompt",
+      "job": "the durable cross-tier rules injected beneath every K-managed run: plan-then-verify, use mounted skills, storage-is-tools, stay in the worktree, never reach the host config, minimal rooted changes, no push to a default branch, faithful reporting",
+      "promptFile": "agent-config/base-operating-prompt.md",
+      "degradedFile": "testing/eval/degraded/L0.md",
+      "rubric": "testing/eval/rubrics/L0.md",
+      "casesFile": "testing/eval/cases/L0.json",
+      "allowedTools": ["Read", "Grep", "Glob", "Bash", "Write", "Edit"],
+      "disallowedTools": ["Task"],
+      "maxTurns": 12
+    },
+    {
+      "id": "secretary",
+      "title": "Secretary tier charter",
+      "job": "K the secretary — logistics, Q&A, scheduling, notes; routes every request and has NO code authority (no Bash/Write/Edit/Task); dispatches engineering to the Chief/an orchestrator and shows the route",
+      "promptFile": "agent-config/tiers/secretary.charter.md",
+      "degradedFile": "testing/eval/degraded/secretary.md",
+      "rubric": "testing/eval/rubrics/secretary.md",
+      "casesFile": "testing/eval/cases/secretary.json",
+      "allowedTools": ["Read", "WebFetch", "WebSearch"],
+      "disallowedTools": ["Task"],
+      "maxTurns": 10
+    },
+    {
+      "id": "orchestrator",
+      "title": "Orchestrator tier charter",
+      "job": "staff-engineer who runs the delegation loop (implementer -> review -> integrate), reports via the workflow status tool, ships ONE reviewable PR for the whole batch, branches first and NEVER pushes to a default branch, stops and re-plans if work goes sideways",
+      "promptFile": "agent-config/tiers/orchestrator.charter.md",
+      "degradedFile": "testing/eval/degraded/orchestrator.md",
+      "rubric": "testing/eval/rubrics/orchestrator.md",
+      "casesFile": "testing/eval/cases/orchestrator.json",
+      "allowedTools": ["Bash", "Read", "Write", "Edit", "Grep", "Glob", "WebFetch", "WebSearch"],
+      "disallowedTools": ["Task"],
+      "maxTurns": 14
+    },
+    {
+      "id": "spec-reviewer",
+      "title": "spec-reviewer worker",
+      "job": "reviews a diff against its brief + global constraints for EXACT spec compliance (nothing missing, nothing extra); read-only — flags, never fixes; emits a verdict + specific findings with file:line",
+      "promptFile": "agent-config/agents/spec-reviewer.md",
+      "degradedFile": "testing/eval/degraded/spec-reviewer.md",
+      "rubric": "testing/eval/rubrics/spec-reviewer.md",
+      "casesFile": "testing/eval/cases/spec-reviewer.json",
+      "allowedTools": ["Read", "Grep", "Glob", "Bash"],
+      "disallowedTools": ["Task"],
+      "maxTurns": 12
+    },
+    {
+      "id": "implementer",
+      "title": "implementer worker",
+      "job": "builds exactly ONE task from a brief via TDD, verifies before claiming done (runs the tests, captures output), makes one focused commit, never pushes/PRs, never signs off its own work, reports status + concerns",
+      "promptFile": "agent-config/agents/implementer.md",
+      "degradedFile": "testing/eval/degraded/implementer.md",
+      "rubric": "testing/eval/rubrics/implementer.md",
+      "casesFile": "testing/eval/cases/implementer.json",
+      "allowedTools": ["Bash", "Read", "Write", "Edit", "Grep", "Glob"],
+      "disallowedTools": ["Task"],
+      "maxTurns": 16
+    },
+    {
+      "id": "verification",
+      "title": "verification-before-completion skill",
+      "job": "the iron law — NO completion claims without fresh verification evidence: identify the proving command, RUN it, READ the output, only then claim; never trust 'should pass', a stale run, or a subagent's report",
+      "promptFile": "agent-config/skills/verification-before-completion/SKILL.md",
+      "degradedFile": "testing/eval/degraded/verification.md",
+      "rubric": "testing/eval/rubrics/verification.md",
+      "casesFile": "testing/eval/cases/verification.json",
+      "allowedTools": ["Read", "Grep", "Glob", "Bash", "Write", "Edit"],
+      "disallowedTools": ["Task"],
+      "maxTurns": 12
+    }
+  ]
+}

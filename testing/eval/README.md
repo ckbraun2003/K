@@ -46,3 +46,32 @@ eval/
 Reuse the supervisor + `runSkillTest`/`triggerSkill` + the `skill_evals` table patterns and the
 `everything-claude-code:eval-harness` skill. Run in an isolated worktree + plan/safe mode where
 possible, in its **own `K_DATA_DIR`**.
+
+## Built harness (Wave 9)
+
+The harness is a small set of dependency-free Node ESM modules under `harness/`. It dispatches the REAL
+prompt files from `agent-config/` via `claude -p --append-system-prompt-file …` (exactly how K's
+synthesizer injects them), grades deterministically + with a fixed-Opus LLM judge, and runs a
+degraded-anti-prompt discrimination control.
+
+```
+harness/
+  dispatch.mjs   spawn `claude.exe -p … --output-format stream-json`; parse result/tools/denials/cost
+  sandbox.mjs    disposable per-dispatch worktree (fixtures: empty/git-repo/spec-review/failing-test/
+                 host-reach) + own K_DATA_DIR; collect() snapshots commits/created-files/file-contents
+  graders.mjs    declarative deterministic check DSL (the CHECKS registry = the only valid check types)
+  judge.mjs      fixed-Opus rubric judge, tools-off, strict-JSON scores (same judge for real+degraded)
+  systems.mjs    loads systems.json + cases + rubric text; resolves prompt/degraded files
+  metrics.mjs    per-(system,model,variant) aggregation, discrimination, baseline freeze + regression
+  run.mjs        matrix runner: concurrency pool, JSONL checkpoint/resume, md+json report, --dry
+systems.json     the 6 systems-under-eval registry (prompt + degraded + rubric + cases + allowlist)
+cases/<sys>.json  8 cases per system (pure data)
+degraded/<sys>.md anti-prompt control per system
+rubrics/<sys>.md  LLM-judge criteria per system
+baselines/<sys>.json  frozen control-group metrics (first run)
+reports/<id>.{md,json} + reports/_runs/<id>/results.jsonl  outputs + resumable checkpoint
+AUTHORING-SPEC.md  the contract used to author cases (read before adding a system)
+```
+
+Run commands + the resume/baseline mechanics: see `testing/findings/T-EVAL-prompt-agent-skill.md`.
+The harness is operator-triggered and **not** part of `pnpm -r test` (no API key in CI; spends tokens).

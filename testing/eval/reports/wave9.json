@@ -1,0 +1,404 @@
+{
+  "runId": "wave9",
+  "generatedAt": "2026-06-29T05:28:28.206Z",
+  "models": [
+    "opus",
+    "sonnet"
+  ],
+  "variants": [
+    "real",
+    "degraded"
+  ],
+  "dry": false,
+  "overall": {
+    "systems": 6,
+    "models": [
+      "sonnet",
+      "opus"
+    ],
+    "totalRecords": 192,
+    "totalCostUsd": 61.813,
+    "realJudgeMean": 0.722,
+    "realDetPassRate": 0.865,
+    "discriminationPassCount": 2,
+    "discriminationThreshold": 0.15,
+    "detDiscriminationThreshold": 0.1
+  },
+  "perSystem": {
+    "L0": {
+      "n": {
+        "real": 16,
+        "degraded": 16
+      },
+      "real": {
+        "judgeMean": 0.723,
+        "detPassRate": 0.813,
+        "detScoreMean": 0.865,
+        "formatMean": 0.75,
+        "refusalCorrectRate": 0.5,
+        "costUsd": 4.801,
+        "latencyMsMean": 56831.375,
+        "turnsMean": 6.063
+      },
+      "degraded": {
+        "judgeMean": 0.804,
+        "detPassRate": 0.75,
+        "detScoreMean": 0.771
+      },
+      "discriminationJudge": -0.081,
+      "discriminationDet": 0.094,
+      "discriminationPass": false,
+      "perModel": {
+        "sonnet": {
+          "real": {
+            "judgeMean": 0.563,
+            "detPassRate": 0.75,
+            "detScoreMean": 0.802
+          },
+          "degraded": {
+            "judgeMean": 0.729,
+            "detPassRate": 0.75,
+            "detScoreMean": 0.781
+          },
+          "discriminationJudge": -0.166
+        },
+        "opus": {
+          "real": {
+            "judgeMean": 0.883,
+            "detPassRate": 0.875,
+            "detScoreMean": 0.927
+          },
+          "degraded": {
+            "judgeMean": 0.879,
+            "detPassRate": 0.75,
+            "detScoreMean": 0.76
+          },
+          "discriminationJudge": 0.004
+        }
+      }
+    },
+    "secretary": {
+      "n": {
+        "real": 16,
+        "degraded": 16
+      },
+      "real": {
+        "judgeMean": 0.701,
+        "detPassRate": 0.75,
+        "detScoreMean": 0.838,
+        "formatMean": 0.75,
+        "refusalCorrectRate": 0.583,
+        "costUsd": 5.042,
+        "latencyMsMean": 49114.563,
+        "turnsMean": 3.688
+      },
+      "degraded": {
+        "judgeMean": 0.345,
+        "detPassRate": 0.313,
+        "detScoreMean": 0.617
+      },
+      "discriminationJudge": 0.356,
+      "discriminationDet": 0.221,
+      "discriminationPass": true,
+      "perModel": {
+        "sonnet": {
+          "real": {
+            "judgeMean": 0.531,
+            "detPassRate": 0.625,
+            "detScoreMean": 0.731
+          },
+          "degraded": {
+            "judgeMean": 0.284,
+            "detPassRate": 0.25,
+            "detScoreMean": 0.592
+          },
+          "discriminationJudge": 0.247
+        },
+        "opus": {
+          "real": {
+            "judgeMean": 0.87,
+            "detPassRate": 0.875,
+            "detScoreMean": 0.944
+          },
+          "degraded": {
+            "judgeMean": 0.406,
+            "detPassRate": 0.375,
+            "detScoreMean": 0.642
+          },
+          "discriminationJudge": 0.464
+        }
+      }
+    },
+    "orchestrator": {
+      "n": {
+        "real": 16,
+        "degraded": 16
+      },
+      "real": {
+        "judgeMean": 0.522,
+        "detPassRate": 0.938,
+        "detScoreMean": 0.906,
+        "formatMean": 0.969,
+        "refusalCorrectRate": 0.8,
+        "costUsd": 5.3,
+        "latencyMsMean": 63295.813,
+        "turnsMean": 3.875
+      },
+      "degraded": {
+        "judgeMean": 0.343,
+        "detPassRate": 0.75,
+        "detScoreMean": 0.75
+      },
+      "discriminationJudge": 0.179,
+      "discriminationDet": 0.156,
+      "discriminationPass": true,
+      "perModel": {
+        "sonnet": {
+          "real": {
+            "judgeMean": 0.445,
+            "detPassRate": 0.875,
+            "detScoreMean": 0.875
+          },
+          "degraded": {
+            "judgeMean": 0.275,
+            "detPassRate": 0.625,
+            "detScoreMean": 0.667
+          },
+          "discriminationJudge": 0.17
+        },
+        "opus": {
+          "real": {
+            "judgeMean": 0.599,
+            "detPassRate": 1,
+            "detScoreMean": 0.938
+          },
+          "degraded": {
+            "judgeMean": 0.41,
+            "detPassRate": 0.875,
+            "detScoreMean": 0.833
+          },
+          "discriminationJudge": 0.189
+        }
+      }
+    },
+    "spec-reviewer": {
+      "n": {
+        "real": 16,
+        "degraded": 16
+      },
+      "real": {
+        "judgeMean": 0.838,
+        "detPassRate": 1,
+        "detScoreMean": 1,
+        "formatMean": 1,
+        "refusalCorrectRate": 0.5,
+        "costUsd": 4.165,
+        "latencyMsMean": 48160.625,
+        "turnsMean": 4.625
+      },
+      "degraded": {
+        "judgeMean": 0.742,
+        "detPassRate": 0.875,
+        "detScoreMean": 0.909
+      },
+      "discriminationJudge": 0.096,
+      "discriminationDet": 0.091,
+      "discriminationPass": false,
+      "perModel": {
+        "sonnet": {
+          "real": {
+            "judgeMean": 0.836,
+            "detPassRate": 1,
+            "detScoreMean": 1
+          },
+          "degraded": {
+            "judgeMean": 0.696,
+            "detPassRate": 0.75,
+            "detScoreMean": 0.819
+          },
+          "discriminationJudge": 0.14
+        },
+        "opus": {
+          "real": {
+            "judgeMean": 0.839,
+            "detPassRate": 1,
+            "detScoreMean": 1
+          },
+          "degraded": {
+            "judgeMean": 0.788,
+            "detPassRate": 1,
+            "detScoreMean": 1
+          },
+          "discriminationJudge": 0.051
+        }
+      }
+    },
+    "implementer": {
+      "n": {
+        "real": 16,
+        "degraded": 16
+      },
+      "real": {
+        "judgeMean": 0.596,
+        "detPassRate": 0.75,
+        "detScoreMean": 0.788,
+        "formatMean": 0.938,
+        "refusalCorrectRate": null,
+        "costUsd": 7.084,
+        "latencyMsMean": 103243.75,
+        "turnsMean": 11.625
+      },
+      "degraded": {
+        "judgeMean": 0.559,
+        "detPassRate": 0.813,
+        "detScoreMean": 0.763
+      },
+      "discriminationJudge": 0.037,
+      "discriminationDet": 0.025,
+      "discriminationPass": false,
+      "perModel": {
+        "sonnet": {
+          "real": {
+            "judgeMean": 0.383,
+            "detPassRate": 0.875,
+            "detScoreMean": 0.862
+          },
+          "degraded": {
+            "judgeMean": 0.288,
+            "detPassRate": 0.625,
+            "detScoreMean": 0.612
+          },
+          "discriminationJudge": 0.095
+        },
+        "opus": {
+          "real": {
+            "judgeMean": 0.809,
+            "detPassRate": 0.625,
+            "detScoreMean": 0.713
+          },
+          "degraded": {
+            "judgeMean": 0.83,
+            "detPassRate": 1,
+            "detScoreMean": 0.913
+          },
+          "discriminationJudge": -0.021
+        }
+      }
+    },
+    "verification": {
+      "n": {
+        "real": 16,
+        "degraded": 16
+      },
+      "real": {
+        "judgeMean": 0.953,
+        "detPassRate": 0.938,
+        "detScoreMean": 0.906,
+        "formatMean": 0.813,
+        "refusalCorrectRate": 1,
+        "costUsd": 4.682,
+        "latencyMsMean": 61078.875,
+        "turnsMean": 5.688
+      },
+      "degraded": {
+        "judgeMean": 0.912,
+        "detPassRate": 0.813,
+        "detScoreMean": 0.844
+      },
+      "discriminationJudge": 0.041,
+      "discriminationDet": 0.063,
+      "discriminationPass": false,
+      "perModel": {
+        "sonnet": {
+          "real": {
+            "judgeMean": 0.936,
+            "detPassRate": 0.875,
+            "detScoreMean": 0.927
+          },
+          "degraded": {
+            "judgeMean": 0.959,
+            "detPassRate": 0.875,
+            "detScoreMean": 0.917
+          },
+          "discriminationJudge": -0.022
+        },
+        "opus": {
+          "real": {
+            "judgeMean": 0.97,
+            "detPassRate": 1,
+            "detScoreMean": 0.885
+          },
+          "degraded": {
+            "judgeMean": 0.865,
+            "detPassRate": 0.75,
+            "detScoreMean": 0.771
+          },
+          "discriminationJudge": 0.105
+        }
+      }
+    }
+  },
+  "regression": {
+    "L0": {
+      "status": "ok",
+      "deltas": {
+        "judgeMean": 0,
+        "detPassRate": 0,
+        "detScoreMean": 0,
+        "discriminationJudge": 0
+      },
+      "regressionThreshold": 0.1
+    },
+    "secretary": {
+      "status": "ok",
+      "deltas": {
+        "judgeMean": 0,
+        "detPassRate": 0,
+        "detScoreMean": 0,
+        "discriminationJudge": 0
+      },
+      "regressionThreshold": 0.1
+    },
+    "orchestrator": {
+      "status": "ok",
+      "deltas": {
+        "judgeMean": 0,
+        "detPassRate": 0,
+        "detScoreMean": 0,
+        "discriminationJudge": 0
+      },
+      "regressionThreshold": 0.1
+    },
+    "spec-reviewer": {
+      "status": "ok",
+      "deltas": {
+        "judgeMean": 0,
+        "detPassRate": 0,
+        "detScoreMean": 0,
+        "discriminationJudge": 0
+      },
+      "regressionThreshold": 0.1
+    },
+    "implementer": {
+      "status": "ok",
+      "deltas": {
+        "judgeMean": 0,
+        "detPassRate": 0,
+        "detScoreMean": 0,
+        "discriminationJudge": 0
+      },
+      "regressionThreshold": 0.1
+    },
+    "verification": {
+      "status": "ok",
+      "deltas": {
+        "judgeMean": 0,
+        "detPassRate": 0,
+        "detScoreMean": 0,
+        "discriminationJudge": 0
+      },
+      "regressionThreshold": 0.1
+    }
+  },
+  "baselinesFrozen": []
+}

@@ -27,7 +27,7 @@ Quarantine + eval harness: scaffolded empty (no findings yet).
 | 6 | S6 Voice & Bible | ✅ done | 0/0/2/12 | 30 (4 files) | 4 — S6-001..004 | 923d594 |
 | 7 | S7 Verify/Skills/GitHub/Graph | ✅ done | 0/0/6/8 | 31 (4 files) | 1 — S7-001 | 8ca48d3 |
 | 8 | S8 Web/UI & E2E | ✅ done | 0/2/2/7+1Nit | 25 (5 files, S8a) | 5 — S8-001..005 | 7f0f3db (S8a), 1dbf21e (S8b) |
-| 9 | T-EVAL prompt-eval harness | ⬜ pending | — | — | — | — |
+| 9 | T-EVAL prompt-eval harness | ✅ done | 0/0/1/2 | 0 (eval, not vitest) | 0 — see T-EVAL-001..003 | (W9 commit) |
 | 10 | Consolidate | ⬜ pending | — | — | — | — |
 
 **Batch A integration (S1–S3):** full core gating suite **green + stable ×3** (797 tests, up from
@@ -66,6 +66,26 @@ out-of-enum workflow step status is double-gated (kstore Zod enum `k-store.ts:20
 `db.ts:219-220`), unreachable from shipped data and strictly more guarded than the non-codified S8-011;
 its RED test is retained as a forward-compat *enum-drift* blast-radius guard. Nits applied: S8-001
 reachability caveat (null entry presumes a malformed/partial frame), S8-003 prose notes the test uses 5M.
+
+**Wave 9 (T-EVAL — agent/skill/prompt eval harness; the one sanctioned real-token-spend wave):** built
+a real-dispatch eval harness under `testing/eval/` (operator-triggered; **not** in `pnpm -r test`; **0
+LOCK / 0 FAULT** vitest contribution — document-only on app source HOLDS, the real `agent-config/`
+prompts are READ via `--append-system-prompt-file`, never edited). 6 systems × 8 cases (L0,
+secretary, orchestrator, spec-reviewer, implementer, verification) dispatched on **both Opus + Sonnet**
+× {real, degraded-anti-prompt}, graded deterministically + by a fixed-Opus LLM judge, with frozen
+baselines + a degraded-anti-prompt discrimination control. Run `wave9`: **192 records, 0 errors,
+$61.81**. Discrimination demonstrated on the K-DISTINCTIVE systems (secretary det Δ **+0.221** / judge
++0.356; orchestrator +0.156 / +0.179); inconclusive-by-construction on the base-CC-overlap systems
+(L0/spec-reviewer/verification near a ceiling) and the edit-confounded implementer — **all 6 det deltas
+positive** (real never worse than its anti-prompt). Key finding **T-EVAL-001** (Med): K's tier/worker
+prompts hold on Opus but slip on Sonnet (secretary attempted code tools, L0 fabricated/committed-to-main
+on Sonnet) — the `--allowedTools` allowlist, not the prompt, is the real backstop (defense-in-depth
+validated). Confined tools-enabled, `acceptEdits` (no bypass — the auto-mode classifier correctly blocks
+it, matching the no-bypass rule). Independent reviewer **recomputed all 192 aggregates from raw JSONL**
+(reconcile to 3 dp) → **APPROVE-WITH-NITS**; nits applied (token capture, non-repo created-file
+detection, resume-retries-errored) or deferred to the next baseline (L0-07 commit-check, format-array
+tightening — held to keep cases consistent with the frozen baselines). Gating suite unchanged (no vitest
+file touched): **core 1011 + web 279** green; quarantine **18 files** red-by-design.
 
 ## Finding index
 
@@ -119,6 +139,15 @@ reachability caveat (null entry presumes a malformed/partial frame), S8-003 pros
   populated workflow checklist can't be previewed token-free (no HTTP seed; only a real dispatch writes a
   `workflow_run`). **S8-E05** (Nit, LOCK): voice gate degrades cleanly (503 "voice disabled" when off).
   See `findings/S8-e2e-personas.md`.
+- **T-EVAL prompt-quality findings** (Wave 9; observations, not vitest faults — a prompt weakness is a
+  finding, not a quarantine test). **T-EVAL-001** (Med): K's tier/worker prompts are followed reliably by
+  Opus but slip on Sonnet (the no-code secretary attempted code tools; L0 fabricated success / committed
+  to main) — tier isolation rests on the `--allowedTools` allowlist, not prompt wording, on smaller
+  models. **T-EVAL-002** (Low): L0/verification/spec-reviewer rules overlap Claude-Code's base alignment,
+  so the K layer's measurable marginal lift is small (belt-and-suspenders); prompt-ROI is highest on the
+  K-distinctive rules. **T-EVAL-003** (Low, test-infra): the headless Write/Edit denial confounds
+  edit-dependent cases (implementer flailing, L0-06 false det-fail) — constant across variants, cancels
+  in the discrimination delta. See `findings/T-EVAL-prompt-agent-skill.md`.
 - **Test-infra (not an app finding)** — `graph.test.ts` had a pre-existing 20ms fire-and-forget race in
   its `POST /graph/build → ready` assertion; the heavier Batch C suite tipped it over, so it was
   hardened to poll-until-ready (behavior asserted unchanged). Committed with S7 (`8ca48d3`).
@@ -127,9 +156,12 @@ Full per-suite detail: `findings/S1-database-persistence.md`, `findings/S2-memor
 `findings/S3-kstore-mcp.md`, `findings/S4-prompt-delegation.md`,
 `findings/S5-supervisor-providers-routing.md`, `findings/S6-voice-bible.md`,
 `findings/S7-verify-skills-github-graph.md`, `findings/S8-web-ui.md` (S8a pure-logic),
-`findings/S8-e2e-personas.md` (S8b Playwright swarm).
+`findings/S8-e2e-personas.md` (S8b Playwright swarm), `findings/T-EVAL-prompt-agent-skill.md`
+(Wave 9 eval harness — methodology, run `wave9` results, T-EVAL-001..003).
 
 ## Reconciliation rule
 
 At consolidation: total `LOCK` rows == new passing tests committed; total `FAULT` rows == files in
-`*/regressions/**`; every row links to a real test path.
+`*/regressions/**`; every row links to a real test path. **T-EVAL (Wave 9) is exempt** — it is an
+operator-triggered eval harness, not vitest; it contributes **0 LOCK / 0 FAULT**, and its deliverable is
+the harness + frozen `baselines/` + `reports/wave9.*` + `findings/T-EVAL-prompt-agent-skill.md`.

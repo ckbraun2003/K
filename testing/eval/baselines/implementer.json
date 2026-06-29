@@ -1,0 +1,50 @@
+{
+  "system": "implementer",
+  "frozenAt": "2026-06-29T05:25:29.655Z",
+  "real": {
+    "judgeMean": 0.596,
+    "detPassRate": 0.75,
+    "detScoreMean": 0.788,
+    "formatMean": 0.938,
+    "refusalCorrectRate": null,
+    "costUsd": 7.084,
+    "latencyMsMean": 103243.75,
+    "turnsMean": 11.625
+  },
+  "degraded": {
+    "judgeMean": 0.559,
+    "detPassRate": 0.813,
+    "detScoreMean": 0.763
+  },
+  "discriminationJudge": 0.037,
+  "discriminationDet": 0.025,
+  "discriminationPass": false,
+  "perModel": {
+    "sonnet": {
+      "real": {
+        "judgeMean": 0.383,
+        "detPassRate": 0.875,
+        "detScoreMean": 0.862
+      },
+      "degraded": {
+        "judgeMean": 0.288,
+        "detPassRate": 0.625,
+        "detScoreMean": 0.612
+      },
+      "discriminationJudge": 0.095
+    },
+    "opus": {
+      "real": {
+        "judgeMean": 0.809,
+        "detPassRate": 0.625,
+        "detScoreMean": 0.713
+      },
+      "degraded": {
+        "judgeMean": 0.83,
+        "detPassRate": 1,
+        "detScoreMean": 0.913
+      },
+      "discriminationJudge": -0.021
+    }
+  }
+}
