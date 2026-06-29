@@ -26,7 +26,7 @@ Quarantine + eval harness: scaffolded empty (no findings yet).
 | 5 | S5 Supervisor/Providers/Routing | ✅ done | 0/0/0/24 | 124 (6 files) | 4 — S5-001..004 | a2d8b27 |
 | 6 | S6 Voice & Bible | ✅ done | 0/0/2/12 | 30 (4 files) | 4 — S6-001..004 | 923d594 |
 | 7 | S7 Verify/Skills/GitHub/Graph | ✅ done | 0/0/6/8 | 31 (4 files) | 1 — S7-001 | 8ca48d3 |
-| 8 | S8 Web/UI & E2E | ⬜ pending | — | — | — | — |
+| 8 | S8 Web/UI & E2E | ✅ done | 0/2/2/7+1Nit | 25 (5 files, S8a) | 5 — S8-001..005 | 7f0f3db (S8a), 1dbf21e (S8b) |
 | 9 | T-EVAL prompt-eval harness | ⬜ pending | — | — | — | — |
 | 10 | Consolidate | ⬜ pending | — | — | — | — |
 
@@ -50,6 +50,23 @@ blocker corrected: **S6-001 stored-XSS downgraded High→Med** + reachability di
 route persists frontmatter; author/agent-controlled on-disk `.md` only — same reach as the Low S6-002
 slug sink). S6-004 quarantine test broadened to accept either endorsed fix (coerce-string OR reject).
 
+**Batch D integration (S8 — toolchain shift to web):** dispatched as two parallel orchestrators on
+different runners/dirs (no collision). **S8a Web/UI pure-logic** (jsdom/node vitest): full web gating
+suite **green** — **279 tests** (up from 254, +25 LOCK across 5 files); web quarantine **red ×5 files /
+14 tests + 1 green sanity guard** (the cron-DoS worker harness self-check). The cron fault (S8-003) is
+detected by compiling the REAL `cron.ts` in-runtime (`vite.transformWithEsbuild`, no source copy) and
+running it in a **heap-constrained disposable `worker_threads` worker** — so a `*/0` OOM / oversized-range
+freeze is observed machine-independently without ever crashing the runner. **S8b E2E persona-swarm**
+(Playwright/chromium, isolated-port harness): two new resilient personas **P11** (workflow checklist,
+5/5) + **P12** (settings + voice, 6/6) boot a fresh stack each and pass green-resilient with zero uncaught
+page errors / console.errors; findings are observations (no gating-vitest contribution). Core suite
+untouched (no `core/src`/`core/test` change) — stays at **1011**. Document-only invariant verified (zero
+drift in app source + configs). Review blocker corrected: **S8-002 downgraded High→Low (latent)** — an
+out-of-enum workflow step status is double-gated (kstore Zod enum `k-store.ts:202` + DB `CHECK`
+`db.ts:219-220`), unreachable from shipped data and strictly more guarded than the non-codified S8-011;
+its RED test is retained as a forward-compat *enum-drift* blast-radius guard. Nits applied: S8-001
+reachability caveat (null entry presumes a malformed/partial frame), S8-003 prose notes the test uses 5M.
+
 ## Finding index
 
 ### Confirmed FAULTs (quarantined, awaiting operator triage/fix)
@@ -68,6 +85,11 @@ slug sink). S6-004 quarantine test broadened to accept either endorsed fix (coer
 | **S6-003** | Med | routes/voice.ts | non-audio MIME not 415'd (default json/text parsers not removed) → non-Buffer body reaches provider; gated behind voice-enabled | `core/test/regressions/s6-003-voice-nonaudio-mime-not-rejected.test.ts` |
 | **S6-004** | Low (latent) | transcription.ts | transcript `text` unvalidated → `{}`→`{text:undefined}` (200 w/ no transcript), non-string relayed verbatim | `core/test/regressions/s6-004-transcript-text-unvalidated.test.ts` |
 | **S7-001** | Med (semi-latent) | routes/projects.ts | one null/non-object entry in graph.json's `nodes`/`links` → unguarded `.map` throws → whole graph view collapses to empty+stale; needs externally-corrupt artifact | `core/test/regressions/s7-001-graph-route-null-node-collapses-view.test.ts` |
+| **S8-001** | High | web console.ts/workflow.ts | one `null` event ENTRY throws → blanks the whole console/workflow projection (sibling `context.ts` already guards); ungated stream-parser input | `web/test/regressions/s8a-001-null-event-entry-crashes-projection.test.ts` |
+| **S8-002** | Low (latent) | web WorkflowChecklist.tsx | out-of-enum step `status` → unguarded `STATUS[…]` deref blank-screens the checklist (takes siblings); double-gated (kstore Zod enum + DB CHECK) → enum-drift forward-compat guard | `web/test/regressions/s8a-002-workflow-checklist-unknown-status-crash.test.tsx` |
+| **S8-003** | High | web cron.ts::convertRange | `*/0` step → unbounded loop → V8 OOM tab-crash; oversized range (`1-2e6`) → multi-second main-thread freeze (expands before bounds-checking); reachable from the keystroke validator | `web/test/regressions/s8a-003-cron-range-expansion-dos.test.ts` |
+| **S8-004** | Med | web chart.ts::stackDays | ragged/short series points → `TypeError` instead of degrading to 0 (needs a malformed/partial metrics payload) | `web/test/regressions/s8a-004-stackdays-ragged-series-throws.test.ts` |
+| **S8-005** | Low | web verify.ts | `NaN` escapes `barPct`'s documented clamp (→ `width:NaN%`); non-finite ts → `"NaNd ago"`/`"Infinityd ago"` labels | `web/test/regressions/s8a-005-verify-nonfinite-inputs.test.ts` |
 
 ### Notable non-fault concerns (documented; LOCK/characterization)
 - **S2-001** (Med, docs-mismatch) — no approve/reject memory surface exists in code; gated reflection
@@ -85,6 +107,18 @@ slug sink). S6-004 quarantine test broadened to accept either endorsed fix (coer
   artifact, so "restore" == recompile from the git-tracked `sections/`+`manifest.json` source of truth.
 - **S7 characterization** — `parseCiRuns` accepts a float `databaseId`; a non-array `statusCheckRollup`
   reads as `'none'` (defensive, not strict). `rowToReport` silently drops a corrupt `score_breakdown`.
+- **S8-011** (Low, observation) — `ContextMeter` would throw on `pressure.tokens === undefined`, but
+  `tokens` is a non-optional `number` and the only producer (`contextPressure()`) always returns finite,
+  so it's unreachable via the real call graph (one-line hardening opportunity, NOT codified).
+- **S8-012** (Low, observation) — `chart.stackDays` doesn't throw on NaN/Infinity metric values but
+  returns a poisoned `maxTotal: NaN` (lower priority than the ragged-points throw S8-004; not codified).
+- **S8b E2E observations** (Med/Low/Nit, not gating tests) — **S8-E02** (Med): the core ships a complete
+  `POST /api/transcribe` but **no web client ever calls it** (voice is backend-only, no UI affordance).
+  **S8-E03** (Low): RUNBOOK selector cheatsheet is stale (`Settings` now enabled, `Tasks` removed).
+  **S8-E04** (Low): `/api/status.voice` exists but Settings surfaces no Voice card. **S8-E01** (Low):
+  populated workflow checklist can't be previewed token-free (no HTTP seed; only a real dispatch writes a
+  `workflow_run`). **S8-E05** (Nit, LOCK): voice gate degrades cleanly (503 "voice disabled" when off).
+  See `findings/S8-e2e-personas.md`.
 - **Test-infra (not an app finding)** — `graph.test.ts` had a pre-existing 20ms fire-and-forget race in
   its `POST /graph/build → ready` assertion; the heavier Batch C suite tipped it over, so it was
   hardened to poll-until-ready (behavior asserted unchanged). Committed with S7 (`8ca48d3`).
@@ -92,7 +126,8 @@ slug sink). S6-004 quarantine test broadened to accept either endorsed fix (coer
 Full per-suite detail: `findings/S1-database-persistence.md`, `findings/S2-memory-work-tracking.md`,
 `findings/S3-kstore-mcp.md`, `findings/S4-prompt-delegation.md`,
 `findings/S5-supervisor-providers-routing.md`, `findings/S6-voice-bible.md`,
-`findings/S7-verify-skills-github-graph.md`.
+`findings/S7-verify-skills-github-graph.md`, `findings/S8-web-ui.md` (S8a pure-logic),
+`findings/S8-e2e-personas.md` (S8b Playwright swarm).
 
 ## Reconciliation rule
 
