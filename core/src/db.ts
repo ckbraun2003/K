@@ -153,6 +153,88 @@ db.exec(`
     completedAt    INTEGER
   );
 
+  -- ── Eval subsystem (F3) ──────────────────────────────────────────────────────
+  -- DB-backed model behind the ported T-EVAL harness (core/src/eval/*). GENERALIZES
+  -- skill_evals: a registry of systems-under-eval (+ their cases), eval runs over a
+  -- model×variant matrix, per-case results, and frozen baselines. Prompt/degraded/
+  -- rubric are stored as FILE PATHS (registry-relative) — never the prompt text —
+  -- and resolved against the repo root by loadSystemsFromDb (core/src/eval/store.ts).
+  -- camelCase columns match the skills/skill_evals convention.
+  CREATE TABLE IF NOT EXISTS eval_systems (
+    id              TEXT PRIMARY KEY,
+    title           TEXT NOT NULL,
+    job             TEXT,
+    promptFile      TEXT NOT NULL,
+    degradedFile    TEXT,
+    rubricFile      TEXT,
+    allowedTools    TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    disallowedTools TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    maxTurns        INTEGER NOT NULL DEFAULT 14,   -- matches the file loader default (seed writes explicit values)
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    createdAt       INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS eval_cases (
+    id              TEXT PRIMARY KEY,
+    systemId        TEXT NOT NULL REFERENCES eval_systems(id) ON DELETE CASCADE,
+    title           TEXT,
+    input           TEXT NOT NULL,
+    fixture         TEXT,
+    checks          TEXT NOT NULL DEFAULT '[]',   -- JSON array of the CHECKS DSL
+    allowedTools    TEXT,                          -- JSON array, nullable per-case override
+    refusalExpected INTEGER,                       -- nullable 0/1
+    judgeEnabled    INTEGER,                       -- nullable; 0 disables the judge
+    maxTurns        INTEGER,
+    timeoutMs       INTEGER,
+    createdAt       INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_eval_cases_system ON eval_cases(systemId);
+
+  CREATE TABLE IF NOT EXISTS eval_runs (
+    id            TEXT PRIMARY KEY,
+    status        TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','done','error','killed')),
+    models        TEXT NOT NULL,                   -- JSON array
+    variants      TEXT NOT NULL,                   -- JSON array
+    systems       TEXT NOT NULL,                   -- JSON array of system ids
+    dry           INTEGER NOT NULL DEFAULT 0,
+    totalJobs     INTEGER NOT NULL DEFAULT 0,
+    completedJobs INTEGER NOT NULL DEFAULT 0,
+    totalCostUsd  REAL NOT NULL DEFAULT 0,
+    report        TEXT,                            -- JSON when done
+    error         TEXT,
+    createdAt     INTEGER NOT NULL,
+    completedAt   INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS eval_results (
+    id             TEXT PRIMARY KEY,
+    evalRunId      TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+    systemId       TEXT NOT NULL,
+    caseId         TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    variant        TEXT NOT NULL CHECK(variant IN ('real','degraded')),
+    detPass        INTEGER,
+    detScore       REAL,
+    formatScore    REAL,
+    judgeOverall   REAL,
+    judgeVerdict   TEXT,
+    refusalCorrect INTEGER,                        -- nullable
+    costUsd        REAL,
+    ms             INTEGER,
+    numTurns       INTEGER,
+    error          TEXT,
+    raw            TEXT,                            -- JSON full record
+    createdAt      INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_eval_results_run ON eval_results(evalRunId);
+
+  CREATE TABLE IF NOT EXISTS eval_baselines (
+    systemId  TEXT PRIMARY KEY REFERENCES eval_systems(id) ON DELETE CASCADE,
+    metrics   TEXT NOT NULL,                       -- JSON (the frozen baseline file)
+    evalRunId TEXT REFERENCES eval_runs(id) ON DELETE SET NULL,
+    frozenAt  INTEGER NOT NULL
+  );
+
   -- Per-project knowledge-graph build state (Phase H). The graph data lives in the
   -- project's .gitnexus/ dir; this table tracks build status/freshness only.
   CREATE TABLE IF NOT EXISTS project_graphs (
@@ -817,6 +899,97 @@ export const skillEvalsDb = {
   patchSkillEvalRunId,
   updateSkillEvalResult,
 }
+
+// ─── Eval subsystem helpers (F3) ─────────────────────────────────────────────
+// DB-backed model behind the ported T-EVAL harness (generalizes skill_evals).
+// store.ts seeds these from testing/eval/* and loadSystemsFromDb() reads them
+// back into the same shape loadSystems() returns. These statements are bound to
+// the module `db` singleton; store.ts prepares its own statements on whatever
+// connection it is handed so it can also drive an isolated (injected) DB.
+
+const upsertEvalSystem = db.prepare(`
+  INSERT INTO eval_systems (id, title, job, promptFile, degradedFile, rubricFile, allowedTools, disallowedTools, maxTurns, enabled, createdAt)
+  VALUES (@id, @title, @job, @promptFile, @degradedFile, @rubricFile, @allowedTools, @disallowedTools, @maxTurns, @enabled, @createdAt)
+  ON CONFLICT(id) DO UPDATE SET
+    title           = excluded.title,
+    job             = excluded.job,
+    promptFile      = excluded.promptFile,
+    degradedFile    = excluded.degradedFile,
+    rubricFile      = excluded.rubricFile,
+    allowedTools    = excluded.allowedTools,
+    disallowedTools = excluded.disallowedTools,
+    maxTurns        = excluded.maxTurns,
+    enabled         = excluded.enabled
+`)
+const getEvalSystem = db.prepare(`SELECT * FROM eval_systems WHERE id = ?`)
+const listEvalSystems = db.prepare(`SELECT * FROM eval_systems ORDER BY id`)
+const deleteEvalSystem = db.prepare(`DELETE FROM eval_systems WHERE id = ?`)
+
+export const evalSystemsDb = { upsertEvalSystem, getEvalSystem, listEvalSystems, deleteEvalSystem }
+
+const insertEvalCase = db.prepare(`
+  INSERT INTO eval_cases (id, systemId, title, input, fixture, checks, allowedTools, refusalExpected, judgeEnabled, maxTurns, timeoutMs, createdAt)
+  VALUES (@id, @systemId, @title, @input, @fixture, @checks, @allowedTools, @refusalExpected, @judgeEnabled, @maxTurns, @timeoutMs, @createdAt)
+  ON CONFLICT(id) DO UPDATE SET
+    systemId        = excluded.systemId,
+    title           = excluded.title,
+    input           = excluded.input,
+    fixture         = excluded.fixture,
+    checks          = excluded.checks,
+    allowedTools    = excluded.allowedTools,
+    refusalExpected = excluded.refusalExpected,
+    judgeEnabled    = excluded.judgeEnabled,
+    maxTurns        = excluded.maxTurns,
+    timeoutMs       = excluded.timeoutMs
+`)
+const deleteEvalCasesBySystem = db.prepare(`DELETE FROM eval_cases WHERE systemId = ?`)
+const listEvalCasesBySystem = db.prepare(`SELECT * FROM eval_cases WHERE systemId = ? ORDER BY id`)
+
+export const evalCasesDb = { insertEvalCase, deleteEvalCasesBySystem, listEvalCasesBySystem }
+
+const insertEvalRun = db.prepare(`
+  INSERT INTO eval_runs (id, status, models, variants, systems, dry, totalJobs, completedJobs, totalCostUsd, report, error, createdAt, completedAt)
+  VALUES (@id, @status, @models, @variants, @systems, @dry, @totalJobs, @completedJobs, @totalCostUsd, @report, @error, @createdAt, @completedAt)
+`)
+const getEvalRun = db.prepare(`SELECT * FROM eval_runs WHERE id = ?`)
+const listEvalRuns = db.prepare(`SELECT * FROM eval_runs ORDER BY createdAt DESC LIMIT ?`)
+const updateEvalRunProgress = db.prepare(`
+  UPDATE eval_runs SET completedJobs = @completedJobs, totalCostUsd = @totalCostUsd WHERE id = @id
+`)
+const updateEvalRunStatus = db.prepare(`
+  UPDATE eval_runs SET status = @status, report = @report, error = @error, completedAt = @completedAt WHERE id = @id
+`)
+const deleteEvalRun = db.prepare(`DELETE FROM eval_runs WHERE id = ?`)
+
+export const evalRunsDb = {
+  insertEvalRun,
+  getEvalRun,
+  listEvalRuns,
+  updateEvalRunProgress,
+  updateEvalRunStatus,
+  deleteEvalRun,
+}
+
+const insertEvalResult = db.prepare(`
+  INSERT INTO eval_results (id, evalRunId, systemId, caseId, model, variant, detPass, detScore, formatScore, judgeOverall, judgeVerdict, refusalCorrect, costUsd, ms, numTurns, error, raw, createdAt)
+  VALUES (@id, @evalRunId, @systemId, @caseId, @model, @variant, @detPass, @detScore, @formatScore, @judgeOverall, @judgeVerdict, @refusalCorrect, @costUsd, @ms, @numTurns, @error, @raw, @createdAt)
+`)
+const listEvalResultsByRun = db.prepare(`SELECT * FROM eval_results WHERE evalRunId = ? ORDER BY createdAt ASC`)
+
+export const evalResultsDb = { insertEvalResult, listEvalResultsByRun }
+
+const upsertEvalBaseline = db.prepare(`
+  INSERT INTO eval_baselines (systemId, metrics, evalRunId, frozenAt)
+  VALUES (@systemId, @metrics, @evalRunId, @frozenAt)
+  ON CONFLICT(systemId) DO UPDATE SET
+    metrics   = excluded.metrics,
+    evalRunId = excluded.evalRunId,
+    frozenAt  = excluded.frozenAt
+`)
+const getEvalBaseline = db.prepare(`SELECT * FROM eval_baselines WHERE systemId = ?`)
+const listEvalBaselines = db.prepare(`SELECT * FROM eval_baselines ORDER BY systemId`)
+
+export const evalBaselinesDb = { upsertEvalBaseline, getEvalBaseline, listEvalBaselines }
 
 // ─── Runtime config helpers ──────────────────────────────────────────────────
 
