@@ -55,7 +55,7 @@ TaskNotFound path, which validates before mutating (the green LOCK S4-017).
 | S4-015 | workflows | Low | Robustness | `buildDelegationPrompt` purity (lines 49-74) | call twice with equal input; reorder; many tasks | byte-identical output for equal input; output depends only on titles+order; checklist numbered 1..N | matches — no Date.now/random | LOCK | `core/test/campaign-s4-delegation-determinism.test.ts` | codified |
 | S4-016 | workflows | Low | Edge | `buildDelegationPrompt` weird text (line 51) | titles with unicode / NUL / 200 KB / injection-y / newline | never throws; title passes through VERBATIM; determinism preserved | matches — verbatim interpolation (see latent-risk note on newlines) | LOCK (characterization) | `core/test/campaign-s4-delegation-determinism.test.ts` | codified |
 | S4-017 | workflows | Low | Robustness | `dispatchTaskWorkflow` validate-before-mutate (steps 1-3) | dispatch `[validTask, missingId]` | throws TaskNotFoundError BEFORE any mutation: valid task stays `open`, NO workflow_run row, startRun never reached | matches | LOCK | `core/test/campaign-s4-dispatch-lock-hygiene.test.ts` | codified |
-| **S4-018** | **workflows** | **Low** | **Bug** | **`dispatchTaskWorkflow` steps 3+4 (`buildDelegationPrompt([])` throws inside the try)** | **`dispatchTaskWorkflow(project, [])`** | **rejected with NO workflow_run row written (validate-before-mutate, matching TaskNotFound)** | **one `'failed'` workflow_run row is inserted and left behind (orphaned state)** | **FAULT** | **`core/test/regressions/s4-018-empty-dispatch-orphan-row.test.ts`** | **quarantined** |
+| **S4-018** | **workflows** | **Low** | **Bug** | **`dispatchTaskWorkflow` steps 3+4 (`buildDelegationPrompt([])` throws inside the try)** | **`dispatchTaskWorkflow(project, [])`** | **rejected with NO workflow_run row written (validate-before-mutate, matching TaskNotFound)** | **one `'failed'` workflow_run row is inserted and left behind (orphaned state)** | **FAULT (fixed)** | **`core/test/s4-018-empty-dispatch-orphan-row.test.ts`** | **fixed + promoted to gating (F1.W4b)** |
 
 ---
 
@@ -91,6 +91,13 @@ mutate inconsistency for a function that elsewhere validates-before-mutate.
 step-1 guard / build the prompt before the insert), or (b) roll the inserted row back (delete) when
 `buildDelegationPrompt` throws instead of finalizing it `'failed'`. The red test asserts behavior (a)
 — no row written — and flips green when fixed → move it into `core/test/`.
+
+**FIXED (reboot wave F1.W4b):** `dispatchTaskWorkflow` now rejects an empty `taskIds` up-front (option
+(a)) — a `taskIds.length === 0` guard at the top throws `Error('dispatchTaskWorkflow requires at least
+one task')` BEFORE step 3's `insertWorkflowRun`, mirroring the step-1 TaskNotFound validate-before-
+mutate path. No `workflow_run` row is ever written on an empty dispatch; the non-empty path is
+unchanged. The test went green and was promoted to gating
+(`core/test/s4-018-empty-dispatch-orphan-row.test.ts`).
 
 ---
 

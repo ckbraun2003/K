@@ -12,9 +12,10 @@
 import { randomUUID } from 'crypto'
 import { schedule as cronSchedule, validate as cronValidate } from 'node-cron'
 import type { Skill, CreateSkill, SkillEval } from '@k/shared'
-import { db, skillsDb, skillEvalsDb, runsDb } from './db.js'
+import { db, skillsDb, skillEvalsDb } from './db.js'
 import { startRun } from './supervisor.js'
 import { eventBus } from './events.js'
+import { trackSupervisedRun } from './run-lifecycle.js'
 
 // Prepared once at module load — sets runId on a skill_run after the run is created
 const patchSkillRunId = db.prepare(`UPDATE skill_runs SET runId = ? WHERE id = ?`)
@@ -41,8 +42,8 @@ export function listSkills(): Skill[] {
 // ─── Built-in (filesystem) skills ────────────────────────────────────────────
 
 /**
- * The authored `.claude/skills/*` workflows the harness ships with. They live as
- * `SKILL.md` files (agent-invokable), and are also seeded into the skills table
+ * The authored `agent-config/skills/*` workflows the harness ships with. They live
+ * as `SKILL.md` files (agent-invokable), and are also seeded into the skills table
  * at bootstrap so they appear — and are triggerable — from the Skills tab.
  *
  * Each entry is `CreateSkill`-shaped and MUST satisfy the same boundary
@@ -56,7 +57,7 @@ export const BUILTIN_SKILLS: readonly CreateSkill[] = [
     description:
       'Scaffold a registered project’s bible + CI to satisfy the three bible §3 invariants (GitHub remote, bible, CI). Idempotent.',
     type: 'workflow',
-    source: '.claude/skills/onboarding/SKILL.md',
+    source: 'agent-config/skills/onboarding/SKILL.md',
     triggerType: 'manual',
   },
   {
@@ -64,7 +65,7 @@ export const BUILTIN_SKILLS: readonly CreateSkill[] = [
     description:
       'Run the Layer-2 verification agent team (CI auditor, coverage scout, PR reviewer, doc-freshness) and apply safe fixes via PR only.',
     type: 'workflow',
-    source: '.claude/skills/verify-project/SKILL.md',
+    source: 'agent-config/skills/verify-project/SKILL.md',
     triggerType: 'manual',
   },
   {
@@ -72,7 +73,7 @@ export const BUILTIN_SKILLS: readonly CreateSkill[] = [
     description:
       'Author a project-specific, self-contained interactive UI demo (hybrid-glass, offline, sandbox-safe) and compile it into a renderable UI artifact via POST /api/ui-artifact/compile.',
     type: 'workflow',
-    source: '.claude/skills/create-web-ui-artifact/SKILL.md',
+    source: 'agent-config/skills/create-web-ui-artifact/SKILL.md',
     triggerType: 'manual',
   },
 ] as const
@@ -136,22 +137,14 @@ export async function triggerSkill(
   // Launch the underlying run
   const run = await startRun(skill.source)
 
-  // Patch the runId back onto the skill_run
-  patchSkillRunId.run(run.id, skillRunId)
-
-  // Watch for run completion and update skill_run status
-  const unsub = eventBus.onRunUpdate(r => {
-    if (r.id !== run.id) return
-    if (
-      r.status === 'done' ||
-      r.status === 'error' ||
-      r.status === 'killed' ||
-      r.status === 'interrupted'
-    ) {
-      const srStatus = r.status === 'done' ? 'completed' : 'failed'
-      skillsDb.updateSkillRunStatus.run(srStatus, Date.now(), skillRunId)
-      unsub()
-    }
+  // Wire the supervised-run completion lifecycle (patch runId, finalize on
+  //   terminal, race-backstopped) — shared via run-lifecycle.ts. NOTE: this gives
+  //   triggerSkill the await/subscribe race backstop it previously lacked (a latent
+  //   leaked-'running'-row fix folded into the unification).
+  trackSupervisedRun(run.id, {
+    onStarted: rid => patchSkillRunId.run(rid, skillRunId),
+    finalize: status =>
+      skillsDb.updateSkillRunStatus.run(status === 'done' ? 'completed' : 'failed', Date.now(), skillRunId),
   })
 
   return { skillRunId, runId: run.id }
@@ -207,7 +200,15 @@ export function buildEvalPrompt(skill: Skill): string {
 
 /** Derive a pass/fail verdict. A machine-readable marker in the agent's final
  *  output wins; otherwise fall back to the terminal run status (done → pass,
- *  any non-done terminal → fail). Pure + exported for unit-testing. */
+ *  any non-done terminal → fail). Pure + exported for unit-testing.
+ *
+ *  STATUS OF `lastResultText` (F2.W3 decision): the live path does NOT yet wire
+ *  it — runSkillTest calls deriveEvalStatus(status) with the terminal run status
+ *  only, so today the marker branch is exercised solely by unit tests. The branch
+ *  is RESERVED, not dead: capturing the agent's final result text and threading it
+ *  here is deferred to F3 (the eval subsystem replaces this shallow self-review
+ *  with the real cases+rubric+degraded methodology). Kept now so the protocol +
+ *  its tests stay in place for that lift. */
 export function deriveEvalStatus(
   terminalRunStatus: string,
   lastResultText?: string,
@@ -284,26 +285,12 @@ export async function runSkillTest(skillId: string): Promise<{ evalId: string; r
     return { evalId, runId: '' }
   }
 
-  skillEvalsDb.patchSkillEvalRunId.run(run.id, evalId)
-
-  // Watch for run completion; derive verdict from the terminal status (the
-  // marker branch in deriveEvalStatus is exercised by unit tests / future
-  // enrichment — the live path only has the run status here). unsub() runs
-  // BEFORE finalize so a duplicate terminal event can't re-finalize the row.
-  const TERMINAL = new Set(['done', 'error', 'killed', 'interrupted'])
-  const unsub = eventBus.onRunUpdate(r => {
-    if (r.id !== run.id || !TERMINAL.has(r.status)) return
-    unsub()
-    finalizeSkillEval(evalId, skillId, deriveEvalStatus(r.status))
+  // Wire the supervised-run completion lifecycle (patch runId, finalize on
+  //   terminal, race-backstopped) — shared via run-lifecycle.ts.
+  trackSupervisedRun(run.id, {
+    onStarted: rid => skillEvalsDb.patchSkillEvalRunId.run(rid, evalId),
+    finalize: status => finalizeSkillEval(evalId, skillId, deriveEvalStatus(status)),
   })
-
-  // Backstop the await/subscribe race: if the run already reached a terminal
-  // state before we subscribed, finalize now instead of leaking a 'pending' row.
-  const current = runsDb.getRun.get(run.id) as { status?: string } | undefined
-  if (current?.status != null && TERMINAL.has(current.status)) {
-    unsub()
-    finalizeSkillEval(evalId, skillId, deriveEvalStatus(current.status))
-  }
 
   return { evalId, runId: run.id }
 }

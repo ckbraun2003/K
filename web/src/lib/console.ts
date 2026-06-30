@@ -46,6 +46,7 @@ export function pairToolCalls(events: AgentEvent[]): ConsoleItem[] {
   // First write wins — toolUseIds are unique per call in practice.
   const resultByToolUseId = new Map<string, AgentEvent>()
   for (const e of events) {
+    if (e == null) continue
     if (e.type === 'user' && e.toolUseId != null && !resultByToolUseId.has(e.toolUseId)) {
       resultByToolUseId.set(e.toolUseId, e)
     }
@@ -56,6 +57,7 @@ export function pairToolCalls(events: AgentEvent[]): ConsoleItem[] {
   // single call can't render as two items.
   const emittedCallIds = new Set<string>()
   for (const e of events) {
+    if (e == null) continue
     if (e.type === 'assistant' && e.toolUseId != null) {
       if (emittedCallIds.has(e.toolUseId)) continue
       emittedCallIds.add(e.toolUseId)
@@ -83,6 +85,7 @@ export type ConsoleSegment =
 export function groupConsoleItems(items: ConsoleItem[]): ConsoleSegment[] {
   const segments: ConsoleSegment[] = []
   for (const item of items) {
+    if (item == null) continue
     if (item.kind === 'tool') {
       const last = segments[segments.length - 1]
       if (last && last.type === 'tools') last.items.push(item)

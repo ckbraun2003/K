@@ -96,7 +96,8 @@ export const whisperProvider: TranscriptionProvider = {
     } catch {
       throw new TranscriptionError('Whisper response was not valid JSON')
     }
-    return { text: json.text }
+    const text = typeof json?.text === 'string' ? json.text : ''
+    return { text }
   },
 }
 

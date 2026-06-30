@@ -48,7 +48,14 @@ export async function listInstalled(): Promise<InstalledModel[]> {
   const data = await res.json() as {
     models?: Array<{ name: string; size: number; digest?: string; modified_at?: string }>
   }
-  return (data.models ?? []).map(m => ({
+  // A 200 with a malformed body (null, {models:{}}, {models:'foo'}) must NOT throw
+  // a raw TypeError — the module contract promises only typed OllamaNetworkError.
+  // Degrade a non-array `models` to an empty list.
+  const rawModels: unknown = (data as { models?: unknown } | null)?.models
+  const models = Array.isArray(rawModels)
+    ? (rawModels as Array<{ name: string; size: number; digest?: string; modified_at?: string }>)
+    : []
+  return models.map(m => ({
     name: m.name,
     sizeBytes: m.size,
     digest: m.digest,

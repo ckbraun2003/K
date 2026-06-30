@@ -328,7 +328,7 @@ describe('enrichNodes', () => {
       id: uuid(), projectId: p.id, score: 50,
       findings: JSON.stringify([{ severity: 'warn', area: 'tests', message: 'flaky test in src/widget.ts' }]),
       fixesApplied: JSON.stringify([]), startedAt: Date.now(), completedAt: Date.now(),
-      scoreBreakdown: null,
+      scoreBreakdown: null, coveragePct: null,
     })
     // the compiled bible references the file too
     artifactsDb.upsertArtifact.run({

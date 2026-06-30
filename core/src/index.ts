@@ -21,7 +21,9 @@ import { skillsRoutes } from './routes/skills.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
 import { voiceRoutes } from './routes/voice.js'
+import { evalsRoutes } from './routes/evals.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
+import { seedEvalSystems } from './eval/store.js'
 import { compileBible } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
@@ -106,6 +108,7 @@ export async function buildApp() {
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
   await app.register(voiceRoutes)
+  await app.register(evalsRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 
@@ -257,7 +260,14 @@ async function start() {
   const app = await buildApp()
   await compileBible()
   await seedUiDemo()  // ensure the Command Deck `ui-demo` artifact is present
-  seedBuiltinSkills() // ensure the authored .claude/skills/* appear in the Skills tab
+  seedBuiltinSkills() // ensure the authored agent-config/skills/* appear in the Skills tab
+  // Seed the eval registry (testing/eval/* → eval_* tables) so the Evals surface has systems to run.
+  // Idempotent; guarded so a missing/garbled testing/eval/ dir logs and continues rather than aborting boot.
+  try {
+    seedEvalSystems()
+  } catch (e) {
+    console.warn('[eval] seedEvalSystems failed (continuing without eval registry):', e)
+  }
 
   await app.listen({ port: PORT, host: HOST })
   startGithubPoller()

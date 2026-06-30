@@ -12,8 +12,9 @@
  *    bodyLimit option (→ 413 before the handler runs) and as a belt-and-
  *    suspenders check inside the handler.
  *  - Audio bytes are never logged at any point in this file or transcription.ts.
- *  - Only the four declared MIME types get a raw-buffer parser; the existing
- *    JSON parser (application/json) is NOT touched.
+ *  - Only the four declared MIME types get a raw-buffer parser; the handler
+ *    rejects any other (non-audio) content-type with 415 before forwarding, so a
+ *    default json/text parser body can never reach the provider.
  */
 
 import type { FastifyInstance } from 'fastify'
@@ -22,7 +23,7 @@ import { getTranscriptionProvider, TranscriptionError } from '../transcription.j
 
 const MAX_BODY_BYTES = 25 * 1024 * 1024 // 25 MB
 
-// Accepted inbound audio MIME types. Any other content-type → Fastify 415.
+// Accepted inbound audio MIME types. The handler 415s any other content-type.
 const AUDIO_TYPES = ['audio/webm', 'audio/ogg', 'audio/wav', 'application/octet-stream']
 
 export async function voiceRoutes(app: FastifyInstance) {
@@ -43,6 +44,18 @@ export async function voiceRoutes(app: FastifyInstance) {
       return reply.status(503).send({ error: 'voice disabled' })
     }
 
+    // Reject non-audio content-types (415) BEFORE touching the body or provider,
+    // so a default json/text parser body can never reach Whisper. (Fastify's
+    // default text/json parsers still buffer the rejected body first, but that is
+    // bounded by Fastify's own body limit and the 415 short-circuits before any
+    // provider call or Buffer expansion — no 100 MB Uint8Array path is reachable.)
+    // Strip MIME parameters (e.g. "audio/webm; codecs=opus") and default a missing
+    // content-type to the allowed octet-stream path.
+    const mime = (req.headers['content-type'] ?? 'application/octet-stream').split(';')[0].trim().toLowerCase()
+    if (!AUDIO_TYPES.includes(mime)) {
+      return reply.status(415).send({ error: 'unsupported media type (audio only)' })
+    }
+
     const body = req.body as Buffer | null
 
     // Empty body guard (missing or zero-length payload).
@@ -55,10 +68,6 @@ export async function voiceRoutes(app: FastifyInstance) {
     if (body.length > MAX_BODY_BYTES) {
       return reply.status(413).send({ error: 'audio too large (max 25 MB)' })
     }
-
-    // Strip MIME parameters (e.g. "audio/webm; codecs=opus") before forwarding.
-    const contentType = req.headers['content-type'] ?? 'application/octet-stream'
-    const mime = contentType.split(';')[0].trim()
 
     try {
       const result = await getTranscriptionProvider().transcribe(body, mime)

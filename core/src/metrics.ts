@@ -4,6 +4,7 @@ import type {
   MetricsSummary, DailyMetric, MetricsTimeseries, TimeseriesGroupBy,
   RoutingStats, RoutingModelStat,
 } from '@k/shared'
+import { TERMINAL_RUN_STATUSES } from './run-lifecycle.js'
 
 export interface RunRow {
   created_at: number
@@ -173,8 +174,6 @@ export interface RoutingRunRow {
   ended_at: number | null
 }
 
-const TERMINAL = new Set(['done', 'error', 'killed', 'interrupted'])
-
 // Minimum total run history before we'll suggest a routing change.
 const RECOMMEND_MIN_RUNS = 10
 
@@ -246,7 +245,7 @@ export function aggregateRouting(rows: RoutingRunRow[], now: number): RoutingSta
       accs.set(key, a)
     }
     a.runs++
-    if (TERMINAL.has(r.status)) {
+    if (TERMINAL_RUN_STATUSES.has(r.status)) {
       a.terminal++
       if (r.status === 'done') a.done++
     }

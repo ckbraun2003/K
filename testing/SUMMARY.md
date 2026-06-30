@@ -19,6 +19,50 @@ sanity guard — the cron-DoS worker self-check). Re-verified from a clean tree 
 Reconciliation). **Zero app-source edits across all 10 waves** — every source-affecting issue is a
 quarantined finding, not a fix.
 
+---
+
+## ▶ F1 REMEDIATION CLOSEOUT (K reboot — 2026-06-29): all 18 faults fixed
+
+> The campaign was **document-only** (it *found* faults; it did not fix them). The reboot program's
+> **Phase F1** has since **remediated all 18 confirmed faults at root** and **promoted every red
+> quarantine test into the gating suite** — the **quarantine is now empty**. Everything below this banner
+> is the preserved campaign-era record (wave table, finding lists, the "Operator next step" pointer);
+> this banner supersedes it. Branch: `feat/k-reboot` (local; push gated).
+
+| Metric | Campaign close | After F1 remediation |
+|--------|----------------|----------------------|
+| Confirmed faults open | 18 (2 High · 6 Med · 10 Low) | **0** |
+| Quarantine files (red-by-design) | 18 (13 core + 5 web) | **0 — empty** |
+| Gating tests (green) | core 1011 / web 279 | core **1039** / web **294** |
+
+Each fix followed the same discipline: root-cause source fix → the red repro test flips green →
+`git mv */test/regressions/ → */test/` (import depth fixed, docstring reframed FIXED+promoted) → FAULT
+row dropped in `ledger.md` + marked fixed in `findings/*` → implementer→reviewer delegation loop → one
+isolated, gate-verified commit per wave.
+
+| Wave | Commit | Sev | Faults fixed |
+|------|--------|-----|--------------|
+| F1.W1 | `015936f` | High | S8-001, S8-003 |
+| F1.W2 | `34152f5` | Med (core) | S1-018, S2-017, S7-001 |
+| F1.W3 | `7a184fd` | Med (voice/bible/charts) | S6-001, S6-003, S8-004 |
+| F1.W4a | `d33a794` | Low (S5 provider/dispatch) | S5-001, S5-002, S5-003, S5-004 |
+| F1.W4b | `f9e6b4e` | Low (core input-validation) | S3-001, S4-018 |
+| F1.W4c | `cec9395` | Low (bible/voice) | S6-002, S6-004 |
+| F1.W4d | `1219540` | Low (web) | S8-002, S8-005 |
+
+Verify the empty quarantine from a clean tree:
+```bash
+node -e 'const os=require("os"),fs=require("fs"),p=require("path");for(const d of ["k-core-vitest-data","k-core-regressions-data"])fs.rmSync(p.join(os.tmpdir(),d),{recursive:true,force:true})'
+pnpm -r test             # core 1039 / web 294 GREEN
+pnpm -r test:regressions # "No test files found" — quarantine empty
+```
+
+Non-fault follow-ups still open (tracked in the reboot plan, NOT quarantine-blocking): stale-RUNBOOK
+selectors (S8-E03/04) and the missing web transcribe-client (S8-E02 → lands in reboot P5.4 Voice); the
+S5-014 `tokensIn`-incl-cache metric-meaning decision.
+
+---
+
 ## Waves
 
 | Wave | Suite | LOCK (new green) | FAULT | Key findings |

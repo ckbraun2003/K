@@ -11,12 +11,9 @@
 
 import { randomUUID } from 'crypto'
 import type { Project, ProjectTask } from '@k/shared'
-import { projectTasksDb, workflowRunsDb, runsDb } from './db.js'
+import { projectTasksDb, workflowRunsDb, rowToProjectTask } from './db.js'
 import { startRun } from './supervisor.js'
-import { eventBus } from './events.js'
-
-// Terminal run statuses — same set runSkillTest uses to finalize.
-const TERMINAL = new Set(['done', 'error', 'killed', 'interrupted'])
+import { trackSupervisedRun } from './run-lifecycle.js'
 
 /** Thrown when a requested taskId is missing or not scoped to this project. The
  *  route discriminates on this type (instanceof) to translate it to a 400. */
@@ -24,22 +21,6 @@ export class TaskNotFoundError extends Error {
   constructor(public readonly taskId: string) {
     super(`Task not found in project: ${taskId}`)
     this.name = 'TaskNotFoundError'
-  }
-}
-
-/** DB row → ProjectTask shape. Local to keep modules clean (rowToTask is a
- *  private helper in routes/projects.ts; we don't import from the route). */
-function rowToTask(r: Record<string, unknown>): ProjectTask {
-  return {
-    id: String(r.id),
-    projectId: String(r.project_id),
-    title: String(r.title),
-    status: r.status as ProjectTask['status'],
-    createdAt: Number(r.created_at),
-    completedAt: r.completed_at != null ? Number(r.completed_at) : null,
-    issueNumber: r.issue_number != null ? Number(r.issue_number) : null,
-    issueUrl: r.issue_url != null ? String(r.issue_url) : null,
-    issueState: r.issue_state != null ? String(r.issue_state) : null,
   }
 }
 
@@ -80,7 +61,15 @@ export function deriveWorkflowStatus(terminalRunStatus: string): 'completed' | '
 }
 
 /** Finalize a workflow_run row to a terminal status. Exported as a seam so tests
- *  can drive the result path directly without a live run. */
+ *  can drive the result path directly without a live run.
+ *
+ *  AUTHORITY MODEL: this is the AUTHORITATIVE terminal write. It overwrites any
+ *  overall status the agent set mid-run via the `workflow_status_set` tool — that
+ *  write is a mid-run advisory; at termination the supervisor re-derives the
+ *  status from the actual run outcome (done→completed, else→failed) and wins
+ *  (campaign-s2 S2-013). It is last-writer-wins with NO terminal lock of its own
+ *  (S2-015), so a duplicate terminal event re-finalizing is harmless — the
+ *  run-lifecycle seam's finalize-once latch makes that a non-issue in practice. */
 export function finalizeWorkflowRun(workflowRunId: string, terminalRunStatus: string): void {
   workflowRunsDb.updateWorkflowRunStatus.run(
     deriveWorkflowStatus(terminalRunStatus),
@@ -101,6 +90,16 @@ export async function dispatchTaskWorkflow(
   project: Project,
   taskIds: string[],
 ): Promise<{ workflowRunId: string; runId: string }> {
+  // 0. Reject an empty dispatch up-front — validate-before-mutate, mirroring the
+  //    step-1 TaskNotFound guard. Without this, steps 1+2 no-op over the empty
+  //    list, step 3 inserts the workflow_run row ('running'), then step 4's
+  //    buildDelegationPrompt([]) throws inside the try and the catch finalizes
+  //    that row to 'failed' instead of deleting it — leaving an orphaned row from
+  //    what should be a pure input rejection.
+  if (taskIds.length === 0) {
+    throw new Error('dispatchTaskWorkflow requires at least one task')
+  }
+
   // 1. Load every task, scoped to this project. Any miss → throw (route → 400).
   const tasks: ProjectTask[] = []
   for (const taskId of taskIds) {
@@ -108,7 +107,7 @@ export async function dispatchTaskWorkflow(
       | Record<string, unknown>
       | undefined
     if (!row) throw new TaskNotFoundError(taskId)
-    tasks.push(rowToTask(row))
+    tasks.push(rowToProjectTask(row))
   }
 
   // 2. Lock the selected tasks as in_progress.
@@ -137,8 +136,11 @@ export async function dispatchTaskWorkflow(
 
   // 4. Launch the supervised run in the project's repo. If startRun throws, the
   //    'running' workflow_run row and the in_progress task locks would leak — so
-  //    on failure we finalize the row 'failed', revert each task to 'open', log,
-  //    and re-throw (the route surfaces a 500). Mirrors runSkillTest's degrade.
+  //    on failure we finalize the row 'failed', restore each task to the prior
+  //    (status, completed_at) it carried before step 2's lock — captured in the
+  //    `tasks` objects (rowToProjectTask runs before the flip), so a selected 'done'
+  //    task stays done instead of being clobbered to 'open' — log, and re-throw
+  //    (the route surfaces a 500). Mirrors runSkillTest's degrade.
   let run
   try {
     run = await startRun(buildDelegationPrompt(tasks), {
@@ -151,37 +153,20 @@ export async function dispatchTaskWorkflow(
       projectTasksDb.updateProjectTaskStatus.run({
         id: task.id,
         projectId: project.id,
-        status: 'open',
-        completedAt: null,
+        status: task.status,
+        completedAt: task.completedAt,
       })
     }
     console.warn('[workflows] startRun dispatch failed:', e)
     throw e
   }
 
-  // 5. Patch the runId back onto the workflow_run.
-  workflowRunsDb.patchWorkflowRunId.run(run.id, workflowRunId)
-
-  // 6. Finalize when the run terminates. unsub() runs BEFORE the finalize write
-  //    so a duplicate terminal event can't re-finalize the row.
-  const unsub = eventBus.onRunUpdate(r => {
-    if (r.id !== run.id || !TERMINAL.has(r.status)) return
-    unsub()
-    finalizeWorkflowRun(workflowRunId, r.status)
+  // 5. Wire the supervised-run completion lifecycle (patch runId, finalize on
+  //    terminal, race-backstopped) — shared via run-lifecycle.ts.
+  trackSupervisedRun(run.id, {
+    onStarted: rid => workflowRunsDb.patchWorkflowRunId.run(rid, workflowRunId),
+    finalize: status => finalizeWorkflowRun(workflowRunId, status),
   })
-
-  // Backstop the await/subscribe race: if the run already reached a terminal
-  // state before we subscribed, finalize now instead of leaking a 'running' row.
-  const current = runsDb.getRun.get(run.id) as { status?: string } | undefined
-  if (current?.status != null && TERMINAL.has(current.status)) {
-    unsub()
-    // Re-read the workflow_run: the subscriber may have already finalized it.
-    // Only finalize if it's still 'running' so we don't double-write.
-    const wfRow = workflowRunsDb.getWorkflowRun.get(workflowRunId) as { status?: string } | undefined
-    if (wfRow?.status === 'running') {
-      finalizeWorkflowRun(workflowRunId, current.status)
-    }
-  }
 
   // 7. Do NOT auto-mark todos done.
   return { workflowRunId, runId: run.id }

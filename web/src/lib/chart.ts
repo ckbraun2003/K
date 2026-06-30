@@ -21,7 +21,7 @@ export function stackDays(data: MetricsTimeseries, metric: Metric): { days: Stac
 
   // compute per-day totals
   const dayTotals = dates.map((_, di) =>
-    series.reduce((sum, s) => sum + s.points[di][metric], 0)
+    series.reduce((sum, s) => sum + (s.points[di]?.[metric] ?? 0), 0)
   )
   const maxTotal = Math.max(...dayTotals, 1)
 
@@ -29,7 +29,7 @@ export function stackDays(data: MetricsTimeseries, metric: Metric): { days: Stac
     let cursor = 0
     const segments: StackSegment[] = []
     for (let si = 0; si < series.length; si++) {
-      const v = series[si].points[di][metric]
+      const v = series[si].points[di]?.[metric] ?? 0
       if (v === 0) continue
       const y0pct = (cursor / maxTotal) * 100
       cursor += v

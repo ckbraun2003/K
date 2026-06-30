@@ -74,23 +74,21 @@ describe('migrate() — events(run_id, seq) uniqueness', () => {
 })
 
 describe('parseLine — ingest validation', () => {
-  const ctx = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
-
   it('drops a line whose parsed event fails AgentEventSchema (non-uuid runId)', () => {
     // Valid JSON, valid structure — but runId is not a uuid, so AgentEventSchema
     // rejects it. Must return null (dropped), never throw.
     const line = JSON.stringify({ type: 'assistant', message: { content: [] } })
-    expect(parseLine(line, 'not-a-uuid', 1, ctx)).toBeNull()
+    expect(parseLine(line, 'not-a-uuid', 1)).toBeNull()
   })
 
   it('still returns a valid event for a well-formed line with a uuid runId', () => {
     const line = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } })
-    const ev = parseLine(line, uuid(), 1, ctx)
+    const ev = parseLine(line, uuid(), 1)
     expect(ev).not.toBeNull()
     expect(ev!.text).toBe('hi')
   })
 
   it('drops malformed JSON without throwing', () => {
-    expect(parseLine('{not json', uuid(), 1, ctx)).toBeNull()
+    expect(parseLine('{not json', uuid(), 1)).toBeNull()
   })
 })

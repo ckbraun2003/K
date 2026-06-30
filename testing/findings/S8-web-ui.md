@@ -22,11 +22,11 @@ pinned-behavior tests run GREEN in `web/test/**` (gating).
 
 | id | severity | category | classification | status | test |
 |----|----------|----------|----------------|--------|------|
-| S8-001 | High | Robustness | **FAULT** | quarantined | `web/test/regressions/s8a-001-null-event-entry-crashes-projection.test.ts` |
-| S8-002 | Low (latent) | Bug/Robustness | **FAULT** | quarantined | `web/test/regressions/s8a-002-workflow-checklist-unknown-status-crash.test.tsx` |
-| S8-003 | High | Robustness | **FAULT** | quarantined | `web/test/regressions/s8a-003-cron-range-expansion-dos.test.ts` |
-| S8-004 | Med | Robustness | **FAULT** | quarantined | `web/test/regressions/s8a-004-stackdays-ragged-series-throws.test.ts` |
-| S8-005 | Low | Bug/Docs-mismatch | **FAULT** | quarantined | `web/test/regressions/s8a-005-verify-nonfinite-inputs.test.ts` |
+| S8-001 | High | Robustness | **FAULT** | **fixed + promoted (F1.W1)** | `web/test/s8a-001-null-event-entry-crashes-projection.test.ts` (now GREEN, gating) |
+| S8-002 | Low (latent) | Bug/Robustness | **FAULT** | **fixed + promoted (F1.W4d)** | `web/test/s8a-002-workflow-checklist-unknown-status-crash.test.tsx` (now GREEN, gating) |
+| S8-003 | High | Robustness | **FAULT** | **fixed + promoted (F1.W1)** | `web/test/s8a-003-cron-range-expansion-dos.test.ts` (now GREEN, gating) |
+| S8-004 | Med | Robustness | **FAULT** | **fixed + promoted (F1.W3)** | `web/test/s8a-004-stackdays-ragged-series-throws.test.ts` (now GREEN, gating) |
+| S8-005 | Low | Bug/Docs-mismatch | **FAULT** | **fixed + promoted (F1.W4d)** | `web/test/s8a-005-verify-nonfinite-inputs.test.ts` (now GREEN, gating) |
 | S8-006 | — (verified) | Robustness | LOCK | codified | `web/test/campaign-s8a-event-helpers-robustness.test.ts` |
 | S8-007 | — (verified) | Edge | LOCK | codified | `web/test/campaign-s8a-source-classify.test.ts` |
 | S8-008 | — (verified) | Edge/Robustness | LOCK | codified | `web/test/campaign-s8a-command-parse-edge.test.ts` |
@@ -35,7 +35,8 @@ pinned-behavior tests run GREEN in `web/test/**` (gating).
 | S8-011 | Low | Robustness | non-fault (observation) | documented | — (see note) |
 | S8-012 | Low | Robustness | non-fault (observation) | documented | — (see note) |
 
-FAULT (red, quarantine): 5 findings (14 red tests + 1 green sanity guard) · LOCK (passing, gating):
+FAULT: 5 findings — **all fixed + promoted to gating** (S8-001 + S8-003 F1.W1; S8-004 F1.W3; S8-002 +
+S8-005 F1.W4d), all now GREEN; **0 remain in quarantine** (web quarantine empty). LOCK (passing, gating):
 5 files / 25 tests · non-fault observations: 2.
 
 ---
@@ -49,8 +50,8 @@ FAULT (red, quarantine): 5 findings (14 red tests + 1 green sanity guard) · LOC
 - **actual:** one null entry throws and blanks the entire run console / workflow tree (not just its row).
 - **reachability (High, but caveated).** Unlike S8-002 this path is gated by **nothing** — the events array (`RunConsole.tsx` via `mergeEvents`) is fed by a streaming-JSON parser of external CLI stdout with no Zod/CHECK guard, and the helpers' own docstrings promise null-tolerance that the sibling `context.ts:42` honors but `console.ts`/`workflow.ts` don't. That internal-consistency gap + total blast radius justifies High. The caveat: a *well-formed* stream won't emit a literal `null` entry, so the trigger presumes a malformed/partial/interleaved frame (a dropped or truncated event slot) rather than ordinary data — Med would also be defensible. Codified regardless, since the promised invariant is violated and the reach is genuinely higher than the double-gated S8-002 / type-contract S8-011.
 - **evidence:** PROBER-B + VALIDATOR-B both reproduced the three TypeErrors under vitest (node).
-- **fix sketch (finding, not an edit):** add `if (e == null) continue` in pairToolCalls' two loops and `if (item == null) continue` in groupConsoleItems.
-- **test-path:** `web/test/regressions/s8a-001-null-event-entry-crashes-projection.test.ts` (RED — asserts the helpers skip a null entry and project the valid rest).
+- **fix (F1.W1):** added `if (e == null) continue` in pairToolCalls' two loops and `if (item == null) continue` in groupConsoleItems — the exact sketch below.
+- **test-path:** `web/test/s8a-001-null-event-entry-crashes-projection.test.ts` (**GREEN, promoted to gating** — asserts the helpers skip a null/undefined entry and project the valid rest).
 
 ### S8-002 — WorkflowChecklist blank-screens on a step whose `status` is out of enum · FAULT (latent)
 - **system:** `web/src/components/WorkflowChecklist.tsx`.
@@ -61,8 +62,8 @@ FAULT (red, quarantine): 5 findings (14 red tests + 1 green sanity guard) · LOC
 - **actual:** unguarded enum lookup → undefined deref → blank region.
 - **reachability (why Low/latent, downgraded from High at review).** An out-of-enum status is **double-gated before it can reach the component** and is NOT producible from shipped data: (1) the *only* writer, `workflow_step_set`, parses `status: WorkflowStepStatusSchema` (the 5-value enum) via `z.object(WorkflowStepSetInput).parse(args)` — `core/src/mcp/k-store.ts:202,207` — so a typo'd/bogus value throws a Zod error and never reaches the DB; (2) the column itself is `CHECK(status IN ('pending','in_progress','done','blocked','failed'))` — `core/src/db.ts:219-220` — so a direct bad insert throws a CHECK violation; (3) the GET route (`core/src/routes/runs.ts`) returns rows verbatim with no synthesis. This is strictly *more* guarded than S8-011 (TS type + single producer), which was downgraded to a non-codified observation — so for calibration consistency S8-002 is **latent**, not High. The realistic vector is **enum-drift**: a future status added to the tool schema + DB CHECK but not to the component `STATUS` map would silently blank the checklist. The RED test is retained as a forward-compat blast-radius guard (one bad row takes down sibling rows), not because the input is reachable today.
 - **evidence:** PROBER-B + VALIDATOR-B both reproduced the TypeError under jsdom and confirmed the good sibling row did not render in the mixed case; reachability gates verified at review against `k-store.ts:202,207` + `db.ts:219-220`.
-- **fix sketch:** `const st = STATUS[s.status] ?? { icon: '•', cls: 'text-[var(--muted)]' }`. (Companion LOCK S8-010 pins that an unknown `kind` already degrades gracefully — only status is fatal.)
-- **test-path:** `web/test/regressions/s8a-002-workflow-checklist-unknown-status-crash.test.tsx` (RED).
+- **fix (F1.W4d):** added a module-level `STATUS_FALLBACK = { icon: '•', cls: 'text-[var(--muted)]' }` next to the `STATUS` map and changed the lookup to `const st = STATUS[s.status] ?? STATUS_FALLBACK`, so an unknown status degrades to a neutral glyph/colour and the row + its valid siblings still render. Known-status rendering is byte-identical. (Companion LOCK S8-010 pins that an unknown `kind` already degrades gracefully — only status was fatal.)
+- **test-path:** `web/test/s8a-002-workflow-checklist-unknown-status-crash.test.tsx` (**GREEN, promoted to gating** — asserts a `'cancelled'`/`''` status renders without throwing and a valid sibling row survives alongside a bad one).
 
 ### S8-003 — cron validator expands ranges before bounds-checking → zero-step OOM-crash / oversized-range freeze · FAULT
 - **system:** `web/src/lib/cron.ts` (`convertRange`, reached by `checkCron`/`isValidCron`).
@@ -72,9 +73,9 @@ FAULT (red, quarantine): 5 findings (14 red tests + 1 green sanity guard) · LOC
 - **expected:** an inline-hint validator that runs on every keystroke rejects implausible expressions cheaply and never hangs/OOMs the thread — `{ valid: false }` for both a zero step and an oversized range.
 - **actual:** process crash (zero step) / multi-second freeze (oversized range). The illegal-char guard `/^[a-zA-Z0-9\-*/, ]+$/` admits `1-2000000` and `*/0`, so both are reachable from the UI.
 - **evidence:** PROBER-A + VALIDATOR-A both reproduced: zero-step → `# Fatal JavaScript invalid size error 169220804`, exit 3; oversized → `valid=false` after ~3.4s.
-- **fix sketch:** reject `step <= 0`; bounds-check each field token against its min/max BEFORE expanding (so `2000000 > 59` rejects without materialising the range).
+- **fix (F1.W1):** a cheap pre-scan in `checkCron` rejects `step <= 0` and any range span `> MAX_RANGE_SPAN` (1000) BEFORE `convertExpression` expands; `convertRange`'s materialisation loop is additionally bounded (belt-and-suspenders) so it can never hang/OOM even if reached directly.
 - **test mechanism (note):** the regression runs the REAL `cron.ts` (compiled in-runtime via `vite.transformWithEsbuild`, no source copy) inside a **heap-constrained, disposable `worker_threads` worker**. This makes detection memory-based and machine-independent and CANNOT crash the runner: an array-size OOM is contained as `ERR_WORKER_OUT_OF_MEMORY`, and a runaway loop is `terminate()`d at a time bound. A fixed validator returns `{valid:false}` in trivial memory (GREEN); the buggy one blows the 64 MB worker heap or times out (RED). The oversized-range test uses `1-5000000` — stronger than the `1-2000000` (~3.4s) measured in the repro above — for margin against both the 64 MB heap and the 4 s bound. A `*/5 9-17 * * 1-5` sanity case proves the harness reports a real verdict.
-- **test-path:** `web/test/regressions/s8a-003-cron-range-expansion-dos.test.ts` (3 RED + 1 green sanity).
+- **test-path:** `web/test/s8a-003-cron-range-expansion-dos.test.ts` (**GREEN, promoted to gating** — 3 reject-cheaply cases + 1 sanity).
 
 ### S8-004 — chart.stackDays throws on ragged/short series points · FAULT
 - **system:** `web/src/lib/chart.ts` (`stackDays`).
@@ -84,7 +85,8 @@ FAULT (red, quarantine): 5 findings (14 red tests + 1 green sanity guard) · LOC
 - **expected:** per the S8 charter ("never throw, degrade defensibly"), a missing day contributes 0 (`s.points[di]?.[metric] ?? 0`).
 - **actual:** unguarded index → TypeError. The server's `MetricsTimeseries` is normally rectangular, so this requires a malformed/partial payload — but the helper assumes alignment with no guard.
 - **evidence:** PROBER-A + VALIDATOR-A both reproduced both the short-points and empty-points throws.
-- **test-path:** `web/test/regressions/s8a-004-stackdays-ragged-series-throws.test.ts` (RED — asserts degrade-to-zero).
+- **fix (F1.W3):** both lookups in `stackDays` now guard with `s.points[di]?.[metric] ?? 0` (the day-totals reduce + the segment loop), so a missing day contributes 0 and the chart degrades instead of throwing (`maxTotal` already floors at 1).
+- **test-path:** `web/test/s8a-004-stackdays-ragged-series-throws.test.ts` (**GREEN, promoted to gating** — asserts degrade-to-zero).
 
 ### S8-005 — verify.ts does not defend non-finite numeric inputs (barPct NaN escapes its documented clamp; time helpers emit "NaNd ago") · FAULT
 - **system:** `web/src/lib/verify.ts` (`barPct`, `relativeTime`, `formatTimeAgo`).
@@ -94,8 +96,8 @@ FAULT (red, quarantine): 5 findings (14 red tests + 1 green sanity guard) · LOC
 - **expected:** non-finite numeric inputs degrade to a safe value (a clamped finite [0,1] fraction; a neutral time label). `±Infinity` already clamp correctly in barPct (→1 / →0); only NaN escapes.
 - **actual:** NaN propagates through `Math.max/min` and the time arithmetic into the DOM as visible garbage.
 - **evidence:** PROBER-A + VALIDATOR-A both reproduced `barPct(NaN,40)=NaN` and the "NaNd ago"/"Infinityd ago" strings.
-- **fix sketch:** `barPct`: `if (!Number.isFinite(value) || max <= 0) return 0`. Time helpers: guard a non-finite `ts`.
-- **test-path:** `web/test/regressions/s8a-005-verify-nonfinite-inputs.test.ts` (RED — asserts finite clamp + no NaN/Infinity label).
+- **fix (F1.W4d):** `barPct` now uses a result-finite guard — `const r = Math.max(0, Math.min(1, value / max)); return Number.isFinite(r) ? r : 0` (keeping the `max <= 0` early return), so `NaN` collapses to 0 while the correct `±Infinity` clamps (→1 / →0) are PRESERVED. `relativeTime` guards a non-finite `ts` at the top (`return 'unknown'`); `formatTimeAgo` extends its null guard to `ts == null || !Number.isFinite(ts) → 'never verified'`. All finite/normal paths byte-identical.
+- **test-path:** `web/test/s8a-005-verify-nonfinite-inputs.test.ts` (**GREEN, promoted to gating** — asserts finite clamp in [0,1] + no NaN/Infinity label).
 
 ### S8-006 — run-console helpers tolerate hostile shapes (NUL/unicode/huge, proto keys, off-type/duplicate ids) · LOCK
 - **system:** `web/src/lib/console.ts` (`pairToolCalls`, `groupConsoleItems`, `commandText`, `resultText`, `fileDetail`, `delegateResultText`).

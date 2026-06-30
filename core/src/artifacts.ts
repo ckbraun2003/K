@@ -15,6 +15,8 @@ import { v4 as uuid } from 'uuid'
 import type { Artifact } from '@k/shared'
 import { artifactsDb } from './db.js'
 import { sanitizeRenderedHtml } from './sanitize.js'
+import { escHtml } from './html.js'
+import { isPathWithin } from './paths.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // core/src/* and core/dist/* are both two levels below the repo root
@@ -126,10 +128,6 @@ function htmlTemplate(title: string, bodyHtml: string): string {
 </html>`
 }
 
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
 /**
  * Resolve `${slug}.{ext}` under ARTIFACTS_DIR and assert it cannot escape that
  * root (defense-in-depth — the route boundary also validates the slug shape).
@@ -138,8 +136,7 @@ function escHtml(s: string): string {
 function artifactPath(slug: string, ext: 'md' | 'html'): string {
   const root = path.resolve(ARTIFACTS_DIR)
   const abs = path.resolve(root, `${slug}.${ext}`)
-  const sep = root.endsWith(path.sep) ? '' : path.sep
-  if (!abs.startsWith(root + sep)) {
+  if (!isPathWithin(root, abs)) {
     throw new Error(`artifacts: slug escapes ARTIFACTS_DIR — abs="${abs}", root="${root}"`)
   }
   return abs

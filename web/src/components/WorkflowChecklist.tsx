@@ -10,6 +10,10 @@ const STATUS: Record<WorkflowStep['status'], { icon: string; cls: string }> = {
   failed: { icon: '✕', cls: 'text-[color:rgba(248,113,113,0.95)]' },
 }
 
+// Neutral glyph/colour for an out-of-enum status (enum-drift forward-compat):
+// one bad row must never blank its valid siblings.
+const STATUS_FALLBACK = { icon: '•', cls: 'text-[var(--muted)]' }
+
 /** Short badge label per step kind (ticket · loop phase · review · CI gate). */
 const KIND_LABEL: Record<WorkflowStep['kind'], string> = {
   task: 'ticket',
@@ -50,7 +54,7 @@ export default function WorkflowChecklist({
       ) : (
         <ul className="space-y-1">
           {steps.map(s => {
-            const st = STATUS[s.status]
+            const st = STATUS[s.status] ?? STATUS_FALLBACK
             return (
               <li
                 key={s.id}

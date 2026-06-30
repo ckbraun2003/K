@@ -47,7 +47,7 @@ previously-`done` task.
 | S2-014 | workflow_runs | Low | Edge | `workflow_status_set` | set `completed` then `running` | overall status is NOT sticky mid-run; `running` clears `completed_at` | matches — only the supervisor's finalize is authoritative; an agent can leave a stale status until then | LOCK (characterization) | `core/test/campaign-s2-workflow-finalize.test.ts` | codified |
 | S2-015 | workflow_runs | Low | Edge | `finalizeWorkflowRun` (no terminal lock) | finalize `done` then `error` on the same row | last-writer-wins overwrite | matches — the dispatch flow guards double-finalize via unsub/backstop, but the exported seam itself is unguarded by design | LOCK (characterization) | `core/test/campaign-s2-workflow-finalize.test.ts` | codified |
 | S2-016 | workflow_runs + project_tasks | Medium | Robustness | `dispatchTaskWorkflow` step 7 (no auto-done) | dispatch over 2 open todos; emit terminal `done` | workflow_run → `completed`, but todos STAY `in_progress` (PR decides done) | matches — the harness never auto-marks a todo `done` | LOCK | `core/test/campaign-s2-workflow-finalize.test.ts` | codified |
-| **S2-017** | **workflow_runs + project_tasks** | **Medium** | **Bug** | **`dispatchTaskWorkflow` steps 2 + 4-catch** | **task is `done` (completed_at set); `startRun` throws; dispatch([doneTask])** | **a FAILED dispatch leaves the done task untouched (status `done`, completed_at preserved)** | **status `open`, completed_at `null` — the task was silently un-completed** | **FAULT** | **`core/test/regressions/s2-017-dispatch-degrade-clobbers-done.test.ts`** | **quarantined** |
+| **S2-017** | **workflow_runs + project_tasks** | **Medium** | **Bug** | **`dispatchTaskWorkflow` steps 2 + 4-catch** | **task is `done` (completed_at set); `startRun` throws; dispatch([doneTask])** | **a FAILED dispatch leaves the done task untouched (status `done`, completed_at preserved)** | **status `open`, completed_at `null` — the task was silently un-completed** | **FAULT (fixed)** | **`core/test/s2-017-dispatch-degrade-clobbers-done.test.ts`** | **fixed + promoted to gating (F1.W2)** |
 
 ---
 
@@ -88,6 +88,12 @@ re-marked `done` — consistent with S2-016 but still an unintended un-completio
 completedAt}` and restore it on degrade instead of forcing `'open'`; or (b) refuse to dispatch tasks
 that are not `open`/`in_progress` (guard at the route and/or in `dispatchTaskWorkflow`). The red test
 asserts behavior (a) and flips green when fixed — at which point move it into `core/test/`.
+
+**FIXED (reboot wave F1.W2):** the degrade-path catch now restores each task to the prior `{status,
+completedAt}` captured in the loaded `tasks` objects (before step 2's lock) instead of hard-coding
+`'open'`/null — so a selected `done` task stays `done` with its original `completed_at`. The success
+path is unchanged (tasks stay `in_progress`; never auto-`done`). The test went green and was promoted
+to gating (`core/test/s2-017-dispatch-degrade-clobbers-done.test.ts`).
 
 ---
 

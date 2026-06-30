@@ -29,12 +29,14 @@ export function groupFindings(findings: Finding[]): { severity: Severity; items:
 // malformed/over-max value can never blow past a full bar.
 export function barPct(value: number, max: number): number {
   if (max <= 0) return 0
-  return Math.max(0, Math.min(1, value / max))
+  const r = Math.max(0, Math.min(1, value / max))
+  return Number.isFinite(r) ? r : 0
 }
 
 // Coarse calendar-ish relative time string ("3d ago", "just now").
 // Distinct from RunTimeline.formatRelTime which formats a ms offset as "+12.3s".
 export function relativeTime(ts: number, now: number = Date.now()): string {
+  if (!Number.isFinite(ts)) return 'unknown'
   const sec = Math.max(0, Math.round((now - ts) / 1000))
   if (sec < 60) return 'just now'
   const min = Math.floor(sec / 60)
@@ -46,7 +48,7 @@ export function relativeTime(ts: number, now: number = Date.now()): string {
 
 // Verification-context wrapper: prepends "verified" or returns "never verified".
 export function formatTimeAgo(ts: number | undefined, now: number = Date.now()): string {
-  if (ts == null) return 'never verified'
+  if (ts == null || !Number.isFinite(ts)) return 'never verified'
   const rel = relativeTime(ts, now)
   return rel === 'just now' ? 'verified just now' : `verified ${rel}`
 }

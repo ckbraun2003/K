@@ -9,7 +9,10 @@ data/
 *.db-wal
 # persisted harness bearer token (first-run generated secret) — never commit
 auth-token
-artifacts/
+# artifacts: track the bible sources (artifacts/bible/**) — the living spec.
+# the compiled *.html (project-bible.html, ui-demo.html, mobile-ui-demo.html) is
+# generated/overwritten on boot, so keep build output out of the repo.
+artifacts/*.html
 tasks/
 .superpowers/
 workspace/
@@ -23,5 +26,6 @@ test-results/
 playwright-report/
 CLAUDE.md
 AGENTS.md
-.claude/skills/gitnexus/
-.claude/worktrees/
+# local harness working dirs — kept on disk, out of version control
+.claude/
+docs/

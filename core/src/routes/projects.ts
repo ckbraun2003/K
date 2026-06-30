@@ -8,7 +8,7 @@ import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { dispatchTaskWorkflow, TaskNotFoundError } from '../workflows.js'
-import { verificationDb, rowToReport, projectTasksDb, projectsDb } from '../db.js'
+import { verificationDb, rowToReport, projectTasksDb, projectsDb, rowToProjectTask } from '../db.js'
 import { buildGraph, getGraphMeta, isGraphStale, enrichNodes } from '../graph.js'
 import { CreatePrOptsSchema, GraphDispatchBodySchema, DispatchTasksBodySchema, type ProjectTask, type GithubStatus } from '@k/shared'
 
@@ -142,7 +142,7 @@ export async function projectsRoutes(app: FastifyInstance) {
     const project = getProject(req.params.id)
     if (!project) return reply.status(404).send({ error: 'not found' })
     const rows = projectTasksDb.listProjectTasks.all(project.id) as Array<Record<string, unknown>>
-    return reply.send(rows.map(rowToTask))
+    return reply.send(rows.map(rowToProjectTask))
   })
 
   // POST /api/projects/:id/tasks — create a task
@@ -207,7 +207,7 @@ export async function projectsRoutes(app: FastifyInstance) {
         status,
         completedAt,
       })
-      return reply.send(rowToTask({ ...row, status, completed_at: completedAt }))
+      return reply.send(rowToProjectTask({ ...row, status, completed_at: completedAt }))
     }
   )
 
@@ -275,7 +275,10 @@ export async function projectsRoutes(app: FastifyInstance) {
         edges?: Array<Record<string, unknown>>
         links?: Array<Record<string, unknown>>
       }
-      const baseNodes = (data.nodes ?? []).map(n => ({
+      // Skip null/non-object entries per-entry (a corrupt/partial artifact can
+      // hold them) so one bad node/link doesn't throw out of the .map and collapse
+      // the whole view — mirrors toGraphJson's per-entry tolerance at the build layer.
+      const baseNodes = (data.nodes ?? []).filter(n => n != null && typeof n === 'object').map(n => ({
         id: n.id ?? n.name,
         label: (n.label ?? n.name ?? n.id) as string,
         type: n.type as string | undefined,
@@ -285,7 +288,7 @@ export async function projectsRoutes(app: FastifyInstance) {
       // Best-effort per-node enrichment from existing harness data (Wave 2).
       // Never throws — a node only gains facts we could derive.
       const nodes = enrichNodes(project, baseNodes)
-      const links = (data.links ?? data.edges ?? []).map(e => ({
+      const links = (data.links ?? data.edges ?? []).filter(e => e != null && typeof e === 'object').map(e => ({
         source: (e.source ?? e.from) as string,
         target: (e.target ?? e.to) as string,
         type: e.type as string | undefined,
@@ -357,16 +360,3 @@ function buildDispatchPrompt(body: { nodeId: string; file?: string; action?: 'in
   }
 }
 
-function rowToTask(r: Record<string, unknown>) {
-  return {
-    id: r.id,
-    projectId: r.project_id,
-    title: r.title,
-    status: r.status,
-    createdAt: r.created_at,
-    completedAt: r.completed_at ?? null,
-    issueNumber: r.issue_number ?? null,
-    issueUrl: r.issue_url ?? null,
-    issueState: r.issue_state ?? null,
-  }
-}

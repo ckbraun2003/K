@@ -9,8 +9,9 @@
  * at compile time:  <!-- @live:stats -->  <!-- @live:recent-runs -->
  *                   <!-- @live:roadmap-progress -->  <!-- @live:health -->
  *
- * Agents edit sections, never the compiled HTML. Every project's bible lives at
- * <repo>/artifacts/bible/ (gitignored, K-owned) — the harness's own included.
+ * Agents edit sections, never the compiled HTML. A project's bible sources
+ * (manifest.json + sections/) are git-tracked; only the compiled artifacts/*.html
+ * is gitignored.
  */
 
 import fs from 'fs'
@@ -20,6 +21,7 @@ import { db, artifactsDb } from './db.js'
 import { ARTIFACTS_DIR } from './artifacts.js'
 import { parseFrontmatter, roadmapPhases } from './bible-parse.js'
 import { sanitizeRenderedHtml } from './sanitize.js'
+import { escHtml } from './html.js'
 
 // ── Section model ─────────────────────────────────────────────────────────────
 
@@ -126,29 +128,25 @@ function resolveDirectives(md: string): string {
   })
 }
 
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
 // ── Template (precision minimal — see bible section 06 for the token spec) ────
 
 const STATUS_CLASS: Record<string, string> = { stable: 'green', active: 'accent', draft: 'amber' }
 
 function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & { html: string }>): string {
   const nav = sections.map(s => `
-    <a class="nav-item" href="#${s.slug}" data-section="${s.slug}">
+    <a class="nav-item" href="#${escHtml(s.slug)}" data-section="${escHtml(s.slug)}">
       <span class="nav-icon">${escHtml(s.icon)}</span>
       <span class="nav-title">${escHtml(s.title)}</span>
-      <span class="dot dot-${STATUS_CLASS[s.status] ?? 'amber'}" title="${s.status}"></span>
+      <span class="dot dot-${STATUS_CLASS[s.status] ?? 'amber'}" title="${escHtml(s.status)}"></span>
     </a>`).join('')
 
   const body = sections.map(s => `
-    <section id="${s.slug}" class="bible-section">
+    <section id="${escHtml(s.slug)}" class="bible-section">
       <header class="section-head">
         <span class="section-icon">${escHtml(s.icon)}</span>
         <h1>${escHtml(s.title)}</h1>
-        <span class="badge badge-${STATUS_CLASS[s.status] ?? 'amber'}">${s.status}</span>
-        <span class="section-updated mono">updated ${s.updated}</span>
+        <span class="badge badge-${STATUS_CLASS[s.status] ?? 'amber'}">${escHtml(s.status)}</span>
+        <span class="section-updated mono">updated ${escHtml(s.updated)}</span>
       </header>
       ${s.html}
     </section>`).join('\n')

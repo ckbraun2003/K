@@ -24,7 +24,7 @@ JSON-RPC `-32601`.
 
 | id | severity | category | classification | status | test |
 |----|----------|----------|----------------|--------|------|
-| S3-001 | Low | Robustness/Edge | **FAULT** | quarantined | `core/test/regressions/s3-001-optional-args-omitted.test.ts` |
+| S3-001 | Low | Robustness/Edge | **FAULT** | **fixed + promoted (F1.W4b)** | `core/test/s3-001-optional-args-omitted.test.ts` (now GREEN, gating) |
 | S3-002 | Nit | Docs-mismatch | LOCK | codified | `core/test/campaign-s3-validation.test.ts`, `…-server.test.ts` |
 | S3-003 | — (verified) | Robustness | LOCK | codified | `core/test/campaign-s3-server.test.ts` |
 | S3-004 | — (verified) | Robustness | LOCK | codified | `core/test/campaign-s3-server.test.ts` |
@@ -36,7 +36,8 @@ JSON-RPC `-32601`.
 | S3-010 | — (verified) | Security/Robustness | LOCK | codified | `core/test/campaign-s3-validation.test.ts` |
 | S3-011 | Low | Docs/Robustness | LOCK | codified | `core/test/campaign-s3-validation.test.ts` |
 
-LOCK (passing, gating): 10 findings · FAULT (red, quarantine): 1 finding.
+LOCK (passing, gating): 10 findings · FAULT: 1 found — **S3-001 fixed + promoted to gating (F1.W4b)**;
+0 remain red in quarantine.
 prober = **S3 probe harness** (`scratchpad/probe.mts`,`probe2.mts`); validator = **S3 vitest
 codification** (`campaign-s3-*.test.ts`, regression) unless noted.
 
@@ -62,7 +63,11 @@ codification** (`campaign-s3-*.test.ts`, regression) unless noted.
   on that change.
 - **impact note:** low — real clients (Claude) always send `arguments:{}`, so this is a sharp edge
   for spec-compliant/hand-rolled callers rather than a live break.
-- **test-path:** `core/test/regressions/s3-001-optional-args-omitted.test.ts` (RED).
+- **fix (F1.W4b):** `k-store.ts` now defaults a missing args object to `{}` before validation at every
+  handler parse site (`z.object(shape).parse(args ?? {})`), so an all-optional tool (`work_item_list`,
+  `lesson_list`) treats an omitted `arguments` as `{}` and returns its empty-filter list. Tools WITH
+  required fields are unaffected — `parse({})` still throws the correct "Required" ZodError. Now GREEN.
+- **test-path:** `core/test/s3-001-optional-args-omitted.test.ts` (**GREEN, promoted to gating**).
 
 ### S3-002 — advertised `additionalProperties:false` but extra args are silently stripped · LOCK
 - **system:** `k-store-server.ts` schema advertisement + zod object behavior.

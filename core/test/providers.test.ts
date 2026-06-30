@@ -9,7 +9,6 @@ import { getProvider, claudeProvider, ollamaProvider } from '../src/providers.js
 import { buildClaudeArgs } from '../src/claude-args.js'
 
 const RUN_ID = '00000000-0000-0000-0000-000000000000'
-const CTX = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
 
 describe('getProvider — routed dispatch', () => {
   it('default (claude) resolves to the claude provider', () => {
@@ -34,7 +33,7 @@ describe('claudeProvider — preserves existing behavior', () => {
 
   it('parseLine parses a claude assistant line', () => {
     const line = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'yo' }] } })
-    const ev = claudeProvider.parseLine(line, '00000000-0000-0000-0000-000000000000', 1, { tokensIn: 0, tokensOut: 0, costUsd: 0 })
+    const ev = claudeProvider.parseLine(line, '00000000-0000-0000-0000-000000000000', 1)
     expect(ev!.text).toBe('yo')
   })
 
@@ -74,17 +73,17 @@ describe('ollamaProvider — local model dispatch', () => {
   })
 
   it('parseLine treats a plain-text line as assistant output', () => {
-    const ev = ollamaProvider.parseLine('hello from llama', RUN_ID, 1, CTX)
+    const ev = ollamaProvider.parseLine('hello from llama', RUN_ID, 1)
     expect(ev!.type).toBe('assistant')
     expect(ev!.text).toBe('hello from llama')
   })
 
   it('parseLine tolerates NDJSON {response} (e.g. --format json)', () => {
-    const ev = ollamaProvider.parseLine(JSON.stringify({ response: 'tok', done: false }), RUN_ID, 2, CTX)
+    const ev = ollamaProvider.parseLine(JSON.stringify({ response: 'tok', done: false }), RUN_ID, 2)
     expect(ev!.text).toBe('tok')
   })
 
   it('parseLine ignores an empty line', () => {
-    expect(ollamaProvider.parseLine('', RUN_ID, 3, CTX)).toBeNull()
+    expect(ollamaProvider.parseLine('', RUN_ID, 3)).toBeNull()
   })
 })

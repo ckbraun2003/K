@@ -18,6 +18,7 @@ import path from 'path'
 import type { Project } from '@k/shared'
 import { scaffoldBible, scaffoldCi } from './scaffold.js'
 import { hasWorkflowFile } from './verify.js'
+import { isPathWithin } from './paths.js'
 
 export interface OnboardResult {
   created: string[]
@@ -51,8 +52,7 @@ export function ensureGitignore(localPath: string): string[] {
   const root = path.resolve(localPath)
   const abs = path.join(root, '.gitignore')
   // Path-guard: mirror scaffold.ts writeIfAbsent — target must stay inside root.
-  const sep = root.endsWith(path.sep) ? '' : path.sep
-  if (!abs.startsWith(root + sep)) {
+  if (!isPathWithin(root, abs)) {
     throw new Error(`ensureGitignore: path escapes localPath — abs="${abs}", root="${root}"`)
   }
 

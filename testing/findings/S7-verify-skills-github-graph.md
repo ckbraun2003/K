@@ -38,7 +38,7 @@ safe, the poller degrades cleanly, and skill-eval regression fires only on a was
 
 | id | system | severity | category | surface | repro | expected | actual | classification | test-path | status |
 |----|--------|----------|----------|---------|-------|----------|--------|----------------|-----------|--------|
-| **S7-001** | **graph route** | **Medium** | **Bug** | **`routes/projects.ts` GET /graph — inline `(data.nodes ?? []).map(n => ({id: n.id ?? n.name, …}))` + the same for links** | **graph.json `nodes:[{id:'good1'},null,{id:'good2'}]`; GET /graph** | **malformed entries skipped; the valid nodes/links still render** | **`n.id` on the null throws TypeError → outer catch returns `{nodes:[],links:[],stale:true}` — ALL good nodes/links lost** | **FAULT** | **`core/test/regressions/s7-001-graph-route-null-node-collapses-view.test.ts`** | **quarantined** |
+| **S7-001** | **graph route** | **Medium** | **Bug** | **`routes/projects.ts` GET /graph — inline `(data.nodes ?? []).map(n => ({id: n.id ?? n.name, …}))` + the same for links** | **graph.json `nodes:[{id:'good1'},null,{id:'good2'}]`; GET /graph** | **malformed entries skipped; the valid nodes/links still render** | **`n.id` on the null throws TypeError → outer catch returns `{nodes:[],links:[],stale:true}` — ALL good nodes/links lost** | **FAULT (fixed)** | **`core/test/s7-001-graph-route-null-node-collapses-view.test.ts`** | **fixed + promoted to gating (F1.W2)** |
 | S7-002 | verify (health score) | Low | Edge | `computeHealthScore` | cartesian product of every CiState × CoverageTrend × bibleFresh × findings-pile (incl. 50 warns, 20 criticals) | score is always an integer in [0,100]; findings component never negative | matches — always integer, clamped, findings floored at 0 | LOCK | `core/test/campaign-s7-verify.test.ts` | codified |
 | S7-003 | verify (CI classify) | Low | Robustness | `classifyCi` sort by `Date.parse(createdAt)` | runs with `createdAt` `''` / `'not-a-date'` mixed with valid | NaN-sort does not change a CONSISTENT verdict (all-success→passing, all-fail→failing, mixed→flaky) | matches — consistency makes ordering irrelevant; malformed dates are harmless | LOCK | `core/test/campaign-s7-verify.test.ts` | codified |
 | S7-004 | verify (scaffold) | Medium | Robustness | `runVerification` → `scaffoldCi` (deterministic CI fix) | bare project in a real git repo; run verification | scaffolded `.github/workflows/ci.yml` is written to the working tree but left UNCOMMITTED (untracked, never git-added); score still reflects CI-missing this run | matches — file present + `?? .github/workflows/ci.yml` + not in `git ls-files`; ci component 0, score 20 | LOCK | `core/test/campaign-s7-verify.test.ts` | codified |
@@ -91,6 +91,11 @@ filter `data.nodes` / `data.links` to truthy objects before mapping (e.g.
 `.filter(n => n && typeof n === 'object')`), so a malformed entry is skipped individually and the
 valid graph still renders. The red test asserts that behavior and flips green when fixed → move it
 into `core/test/`.
+
+**FIXED (reboot wave F1.W2):** the route now filters both arrays per-entry
+(`.filter(n => n != null && typeof n === 'object')`) BEFORE mapping, mirroring `toGraphJson`'s
+build-layer tolerance — so one null entry is skipped and the valid nodes/links still render. The test
+went green and was promoted to gating (`core/test/s7-001-graph-route-null-node-collapses-view.test.ts`).
 
 ---
 

@@ -74,7 +74,7 @@ describe('S1 — projectsDb.deleteProject removes the project + all dependents a
     })
     verificationDb.insertVerificationReport.run({
       id: uuid(), projectId, score: 80, findings: '[]', fixesApplied: '[]',
-      startedAt: now, completedAt: now, scoreBreakdown: null,
+      startedAt: now, completedAt: now, scoreBreakdown: null, coveragePct: null,
     })
     projectTasksDb.insertProjectTask.run({
       id: uuid(), projectId, title: 'task', status: 'open', createdAt: now, completedAt: null,

@@ -2,6 +2,13 @@ import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimes
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
+import type {
+  EvalSystemRow,
+  EvalRunSummary,
+  EvalRunDetail,
+  EvalResultRow,
+  BaselineCompare,
+} from './evals'
 
 export type { SkillRun } from './skill-runs'
 
@@ -208,6 +215,30 @@ export const api = {
       req<{ evalId: string; runId: string }>(`/skills/${id}/test`, { method: 'POST' }),
     evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),
     runs: (id: string) => req<SkillRun[]>(`/skills/${id}/runs`),
+  },
+  // Agent/skill behavioral evals — read the seeded systems, start a (default-dry) run, and inspect
+  // runs/results/regression. A real (token-spending) run requires an explicit `dry: false` body; the
+  // backend defaults `dry` to true, so omitting it is always free.
+  evals: {
+    systems: () => req<EvalSystemRow[]>('/evals/systems'),
+    runs: () => req<EvalRunSummary[]>('/evals/runs'),
+    run: (id: string) => req<EvalRunDetail>(`/evals/runs/${id}`),
+    results: (id: string) => req<EvalResultRow[]>(`/evals/runs/${id}/results`),
+    compare: (id: string) => req<Record<string, BaselineCompare>>(`/evals/runs/${id}/compare`),
+    freezeBaselines: (id: string) =>
+      req<{ frozen: string[] }>(`/evals/runs/${id}/freeze-baselines`, { method: 'POST' }),
+    start: (body: {
+      systems?: string[]
+      cases?: string[]
+      models?: string[]
+      variants?: string[]
+      dry?: boolean
+    }) =>
+      req<{ evalRunId: string }>('/evals/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
   },
   // Settings — provider/auth status + the global system prompt (repo-root CLAUDE.md).
   status: () => req<Status>('/status'),

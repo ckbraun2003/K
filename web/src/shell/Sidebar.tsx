@@ -27,6 +27,7 @@ export const DESTINATIONS: Destination[] = [
   { id: 'skills', icon: '⚒', label: 'Skills', hint: 'Author & trigger reusable skills', enabled: true, section: 'primary' },
   { id: 'metrics', icon: '∿', label: 'Metrics', hint: 'Tokens, cost & run trends', enabled: true, section: 'primary' },
   { id: 'routing', icon: '⇄', label: 'Routing', hint: 'Model routing stats', enabled: true, section: 'primary' },
+  { id: 'evals', icon: '⊨', label: 'Evals', hint: 'Agent & skill behavioral evals + baselines', enabled: true, section: 'primary' },
   { id: 'terminal', icon: '>_', label: 'Terminal', hint: 'Embedded shell', enabled: true, section: 'primary' },
   // Footer cluster — secondary, lives below the spacer.
   { id: 'help', icon: '❔', label: 'Help', hint: 'How to use K — the user guide', enabled: true, view: 'docs', param: 'project-bible', section: 'footer' },

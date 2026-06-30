@@ -191,10 +191,11 @@ describe('POST /api/projects/:id/tasks/dispatch', () => {
     }
   })
 
-  it('500 + { error: "dispatch failed" } and reverts the task to open when startRun fails with a non-task error', async () => {
+  it('500 + { error: "dispatch failed" } and restores the task to its prior status when startRun fails with a non-task error', async () => {
     const project = insertProject()
     const t1 = insertTask(project.id, 'will revert')
-    // Non-TaskNotFound error → 500 degrade path (workflows.ts reverts the lock).
+    // Non-TaskNotFound error → 500 degrade path (workflows.ts restores each task's
+    // prior status; this fixture's task started 'open', so it returns to 'open').
     startRunMock.mockRejectedValueOnce(new Error('EACCES permission denied'))
     const app = Fastify()
     await app.register(projectsRoutes)
@@ -207,7 +208,7 @@ describe('POST /api/projects/:id/tasks/dispatch', () => {
       expect(res.statusCode).toBe(500)
       expect(res.json()).toEqual({ error: 'dispatch failed' })
       expect(startRunMock).toHaveBeenCalledTimes(1)
-      // The degrade path reverted the task back to 'open'.
+      // The degrade path restored the task's prior status (here: 'open').
       expect(taskStatus(t1, project.id)).toBe('open')
     } finally {
       await app.close()

@@ -6,7 +6,7 @@ export type Route = { view: string; param?: string; subParam?: string }
  *  Shell's default branch and TopBar's title fallback. */
 export const KNOWN_VIEWS = new Set([
   'home', 'runs', 'docs', 'projects', 'metrics', 'routing',
-  'verify', 'project', 'graph', 'skills', 'terminal', 'settings', 'workflows',
+  'verify', 'project', 'graph', 'skills', 'terminal', 'settings', 'workflows', 'evals',
 ])
 
 export function isKnownView(view: string): boolean {

@@ -1,7 +1,7 @@
 /**
  * Built-in skill registry tests (Wave 6).
  *
- * The authored `.claude/skills/*` workflows are declared in BUILTIN_SKILLS and
+ * The authored `agent-config/skills/*` workflows are declared in BUILTIN_SKILLS and
  * seeded into the skills table at bootstrap so they appear/trigger from the
  * Skills tab. These tests assert:
  *   - `create-web-ui-artifact` is registered as a built-in.
@@ -41,7 +41,7 @@ describe('BUILTIN_SKILLS', () => {
     expect(skill).toBeDefined()
     expect(skill!.type).toBe('workflow')
     expect(skill!.triggerType).toBe('manual')
-    expect(skill!.source).toBe('.claude/skills/create-web-ui-artifact/SKILL.md')
+    expect(skill!.source).toBe('agent-config/skills/create-web-ui-artifact/SKILL.md')
   })
 
   it('every entry passes CreateSkillSchema and the trigger-type boundary rule', () => {

@@ -61,7 +61,10 @@ export function buildClaudeArgs(
     const cc = opts.claudeConfig
     args.push('--settings', cc.settingsPath)
     args.push('--mcp-config', cc.mcpConfigPath, '--strict-mcp-config')
-    args.push('--allowedTools', ...cc.allowedTools)
+    // Only emit --allowedTools when there is at least one tool; an empty list
+    // would leave a dangling flag that swallows the next flag (the
+    // --append-system-prompt-file injection) as its value.
+    if (cc.allowedTools.length > 0) args.push('--allowedTools', ...cc.allowedTools)
     args.push('--append-system-prompt-file', cc.appendSystemPromptFile)
   }
   return args
