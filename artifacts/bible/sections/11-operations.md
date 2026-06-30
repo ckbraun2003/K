@@ -148,6 +148,7 @@ Beyond the registry/metrics endpoints, the project + verification surface is:
 | `core/src/events.ts` | EventBus — the B-seam |
 | `core/src/router.ts` | ModelRouter — the model seam |
 | `core/src/supervisor.ts` | agent lifecycle: worktree + spawn + parse + emit |
+| `core/src/run-lifecycle.ts` | `trackSupervisedRun` — the shared supervised-run lifecycle seam (insert tracking row → `startRun` → subscribe-until-terminal → finalize-exactly-once + race backstop); the 3 supervised callers ride it, and `startAgentRun` (P5) extends it (F2.W1) |
 | `core/src/agent-config.ts` | `synthesizeConfigDir` — builds the per-run `CLAUDE_CONFIG_DIR` (settings, allowlist, MCP, vendored skills, injected L0+L1 prompt) so host `~/.claude` never loads |
 | `core/src/profiles.ts` | `AgentProfile` registry + the single default `controller` profile (pre-Phase-5 bridge) |
 | `core/src/claude-args.ts` | pure: resolve `RUN_PERMISSION_MODE` + build claude CLI argv (worktree-gated `--permission-mode`, per-tier `--allowedTools`, `--mcp-config`/`--strict-mcp-config`) |
@@ -160,8 +161,11 @@ Beyond the registry/metrics endpoints, the project + verification surface is:
 | `core/src/projects.ts` | project registry (register/clone) |
 | `core/src/scaffold.ts` | pure bible/CI scaffolders (idempotent, path-guarded) |
 | `core/src/onboard.ts` | enforce the 3 §05 project invariants (delegates to the scaffolders) |
-| `core/src/verify.ts` | health-score engine + auditors + `runVerification` orchestration |
+| `core/src/verify.ts` | health-score engine + auditors + `runVerification` orchestration (incl. the live coverage-trend signal, F4) |
 | `core/src/metrics.ts` | metrics summary + `buildTimeseries` (day × project\|model, top-8 + other) |
+| `core/src/eval/` | the in-engine behavioral eval subsystem (F3): `dispatch`/`sandbox`/`graders`/`judge`/`metrics`/`runner` (the ported harness) + `service.ts` (`startEvalRun`, **dry-default**) + `store.ts` (DB-registry seed/load); see §07 |
+| `core/src/routes/evals.ts` | the Evals HTTP surface — 7 endpoints over the run service (dry-default `POST /api/evals/run`) |
+| `core/src/html.ts` · `core/src/paths.ts` | shared `escHtml` + path-containment guard (`isPathWithin`) — the F2 leaf-util dedup |
 | `artifacts/bible/` | this document's source |
 
 ## Schema migrations
