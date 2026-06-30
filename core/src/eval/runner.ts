@@ -57,7 +57,10 @@ export async function runEvalMatrix(opts: RunMatrixOptions = {}): Promise<EvalRe
   const onlyCases = opts.cases ?? null
   const concurrency = opts.concurrency ?? 5
   const turnsCap = opts.turnsCap ?? 14
-  const dry = !!opts.dry
+  // Token-safety (F4.W2): default to DRY. `opts.dry !== false` treats an OMITTED dry as dry (no
+  // dispatch), so EVERY layer defaults to dry and a caller that forgets the flag can never
+  // accidentally spend tokens. Only an explicit `dry: false` runs the real claude.exe dispatch.
+  const dry = opts.dry !== false
   const runId = (opts.runId || new Date().toISOString().replace(/[:.]/g, '-')) + (dry ? '-dry' : '')
 
   // Systems source is injectable (defaults to the file loader); the service injects loadSystemsFromDb.

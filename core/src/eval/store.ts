@@ -166,7 +166,10 @@ function rowToEvalCase(r: EvalCaseRow): EvalCase {
   return c
 }
 
-/** Read eval_systems (+ their eval_cases) back into the EvalSystem[] shape loadSystems() returns. */
+/** Read eval_systems (+ their eval_cases) back into the EvalSystem[] shape loadSystems() returns.
+ *  Only ENABLED systems (enabled = 1) load: this is the RUNNER's registry source, so a disabled
+ *  system is excluded from eval runs (F4.W2). The dashboard's LIST endpoint (db.ts listEvalSystems)
+ *  stays unfiltered so the operator can still see + re-enable a disabled system. */
 export function loadSystemsFromDb(
   opts: { root?: string; only?: string[]; db?: Database.Database } = {},
 ): EvalSystem[] {
@@ -174,7 +177,7 @@ export function loadSystemsFromDb(
   const d = opts.db ?? moduleDb
   const onlySet = opts.only && opts.only.length ? new Set(opts.only) : null
 
-  const sysRows = d.prepare(`SELECT * FROM eval_systems ORDER BY id`).all() as EvalSystemRow[]
+  const sysRows = d.prepare(`SELECT * FROM eval_systems WHERE enabled = 1 ORDER BY id`).all() as EvalSystemRow[]
   const caseStmt = d.prepare(`SELECT * FROM eval_cases WHERE systemId = ? ORDER BY id`)
 
   const out: EvalSystem[] = []

@@ -409,6 +409,8 @@ export interface RunMatrixOptions {
   cases?: string[]
   concurrency?: number
   turnsCap?: number
+  /** Token-safety: DEFAULTS TO TRUE (dry — fabricated, no dispatch). Only an explicit `dry: false`
+   *  runs the real claude.exe dispatch and spends tokens. */
   dry?: boolean
   runId?: string
   updateBaselines?: boolean

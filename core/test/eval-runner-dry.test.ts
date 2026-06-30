@@ -83,6 +83,21 @@ describe('runEvalMatrix — dry path (no dispatch, no spend)', () => {
     expect(report.baselinesFrozen).toEqual([])
   })
 
+  it('SAFE-BY-DEFAULT: omitting `dry` resolves to a DRY run (F4.W2 token-safety lock)', async () => {
+    // runEvalMatrix defaults `dry` to TRUE (opts.dry !== false), so a caller that forgets the flag
+    // can NEVER spawn claude.exe. Inject an EMPTY registry (0 jobs) so this can't dispatch even if the
+    // default ever regressed, and assert the run still resolved to dry. If the default regressed to
+    // real-dispatch, report.dry would be false here and this test goes red — without any spend.
+    const report = await runEvalMatrix({
+      root, reportsDir, baseDir, runId: 'unit-default',
+      loadSystemsFn: () => [], // 0 systems → 0 jobs → no dispatch under any dry value
+      // `dry` intentionally OMITTED — must default to true
+    })
+    expect(report.dry).toBe(true)
+    expect(report.overall.totalCostUsd).toBe(0)
+    expect(report.overall.totalRecords).toBe(0)
+  })
+
   it('a second call RESUMES — recorded jobs are skipped (no duplicate JSONL lines)', async () => {
     const before = readJsonl().length
     expect(before).toBe(2)

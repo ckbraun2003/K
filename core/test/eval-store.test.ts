@@ -132,6 +132,19 @@ describe('loadSystemsFromDb — equivalent to loadSystems (file loader)', () => 
     const one = loadSystemsFromDb({ root, only: ['L0'] })
     expect(one.map(s => s.id)).toEqual(['L0'])
   })
+
+  it('excludes disabled systems (enabled = 0) from the runner registry load (F4.W2)', () => {
+    // loadSystemsFromDb is the RUNNER's source, so the dashboard's `enabled` flag actually gates a
+    // system's inclusion in eval runs. (The dashboard LIST endpoint shows all systems, incl. disabled.)
+    seedEvalSystems({ root })
+    db.prepare(`UPDATE eval_systems SET enabled = 0 WHERE id = 'L0'`).run()
+    const disabled = loadSystemsFromDb({ root }).map(s => s.id)
+    expect(disabled).not.toContain('L0')
+    expect(disabled.length).toBeGreaterThan(0) // the other enabled systems still load
+    // re-enabling restores it (and leaves the row enabled for the other tests / re-seed)
+    db.prepare(`UPDATE eval_systems SET enabled = 1 WHERE id = 'L0'`).run()
+    expect(loadSystemsFromDb({ root }).map(s => s.id)).toContain('L0')
+  })
 })
 
 describe('eval_runs / eval_results — CRUD + cascade', () => {

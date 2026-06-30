@@ -935,6 +935,8 @@ const upsertEvalSystem = db.prepare(`
 `)
 const getEvalSystem = db.prepare(`SELECT * FROM eval_systems WHERE id = ?`)
 const listEvalSystems = db.prepare(`SELECT * FROM eval_systems ORDER BY id`)
+// Reserved for P5 eval management (operator delete of a system removed from the registry — also the
+// clean fix for the seed-orphan-persist posture). No production caller yet — intentional scaffolding.
 const deleteEvalSystem = db.prepare(`DELETE FROM eval_systems WHERE id = ?`)
 
 export const evalSystemsDb = { upsertEvalSystem, getEvalSystem, listEvalSystems, deleteEvalSystem }
@@ -999,6 +1001,7 @@ const upsertEvalBaseline = db.prepare(`
     frozenAt  = excluded.frozenAt
 `)
 const getEvalBaseline = db.prepare(`SELECT * FROM eval_baselines WHERE systemId = ?`)
+// Reserved for P5 (a baselines-overview endpoint). No production caller yet — intentional scaffolding.
 const listEvalBaselines = db.prepare(`SELECT * FROM eval_baselines ORDER BY systemId`)
 
 export const evalBaselinesDb = { upsertEvalBaseline, getEvalBaseline, listEvalBaselines }
