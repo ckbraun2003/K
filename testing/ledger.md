@@ -116,8 +116,6 @@ tree at HEAD `8a5fcbd` and reconciled the ledger against ground truth.
 ### Confirmed FAULTs (quarantined, awaiting operator triage/fix)
 | id | sev | system | one-liner | quarantine test |
 |----|-----|--------|-----------|-----------------|
-| **S1-018** | Med | db.ts migrate() | concurrent first-boot ALTER race → "duplicate column name" crash (multi-process) | `core/test/regressions/s1-018-concurrent-migrate-duplicate-column.test.ts` |
-| **S2-017** | Med | workflows.ts | dispatch degrade reverts a `done` task to `open` (completion data loss) | `core/test/regressions/s2-017-dispatch-degrade-clobbers-done.test.ts` |
 | **S3-001** | Low | k-store.ts | omitted MCP `arguments` rejected for all-optional tools (should default to `{}`) | `core/test/regressions/s3-001-optional-args-omitted.test.ts` |
 | **S4-018** | Low | workflows.ts | empty-taskIds `dispatchTaskWorkflow` validates-after-mutate → orphan `failed` workflow_run row (route-guarded ≥1; direct-caller seam) | `core/test/regressions/s4-018-empty-dispatch-orphan-row.test.ts` |
 | **S5-001** | Low (latent) | supervisor.ts/router.ts | explicit `claude-*` model + `maxCostUsd` cost-branch → `ollama run claude-*` silent engine swap (latent: no shipped caller passes `maxCostUsd`) | `core/test/regressions/s5-001-explicit-model-cost-routes-to-ollama.test.ts` |
@@ -128,12 +126,12 @@ tree at HEAD `8a5fcbd` and reconciled the ledger against ground truth.
 | **S6-002** | Low (latent) | bible.ts | section `slug` raw in `id`/`href`/`data-section` attrs (full breakout POSIX-only; `&` case cross-platform) | `core/test/regressions/s6-002-bible-slug-attr-unescaped.test.ts` |
 | **S6-003** | Med | routes/voice.ts | non-audio MIME not 415'd (default json/text parsers not removed) → non-Buffer body reaches provider; gated behind voice-enabled | `core/test/regressions/s6-003-voice-nonaudio-mime-not-rejected.test.ts` |
 | **S6-004** | Low (latent) | transcription.ts | transcript `text` unvalidated → `{}`→`{text:undefined}` (200 w/ no transcript), non-string relayed verbatim | `core/test/regressions/s6-004-transcript-text-unvalidated.test.ts` |
-| **S7-001** | Med (semi-latent) | routes/projects.ts | one null/non-object entry in graph.json's `nodes`/`links` → unguarded `.map` throws → whole graph view collapses to empty+stale; needs externally-corrupt artifact | `core/test/regressions/s7-001-graph-route-null-node-collapses-view.test.ts` |
 | **S8-002** | Low (latent) | web WorkflowChecklist.tsx | out-of-enum step `status` → unguarded `STATUS[…]` deref blank-screens the checklist (takes siblings); double-gated (kstore Zod enum + DB CHECK) → enum-drift forward-compat guard | `web/test/regressions/s8a-002-workflow-checklist-unknown-status-crash.test.tsx` |
 | **S8-004** | Med | web chart.ts::stackDays | ragged/short series points → `TypeError` instead of degrading to 0 (needs a malformed/partial metrics payload) | `web/test/regressions/s8a-004-stackdays-ragged-series-throws.test.ts` |
 | **S8-005** | Low | web verify.ts | `NaN` escapes `barPct`'s documented clamp (→ `width:NaN%`); non-finite ts → `"NaNd ago"`/`"Infinityd ago"` labels | `web/test/regressions/s8a-005-verify-nonfinite-inputs.test.ts` |
 
 _S8-001, S8-003 fixed + promoted to the gating suite in reboot wave F1.W1._
+_S1-018, S2-017, S7-001 fixed + promoted to gating in reboot wave F1.W2._
 
 ### Notable non-fault concerns (documented; LOCK/characterization)
 - **S2-001** (Med, docs-mismatch) — no approve/reject memory surface exists in code; gated reflection

@@ -275,7 +275,10 @@ export async function projectsRoutes(app: FastifyInstance) {
         edges?: Array<Record<string, unknown>>
         links?: Array<Record<string, unknown>>
       }
-      const baseNodes = (data.nodes ?? []).map(n => ({
+      // Skip null/non-object entries per-entry (a corrupt/partial artifact can
+      // hold them) so one bad node/link doesn't throw out of the .map and collapse
+      // the whole view — mirrors toGraphJson's per-entry tolerance at the build layer.
+      const baseNodes = (data.nodes ?? []).filter(n => n != null && typeof n === 'object').map(n => ({
         id: n.id ?? n.name,
         label: (n.label ?? n.name ?? n.id) as string,
         type: n.type as string | undefined,
@@ -285,7 +288,7 @@ export async function projectsRoutes(app: FastifyInstance) {
       // Best-effort per-node enrichment from existing harness data (Wave 2).
       // Never throws — a node only gains facts we could derive.
       const nodes = enrichNodes(project, baseNodes)
-      const links = (data.links ?? data.edges ?? []).map(e => ({
+      const links = (data.links ?? data.edges ?? []).filter(e => e != null && typeof e === 'object').map(e => ({
         source: (e.source ?? e.from) as string,
         target: (e.target ?? e.to) as string,
         type: e.type as string | undefined,

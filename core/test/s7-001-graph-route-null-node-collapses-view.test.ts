@@ -1,5 +1,5 @@
 /**
- * REGRESSION (red by design) — Finding S7-001.
+ * REGRESSION — Finding S7-001 (FIXED + promoted to gating, reboot wave F1.W2).
  *
  * GET /api/projects/:id/graph reads the project's .gitnexus/graph.json and
  * normalizes it INLINE with an UNGUARDED `.map`:
@@ -24,9 +24,9 @@
  *   Expected: malformed entries are skipped; the valid nodes/links still render.
  *   Actual:   a single null entry collapses the whole response to empty + stale.
  *
- * This test asserts the EXPECTED (safe) behavior, so it is RED against current
- * source. When the route filters per-entry (like toGraphJson does), it flips green
- * → move into core/test/.
+ * FIXED: the route now filters null/non-object entries per-entry (like toGraphJson
+ * does at the build layer) BEFORE mapping, so one bad entry is skipped instead of
+ * collapsing the whole view → this test gates.
  *
  * Finding row: testing/findings/S7-verify-skills-github-graph.md  (S7-001)
  */
@@ -36,7 +36,7 @@ import { v4 as uuid } from 'uuid'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { projectsDb, db } from '../../src/db.js'
+import { projectsDb, db } from '../src/db.js'
 
 const TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
 const AUTH = { authorization: `Bearer ${TOKEN}` }
@@ -47,7 +47,7 @@ let repo: string
 
 beforeAll(async () => {
   process.env.K_SKIP_BOOTSTRAP = '1'
-  const { buildApp } = await import('../../src/index.js')
+  const { buildApp } = await import('../src/index.js')
   app = await buildApp()
   await app.ready()
 

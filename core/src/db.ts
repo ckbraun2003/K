@@ -254,11 +254,11 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
 
 /** Guarded, idempotent schema evolution — runs at every boot; exported for tests. */
 export function migrate(d: Database.Database): void {
-  if (!hasColumn(d, 'runs', 'project_id')) {
-    // ADD COLUMN with REFERENCES is legal under foreign_keys=ON because the
-    // default is NULL; existing rows stay NULL (unassociated)
-    d.exec(`ALTER TABLE runs ADD COLUMN project_id TEXT REFERENCES projects(id)`)
-  }
+  // ADD COLUMN with REFERENCES is legal under foreign_keys=ON because the
+  // default is NULL; existing rows stay NULL (unassociated). Routed through the
+  // race-tolerant addColumn() so a concurrent first-boot that just added it can't
+  // crash this connection with 'duplicate column name'.
+  addColumn(d, 'runs', 'project_id', 'TEXT REFERENCES projects(id)')
   // idx_runs_project must be created after the migration (not inside the main
   // db.exec above) so that the column is guaranteed to exist on migrated DBs
   // before the index statement runs.
@@ -270,8 +270,8 @@ export function migrate(d: Database.Database): void {
   // gain the column; fresh installs get it here too since migrate() runs at boot.
   // The hasTable guard keeps migrate() callable against DBs predating the table
   // (e.g. minimal old-schema fixtures in db-migration.test.ts).
-  if (hasTable(d, 'verification_reports') && !hasColumn(d, 'verification_reports', 'score_breakdown')) {
-    d.exec(`ALTER TABLE verification_reports ADD COLUMN score_breakdown TEXT`)
+  if (hasTable(d, 'verification_reports')) {
+    addColumn(d, 'verification_reports', 'score_breakdown', 'TEXT')
   }
   // events(run_id, seq) must be unique — the lazy raw endpoint does a .get() by
   // (run_id, seq) assuming a single row. SQLite can't ALTER ADD CONSTRAINT, so a

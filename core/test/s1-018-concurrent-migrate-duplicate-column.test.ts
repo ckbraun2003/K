@@ -1,5 +1,5 @@
 /**
- * QUARANTINE — CONFIRMED FAULT S1-018 (RED by design).
+ * REGRESSION — FAULT S1-018 (FIXED + promoted to gating, reboot wave F1.W2).
  * Finding: testing/findings/S1-database-persistence.md → row S1-018.
  *
  * Defect: core/src/db.ts migrate() adds two columns via INLINE, NON-tolerant
@@ -25,10 +25,9 @@
  * events/project_tasks, so score_breakdown's ALTER is migrate()'s ONLY write —
  * maximizing overlap. We assert NO worker ever throws "duplicate column name".
  *
- * EXPECTED (post-fix, when both inline ALTERs route through the tolerant
- * addColumn helper): zero duplicate-column errors → this test goes green and
- * moves into the gating suite.
- * ACTUAL (today): the losers throw → this test is RED.
+ * FIXED: both inline ALTERs now route through the tolerant addColumn() helper, so
+ * the loser of the ALTER race swallows "duplicate column name" instead of crashing
+ * → zero duplicate-column errors → this test is green and now gates.
  *
  * Document-only: this test does not edit core/src/**. It drives migrate() from
  * the outside via worker threads.
@@ -42,11 +41,11 @@ import fs from 'fs'
 import Database from 'better-sqlite3'
 // Rule: quarantine tests reference the source under test. The workers load this
 // exact module to exercise the real migrate(); we also resolve its path from here.
-import { migrate as _migrate } from '../../src/db.js'
+import { migrate as _migrate } from '../src/db.js'
 void _migrate
 
-const dbTsUrl = new URL('../../src/db.js', import.meta.url).href
-const corePkgPath = fileURLToPath(new URL('../../package.json', import.meta.url))
+const dbTsUrl = new URL('../src/db.js', import.meta.url).href
+const corePkgPath = fileURLToPath(new URL('../package.json', import.meta.url))
 
 // Pre-migration shape: runs already carries project_id + both indexes (those
 // branches are no-ops), verification_reports lacks score_breakdown, and
@@ -132,7 +131,7 @@ function runIteration(it: number): Promise<Array<{ kind: string; msg?: string }>
   })()
 }
 
-describe('S1-018 — concurrent migrate() races on a non-tolerant ALTER (RED)', () => {
+describe('S1-018 — concurrent migrate() tolerates the ADD COLUMN race (gating)', () => {
   it('no concurrent connection throws "duplicate column name"', async () => {
     workerFile = path.join(os.tmpdir(), `k-s1-018-worker-${process.pid}-${Math.random()}.mjs`)
     fs.writeFileSync(workerFile, WORKER_SRC)

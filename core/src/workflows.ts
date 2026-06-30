@@ -137,8 +137,11 @@ export async function dispatchTaskWorkflow(
 
   // 4. Launch the supervised run in the project's repo. If startRun throws, the
   //    'running' workflow_run row and the in_progress task locks would leak — so
-  //    on failure we finalize the row 'failed', revert each task to 'open', log,
-  //    and re-throw (the route surfaces a 500). Mirrors runSkillTest's degrade.
+  //    on failure we finalize the row 'failed', restore each task to the prior
+  //    (status, completed_at) it carried before step 2's lock — captured in the
+  //    `tasks` objects (rowToTask runs before the flip), so a selected 'done'
+  //    task stays done instead of being clobbered to 'open' — log, and re-throw
+  //    (the route surfaces a 500). Mirrors runSkillTest's degrade.
   let run
   try {
     run = await startRun(buildDelegationPrompt(tasks), {
@@ -151,8 +154,8 @@ export async function dispatchTaskWorkflow(
       projectTasksDb.updateProjectTaskStatus.run({
         id: task.id,
         projectId: project.id,
-        status: 'open',
-        completedAt: null,
+        status: task.status,
+        completedAt: task.completedAt,
       })
     }
     console.warn('[workflows] startRun dispatch failed:', e)

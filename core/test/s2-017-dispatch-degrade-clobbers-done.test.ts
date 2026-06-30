@@ -1,5 +1,5 @@
 /**
- * REGRESSION (red by design) — Finding S2-017.
+ * REGRESSION — Finding S2-017 (FIXED + promoted to gating, reboot wave F1.W2).
  *
  * dispatchTaskWorkflow flips EVERY selected task to 'in_progress' unconditionally
  * (step 2), without recording or checking its prior status. On the degrade path
@@ -18,21 +18,21 @@
  *             (status 'done', completed_at preserved).
  *   Actual:   status 'open', completed_at null (completion destroyed).
  *
- * This test asserts the EXPECTED (safe) behavior, so it is RED against current
- * source. When workflows.ts restores prior status on degrade (or refuses to
- * dispatch terminal tasks), it flips green → move into core/test/.
+ * FIXED: the degrade path now restores each task to the prior (status,
+ * completed_at) captured before the in_progress lock (instead of hard-coding
+ * 'open'/null), so a selected 'done' task stays done → this test gates.
  *
  * Finding row: testing/findings/S2-memory-work-tracking.md  (S2-017)
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, projectsDb } from '../../src/db.js'
-import { startRun } from '../../src/supervisor.js'
+import { db, projectsDb } from '../src/db.js'
+import { startRun } from '../src/supervisor.js'
 import type { Project } from '@k/shared'
 
-vi.mock('../../src/supervisor.js', async () => {
-  const actual = await vi.importActual<typeof import('../../src/supervisor.js')>('../../src/supervisor.js')
-  const { db } = await vi.importActual<typeof import('../../src/db.js')>('../../src/db.js')
+vi.mock('../src/supervisor.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/supervisor.js')>('../src/supervisor.js')
+  const { db } = await vi.importActual<typeof import('../src/db.js')>('../src/db.js')
   return {
     ...actual,
     startRun: vi.fn(async () => {
@@ -46,7 +46,7 @@ vi.mock('../../src/supervisor.js', async () => {
   }
 })
 
-const { dispatchTaskWorkflow } = await import('../../src/workflows.js')
+const { dispatchTaskWorkflow } = await import('../src/workflows.js')
 
 const PROJECT_ID = uuid()
 const project: Project = {
