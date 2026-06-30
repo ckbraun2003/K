@@ -412,6 +412,18 @@ export interface RunMatrixOptions {
   dry?: boolean
   runId?: string
   updateBaselines?: boolean
+  /**
+   * Optional sink invoked once per completed job, right AFTER the JSONL append, with the same
+   * `rec` object. Errors thrown by the sink are caught so they can't abort the matrix. Default: none.
+   * (F3.W2a: the DB run service uses this to persist each result + bump run progress.)
+   */
+  onRecord?: (rec: EvalRecord) => void
+  /**
+   * Optional systems source, defaulting to the internal file loader `loadSystems`. When provided,
+   * the runner reads the registry through this instead — how the service injects `loadSystemsFromDb`
+   * (the DB registry). Default preserves W1a behavior exactly.
+   */
+  loadSystemsFn?: (args: { root: string; only?: string[] }) => EvalSystem[]
 }
 
 export interface EvalReport {

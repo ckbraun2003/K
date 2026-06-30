@@ -88,6 +88,36 @@ export function aggregate(
 
 export function baselineDir(root: string): string { return path.join(root, 'testing', 'eval', 'baselines') }
 
+/**
+ * Pure regression check for ONE system: compare current metrics to a frozen baseline and flag a
+ * REGRESSION when judgeMean/detPassRate/detScoreMean or discriminationJudge dropped by more than
+ * `regressionThreshold`. The baseline only needs to expose `.real.{key}` + `.discriminationJudge`,
+ * so both the file-based BaselineFile and a stored SystemMetrics (DB baseline) satisfy it. Extracted
+ * so the file (compareToBaselines) and DB (service.compareRunToBaselines) paths share one rule.
+ */
+export function compareMetricsToBaseline(
+  now: SystemMetrics,
+  base: BaselineFile,
+  regressionThreshold = 0.1,
+): BaselineCompare {
+  const deltas: Record<string, number> = {}
+  let regressed = false
+  for (const key of ['judgeMean', 'detPassRate', 'detScoreMean'] as const) {
+    const n = now.real?.[key], was = base.real?.[key]
+    if (typeof n === 'number' && typeof was === 'number') {
+      const d = Math.round((n - was) * 1000) / 1000
+      deltas[key] = d
+      if (d < -regressionThreshold) regressed = true
+    }
+  }
+  const discNow = now.discriminationJudge, discWas = base.discriminationJudge
+  if (typeof discNow === 'number' && typeof discWas === 'number') {
+    deltas.discriminationJudge = Math.round((discNow - discWas) * 1000) / 1000
+    if (deltas.discriminationJudge < -regressionThreshold) regressed = true
+  }
+  return { status: regressed ? 'REGRESSION' : 'ok', deltas, regressionThreshold }
+}
+
 export function compareToBaselines({ perSystem, root, regressionThreshold = 0.1 }: {
   perSystem: Record<string, SystemMetrics>; root: string; regressionThreshold?: number
 }): Record<string, BaselineCompare> {
@@ -98,22 +128,7 @@ export function compareToBaselines({ perSystem, root, regressionThreshold = 0.1 
     if (!existsSync(bp)) { report[sys] = { status: 'no-baseline' }; continue }
     // narrow JSON boundary: a frozen baseline is authored to the BaselineFile shape
     const base = JSON.parse(readFileSync(bp, 'utf8')) as BaselineFile
-    const deltas: Record<string, number> = {}
-    let regressed = false
-    for (const key of ['judgeMean', 'detPassRate', 'detScoreMean'] as const) {
-      const now = m.real?.[key], was = base.real?.[key]
-      if (typeof now === 'number' && typeof was === 'number') {
-        const d = Math.round((now - was) * 1000) / 1000
-        deltas[key] = d
-        if (d < -regressionThreshold) regressed = true
-      }
-    }
-    const discNow = m.discriminationJudge, discWas = base.discriminationJudge
-    if (typeof discNow === 'number' && typeof discWas === 'number') {
-      deltas.discriminationJudge = Math.round((discNow - discWas) * 1000) / 1000
-      if (deltas.discriminationJudge < -regressionThreshold) regressed = true
-    }
-    report[sys] = { status: regressed ? 'REGRESSION' : 'ok', deltas, regressionThreshold }
+    report[sys] = compareMetricsToBaseline(m, base, regressionThreshold)
   }
   return report
 }

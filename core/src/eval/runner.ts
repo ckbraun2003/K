@@ -60,7 +60,9 @@ export async function runEvalMatrix(opts: RunMatrixOptions = {}): Promise<EvalRe
   const dry = !!opts.dry
   const runId = (opts.runId || new Date().toISOString().replace(/[:.]/g, '-')) + (dry ? '-dry' : '')
 
-  const systems = loadSystems({ root, only: opts.systems ?? null })
+  // Systems source is injectable (defaults to the file loader); the service injects loadSystemsFromDb.
+  const loadSystemsFn = opts.loadSystemsFn ?? loadSystems
+  const systems = loadSystemsFn({ root, only: opts.systems })
 
   // Build the job matrix.
   const jobs: EvalJob[] = []
@@ -139,6 +141,11 @@ export async function runEvalMatrix(opts: RunMatrixOptions = {}): Promise<EvalRe
       sandbox.cleanup()
     }
     appendFileSync(jsonlPath, JSON.stringify(rec) + '\n')
+    // Per-record sink (e.g. persist to eval_results + bump run progress). Wrapped so a sink error
+    // can't abort the matrix — the JSONL checkpoint above remains the source of truth either way.
+    if (opts.onRecord) {
+      try { opts.onRecord(rec) } catch (e) { console.error(`[run ${runId}] onRecord sink error: ${String(e)}`) }
+    }
     completed++
     const jl = rec.judge?.overall, dl = rec.det?.detPass
     console.error(`[${completed}/${todo.length}] ${job.jobKey} -> det=${dl} judge=${jl} cost=$${(rec.metricsRaw?.costUsd ?? 0).toFixed(3)} ${rec.error ? 'ERR ' + rec.error.slice(0, 120) : ''}`)
