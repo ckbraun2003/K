@@ -17,8 +17,7 @@ import { describe, it, expect } from 'vitest'
 import { parseClaudeLine, classifyTool } from '../src/providers.js'
 
 const RID = '00000000-0000-0000-0000-000000000000'
-const CTX = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
-const pc = (line: string) => parseClaudeLine(line, RID, 1, CTX)!
+const pc = (line: string) => parseClaudeLine(line, RID, 1)!
 
 describe('S5 — classifyTool is exact-match + case-sensitive (S5-009)', () => {
   it('unknown real tools map to other', () => {

@@ -17,8 +17,7 @@ import { describe, it, expect } from 'vitest'
 import { parseClaudeLine, parseOllamaLine } from '../src/providers.js'
 
 const RID = '00000000-0000-0000-0000-000000000000'
-const CTX = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
-const pc = (line: string) => parseClaudeLine(line, RID, 1, CTX)
+const pc = (line: string) => parseClaudeLine(line, RID, 1)
 
 describe('S5 — parseClaudeLine never throws on hostile input (S5-005)', () => {
   const hostile = [
@@ -113,24 +112,24 @@ describe('S5 — result branch fallback chain (S5-007)', () => {
 
 describe('S5 — parseOllamaLine tolerance (S5-008)', () => {
   it('plain text → assistant text', () => {
-    const ev = parseOllamaLine('hello from llama', RID, 1, CTX)!
+    const ev = parseOllamaLine('hello from llama', RID, 1)!
     expect(ev.type).toBe('assistant')
     expect(ev.text).toBe('hello from llama')
   })
   it('NDJSON {response} → response text', () => {
-    expect(parseOllamaLine('{"response":"tok","done":false}', RID, 1, CTX)!.text).toBe('tok')
+    expect(parseOllamaLine('{"response":"tok","done":false}', RID, 1)!.text).toBe('tok')
   })
   it('malformed JSON is treated as plain text (never throws)', () => {
     let ev: ReturnType<typeof parseOllamaLine> | undefined
-    expect(() => { ev = parseOllamaLine('{"response": "broken', RID, 1, CTX) }).not.toThrow()
+    expect(() => { ev = parseOllamaLine('{"response": "broken', RID, 1) }).not.toThrow()
     expect(ev!.text).toBe('{"response": "broken')
   })
   it('empty line → null', () => {
-    expect(parseOllamaLine('', RID, 1, CTX)).toBeNull()
+    expect(parseOllamaLine('', RID, 1)).toBeNull()
   })
   it('NDJSON with a non-string response falls back to the raw line text', () => {
     // response is not a string → text stays the raw line (no crash)
-    const ev = parseOllamaLine('{"response":123,"done":true}', RID, 1, CTX)!
+    const ev = parseOllamaLine('{"response":123,"done":true}', RID, 1)!
     expect(ev.text).toBe('{"response":123,"done":true}')
   })
 })

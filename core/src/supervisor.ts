@@ -21,7 +21,7 @@ import { eventBus } from './events.js'
 import { db, runsDb, projectsDb } from './db.js'
 import { route } from './router.js'
 import { resolvePermissionMode } from './claude-args.js'
-import { getProvider, parseClaudeLine, type ParseCtx } from './providers.js'
+import { getProvider, parseClaudeLine } from './providers.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
 import { synthesizeConfigDir, pruneOrphanAgentRuns, type SynthesizedConfig } from './agent-config.js'
 import { DEFAULT_PROFILE } from './profiles.js'
@@ -374,7 +374,7 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
           const s = nextSeq(run.id)
           // Parse with the ROUTED provider's parser, then validate at the ingest
           // boundary so malformed output can't poison the store or WS stream.
-          const parsed = provider.parseLine(line, run.id, s, { tokensIn, tokensOut, costUsd })
+          const parsed = provider.parseLine(line, run.id, s)
           const event = parsed ? validateAgentEvent(parsed, run.id, s) : null
           if (event) {
             // Accumulate usage (last-wins overwrite; a real 0 is a legitimate value)
@@ -530,17 +530,19 @@ export function validateAgentEvent(event: AgentEvent, runId: string, seq: number
 
 /**
  * Parse one claude NDJSON line into a validated AgentEvent (or null to ignore).
- * Thin wrapper over the claude provider's parser + `validateAgentEvent`,
- * re-exported here (vs. providers.ts) so existing supervisor tests importing
- * `parseLine` keep working.
+ *
+ * This is the supervisor's **validated-ingest seam**, NOT a redundant re-export:
+ * it composes the claude provider's pure `parseClaudeLine` with
+ * `validateAgentEvent`, so a line that fails AgentEventSchema is dropped (null)
+ * rather than passed through. The supervisor's ingest tests target this wrapper
+ * precisely because it pins that parse-then-validate boundary in one call.
  */
 export function parseLine(
   line: string,
   runId: string,
   seq: number,
-  ctx: ParseCtx
 ): AgentEvent | null {
-  const event = parseClaudeLine(line, runId, seq, ctx)
+  const event = parseClaudeLine(line, runId, seq)
   if (event === null) return null
   return validateAgentEvent(event, runId, seq)
 }

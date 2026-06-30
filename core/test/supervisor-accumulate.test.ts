@@ -46,7 +46,7 @@ describe('parseLine — result event with zero cost', () => {
       total_cost_usd: 0,
       result: 'done',
     })
-    const event = parseLine(line, 'r', 1, { tokensIn: 0, tokensOut: 0, costUsd: 0 })
+    const event = parseLine(line, 'r', 1)
     expect(event).not.toBeNull()
     expect(event!.tokensIn).toBe(0)
     expect(event!.tokensOut).toBe(0)
@@ -60,7 +60,7 @@ describe('parseLine — result event with zero cost', () => {
       usage: { input_tokens: 0, output_tokens: 0 },
       total_cost_usd: 0,
     })
-    const event = parseLine(line, 'r', 1, usage)!
+    const event = parseLine(line, 'r', 1)!
     usage = accumulate(usage, event)
     expect(usage).toEqual({ tokensIn: 0, tokensOut: 0, costUsd: 0 })
   })
@@ -76,7 +76,7 @@ describe('parseLine — result event with zero cost', () => {
       },
       total_cost_usd: 0.01,
     })
-    const event = parseLine(line, 'r', 1, { tokensIn: 0, tokensOut: 0, costUsd: 0 })!
+    const event = parseLine(line, 'r', 1)!
     expect(event.tokensIn).toBe(18)
     expect(event.tokensOut).toBe(7)
     expect(event.costUsd).toBe(0.01)

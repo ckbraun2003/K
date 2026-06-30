@@ -18,8 +18,6 @@ import { v4 as uuid } from 'uuid'
 import type { AgentEvent } from '@k/shared'
 import { buildClaudeArgs, type PermissionMode, type ClaudeConfigArgs } from './claude-args.js'
 
-export type ParseCtx = { tokensIn: number; tokensOut: number; costUsd: number }
-
 /** `model` is the routed/selected model name — for claude it is forwarded as
  *  `--model <id>` when set (see buildClaudeArgs); for ollama it is the
  *  `ollama run <model>` target. `claudeConfig` carries the per-run K-owned
@@ -34,7 +32,7 @@ export interface Provider {
   /** Build the argv for a headless run. */
   buildArgs(prompt: string, opts: BuildArgsOptions): string[]
   /** Parse one NDJSON output line into an AgentEvent (null = ignore). */
-  parseLine(line: string, runId: string, seq: number, ctx: ParseCtx): AgentEvent | null
+  parseLine(line: string, runId: string, seq: number): AgentEvent | null
 }
 
 // ── claude ────────────────────────────────────────────────────────────────────
@@ -72,7 +70,6 @@ export function parseClaudeLine(
   line: string,
   runId: string,
   seq: number,
-  _ctx: ParseCtx,
 ): AgentEvent | null {
   try {
     const obj = JSON.parse(line) as Record<string, unknown>
@@ -204,7 +201,6 @@ export function parseOllamaLine(
   line: string,
   runId: string,
   seq: number,
-  _ctx: ParseCtx,
 ): AgentEvent | null {
   let text = line
   try {

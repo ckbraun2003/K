@@ -33,7 +33,6 @@ import { classifyTool, parseClaudeLine } from '../src/providers.js'
 const KINDS = ['command', 'file', 'delegate', 'other'] as const
 const PROTO_KEYS = ['toString', 'constructor', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', '__proto__']
 const RID = '00000000-0000-0000-0000-000000000000'
-const CTX = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
 
 describe('S5-002 — classifyTool must return an enum kind for prototype-key names (RED)', () => {
   for (const name of PROTO_KEYS) {
@@ -46,7 +45,7 @@ describe('S5-002 — classifyTool must return an enum kind for prototype-key nam
 
   it('a tool_use named "toString" yields a string toolKind (event would survive validation)', () => {
     const line = '{"type":"assistant","message":{"content":[{"type":"text","text":"hi"},{"type":"tool_use","id":"t1","name":"toString","input":{}}]}}'
-    const ev = parseClaudeLine(line, RID, 1, CTX)!
+    const ev = parseClaudeLine(line, RID, 1)!
     // EXPECTED-SAFE: toolKind is a string ('other') so the schema accepts the event.
     // ACTUAL today: toolKind is a Function → AgentEventSchema drops the whole event.
     expect(typeof ev.toolKind).toBe('string')

@@ -12,7 +12,6 @@ import { eventBus } from '../src/events.js'
 import { runsDb, eventsDb, db } from '../src/db.js'
 
 const RUN_ID = '00000000-0000-0000-0000-000000000000'
-const CTX = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
 
 describe('classifyTool — table-driven mapper', () => {
   it('maps Bash → command', () => expect(classifyTool('Bash')).toBe('command'))
@@ -30,7 +29,7 @@ describe('classifyTool — table-driven mapper', () => {
 describe('parseClaudeLine — tool_use enrichment (assistant)', () => {
   it('Bash → toolKind command, toolUseId, toolInput.command', () => {
     const line = '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_a","name":"Bash","input":{"command":"echo smoke-test","description":"Run echo"}}]}}'
-    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 1)!
     expect(ev.tool).toBe('Bash')
     expect(ev.toolKind).toBe('command')
     expect(ev.toolUseId).toBe('toolu_a')
@@ -41,14 +40,14 @@ describe('parseClaudeLine — tool_use enrichment (assistant)', () => {
 
   it('Write → toolKind file, toolInput.file_path', () => {
     const line = '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_b","name":"Write","input":{"file_path":"/tmp/x.ts","content":"hi"}}]}}'
-    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 1)!
     expect(ev.toolKind).toBe('file')
     expect((ev.toolInput as { file_path: string }).file_path).toBe('/tmp/x.ts')
   })
 
   it('Agent WITHOUT subagent_type → delegate, subagentType undefined, childLabel from description', () => {
     const line = '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_c","name":"Agent","input":{"description":"Reply done","prompt":"reply with done"}}]}}'
-    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 1)!
     expect(ev.toolKind).toBe('delegate')
     expect(ev.subagentType).toBeUndefined()
     expect(ev.childLabel).toBe('Reply done')
@@ -56,7 +55,7 @@ describe('parseClaudeLine — tool_use enrichment (assistant)', () => {
 
   it('Task WITH subagent_type → delegate, subagentType set', () => {
     const line = '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_d","name":"Task","input":{"description":"Do research","prompt":"go","subagent_type":"Explore"}}]}}'
-    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 1)!
     expect(ev.toolKind).toBe('delegate')
     expect(ev.subagentType).toBe('Explore')
     expect(ev.childLabel).toBe('Do research')
@@ -65,7 +64,7 @@ describe('parseClaudeLine — tool_use enrichment (assistant)', () => {
   it('delegate without description falls back to first ~60 chars of prompt', () => {
     const prompt = 'x'.repeat(100)
     const line = `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_e","name":"Agent","input":{"prompt":"${prompt}"}}]}}`
-    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 1)!
     expect(ev.childLabel).toBe('x'.repeat(60))
   })
 })
@@ -73,7 +72,7 @@ describe('parseClaudeLine — tool_use enrichment (assistant)', () => {
 describe('parseClaudeLine — tool_result enrichment (user)', () => {
   it('STRING content pairs by tool_use_id, no is_error', () => {
     const line = '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_a","content":"smoke-test\\n"}]}}'
-    const ev = parseClaudeLine(line, RUN_ID, 2, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 2)!
     expect(ev.type).toBe('user')
     expect(ev.toolUseId).toBe('toolu_a')
     expect(ev.toolResult).toBe('smoke-test\n')
@@ -83,7 +82,7 @@ describe('parseClaudeLine — tool_result enrichment (user)', () => {
 
   it('ARRAY content + is_error:false → toolResult is the array, toolResultIsError false', () => {
     const line = '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_c","content":[{"type":"text","text":"done"}],"is_error":false}]}}'
-    const ev = parseClaudeLine(line, RUN_ID, 2, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 2)!
     expect(ev.toolUseId).toBe('toolu_c')
     expect(Array.isArray(ev.toolResult)).toBe(true)
     expect((ev.toolResult as Array<{ text: string }>)[0].text).toBe('done')
@@ -92,7 +91,7 @@ describe('parseClaudeLine — tool_result enrichment (user)', () => {
 
   it('is_error:true → toolResultIsError true', () => {
     const line = '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_a","content":"boom","is_error":true}]}}'
-    const ev = parseClaudeLine(line, RUN_ID, 2, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 2)!
     expect(ev.toolResultIsError).toBe(true)
   })
 })
@@ -100,7 +99,7 @@ describe('parseClaudeLine — tool_result enrichment (user)', () => {
 describe('parseClaudeLine — backward compatibility', () => {
   it('a plain assistant text line sets text and leaves all tool fields undefined', () => {
     const line = '{"type":"assistant","message":{"content":[{"type":"text","text":"yo"}]}}'
-    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 1)!
     expect(ev.text).toBe('yo')
     expect(ev.tool).toBeUndefined()
     expect(ev.toolUseId).toBeUndefined()
@@ -115,7 +114,7 @@ describe('parseClaudeLine — backward compatibility', () => {
       total_cost_usd: 0.012,
       result: 'final answer',
     })
-    const ev = parseClaudeLine(line, RUN_ID, 9, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 9)!
     expect(ev.type).toBe('usage')
     expect(ev.tokensIn).toBe(115)
     expect(ev.tokensOut).toBe(50)
@@ -133,7 +132,7 @@ describe('parseClaudeLine — contextTokens (input context size for the indicato
         usage: { input_tokens: 100, cache_creation_input_tokens: 1000, cache_read_input_tokens: 5000, output_tokens: 20 },
       },
     })
-    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 1)!
     expect(ev.type).toBe('assistant')
     expect(ev.contextTokens).toBe(6100)
     expect(ev.tokensIn).toBe(100) // fresh input only — cost/metrics unchanged
@@ -142,7 +141,7 @@ describe('parseClaudeLine — contextTokens (input context size for the indicato
 
   it('assistant: omits contextTokens when no usage is present', () => {
     const line = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } })
-    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 1)!
     expect(ev.contextTokens).toBeUndefined()
   })
 
@@ -151,7 +150,7 @@ describe('parseClaudeLine — contextTokens (input context size for the indicato
       type: 'assistant',
       message: { content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 42, output_tokens: 7 } },
     })
-    const ev = parseClaudeLine(line, RUN_ID, 1, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 1)!
     expect(ev.contextTokens).toBe(42)
     expect(ev.tokensIn).toBe(42)
   })
@@ -163,7 +162,7 @@ describe('parseClaudeLine — contextTokens (input context size for the indicato
       total_cost_usd: 0.012,
       result: 'done',
     })
-    const ev = parseClaudeLine(line, RUN_ID, 9, CTX)!
+    const ev = parseClaudeLine(line, RUN_ID, 9)!
     expect(ev.type).toBe('usage')
     expect(ev.contextTokens).toBe(115)
     expect(ev.tokensIn).toBe(115)
@@ -185,7 +184,7 @@ describe('persistence round-trip — enriched fields survive emit → list', () 
 
   it('a delegate tool_use round-trips with JSON-parsed input', () => {
     const line = '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_rt","name":"Task","input":{"description":"RT","prompt":"go","subagent_type":"Explore"}}]}}'
-    const ev = parseClaudeLine(line, RID, 1, CTX)!
+    const ev = parseClaudeLine(line, RID, 1)!
     eventBus.emitEvent(ev)
 
     const rows = eventsDb.listEvents.all(RID) as Array<Record<string, unknown>>
@@ -200,7 +199,7 @@ describe('persistence round-trip — enriched fields survive emit → list', () 
 
   it('a tool_result with array content + is_error round-trips', () => {
     const line = '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_rt","content":[{"type":"text","text":"done"}],"is_error":false}]}}'
-    const ev = parseClaudeLine(line, RID, 2, CTX)!
+    const ev = parseClaudeLine(line, RID, 2)!
     eventBus.emitEvent(ev)
 
     const rows = eventsDb.listEvents.all(RID) as Array<Record<string, unknown>>
@@ -218,7 +217,7 @@ describe('persistence round-trip — enriched fields survive emit → list', () 
         usage: { input_tokens: 100, cache_creation_input_tokens: 1000, cache_read_input_tokens: 5000, output_tokens: 20 },
       },
     })
-    const ev = parseClaudeLine(line, RID, 3, CTX)!
+    const ev = parseClaudeLine(line, RID, 3)!
     expect(ev.contextTokens).toBe(6100)
     eventBus.emitEvent(ev)
 
