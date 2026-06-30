@@ -1,5 +1,6 @@
 /**
- * CONFIRMED FAULT — finding S8-001 (see testing/findings/S8-web-ui.md).
+ * FIXED FAULT — finding S8-001 (see testing/findings/S8-web-ui.md).
+ * Fixed + promoted to the gating suite in reboot wave F1.W1.
  *
  * Surface: web/src/lib/console.ts :: pairToolCalls / groupConsoleItems
  *          web/src/lib/workflow.ts :: eventsToWorkflowTree (calls pairToolCalls)
@@ -8,30 +9,33 @@
  *   console.ts's own docstring promises "a single malformed event must not crash
  *   the whole list", and workflow.ts promises it "NEVER throws on a malformed
  *   event". latestContextTokens already guards with `if (e == null) continue`.
- * Actual: a `null` / `undefined` ENTRY mixed among valid events throws
+ * Was: a `null` / `undefined` ENTRY mixed among valid events threw
  *   `TypeError: Cannot read properties of null (reading 'type')` (console.ts:49)
- *   / `...(reading 'kind')` (console.ts:86) — one bad event crashes the entire
+ *   / `...(reading 'kind')` (console.ts:86) — one bad event crashed the entire
  *   console + workflow tree, not just its own row.
  *
- * RED until pairToolCalls/groupConsoleItems skip nullish entries. Assert the
- * EXPECTED safe behavior so this flips green when the source is hardened.
+ * Now GUARDED: pairToolCalls/groupConsoleItems skip nullish entries. These
+ * assert the EXPECTED safe behavior — they stay green as a regression guard.
  *
  * prober: PROBER-B · validator: VALIDATOR-B
  */
 import { describe, it, expect } from 'vitest'
 import type { AgentEvent } from '@k/shared'
-import { pairToolCalls, groupConsoleItems, type ConsoleItem } from '../../src/lib/console'
-import { eventsToWorkflowTree } from '../../src/lib/workflow'
+import { pairToolCalls, groupConsoleItems, type ConsoleItem } from '../src/lib/console'
+import { eventsToWorkflowTree } from '../src/lib/workflow'
 
 function ev(over: Partial<AgentEvent>): AgentEvent {
   return { id: 'id', runId: 'r', seq: 0, type: 'assistant', ts: 0, ...over }
 }
 
-// A valid tool_use, a hostile null entry, and a valid passthrough event.
+// A valid tool_use, hostile null + undefined entries, and a valid passthrough
+// event. The `== null` guard covers both null and undefined; inject both so this
+// stays a regression guard even if someone narrows the guard to `=== null`.
 function eventsWithNullEntry(): AgentEvent[] {
   return [
     ev({ id: 'a', seq: 1, type: 'assistant', toolKind: 'command', toolUseId: 't1', toolInput: { command: 'echo hi' } }),
     null as unknown as AgentEvent,
+    undefined as unknown as AgentEvent,
     ev({ id: 'txt', seq: 3, type: 'assistant', text: 'still here' }),
   ]
 }

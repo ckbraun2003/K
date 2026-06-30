@@ -43,6 +43,13 @@ function convertWeekDayNames(expr: string): string {
 
 const ASTERISK_RANGES = ['0-59', '0-59', '0-23', '1-31', '1-12', '0-6']
 
+// DoS guard (finding S8-003): every real cron field maxes at 59, so the widest
+// legitimate range is `0-59` (span 59). Any numeric span beyond this cap is
+// implausible and must never be materialised — building it would freeze/OOM the
+// thread (`checkCron` runs on every keystroke). Far above any real range, far
+// below DoS territory.
+const MAX_RANGE_SPAN = 1000
+
 function convertAsterisk(expression: string, replacement: string): string {
   return expression.indexOf('*') !== -1 ? expression.replace('*', replacement) : expression
 }
@@ -57,7 +64,15 @@ function convertRange(expression: string): string {
     let last = parseInt(match[2], 10)
     if (first > last) { const t = first; first = last; last = t }
     const numbers: number[] = []
-    for (let i = first; i <= last; i += step) numbers.push(i)
+    // DoS guard (S8-003): a `step <= 0` never advances `i` (infinite loop) and a
+    // span past MAX_RANGE_SPAN would materialise a giant array before any bounds
+    // check. `checkCron`'s pre-scan already rejects both before convertExpression
+    // runs; this bound is belt-and-suspenders so convertRange itself can never
+    // hang or blow the heap. When skipped, the empty replacement parses to NaN
+    // downstream and is rejected by the per-field bounds check.
+    if (step > 0 && last - first <= MAX_RANGE_SPAN) {
+      for (let i = first; i <= last; i += step) numbers.push(i)
+    }
     expr = expr.replace(new RegExp(match[0], 'i'), numbers.join())
     match = rangeRegEx.exec(expr)
   }
@@ -125,6 +140,29 @@ export function checkCron(pattern: string): CronCheck {
     return { valid: false, error: `expected at least 5 fields, got ${raw.length}` }
   }
   const displayFields = raw.length === 5 ? ['0', ...raw] : raw
+  // DoS pre-scan (finding S8-003): reject a zero step (`*/0`, `1-5/0`) or an
+  // implausibly wide range (`1-5000000`) BEFORE convertExpression expands it —
+  // `checkCron` runs on every keystroke, so a `*/0` (unbounded loop) or a huge
+  // span (multi-second array build) would freeze/OOM the tab. All real cron
+  // fields max at 59, so any span over MAX_RANGE_SPAN is implausible. Only the
+  // bounds-checked fields are scanned (trailing fields are tolerated, see above),
+  // so this never rejects an expression the server would accept.
+  for (const field of displayFields.slice(0, FIELD_BOUNDS.length)) {
+    for (const tok of field.split(',')) {
+      const stepMatch = /^\*\/(\d+)$/.exec(tok)
+      if (stepMatch && parseInt(stepMatch[1], 10) <= 0) {
+        return { valid: false, error: `"${field}" has a step of 0 (must be > 0)` }
+      }
+      const rangeMatch = /^(\d+)-(\d+)(?:\/(\d+))?$/.exec(tok)
+      if (rangeMatch) {
+        const step = parseInt(rangeMatch[3] ?? '1', 10)
+        const span = Math.abs(parseInt(rangeMatch[2], 10) - parseInt(rangeMatch[1], 10))
+        if (step <= 0 || span > MAX_RANGE_SPAN) {
+          return { valid: false, error: `"${field}" is an invalid range (step > 0, span <= ${MAX_RANGE_SPAN})` }
+        }
+      }
+    }
+  }
   const executable = convertExpression(pattern)
   for (let i = 0; i < FIELD_BOUNDS.length; i++) {
     const [min, max, label] = FIELD_BOUNDS[i]
