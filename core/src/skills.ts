@@ -12,9 +12,10 @@
 import { randomUUID } from 'crypto'
 import { schedule as cronSchedule, validate as cronValidate } from 'node-cron'
 import type { Skill, CreateSkill, SkillEval } from '@k/shared'
-import { db, skillsDb, skillEvalsDb, runsDb } from './db.js'
+import { db, skillsDb, skillEvalsDb } from './db.js'
 import { startRun } from './supervisor.js'
 import { eventBus } from './events.js'
+import { trackSupervisedRun } from './run-lifecycle.js'
 
 // Prepared once at module load — sets runId on a skill_run after the run is created
 const patchSkillRunId = db.prepare(`UPDATE skill_runs SET runId = ? WHERE id = ?`)
@@ -136,22 +137,14 @@ export async function triggerSkill(
   // Launch the underlying run
   const run = await startRun(skill.source)
 
-  // Patch the runId back onto the skill_run
-  patchSkillRunId.run(run.id, skillRunId)
-
-  // Watch for run completion and update skill_run status
-  const unsub = eventBus.onRunUpdate(r => {
-    if (r.id !== run.id) return
-    if (
-      r.status === 'done' ||
-      r.status === 'error' ||
-      r.status === 'killed' ||
-      r.status === 'interrupted'
-    ) {
-      const srStatus = r.status === 'done' ? 'completed' : 'failed'
-      skillsDb.updateSkillRunStatus.run(srStatus, Date.now(), skillRunId)
-      unsub()
-    }
+  // Wire the supervised-run completion lifecycle (patch runId, finalize on
+  //   terminal, race-backstopped) — shared via run-lifecycle.ts. NOTE: this gives
+  //   triggerSkill the await/subscribe race backstop it previously lacked (a latent
+  //   leaked-'running'-row fix folded into the unification).
+  trackSupervisedRun(run.id, {
+    onStarted: rid => patchSkillRunId.run(rid, skillRunId),
+    finalize: status =>
+      skillsDb.updateSkillRunStatus.run(status === 'done' ? 'completed' : 'failed', Date.now(), skillRunId),
   })
 
   return { skillRunId, runId: run.id }
@@ -284,26 +277,12 @@ export async function runSkillTest(skillId: string): Promise<{ evalId: string; r
     return { evalId, runId: '' }
   }
 
-  skillEvalsDb.patchSkillEvalRunId.run(run.id, evalId)
-
-  // Watch for run completion; derive verdict from the terminal status (the
-  // marker branch in deriveEvalStatus is exercised by unit tests / future
-  // enrichment — the live path only has the run status here). unsub() runs
-  // BEFORE finalize so a duplicate terminal event can't re-finalize the row.
-  const TERMINAL = new Set(['done', 'error', 'killed', 'interrupted'])
-  const unsub = eventBus.onRunUpdate(r => {
-    if (r.id !== run.id || !TERMINAL.has(r.status)) return
-    unsub()
-    finalizeSkillEval(evalId, skillId, deriveEvalStatus(r.status))
+  // Wire the supervised-run completion lifecycle (patch runId, finalize on
+  //   terminal, race-backstopped) — shared via run-lifecycle.ts.
+  trackSupervisedRun(run.id, {
+    onStarted: rid => skillEvalsDb.patchSkillEvalRunId.run(rid, evalId),
+    finalize: status => finalizeSkillEval(evalId, skillId, deriveEvalStatus(status)),
   })
-
-  // Backstop the await/subscribe race: if the run already reached a terminal
-  // state before we subscribed, finalize now instead of leaking a 'pending' row.
-  const current = runsDb.getRun.get(run.id) as { status?: string } | undefined
-  if (current?.status != null && TERMINAL.has(current.status)) {
-    unsub()
-    finalizeSkillEval(evalId, skillId, deriveEvalStatus(current.status))
-  }
 
   return { evalId, runId: run.id }
 }

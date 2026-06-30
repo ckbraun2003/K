@@ -11,12 +11,9 @@
 
 import { randomUUID } from 'crypto'
 import type { Project, ProjectTask } from '@k/shared'
-import { projectTasksDb, workflowRunsDb, runsDb } from './db.js'
+import { projectTasksDb, workflowRunsDb } from './db.js'
 import { startRun } from './supervisor.js'
-import { eventBus } from './events.js'
-
-// Terminal run statuses — same set runSkillTest uses to finalize.
-const TERMINAL = new Set(['done', 'error', 'killed', 'interrupted'])
+import { trackSupervisedRun } from './run-lifecycle.js'
 
 /** Thrown when a requested taskId is missing or not scoped to this project. The
  *  route discriminates on this type (instanceof) to translate it to a 400. */
@@ -172,29 +169,12 @@ export async function dispatchTaskWorkflow(
     throw e
   }
 
-  // 5. Patch the runId back onto the workflow_run.
-  workflowRunsDb.patchWorkflowRunId.run(run.id, workflowRunId)
-
-  // 6. Finalize when the run terminates. unsub() runs BEFORE the finalize write
-  //    so a duplicate terminal event can't re-finalize the row.
-  const unsub = eventBus.onRunUpdate(r => {
-    if (r.id !== run.id || !TERMINAL.has(r.status)) return
-    unsub()
-    finalizeWorkflowRun(workflowRunId, r.status)
+  // 5. Wire the supervised-run completion lifecycle (patch runId, finalize on
+  //    terminal, race-backstopped) — shared via run-lifecycle.ts.
+  trackSupervisedRun(run.id, {
+    onStarted: rid => workflowRunsDb.patchWorkflowRunId.run(rid, workflowRunId),
+    finalize: status => finalizeWorkflowRun(workflowRunId, status),
   })
-
-  // Backstop the await/subscribe race: if the run already reached a terminal
-  // state before we subscribed, finalize now instead of leaking a 'running' row.
-  const current = runsDb.getRun.get(run.id) as { status?: string } | undefined
-  if (current?.status != null && TERMINAL.has(current.status)) {
-    unsub()
-    // Re-read the workflow_run: the subscriber may have already finalized it.
-    // Only finalize if it's still 'running' so we don't double-write.
-    const wfRow = workflowRunsDb.getWorkflowRun.get(workflowRunId) as { status?: string } | undefined
-    if (wfRow?.status === 'running') {
-      finalizeWorkflowRun(workflowRunId, current.status)
-    }
-  }
 
   // 7. Do NOT auto-mark todos done.
   return { workflowRunId, runId: run.id }
