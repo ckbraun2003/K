@@ -2,7 +2,7 @@
 title: Verification System
 icon: "✓"
 status: active
-updated: 2026-06-27
+updated: 2026-06-30
 ---
 
 Verification is **two-layer** (decision D-004): machines check what machines are good at; agents judge what requires judgment.
@@ -57,7 +57,7 @@ Reports persist to SQLite, stream to the dashboard's Verification tab, and the s
 `score = 40·CI + 20·coverage-trend + 20·bible-freshness + 20·findings`
 
 - **CI (40):** latest default-branch run green = full marks; failing = 0; flaky (mixed last 5) = half.
-- **Coverage trend (20):** improving or stable ≥ baseline = full; declining = proportional (half). `unknown` — today's default, since no coverage signal is wired (see below) — scores as **full marks / neutral (no penalty)**.
+- **Coverage trend (20):** improving or stable (≥ baseline within tolerance) = full marks; declining = proportional (half). `unknown` (no coverage signal available for the project) = neutral / full marks (no penalty). The trend is a **live signal** — see below.
 - **Bible freshness (20):** all sections updated within 30 days of last significant commit = full.
 - **Findings (20):** no open critical = full; each open critical −10, each warn −2 (floor 0).
 
@@ -77,9 +77,21 @@ The health score and report are computed and persisted **deterministically** by 
 
 Exposed via `POST /api/projects/:id/verify` (synchronous, authoritative) and `GET /api/projects/:id/verifications` (report history, newest first).
 
-### Coverage trend = neutral today
+### Coverage trend — live signal
 
-There is **no coverage signal wired yet**, so `runVerification` defaults the coverage trend to `unknown`, which scores as neutral (full marks, no penalty). This is documented so operator and agents agree that today's score is effectively weighted on **CI + bible-freshness + findings**, and coverage stays neutral until an agent layer supplies a real trend.
+`runVerification` derives a **real** coverage trend per project: it reads the project's
+`coverage/coverage-summary.json` (the istanbul/vitest/jest `json-summary` standard — `total.lines.pct`)
+and compares it to the `coverage_pct` persisted on the project's previous report:
+
+- **declining** (more than 0.1 pp below the prior reading) → coverage factor 0.5 (a real penalty).
+- **improving / stable** (≥ prior within tolerance) → full marks.
+- **first reading** (no prior measurement) → stable: a baseline is established, nothing to regress from.
+- **unknown** (no `coverage-summary.json` for the project) → neutral / full marks — the signal stays
+  inert for projects without coverage instrumentation, so it never penalizes a project for not emitting a
+  coverage report; it activates the moment one appears.
+
+Each report persists its measured `coveragePct`, so the trend is computed against real history. This
+replaces the previous hardcoded `unknown` default — the 20-point coverage factor is now live.
 
 ### CI auditor — deterministic scaffold (uncommitted, not a push)
 

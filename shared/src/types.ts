@@ -132,6 +132,9 @@ export const VerificationReportSchema = z.object({
   breakdown: z
     .object({ ci: z.number(), coverage: z.number(), bible: z.number(), findings: z.number() })
     .optional(),
+  // Measured overall line-coverage % at verify time; null when the project emits no
+  // coverage-summary. Optional so reports persisted before this field still validate.
+  coveragePct: z.number().nullable().optional(),
 })
 export type VerificationReport = z.infer<typeof VerificationReportSchema>
 

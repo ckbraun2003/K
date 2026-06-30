@@ -115,6 +115,43 @@ describe('runVerification — persistence round-trip', () => {
   })
 })
 
+// ── live coverage trend (F4.W1) ──────────────────────────────────────────────────
+
+describe('runVerification — live coverage trend', () => {
+  function writeCoverage(localPath: string, pct: number): void {
+    fs.mkdirSync(path.join(localPath, 'coverage'), { recursive: true })
+    fs.writeFileSync(
+      path.join(localPath, 'coverage', 'coverage-summary.json'),
+      JSON.stringify({ total: { lines: { pct } } }),
+    )
+  }
+
+  function persistedById(projectId: string, reportId: string) {
+    const rows = verificationDb.listVerificationReports.all(projectId) as Array<Record<string, unknown>>
+    return rows.map(rowToReport).find(r => r.id === reportId)
+  }
+
+  it('reads coverage-summary.json, persists coveragePct, and a real decline lowers the score', () => {
+    const project = insertBareProject()
+
+    // First reading: 90%. No prior report → 'stable' → coverage component full (20).
+    writeCoverage(project.localPath, 90)
+    const first = runVerification(project)
+    expect(first.coveragePct).toBe(90)
+    expect(first.breakdown.coverage).toBe(20)
+    expect(persistedById(project.id, first.id)?.coveragePct).toBe(90)
+
+    // Second reading: 80% (< prior 90 by > tol) → 'declining' → coverage half (10).
+    writeCoverage(project.localPath, 80)
+    const second = runVerification(project)
+    expect(second.coveragePct).toBe(80)
+    expect(second.breakdown.coverage).toBe(10)
+    // the live decline really lowers the score vs. the stable first run.
+    expect(second.score).toBeLessThan(first.score)
+    expect(persistedById(project.id, second.id)?.coveragePct).toBe(80)
+  })
+})
+
 // ── findings composition (dedupe contract) ──────────────────────────────────────
 
 describe('runVerification — deduped findings', () => {
@@ -344,5 +381,53 @@ describe('db migration — verification_reports.score_breakdown (boot)', () => {
   it('score_breakdown column exists on the live db after boot migrate()', () => {
     const cols = db.pragma('table_info(verification_reports)') as Array<{ name: string }>
     expect(cols.map(c => c.name)).toContain('score_breakdown')
+  })
+})
+
+// ── migration: coverage_pct column (F4.W1) ───────────────────────────────────────
+
+describe('migrate() — verification_reports.coverage_pct', () => {
+  const tmpPath = path.join(os.tmpdir(), `k-verify-cov-migration-${Date.now()}.db`)
+  // tempDb is created in the first `it` and reused by the second (ordered within
+  // this describe); closed + unlinked in afterAll.
+  let tempDb: Database.Database
+
+  it('adds coverage_pct to an old-schema verification_reports table', () => {
+    tempDb = new Database(tmpPath)
+    // old schema: verification_reports WITHOUT coverage_pct (or score_breakdown)
+    tempDb.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY);
+      CREATE TABLE runs (id TEXT PRIMARY KEY, prompt TEXT, cwd TEXT, status TEXT, created_at INTEGER);
+      CREATE TABLE verification_reports (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        score INTEGER NOT NULL,
+        findings TEXT NOT NULL DEFAULT '[]',
+        fixes_applied TEXT NOT NULL DEFAULT '[]',
+        started_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+    `)
+
+    migrate(tempDb)
+
+    const cols = tempDb.pragma('table_info(verification_reports)') as Array<{ name: string }>
+    expect(cols.map(c => c.name)).toContain('coverage_pct')
+  })
+
+  it('is idempotent — a second migrate() does not throw', () => {
+    expect(() => migrate(tempDb)).not.toThrow()
+  })
+
+  afterAll(() => {
+    try { tempDb?.close() } catch { /* ignore */ }
+    try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+  })
+})
+
+describe('db migration — verification_reports.coverage_pct (boot)', () => {
+  it('coverage_pct column exists on the live db after boot migrate()', () => {
+    const cols = db.pragma('table_info(verification_reports)') as Array<{ name: string }>
+    expect(cols.map(c => c.name)).toContain('coverage_pct')
   })
 })

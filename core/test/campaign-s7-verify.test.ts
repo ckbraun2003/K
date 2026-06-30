@@ -206,7 +206,7 @@ describe('atomic persist — report row + project health land together or not at
     const tx = db.transaction(() => {
       verificationDb.insertVerificationReport.run({
         id: reportId, projectId: id, score: 42, findings: '[]', fixesApplied: '[]',
-        startedAt: Date.now(), completedAt: Date.now(), scoreBreakdown: null,
+        startedAt: Date.now(), completedAt: Date.now(), scoreBreakdown: null, coveragePct: null,
       })
       throw new Error('simulated mid-write failure (e.g. updateProjectHealth threw)')
     })
@@ -228,7 +228,7 @@ describe('atomic persist — report row + project health land together or not at
     const tx = db.transaction(() => {
       verificationDb.insertVerificationReport.run({
         id: reportId, projectId: id, score: 77, findings: '[]', fixesApplied: '[]',
-        startedAt: Date.now(), completedAt: 123456, scoreBreakdown: null,
+        startedAt: Date.now(), completedAt: 123456, scoreBreakdown: null, coveragePct: null,
       })
       projectsDb.updateProjectHealth.run({ id, healthScore: 77, lastVerifiedAt: 123456 })
     })

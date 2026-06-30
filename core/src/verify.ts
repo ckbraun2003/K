@@ -80,6 +80,30 @@ function coverageFactor(trend: CoverageTrend): number {
   }
 }
 
+/**
+ * Classify a per-project coverage trend from the current vs. prior measured
+ * line-coverage %. PURE — no I/O; the caller gathers both numbers. `tol` is the
+ * dead-band (percentage points) that absorbs measurement noise so a tiny wobble
+ * reads as 'stable' rather than improving/declining. Order matters:
+ *  - current null / non-finite → 'unknown' (no signal — stays neutral, no penalty).
+ *  - prior null / non-finite  → 'stable' (first real reading: a baseline is
+ *    established, nothing to regress from — full marks, not claiming improvement).
+ *  - current ≥ prior + tol    → 'improving'.
+ *  - |current − prior| ≤ tol  → 'stable'.
+ *  - current < prior − tol    → 'declining'.
+ */
+export function classifyCoverageTrend(
+  currentPct: number | null,
+  priorPct: number | null,
+  tol = 0.1,
+): CoverageTrend {
+  if (currentPct == null || !Number.isFinite(currentPct)) return 'unknown'
+  if (priorPct == null || !Number.isFinite(priorPct)) return 'stable'
+  if (currentPct >= priorPct + tol) return 'improving'
+  if (Math.abs(currentPct - priorPct) <= tol) return 'stable'
+  return 'declining'
+}
+
 /** Findings component points: start at full weight, subtract per OPEN finding,
  *  floor at 0. info findings carry no penalty. */
 function findingsPoints(findings: Finding[]): number {
@@ -312,6 +336,26 @@ export function bibleFreshnessDays(localPath: string, bibleDir: string): number 
   }
 }
 
+/**
+ * Measured overall line-coverage %, read from
+ * <localPath>/coverage/coverage-summary.json (the istanbul/vitest/jest
+ * `json-summary` standard — `total.lines.pct`). Returns the pct only when it is a
+ * finite number in [0, 100]; every failure mode — missing file, unreadable,
+ * garbled JSON, missing / wrong-typed field, out-of-range — yields null and never
+ * throws (mirrors bibleFreshnessDays' defensive posture). Synchronous read matches
+ * the deterministic single-shot verify run.
+ */
+export function readCoveragePct(localPath: string): number | null {
+  try {
+    const raw = fs.readFileSync(path.join(localPath, 'coverage', 'coverage-summary.json'), 'utf8')
+    const pct = (JSON.parse(raw) as { total?: { lines?: { pct?: unknown } } })?.total?.lines?.pct
+    if (typeof pct !== 'number' || !Number.isFinite(pct) || pct < 0 || pct > 100) return null
+    return pct
+  } catch {
+    return null
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Orchestration (IMPURE conductor). Gathers facts via the helpers above + the
 // GitHub cache, scores with the pure core, persists, and broadcasts. The pure
@@ -357,6 +401,7 @@ const persistReport = db.transaction((report: VerificationReport): void => {
     startedAt: report.startedAt,
     completedAt: report.completedAt,
     scoreBreakdown: JSON.stringify(report.breakdown),
+    coveragePct: report.coveragePct ?? null,
   })
   projectsDb.updateProjectHealth.run({
     id: report.projectId,
@@ -380,10 +425,17 @@ export function runVerification(project: Project): VerificationReport {
   const gh = getGithubStatus(project.id)
   const ci = classifyCi(gh, hasWorkflow)
   const bibleFresh = bibleFreshFromDays(freshnessDays, hasBible)
-  // No coverage signal in this milestone — default to the neutral 'unknown'
-  // (plan risk #1). An agent layer will supply a real trend later; until then we
-  // do not penalize coverage and do not fetch the prior report (unused here).
-  const coverageTrend: CoverageTrend = 'unknown'
+  // Live coverage trend: read this project's measured line-coverage % from its
+  // coverage/coverage-summary.json and compare it against the coverage_pct
+  // persisted on the project's previous report (read BEFORE we persist this run's).
+  // No coverage file → null → 'unknown' → neutral (no penalty); the signal stays
+  // inert for uninstrumented projects and only activates once one emits a report.
+  const priorRow = verificationDb.latestVerificationReport.get(project.id) as
+    | { coverage_pct?: number | null }
+    | undefined
+  const priorPct = priorRow?.coverage_pct ?? null
+  const coveragePct = readCoveragePct(project.localPath)
+  const coverageTrend = classifyCoverageTrend(coveragePct, priorPct)
 
   // ── compose + score (pure) ──────────────────────────────────────────────────
   const findings = composeFindings(project, gh, { hasBible, hasWorkflow, freshnessDays })
@@ -399,6 +451,7 @@ export function runVerification(project: Project): VerificationReport {
     startedAt,
     completedAt: Date.now(),
     breakdown,
+    coveragePct,
   }
 
   // ── deterministic CI-auditor fix (Task 8) ────────────────────────────────────

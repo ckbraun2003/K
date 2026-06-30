@@ -354,6 +354,11 @@ export function migrate(d: Database.Database): void {
   // (e.g. minimal old-schema fixtures in db-migration.test.ts).
   if (hasTable(d, 'verification_reports')) {
     addColumn(d, 'verification_reports', 'score_breakdown', 'TEXT')
+    // coverage_pct (F4.W1): nullable measured line-coverage % at verify time,
+    // powering the live coverage-trend signal. Appended via guarded ALTER (not in
+    // CREATE TABLE) exactly like score_breakdown — migrate() runs at boot so fresh
+    // installs and existing DBs both gain it.
+    addColumn(d, 'verification_reports', 'coverage_pct', 'REAL')
   }
   // events(run_id, seq) must be unique — the lazy raw endpoint does a .get() by
   // (run_id, seq) assuming a single row. SQLite can't ALTER ADD CONSTRAINT, so a
@@ -557,15 +562,21 @@ export const projectGraphsDb = { upsertProjectGraph, getProjectGraph }
 // ─── Verification helpers ────────────────────────────────────────────────────
 
 const insertVerificationReport = db.prepare(`
-  INSERT INTO verification_reports (id, project_id, score, findings, fixes_applied, started_at, completed_at, score_breakdown)
-  VALUES (@id, @projectId, @score, @findings, @fixesApplied, @startedAt, @completedAt, @scoreBreakdown)
+  INSERT INTO verification_reports (id, project_id, score, findings, fixes_applied, started_at, completed_at, score_breakdown, coverage_pct)
+  VALUES (@id, @projectId, @score, @findings, @fixesApplied, @startedAt, @completedAt, @scoreBreakdown, @coveragePct)
 `)
 
 const listVerificationReports = db.prepare(`
   SELECT * FROM verification_reports WHERE project_id = ? ORDER BY started_at DESC LIMIT 20
 `)
 
-export const verificationDb = { insertVerificationReport, listVerificationReports }
+// Newest report for a project — runVerification reads its persisted coverage_pct
+// to compute the live coverage trend against real history.
+const latestVerificationReport = db.prepare(`
+  SELECT * FROM verification_reports WHERE project_id = ? ORDER BY started_at DESC LIMIT 1
+`)
+
+export const verificationDb = { insertVerificationReport, listVerificationReports, latestVerificationReport }
 
 /** Map a verification_reports DB row → the shared VerificationReport shape.
  *  snake_case → camelCase; JSON columns parsed; breakdown omitted when NULL.
@@ -595,6 +606,7 @@ export function rowToReport(r: Record<string, unknown>): VerificationReport {
       /* leave breakdown undefined on garbled JSON */
     }
   }
+  if (r.coverage_pct != null) report.coveragePct = Number(r.coverage_pct)
   return report
 }
 

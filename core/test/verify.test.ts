@@ -14,6 +14,8 @@ import {
   hasWorkflowFile,
   hasBibleDir,
   bibleFreshnessDays,
+  readCoveragePct,
+  classifyCoverageTrend,
   type HealthScoreInputs,
 } from '../src/verify.js'
 
@@ -140,6 +142,37 @@ describe('computeHealthScore', () => {
     })
     expect(breakdown).toEqual({ ci: 0, coverage: 10, bible: 0, findings: 0 })
     expect(score).toBe(10)
+  })
+})
+
+// ── classifyCoverageTrend (pure) ──────────────────────────────────────────────
+
+describe('classifyCoverageTrend', () => {
+  it("current null → 'unknown' (no signal, stays neutral)", () => {
+    expect(classifyCoverageTrend(null, 80)).toBe('unknown')
+    expect(classifyCoverageTrend(null, null)).toBe('unknown')
+  })
+
+  it("prior null + current present → 'stable' (first real reading)", () => {
+    expect(classifyCoverageTrend(90, null)).toBe('stable')
+  })
+
+  it("clear rise → 'improving'", () => {
+    expect(classifyCoverageTrend(90, 80)).toBe('improving')
+  })
+
+  it("equal / within tol → 'stable'", () => {
+    expect(classifyCoverageTrend(87.5, 87.5)).toBe('stable')
+    expect(classifyCoverageTrend(87.5, 87.55)).toBe('stable')
+  })
+
+  it("clear drop → 'declining'", () => {
+    expect(classifyCoverageTrend(80, 87.5)).toBe('declining')
+  })
+
+  it('tol boundary: drop of exactly 0.1 → stable, drop of 0.2 → declining', () => {
+    expect(classifyCoverageTrend(87.5, 87.6)).toBe('stable') // drop 0.1 == tol
+    expect(classifyCoverageTrend(87.5, 87.7)).toBe('declining') // drop 0.2 > tol
   })
 })
 
@@ -415,6 +448,49 @@ describe('bibleFreshnessDays', () => {
     // floor of (~40d minus a few ms of test runtime) → 39 or 40; either is "stale".
     expect(days).toBeGreaterThanOrEqual(39)
     expect(days).toBeLessThanOrEqual(40)
+  })
+})
+
+// ── readCoveragePct ───────────────────────────────────────────────────────────
+
+describe('readCoveragePct', () => {
+  function writeSummary(tmp: string, json: string): void {
+    fs.mkdirSync(path.join(tmp, 'coverage'), { recursive: true })
+    fs.writeFileSync(path.join(tmp, 'coverage', 'coverage-summary.json'), json)
+  }
+
+  it('reads total.lines.pct from a json-summary file', () => {
+    const tmp = makeTmp()
+    writeSummary(tmp, JSON.stringify({ total: { lines: { pct: 87.5 } } }))
+    expect(readCoveragePct(tmp)).toBe(87.5)
+  })
+
+  it('null when the summary file is missing', () => {
+    expect(readCoveragePct(makeTmp())).toBeNull()
+  })
+
+  it('null on garbled JSON', () => {
+    const tmp = makeTmp()
+    writeSummary(tmp, '{ not json')
+    expect(readCoveragePct(tmp)).toBeNull()
+  })
+
+  it('null when pct is out of range (150 or -5)', () => {
+    for (const pct of [150, -5]) {
+      const tmp = makeTmp()
+      writeSummary(tmp, JSON.stringify({ total: { lines: { pct } } }))
+      expect(readCoveragePct(tmp)).toBeNull()
+    }
+  })
+
+  it('null when total.lines.pct is missing / wrong-typed', () => {
+    const tmp = makeTmp()
+    writeSummary(tmp, JSON.stringify({ total: { statements: { pct: 50 } } }))
+    expect(readCoveragePct(tmp)).toBeNull()
+
+    const tmp2 = makeTmp()
+    writeSummary(tmp2, JSON.stringify({ total: { lines: { pct: '90' } } }))
+    expect(readCoveragePct(tmp2)).toBeNull()
   })
 })
 
