@@ -1,14 +1,15 @@
 /**
- * REGRESSION (red by design) — Finding S6-003.
+ * REGRESSION — FAULT S6-003 (FIXED + promoted to gating, reboot wave F1.W3).
+ * Finding: testing/findings/S6-voice-bible.md → row S6-003.
  *
- * POST /api/transcribe does NOT reject non-audio uploads. voiceRoutes only
+ * POST /api/transcribe did NOT reject non-audio uploads. voiceRoutes only
  * REGISTERS a raw-buffer parser for AUDIO_TYPES (audio/webm|ogg|wav,
  * application/octet-stream); it never removes Fastify's DEFAULT parsers for
  * `application/json` and `text/plain`. So a request with content-type
- * `text/plain` (or `application/json`) is parsed by the default parser and its
- * (non-Buffer) body is forwarded to the transcription provider — contradicting
- * the route's own comment ("Any other content-type → Fastify 415"). Only a
- * content-type with NO registered parser (e.g. image/png) actually 415s.
+ * `text/plain` (or `application/json`) was parsed by the default parser and its
+ * (non-Buffer) body was forwarded to the transcription provider — contradicting
+ * the route's own comment ("Any other content-type → 415"). Only a content-type
+ * with NO registered parser (e.g. image/png) actually 415'd.
  *
  *   Surface: core/src/routes/voice.ts :: voiceRoutes / POST /api/transcribe.
  *
@@ -20,21 +21,20 @@
  *
  *   Expected: a non-audio content-type is rejected (415) and the provider is
  *             NEVER invoked.
- *   Actual:   200 (text/plain) with the provider invoked on a non-Buffer body.
+ *   Was:      200 (text/plain) with the provider invoked on a non-Buffer body.
  *
- * Asserts the EXPECTED (safe) behavior → RED. Flips green when the route rejects
- * non-audio MIME types (e.g. removes the default text/json parsers for this route
- * or validates content-type in the handler before forwarding).
- *
- * Finding row: testing/findings/S6-voice-bible.md  (S6-003)
+ * FIXED: the handler now validates the content-type up front — after the
+ * voiceEnabled() 503 check and before touching the body — and returns 415 for any
+ * MIME not in AUDIO_TYPES, so a default json/text parser body can never reach the
+ * provider. This test asserts that EXPECTED (safe) behavior → now GREEN and gates.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import { voiceRoutes } from '../../src/routes/voice.js'
-import { setTranscriptionProvider, resetTranscriptionProvider } from '../../src/transcription.js'
-import { __resetConfigCache, setVoiceEnabled } from '../../src/config-store.js'
-import { db } from '../../src/db.js'
+import { voiceRoutes } from '../src/routes/voice.js'
+import { setTranscriptionProvider, resetTranscriptionProvider } from '../src/transcription.js'
+import { __resetConfigCache, setVoiceEnabled } from '../src/config-store.js'
+import { db } from '../src/db.js'
 
 function clearConfigTable() {
   db.prepare('DELETE FROM app_config').run()

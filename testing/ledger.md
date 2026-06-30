@@ -122,16 +122,14 @@ tree at HEAD `8a5fcbd` and reconciled the ledger against ground truth.
 | **S5-002** | Low | providers.ts | `classifyTool` returns inherited `Object.prototype` members for tool names like `toString`/`constructor` → event dropped at ingest | `core/test/regressions/s5-002-classifytool-prototype-pollution.test.ts` |
 | **S5-003** | Low | ollama-client.ts | `listInstalled` throws raw `TypeError` (not `OllamaNetworkError`) on a malformed 200 `/api/tags` body → mislabeled 502 "unreachable" | `core/test/regressions/s5-003-listinstalled-malformed-body-typeerror.test.ts` |
 | **S5-004** | Low (latent) | claude-args.ts | empty `allowedTools:[]` → dangling `--allowedTools` swallows the next flag (loses L0+L1 prompt injection); latent — shipped allowlists non-empty | `core/test/regressions/s5-004-empty-allowedtools-dangling-flag.test.ts` |
-| **S6-001** | Med (latent) | bible.ts | stored XSS via UNESCAPED frontmatter `status`/`updated` in the compiled bible template (body sanitizer bypassed); latent — no HTTP/UI write path, author/agent-controlled `.md` only | `core/test/regressions/s6-001-bible-frontmatter-status-updated-xss.test.ts` |
 | **S6-002** | Low (latent) | bible.ts | section `slug` raw in `id`/`href`/`data-section` attrs (full breakout POSIX-only; `&` case cross-platform) | `core/test/regressions/s6-002-bible-slug-attr-unescaped.test.ts` |
-| **S6-003** | Med | routes/voice.ts | non-audio MIME not 415'd (default json/text parsers not removed) → non-Buffer body reaches provider; gated behind voice-enabled | `core/test/regressions/s6-003-voice-nonaudio-mime-not-rejected.test.ts` |
 | **S6-004** | Low (latent) | transcription.ts | transcript `text` unvalidated → `{}`→`{text:undefined}` (200 w/ no transcript), non-string relayed verbatim | `core/test/regressions/s6-004-transcript-text-unvalidated.test.ts` |
 | **S8-002** | Low (latent) | web WorkflowChecklist.tsx | out-of-enum step `status` → unguarded `STATUS[…]` deref blank-screens the checklist (takes siblings); double-gated (kstore Zod enum + DB CHECK) → enum-drift forward-compat guard | `web/test/regressions/s8a-002-workflow-checklist-unknown-status-crash.test.tsx` |
-| **S8-004** | Med | web chart.ts::stackDays | ragged/short series points → `TypeError` instead of degrading to 0 (needs a malformed/partial metrics payload) | `web/test/regressions/s8a-004-stackdays-ragged-series-throws.test.ts` |
 | **S8-005** | Low | web verify.ts | `NaN` escapes `barPct`'s documented clamp (→ `width:NaN%`); non-finite ts → `"NaNd ago"`/`"Infinityd ago"` labels | `web/test/regressions/s8a-005-verify-nonfinite-inputs.test.ts` |
 
 _S8-001, S8-003 fixed + promoted to the gating suite in reboot wave F1.W1._
 _S1-018, S2-017, S7-001 fixed + promoted to gating in reboot wave F1.W2._
+_S6-001, S6-003, S8-004 fixed + promoted to gating in reboot wave F1.W3._
 
 ### Notable non-fault concerns (documented; LOCK/characterization)
 - **S2-001** (Med, docs-mismatch) — no approve/reject memory surface exists in code; gated reflection

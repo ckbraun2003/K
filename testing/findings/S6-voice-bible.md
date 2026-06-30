@@ -17,9 +17,9 @@ edited; no real network/Whisper; all bible compiles + DB writes happen under per
 
 | id | severity | category | classification | status | test |
 |----|----------|----------|----------------|--------|------|
-| S6-001 | **Med** (latent: no HTTP/UI write path) | Security/Bug | **FAULT** | quarantined | `core/test/regressions/s6-001-bible-frontmatter-status-updated-xss.test.ts` |
+| S6-001 | **Med** (latent: no HTTP/UI write path) | Security/Bug | **FAULT** | **fixed + promoted (F1.W3)** | `core/test/s6-001-bible-frontmatter-status-updated-xss.test.ts` (now GREEN, gating) |
 | S6-002 | Low | Security/Robustness | **FAULT** (latent on Windows) | quarantined | `core/test/regressions/s6-002-bible-slug-attr-unescaped.test.ts` |
-| S6-003 | Med | Robustness/Bug | **FAULT** | quarantined | `core/test/regressions/s6-003-voice-nonaudio-mime-not-rejected.test.ts` |
+| S6-003 | Med | Robustness/Bug | **FAULT** | **fixed + promoted (F1.W3)** | `core/test/s6-003-voice-nonaudio-mime-not-rejected.test.ts` (now GREEN, gating) |
 | S6-004 | Low | Robustness | **FAULT** (latent) | quarantined | `core/test/regressions/s6-004-transcript-text-unvalidated.test.ts` |
 | S6-005 | — (verified) | Robustness | LOCK | codified | `core/test/campaign-s6-voice-route.test.ts` |
 | S6-006 | — (verified) | Robustness | LOCK | codified | `core/test/campaign-s6-voice-route.test.ts` |
@@ -32,7 +32,8 @@ edited; no real network/Whisper; all bible compiles + DB writes happen under per
 | S6-013 | — (verified) | Edge | LOCK | codified | `core/test/campaign-s6-bible-freshness.test.ts` |
 | S6-014 | — (verified) | Edge | LOCK | codified | `core/test/campaign-s6-bible-compile.test.ts` |
 
-FAULT (red, quarantine): 4 · LOCK (passing, gating): 10.
+FAULT: 4 found — **S6-001 + S6-003 fixed + promoted to gating (F1.W3)**; 2 remain red in quarantine
+(S6-002, S6-004) · LOCK (passing, gating): 10.
 prober = **S6 voice prober** (`agent ad22ee08…`) and **S6 bible prober** (`agent ac39991c…`);
 validator = **S6 vitest codification** (`campaign-s6-*.test.ts` + `regressions/s6-*`) unless noted.
 
@@ -57,8 +58,8 @@ validator = **S6 vitest codification** (`campaign-s6-*.test.ts` + `regressions/s
   </span>` and `updated <img src=x onerror=alert(7)>` raw.
 - **evidence:** bible prober ran the compile and grepped the output; codified red test asserts the
   escaped form is present and the raw payload absent — fails RED for exactly this reason.
-- **fix sketch (finding, not an edit):** `escHtml(s.status)` and `escHtml(s.updated)` in
-  `bibleTemplate` (mirror the existing `escHtml(s.title)`/`escHtml(s.icon)`). Red test flips green.
+- **fix (F1.W3):** `escHtml(s.status)` (badge + nav `title`) and `escHtml(s.updated)` in
+  `bibleTemplate`, mirroring the existing `escHtml(s.title)`/`escHtml(s.icon)`. Red test flipped green.
 - **reachability (latent):** there is **no HTTP/UI route that persists section content or frontmatter**.
   The only bible route, `POST /api/bible/compile` (`routes/artifacts.ts`), calls `compileBible()` with
   no arguments — it recompiles the existing on-disk sections and accepts nothing. So the malicious
@@ -70,7 +71,7 @@ validator = **S6 vitest codification** (`campaign-s6-*.test.ts` + `regressions/s
 - **impact note:** stored XSS in a persisted, browser-opened artifact; the body sanitizer
   (`sanitizeRenderedHtml`) is bypassed at the template layer. The existing `sanitize.test.ts` injects
   only into `icon`/body, so this template-level sink was untested.
-- **test-path:** `core/test/regressions/s6-001-bible-frontmatter-status-updated-xss.test.ts` (RED).
+- **test-path:** `core/test/s6-001-bible-frontmatter-status-updated-xss.test.ts` (**GREEN, promoted to gating**).
 
 ### S6-002 — section `slug` interpolated RAW into `id` / `href` / `data-section` attributes · FAULT (latent on Windows)
 - **system:** `core/src/bible.ts` (`bibleTemplate`).
@@ -108,10 +109,10 @@ validator = **S6 vitest codification** (`campaign-s6-*.test.ts` + `regressions/s
   `text/plain` body `"100000000"` expands to a **100 MB** allocation, defeating the documented 25 MB
   cap (gated behind voice-enabled, so OFF is safe). Folded into this finding rather than allocating in
   a test.
-- **fix sketch:** validate `content-type` is in `AUDIO_TYPES` inside the handler (415 otherwise), or
-  scope/remove the default text/json parsers for this route. Gated behind the 503 voice-off check, so
-  unreachable when voice is disabled.
-- **test-path:** `core/test/regressions/s6-003-voice-nonaudio-mime-not-rejected.test.ts` (RED).
+- **fix (F1.W3):** the handler validates `content-type` is in `AUDIO_TYPES` (after the 503 voice-off
+  check, before touching the body); any other MIME → 415, so the provider is never reached. Red test
+  flipped green.
+- **test-path:** `core/test/s6-003-voice-nonaudio-mime-not-rejected.test.ts` (**GREEN, promoted to gating**).
 
 ### S6-004 — transcript `text` forwarded with zero validation; missing/non-string relayed verbatim · FAULT (latent)
 - **system:** `core/src/transcription.ts` (`whisperProvider.transcribe`, ~L99).

@@ -1,5 +1,6 @@
 /**
- * CONFIRMED FAULT — finding S8-004 (see testing/findings/S8-web-ui.md).
+ * REGRESSION — FAULT S8-004 (FIXED + promoted to gating, reboot wave F1.W3).
+ * Finding: testing/findings/S8-web-ui.md → row S8-004.
  *
  * Surface: web/src/lib/chart.ts :: stackDays
  *   (`series.reduce((sum, s) => sum + s.points[di][metric], 0)`, line 24, and the
@@ -8,16 +9,18 @@
  * Expected: per the S8 charter, chart helpers tolerate weird/partial input and
  *   "degrade defensibly" — a series whose `points` array is shorter than `dates`
  *   (or empty) should contribute 0 for the missing days, not crash the chart.
- * Actual: `s.points[di]` is `undefined` past the points length, so
- *   `undefined[metric]` throws `TypeError: Cannot read properties of undefined
+ * Was: `s.points[di]` is `undefined` past the points length, so
+ *   `undefined[metric]` threw `TypeError: Cannot read properties of undefined
  *   (reading 'tokens')`, taking down the whole metrics view.
  *
- * RED until stackDays guards the lookup (e.g. `s.points[di]?.[metric] ?? 0`).
+ * FIXED: both lookups now guard with `s.points[di]?.[metric] ?? 0`, so a missing
+ * day contributes 0 and the chart degrades instead of throwing. This test asserts
+ * that EXPECTED (safe) behavior → now GREEN and gates.
  *
  * prober: PROBER-A · validator: VALIDATOR-A
  */
 import { describe, it, expect } from 'vitest'
-import { stackDays } from '../../src/lib/chart'
+import { stackDays } from '../src/lib/chart'
 import type { MetricsTimeseries } from '@k/shared'
 
 // dates has 3 entries but the series only carries ONE point (ragged payload).

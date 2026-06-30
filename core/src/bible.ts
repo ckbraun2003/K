@@ -9,8 +9,9 @@
  * at compile time:  <!-- @live:stats -->  <!-- @live:recent-runs -->
  *                   <!-- @live:roadmap-progress -->  <!-- @live:health -->
  *
- * Agents edit sections, never the compiled HTML. Every project's bible lives at
- * <repo>/artifacts/bible/ (gitignored, K-owned) — the harness's own included.
+ * Agents edit sections, never the compiled HTML. A project's bible sources
+ * (manifest.json + sections/) are git-tracked; only the compiled artifacts/*.html
+ * is gitignored.
  */
 
 import fs from 'fs'
@@ -139,7 +140,7 @@ function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & {
     <a class="nav-item" href="#${s.slug}" data-section="${s.slug}">
       <span class="nav-icon">${escHtml(s.icon)}</span>
       <span class="nav-title">${escHtml(s.title)}</span>
-      <span class="dot dot-${STATUS_CLASS[s.status] ?? 'amber'}" title="${s.status}"></span>
+      <span class="dot dot-${STATUS_CLASS[s.status] ?? 'amber'}" title="${escHtml(s.status)}"></span>
     </a>`).join('')
 
   const body = sections.map(s => `
@@ -147,8 +148,8 @@ function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & {
       <header class="section-head">
         <span class="section-icon">${escHtml(s.icon)}</span>
         <h1>${escHtml(s.title)}</h1>
-        <span class="badge badge-${STATUS_CLASS[s.status] ?? 'amber'}">${s.status}</span>
-        <span class="section-updated mono">updated ${s.updated}</span>
+        <span class="badge badge-${STATUS_CLASS[s.status] ?? 'amber'}">${escHtml(s.status)}</span>
+        <span class="section-updated mono">updated ${escHtml(s.updated)}</span>
       </header>
       ${s.html}
     </section>`).join('\n')

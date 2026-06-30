@@ -25,7 +25,7 @@ pinned-behavior tests run GREEN in `web/test/**` (gating).
 | S8-001 | High | Robustness | **FAULT** | **fixed + promoted (F1.W1)** | `web/test/s8a-001-null-event-entry-crashes-projection.test.ts` (now GREEN, gating) |
 | S8-002 | Low (latent) | Bug/Robustness | **FAULT** | quarantined | `web/test/regressions/s8a-002-workflow-checklist-unknown-status-crash.test.tsx` |
 | S8-003 | High | Robustness | **FAULT** | **fixed + promoted (F1.W1)** | `web/test/s8a-003-cron-range-expansion-dos.test.ts` (now GREEN, gating) |
-| S8-004 | Med | Robustness | **FAULT** | quarantined | `web/test/regressions/s8a-004-stackdays-ragged-series-throws.test.ts` |
+| S8-004 | Med | Robustness | **FAULT** | **fixed + promoted (F1.W3)** | `web/test/s8a-004-stackdays-ragged-series-throws.test.ts` (now GREEN, gating) |
 | S8-005 | Low | Bug/Docs-mismatch | **FAULT** | quarantined | `web/test/regressions/s8a-005-verify-nonfinite-inputs.test.ts` |
 | S8-006 | — (verified) | Robustness | LOCK | codified | `web/test/campaign-s8a-event-helpers-robustness.test.ts` |
 | S8-007 | — (verified) | Edge | LOCK | codified | `web/test/campaign-s8a-source-classify.test.ts` |
@@ -35,8 +35,8 @@ pinned-behavior tests run GREEN in `web/test/**` (gating).
 | S8-011 | Low | Robustness | non-fault (observation) | documented | — (see note) |
 | S8-012 | Low | Robustness | non-fault (observation) | documented | — (see note) |
 
-FAULT: 5 findings. **S8-001 + S8-003 fixed + promoted to gating in reboot wave F1.W1** (now GREEN);
-3 remain red-by-design in quarantine (S8-002, S8-004, S8-005 = 8 red tests). LOCK (passing, gating):
+FAULT: 5 findings. **S8-001 + S8-003 fixed + promoted (F1.W1); S8-004 fixed + promoted (F1.W3)** (now
+GREEN); 2 remain red-by-design in quarantine (S8-002, S8-005 = 6 red tests). LOCK (passing, gating):
 5 files / 25 tests · non-fault observations: 2.
 
 ---
@@ -85,7 +85,8 @@ FAULT: 5 findings. **S8-001 + S8-003 fixed + promoted to gating in reboot wave F
 - **expected:** per the S8 charter ("never throw, degrade defensibly"), a missing day contributes 0 (`s.points[di]?.[metric] ?? 0`).
 - **actual:** unguarded index → TypeError. The server's `MetricsTimeseries` is normally rectangular, so this requires a malformed/partial payload — but the helper assumes alignment with no guard.
 - **evidence:** PROBER-A + VALIDATOR-A both reproduced both the short-points and empty-points throws.
-- **test-path:** `web/test/regressions/s8a-004-stackdays-ragged-series-throws.test.ts` (RED — asserts degrade-to-zero).
+- **fix (F1.W3):** both lookups in `stackDays` now guard with `s.points[di]?.[metric] ?? 0` (the day-totals reduce + the segment loop), so a missing day contributes 0 and the chart degrades instead of throwing (`maxTotal` already floors at 1).
+- **test-path:** `web/test/s8a-004-stackdays-ragged-series-throws.test.ts` (**GREEN, promoted to gating** — asserts degrade-to-zero).
 
 ### S8-005 — verify.ts does not defend non-finite numeric inputs (barPct NaN escapes its documented clamp; time helpers emit "NaNd ago") · FAULT
 - **system:** `web/src/lib/verify.ts` (`barPct`, `relativeTime`, `formatTimeAgo`).

@@ -1,5 +1,6 @@
 /**
- * REGRESSION (red by design) — Finding S6-001.
+ * REGRESSION — FAULT S6-001 (FIXED + promoted to gating, reboot wave F1.W3).
+ * Finding: testing/findings/S6-voice-bible.md → row S6-001.
  *
  * Stored XSS in the compiled bible via UNESCAPED frontmatter fields.
  *
@@ -21,19 +22,18 @@
  *
  *   Expected: status/updated are HTML-escaped like title/icon — the payload shows
  *             as inert text (`&lt;script&gt;…`), no executable tag survives.
- *   Actual:   the raw <script>/<img onerror> appears verbatim in the compiled HTML.
+ *   Was:      the raw <script>/<img onerror> appeared verbatim in the compiled HTML.
  *
- * This test asserts the EXPECTED (safe) behavior → RED against current source.
- * Flips green when bible.ts escHtml()'s s.status and s.updated.
- *
- * Finding row: testing/findings/S6-voice-bible.md  (S6-001)
+ * FIXED: bibleTemplate now escHtml()'s s.status (badge + nav title) and s.updated,
+ * mirroring the existing escHtml(s.title)/escHtml(s.icon) — the payloads render as
+ * inert text. This test asserts that EXPECTED (safe) behavior → now GREEN and gates.
  */
 import { describe, it, expect, afterAll } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { v4 as uuid } from 'uuid'
-import { compileBible } from '../../src/bible.js'
+import { compileBible } from '../src/bible.js'
 
 const tmpDirs: string[] = []
 afterAll(() => {
@@ -75,8 +75,13 @@ describe('S6-001: frontmatter `status` must be HTML-escaped in the compiled bibl
 describe('S6-001: frontmatter `updated` must be HTML-escaped in the compiled bible', () => {
   it('an <img onerror> in `updated` is neutralised (escaped), not emitted live', async () => {
     const html = await compileWith('title: Safe\nstatus: draft\nupdated: <img src=x onerror=alert(7)>')
-    // EXPECTED (safe): the handler text is escaped; no live onerror handler.
-    expect(html).not.toContain('onerror=alert(7)')
-    expect(html).toContain('&lt;img')
+    // EXPECTED (safe): escaped to inert text — the LIVE <img onerror> tag is gone
+    // (mirrors the `status` <script> assertions above). escHtml leaves the inert
+    // attribute *text* `onerror=alert(7)` inside `&lt;img …&gt;`, which is harmless
+    // — the angle brackets are entities, so no element/handler is ever parsed.
+    expect(html).not.toContain('<img src=x onerror=alert(7)>')
+    // Pin the full single-escaped payload (s.updated is escHtml'd once, not run
+    // through marked), mirroring the sibling `status` test's `&lt;script&gt;…`.
+    expect(html).toContain('&lt;img src=x onerror=alert(7)&gt;')
   })
 })
