@@ -200,7 +200,15 @@ export function buildEvalPrompt(skill: Skill): string {
 
 /** Derive a pass/fail verdict. A machine-readable marker in the agent's final
  *  output wins; otherwise fall back to the terminal run status (done → pass,
- *  any non-done terminal → fail). Pure + exported for unit-testing. */
+ *  any non-done terminal → fail). Pure + exported for unit-testing.
+ *
+ *  STATUS OF `lastResultText` (F2.W3 decision): the live path does NOT yet wire
+ *  it — runSkillTest calls deriveEvalStatus(status) with the terminal run status
+ *  only, so today the marker branch is exercised solely by unit tests. The branch
+ *  is RESERVED, not dead: capturing the agent's final result text and threading it
+ *  here is deferred to F3 (the eval subsystem replaces this shallow self-review
+ *  with the real cases+rubric+degraded methodology). Kept now so the protocol +
+ *  its tests stay in place for that lift. */
 export function deriveEvalStatus(
   terminalRunStatus: string,
   lastResultText?: string,

@@ -61,7 +61,15 @@ export function deriveWorkflowStatus(terminalRunStatus: string): 'completed' | '
 }
 
 /** Finalize a workflow_run row to a terminal status. Exported as a seam so tests
- *  can drive the result path directly without a live run. */
+ *  can drive the result path directly without a live run.
+ *
+ *  AUTHORITY MODEL: this is the AUTHORITATIVE terminal write. It overwrites any
+ *  overall status the agent set mid-run via the `workflow_status_set` tool — that
+ *  write is a mid-run advisory; at termination the supervisor re-derives the
+ *  status from the actual run outcome (done→completed, else→failed) and wins
+ *  (campaign-s2 S2-013). It is last-writer-wins with NO terminal lock of its own
+ *  (S2-015), so a duplicate terminal event re-finalizing is harmless — the
+ *  run-lifecycle seam's finalize-once latch makes that a non-issue in practice. */
 export function finalizeWorkflowRun(workflowRunId: string, terminalRunStatus: string): void {
   workflowRunsDb.updateWorkflowRunStatus.run(
     deriveWorkflowStatus(terminalRunStatus),
