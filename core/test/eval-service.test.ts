@@ -128,11 +128,11 @@ describe('startEvalRun — DB-driven dry run finalizes', () => {
   })
 })
 
-describe('startEvalRun — background-reject path degrades gracefully', () => {
-  it('a run whose matrix throws finalizes status error + stores the message (durable, never crashes)', async () => {
-    // An unknown system id yields an empty matrix; the runner then aggregates from a results.jsonl
-    // that was never written → it throws. startEvalRun must catch that and finalize the durable row as
-    // 'error' (mirrors runSkillTest's degrade) rather than leave it 'running' or crash the caller.
+describe('startEvalRun — empty matrix finalizes cleanly (0 jobs)', () => {
+  it('a run with no matching systems finalizes done with 0 results (durable, never crashes)', async () => {
+    // An unknown system id yields an empty matrix. With the runner's existsSync guard the never-written
+    // results.jsonl is no longer read, so aggregation runs over [] → an empty report and a clean 'done'
+    // finalize (W2b). The degrade-to-'error' path remains defensively coded but no longer fires here.
     const { evalRunId: zid, completed } = startEvalRun({
       dry: true,
       systems: ['___nonexistent___'],
@@ -143,10 +143,11 @@ describe('startEvalRun — background-reject path degrades gracefully', () => {
     })
     await expect(completed).resolves.toBeUndefined() // never rejects out of the background run
     const run = evalRunsDb.getEvalRun.get(zid) as EvalRunRow
-    expect(run.status).toBe('error')
-    expect(run.error).not.toBeNull()
+    expect(run.status).toBe('done')
+    expect(run.error).toBeNull()
     expect(run.completedJobs).toBe(0)
-    expect(run.report).toBeNull()
+    expect(run.totalCostUsd).toBe(0)
+    expect(run.report).not.toBeNull()
     expect(run.completedAt).not.toBeNull()
     expect(evalResultsDb.listEvalResultsByRun.all(zid).length).toBe(0)
   })

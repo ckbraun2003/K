@@ -419,6 +419,12 @@ export interface RunMatrixOptions {
    */
   onRecord?: (rec: EvalRecord) => void
   /**
+   * Optional hook invoked exactly once, right after the job matrix is built, with the resolved job
+   * count. Default-absent = no-op (W1a behavior unchanged). (F3.W2b: the run service records totalJobs
+   * on the durable eval_runs row from here.)
+   */
+  onStart?: (info: { totalJobs: number }) => void
+  /**
    * Optional systems source, defaulting to the internal file loader `loadSystems`. When provided,
    * the runner reads the registry through this instead — how the service injects `loadSystemsFromDb`
    * (the DB registry). Default preserves W1a behavior exactly.

@@ -49,6 +49,7 @@ function prepare(d: Database.Database) {
       VALUES (@id, @status, @models, @variants, @systems, @dry, @totalJobs, @completedJobs, @totalCostUsd, @report, @error, @createdAt, @completedAt)
     `),
     getRun: d.prepare(`SELECT * FROM eval_runs WHERE id = ?`),
+    updateTotalJobs: d.prepare(`UPDATE eval_runs SET totalJobs = @totalJobs WHERE id = @id`),
     updateProgress: d.prepare(`
       UPDATE eval_runs SET completedJobs = @completedJobs, totalCostUsd = @totalCostUsd WHERE id = @id
     `),
@@ -98,6 +99,12 @@ export function recToEvalResultRow(evalRunId: string, rec: EvalRecord): EvalResu
   }
 }
 
+/** The default model/variant matrix applied when a run request omits them. Exported so the HTTP
+ *  pre-flight job count (routes/evals.ts) uses the SAME defaults the run actually applies — without
+ *  these shared, the two could drift and the pre-flight would mis-count. */
+export const DEFAULT_EVAL_MODELS = ['opus', 'sonnet']
+export const DEFAULT_EVAL_VARIANTS = ['real', 'degraded']
+
 export interface StartEvalRunOptions {
   systems?: string[]
   cases?: string[]
@@ -126,8 +133,8 @@ export function startEvalRun(opts: StartEvalRunOptions = {}): { evalRunId: strin
   const stmts = prepare(d)
   const root = opts.root ?? repoRoot()
   const dry = opts.dry ?? true
-  const models = opts.models ?? ['opus', 'sonnet']
-  const variants = opts.variants ?? ['real', 'degraded']
+  const models = opts.models ?? DEFAULT_EVAL_MODELS
+  const variants = opts.variants ?? DEFAULT_EVAL_VARIANTS
   const evalRunId = opts.runId ?? randomUUID()
 
   // Default report/sandbox dirs to a temp area — NEVER under testing/eval/reports/.
@@ -171,6 +178,8 @@ export function startEvalRun(opts: StartEvalRunOptions = {}): { evalRunId: strin
         // DB registry instead of the file loader (the W2a injection point).
         loadSystemsFn: (args: { root: string; only?: string[] }): EvalSystem[] =>
           loadSystemsFromDb({ root: args.root, only: args.only, db: d }),
+        // Record the resolved matrix size on the durable row once the runner has built the job matrix.
+        onStart: ({ totalJobs }): void => { stmts.updateTotalJobs.run({ id: evalRunId, totalJobs }) },
         // Persist each completed job + bump run progress.
         onRecord: (rec: EvalRecord): void => {
           stmts.insertResult.run(recToEvalResultRow(evalRunId, rec))

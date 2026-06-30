@@ -78,6 +78,10 @@ export async function runEvalMatrix(opts: RunMatrixOptions = {}): Promise<EvalRe
     }
   }
 
+  // Notify the caller of the resolved matrix size once, right after it is built (e.g. the run service
+  // records totalJobs on the durable eval_runs row). Default-absent = no-op (W1a behavior unchanged).
+  if (opts.onStart) opts.onStart({ totalJobs: jobs.length })
+
   const reportsDir = opts.reportsDir ?? path.join(root, 'testing', 'eval', 'reports')
   const runDir = path.join(reportsDir, '_runs', runId)
   mkdirSync(runDir, { recursive: true })
@@ -151,11 +155,14 @@ export async function runEvalMatrix(opts: RunMatrixOptions = {}): Promise<EvalRe
     console.error(`[${completed}/${todo.length}] ${job.jobKey} -> det=${dl} judge=${jl} cost=$${(rec.metricsRaw?.costUsd ?? 0).toFixed(3)} ${rec.error ? 'ERR ' + rec.error.slice(0, 120) : ''}`)
   })
 
-  // Aggregate from the full JSONL (resume-safe).
+  // Aggregate from the full JSONL (resume-safe). The JSONL is created lazily on the first append, so a
+  // 0-job matrix never writes it — guard the read (else ENOENT) and aggregate over [] → an empty report.
   const records: EvalRecord[] = []
-  for (const ln of readFileSync(jsonlPath, 'utf8').split('\n')) {
-    const s = ln.trim(); if (!s) continue
-    try { const r = JSON.parse(s) as EvalRecord; if (!r.error) records.push(r) } catch { /* ignore */ }
+  if (existsSync(jsonlPath)) {
+    for (const ln of readFileSync(jsonlPath, 'utf8').split('\n')) {
+      const s = ln.trim(); if (!s) continue
+      try { const r = JSON.parse(s) as EvalRecord; if (!r.error) records.push(r) } catch { /* ignore */ }
+    }
   }
   const { perSystem, overall } = aggregate(records)
   const regression = compareToBaselines({ perSystem, root })
