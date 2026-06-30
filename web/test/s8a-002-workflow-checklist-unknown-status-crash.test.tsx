@@ -1,5 +1,5 @@
 /**
- * CONFIRMED FAULT (LATENT / forward-compat) — finding S8-002 (see testing/findings/S8-web-ui.md).
+ * REGRESSION — FAULT S8-002 (FIXED + promoted to gating, reboot wave F1.W4d).
  *
  * Surface: web/src/components/WorkflowChecklist.tsx (STATUS[s.status] lookup, lines 53/60/70).
  *
@@ -26,7 +26,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import type { WorkflowStep } from '@k/shared'
-import WorkflowChecklist from '../../src/components/WorkflowChecklist'
+import WorkflowChecklist from '../src/components/WorkflowChecklist'
 
 afterEach(() => cleanup())
 

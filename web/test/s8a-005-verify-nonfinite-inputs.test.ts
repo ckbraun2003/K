@@ -1,5 +1,5 @@
 /**
- * CONFIRMED FAULT — finding S8-005 (see testing/findings/S8-web-ui.md).
+ * REGRESSION — FAULT S8-005 (FIXED + promoted to gating, reboot wave F1.W4d).
  *
  * Surface: web/src/lib/verify.ts :: barPct, relativeTime, formatTimeAgo.
  *
@@ -20,7 +20,7 @@
  * prober: PROBER-A · validator: VALIDATOR-A
  */
 import { describe, it, expect } from 'vitest'
-import { barPct, relativeTime, formatTimeAgo } from '../../src/lib/verify'
+import { barPct, relativeTime, formatTimeAgo } from '../src/lib/verify'
 
 describe('S8-005 — verify.ts must defend non-finite numeric inputs', () => {
   it('barPct clamps a NaN value to a finite [0,1] fraction', () => {
