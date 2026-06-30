@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-06-27
+updated: 2026-06-30
 ---
 
 ## Running locally
@@ -181,6 +181,13 @@ guarded idempotent ALTERs — it stores the four §07 score components (`ci`,
 `coverage`, `bible`, `findings`) so the Verification tab can render per-weight
 bars without recomputing. Older reports without the column still validate
 (the breakdown is optional on read).
+
+`verification_reports.coverage_pct` (REAL) was added the same way (F4) — it stores
+the project's measured overall line-coverage % at verify time. `runVerification`
+reads the *previous* report's `coverage_pct` to derive the live coverage **trend**
+(§07): a coverage file present + below the prior reading → a real score penalty;
+no coverage file → `unknown` → neutral. NULL for older reports / uninstrumented
+projects; the field is nullable/optional on read.
 
 ## Continuous integration
 

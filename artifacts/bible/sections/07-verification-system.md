@@ -142,4 +142,42 @@ reuses the existing stacked-SVG charts and `buildTimeseries`, and renders a sane
 before any runs exist. It is read-only insight today; **learned/automatic routing tuning is a
 Phase 6 increment.**
 
+## Behavioral eval subsystem — evals in the engine (Stabilization / F3, D-035)
+
+Phase 3's `skill_evals` (above) is a *single self-review of a skill's prompt text*. The Stabilization
+phase lifted the project's **rigorous behavioral eval harness** — previously out-of-band under
+`testing/eval/`, never in `pnpm test` — **into the engine** as a DB-backed, dashboard-surfaced,
+operator-triggerable subsystem under `core/src/eval/`. It evaluates the **current agentic system** (the L0
+base prompt, the tier charters, the worker-agent definitions, skills) on real behavior, not prompt text.
+
+**Methodology (ported verbatim).** For every `system × case × model × variant`, the runner dispatches a
+confined `claude -p` in a disposable sandbox worktree, then grades two ways: a **deterministic CHECKS DSL**
+(file / commit / tool / output assertions, each weighted, some critical) and a **fixed-model LLM judge**
+against a per-system rubric. A **degraded-anti-prompt control** runs each case a second time with a
+deliberately-weakened prompt; the **discrimination** metric confirms the real prompt outscores the degraded
+one (a system that can't tell them apart isn't really being tested). Results aggregate into per-system
+metrics + an overall report, and **baselines** freeze / compare with **regression flags**.
+
+**Data model.** `eval_systems` (generalizes `skill_evals` to charters / agents / L0, not just skills),
+`eval_cases`, `eval_runs`, `eval_results`, `eval_baselines` — seeded idempotently from the existing
+`testing/eval/{systems.json,cases,rubrics,degraded,baselines}` (prompt / rubric / degraded stay
+file-referenced by path). Dispatch is a **direct await**, NOT the F2 supervised-run lifecycle seam — the
+synth-config `startRun` path always injects the real L0 + L1, which would fight the degraded control.
+
+**Surface.** `POST /api/evals/run` writes an `eval_runs` row and an async runner streams `eval_results`;
+report / results / compare GETs + baseline freeze. The **Evals** dashboard (§08) lists systems + runs (with
+progress), a per-system pass-rate / discrimination / regression report, the raw results table, and a gated
+**Run** button. Only *enabled* systems join a run (the runner's `loadSystemsFromDb` filters `enabled = 1`);
+the dashboard list still shows disabled ones.
+
+**Token-gating (the one spend path).** `startEvalRun`, `POST /api/evals/run`, **and** the runner all default
+`dry: true` — a dry run fabricates results and never dispatches. A real (token-spending) run requires an
+**explicit `dry: false`** at every layer; the dashboard's Run dialog defaults to dry and resets its opt-in on
+every open. Everything else — building, seeding, the dashboard, all tests — runs at **zero spend**.
+
+**Relationship to skill `/test`.** The older `skill_evals` + `POST /api/skills/:id/test` path is **unchanged**
+this phase (rewiring it onto the behavioral subsystem is a deferred follow-on); the new subsystem stands
+alongside it. **P5 extension:** it is built to add **DB-sourced `AgentProfile`s** as eval systems, so the
+agent org can be evaluated as it comes online.
+
 <!-- @live:recent-runs -->

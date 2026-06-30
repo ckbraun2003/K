@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-06-27
+updated: 2026-06-30
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -154,6 +154,33 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
 - [x] **Wave V — whole-effort verification.** Gates green (typecheck · core/web tests · build), whole-effort pre-merge review (MERGE-READY; in-scope review-fixes landed incl. `context_tokens` persistence round-trip), live Playwright smoke; merged `--no-ff` to `main`.
 
 **Deferred to a later phase** (D-019): the **Tauri desktop app** (bundled-core sidecar, tray, native notifications) — old Track B; full spec retained in `~/.claude/plans/read-through-and-analyze-rippling-hanrahan.md`. Also deferred: **PWA mobile** (installable + push), further **remote-access hardening** (reverse proxy / Tailscale), and **passkey/TOTP auth hardening** (the Phase-1 → Phase-4 re-homing above — not shipped in the re-scoped Phase 4).
+
+## Stabilization (Foundation) — reboot to a running org *(✓ 2026-06-30)*
+
+> Before building the org (Phase 5), take K from "well-built substrate + parked work" to a solid, verified
+> foundation: fix the confirmed bug backlog, pay down structural debt that would otherwise be copied into the
+> org layer, lift the eval methodology into the engine, and make the last stubbed health factor live. Plan of
+> record: `~/.claude/plans/read-through-and-analyze-floating-sifakis.md`. One reviewable commit per wave
+> (implementer → review → controller); a whole-foundation fresh-eyes review before close.
+
+- [x] **F0 — Baseline & hygiene.** Pushed local `main` (the unbacked-up Phase-5 groundwork) to `origin/main`;
+  folded the rigorous-testing campaign + the `testing/` infra & `regressions/` quarantine into trunk; cut the
+  `feat/k-reboot` integration branch; pruned stale branches; recorded a clean-tree baseline.
+- [x] **F1 — Fault triage & remediation.** All **18 confirmed faults** (2 High · 6 Med · 10 Low) fixed at
+  root; each RED quarantine test promoted into the gating suite with its FAULT row dropped —
+  `test:regressions` quarantine is **empty** (core + web).
+- [x] **F2 — Core structural refinement** *(behavior-preserving)*. Extracted the 3×-duplicated supervised-run
+  lifecycle into `run-lifecycle.ts::trackSupervisedRun` (**the seam `startAgentRun` extends in 5.1**); de-duplicated
+  the path-guard / `escHtml` / `TERMINAL`-set / row-mapper utilities; removed dead parser params. Campaign LOCK
+  tests guarded against drift.
+- [x] **F3 — Eval, integrated into the engine** (D-035). Lifted the out-of-band `testing/eval/` harness into
+  `core/src/eval/*` as a DB-backed (`eval_systems`/`eval_cases`/`eval_runs`/`eval_results`/`eval_baselines`),
+  dashboard-surfaced, operator-triggerable subsystem; `POST /api/evals/run` + report/baseline GETs; an **Evals**
+  dashboard. **Token-gated:** every layer (service · route · runner) defaults `dry:true`; a real spend run needs
+  an explicit `dry:false`.
+- [x] **F4 — Stabilization close-out** (D-036). Wired a **live coverage-trend signal** into `verify.ts`
+  (killed the hardcoded `unknown` stub so the 20-pt factor is live); whole-foundation fresh-eyes SEAMS review;
+  bible + decision-log close-out; full clean-tree gate. **GATE: substrate solid** — the precondition for Phase 5.
 
 ## Phase 5 — Agentic Org *(next — headline program)*
 

@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-06-27
+updated: 2026-06-30
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -59,6 +59,7 @@ footer. **K-home is the default landing.**
 | | ◉ **Graph** | fleet + per-project 3D knowledge graphs |
 | | ∿ **Metrics** | tokens / cost / run trends |
 | | ⇄ **Routing** | model-routing outcomes |
+| | ⊨ **Evals** | agent & skill behavioral evals + baselines (pass-rate / discrimination / regression; gated Run) |
 | | `>_` **Terminal** | the guarded web terminal (default-off) |
 | **Footer** | ⚙ **Settings** · ❔ **Help** | auth/status + CLAUDE.md editor + the **org-default** authority/MCP panel (per-lead overrides live on Orchestrator detail); help opens this bible |
 
@@ -165,6 +166,9 @@ A project opens into its workspace (unchanged in shape):
 - **Graph (3D).** Fleet + per-project knowledge graphs (below).
 - **Metrics.** Tokens / cost / run trends over time (stacked-SVG charts).
 - **Routing.** Model-routing outcomes — cost / latency / success by provider+model.
+- **Evals.** The behavioral eval subsystem (§07): systems, runs with progress, a per-system pass-rate /
+  discrimination / regression report, the raw results table, and a **gated Run** (dry by default — a real
+  token-spending run requires an explicit opt-in that resets on every dialog open). (Internals in §07.)
 - **Terminal.** A guarded `node-pty` web terminal (default-off; scoped `TERMINAL_TOKEN`).
 
 ## Settings + Help
