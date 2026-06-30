@@ -1,5 +1,5 @@
 /**
- * REGRESSION (red by design) — Finding S4-018.
+ * REGRESSION — FAULT S4-018 (FIXED + promoted to gating, reboot wave F1.W4b).
  *
  * dispatchTaskWorkflow validates a MISSING task id up-front (step 1) and throws
  * TaskNotFoundError BEFORE any mutation — so a bad id leaves no locked task and
@@ -30,15 +30,16 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, projectsDb, workflowRunsDb } from '../../src/db.js'
+import { db, projectsDb, workflowRunsDb } from '../src/db.js'
 import type { Project } from '@k/shared'
 
-vi.mock('../../src/supervisor.js', async () => {
-  const actual = await vi.importActual<typeof import('../../src/supervisor.js')>('../../src/supervisor.js')
-  const { db } = await vi.importActual<typeof import('../../src/db.js')>('../../src/db.js')
+vi.mock('../src/supervisor.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/supervisor.js')>('../src/supervisor.js')
+  const { db } = await vi.importActual<typeof import('../src/db.js')>('../src/db.js')
   return {
     ...actual,
-    // Must never be reached: buildDelegationPrompt([]) throws before startRun.
+    // Must never be reached: the step-0 empty-taskIds guard throws before
+    // dispatchTaskWorkflow ever reaches startRun (pre-fix it was buildDelegationPrompt([])).
     startRun: vi.fn(async () => {
       const id = `mock-s4018-run-${uuid().slice(0, 8)}`
       db.prepare(
@@ -50,7 +51,7 @@ vi.mock('../../src/supervisor.js', async () => {
   }
 })
 
-const { dispatchTaskWorkflow } = await import('../../src/workflows.js')
+const { dispatchTaskWorkflow } = await import('../src/workflows.js')
 
 const PROJECT_ID = uuid()
 const project: Project = {

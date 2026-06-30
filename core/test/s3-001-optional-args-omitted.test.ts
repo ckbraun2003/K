@@ -1,5 +1,5 @@
 /**
- * REGRESSION (RED, non-gating) — finding S3-001.
+ * REGRESSION — FAULT S3-001 (FIXED + promoted to gating, reboot wave F1.W4b).
  * See testing/findings/S3-kstore-mcp.md.
  *
  * Concern: the kstore tools whose input shape has NO required fields
@@ -24,7 +24,7 @@
  * prober: S3 probe harness (scratchpad/probe2.mts) · validator: this regression test
  */
 import { describe, it, expect } from 'vitest'
-import { kStoreTools, type KStoreContext } from '../../src/mcp/k-store.js'
+import { kStoreTools, type KStoreContext } from '../src/mcp/k-store.js'
 
 const ctx: KStoreContext = { runId: null }
 const handlerFor = (name: string) => {

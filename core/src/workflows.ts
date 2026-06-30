@@ -101,6 +101,16 @@ export async function dispatchTaskWorkflow(
   project: Project,
   taskIds: string[],
 ): Promise<{ workflowRunId: string; runId: string }> {
+  // 0. Reject an empty dispatch up-front — validate-before-mutate, mirroring the
+  //    step-1 TaskNotFound guard. Without this, steps 1+2 no-op over the empty
+  //    list, step 3 inserts the workflow_run row ('running'), then step 4's
+  //    buildDelegationPrompt([]) throws inside the try and the catch finalizes
+  //    that row to 'failed' instead of deleting it — leaving an orphaned row from
+  //    what should be a pure input rejection.
+  if (taskIds.length === 0) {
+    throw new Error('dispatchTaskWorkflow requires at least one task')
+  }
+
   // 1. Load every task, scoped to this project. Any miss → throw (route → 400).
   const tasks: ProjectTask[] = []
   for (const taskId of taskIds) {

@@ -105,7 +105,7 @@ const notInWorkflow = (): NotInWorkflow => ({
 
 const WorkItemCreateInput = { title: z.string().min(1).max(500), body: z.string().max(20_000).optional() }
 function workItemCreate(args: unknown, ctx: KStoreContext): WorkItem {
-  const a = z.object(WorkItemCreateInput).parse(args)
+  const a = z.object(WorkItemCreateInput).parse(args ?? {})
   const now = Date.now()
   const id = uuid()
   workItemsDb.insertWorkItem.run({
@@ -125,7 +125,7 @@ const WorkItemListInput = {
   limit: z.number().int().min(1).max(200).optional(),
 }
 function workItemList(args: unknown, ctx: KStoreContext): WorkItem[] {
-  const a = z.object(WorkItemListInput).parse(args)
+  const a = z.object(WorkItemListInput).parse(args ?? {})
   const owner = resolveOwnerRunId(ctx)
   const limit = a.limit ?? 50
   // Scoped to the caller's run — a run never lists another run's tickets.
@@ -144,7 +144,7 @@ const WorkItemUpdateInput = {
   body: z.string().max(20_000).optional(),
 }
 function workItemUpdate(args: unknown, ctx: KStoreContext): WorkItem {
-  const a = z.object(WorkItemUpdateInput).parse(args)
+  const a = z.object(WorkItemUpdateInput).parse(args ?? {})
   if (a.status === undefined && a.title === undefined && a.body === undefined) {
     throw new KStoreError('work_item_update needs at least one of: status, title, body.')
   }
@@ -165,7 +165,7 @@ function workItemUpdate(args: unknown, ctx: KStoreContext): WorkItem {
 
 const LessonProposeInput = { lesson: z.string().min(1).max(4_000) }
 function lessonPropose(args: unknown, ctx: KStoreContext): Lesson {
-  const a = z.object(LessonProposeInput).parse(args)
+  const a = z.object(LessonProposeInput).parse(args ?? {})
   const id = uuid()
   agentMemoryDb.insertLesson.run({
     id,
@@ -184,7 +184,7 @@ const LessonListInput = {
   limit: z.number().int().min(1).max(200).optional(),
 }
 function lessonList(args: unknown, ctx: KStoreContext): Lesson[] {
-  const a = z.object(LessonListInput).parse(args)
+  const a = z.object(LessonListInput).parse(args ?? {})
   const owner = resolveOwnerRunId(ctx)
   const limit = a.limit ?? 50
   // Scoped to the caller's run — a run only sees the lessons it proposed.
@@ -204,7 +204,7 @@ const WorkflowStepSetInput = {
   workItemId: z.string().min(1).max(100).optional(),
 }
 function workflowStepSet(args: unknown, ctx: KStoreContext): WorkflowStep | NotInWorkflow {
-  const a = z.object(WorkflowStepSetInput).parse(args)
+  const a = z.object(WorkflowStepSetInput).parse(args ?? {})
   const wf = resolveWorkflowRun(ctx)
   if (!wf) return notInWorkflow()
   // A linked ticket must be one this run owns — reject a cross-run/bogus id up
@@ -231,7 +231,7 @@ const WorkflowStatusSetInput = { status: z.enum(['running', 'completed', 'failed
 // from the actual run outcome (done→completed, else failed) — the supervisor is the
 // authoritative source at termination. Per-step (workflow_step_set) is the durable surface.
 function workflowStatusSet(args: unknown, ctx: KStoreContext): { ok: true; status: string } | NotInWorkflow {
-  const a = z.object(WorkflowStatusSetInput).parse(args)
+  const a = z.object(WorkflowStatusSetInput).parse(args ?? {})
   const wf = resolveWorkflowRun(ctx)
   if (!wf) return notInWorkflow()
   const completedAt = a.status === 'running' ? null : Date.now()
