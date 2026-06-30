@@ -257,7 +257,7 @@ async function start() {
   const app = await buildApp()
   await compileBible()
   await seedUiDemo()  // ensure the Command Deck `ui-demo` artifact is present
-  seedBuiltinSkills() // ensure the authored .claude/skills/* appear in the Skills tab
+  seedBuiltinSkills() // ensure the authored agent-config/skills/* appear in the Skills tab
 
   await app.listen({ port: PORT, host: HOST })
   startGithubPoller()

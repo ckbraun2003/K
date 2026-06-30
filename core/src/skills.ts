@@ -41,8 +41,8 @@ export function listSkills(): Skill[] {
 // ─── Built-in (filesystem) skills ────────────────────────────────────────────
 
 /**
- * The authored `.claude/skills/*` workflows the harness ships with. They live as
- * `SKILL.md` files (agent-invokable), and are also seeded into the skills table
+ * The authored `agent-config/skills/*` workflows the harness ships with. They live
+ * as `SKILL.md` files (agent-invokable), and are also seeded into the skills table
  * at bootstrap so they appear — and are triggerable — from the Skills tab.
  *
  * Each entry is `CreateSkill`-shaped and MUST satisfy the same boundary
@@ -56,7 +56,7 @@ export const BUILTIN_SKILLS: readonly CreateSkill[] = [
     description:
       'Scaffold a registered project’s bible + CI to satisfy the three bible §3 invariants (GitHub remote, bible, CI). Idempotent.',
     type: 'workflow',
-    source: '.claude/skills/onboarding/SKILL.md',
+    source: 'agent-config/skills/onboarding/SKILL.md',
     triggerType: 'manual',
   },
   {
@@ -64,7 +64,7 @@ export const BUILTIN_SKILLS: readonly CreateSkill[] = [
     description:
       'Run the Layer-2 verification agent team (CI auditor, coverage scout, PR reviewer, doc-freshness) and apply safe fixes via PR only.',
     type: 'workflow',
-    source: '.claude/skills/verify-project/SKILL.md',
+    source: 'agent-config/skills/verify-project/SKILL.md',
     triggerType: 'manual',
   },
   {
@@ -72,7 +72,7 @@ export const BUILTIN_SKILLS: readonly CreateSkill[] = [
     description:
       'Author a project-specific, self-contained interactive UI demo (hybrid-glass, offline, sandbox-safe) and compile it into a renderable UI artifact via POST /api/ui-artifact/compile.',
     type: 'workflow',
-    source: '.claude/skills/create-web-ui-artifact/SKILL.md',
+    source: 'agent-config/skills/create-web-ui-artifact/SKILL.md',
     triggerType: 'manual',
   },
 ] as const
