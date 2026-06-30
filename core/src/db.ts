@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
-import type { RunStatus, VerificationReport } from '@k/shared'
+import type { RunStatus, VerificationReport, ProjectTask } from '@k/shared'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
@@ -557,6 +557,26 @@ export const projectTasksDb = {
   deleteProjectTask,
   getProjectTaskByIssue,
   updateProjectTaskFromIssue,
+}
+
+/** Map a project_tasks DB row → the shared ProjectTask shape (snake_case →
+ *  camelCase, values coerced to their typed forms; nullable cols → null). The
+ *  single source for this mapping — previously copy-pasted in workflows.ts (typed,
+ *  internal) and routes/projects.ts (untyped, HTTP). For a well-formed row the
+ *  coercion is JSON-identical to the old raw route mapper (sqlite already returns
+ *  TEXT→string / INTEGER→number), so the HTTP response shape is unchanged. */
+export function rowToProjectTask(r: Record<string, unknown>): ProjectTask {
+  return {
+    id: String(r.id),
+    projectId: String(r.project_id),
+    title: String(r.title),
+    status: r.status as ProjectTask['status'],
+    createdAt: Number(r.created_at),
+    completedAt: r.completed_at != null ? Number(r.completed_at) : null,
+    issueNumber: r.issue_number != null ? Number(r.issue_number) : null,
+    issueUrl: r.issue_url != null ? String(r.issue_url) : null,
+    issueState: r.issue_state != null ? String(r.issue_state) : null,
+  }
 }
 
 // ─── WorkflowRun helpers ─────────────────────────────────────────────────────

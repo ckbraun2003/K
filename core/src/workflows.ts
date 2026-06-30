@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'crypto'
 import type { Project, ProjectTask } from '@k/shared'
-import { projectTasksDb, workflowRunsDb } from './db.js'
+import { projectTasksDb, workflowRunsDb, rowToProjectTask } from './db.js'
 import { startRun } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
 
@@ -21,22 +21,6 @@ export class TaskNotFoundError extends Error {
   constructor(public readonly taskId: string) {
     super(`Task not found in project: ${taskId}`)
     this.name = 'TaskNotFoundError'
-  }
-}
-
-/** DB row → ProjectTask shape. Local to keep modules clean (rowToTask is a
- *  private helper in routes/projects.ts; we don't import from the route). */
-function rowToTask(r: Record<string, unknown>): ProjectTask {
-  return {
-    id: String(r.id),
-    projectId: String(r.project_id),
-    title: String(r.title),
-    status: r.status as ProjectTask['status'],
-    createdAt: Number(r.created_at),
-    completedAt: r.completed_at != null ? Number(r.completed_at) : null,
-    issueNumber: r.issue_number != null ? Number(r.issue_number) : null,
-    issueUrl: r.issue_url != null ? String(r.issue_url) : null,
-    issueState: r.issue_state != null ? String(r.issue_state) : null,
   }
 }
 
@@ -115,7 +99,7 @@ export async function dispatchTaskWorkflow(
       | Record<string, unknown>
       | undefined
     if (!row) throw new TaskNotFoundError(taskId)
-    tasks.push(rowToTask(row))
+    tasks.push(rowToProjectTask(row))
   }
 
   // 2. Lock the selected tasks as in_progress.
@@ -146,7 +130,7 @@ export async function dispatchTaskWorkflow(
   //    'running' workflow_run row and the in_progress task locks would leak — so
   //    on failure we finalize the row 'failed', restore each task to the prior
   //    (status, completed_at) it carried before step 2's lock — captured in the
-  //    `tasks` objects (rowToTask runs before the flip), so a selected 'done'
+  //    `tasks` objects (rowToProjectTask runs before the flip), so a selected 'done'
   //    task stays done instead of being clobbered to 'open' — log, and re-throw
   //    (the route surfaces a 500). Mirrors runSkillTest's degrade.
   let run
