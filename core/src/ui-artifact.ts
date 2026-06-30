@@ -17,6 +17,8 @@ import fs from 'fs'
 import path from 'path'
 import { artifactsDb } from './db.js'
 import { ARTIFACTS_DIR } from './artifacts.js'
+import { escHtml } from './html.js'
+import { isPathWithin } from './paths.js'
 
 // ── Compile ─────────────────────────────────────────────────────────────────
 
@@ -61,8 +63,7 @@ export interface CompileUiArtifactResult {
 function uiArtifactPath(root: string, slug: string): string {
   const base = path.resolve(root)
   const abs = path.resolve(base, `${slug}.html`)
-  const sep = base.endsWith(path.sep) ? '' : path.sep
-  if (!abs.startsWith(base + sep)) {
+  if (!isPathWithin(base, abs)) {
     throw new Error(`ui-artifact: slug escapes outDir — abs="${abs}", root="${base}"`)
   }
   return abs
@@ -111,10 +112,6 @@ export async function compileUiArtifact(
 }
 
 // ── Minimal offline shell (used when only `source` is provided) ──────────────
-
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
 
 function uiArtifactShell(title: string, source: string): string {
   return `<!DOCTYPE html>

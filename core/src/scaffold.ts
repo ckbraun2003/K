@@ -9,6 +9,7 @@
 
 import fs from 'fs'
 import path from 'path'
+import { isPathWithin } from './paths.js'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -22,9 +23,8 @@ function writeIfAbsent(root: string, rel: string, content: string): string | nul
   const abs = path.join(root, ...rel.split('/'))
   // Path-guard: resolved target must stay strictly inside root. Defensive — all
   // current `rel` values are hardcoded, but this protects any future dynamic caller.
-  // `sep` is '' when root already ends in a separator (e.g. a drive root "C:\").
-  const sep = root.endsWith(path.sep) ? '' : path.sep
-  if (!abs.startsWith(root + sep)) {
+  // `isPathWithin` treats a root already ending in a separator (e.g. a drive root "C:\") correctly.
+  if (!isPathWithin(root, abs)) {
     throw new Error(`scaffold: path escapes localPath — abs="${abs}", root="${root}"`)
   }
   if (fs.existsSync(abs)) return null

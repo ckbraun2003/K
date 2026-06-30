@@ -21,6 +21,7 @@ import { db, artifactsDb } from './db.js'
 import { ARTIFACTS_DIR } from './artifacts.js'
 import { parseFrontmatter, roadmapPhases } from './bible-parse.js'
 import { sanitizeRenderedHtml } from './sanitize.js'
+import { escHtml } from './html.js'
 
 // ── Section model ─────────────────────────────────────────────────────────────
 
@@ -125,10 +126,6 @@ function resolveDirectives(md: string): string {
       default: return placeholder(name)
     }
   })
-}
-
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 // ── Template (precision minimal — see bible section 06 for the token spec) ────

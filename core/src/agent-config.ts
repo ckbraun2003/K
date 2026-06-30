@@ -24,6 +24,7 @@ import path from 'path'
 import { createRequire } from 'module'
 import { fileURLToPath, pathToFileURL } from 'url'
 import type { AgentProfile } from './profiles.js'
+import { isPathWithin } from './paths.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ASSETS_DIR = path.join(__dirname, '../../agent-config')
@@ -56,9 +57,9 @@ export interface SynthesizeOpts {
 
 /** Throw unless `abs` stays at or under `root` (scaffold.ts guard pattern). */
 function guardUnder(root: string, abs: string): void {
-  // `sep` is '' when root already ends in a separator (e.g. a drive root "C:\").
-  const sep = root.endsWith(path.sep) ? '' : path.sep
-  if (abs !== root && !abs.startsWith(root + sep)) {
+  // `inclusive: true` allows `abs === root` (the configDir itself); the shared
+  // guard treats a root already ending in a separator (e.g. a drive root "C:\") correctly.
+  if (!isPathWithin(root, abs, { inclusive: true })) {
     throw new Error(`agent-config: path escapes configDir — abs="${abs}", root="${root}"`)
   }
 }
