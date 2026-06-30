@@ -61,7 +61,10 @@ const TOOL_KIND: Record<string, 'command' | 'file' | 'delegate'> = {
 }
 
 export function classifyTool(name: string): 'command' | 'file' | 'delegate' | 'other' {
-  return TOOL_KIND[name] ?? 'other'
+  // Prototype-safe lookup: a tool name that collides with an inherited
+  // Object.prototype member (`toString`, `constructor`, …) must NOT resolve to
+  // that member — only own keys count, everything else is 'other'.
+  return Object.hasOwn(TOOL_KIND, name) ? TOOL_KIND[name] : 'other'
 }
 
 /** Parse one line of `claude --output-format stream-json` output. */

@@ -108,7 +108,9 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   // An explicitly-named model is always a Claude model id (validated at the route
   // boundary), so it overrides any local-model preference — never route an
   // explicit `claude-*` id to `ollama run <id>`.
-  const routeResult = route({ prompt, preferLocal: opts.model ? false : opts.preferLocal, maxCostUsd: opts.maxCostUsd })
+  // An explicit model forces claude; the cost branch in route() is meaningless
+  // (and could mis-select ollama for a claude-* id), so neutralize maxCostUsd too.
+  const routeResult = route({ prompt, preferLocal: opts.model ? false : opts.preferLocal, maxCostUsd: opts.model ? undefined : opts.maxCostUsd })
   const runId = uuid()
   const cwd = opts.cwd ?? REPO_ROOT
   const worktreePath = path.join(WORKTREES_DIR, runId)

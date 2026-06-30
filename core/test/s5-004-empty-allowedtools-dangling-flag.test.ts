@@ -1,5 +1,5 @@
 /**
- * QUARANTINE — CONFIRMED FAULT S5-004 (RED by design).
+ * REGRESSION — FAULT S5-004 (FIXED + promoted to gating, reboot wave F1.W4a).
  * Finding: testing/findings/S5-supervisor-providers-routing.md → row S5-004.
  *
  * Surface: core/src/claude-args.ts `buildClaudeArgs` (lines ~60-66).
@@ -29,7 +29,7 @@
  * Document-only: imports the real claude-args; does not edit core/src/**.
  */
 import { describe, it, expect } from 'vitest'
-import { buildClaudeArgs } from '../../src/claude-args.js'
+import { buildClaudeArgs } from '../src/claude-args.js'
 
 describe('S5-004 — empty allowedTools must not emit a dangling --allowedTools flag (RED)', () => {
   const args = buildClaudeArgs('do something', {

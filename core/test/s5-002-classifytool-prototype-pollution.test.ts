@@ -1,5 +1,5 @@
 /**
- * QUARANTINE — CONFIRMED FAULT S5-002 (RED by design).
+ * REGRESSION — FAULT S5-002 (FIXED + promoted to gating, reboot wave F1.W4a).
  * Finding: testing/findings/S5-supervisor-providers-routing.md → row S5-002.
  *
  * Surface: core/src/providers.ts `classifyTool` (lines ~53-65).
@@ -28,7 +28,7 @@
  * Document-only: imports the real providers module; does not edit core/src/**.
  */
 import { describe, it, expect } from 'vitest'
-import { classifyTool, parseClaudeLine } from '../../src/providers.js'
+import { classifyTool, parseClaudeLine } from '../src/providers.js'
 
 const KINDS = ['command', 'file', 'delegate', 'other'] as const
 const PROTO_KEYS = ['toString', 'constructor', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', '__proto__']

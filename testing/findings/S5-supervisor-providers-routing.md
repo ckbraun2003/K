@@ -22,10 +22,10 @@ determinism over coverage, no key in this environment.
 
 | id | severity | category | classification | status | test |
 |----|----------|----------|----------------|--------|------|
-| S5-001 | **Low** (latent) | Bug | **FAULT** | quarantined | `core/test/regressions/s5-001-explicit-model-cost-routes-to-ollama.test.ts` |
-| S5-002 | **Low** | Bug/Robustness | **FAULT** | quarantined | `core/test/regressions/s5-002-classifytool-prototype-pollution.test.ts` |
-| S5-003 | **Low** | Robustness | **FAULT** | quarantined | `core/test/regressions/s5-003-listinstalled-malformed-body-typeerror.test.ts` |
-| S5-004 | **Low** | Robustness | **FAULT** | quarantined | `core/test/regressions/s5-004-empty-allowedtools-dangling-flag.test.ts` |
+| S5-001 | **Low** (latent) | Bug | **FAULT** | **fixed + promoted (F1.W4a)** | `core/test/s5-001-explicit-model-cost-routes-to-ollama.test.ts` (now GREEN, gating) |
+| S5-002 | **Low** | Bug/Robustness | **FAULT** | **fixed + promoted (F1.W4a)** | `core/test/s5-002-classifytool-prototype-pollution.test.ts` (now GREEN, gating) |
+| S5-003 | **Low** | Robustness | **FAULT** | **fixed + promoted (F1.W4a)** | `core/test/s5-003-listinstalled-malformed-body-typeerror.test.ts` (now GREEN, gating) |
+| S5-004 | **Low** | Robustness | **FAULT** | **fixed + promoted (F1.W4a)** | `core/test/s5-004-empty-allowedtools-dangling-flag.test.ts` (now GREEN, gating) |
 | S5-005 | — | Robustness | LOCK | codified | `campaign-s5-stream-parsing.test.ts` |
 | S5-006 | — | Edge | LOCK | codified | `campaign-s5-stream-parsing.test.ts` |
 | S5-007 | — | Robustness | LOCK | codified | `campaign-s5-stream-parsing.test.ts` |
@@ -47,8 +47,9 @@ determinism over coverage, no key in this environment.
 | S5-023 | Nit | Robustness | LOCK | codified | `campaign-s5-ollama.test.ts` |
 | S5-024 | — | Edge | LOCK | codified | `campaign-s5-ollama.test.ts` |
 
-FAULT (red, quarantine): **4** (4 Low; S5-001 + S5-004 are latent — unreachable via shipped callers,
-real on the exported seam). LOCK (green, gating): **20** (124 gating assertions).
+FAULT: 4 found — **all 4 (S5-001..004) fixed + promoted to gating (F1.W4a)**; 0 remain red in
+quarantine (4 Low; S5-001 + S5-004 were latent — unreachable via shipped callers, real on the exported
+seam). LOCK (green, gating): **20** (124 gating assertions).
 prober = **S5 probe sub-agents** (stream/accum · routing/argv · ollama); validator = **S5 codification**
 (`tsx` repro one-liners + the `campaign-s5-*` / regression vitest suites).
 
@@ -80,8 +81,13 @@ prober = **S5 probe sub-agents** (stream/accum · routing/argv · ollama); valid
 - **fix sketch (finding, not an edit):** also gate the cost cap on an explicit model, e.g.
   `maxCostUsd: opts.model ? undefined : opts.maxCostUsd` (or short-circuit route→claude whenever
   `opts.model` is set). Red test flips green on that change.
-- **test-path:** `core/test/regressions/s5-001-explicit-model-cost-routes-to-ollama.test.ts` (RED) —
-  imports real `route`, mirrors startRun's option→route mapping exactly.
+- **fix (F1.W4a):** `supervisor.ts:111` now neutralizes the cap on an explicit model —
+  `maxCostUsd: opts.model ? undefined : opts.maxCostUsd` (`router.ts` unchanged; route() stays
+  model-agnostic). The test's `routeArgsFromStartRun` mirror was updated in lockstep to track the real
+  mapping; its end-to-end assertions (`res.provider === 'claude'`, never `{ollama, claude-*}`) are
+  unchanged. Now GREEN.
+- **test-path:** `core/test/s5-001-explicit-model-cost-routes-to-ollama.test.ts` (**GREEN, promoted to
+  gating**) — imports real `route`, mirrors startRun's option→route mapping exactly.
 
 ### S5-002 — `classifyTool` returns inherited `Object.prototype` members for prototype-key names · FAULT
 - **system:** `providers.ts::classifyTool` (`TOOL_KIND[name] ?? 'other'`, lines ~53-65).
@@ -98,9 +104,12 @@ prober = **S5 probe sub-agents** (stream/accum · routing/argv · ollama); valid
 - **evidence:** validator `tsx`: `classifyTool('toString') -> function`; `parseClaudeLine(... name:'toString')
   -> toolKind typeof=function`.
 - **fix sketch:** back `TOOL_KIND` with `Object.create(null)` or guard with `Object.hasOwn(TOOL_KIND, name)`.
+- **fix (F1.W4a):** `classifyTool` now does `Object.hasOwn(TOOL_KIND, name) ? TOOL_KIND[name] : 'other'`
+  — own-key-only lookup, so a prototype-key name returns `'other'` (one of the four enum strings) for
+  EVERY input. Now GREEN.
 - **impact note:** Low — real Claude tool names don't collide, but an MCP server may register a tool
   literally named `toString`/`constructor` (arbitrary names allowed) → that tool's events vanish.
-- **test-path:** `core/test/regressions/s5-002-classifytool-prototype-pollution.test.ts` (RED).
+- **test-path:** `core/test/s5-002-classifytool-prototype-pollution.test.ts` (**GREEN, promoted to gating**).
 
 ### S5-003 — `listInstalled` throws a raw `TypeError` on a malformed-but-200 `/api/tags` body · FAULT
 - **system:** `ollama-client.ts::listInstalled` (`(data.models ?? []).map(...)`, lines ~48-56).
@@ -117,7 +126,10 @@ prober = **S5 probe sub-agents** (stream/accum · routing/argv · ollama); valid
   **mislabeled 502 "unreachable"** for what is actually a parse bug.
 - **evidence:** validator `tsx`: `null -> THROW RAW TypeError`; `{models:{}} -> THROW RAW TypeError`.
 - **fix sketch:** `const models = Array.isArray(data?.models) ? data.models : []`.
-- **test-path:** `core/test/regressions/s5-003-listinstalled-malformed-body-typeerror.test.ts` (RED).
+- **fix (F1.W4a):** `listInstalled` now guards the shape — a non-array `models` (null body, `{models:{}}`,
+  `{models:'foo'}`) degrades to `[]` before `.map`, so a malformed-but-200 body never throws a raw
+  TypeError (the typed-error contract holds). Now GREEN.
+- **test-path:** `core/test/s5-003-listinstalled-malformed-body-typeerror.test.ts` (**GREEN, promoted to gating**).
 
 ### S5-004 — empty `allowedTools: []` emits a dangling `--allowedTools` that swallows the next flag · FAULT
 - **system:** `claude-args.ts::buildClaudeArgs` (lines ~60-66).
@@ -136,7 +148,10 @@ prober = **S5 probe sub-agents** (stream/accum · routing/argv · ollama); valid
   11/7/4 tools) are all non-empty and `synthesizeConfigDir` passes them through with no guard — so this
   is LATENT today, triggered by a corrupt/hand-edited allowlist or a future tier asset with `[]`.
 - **fix sketch:** `if (cc.allowedTools.length) args.push('--allowedTools', ...cc.allowedTools)`.
-- **test-path:** `core/test/regressions/s5-004-empty-allowedtools-dangling-flag.test.ts` (RED).
+- **fix (F1.W4a):** `buildClaudeArgs` now emits `--allowedTools` only when the list is non-empty
+  (`if (cc.allowedTools.length > 0)`), so an empty allowlist no longer dangles the flag over the
+  `--append-system-prompt-file` injection; the non-empty path is byte-identical. Now GREEN.
+- **test-path:** `core/test/s5-004-empty-allowedtools-dangling-flag.test.ts` (**GREEN, promoted to gating**).
 
 ---
 

@@ -1,5 +1,5 @@
 /**
- * QUARANTINE — CONFIRMED FAULT S5-003 (RED by design).
+ * REGRESSION — FAULT S5-003 (FIXED + promoted to gating, reboot wave F1.W4a).
  * Finding: testing/findings/S5-supervisor-providers-routing.md → row S5-003.
  *
  * Surface: core/src/ollama-client.ts `listInstalled` (lines ~48-56).
@@ -25,7 +25,7 @@
  * core/src/**.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { listInstalled, OllamaNetworkError } from '../../src/ollama-client.js'
+import { listInstalled, OllamaNetworkError } from '../src/ollama-client.js'
 
 afterEach(() => vi.unstubAllGlobals())
 

@@ -1,5 +1,5 @@
 /**
- * QUARANTINE — CONFIRMED FAULT S5-001 (RED by design).
+ * REGRESSION — FAULT S5-001 (FIXED + promoted to gating, reboot wave F1.W4a).
  * Finding: testing/findings/S5-supervisor-providers-routing.md → row S5-001.
  *
  * Surface: core/src/supervisor.ts `startRun` (line ~111) + core/src/router.ts `route`.
@@ -32,13 +32,13 @@
  * Document-only: imports the real router; does not edit core/src/**.
  */
 import { describe, it, expect } from 'vitest'
-import { route, type RoutingTask, type RouteDeps } from '../../src/router.js'
+import { route, type RoutingTask, type RouteDeps } from '../src/router.js'
 
 type StartRunOptions = { model?: string; preferLocal?: boolean; maxCostUsd?: number }
 
 /** Mirrors supervisor.ts:111 — how startRun maps options into route()'s task. */
 function routeArgsFromStartRun(prompt: string, opts: StartRunOptions): RoutingTask {
-  return { prompt, preferLocal: opts.model ? false : opts.preferLocal, maxCostUsd: opts.maxCostUsd }
+  return { prompt, preferLocal: opts.model ? false : opts.preferLocal, maxCostUsd: opts.model ? undefined : opts.maxCostUsd }
 }
 
 // Ollama enabled + reachable, and claude historically costs MORE than the cap.
