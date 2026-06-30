@@ -137,14 +137,14 @@ const STATUS_CLASS: Record<string, string> = { stable: 'green', active: 'accent'
 
 function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & { html: string }>): string {
   const nav = sections.map(s => `
-    <a class="nav-item" href="#${s.slug}" data-section="${s.slug}">
+    <a class="nav-item" href="#${escHtml(s.slug)}" data-section="${escHtml(s.slug)}">
       <span class="nav-icon">${escHtml(s.icon)}</span>
       <span class="nav-title">${escHtml(s.title)}</span>
       <span class="dot dot-${STATUS_CLASS[s.status] ?? 'amber'}" title="${escHtml(s.status)}"></span>
     </a>`).join('')
 
   const body = sections.map(s => `
-    <section id="${s.slug}" class="bible-section">
+    <section id="${escHtml(s.slug)}" class="bible-section">
       <header class="section-head">
         <span class="section-icon">${escHtml(s.icon)}</span>
         <h1>${escHtml(s.title)}</h1>

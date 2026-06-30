@@ -1,5 +1,5 @@
 /**
- * REGRESSION (red by design) — Finding S6-004.
+ * REGRESSION — FAULT S6-004 (FIXED + promoted to gating, reboot wave F1.W4c).
  *
  * whisperProvider.transcribe relays the Whisper JSON response field with zero
  * validation: `return { text: json.text }`. The declared interface is
@@ -26,9 +26,9 @@
  * Finding row: testing/findings/S6-voice-bible.md  (S6-004)
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { whisperProvider } from '../../src/transcription.js'
-import { __resetConfigCache } from '../../src/config-store.js'
-import { db } from '../../src/db.js'
+import { whisperProvider } from '../src/transcription.js'
+import { __resetConfigCache } from '../src/config-store.js'
+import { db } from '../src/db.js'
 
 afterEach(() => {
   vi.restoreAllMocks()

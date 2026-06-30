@@ -1,5 +1,5 @@
 /**
- * REGRESSION (red by design) — Finding S6-002.
+ * REGRESSION — FAULT S6-002 (FIXED + promoted to gating, reboot wave F1.W4c).
  *
  * The bible compiler interpolates the section `slug` RAW into three HTML
  * attributes without escaping:
@@ -34,7 +34,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { v4 as uuid } from 'uuid'
-import { compileBible } from '../../src/bible.js'
+import { compileBible } from '../src/bible.js'
 
 const tmpDirs: string[] = []
 afterAll(() => {

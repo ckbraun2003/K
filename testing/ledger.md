@@ -116,8 +116,6 @@ tree at HEAD `8a5fcbd` and reconciled the ledger against ground truth.
 ### Confirmed FAULTs (quarantined, awaiting operator triage/fix)
 | id | sev | system | one-liner | quarantine test |
 |----|-----|--------|-----------|-----------------|
-| **S6-002** | Low (latent) | bible.ts | section `slug` raw in `id`/`href`/`data-section` attrs (full breakout POSIX-only; `&` case cross-platform) | `core/test/regressions/s6-002-bible-slug-attr-unescaped.test.ts` |
-| **S6-004** | Low (latent) | transcription.ts | transcript `text` unvalidated → `{}`→`{text:undefined}` (200 w/ no transcript), non-string relayed verbatim | `core/test/regressions/s6-004-transcript-text-unvalidated.test.ts` |
 | **S8-002** | Low (latent) | web WorkflowChecklist.tsx | out-of-enum step `status` → unguarded `STATUS[…]` deref blank-screens the checklist (takes siblings); double-gated (kstore Zod enum + DB CHECK) → enum-drift forward-compat guard | `web/test/regressions/s8a-002-workflow-checklist-unknown-status-crash.test.tsx` |
 | **S8-005** | Low | web verify.ts | `NaN` escapes `barPct`'s documented clamp (→ `width:NaN%`); non-finite ts → `"NaNd ago"`/`"Infinityd ago"` labels | `web/test/regressions/s8a-005-verify-nonfinite-inputs.test.ts` |
 
@@ -126,6 +124,7 @@ _S1-018, S2-017, S7-001 fixed + promoted to gating in reboot wave F1.W2._
 _S6-001, S6-003, S8-004 fixed + promoted to gating in reboot wave F1.W3._
 _S5-001, S5-002, S5-003, S5-004 fixed + promoted to gating in reboot wave F1.W4a._
 _S3-001, S4-018 fixed + promoted to gating in reboot wave F1.W4b._
+_S6-002, S6-004 fixed + promoted to gating in reboot wave F1.W4c._
 
 ### Notable non-fault concerns (documented; LOCK/characterization)
 - **S2-001** (Med, docs-mismatch) — no approve/reject memory surface exists in code; gated reflection
