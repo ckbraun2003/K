@@ -55,9 +55,13 @@ export const DEFAULT_PROFILE: AgentProfile = {
   tier: 'orchestrator',
   charter: 'orchestrator',
   defaultModel: defaultModel(),
-  allowedTools: ORCHESTRATOR_AUTHORITY.allowedTools,
-  mcpServers: ORCHESTRATOR_AUTHORITY.mcpServers,
-  skills: ORCHESTRATOR_AUTHORITY.skills,
+  // Copy the resolved arrays onto the exported fallback so a stray mutation of
+  // DEFAULT_PROFILE (e.g. `.allowedTools.push(...)`) can't leak into the shared
+  // ORCHESTRATOR_AUTHORITY and thus into every `opts.profile ?? DEFAULT_PROFILE`
+  // dispatch. (Conductor P5.0 review nit.)
+  allowedTools: [...ORCHESTRATOR_AUTHORITY.allowedTools],
+  mcpServers: [...ORCHESTRATOR_AUTHORITY.mcpServers],
+  skills: [...ORCHESTRATOR_AUTHORITY.skills],
 }
 
 // ─── Registry ────────────────────────────────────────────────────────────────
@@ -197,6 +201,6 @@ export function seedProfiles(): string[] {
     createProfile({ id: seed.id, name: seed.name, tier: seed.tier })
     created.push(seed.name)
   }
-  if (created.length) console.log(`[profiles] seeded durable agent profiles: ${created.join(', ')} ✓`)
+  if (created.length) console.log(`[profiles] seeded durable agent profiles: ${created.join(', ')}`)
   return created
 }
