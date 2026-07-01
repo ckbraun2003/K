@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
-import type { RunStatus, VerificationReport, ProjectTask } from '@k/shared'
+import type { RunStatus, VerificationReport, ProjectTask, AgentProfile } from '@k/shared'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
@@ -305,6 +305,47 @@ db.exec(`
     UNIQUE(workflow_run_id, label)
   );
   CREATE INDEX IF NOT EXISTS idx_workflow_steps_run ON workflow_steps(workflow_run_id, seq);
+
+  -- ── Agent org (P5.0) ─────────────────────────────────────────────────────────
+  -- Durable agent identities (bible section 03, D-020): one entity per row, gated by
+  -- an authority tier (secretary|chief|orchestrator). charter is the charter-asset
+  -- BASENAME the profile materializes (=== tier for the durable tiers) — the charter
+  -- PROMPT itself lives in agent-config/tiers/<charter>.charter.md (single source,
+  -- loaded by the synthesizer), never inlined here. allowed_tools/mcp_servers/skills
+  -- are JSON arrays mirroring the tier's resolved authority (authority.ts) so a row
+  -- is a durable, inspectable grant. name is UNIQUE so the seed is idempotent by name.
+  CREATE TABLE IF NOT EXISTS agent_profiles (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL UNIQUE,
+    tier          TEXT NOT NULL CHECK(tier IN ('secretary','chief','orchestrator')),
+    charter       TEXT NOT NULL CHECK(charter IN ('secretary','chief','orchestrator')),
+    default_model TEXT NOT NULL,
+    allowed_tools TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    mcp_servers   TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    skills        TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    created_at    INTEGER NOT NULL
+  );
+
+  -- One activation of a profile into a supervised run (startAgentRun). This is the
+  -- tracking row the run-lifecycle seam patches (run_id) then finalizes (status),
+  -- mirroring skill_runs/workflow_runs. run_id is null until the run is created;
+  -- ON DELETE SET NULL keeps the activation record if its run is later removed.
+  CREATE TABLE IF NOT EXISTS agent_runs (
+    id           TEXT PRIMARY KEY,
+    profile_id   TEXT NOT NULL REFERENCES agent_profiles(id) ON DELETE CASCADE,
+    run_id       TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    trigger      TEXT NOT NULL
+                   CHECK(trigger IN ('user-message','schedule','event','delegation')),
+    goal         TEXT,
+    project_id   TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    workflow_id  TEXT,   -- loose ref (no FK on purpose): a planned WorkflowDefinition id, whose table doesn't exist yet
+
+    status       TEXT NOT NULL DEFAULT 'running'
+                   CHECK(status IN ('running','completed','failed')),
+    created_at   INTEGER NOT NULL,
+    completed_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_runs_profile ON agent_runs(profile_id, created_at);
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -400,6 +441,17 @@ export function migrate(d: Database.Database): void {
     addColumn(d, 'project_tasks', 'issue_url', 'TEXT')
     addColumn(d, 'project_tasks', 'issue_state', 'TEXT')
     d.exec(`CREATE INDEX IF NOT EXISTS idx_project_tasks_issue ON project_tasks(project_id, issue_number)`)
+  }
+  // agent_memory.profile_id (P5.0): links a gated lesson to the profile whose run
+  // proposed it, so memory can grow into per-profile retrieval (layers B/C). The
+  // pre-existing kstore agent_memory table only carried run_id (the source run);
+  // profile_id is appended via guarded ALTER so existing DBs gain it. ADD COLUMN
+  // with REFERENCES is legal under foreign_keys=ON (default NULL); agent_profiles is
+  // created in the DDL above, so the referenced table exists before this runs. The
+  // hasTable guard keeps migrate() safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'agent_memory')) {
+    addColumn(d, 'agent_memory', 'profile_id', 'TEXT REFERENCES agent_profiles(id)')
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_agent_memory_profile ON agent_memory(profile_id, created_at)`)
   }
 }
 
@@ -1022,4 +1074,79 @@ export const configDb = {
   set(key: string, value: string): void {
     upsertConfigRow.run(key, value)
   },
+}
+
+// ─── Agent-profile helpers (P5.0) ────────────────────────────────────────────
+// The durable agent-org registry. JSON columns (allowed_tools/mcp_servers/skills)
+// are bound already-stringified at the call site (profiles.ts), mirroring the
+// eval_systems convention. `name` is UNIQUE so the seed is idempotent by name.
+
+const insertProfile = db.prepare(`
+  INSERT INTO agent_profiles (id, name, tier, charter, default_model, allowed_tools, mcp_servers, skills, created_at)
+  VALUES (@id, @name, @tier, @charter, @defaultModel, @allowedTools, @mcpServers, @skills, @createdAt)
+`)
+const getProfileRow = db.prepare(`SELECT * FROM agent_profiles WHERE id = ?`)
+const getProfileByNameRow = db.prepare(`SELECT * FROM agent_profiles WHERE name = ?`)
+const listProfileRows = db.prepare(`SELECT * FROM agent_profiles ORDER BY created_at ASC`)
+const updateProfileRow = db.prepare(`
+  UPDATE agent_profiles
+  SET name = @name, tier = @tier, charter = @charter, default_model = @defaultModel,
+      allowed_tools = @allowedTools, mcp_servers = @mcpServers, skills = @skills
+  WHERE id = @id
+`)
+
+export const agentProfilesDb = {
+  insertProfile,
+  getProfileRow,
+  getProfileByNameRow,
+  listProfileRows,
+  updateProfileRow,
+}
+
+/** Map an agent_profiles DB row → the canonical AgentProfile shape (@k/shared).
+ *  snake→camel; the `charter` column feeds the type's `charter` (charter-asset
+ *  basename); the JSON columns parse to string[] (null-safe: garbled/absent JSON
+ *  degrades to [] rather than throwing, mirroring rowToReport). */
+export function rowToAgentProfile(r: Record<string, unknown>): AgentProfile {
+  const parseStrArr = (v: unknown): string[] => {
+    try {
+      const p = JSON.parse(String(v ?? '[]'))
+      return Array.isArray(p) ? p.map(String) : []
+    } catch {
+      return []
+    }
+  }
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    tier: r.tier as AgentProfile['tier'],
+    charter: r.charter as AgentProfile['charter'],
+    defaultModel: String(r.default_model),
+    allowedTools: parseStrArr(r.allowed_tools),
+    mcpServers: parseStrArr(r.mcp_servers),
+    skills: parseStrArr(r.skills),
+  }
+}
+
+// ─── Agent-run helpers (P5.0) ────────────────────────────────────────────────
+// The startAgentRun tracking rows — patched with the run id, then finalized on
+// terminal, via the run-lifecycle seam (mirrors skill_runs / workflow_runs).
+
+const insertAgentRun = db.prepare(`
+  INSERT INTO agent_runs (id, profile_id, run_id, trigger, goal, project_id, workflow_id, status, created_at, completed_at)
+  VALUES (@id, @profileId, @runId, @trigger, @goal, @projectId, @workflowId, @status, @createdAt, @completedAt)
+`)
+const patchAgentRunId = db.prepare(`UPDATE agent_runs SET run_id = ? WHERE id = ?`)
+const updateAgentRunStatus = db.prepare(`UPDATE agent_runs SET status = ?, completed_at = ? WHERE id = ?`)
+const getAgentRun = db.prepare(`SELECT * FROM agent_runs WHERE id = ?`)
+const listAgentRunsByProfile = db.prepare(
+  `SELECT * FROM agent_runs WHERE profile_id = ? ORDER BY created_at DESC`,
+)
+
+export const agentRunsDb = {
+  insertAgentRun,
+  patchAgentRunId,
+  updateAgentRunStatus,
+  getAgentRun,
+  listAgentRunsByProfile,
 }

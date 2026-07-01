@@ -123,14 +123,14 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   const dataDir = opts.dataDir ?? process.env.K_DATA_DIR ?? DEFAULT_DATA_DIR
   const hostCredentialsPath =
     opts.hostCredentialsPath ?? path.join(os.homedir(), '.claude', '.credentials.json')
-  const charter = profile.charterTier
+  const charter = profile.charter
 
   // Reject traversal in the run id (controls runDir + cleanup's rmSync) and the
   // tier asset name (interpolated into asset read paths) before any fs use.
   assertSafeSegment(opts.runId, 'runId')
-  assertSafeSegment(charter, 'charterTier')
+  assertSafeSegment(charter, 'charter')
   if (!KNOWN_CHARTERS.has(charter)) {
-    throw new Error(`agent-config: unknown charterTier "${charter}" — not one of ${[...KNOWN_CHARTERS].join(', ')}`)
+    throw new Error(`agent-config: unknown charter "${charter}" — not one of ${[...KNOWN_CHARTERS].join(', ')}`)
   }
 
   // 1. run config dir (path-guarded root for every write below)

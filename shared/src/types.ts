@@ -400,6 +400,31 @@ export const WorkflowRunSchema = z.object({
 })
 export type WorkflowRun = z.infer<typeof WorkflowRunSchema>
 
+// ─── AgentProfile (agent org — P5.0) ───────────────────────────────────────
+// The K-owned durable identity for a managed run. One entity differentiated by
+// an authority `tier` (bible §03, D-020): secretary (K) · chief · orchestrator
+// (leads). `charter` is the charter-asset BASENAME the profile materializes
+// (=== tier for the durable tiers) — the actual charter PROMPT lives in
+// agent-config/tiers/<charter>.charter.md (single source, loaded by the
+// synthesizer), never inlined here. `allowedTools`/`mcpServers`/`skills` are the
+// resolved authority for the tier (authority.ts), mirrored onto the row so the
+// grant is a durable, inspectable record. This schema is the canonical type-truth
+// that core/src/profiles.ts's interface mirrors.
+export const AgentTierSchema = z.enum(['secretary', 'chief', 'orchestrator'])
+export type AgentTier = z.infer<typeof AgentTierSchema>
+
+export const AgentProfileSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  tier: AgentTierSchema,
+  charter: AgentTierSchema, // charter-asset basename (=== tier for durable tiers)
+  defaultModel: z.string(), // KNOWN_MODELS id
+  allowedTools: z.array(z.string()), // claude --allowedTools allowlist (tier-gated)
+  mcpServers: z.array(z.string()), // tier-scoped MCP servers this profile mounts
+  skills: z.array(z.string()), // skill dir names this profile mounts
+})
+export type AgentProfile = z.infer<typeof AgentProfileSchema>
+
 // ─── WorkItem (kstore) ─────────────────────────────────────────────────────
 // A "ticket" in K's working store — STORAGE, not execution. Managed agents
 // create/track work items through the kstore MCP tool instead of the home-dev

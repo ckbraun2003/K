@@ -2,7 +2,7 @@
 title: Agent Organization
 icon: "❖"
 status: active
-updated: 2026-06-28
+updated: 2026-07-01
 ---
 
 > **Status — PARTIALLY BUILT (Phase 5).** This section is the design of record for the agent
@@ -10,10 +10,14 @@ updated: 2026-06-28
 > (`secretary | chief | orchestrator`), the per-tier charters + `--allowedTools` allowlists + MCP
 > configs, the vendored skill set, the worker-agent definitions + per-tier bundles, the K-owned
 > **kstore** working store (work-items, lessons, workflow status-write), and the synthesizer that
-> mounts the right bundle + kstore per run all ship (decisions D-020 → D-027). **Still planned:** the
-> multi-profile roster as DB rows (discipline leads), the `startAgentRun` generalization, the Chief
-> and K as autonomously-woken tiers with their own management/logistics MCP services, and memory
-> layers B/C. Where a capability already existed in the harness it is called out as **reused**.
+> mounts the right bundle + kstore per run all ship (decisions D-020 → D-027). **P5.0 (foundation)
+> now ships too** (D-037): the DB-backed **`agent_profiles`** registry seeded with the eight durable
+> profiles (K · Chief · the default orchestrator · the five discipline leads), **`authority.ts`**
+> (tier → allowed tools/skills/MCPs, with the fail-closed mcp↔allowlist grant guard), and the
+> **`startAgentRun(profileId, …)`** activation primitive (tracked in `agent_runs`, riding the shared
+> run-lifecycle seam). **Still planned:** the Chief and K as autonomously-woken tiers with their own
+> management/logistics MCP services, named workflow definitions, and memory layers B/C. Where a
+> capability already existed in the harness it is called out as **reused**.
 
 K is re-framed from *an operator driving a dashboard* to **a user directing an agent organization**.
 You talk to **K**; K and the agents beneath it do the engineering. The dashboard becomes the window
@@ -41,25 +45,32 @@ what a profile may touch. A profile is durable state: a **charter** (its prompt/
 (its accumulated lessons — see §04), allowed capabilities, and a default model.
 
 ```ts
-AgentProfile {                 // PLANNED — Phase 5
-  id: uuid
+AgentProfile {                 // BUILT (P5.0) — @k/shared AgentProfileSchema + core/src/profiles.ts
+  id: string
   name: string                 // "K", "Chief", "Frontend", …
   tier: 'secretary' | 'chief' | 'orchestrator'
-  charter: string              // the role/system prompt for this profile
-  defaultModel: string         // KNOWN_MODELS id
-  allowedTools: string[]       // claude --allowedTools allowlist (tier-gated)
+  charter: 'secretary' | 'chief' | 'orchestrator'  // charter-asset BASENAME (=== tier for the
+                               // durable tiers); the charter PROMPT lives in
+                               // agent-config/tiers/<charter>.charter.md, loaded by the synthesizer
+  defaultModel: string         // KNOWN_MODELS id (env fallback preserved for the seed)
+  allowedTools: string[]       // claude --allowedTools allowlist (tier-gated, resolved by authority.ts)
   mcpServers: string[]         // tier-scoped MCP servers this profile mounts
-  skills: string[]             // skills this profile may trigger
+  skills: string[]             // skills this profile mounts
   // memory is layered storage keyed by profile id (see §04)
 }
 ```
 
-> **Bridge that exists today.** The default profile is `default-orchestrator` (orchestrator tier) in
-> `core/src/profiles.ts`, and the config synthesizer (§02) now reads that tier's **bundle**
-> (`agent-config/bundles/<tier>.json`) to mount exactly its skills + worker-agent definitions
-> (`agent-config/agents/*.md`) and rewrites the **kstore** MCP server into the run. The full
-> multi-profile roster (discipline leads as DB rows) and the `startAgentRun` generalization of
-> `startRun` are still planned.
+> **What ships today (P5.0).** `core/src/profiles.ts` is a DB-backed registry over `agent_profiles`
+> (`getProfile`/`listProfiles`/`createProfile`/`updateProfile` + `seedProfiles`), seeded at boot with
+> the eight durable profiles; `DEFAULT_PROFILE` (orchestrator) remains the in-memory fallback the
+> supervisor uses when a run is dispatched without a resolved profile. `authority.ts` resolves a
+> tier's `{allowedTools, mcpServers, skills}` from the same `agent-config/{allowlists,mcp,bundles}`
+> assets the synthesizer (§02) reads — so a seeded profile's grant matches exactly what its run will
+> mount — and runs the fail-closed mcp↔allowlist grant guard. `startAgentRun` (`core/src/agent-runs.ts`)
+> generalizes `startRun`: it resolves the named profile, dispatches the run under THAT profile's tier
+> (its charter/allowlist/MCP/skills), tracks it in `agent_runs`, and rides the shared run-lifecycle
+> seam — rolling the tracking row back to `failed` on a dispatch failure. Still planned: the Chief/K
+> autonomous wake loops and their logistics/management MCP services.
 
 ## The control plane — authority is enforced, not advisory
 
@@ -103,11 +114,12 @@ Each tier is **durable** (charter + memory + conversation thread) but only ever 
 bounded activation. A single primitive activates any profile into a run:
 
 ```ts
-startAgentRun(profileId, { trigger, goal | thread, projectId?, workflowId? })   // PLANNED — Phase 5
+startAgentRun(profileId, { trigger, goal | thread, projectId?, workflowId? })   // BUILT (P5.0)
 ```
 
-It seeds a run from the profile's charter + memory and dispatches it through the existing
-supervisor/EventBus (it generalizes today's `startRun`). Three trigger kinds activate a profile:
+It seeds a run from the profile (its tier's charter + allowlist + MCP + skills) and dispatches it
+through the existing supervisor/EventBus (it generalizes today's `startRun`). Three trigger kinds
+activate a profile:
 
 - **user-message** — interactive, human-in-the-loop (you chatting with K, or with a lead).
 - **schedule / event** — the **Phase-3 skills scheduler + event listener** (reused) wakes a tier

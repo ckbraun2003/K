@@ -35,7 +35,7 @@ function freshDataDir(): string {
 function synthAs(charterTier: CharterName, opts: { dataDir?: string; runId?: string } = {}) {
   const dataDir = opts.dataDir ?? freshDataDir()
   const runId = opts.runId ?? 'run-' + Math.random().toString(36).slice(2)
-  const profile = { ...DEFAULT_PROFILE, tier: charterTier, charterTier }
+  const profile = { ...DEFAULT_PROFILE, tier: charterTier, charter: charterTier }
   const cfg = synthesizeConfigDir(profile, { runId, dataDir, assetsDir: ASSET_DIR })
   return { cfg, dataDir, runId }
 }

@@ -16,7 +16,7 @@ import { v4 as uuid } from 'uuid'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { AgentEventSchema, type AgentEvent, type Run } from '@k/shared'
+import { AgentEventSchema, type AgentEvent, type Run, type AgentProfile } from '@k/shared'
 import { eventBus } from './events.js'
 import { db, runsDb, projectsDb } from './db.js'
 import { route } from './router.js'
@@ -102,6 +102,11 @@ export type StartRunOptions = {
   /** Keep stdin open for multi-turn HITL (claude only). Default false → today's
    *  one-shot fire-and-forget run. */
   interactive?: boolean
+  /** The agent profile whose tier drives config synthesis (charter, allowlist, MCP,
+   *  skills). Defaults to DEFAULT_PROFILE (orchestrator) so every existing caller is
+   *  unchanged; startAgentRun passes the resolved profile so a run gets ITS tier's
+   *  config, not the orchestrator's. Ignored for ollama runs (no config synthesis). */
+  profile?: AgentProfile
 }
 
 export async function startRun(prompt: string, opts: StartRunOptions = {}): Promise<Run> {
@@ -177,8 +182,9 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
 
   const inWorktree = effectiveCwd === worktreePath
 
-  // Launch in background — don't await
-  void runAgent(run, prompt, effectiveCwd, inWorktree, interactive)
+  // Launch in background — don't await. The profile (default: orchestrator) drives
+  // per-tier config synthesis inside runAgent.
+  void runAgent(run, prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE)
 
   return run
 }
@@ -306,7 +312,7 @@ function isTurnEndLine(line: string): boolean {
   try { return (JSON.parse(line) as { type?: string }).type === 'result' } catch { return false }
 }
 
-async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boolean, interactive: boolean) {
+async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boolean, interactive: boolean, profile: AgentProfile = DEFAULT_PROFILE) {
   emitStatusEvent(run.id, 'running', nextSeq(run.id), Date.now())
   eventBus.emitRunUpdate({ ...run, status: 'running' })
 
@@ -328,7 +334,7 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
     // host ~/.claude is NEVER loaded and the run gets K's per-tier allowlist, MCP,
     // settings, and injected L0+L1 system prompt. ollama runs are unaffected.
     if (provider.name === 'claude') {
-      synth = synthesizeConfigDir(DEFAULT_PROFILE, { runId: run.id })
+      synth = synthesizeConfigDir(profile, { runId: run.id })
     }
 
     const proc = execa(
