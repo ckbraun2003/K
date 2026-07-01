@@ -78,7 +78,9 @@ deliberately **starts at layer A** with storage shaped so B and C are a swap, no
 same posture the **ModelRouter** takes (start simple, grow into learned behavior on the same seam).
 **Memory is a tool, not a file:** managed agents record lessons only through the kstore memory tool —
 never by writing a file. (`tasks/lessons.md` is the human operator's home-development tracker, outside
-the managed-run architecture.)
+the managed-run architecture.) K's **conversation** follows the same rule: the durable K thread
+(`k_threads` / `k_thread_turns`, P5.1c) is a **tool-backed store, not a file**, so K's identity and
+its own answers persist across reload while any run executing that thread stays ephemeral.
 
 | Layer | What | Status |
 |-------|------|--------|

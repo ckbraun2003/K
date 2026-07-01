@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, KAskResult, KThread, KThreadTurn } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -299,6 +299,18 @@ export const api = {
         headers: { 'Content-Type': audio.type || 'application/octet-stream' },
         body: audio,
       }),
+  },
+  // Talk to K (P5.1c) — the front door. `ask` activates K on a message (warm or
+  // fresh) and streams over the existing run wire; `thread` reads the durable K
+  // conversation (source of truth, survives reload).
+  k: {
+    ask: (message: string) =>
+      req<KAskResult>('/k/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      }),
+    thread: () => req<{ thread: KThread; turns: KThreadTurn[] }>('/k/thread'),
   },
   // Settings — provider/auth status + the global system prompt (repo-root CLAUDE.md).
   status: () => req<Status>('/status'),

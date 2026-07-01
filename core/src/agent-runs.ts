@@ -40,6 +40,10 @@ export interface StartAgentRunOptions {
   thread?: string
   projectId?: string
   workflowId?: string
+  /** Keep the run's stdin open for a warm multi-turn session (D-014 persistent
+   *  stdin). Default false = today's one-shot fire-and-forget. Used by the K front
+   *  door (k-thread.ts) so a warm interactive session can continue via sendInput. */
+  interactive?: boolean
 }
 
 /** Map a terminal run status to an agent_runs status. done → completed; any other
@@ -91,6 +95,7 @@ export async function startAgentRun(
       model: profile.defaultModel,
       projectId: opts.projectId,
       profile,
+      interactive: opts.interactive,
     })
   } catch (e) {
     agentRunsDb.updateAgentRunStatus.run('failed', Date.now(), agentRunId)

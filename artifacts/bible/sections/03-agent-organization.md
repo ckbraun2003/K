@@ -132,6 +132,16 @@ activate a profile:
   autonomously (e.g. the Chief on a cron, a lead on `ci.failed`).
 - **delegation** — one tier activates the next (K → Chief → lead → role subagent).
 
+**As-built (P5.1c) — the "talk to K" front door.** `POST /api/k/ask` activates K via
+`startAgentRun('k-secretary', { trigger: 'user-message', thread })` and streams over the *existing*
+supervisor/EventBus/WS wire (no bespoke chat channel). A **durable K thread** (`k_threads` /
+`k_thread_turns`) is the source of truth — it survives reload, and K's answers are captured back to
+it at each turn boundary so a reseed stays coherent. Execution is ephemeral: while you keep chatting,
+a **warm interactive session** (reusing the D-014 persistent-stdin loop) continues the *same* live
+run via `sendInput`; when the thread is cold/idle a **fresh run** is started, seeded from the durable
+thread. The route surfaced when composing is a deterministic `routeForMessage` **preview** (client
+and server agree via `@k/shared`); K's runtime tool/hand-up decision is authoritative.
+
 ## The pipeline
 
 ```
