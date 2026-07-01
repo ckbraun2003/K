@@ -190,9 +190,15 @@ A project opens into its workspace (unchanged in shape):
   selection is what the router uses whenever it routes to Ollama, and the **⌘K dispatch picker**
   reflects that live active model. *Still planned:* an advanced **pull-any-tag** box and a cross-link
   to **Routing** for per-model outcomes.
-- **Voice transcription** *(PLANNED, D-031)* — engine status (local Whisper reachable · model), an
-  **enable** toggle, and the push-to-talk hotkey. With voice off the composer mic is disabled with a
-  tooltip; audio is transcribed locally and never leaves the box.
+- **Voice transcription** *(D-031, DELIVERED 5.4)* — a reusable **push-to-talk `MicButton`** wired into
+  the **⌘K command bar** and the **run-console HITL reply box** (the K composer drops in the same button
+  once P5.1 lands): hold to record (browser `MediaRecorder`) → release → `POST /api/transcribe` (core
+  proxies to a local Whisper server; the **browser holds no key**) → the transcript lands as **ordinary
+  text** in the target input for review before send. Settings shows a **read-only voice status card**
+  (Whisper reachable · model · baseUrl, mirroring the provider status cards). Voice is enabled via
+  `ENABLE_VOICE` — there is **no runtime toggle** (it needs a local Whisper server); with voice off the
+  mic is disabled with a tooltip, and a **denied mic or unreachable Whisper degrades cleanly to the
+  keyboard** (nothing lands on failure). Audio is transcribed locally and never leaves the box.
 - **Help** — opens this bible (and the `g` chord).
 
 ## Universal interaction patterns
@@ -269,7 +275,7 @@ Sonner toasts (toast-with-link + the 5 s undo toast) — plus custom: MetricCard
 ActivityStrip, GraphCanvas, NodeInspector, RunConsole, ToolCall (rich console), plus the PLANNED
 **KChat** (the one front-door composer), **DelegationTree** (one component, reused at whole-org and
 one-lead scope), AuthorityPanel (org-default in Settings · per-lead override on detail), CharterEditor,
-**MicButton** (push-to-talk in the composer / ⌘K / HITL reply), a **LocalModels** manager (catalog +
+**MicButton** (push-to-talk — DELIVERED 5.4 in ⌘K + HITL reply; drops into the composer with P5.1), a **LocalModels** manager (catalog +
 pull progress + active selector), and a slim OrgCard / roster card.
 
 ## Accessibility & quality bar

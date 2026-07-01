@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import type { Run, AgentEvent, WsMessage } from '@k/shared'
+import type { Run, AgentEvent, WsMessage, Status } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
@@ -13,6 +13,7 @@ import ToolCall from './ToolCall'
 import ConfirmDialog from './ConfirmDialog'
 import AutoTextarea from './AutoTextarea'
 import ContextMeter from './ContextMeter'
+import MicButton from './MicButton'
 
 interface Props {
   runId: string
@@ -109,6 +110,10 @@ export default function RunConsole({ runId }: Props) {
     queryKey: ['run', runId],
     queryFn: () => api.runs.get(runId),
   })
+
+  // Shared-cache status query (same key as Settings/CommandBar — no fan-out) so the
+  // HITL reply box can gate the mic on whether voice is enabled.
+  const { data: status } = useQuery<Status>({ queryKey: ['status'], queryFn: () => api.status() })
 
   // Pair tool_use↔tool_result and coalesce consecutive tool calls once per event
   // change, not on every render (each WS event would otherwise rebuild ~2N objects).
@@ -331,6 +336,11 @@ export default function RunConsole({ runId }: Props) {
             </p>
           )}
           <div className="flex items-center gap-2">
+            <MicButton
+              title="Hold to talk — release to transcribe into your reply"
+              onTranscript={(t) => { setAnswer(a => (a ? a + ' ' : '') + t); answerRef.current?.focus() }}
+              disabled={!status?.voice?.enabled}
+            />
             <button
               type="button"
               onClick={() => void handleEnd()}

@@ -285,6 +285,21 @@ export const api = {
         body: JSON.stringify({ model }),
       }),
   },
+  // Voice — push-to-talk transcription. The browser holds NO transcription key:
+  // core proxies the raw audio to a local Whisper server and returns { text }.
+  voice: {
+    // Raw binary POST — core proxies to local Whisper and returns { text }.
+    transcribe: (audio: Blob) =>
+      // `audio.type || 'application/octet-stream'` — the `||` is intentional: an
+      // empty-string mime must fall back to octet-stream (a valid audio parser on
+      // core). This is NOT a null/undefined-sentinel case, so `??` would be wrong
+      // here (it would let '' through and core would 415 the request).
+      req<{ text: string }>('/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': audio.type || 'application/octet-stream' },
+        body: audio,
+      }),
+  },
   // Settings — provider/auth status + the global system prompt (repo-root CLAUDE.md).
   status: () => req<Status>('/status'),
   systemPrompt: {
