@@ -28,6 +28,10 @@ const VOICE_KEYS = {
   model:   'voice.model',
 } as const
 
+const CLAUDE_KEYS = {
+  model: 'claude.model',
+} as const
+
 /** Read key from cache → DB → env default (in that order). */
 function readKey(key: string, envDefault: string): string {
   if (cache.has(key)) return cache.get(key)!
@@ -70,6 +74,21 @@ export function setOllamaBaseUrl(v: string): void {
 export function setActiveOllamaModel(v: string): void {
   configDb.set(KEYS.model, v)
   cache.set(KEYS.model, v)
+}
+
+// ── Claude runtime default model ────────────────────────────────────────────────
+// Previously an env-frozen `const` read once at router.ts module load. Now
+// runtime-managed here (app_config key `claude.model`, seeded from CLAUDE_MODEL)
+// so the global Claude default is operator-selectable and hot-swappable — router
+// reads it through claudeDefaultModel() at route() call time, never frozen.
+
+export function claudeDefaultModel(): string {
+  return readKey(CLAUDE_KEYS.model, process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-6')
+}
+
+export function setClaudeDefaultModel(v: string): void {
+  configDb.set(CLAUDE_KEYS.model, v)
+  cache.set(CLAUDE_KEYS.model, v)
 }
 
 // ── Voice getters ─────────────────────────────────────────────────────────────

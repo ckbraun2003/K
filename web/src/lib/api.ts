@@ -9,6 +9,7 @@ import type {
   EvalResultRow,
   BaselineCompare,
 } from './evals'
+import type { OllamaModelsResponse, OllamaCatalogResponse } from './ollama'
 
 export type { SkillRun } from './skill-runs'
 
@@ -238,6 +239,50 @@ export const api = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+      }),
+  },
+  // Local models (Ollama) — model management over the core routes/ollama.ts surface.
+  // Pull is fire-and-forget (202): progress arrives as `ollama_pull` WS messages,
+  // not in this response. All bodies are JSON; req() guards the empty/204 case.
+  ollama: {
+    models: () => req<OllamaModelsResponse>('/ollama/models'),
+    catalog: () => req<OllamaCatalogResponse>('/ollama/catalog'),
+    pull: (name: string) =>
+      req<{ name: string; queued: boolean }>('/ollama/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+    cancelPull: (name: string) =>
+      req<{ cancelled: string }>('/ollama/pull/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+    setActive: (model: string) =>
+      req<{ active: string }>('/ollama/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      }),
+    // DELETE carries the name in the BODY (namespaced tags contain '/', which a
+    // path param can't route) — matches the core route contract.
+    remove: (name: string) =>
+      req<{ removed: string }>('/ollama/models', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+  },
+  // Runtime Claude default model — the global default the router uses for claude
+  // routes, now app_config-managed (no restart). options = the known registry.
+  claudeModel: {
+    get: () => req<{ model: string; options: { id: string; label: string }[] }>('/claude/model'),
+    set: (model: string) =>
+      req<{ model: string }>('/claude/model', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
       }),
   },
   // Settings — provider/auth status + the global system prompt (repo-root CLAUDE.md).

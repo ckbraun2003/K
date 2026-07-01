@@ -16,7 +16,7 @@
  */
 
 import { db } from './db.js'
-import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel } from './config-store.js'
+import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, claudeDefaultModel } from './config-store.js'
 
 export type RoutingTask = {
   prompt: string
@@ -30,7 +30,9 @@ export type RouteResult = {
   baseUrl?: string  // used for ollama: http://localhost:11434
 }
 
-const CLAUDE_DEFAULT_MODEL = process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-6'
+// The Claude default model is no longer an env-frozen module const — it is read
+// at call time from the config-store getter (claudeDefaultModel), so an operator
+// changing it in Settings applies to the very next run with no restart.
 
 // Reachability is updated by the background probe. It defaults to false so the
 // router never routes to an unproven Ollama before the first successful probe.
@@ -43,10 +45,11 @@ export type RouteDeps = {
   enableOllama?: boolean
   ollamaReachable?: boolean
   avgClaudeCostUsd?: () => number | null
+  claudeDefaultModel?: () => string
 }
 
 export function route(task: RoutingTask, deps: RouteDeps = {}): RouteResult {
-  const claude: RouteResult = { provider: 'claude', model: CLAUDE_DEFAULT_MODEL }
+  const claude: RouteResult = { provider: 'claude', model: (deps.claudeDefaultModel ?? claudeDefaultModel)() }
 
   const enabled = deps.enableOllama ?? ollamaEnabled()
   if (!enabled) return claude

@@ -20,6 +20,7 @@ import { projectsRoutes } from './routes/projects.js'
 import { skillsRoutes } from './routes/skills.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
+import { modelsRoutes } from './routes/models.js'
 import { voiceRoutes } from './routes/voice.js'
 import { evalsRoutes } from './routes/evals.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
@@ -107,6 +108,7 @@ export async function buildApp() {
   await app.register(skillsRoutes)
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
+  await app.register(modelsRoutes)
   await app.register(voiceRoutes)
   await app.register(evalsRoutes)
 

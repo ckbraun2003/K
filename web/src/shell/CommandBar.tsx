@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
-import type { Run, Project } from '@k/shared'
+import type { Run, Project, Status } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
@@ -9,7 +9,7 @@ import { NAV_DESTINATIONS } from './Sidebar'
 import { parseProjectQuery, decideEnterMode } from '../lib/command-parse'
 import { modalCard, overlayFade, dialogCard } from '../lib/motion'
 import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
-import { MODEL_OPTIONS, modelChoiceToOpts } from '../lib/run-models'
+import { buildModelOptions, modelChoiceToOpts } from '../lib/run-models'
 import AutoTextarea from '../components/AutoTextarea'
 
 export { parseProjectQuery } from '../lib/command-parse'
@@ -53,6 +53,10 @@ export default function CommandBar({ open, onClose }: Props) {
 
   const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list(), enabled: open })
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list, enabled: open })
+  // One batched status query (shared cache key with Settings) surfaces the live
+  // Ollama model in the picker — not a per-option fetch (lessons.md: no fan-out).
+  const { data: status } = useQuery<Status>({ queryKey: ['status'], queryFn: () => api.status(), enabled: open })
+  const modelOptions = useMemo(() => buildModelOptions(status?.ollama), [status])
 
   useEffect(() => {
     if (open) { setQuery(''); setSelected(0); setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setPromptDraft(''); setInteractive(false); setTimeout(() => inputRef.current?.focus(), 50) }
@@ -340,7 +344,7 @@ export default function CommandBar({ open, onClose }: Props) {
                       onChange={e => setModel(e.target.value)}
                       className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]"
                     >
-                      {MODEL_OPTIONS.map(o => (
+                      {modelOptions.map(o => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </select>

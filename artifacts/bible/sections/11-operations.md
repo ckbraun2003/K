@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-06-30
+updated: 2026-07-01
 ---
 
 ## Running locally
@@ -23,7 +23,7 @@ PORT=3001
 HOST=127.0.0.1                        # loopback default; only set 0.0.0.0 behind Tailscale / an auth proxy (see Remote access)
 HARNESS_TOKEN=                        # leave UNSET to auto-generate+persist a strong token on first run (see Remote access)
 CORS_ORIGIN=http://localhost:5173
-CLAUDE_MODEL=claude-sonnet-4-6
+CLAUDE_MODEL=claude-sonnet-4-6        # first-run SEED for the runtime Claude default (now app_config-managed — change it in Settings, no restart)
 RUN_PERMISSION_MODE=acceptEdits       # claude --permission-mode for worktree runs; default acceptEdits.
                                       #   one of default|plan|acceptEdits|bypassPermissions (invalid → acceptEdits + warn).
                                       #   only applied inside a disposable worktree; fallback-to-cwd runs stay default-restricted.
@@ -32,6 +32,15 @@ ENABLE_OLLAMA=false
 GITHUB_POLL_MS=60000                  # gh polling interval
 ENABLE_GITHUB_POLL=true               # set false to disable
 ```
+
+### Runtime config (no restart)
+
+Several values above are now first-run **seeds**, not frozen constants. The **Claude default model**
+(`CLAUDE_MODEL`), the **Ollama** enable / base-url / active-model, and the **voice** settings are
+persisted in the `app_config` table and editable live from **Settings** — a change applies to the very
+next run without touching `.env` or restarting core. Each env var is consulted only when `app_config`
+has no stored value for its key (seed-then-override; `config-store.ts`). This retires the earlier
+recon finding that the Claude default model was an env-frozen `const` read once at `router.ts` load.
 
 ## Data locations
 
