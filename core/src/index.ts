@@ -31,6 +31,7 @@ import { seedEvalSystems } from './eval/store.js'
 import { compileBible } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
+import { startChiefWake } from './chief-wake.js'
 import { getProject } from './projects.js'
 import { reconcileOnBoot } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
@@ -64,6 +65,8 @@ const TERMINAL_TOKEN = process.env.TERMINAL_TOKEN ?? 'dev-terminal-token'
 // Captured at bootstrap so the Fastify onClose hook can tear down the
 // auto-reindex EventBus subscription (set in start(); undefined in tests).
 let stopGraphAutoReindex: (() => void) | undefined
+// Same, for the Chief autonomous wake (cron tick + run-completion subscription).
+let stopChiefWake: (() => void) | undefined
 
 /**
  * Build the Fastify app: CORS, WS plugin, auth hook, health, REST routes, and
@@ -234,6 +237,7 @@ export async function buildApp() {
   app.addHook('onClose', () => {
     stopGithubPoller()
     stopGraphAutoReindex?.()
+    stopChiefWake?.()
   })
   return app
 }
@@ -284,6 +288,9 @@ async function start() {
   // Auto-reindex a project's knowledge graph after a run touching it completes
   // (debounced + guarded). Default ON; set GRAPH_AUTO_REINDEX=0 to disable.
   stopGraphAutoReindex = registerGraphAutoReindex(getProject)
+  // Wake the Chief autonomously on a schedule tick + on subscribed run-completion
+  // events (debounced + already-running/self-wake guarded). Default ON; CHIEF_WAKE=0.
+  stopChiefWake = startChiefWake()
   startOllamaProbe()  // no-op unless ENABLE_OLLAMA; keeps router reachability fresh
   console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
   console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)

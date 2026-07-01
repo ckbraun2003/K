@@ -255,6 +255,23 @@ export function reconcileStaleRuns(d: import('better-sqlite3').Database = db): n
 }
 
 /**
+ * Flip every `running` agent_runs tracking row (a profile "activation") to terminal
+ * `failed`. At boot these are necessarily stale: the `trackSupervisedRun` subscriber
+ * that finalizes an activation row does NOT survive a process restart, so a crash
+ * mid-activation leaves the row `running` forever. This is not just a cosmetic metric
+ * leak — the Chief autonomous-wake already-running guard (chief-wake.ts Guard B) reads
+ * a `running` chief activation as "the Chief is busy" and would then NEVER wake again
+ * while an orphaned row lingers. Mirrors reconcileStaleRuns (pure DB mutation; takes
+ * the handle for unit-testing). Returns the number of rows reconciled.
+ */
+export function reconcileStaleActivations(d: import('better-sqlite3').Database = db): number {
+  const res = d
+    .prepare(`UPDATE agent_runs SET status = 'failed', completed_at = ? WHERE status = 'running'`)
+    .run(Date.now())
+  return res.changes
+}
+
+/**
  * Best-effort prune of orphaned git worktrees left by crashed runs. Runs
  * `git worktree prune` then removes leftover `.worktrees/*` directories that no
  * longer map to an active run. Never throws — Windows file locks can make removal
@@ -294,6 +311,12 @@ export function reconcileOnBoot(): void {
     if (n > 0) console.log(`[supervisor] boot sweep: marked ${n} stale run(s) interrupted`)
   } catch (err) {
     console.warn('[supervisor] reconcileStaleRuns failed:', (err as Error).message)
+  }
+  try {
+    const m = reconcileStaleActivations()
+    if (m > 0) console.log(`[supervisor] boot sweep: marked ${m} stale agent activation(s) failed`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileStaleActivations failed:', (err as Error).message)
   }
   pruneOrphanWorktrees()
   // Sweep per-run config dirs orphaned by a crash — same key space (run id) as

@@ -2,7 +2,7 @@
 title: Observability
 icon: "👁"
 status: active
-updated: 2026-06-28
+updated: 2026-07-01
 ---
 
 Phase 4's Track D makes the harness **observable**: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard *surfaces* it powers. The *Implementation history* appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.
@@ -72,13 +72,21 @@ observability extends from a single run's tree to the **whole org**:
   `GET /api/chief/org` (`ChiefOrgPayload`: the Chief profile, each lead's latest run + events +
   wakes, the Chief's own wakes, recent assignments, and a THIN health line), surfaced on the **Chief**
   org-overview page (§08) alongside the Objectives panel (from the mgmt store's assignments) and the
-  Chief's autonomous-wake history. *Still planned (P5.2b):* the autonomous wake loop itself and the
-  K→Chief→lead delegation **dispatch** — the page today observes what exists; it does not yet trigger
-  new work.
+  Chief's autonomous-wake history.
+- **The autonomous-wake history is now REAL (BUILT — P5.2b, D-044).** The `chiefWakes` list in that
+  payload (rendered by the ChiefPage `WakeRow`) is fed by **actual autonomous wakes**, not a hand-seed:
+  `core/src/chief-wake.ts` wires the reused scheduler + EventBus into `startAgentRun('chief', …)`, so
+  each wake is an `agent_runs` row (`profile_id='chief'`) that the route already reads. Every row carries
+  the four wake facts straight from existing columns — **trigger** (`schedule` | `event`), **time**
+  (`created_at`), **run id** (`run_id`, a view-run link), and **outcome** (`status`: running → completed
+  | failed). The wake is debounced + already-running- + self-wake-guarded, and a dispatch failure lands
+  as a `failed` row via the `startAgentRun` rollback — so the observed history is faithful to what fired.
+  *Still planned (P5.2b):* the K→Chief→lead delegation **dispatch** — the page triggers no new engineering
+  work; it observes the Chief's own activations.
 - **Memory provenance.** A gated reflection (§04) that proposes a lesson is itself an observable
   event, so you can trace *why* a profile's memory changed back to the run that earned the lesson.
 
-The remaining deferred growth (the wake loop + delegation dispatch) rides the same enrichment
+The remaining deferred growth (the K→Chief→lead delegation dispatch) rides the same enrichment
 foundation, pairing helpers, and single-wire EventBus — so it too stays a derivation.
 
 ## Implementation history (dashboard)
