@@ -12,6 +12,8 @@ import {
 } from '../lib/settings-status'
 import AutoTextarea from '../components/AutoTextarea'
 import ConfirmDialog from '../components/ConfirmDialog'
+// P5.5 — self-contained model-management sections (Claude default + local Ollama).
+import { ClaudeModelSection, LocalModelsSection } from './SettingsModels'
 
 function StatusCard({ title, verdict }: { title: string; verdict: StatusVerdict }) {
   return (
@@ -147,6 +149,15 @@ export default function SettingsPage() {
 
       <section className="mb-8">
         <StatusSection />
+      </section>
+
+      {/* P5.5 — model management (additive; P5.4's voice card can slot alongside). */}
+      <section className="mb-8">
+        <ClaudeModelSection />
+      </section>
+
+      <section className="mb-8">
+        <LocalModelsSection />
       </section>
 
       <section>

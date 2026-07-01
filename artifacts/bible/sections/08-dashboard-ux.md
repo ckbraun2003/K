@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-06-30
+updated: 2026-07-01
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -179,11 +179,17 @@ A project opens into its workspace (unchanged in shape):
   the editable source of the **org-default** tier → tools/skills/MCPs map. **Per-lead overrides** to
   that default live on **Orchestrator detail** ("inherits org default unless overridden"); Settings
   owns the default, detail owns the delta — the map is edited in exactly one place per scope.
-- **Local models (Ollama)** *(PLANNED, D-030)* — a model-management surface in Settings: the
-  **installed** models with an **active** badge and one-click *set active* (applies live, **no
-  restart**), a **curated catalog** with sizes and a **"fits on disk?"** badge + **Pull** (live
-  progress bar over the WS wire), an advanced **pull-any-tag** box, and a cross-link to **Routing**
-  for per-model outcomes. The active selection is what the router uses whenever it routes to Ollama.
+- **Claude default model** *(DELIVERED 5.5)* — a Settings picker sets the **global Claude default
+  model** the router uses for Claude runs. It is `app_config`-managed (validated against the known
+  registry), so a change applies to the **next run with no restart** — the model is no longer an
+  env-frozen constant. The per-run ⌘K picker still overrides it for a single dispatch.
+- **Local models (Ollama)** *(D-030, DELIVERED 5.5)* — a model-management surface in Settings: the
+  **installed** models with an **active** badge + an **active-model selector** (applies live, **no
+  restart**) and per-model **Remove**, plus a **curated catalog** with sizes and a **"fits on disk?"**
+  badge + **Pull** with a **live progress bar over the EventBus→WS wire** (`ollama_pull`). The active
+  selection is what the router uses whenever it routes to Ollama, and the **⌘K dispatch picker**
+  reflects that live active model. *Still planned:* an advanced **pull-any-tag** box and a cross-link
+  to **Routing** for per-model outcomes.
 - **Voice transcription** *(PLANNED, D-031)* — engine status (local Whisper reachable · model), an
   **enable** toggle, and the push-to-talk hotkey. With voice off the composer mic is disabled with a
   tooltip; audio is transcribed locally and never leaves the box.
