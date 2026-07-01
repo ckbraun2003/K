@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
-import type { Run, Project, Status } from '@k/shared'
+import type { Run, Project, Status, KRoute } from '@k/shared'
+import { routeForMessage } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
@@ -12,21 +13,23 @@ import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
 import { buildModelOptions, modelChoiceToOpts } from '../lib/run-models'
 import AutoTextarea from '../components/AutoTextarea'
 import MicButton from '../components/MicButton'
+import Toast from '../components/Toast'
 
 export { parseProjectQuery } from '../lib/command-parse'
 
 interface Props { open: boolean; onClose: () => void }
 
 type Item =
-  | { kind: 'dispatch'; label: string }
+  | { kind: 'ask-k'; label: string; route: KRoute }
   | { kind: 'dispatch-project'; label: string; prompt: string; project: Project }
   | { kind: 'project-completion'; label: string; project: Project }
   | { kind: 'project-ambiguous'; label: string }
   | { kind: 'nav'; label: string; icon: string; view: string; param?: string }
 
-/** A dispatch item the user has selected — held while the confirm/preview card
- *  is shown, before `runs.start` actually fires. */
-type DispatchItem = Extract<Item, { kind: 'dispatch' | 'dispatch-project' }>
+/** A project-scoped dispatch the user has selected — held while the confirm/preview
+ *  card is shown, before `runs.start` actually fires. Only `@project` queries reach
+ *  the confirm card now; a plain query is K's front door (the `ask-k` item). */
+type DispatchItem = Extract<Item, { kind: 'dispatch-project' }>
 
 export default function CommandBar({ open, onClose }: Props) {
   const [query, setQuery] = useState('')
@@ -46,6 +49,9 @@ export default function CommandBar({ open, onClose }: Props) {
   // Interactive (multi-turn): keep the agent's stdin open so the operator can
   // answer its questions / send follow-ups. Claude-only; ignored for local runs.
   const [interactive, setInteractive] = useState(false)
+  // After a send to K's front door: holds the just-started run so the Undo toast
+  // (rendered outside the bar so it survives close) can kill it. null = no toast.
+  const [pendingUndo, setPendingUndo] = useState<{ runId: string; route: KRoute } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const confirmRunRef = useRef<HTMLButtonElement>(null)
@@ -112,13 +118,17 @@ export default function CommandBar({ open, onClose }: Props) {
       .filter(r => q && r.prompt.toLowerCase().includes(q))
       .slice(0, 4)
       .map(r => ({ kind: 'nav' as const, label: `▶ ${r.prompt.slice(0, 60)}`, icon: '·', view: 'runs', param: r.id }))
-    const dispatch: Item[] = query.trim() ? [{ kind: 'dispatch', label: query.trim() }] : []
+    // A plain query is now K's front door: the primary action asks K (which routes
+    // internally). The route PREVIEW rides on the item so the row + strip render it.
+    const askKItems: Item[] = query.trim()
+      ? [{ kind: 'ask-k', label: query.trim(), route: routeForMessage(query.trim()) }]
+      : []
     // A query matching a destination (e.g. "doc") coincidentally substring-matches
     // a nav label. decideEnterMode picks the default (navigate when matched), but a
-    // Tab override lets the user force dispatch so a real prompt isn't out-ranked.
+    // Tab override lets the user force ask-k so a real prompt isn't out-ranked.
     const navMatch = q.length > 0 && navs.length > 0
     const mode = modeOverride ?? decideEnterMode(query, navMatch)
-    const ordered = mode === 'navigate' ? [...navs, ...dispatch, ...runItems] : [...dispatch, ...navs, ...runItems]
+    const ordered = mode === 'navigate' ? [...navs, ...askKItems, ...runItems] : [...askKItems, ...navs, ...runItems]
     return { items: ordered, navMatch }
   }, [query, runs, projects, modeOverride])
 
@@ -131,6 +141,13 @@ export default function CommandBar({ open, onClose }: Props) {
   const plainQuery = query.trim().length > 0 && !query.startsWith('@')
   const enterMode: 'navigate' | 'dispatch' | null =
     plainQuery ? (modeOverride ?? (navMatch ? 'navigate' : 'dispatch')) : null
+
+  // K's deterministic route preview for the current plain query — shown inline
+  // under the input as the operator types (null for empty / @project queries).
+  const askKRoute = useMemo<KRoute | null>(
+    () => (plainQuery ? routeForMessage(query.trim()) : null),
+    [plainQuery, query],
+  )
 
   // Selecting a dispatch previews it in the confirm card; non-dispatch items act now.
   function execute(item: Item) {
@@ -149,10 +166,15 @@ export default function CommandBar({ open, onClose }: Props) {
       // not selectable — do nothing
       return
     }
-    // dispatch / dispatch-project → compose-and-confirm card before firing.
+    if (item.kind === 'ask-k') {
+      // Compose-is-confirm: sending to K's front door needs no preview card.
+      void askK(item)
+      return
+    }
+    // dispatch-project (@project) → compose-and-confirm card before firing.
     // Seed the editable draft from the picked item's prompt text.
     setError(null)
-    setPromptDraft(item.kind === 'dispatch-project' ? item.prompt : item.label)
+    setPromptDraft(item.prompt)
     setConfirm(item)
   }
 
@@ -165,14 +187,40 @@ export default function CommandBar({ open, onClose }: Props) {
     if (!prompt) { composeRef.current?.focus(); return }
     busyRef.current = true; setBusy(true); setError(null)
     try {
-      const run = item.kind === 'dispatch-project'
-        ? await api.runs.start(prompt, { cwd: item.project.localPath, projectId: item.project.id, ...modelChoiceToOpts(model), interactive })
-        : await api.runs.start(prompt, { ...modelChoiceToOpts(model), interactive })
+      const run = await api.runs.start(prompt, { cwd: item.project.localPath, projectId: item.project.id, ...modelChoiceToOpts(model), interactive })
       onClose()
       navigate('runs', run.id)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally { busyRef.current = false; setBusy(false) }
+  }
+
+  // Send the composed message to K's front door (compose-is-confirm — no card).
+  // Optimistic: opens the run console immediately and raises an Undo toast that
+  // kills the just-started run if the operator changes their mind.
+  async function askK(item: Extract<Item, { kind: 'ask-k' }>) {
+    if (busy || busyRef.current) return
+    const message = item.label.trim()
+    if (!message) return
+    busyRef.current = true; setBusy(true); setError(null)
+    try {
+      const result = await api.k.ask(message)
+      setPendingUndo({ runId: result.runId, route: result.route })
+      onClose()
+      navigate('runs', result.runId)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { busyRef.current = false; setBusy(false) }
+  }
+
+  // Undo a just-sent K message (best-effort kill of the started run). Capture the
+  // pending entry into a local BEFORE clearing so the Toast's onDismiss (which
+  // also nulls pendingUndo) can't race the read.
+  async function undoAskK() {
+    const p = pendingUndo
+    if (!p) return
+    setPendingUndo(null)
+    try { await api.runs.kill(p.runId) } catch { /* best-effort */ }
   }
 
   // Compose-box keys: Enter sends, Shift+Enter inserts a newline, Esc cancels
@@ -209,6 +257,7 @@ export default function CommandBar({ open, onClose }: Props) {
   }
 
   return (
+    <>
     <AnimatePresence>
       {open && (
         <motion.div
@@ -237,6 +286,17 @@ export default function CommandBar({ open, onClose }: Props) {
                 disabled={!status?.voice?.enabled}
               />
             </div>
+            {/* K routes INLINE as the operator types — the deterministic preview of
+                where K will likely hand the message (runtime decision is authoritative). */}
+            {askKRoute && (
+              <div
+                data-testid="k-route-preview"
+                className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-1.5 text-[11px] text-[var(--muted)]"
+              >
+                <span>K routes</span>
+                <span className="text-[var(--text)]">→ {askKRoute.label}</span>
+              </div>
+            )}
             <ul ref={listRef} className="max-h-72 overflow-y-auto py-1.5">
               {items.map((item, i) => (
                 <li key={`${item.kind}-${item.label}-${i}`}>
@@ -247,7 +307,13 @@ export default function CommandBar({ open, onClose }: Props) {
                     </div>
                   ) : (
                     <button
-                      data-testid={item.kind === 'dispatch' || item.kind === 'dispatch-project' ? 'cmdk-row-dispatch' : 'cmdk-row-nav'}
+                      data-testid={
+                        item.kind === 'ask-k'
+                          ? 'cmdk-row-ask-k'
+                          : item.kind === 'dispatch-project'
+                            ? 'cmdk-row-dispatch'
+                            : 'cmdk-row-nav'
+                      }
                       onMouseEnter={() => setSelected(i)}
                       onClick={() => execute(item)}
                       className={cn(
@@ -255,11 +321,14 @@ export default function CommandBar({ open, onClose }: Props) {
                         i === selected ? 'bg-[var(--raised)] text-[var(--text)]' : 'text-[var(--muted)]'
                       )}
                     >
-                      {item.kind === 'dispatch' ? (
+                      {item.kind === 'ask-k' ? (
                         <>
                           <span className="text-[var(--accent)]">⚡</span>
-                          <span className="truncate">Dispatch agent: <span className="text-[var(--text)]">{item.label}</span></span>
-                          <kbd className="mono ml-auto text-[10px] text-[var(--muted)]">↵</kbd>
+                          <span className="truncate">Ask K: <span className="text-[var(--text)]">{item.label}</span></span>
+                          <span className="ml-auto flex items-center gap-1.5 whitespace-nowrap text-[10px] text-[var(--muted)]">
+                            <span>→ {item.route.label}</span>
+                            <kbd className="mono">↵</kbd>
+                          </span>
                         </>
                       ) : item.kind === 'dispatch-project' ? (
                         <>
@@ -296,7 +365,7 @@ export default function CommandBar({ open, onClose }: Props) {
                   title="Toggle whether Enter navigates or dispatches"
                 >
                   <span className="text-[var(--accent)]">{enterMode === 'navigate' ? '↪' : '⚡'}</span>
-                  <span>↵ {enterMode === 'navigate' ? 'Navigate' : 'Dispatch'}</span>
+                  <span>↵ {enterMode === 'navigate' ? 'Navigate' : 'Ask K'}</span>
                   <kbd className="mono text-[10px] opacity-70">tab</kbd>
                 </button>
               )}
@@ -340,9 +409,7 @@ export default function CommandBar({ open, onClose }: Props) {
                 <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 px-4 py-3 text-xs">
                   <dt className="text-[var(--muted)]">Project</dt>
                   <dd className="text-[var(--text)]">
-                    {confirm.kind === 'dispatch-project'
-                      ? <span className="text-[var(--accent)]">{confirm.project.name}</span>
-                      : <span className="text-[var(--muted)]">harness default (repo root)</span>}
+                    <span className="text-[var(--accent)]">{confirm.project.name}</span>
                   </dd>
                   <dt className="text-[var(--muted)]">Model</dt>
                   <dd className="text-[var(--text)]">
@@ -412,5 +479,17 @@ export default function CommandBar({ open, onClose }: Props) {
         </motion.div>
       )}
     </AnimatePresence>
+
+    {/* Undo toast — rendered OUTSIDE the open-gated bar so it survives the bar
+        closing after a send (CommandBar stays mounted in Shell when closed). */}
+    <Toast
+      open={pendingUndo !== null}
+      testid="ask-k-undo-toast"
+      durationMs={5000}
+      message={<>Sent to K · <span className="text-[var(--text)]">{pendingUndo?.route.label}</span></>}
+      action={{ label: 'Undo', testid: 'ask-k-undo', onClick: () => void undoAskK() }}
+      onDismiss={() => setPendingUndo(null)}
+    />
+    </>
   )
 }

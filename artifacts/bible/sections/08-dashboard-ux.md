@@ -78,6 +78,14 @@ per-project in the workspace Artifacts tab, and the bible stays reachable via fo
   toggle**, not the default. Inside a workspace the composer is project-scoped.
 - **Navigate:** fuzzy jump to any project, run, PR, work-item, orchestrator, workflow, or bible section.
 
+**Ask-K composer — DELIVERED P5.1c2 in ⌘K.** A plain (non-`@`) query is K's front door: the row
+reads *Ask K: …* with the `routeForMessage` preview shown **inline as you type** (and again on the
+row); **Enter sends immediately** (compose-is-confirm, no card — D-026) via `api.k.ask`, opens the
+run console on the returned `runId`, and raises a **5 s undo** toast whose *Undo* kills that run
+within the window. Voice rides the same box (MicButton transcript → composer text). `@project`
+queries still use the compose-and-confirm card → `api.runs.start`. (The K-home landing —
+work-items · recent feed · glance-to-Chief — is a later wave.)
+
 **Every per-screen `⚡` is a scoped prefill of this one composer** — it opens K pre-targeted to the
 lead / project / symbol in view (and pre-fills the route), never an independent dispatch surface.
 There is exactly one place work is dispatched.
