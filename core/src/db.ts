@@ -379,6 +379,30 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_mgmt_reports_run ON mgmt_reports(run_id, created_at);
 
+  -- ── K front door — durable threads (P5.1c, D-023) ───────────────────────────
+  -- K's persistent identity: the durable conversation is the SOURCE OF TRUTH
+  -- (survives reload), while execution is ephemeral. active_run_id is the warm
+  -- interactive run K is chatting on (null when cold/idle); ON DELETE SET NULL so
+  -- clearing a finished run keeps the thread. status is a display hint.
+  -- CREATE TABLE IF NOT EXISTS (fresh installs); NOT evolved via migrate().
+  CREATE TABLE IF NOT EXISTS k_threads (
+    id            TEXT PRIMARY KEY,
+    title         TEXT,
+    status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','idle')),
+    active_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS k_thread_turns (
+    id         TEXT PRIMARY KEY,
+    thread_id  TEXT NOT NULL REFERENCES k_threads(id) ON DELETE CASCADE,
+    role       TEXT NOT NULL CHECK(role IN ('user','k')),
+    text       TEXT NOT NULL,
+    run_id     TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_k_thread_turns ON k_thread_turns(thread_id, created_at);
+
   -- ── Agent org (P5.0) ─────────────────────────────────────────────────────────
   -- Durable agent identities (bible section 03, D-020): one entity per row, gated by
   -- an authority tier (secretary|chief|orchestrator). charter is the charter-asset
@@ -1393,4 +1417,35 @@ export const agentRunsDb = {
   getAgentRun,
   listAgentRunsByProfile,
   listRecentAgentRunsByProfile,
+}
+
+// ─── K front-door threads (P5.1c, D-023) ─────────────────────────────────────
+// The durable K conversation (persistent identity) + its turns. `active_run_id`
+// tracks the warm interactive run; it's nulled when that run reaches terminal.
+
+const insertThread = db.prepare(`
+  INSERT INTO k_threads (id, title, status, active_run_id, created_at, updated_at)
+  VALUES (@id, @title, @status, @activeRunId, @createdAt, @updatedAt)
+`)
+const getThread = db.prepare(`SELECT * FROM k_threads WHERE id = ?`)
+const updateThreadActiveRun = db.prepare(`UPDATE k_threads SET active_run_id = ?, updated_at = ? WHERE id = ?`)
+const updateThreadStatus = db.prepare(`UPDATE k_threads SET status = ?, updated_at = ? WHERE id = ?`)
+
+const insertTurn = db.prepare(`
+  INSERT INTO k_thread_turns (id, thread_id, role, text, run_id, created_at)
+  VALUES (@id, @threadId, @role, @text, @runId, @createdAt)
+`)
+const getTurn = db.prepare(`SELECT * FROM k_thread_turns WHERE id = ?`)
+const patchTurnRunId = db.prepare(`UPDATE k_thread_turns SET run_id = ? WHERE id = ?`)
+const listTurns = db.prepare(`SELECT * FROM k_thread_turns WHERE thread_id = ? ORDER BY created_at ASC, id ASC`)
+
+export const kThreadsDb = {
+  insertThread,
+  getThread,
+  updateThreadActiveRun,
+  updateThreadStatus,
+  insertTurn,
+  getTurn,
+  patchTurnRunId,
+  listTurns,
 }

@@ -162,6 +162,8 @@ Beyond the registry/metrics endpoints, the project + verification surface is:
 | `core/src/profiles.ts` | DB-backed `AgentProfile` registry (get/list/create/update + `seedProfiles`) over `agent_profiles`; keeps `DEFAULT_PROFILE` as the orchestrator fallback (P5.0) |
 | `core/src/authority.ts` | `resolveAuthority(tier)` → `{allowedTools, mcpServers, skills}` from `agent-config/{allowlists,mcp,bundles}`; fail-closed mcp↔allowlist grant guard + coding-tools gating check (P5.0) |
 | `core/src/agent-runs.ts` | `startAgentRun(profileId, {trigger, goal\|thread, …})` — activates a profile into a supervised run over the `run-lifecycle` seam, tracked in `agent_runs`, with dispatch-failure rollback (P5.0) |
+| `core/src/k-thread.ts` | K front-door runtime (D-023, P5.1c) — `askK` (warm-vs-fresh dispatch), durable K thread over `k_threads`/`k_thread_turns`, `renderSeed` (cold reseed), `captureAnswers` (K replies → thread at each turn boundary); SDK-free, reuses the D-014 persistent-stdin loop |
+| `core/src/routes/k.ts` | the "talk to K" HTTP surface (P5.1c) — `POST /api/k/ask` (activate K, returns `KAskResult`) + `GET /api/k/thread` (the durable thread + turns) |
 | `core/src/claude-args.ts` | pure: resolve `RUN_PERMISSION_MODE` + build claude CLI argv (worktree-gated `--permission-mode`, per-tier `--allowedTools`, `--mcp-config`/`--strict-mcp-config`) |
 | `core/src/auth.ts` | token resolution/persistence (`resolveHarnessToken`), safety gate (`unsafeBootReason`), constant-time compare (`tokensEqual`/`wsTokenOk`), and `isAuthExempt(url)` pathname exemption (decodes once, no dot-segment bypass) |
 | `core/src/project-match.ts` | pure: `matchProjectByCwd` — deepest-root prefix match for run→project inference |

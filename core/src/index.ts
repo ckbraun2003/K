@@ -25,6 +25,7 @@ import { modelsRoutes } from './routes/models.js'
 import { voiceRoutes } from './routes/voice.js'
 import { evalsRoutes } from './routes/evals.js'
 import { memoryRoutes } from './routes/memory.js'
+import { kRoutes } from './routes/k.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { seedProfiles } from './profiles.js'
 import { seedEvalSystems } from './eval/store.js'
@@ -116,6 +117,7 @@ export async function buildApp() {
   await app.register(voiceRoutes)
   await app.register(evalsRoutes)
   await app.register(memoryRoutes)
+  await app.register(kRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 

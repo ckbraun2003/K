@@ -854,3 +854,111 @@ export const DELEGATION_WORKFLOW: WorkflowDefinition = {
     { from: 'quality-review', to: 'orchestrator', label: 'fixes' },
   ],
 }
+
+// ─── K front door (P5.1c — "talk to K") ─────────────────────────────────────
+// The route surfaced when composing a message to K. `routeForMessage` is a shared,
+// deterministic PREVIEW so the client and server agree on the likely hand-up before
+// send — K's runtime tool/hand-up decision at execution time is AUTHORITATIVE.
+
+export const KRouteTargetSchema = z.enum([
+  'logistics',
+  'chief',
+  'frontend',
+  'backend',
+  'systems',
+  'security',
+  'network',
+])
+export type KRouteTarget = z.infer<typeof KRouteTargetSchema>
+
+export const KRouteSchema = z.object({
+  target: KRouteTargetSchema,
+  label: z.string(),
+  escalates: z.boolean(),
+})
+export type KRoute = z.infer<typeof KRouteSchema>
+
+/** target → human label, defined once so client + server render identically. */
+const K_ROUTE_LABELS: Record<KRouteTarget, string> = {
+  logistics: 'K handles directly',
+  chief: 'Chief',
+  frontend: 'Chief → Frontend Lead',
+  backend: 'Chief → Backend Lead',
+  systems: 'Chief → Systems Lead',
+  security: 'Chief → Security Lead',
+  network: 'Chief → Network Lead',
+}
+
+/** Ordered lead rules — first match wins. Kept as a testable array (not a switch). */
+const K_ROUTE_RULES: ReadonlyArray<{ target: KRouteTarget; re: RegExp }> = [
+  { target: 'frontend', re: /\b(frontend|front-end|ui|react|css|component|styling|tailwind)\b/ },
+  { target: 'backend', re: /\b(backend|back-end|api|endpoint|server|database|\bdb\b|sql)\b/ },
+  { target: 'systems', re: /\b(systems?|infra|infrastructure|build|ci|pipeline|deploy)\b/ },
+  { target: 'security', re: /\b(security|auth|vulnerab\w*|cve|exploit|secret|credential)\b/ },
+  { target: 'network', re: /\b(network|proxy|dns|socket|tls|latency)\b/ },
+]
+
+/** Generic engineering (no named lead) → hand up to the Chief. */
+const K_ENGINEERING_RE = /\b(code|refactor|bug|implement|fix|feature|test|merge|\bpr\b|commit|deploy|build)\b/
+
+/**
+ * Deterministic route PREVIEW for a message to K. Lowercases the message, then in a
+ * fixed priority order (frontend → backend → systems → security → network → generic
+ * engineering) returns the first match; anything else K handles directly (logistics).
+ *
+ * This is ONLY a preview so the composer (and server) can show the likely hand-up
+ * before send. K's runtime decision — which tool it reaches for, and whether it
+ * actually hands up to the Chief/a lead — is AUTHORITATIVE and may differ.
+ */
+export function routeForMessage(message: string): KRoute {
+  const m = message.toLowerCase()
+  for (const rule of K_ROUTE_RULES) {
+    if (rule.re.test(m)) {
+      return { target: rule.target, label: K_ROUTE_LABELS[rule.target], escalates: true }
+    }
+  }
+  if (K_ENGINEERING_RE.test(m)) {
+    return { target: 'chief', label: K_ROUTE_LABELS.chief, escalates: true }
+  }
+  return { target: 'logistics', label: K_ROUTE_LABELS.logistics, escalates: false }
+}
+
+/** Body for POST /api/k/ask — the operator's message to K. */
+export const KAskBodySchema = z.object({ message: z.string().min(1).max(20000) })
+export type KAskBody = z.infer<typeof KAskBodySchema>
+
+/** One turn in the durable K thread (D-023: persistent identity). `runId` is the
+ *  run that produced/received the turn (null until known). */
+export const KThreadTurnSchema = z.object({
+  id: z.string(),
+  threadId: z.string(),
+  role: z.enum(['user', 'k']),
+  text: z.string(),
+  runId: z.string().nullable(),
+  createdAt: z.number(),
+})
+export type KThreadTurn = z.infer<typeof KThreadTurnSchema>
+
+/** The durable K conversation — the source of truth that survives reload. `status`
+ *  is a display hint; `activeRunId` is the warm interactive run (null when cold). */
+export const KThreadSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  status: z.enum(['active', 'idle']),
+  activeRunId: z.string().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type KThread = z.infer<typeof KThreadSchema>
+
+/** Result of POST /api/k/ask. `warm` = true when the message continued a live
+ *  interactive run; false when a fresh run was started (seeded from the thread).
+ *  `agentRunId` is the agent_runs tracking id (null on the warm path). */
+export const KAskResultSchema = z.object({
+  kThreadId: z.string(),
+  agentRunId: z.string().nullable(),
+  runId: z.string(),
+  route: KRouteSchema,
+  warm: z.boolean(),
+})
+export type KAskResult = z.infer<typeof KAskResultSchema>
