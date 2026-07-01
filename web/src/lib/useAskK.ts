@@ -1,0 +1,63 @@
+import { useCallback, useRef, useState } from 'react'
+import type { KRoute } from '@k/shared'
+import { api } from './api'
+import { navigate } from './route'
+
+/** The just-started run held while the 5s Undo window is open. */
+export interface PendingUndo {
+  runId: string
+  route: KRoute
+}
+
+/**
+ * Shared "ask K + 5s undo" orchestration (P5.1f) — extracted from CommandBar so
+ * both ⌘K and K-home drive the front door identically.
+ *
+ * `send` is optimistic: it opens the run console immediately and raises the Undo
+ * window (via `pendingUndo`). `undo` best-effort kills the started run. A trimmed-
+ * empty message is a no-op. Re-entry is guarded by a synchronous ref so a double
+ * click/Enter can't fire two asks.
+ */
+export function useAskK() {
+  const [pendingUndo, setPendingUndo] = useState<PendingUndo | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const busyRef = useRef(false)
+
+  // Resolves `true` when the message was sent (run started + undo window open),
+  // `false` on a trimmed-empty / re-entrant call or a dispatch failure — so a
+  // caller can clear its composer on success only and keep the text on failure.
+  const send = useCallback(async (message: string): Promise<boolean> => {
+    const msg = message.trim()
+    if (!msg) return false
+    if (busyRef.current) return false
+    busyRef.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await api.k.ask(msg)
+      setPendingUndo({ runId: result.runId, route: result.route })
+      navigate('runs', result.runId)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      return false
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }, [])
+
+  // Capture the pending run id into a local BEFORE clearing so the caller's
+  // onDismiss (which also nulls pendingUndo) can't race the read.
+  const undo = useCallback(async () => {
+    if (!pendingUndo) return
+    const runId = pendingUndo.runId
+    setPendingUndo(null)
+    try { await api.runs.kill(runId) } catch { /* best-effort */ }
+  }, [pendingUndo])
+
+  const clearUndo = useCallback(() => setPendingUndo(null), [])
+
+  return { send, undo, clearUndo, pendingUndo, busy, error, setError }
+}
