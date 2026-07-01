@@ -845,8 +845,35 @@ const listLessonsByRun = db.prepare(
 const listLessonsByRunStatus = db.prepare(
   `SELECT * FROM agent_memory WHERE run_id IS ? AND status = ? ORDER BY created_at DESC LIMIT ?`,
 )
+// Operator-gate lists (P5.1b): fleet-wide (not run-scoped) by status, joined to the
+// proposing profile's name so the review surface shows who proposed each lesson. The
+// join is LEFT so an unassigned (profile_id NULL) lesson still lists. profile_id exists
+// because migrate(db) (which ALTERs it in) runs before these statements are prepared.
+const listLessonsByStatusJoined = db.prepare(
+  `SELECT m.*, p.name AS profile_name FROM agent_memory m
+     LEFT JOIN agent_profiles p ON m.profile_id = p.id
+   WHERE m.status = ? ORDER BY m.created_at DESC LIMIT ?`,
+)
+const listLessonsByStatusProfileJoined = db.prepare(
+  `SELECT m.*, p.name AS profile_name FROM agent_memory m
+     LEFT JOIN agent_profiles p ON m.profile_id = p.id
+   WHERE m.status = ? AND m.profile_id = ? ORDER BY m.created_at DESC LIMIT ?`,
+)
+// Flip a lesson's status in place (pending→accepted|rejected) and stamp reviewed_at.
+// This mutates the SAME row insertLesson wrote (the SEAMS contract with the producer).
+const updateLessonStatus = db.prepare(
+  `UPDATE agent_memory SET status = @status, reviewed_at = @reviewedAt WHERE id = @id`,
+)
 
-export const agentMemoryDb = { insertLesson, getLesson, listLessonsByRun, listLessonsByRunStatus }
+export const agentMemoryDb = {
+  insertLesson,
+  getLesson,
+  listLessonsByRun,
+  listLessonsByRunStatus,
+  listLessonsByStatusJoined,
+  listLessonsByStatusProfileJoined,
+  updateLessonStatus,
+}
 
 // ─── kstore: workflow-step (status-write) helpers ────────────────────────────
 // Backs workflow_step_set / workflow_status_set. The MCP server resolves the

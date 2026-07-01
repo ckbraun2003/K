@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -10,6 +10,7 @@ import type {
   BaselineCompare,
 } from './evals'
 import type { OllamaModelsResponse, OllamaCatalogResponse } from './ollama'
+import type { MemoryLesson } from './memory'
 
 export type { SkillRun } from './skill-runs'
 
@@ -240,6 +241,20 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
+  },
+  // Agent-memory operator gate — list pending/accepted/rejected proposed lessons (memory layer A)
+  // and approve/reject each. One batched list query per status (no per-item fan-out); approve/reject
+  // flip the same agent_memory row the kstore lesson_propose tool wrote.
+  memory: {
+    lessons: (opts?: { status?: LessonStatus; profileId?: string }) => {
+      const params = new URLSearchParams()
+      if (opts?.status !== undefined) params.set('status', opts.status)
+      if (opts?.profileId !== undefined) params.set('profileId', opts.profileId)
+      const qs = params.size > 0 ? `?${params.toString()}` : ''
+      return req<MemoryLesson[]>(`/memory/lessons${qs}`)
+    },
+    approve: (id: string) => req<MemoryLesson>(`/memory/lessons/${id}/approve`, { method: 'POST' }),
+    reject: (id: string) => req<MemoryLesson>(`/memory/lessons/${id}/reject`, { method: 'POST' }),
   },
   // Local models (Ollama) — model management over the core routes/ollama.ts surface.
   // Pull is fire-and-forget (202): progress arrives as `ollama_pull` WS messages,

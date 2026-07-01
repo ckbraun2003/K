@@ -23,6 +23,7 @@ export const CHORDS: Chord[] = [
   { key: 'm', view: 'metrics', label: 'Metrics' },
   { key: 'x', view: 'routing', label: 'Routing' },
   { key: 'e', view: 'evals', label: 'Evals' },
+  { key: 'y', view: 'memory', label: 'Memory' },
   { key: 't', view: 'terminal', label: 'Terminal' },
   { key: 'w', view: 'workflows', label: 'Workflows' },
   { key: 'd', view: 'docs', label: 'Docs' },

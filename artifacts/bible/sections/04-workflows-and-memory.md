@@ -82,7 +82,7 @@ the managed-run architecture.)
 
 | Layer | What | Status |
 |-------|------|--------|
-| **A — tool-based lessons + gated reflection** | a managed agent calls kstore `lesson_propose` to propose ONE lesson; it lands **pending** in the `agent_memory` table and the **operator approves** it before it joins memory; `lesson_list` reads them back (run-scoped) | **BUILT (Phase 5)** — kstore tool + `agent_memory` table |
+| **A — tool-based lessons + gated reflection** | a managed agent calls kstore `lesson_propose` to propose ONE lesson; it lands **pending** in the `agent_memory` table and the **operator approves (or rejects)** it before it joins memory; `lesson_list` reads them back (run-scoped) | **BUILT (Phase 5)** — kstore tool + `agent_memory` table + operator gate surface (P5.1b) |
 | **B — structured store + retrieval** | a structured lesson store with **relevance retrieval** and **outcome-weighting** (favor lessons that led to good outcomes), mirroring how ModelRouter weights run-outcome data | PLANNED — grow into |
 | **C — verification/eval-derived lessons** | lessons derived automatically from **verification and eval** signals (a regression or a failed audit writes a lesson) | PLANNED — grow into |
 
@@ -92,6 +92,16 @@ it → only then does it join the profile's durable memory. Nothing self-modifie
 without a human gate. The store is keyed by profile id so each tier accumulates its own lessons,
 and the approval gate + outcome metadata are exactly the hooks layer B's retrieval/weighting and
 layer C's auto-derivation plug into later.
+
+**The gate is now operator-usable (P5.1b).** The pending queue is no longer approvable only out of
+band — a **Memory review** surface (sidebar → Memory) lists the proposed lessons as cards showing the
+proposing profile and source run, with **Approve** / **Reject** actions, plus a lighter accepted/
+rejected history view. It rides a thin HTTP gate (`GET /api/memory/lessons?status=&profileId=`,
+`POST /api/memory/lessons/:id/approve|reject`) that performs **status transitions only**
+(pending→accepted|rejected, validate-before-mutate: unknown id → 404, already-reviewed → 409) over
+the **same `agent_memory` row** the kstore `lesson_propose` tool wrote — approving a lesson is the
+producer's own row flipped in place, not a copy. Retrieval (surfacing accepted lessons back into a
+run) is still layer B.
 
 ## Work items — one unified, scoped model
 

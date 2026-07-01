@@ -18,6 +18,7 @@ import TerminalPage from '../pages/TerminalPage'
 import SettingsPage from '../pages/SettingsPage'
 import WorkflowsPage from '../pages/WorkflowsPage'
 import EvalsPage from '../pages/EvalsPage'
+import MemoryPage from '../pages/MemoryPage'
 import NotFound from '../pages/NotFound'
 import { useHashRoute, navigate, isKnownView } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
@@ -125,6 +126,7 @@ export default function Shell() {
             {route.view === 'settings' && <SettingsPage />}
             {route.view === 'workflows' && <WorkflowsPage runId={route.param} />}
             {route.view === 'evals' && <EvalsPage />}
+            {route.view === 'memory' && <MemoryPage />}
             {!isKnownView(route.view) && <NotFound route={route.view} />}
           </motion.div>
         </AnimatePresence>
