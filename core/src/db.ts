@@ -443,6 +443,9 @@ db.exec(`
     completed_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_agent_runs_profile ON agent_runs(profile_id, created_at);
+  -- Point-lookup index for the by-run_id reads (the Chief autonomous-wake self-wake
+  -- guard fires on EVERY terminal run_update — a hot path — so run_id must be indexed).
+  CREATE INDEX IF NOT EXISTS idx_agent_runs_run_id ON agent_runs(run_id);
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -1409,6 +1412,15 @@ const listAgentRunsByProfile = db.prepare(
 const listRecentAgentRunsByProfile = db.prepare(
   `SELECT * FROM agent_runs WHERE profile_id = ? ORDER BY created_at DESC LIMIT ?`,
 )
+// Chief autonomous wake (P5.2b, D-044) — the two guards' single-row reads (no table).
+// Guard B: is a profile already mid-activation? (one Chief run at a time.)
+const getRunningAgentRunByProfile = db.prepare(
+  `SELECT id FROM agent_runs WHERE profile_id = ? AND status = 'running' ORDER BY created_at DESC LIMIT 1`,
+)
+// Self-wake guard: which profile owns the activation that produced this run_id?
+const getAgentRunProfileByRunId = db.prepare(
+  `SELECT profile_id FROM agent_runs WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`,
+)
 
 export const agentRunsDb = {
   insertAgentRun,
@@ -1417,6 +1429,8 @@ export const agentRunsDb = {
   getAgentRun,
   listAgentRunsByProfile,
   listRecentAgentRunsByProfile,
+  getRunningAgentRunByProfile,
+  getAgentRunProfileByRunId,
 }
 
 // ─── K front-door threads (P5.1c, D-023) ─────────────────────────────────────

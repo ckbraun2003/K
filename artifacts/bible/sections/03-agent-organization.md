@@ -15,8 +15,10 @@ updated: 2026-07-01
 > profiles (K · Chief · the default orchestrator · the five discipline leads), **`authority.ts`**
 > (tier → allowed tools/skills/MCPs, with the fail-closed mcp↔allowlist grant guard), and the
 > **`startAgentRun(profileId, …)`** activation primitive (tracked in `agent_runs`, riding the shared
-> run-lifecycle seam). **Still planned:** the Chief and K as autonomously-woken tiers with their own
-> management/logistics MCP services, named workflow definitions, and memory layers B/C. Where a
+> run-lifecycle seam). **The Chief now wakes autonomously** (P5.2b, D-044): a scheduler tick or a
+> subscribed run-completion event fires `startAgentRun('chief', …)`, debounced + already-running- +
+> self-wake-guarded (see *Autonomous wake* below). **Still planned:** K as an autonomously-woken tier,
+> the K→Chief→lead delegation **dispatch**, named workflow definitions, and memory layers B/C. Where a
 > capability already existed in the harness it is called out as **reused**.
 
 K is re-framed from *an operator driving a dashboard* to **a user directing an agent organization**.
@@ -69,8 +71,9 @@ AgentProfile {                 // BUILT (P5.0) — @k/shared AgentProfileSchema 
 > mount — and runs the fail-closed mcp↔allowlist grant guard. `startAgentRun` (`core/src/agent-runs.ts`)
 > generalizes `startRun`: it resolves the named profile, dispatches the run under THAT profile's tier
 > (its charter/allowlist/MCP/skills), tracks it in `agent_runs`, and rides the shared run-lifecycle
-> seam — rolling the tracking row back to `failed` on a dispatch failure. Still planned: the Chief/K
-> autonomous wake loops and their logistics/management MCP services.
+> seam — rolling the tracking row back to `failed` on a dispatch failure. The **Chief autonomous wake
+> loop is now built on this primitive** (P5.2b, D-044 — scheduler + event → `startAgentRun('chief')`);
+> K's own wake loop and the K→Chief delegation dispatch remain planned.
 
 > **Per-lead control plane surfaced (P5.3a).** The five discipline leads are now readable and editable
 > as a first-class operator surface: `routes/orchestrators.ts` exposes a slim roster
@@ -104,7 +107,9 @@ station even if a prompt asks it to:
      (`core/src/mcp/mgmt.ts`, unit-tested) under a thin stdio glue (`mgmt-server.ts`), **run-scoped**
      (a run reads/mutates only its own assignments), mounted on the chief tier and granted via
      `mcp__mgmt`. It is **STORAGE, not execution** — assigning a lead here does **not** dispatch that
-     lead. Autonomous K→Chief→lead delegation and the scheduler wake are **planned (P5.2b)**.
+     lead. The Chief's **autonomous scheduler/event wake is BUILT (P5.2b)** (see *Autonomous wake*
+     below); autonomous K→Chief→lead delegation **dispatch** is still **planned** (it touches K's
+     routing — a later slice).
 2. **The claude `--allowedTools` allowlist.** Coding tools — **Bash · Write · Edit · `Task`** — are
    present **only at the orchestrator (lead) tier**. K and the Chief simply do not have them on
    their allowlist, so neither can edit a file or spawn a coding subagent. (A mounted MCP server is
@@ -156,6 +161,36 @@ a **warm interactive session** (reusing the D-014 persistent-stdin loop) continu
 run via `sendInput`; when the thread is cold/idle a **fresh run** is started, seeded from the durable
 thread. The route surfaced when composing is a deterministic `routeForMessage` **preview** (client
 and server agree via `@k/shared`); K's runtime tool/hand-up decision is authoritative.
+
+### Autonomous wake — the Chief wakes itself (BUILT — P5.2b, D-044)
+
+The Chief no longer waits to be spoken to: **`core/src/chief-wake.ts`** wires the reused Phase-3
+**node-cron scheduler** (a `*/15 * * * *` tick, `CHIEF_WAKE_CRON`) **and** the **EventBus**
+(`onRunUpdate`, on a terminal run) straight into the existing `startAgentRun('chief', { trigger })`
+primitive — it rebuilds neither the scheduler nor the activation path. A schedule tick fires a
+`trigger:'schedule'` wake; a subscribed run-completion fires a `trigger:'event'` wake. `startChiefWake()`
+is wired at boot in `index.ts` (returns a stop fn torn down on `onClose`; default ON, `CHIEF_WAKE=0`
+opts out).
+
+The wake is bounded by **two guards + a self-wake guard**, and a **failure-degrade**:
+
+- **Min-interval debounce** (Guard A) — a burst of ticks/events collapses to one wake (the debounce
+  clock is committed synchronously, before the dispatch await).
+- **Already-running** (Guard B) — if a Chief run is already `running`, a new wake is skipped (one
+  Chief activation at a time). A crash-orphaned `running` activation would otherwise lock this guard
+  forever, so boot reconciliation (`reconcileStaleActivations`, `supervisor.ts`) sweeps stale
+  `running` activations to `failed` — mirroring the existing `runs` boot sweep.
+- **Self-wake guard** — the Chief's *own* run finishing does **not** re-wake the Chief, so no
+  wake → run → complete → wake loop forms.
+- **Failure-degrade** — a dispatch failure is recorded `failed` via the `startAgentRun` **rollback
+  contract** and then *swallowed*, so a cron/event callback never crashes the loop.
+
+Per **D-044**, a "Chief wake" is not a new table — it **reuses `agent_runs`**: a row with
+`profile_id='chief'` and `trigger ∈ {schedule,event}`, whose columns already carry the four wake
+facts (kind=`trigger`, time=`created_at`, resulting run=`run_id`, outcome=`status`). The Chief org
+route already reads this history (`chiefWakes`), so the surface was wired before the wakes existed;
+P5.2b just makes them exist. **K→Chief delegation dispatch stays out of scope** (it touches K's
+routing — a later slice).
 
 ## The pipeline
 

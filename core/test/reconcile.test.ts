@@ -9,7 +9,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
-import { reconcileStaleRuns } from '../src/supervisor.js'
+import { reconcileStaleRuns, reconcileStaleActivations } from '../src/supervisor.js'
 
 const tmpPath = path.join(os.tmpdir(), `k-reconcile-${Date.now()}.db`)
 let tempDb: Database.Database
@@ -69,5 +69,66 @@ describe('reconcileStaleRuns', () => {
 
   it('is idempotent — a second sweep finds nothing stale', () => {
     expect(reconcileStaleRuns(tempDb)).toBe(0)
+  })
+})
+
+/**
+ * reconcileStaleActivations() flips agent_runs tracking rows left 'running' by a
+ * crash to terminal 'failed', while leaving already-terminal activations untouched.
+ * A crash-orphaned 'running' chief activation would otherwise defeat the Chief
+ * autonomous-wake already-running guard (chief-wake.ts Guard B) forever. Temp DB.
+ */
+const AR_TMP_PATH = path.join(os.tmpdir(), `k-reconcile-ar-${Date.now()}.db`)
+let arDb: Database.Database
+
+const AR_RUNNING = uuid()
+const AR_COMPLETED = uuid()
+const AR_FAILED = uuid()
+
+function seedActivations(d: Database.Database) {
+  // Minimal agent_runs shape the sweep touches — no FKs needed for this unit.
+  d.exec(`
+    CREATE TABLE agent_runs (
+      id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, run_id TEXT, trigger TEXT NOT NULL,
+      goal TEXT, project_id TEXT, workflow_id TEXT,
+      status TEXT NOT NULL DEFAULT 'running', created_at INTEGER NOT NULL, completed_at INTEGER
+    );
+  `)
+  const ins = d.prepare(
+    `INSERT INTO agent_runs (id, profile_id, run_id, trigger, goal, status, created_at, completed_at)
+     VALUES (?, 'chief', NULL, 'schedule', 'g', ?, ?, ?)`,
+  )
+  ins.run(AR_RUNNING, 'running', Date.now(), null)
+  ins.run(AR_COMPLETED, 'completed', Date.now(), Date.now())
+  ins.run(AR_FAILED, 'failed', Date.now(), Date.now())
+}
+
+afterAll(() => {
+  try { arDb?.close() } catch { /* ignore */ }
+  try { fs.unlinkSync(AR_TMP_PATH) } catch { /* ignore */ }
+})
+
+describe('reconcileStaleActivations', () => {
+  it('flips running activations to failed (with completed_at); leaves terminal ones untouched', () => {
+    arDb = new Database(AR_TMP_PATH)
+    seedActivations(arDb)
+
+    const n = reconcileStaleActivations(arDb)
+    expect(n).toBe(1)
+
+    const get = arDb.prepare('SELECT status, completed_at FROM agent_runs WHERE id = ?')
+    const running = get.get(AR_RUNNING) as { status: string; completed_at: number | null }
+    const completed = get.get(AR_COMPLETED) as { status: string }
+    const failed = get.get(AR_FAILED) as { status: string }
+
+    expect(running.status).toBe('failed')
+    expect(running.completed_at).not.toBeNull()
+    // already-terminal activations are untouched
+    expect(completed.status).toBe('completed')
+    expect(failed.status).toBe('failed')
+  })
+
+  it('is idempotent — a second sweep finds nothing stale', () => {
+    expect(reconcileStaleActivations(arDb)).toBe(0)
   })
 })
