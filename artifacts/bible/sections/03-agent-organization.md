@@ -189,8 +189,43 @@ Per **D-044**, a "Chief wake" is not a new table — it **reuses `agent_runs`**:
 `profile_id='chief'` and `trigger ∈ {schedule,event}`, whose columns already carry the four wake
 facts (kind=`trigger`, time=`created_at`, resulting run=`run_id`, outcome=`status`). The Chief org
 route already reads this history (`chiefWakes`), so the surface was wired before the wakes existed;
-P5.2b just makes them exist. **K→Chief delegation dispatch stays out of scope** (it touches K's
-routing — a later slice).
+P5.2b just makes them exist. (K→Chief delegation dispatch was the deliberately-deferred next slice
+— now built; see below.)
+
+### K→Chief delegation + report-back (BUILT — D-046)
+
+The up/down chain is now closed: an engineering request actually **flows K → Chief and reports
+back**. In `core/src/k-thread.ts::askK`, once the durable user turn is recorded, the deterministic
+route is consulted **before** the warm/cold branch: when `route.escalates` is true (the Chief, or a
+named discipline lead), K **delegates instead of running the message itself** —
+`startAgentRun('chief', { trigger: 'delegation', goal })`, where the goal is K's ask verbatim plus,
+for a named-lead route, the discipline hint so the Chief can `assign_lead` the right lead. K's pure
+logistics/Q&A path (`route.escalates === false`) is **unchanged** — it still continues a warm
+interactive session via `sendInput` or starts a fresh seeded k-secretary run.
+
+- **Report-back up the chain.** When the delegated Chief run reaches a **terminal** status, its
+  outcome lands back on K's thread as a `k` turn — via `reportDelegationBack`, which rides the shared
+  **run-lifecycle seam** (`trackSupervisedRun`: once-latch + race backstop) exactly like
+  `startAgentRun`'s own tracking. The summary prefers the Chief's latest **mgmt `report`** (the status
+  written up the chain, read run-scoped via `mgmtDb.listReportsByRun`), falling back to the run's own
+  assistant text, then to a bare status line — so the operator always sees a result *where they
+  asked*. It never touches the thread's `active_run_id` (that belongs to K's own warm session).
+- **Traceability — no new table, no new column.** The delegation **is** the
+  `startAgentRun('chief', { trigger:'delegation' })` row (`agent_runs.trigger='delegation'`,
+  `run_id`=the Chief run). The parent→child link is recorded on the **existing `k_thread_turns.run_id`
+  FK**: K links the user turn (and an acknowledgment "Routing to …" turn) to the delegated Chief run.
+  So the K→Chief hop is derivable both ways — a thread's delegations are its turns whose `run_id`
+  points at a `trigger='delegation'` agent_run; a Chief run's parent thread is the turn referencing
+  it — with zero schema change.
+- **Rollback-on-throw holds.** A dispatch failure propagates out of `askK` (the `agent_runs` row is
+  rolled back to `failed` by `startAgentRun`'s contract, and no acknowledgment turn is written); the
+  durable user turn stays, since the thread is the source of truth for what was asked.
+- **Interaction with the wake loop.** The delegated Chief run finishing does **not** spuriously
+  re-wake the Chief — `chief-wake.ts`'s self-wake guard already skips a terminal whose owning
+  `agent_runs.profile_id === 'chief'`.
+
+**Scope.** This slice is the **K→Chief hop + report-back** only. The Chief→lead `assign_lead` store
+already exists (P5.2a) and the lead actually opening a PR is downstream — both remain follow-ups.
 
 ## The pipeline
 

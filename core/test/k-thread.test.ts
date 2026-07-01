@@ -10,10 +10,11 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import type { Run } from '@k/shared'
-import { db, runsDb } from '../src/db.js'
+import { db, runsDb, agentRunsDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { startRun, sendInput, __testHooks } from '../src/supervisor.js'
 import { createProfile, getProfile } from '../src/profiles.js'
+import { mgmtTools } from '../src/mcp/mgmt.js'
 
 // startRun mocked to avoid spawning a real agent, but it MUST insert a real runs
 // row (the K thread + agent_runs rows FK → runs(id)). sendInput / __testHooks stay
@@ -45,22 +46,31 @@ const {
 function resetKState() {
   db.prepare('DELETE FROM k_thread_turns').run()
   db.prepare('DELETE FROM k_threads').run()
-  db.prepare(`DELETE FROM agent_runs WHERE profile_id = 'k-secretary'`).run()
+  db.prepare(`DELETE FROM agent_runs WHERE profile_id IN ('k-secretary', 'chief')`).run()
+  // mgmt reports the delegation report-back tests file against the mock chief run —
+  // clear them before the runs (run_id → runs(id) ON DELETE SET NULL, but tidy anyway).
+  db.prepare(`DELETE FROM mgmt_reports WHERE run_id LIKE 'mock-k-%'`).run()
   // events.run_id is NOT NULL REFERENCES runs(id) (no ON DELETE) — clear the mock
   // runs' events before deleting the runs, or the delete hits a FK constraint.
   db.prepare(`DELETE FROM events WHERE run_id LIKE 'mock-k-%'`).run()
   db.prepare(`DELETE FROM runs WHERE id LIKE 'mock-k-%'`).run()
 }
 
-// Guard-create only the 'k-secretary' profile askK activates — do NOT call
-// seedProfiles(): the durable roster is a global invariant profiles.test.ts asserts
-// on a clean DB, so seeding all eight here would pollute that. Clean up if we made it.
+// Guard-create the 'k-secretary' (logistics/fresh path) + 'chief' (delegation path)
+// profiles askK activates — do NOT call seedProfiles(): the durable roster is a global
+// invariant profiles.test.ts asserts on a clean DB, so seeding all eight here would
+// pollute that. Clean up only what we created (serial run — no cross-file race).
 let createdKSecretary = false
+let createdChief = false
 
 beforeAll(() => {
   if (!getProfile('k-secretary')) {
     createProfile({ id: 'k-secretary', name: 'K', tier: 'secretary' })
     createdKSecretary = true
+  }
+  if (!getProfile('chief')) {
+    createProfile({ id: 'chief', name: 'Chief', tier: 'chief' })
+    createdChief = true
   }
 })
 
@@ -71,6 +81,7 @@ beforeEach(() => {
 afterAll(() => {
   resetKState()
   if (createdKSecretary) db.prepare(`DELETE FROM agent_profiles WHERE id = 'k-secretary'`).run()
+  if (createdChief) db.prepare(`DELETE FROM agent_profiles WHERE id = 'chief'`).run()
 })
 
 // ── routeForMessage (pure preview) ────────────────────────────────────────────
@@ -117,7 +128,9 @@ describe('routeForMessage', () => {
 
 describe('askK — fresh dispatch + answer capture', () => {
   it('starts a fresh interactive run, records the ask, captures K answers, clears on terminal', async () => {
-    const result = await askK('build the backend api')
+    // A LOGISTICS message (no engineering signal) so K handles it itself on the fresh
+    // path — an engineering ask now delegates to the Chief (see the delegation suite).
+    const result = await askK('remind me to prep the meeting notes')
 
     expect(result.warm).toBe(false)
     expect(result.runId).toMatch(/^mock-k-run-/)
@@ -127,7 +140,7 @@ describe('askK — fresh dispatch + answer capture', () => {
     // A 'user' turn is recorded on the default thread, linked to the run.
     const userTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'user')
     expect(userTurns).toHaveLength(1)
-    expect(userTurns[0].text).toBe('build the backend api')
+    expect(userTurns[0].text).toBe('remind me to prep the meeting notes')
     expect(userTurns[0].runId).toBe(result.runId)
 
     // The thread now points at the warm run.
@@ -192,5 +205,117 @@ describe('askK — warm continuation', () => {
     expect(typeof sendInput).toBe('function')
 
     __testHooks.clearActiveProc(warmRunId)
+  })
+})
+
+// ── askK — delegation to the Chief (D-046) ────────────────────────────────────
+
+/** All chief agent_runs (newest first) on the shared DB. */
+function chiefAgentRuns(): Array<Record<string, unknown>> {
+  return agentRunsDb.listRecentAgentRunsByProfile.all('chief', 500) as Array<Record<string, unknown>>
+}
+
+/** File a mgmt report against `runId` exactly as the Chief's mgmt `report` tool does. */
+function fileChiefReport(runId: string, body: string) {
+  const report = mgmtTools.find(t => t.name === 'report')!
+  return report.handler({ body }, { runId })
+}
+
+describe('askK — delegation to the Chief', () => {
+  it('an engineering-routed ask dispatches the Chief with trigger=delegation (not a K run)', async () => {
+    const result = await askK('fix the failing test suite')
+
+    // The route escalated and the returned run is the Chief's delegated run.
+    expect(result.route.target).toBe('chief')
+    expect(result.warm).toBe(false)
+    expect(result.runId).toMatch(/^mock-k-run-/)
+    expect(typeof result.agentRunId).toBe('string')
+
+    // A chief agent_run exists with trigger 'delegation', linked to that run, carrying
+    // the ask verbatim in its goal.
+    const rows = chiefAgentRuns()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].trigger).toBe('delegation')
+    expect(rows[0].run_id).toBe(result.runId)
+    expect(String(rows[0].goal)).toContain('fix the failing test suite')
+
+    // No k-secretary activation was created on the delegation path.
+    expect(agentRunsDb.listRecentAgentRunsByProfile.all('k-secretary', 500)).toHaveLength(0)
+
+    // The thread carries the durable link: the user turn is linked to the Chief run
+    // (parent→child, derivable via k_thread_turns.run_id + agent_runs.trigger), and an
+    // acknowledgment 'k' turn names the route.
+    const turns = listKThreadTurns(DEFAULT_K_THREAD_ID)
+    const userTurn = turns.find(t => t.role === 'user')!
+    expect(userTurn.text).toBe('fix the failing test suite')
+    expect(userTurn.runId).toBe(result.runId)
+    const ackTurn = turns.find(t => t.role === 'k')!
+    expect(ackTurn.text).toContain('Routing to')
+    expect(ackTurn.runId).toBe(result.runId)
+
+    // Delegation does NOT hijack the thread's warm-session pointer.
+    expect(getKThread(DEFAULT_K_THREAD_ID)!.activeRunId).toBeNull()
+  })
+
+  it('routes a named-lead ask through the Chief with the discipline hinted in the goal', async () => {
+    const result = await askK('update the react component styling')
+    expect(result.route.target).toBe('frontend')
+
+    const rows = chiefAgentRuns()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].trigger).toBe('delegation')
+    expect(String(rows[0].goal)).toContain('frontend')
+    expect(String(rows[0].goal)).toContain('update the react component styling')
+  })
+
+  it("reports the Chief's mgmt report back onto K's thread when the delegated run terminates", async () => {
+    const result = await askK('implement the new feature')
+    const runId = result.runId
+
+    // The Chief files a status report up the chain (the mgmt `report` tool), then its
+    // run reaches terminal — the report-back seam folds the report onto K's thread.
+    fileChiefReport(runId, 'PR #42 opened; CI green')
+    eventBus.emitRunUpdate({ id: runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+
+    const kTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'k')
+    const reportBack = kTurns.find(t => t.text.includes('PR #42 opened'))
+    expect(reportBack).toBeTruthy()
+    expect(reportBack!.text).toContain('completed')
+    expect(reportBack!.runId).toBe(runId)
+
+    // The delegated chief activation is finalized 'completed' by startAgentRun's own
+    // lifecycle tracking on the same terminal event.
+    const chiefRow = chiefAgentRuns()[0]
+    expect(chiefRow.status).toBe('completed')
+  })
+
+  it('falls back to a bare status line when the Chief filed no report', async () => {
+    const result = await askK('refactor the module')
+    const runId = result.runId
+
+    // No mgmt report, no assistant events — terminal with an error status.
+    eventBus.emitRunUpdate({ id: runId, status: 'error', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+
+    const kTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'k')
+    const reportBack = kTurns.find(t => t.text.includes('no report was filed'))
+    expect(reportBack).toBeTruthy()
+    expect(reportBack!.text).toContain('error')
+  })
+
+  it('a dispatch throw propagates and leaves the chief activation failed, no ack turn', async () => {
+    vi.mocked(startRun).mockRejectedValueOnce(new Error('boom'))
+
+    await expect(askK('deploy the build')).rejects.toThrow('boom')
+
+    // startAgentRun inserted the row 'running' then rolled it back to 'failed' + rethrew.
+    const rows = chiefAgentRuns()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].status).toBe('failed')
+    expect(rows[0].run_id).toBeNull()
+
+    // The durable user turn stays (thread is source of truth); no 'k' ack turn was added.
+    const turns = listKThreadTurns(DEFAULT_K_THREAD_ID)
+    expect(turns.filter(t => t.role === 'user')).toHaveLength(1)
+    expect(turns.filter(t => t.role === 'k')).toHaveLength(0)
   })
 })

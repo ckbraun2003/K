@@ -1120,6 +1120,15 @@ const insertReport = db.prepare(`
   VALUES (@id, @runId, @assignmentId, @body, @createdAt)
 `)
 const getReport = db.prepare(`SELECT * FROM mgmt_reports WHERE id = ?`)
+// Reports a given run filed, newest-first (bounded). Powers the K→Chief report-back
+// (k-thread.ts): when a delegated Chief run reaches terminal, K surfaces the Chief's
+// latest status report up onto its own thread. A read-only helper — the report row is
+// still written only by the mgmt `report` tool (no new write path, no schema change).
+const listReportsByRun = db.prepare(
+  // id DESC is a deterministic tie-break so two reports written in the same ms have a
+  // stable "latest" (the report-back reads LIMIT 1 as the Chief's latest status).
+  `SELECT * FROM mgmt_reports WHERE run_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+)
 export const mgmtDb = {
   insertAssignment,
   updateAssignment,
@@ -1128,6 +1137,7 @@ export const mgmtDb = {
   listRecentAssignments,
   insertReport,
   getReport,
+  listReportsByRun,
 }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────

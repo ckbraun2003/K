@@ -91,6 +91,14 @@ the managed-run architecture.) K's **conversation** follows the same rule: the d
 (`k_threads` / `k_thread_turns`, P5.1c) is a **tool-backed store, not a file**, so K's identity and
 its own answers persist across reload while any run executing that thread stays ephemeral.
 
+**Report-back lands on the same thread (D-046).** When K delegates an engineering ask up to the Chief
+(`startAgentRun('chief', { trigger:'delegation' })` — see §03), the outcome comes back *where you
+asked*: on the Chief run reaching terminal, `reportDelegationBack` (riding the run-lifecycle seam)
+appends a `k` turn to the durable K thread, summarizing the Chief's latest **mgmt `report`** (or, as a
+fallback, the run's assistant text / a status line). The up/down chain — you ask K, K hands up to the
+Chief, the Chief works and reports up — is thus visible in the one place the operator is already
+looking, over the existing thread + event stream (no new channel).
+
 | Layer | What | Status |
 |-------|------|--------|
 | **A — tool-based lessons + gated reflection** | a managed agent calls kstore `lesson_propose` to propose ONE lesson; it lands **pending** in the `agent_memory` table and the **operator approves (or rejects)** it before it joins memory; `lesson_list` reads them back (run-scoped) | **BUILT (Phase 5)** — kstore tool + `agent_memory` table + operator gate surface (P5.1b) |
