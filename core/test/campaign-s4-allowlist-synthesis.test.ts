@@ -60,7 +60,7 @@ afterAll(() => {
 const EXACT: Record<CharterName, string[]> = {
   orchestrator: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore'],
   chief: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore'],
-  secretary: ['Read', 'WebFetch', 'WebSearch', 'mcp__kstore'],
+  secretary: ['Read', 'WebFetch', 'WebSearch', 'mcp__kstore', 'mcp__logistics'],
 }
 
 describe('S4 allowlist synthesis: exact per-tier roster', () => {
@@ -77,7 +77,7 @@ describe('S4 allowlist synthesis: exact per-tier roster', () => {
     }
   })
 
-  it('S4-003: secretary yields the leanest set (Read+research+kstore) — NO coding tools, NO Grep/Glob, NO gitnexus', () => {
+  it('S4-003: secretary yields the leanest set (Read+research+kstore+logistics) — NO coding tools, NO Grep/Glob, NO gitnexus', () => {
     const cfg = synthAs('secretary')
     expect(cfg.allowedTools).toEqual(EXACT.secretary)
     for (const denied of ['Bash', 'Write', 'Edit', 'Task', 'Grep', 'Glob', 'mcp__gitnexus']) {
@@ -100,9 +100,10 @@ describe('S4 allowlist synthesis: no drift + non-allowlisted mcp denied', () => 
   it('S4-004: no tier grants a non-allowlisted mcp server (a planted mcp__foo is never present)', () => {
     for (const tier of ['orchestrator', 'chief', 'secretary'] as CharterName[]) {
       const cfg = synthAs(tier)
-      // Only the two real K servers are ever granted; any other mcp__* is denied.
+      // Only the real K servers are ever granted; any other mcp__* is denied.
+      // secretary → kstore + logistics; chief/orchestrator → gitnexus + kstore.
       const mcpGrants = cfg.allowedTools.filter(t => t.startsWith('mcp__')).sort()
-      const allowed = tier === 'secretary' ? ['mcp__kstore'] : ['mcp__gitnexus', 'mcp__kstore']
+      const allowed = tier === 'secretary' ? ['mcp__kstore', 'mcp__logistics'] : ['mcp__gitnexus', 'mcp__kstore']
       expect(mcpGrants, `${tier} mcp grants`).toEqual(allowed)
       expect(cfg.allowedTools, `${tier} must not grant mcp__foo`).not.toContain('mcp__foo')
     }

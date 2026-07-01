@@ -82,7 +82,13 @@ station even if a prompt asks it to:
      propose/list (gated reflection — memory layer A), and **workflow status-write**
      (`workflow_step_set` / `workflow_status_set`). Tools are run-scoped (a run only sees its own
      tickets/lessons); the status-write tools self-gate to delegation-workflow runs.
-   - `logistics-mcp` (**K**, planned) — calendar/notes/task-list/scheduling; no code, no project mutation.
+   - the **logistics** server (**K, BUILT — P5.1a**) — K's logistics working store: notes,
+     calendar events, and reminders (calendar/notes/scheduling), **STORAGE not execution** and
+     **run-scoped** exactly like kstore (`note_*` / `event_*` / `reminder_*`; a run reads/mutates
+     only its own rows). No code, no project mutation, and no real-calendar side-effect — storing an
+     event does not schedule it anywhere. (K's *tasks* stay the run-scoped kstore `work_item_*`
+     tools — logistics adds only the non-ticket logistics data, not a second task store.) Reusing
+     the Google Calendar/Gmail/Drive connectors for real-world logistics remains Phase 5.
    - `mgmt-mcp` (**Chief**, planned) — assign-lead, pick-workflow, scope-projects, report-to-user; delegation, not coding.
 2. **The claude `--allowedTools` allowlist.** Coding tools — **Bash · Write · Edit · `Task`** — are
    present **only at the orchestrator (lead) tier**. K and the Chief simply do not have them on
@@ -104,7 +110,7 @@ carries every tier's events, the **ModelRouter** picks each run's provider/model
 
 | Tier | MCP servers | Coding tools | Reused connectors | Default posture |
 |------|-------------|--------------|-------------------|-----------------|
-| **K** (secretary) | kstore · `logistics-mcp`(planned) | — none — | Google Calendar / Gmail / Drive | answer + schedule + trigger Chief |
+| **K** (secretary) | kstore · logistics(BUILT) | — none — | Google Calendar / Gmail / Drive | answer + schedule + trigger Chief |
 | **Chief** (chief) | kstore · GitNexus(read) · `mgmt-mcp`(planned) | — none — | GitNexus MCP (read-only) | assign + report; wakes on schedule/event |
 | **Leads** (orchestrator) | kstore · GitNexus (+ charter-scoped MCPs) | Bash · Write · Edit · `Task` | GitNexus MCP, project tooling | run workflows; PR-only, CI gates merges |
 

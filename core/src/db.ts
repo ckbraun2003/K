@@ -306,6 +306,47 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_workflow_steps_run ON workflow_steps(workflow_run_id, seq);
 
+  -- ── logistics working store (P5.1a) ─────────────────────────────────────────
+  -- K's secretary-tier logistics store: notes, calendar events, and reminders the
+  -- secretary reaches through the logistics MCP server (calendar/notes/scheduling)
+  -- — STORAGE, not execution. Run-scoped exactly like work_items: run_id is the
+  -- managed run that created the row (resolved from K_RUN_ID); ON DELETE SET NULL
+  -- keeps the row if its run is later removed. CREATE TABLE IF NOT EXISTS (fresh
+  -- installs); these are NOT evolved via migrate().
+  CREATE TABLE IF NOT EXISTS logistics_notes (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    body        TEXT NOT NULL,
+    done        INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_logistics_notes_run ON logistics_notes(run_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS logistics_events (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    title       TEXT NOT NULL,
+    starts_at   INTEGER NOT NULL,
+    ends_at     INTEGER,
+    location    TEXT,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_logistics_events_run ON logistics_events(run_id, starts_at);
+
+  CREATE TABLE IF NOT EXISTS logistics_reminders (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    text        TEXT NOT NULL,
+    remind_at   INTEGER NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending'
+                  CHECK(status IN ('pending','done','cancelled')),
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_logistics_reminders_run ON logistics_reminders(run_id, remind_at);
+
   -- ── Agent org (P5.0) ─────────────────────────────────────────────────────────
   -- Durable agent identities (bible section 03, D-020): one entity per row, gated by
   -- an authority tier (secretary|chief|orchestrator). charter is the charter-asset
@@ -863,6 +904,90 @@ export const workflowStepsDb = {
   getWorkflowStepByLabel,
   listWorkflowSteps,
   setWorkflowStep,
+}
+
+// ─── logistics working store helpers (P5.1a) ─────────────────────────────────
+// Backs the logistics MCP tools (notes / calendar events / reminders). Every row
+// is run-scoped like work_items — the null-safe `IS` operator means a null owner
+// (no/unknown run) only matches null-owner rows, so one run can never read or
+// mutate another run's logistics rows. The calendar-event statement CONSTS are
+// `logistics*`-prefixed to avoid colliding with the agent-events helpers
+// (module-scope insertEvent / getEventRaw / listEvents); they are exposed under
+// clean keys on the `logisticsDb` object below.
+
+// notes
+const insertNote = db.prepare(`
+  INSERT INTO logistics_notes (id, run_id, body, done, created_at, updated_at)
+  VALUES (@id, @runId, @body, @done, @createdAt, @updatedAt)
+`)
+const updateNote = db.prepare(`
+  UPDATE logistics_notes SET body = @body, done = @done, updated_at = @updatedAt WHERE id = @id
+`)
+const getNote = db.prepare(`SELECT * FROM logistics_notes WHERE id = ?`)
+const getNoteOwned = db.prepare(`SELECT * FROM logistics_notes WHERE id = ? AND run_id IS ?`)
+const listNotesByRun = db.prepare(
+  `SELECT * FROM logistics_notes WHERE run_id IS ? ORDER BY created_at DESC LIMIT ?`,
+)
+const listNotesByRunDone = db.prepare(
+  `SELECT * FROM logistics_notes WHERE run_id IS ? AND done = ? ORDER BY created_at DESC LIMIT ?`,
+)
+
+// calendar events (consts prefixed to avoid the agent-events insertEvent/listEvents)
+const insertLogisticsEvent = db.prepare(`
+  INSERT INTO logistics_events (id, run_id, title, starts_at, ends_at, location, created_at, updated_at)
+  VALUES (@id, @runId, @title, @startsAt, @endsAt, @location, @createdAt, @updatedAt)
+`)
+const updateLogisticsEvent = db.prepare(`
+  UPDATE logistics_events SET title = @title, starts_at = @startsAt, ends_at = @endsAt,
+    location = @location, updated_at = @updatedAt WHERE id = @id
+`)
+const getLogisticsEvent = db.prepare(`SELECT * FROM logistics_events WHERE id = ?`)
+const getLogisticsEventOwned = db.prepare(`SELECT * FROM logistics_events WHERE id = ? AND run_id IS ?`)
+// The from/to window is pushed INTO SQL (not filtered in JS after a LIMIT) so the
+// LIMIT caps the WINDOWED set — a caller passing `from` can never silently miss an
+// in-window event that sorts after `limit` earlier out-of-window rows.
+const listLogisticsEventsByRun = db.prepare(
+  `SELECT * FROM logistics_events WHERE run_id IS ? AND starts_at >= ? AND starts_at <= ? ORDER BY starts_at ASC LIMIT ?`,
+)
+
+// reminders
+const insertReminder = db.prepare(`
+  INSERT INTO logistics_reminders (id, run_id, text, remind_at, status, created_at, updated_at)
+  VALUES (@id, @runId, @text, @remindAt, @status, @createdAt, @updatedAt)
+`)
+const updateReminder = db.prepare(`
+  UPDATE logistics_reminders SET status = @status, updated_at = @updatedAt WHERE id = @id
+`)
+const getReminder = db.prepare(`SELECT * FROM logistics_reminders WHERE id = ?`)
+const getReminderOwned = db.prepare(`SELECT * FROM logistics_reminders WHERE id = ? AND run_id IS ?`)
+const listRemindersByRun = db.prepare(
+  `SELECT * FROM logistics_reminders WHERE run_id IS ? ORDER BY remind_at ASC LIMIT ?`,
+)
+const listRemindersByRunStatus = db.prepare(
+  `SELECT * FROM logistics_reminders WHERE run_id IS ? AND status = ? ORDER BY remind_at ASC LIMIT ?`,
+)
+
+export const logisticsDb = {
+  // notes
+  insertNote,
+  updateNote,
+  getNote,
+  getNoteOwned,
+  listNotesByRun,
+  listNotesByRunDone,
+  // calendar events
+  insertEvent: insertLogisticsEvent,
+  updateEvent: updateLogisticsEvent,
+  getEvent: getLogisticsEvent,
+  getEventOwned: getLogisticsEventOwned,
+  listEventsByRun: listLogisticsEventsByRun,
+  // reminders
+  insertReminder,
+  updateReminder,
+  getReminder,
+  getReminderOwned,
+  listRemindersByRun,
+  listRemindersByRunStatus,
 }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────

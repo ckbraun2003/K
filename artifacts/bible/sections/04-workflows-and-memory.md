@@ -142,3 +142,13 @@ WorkItem {                     // PLANNED — Phase 5 (unified; replaces the age
 >   createdAt: number; updatedAt: number
 > }
 > ```
+
+### K's logistics store — a sibling, not a second task table
+
+K's **logistics** working store (P5.1a, bible §03) ships alongside kstore as its OWN run-scoped
+MCP server over three tables — `logistics_notes`, `logistics_events`, `logistics_reminders` —
+exposing `note_* / event_* / reminder_*`. It is deliberately **not** a task store: K's *tasks* stay
+the kstore `work_item_*` tools (and unify with `project_tasks` under D-026 later), while logistics
+holds only the non-ticket logistics data K shows on K-home (notes, calendar events, reminders).
+Same run-scoping and null-owner degrade as kstore; **storage, not execution** — an event stored
+here is never scheduled on a real calendar (the Google connectors remain the Phase-5 path for that).

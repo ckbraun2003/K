@@ -39,11 +39,11 @@ describe('resolveAuthority — per-tier resolution over shipped assets', () => {
     expect(a.skills).toContain('subagent-driven-development')
   })
 
-  it('secretary grants NO coding tools and mounts only kstore', () => {
+  it('secretary grants NO coding tools and mounts kstore + logistics', () => {
     const a = resolveAuthority('secretary')
     for (const tool of CODING_TOOLS) expect(a.allowedTools).not.toContain(tool)
     expect(a.allowedTools).not.toContain('Agent') // the tool-id is `Task`, never `Agent`
-    expect(a.mcpServers).toEqual(['kstore'])
+    expect(a.mcpServers).toEqual(['kstore', 'logistics'])
     expect(a.skills).not.toContain('gitnexus')
   })
 

@@ -179,27 +179,34 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   // 5. vendor hooks/ into the run dir.
   copyDirGuarded(configDir, path.join(assetsDir, 'hooks'), path.join(configDir, 'hooks'))
 
-  // 6. MCP config for the tier → mcp.json. Copy the template, then resolve the
-  //    kstore server: its placeholder command/args become THIS core's k-store-server
-  //    launch (dev runs the .ts via tsx; a build runs the .js), and its env gets the
-  //    run's K_DATA_DIR / K_RUN_ID so the child opens the right k.db and resolves the
-  //    right run. Other servers (gitnexus) pass through untouched.
+  // 6. MCP config for the tier → mcp.json. Copy the template, then resolve every
+  //    RUN-SCOPED K server (kstore, logistics): each placeholder command/args
+  //    become THIS core's server launch (dev runs the .ts via tsx; a build runs the
+  //    .js), and its env gets the run's K_DATA_DIR / K_RUN_ID so the child opens the
+  //    right k.db and resolves the right run. Other servers (gitnexus) pass through
+  //    untouched. Behaviour for kstore is unchanged from the single-server form
+  //    (proven by the existing synthesis tests).
   const mcp = JSON.parse(
     fs.readFileSync(path.join(assetsDir, 'mcp', `${charter}.json`), 'utf8'),
   ) as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> }
-  const kstore = mcp.mcpServers?.kstore
-  if (kstore) {
-    const ext = path.extname(fileURLToPath(import.meta.url)) // '.ts' under tsx, '.js' built
-    const serverPath = path.join(__dirname, 'mcp', `k-store-server${ext}`)
+  const runScopedServers: Array<[string, string]> = [
+    ['kstore', 'k-store-server'],
+    ['logistics', 'logistics-server'],
+  ]
+  const ext = path.extname(fileURLToPath(import.meta.url)) // '.ts' under tsx, '.js' built
+  for (const [key, moduleBase] of runScopedServers) {
+    const srv = mcp.mcpServers?.[key]
+    if (!srv) continue
+    const serverPath = path.join(__dirname, 'mcp', `${moduleBase}${ext}`)
     if (!fs.existsSync(serverPath)) {
-      throw new Error(`agent-config: kstore server module not found at ${serverPath}`)
+      throw new Error(`agent-config: ${key} server module not found at ${serverPath}`)
     }
-    kstore.command = process.execPath
+    srv.command = process.execPath
     // Dev (.ts) needs the tsx loader. Pin it to an ABSOLUTE path resolved from
     // K's own install — never bare `tsx`, whose resolution is cwd-relative and
     // could load a malicious node_modules/tsx planted in the agent's project.
-    kstore.args = ext === '.ts' ? ['--import', resolveTsxLoader(), serverPath] : [serverPath]
-    kstore.env = { ...(kstore.env ?? {}), K_DATA_DIR: dataDir, K_RUN_ID: opts.runId }
+    srv.args = ext === '.ts' ? ['--import', resolveTsxLoader(), serverPath] : [serverPath]
+    srv.env = { ...(srv.env ?? {}), K_DATA_DIR: dataDir, K_RUN_ID: opts.runId }
   }
   const mcpConfigPath = path.join(configDir, 'mcp.json')
   guardedWrite(configDir, mcpConfigPath, JSON.stringify(mcp, null, 2))

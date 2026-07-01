@@ -490,6 +490,49 @@ export const WorkflowStepSchema = z.object({
 })
 export type WorkflowStep = z.infer<typeof WorkflowStepSchema>
 
+// ─── Logistics working store (calendar / notes / scheduling) ────────────────
+// K's secretary-tier logistics working store — STORAGE, not execution. Notes,
+// calendar events, and reminders reached through the logistics MCP tool (never a
+// file), run-scoped exactly like the kstore work-items: `runId` is the managed run
+// that created the row (resolved from the injected K_RUN_ID), null for rows not
+// tied to a run. Storing a calendar event here does NOT schedule it on any real
+// calendar — that is a separate (connector) concern.
+export const NoteSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  body: z.string(),
+  done: z.boolean(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type Note = z.infer<typeof NoteSchema>
+
+export const CalendarEventSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  title: z.string(),
+  startsAt: z.number(),
+  endsAt: z.number().nullable(),
+  location: z.string().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type CalendarEvent = z.infer<typeof CalendarEventSchema>
+
+export const ReminderStatusSchema = z.enum(['pending', 'done', 'cancelled'])
+export type ReminderStatus = z.infer<typeof ReminderStatusSchema>
+
+export const ReminderSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  text: z.string(),
+  remindAt: z.number(),
+  status: ReminderStatusSchema,
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type Reminder = z.infer<typeof ReminderSchema>
+
 // A GitHub issue projected from `gh issue list --json number,title,state,url`.
 export const IssueInfoSchema = z.object({
   number: z.number().int(),
