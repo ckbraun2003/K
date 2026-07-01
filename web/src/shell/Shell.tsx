@@ -17,6 +17,7 @@ import SkillsPage from '../pages/SkillsPage'
 import TerminalPage from '../pages/TerminalPage'
 import SettingsPage from '../pages/SettingsPage'
 import WorkflowsPage from '../pages/WorkflowsPage'
+import ChiefPage from '../pages/ChiefPage'
 import EvalsPage from '../pages/EvalsPage'
 import MemoryPage from '../pages/MemoryPage'
 import NotFound from '../pages/NotFound'
@@ -113,6 +114,7 @@ export default function Shell() {
             exit="exit"
           >
             {route.view === 'home' && <Home />}
+            {route.view === 'chief' && <ChiefPage />}
             {route.view === 'runs' && <RunsPage runId={route.param} />}
             {route.view === 'docs' && <DocsPage slug={route.param} />}
             {route.view === 'projects' && <ProjectsPage />}

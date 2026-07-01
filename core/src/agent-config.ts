@@ -192,6 +192,7 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   const runScopedServers: Array<[string, string]> = [
     ['kstore', 'k-store-server'],
     ['logistics', 'logistics-server'],
+    ['mgmt', 'mgmt-server'],
   ]
   const ext = path.extname(fileURLToPath(import.meta.url)) // '.ts' under tsx, '.js' built
   for (const [key, moduleBase] of runScopedServers) {

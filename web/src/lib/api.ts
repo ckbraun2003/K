@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -217,6 +217,11 @@ export const api = {
       req<{ evalId: string; runId: string }>(`/skills/${id}/test`, { method: 'POST' }),
     evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),
     runs: (id: string) => req<SkillRun[]>(`/skills/${id}/runs`),
+  },
+  // Chief org-status — the ONE batched read behind the Chief overview page
+  // (objectives · delegation tree · lead runs · wake history). Read-only.
+  chief: {
+    org: () => req<ChiefOrgPayload>('/chief/org'),
   },
   // Agent/skill behavioral evals — read the seeded systems, start a (default-dry) run, and inspect
   // runs/results/regression. A real (token-spending) run requires an explicit `dry: false` body; the

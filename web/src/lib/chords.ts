@@ -16,6 +16,7 @@ export interface Chord {
 // intentional (the prefix key is also a valid target once the chord is armed).
 export const CHORDS: Chord[] = [
   { key: 'h', view: 'home', label: 'Home' },
+  { key: 'c', view: 'chief', label: 'Chief' },
   { key: 'p', view: 'projects', label: 'Projects' },
   { key: 'g', view: 'graph', label: 'Fleet Graph' },
   { key: 'r', view: 'runs', label: 'Runs' },

@@ -63,15 +63,23 @@ observability extends from a single run's tree to the **whole org**:
   activations, the Chief's assignments and autonomous wakes, and each lead's workflow runs all land
   as the same `AgentEvent` stream — the activity strip and Runs surface them uniformly, tagged by
   the activating profile.
-- **The org tree.** The per-run delegation tree generalizes into a tier-aware view: a user request
-  → K → Chief → lead → role subagents, each node carrying status, trigger kind (user / schedule /
-  event / delegation), and the hand-off prompt + result — reusing the same pairing helpers, just
-  rooted higher.
+- **The org tree (BUILT — P5.2a).** The per-run delegation tree generalizes into a tier-aware view:
+  Chief → each lead → the lead's role subagents, each node carrying status and (for a lead) its
+  latest run's prompt. This is a **derivation, not a new subsystem** — a reusable, generic
+  `DelegationTree` component (`web/src/components/DelegationTree.tsx`) renders any `DelegationNode`
+  root, and a pure builder (`web/src/lib/delegation.ts`) assembles the whole-org root by **reusing
+  `eventsToWorkflowTree` unchanged** for each lead's sub-agent level. It is fed by ONE batched read,
+  `GET /api/chief/org` (`ChiefOrgPayload`: the Chief profile, each lead's latest run + events +
+  wakes, the Chief's own wakes, recent assignments, and a THIN health line), surfaced on the **Chief**
+  org-overview page (§08) alongside the Objectives panel (from the mgmt store's assignments) and the
+  Chief's autonomous-wake history. *Still planned (P5.2b):* the autonomous wake loop itself and the
+  K→Chief→lead delegation **dispatch** — the page today observes what exists; it does not yet trigger
+  new work.
 - **Memory provenance.** A gated reflection (§04) that proposes a lesson is itself an observable
   event, so you can trace *why* a profile's memory changed back to the run that earned the lesson.
 
-This is the deferred growth point for observability; the enrichment foundation, pairing helpers, and
-single-wire EventBus already make it a derivation, not a new subsystem.
+The remaining deferred growth (the wake loop + delegation dispatch) rides the same enrichment
+foundation, pairing helpers, and single-wire EventBus — so it too stays a derivation.
 
 ## Implementation history (dashboard)
 

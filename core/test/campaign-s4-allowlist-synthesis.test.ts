@@ -59,7 +59,7 @@ afterAll(() => {
 // returns the asset array verbatim). These are the authority boundary in code.
 const EXACT: Record<CharterName, string[]> = {
   orchestrator: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore'],
-  chief: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore'],
+  chief: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore', 'mcp__mgmt'],
   secretary: ['Read', 'WebFetch', 'WebSearch', 'mcp__kstore', 'mcp__logistics'],
 }
 
@@ -101,9 +101,15 @@ describe('S4 allowlist synthesis: no drift + non-allowlisted mcp denied', () => 
     for (const tier of ['orchestrator', 'chief', 'secretary'] as CharterName[]) {
       const cfg = synthAs(tier)
       // Only the real K servers are ever granted; any other mcp__* is denied.
-      // secretary → kstore + logistics; chief/orchestrator → gitnexus + kstore.
+      // secretary → kstore + logistics; orchestrator → gitnexus + kstore;
+      // chief → gitnexus + kstore + mgmt (P5.2a).
       const mcpGrants = cfg.allowedTools.filter(t => t.startsWith('mcp__')).sort()
-      const allowed = tier === 'secretary' ? ['mcp__kstore', 'mcp__logistics'] : ['mcp__gitnexus', 'mcp__kstore']
+      const allowed =
+        tier === 'secretary'
+          ? ['mcp__kstore', 'mcp__logistics']
+          : tier === 'chief'
+            ? ['mcp__gitnexus', 'mcp__kstore', 'mcp__mgmt']
+            : ['mcp__gitnexus', 'mcp__kstore']
       expect(mcpGrants, `${tier} mcp grants`).toEqual(allowed)
       expect(cfg.allowedTools, `${tier} must not grant mcp__foo`).not.toContain('mcp__foo')
     }

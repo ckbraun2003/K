@@ -27,9 +27,12 @@ import { getProfile } from './profiles.js'
 import { startRun } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
 import { agentRunsDb } from './db.js'
+import type { AgentRunTrigger } from '@k/shared'
 
-/** How a profile was activated (bible §03). */
-export type AgentRunTrigger = 'user-message' | 'schedule' | 'event' | 'delegation'
+/** How a profile was activated (bible §03). The canonical union lives in @k/shared
+ *  (AgentRunTriggerSchema); re-exported here so importers keep resolving it from
+ *  './agent-runs.js' and the two never drift. */
+export type { AgentRunTrigger }
 
 export interface StartAgentRunOptions {
   trigger: AgentRunTrigger

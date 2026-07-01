@@ -47,13 +47,25 @@ describe('resolveAuthority — per-tier resolution over shipped assets', () => {
     expect(a.skills).not.toContain('gitnexus')
   })
 
-  it('chief grants NO coding tools but mounts gitnexus (read) + kstore', () => {
+  it('chief grants NO coding tools but mounts gitnexus (read) + kstore + mgmt', () => {
     const a = resolveAuthority('chief')
     for (const tool of CODING_TOOLS) expect(a.allowedTools).not.toContain(tool)
-    expect(a.mcpServers.sort()).toEqual(['gitnexus', 'kstore'])
+    // P5.2a: the mgmt working store joins gitnexus (read) + kstore on the chief tier.
+    expect(a.mcpServers.sort()).toEqual(['gitnexus', 'kstore', 'mgmt'])
+    // Mounting ≠ granting (D-034): mgmt must carry an mcp__mgmt grant, and
+    // resolveAuthority runs assertMcpGrants — so a clean resolve here proves it.
+    expect(a.allowedTools).toContain('mcp__mgmt')
     // chief mounts a planning/read subset (incl. gitnexus) but NO coding agents.
     expect(a.skills).toContain('gitnexus')
     expect(a.skills).toContain('capturing-lessons')
+  })
+
+  it('chief still passes the coding-tools gating boundary with mgmt mounted (no coding tool gained)', () => {
+    // The whole-foundation invariant: adding mcp__mgmt must not slip a coding tool
+    // onto the chief tier. assertCodingToolsGating throws on any violation.
+    expect(() => assertCodingToolsGating()).not.toThrow()
+    const a = resolveAuthority('chief')
+    for (const tool of CODING_TOOLS) expect(a.allowedTools).not.toContain(tool)
   })
 })
 

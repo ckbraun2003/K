@@ -1,0 +1,111 @@
+import type {
+  ChiefOrgPayload,
+  ChiefOrgLead,
+  DelegationNode,
+  DelegationNodeStatus,
+} from '@k/shared'
+import { eventsToWorkflowTree, type WorkflowChild } from './workflow'
+
+/**
+ * Pure builder for the Chief delegation tree (P5.2a): Chief → leads → each lead's
+ * sub-agents.
+ *
+ * A lead's sub-agents are exactly its most-recent run's `delegate` tool calls, so
+ * we REUSE the Workflows-view builder (eventsToWorkflowTree) unchanged for that
+ * level rather than re-deriving delegate pairing. Like that builder this NEVER
+ * throws on missing/empty data, and uses `??` (not `||`) so an explicitly-empty
+ * value stays distinct from an unset one.
+ *
+ * The output is the generic @k/shared `DelegationNode` view type, so the
+ * DelegationTree component can render a whole-org root here OR a single-lead root
+ * (leadNode) in P5.3.
+ */
+
+/** Collapse a raw RunStatus to the tree's colour states. running/awaiting_input →
+ *  running; queued stays queued; done → done; error/killed/interrupted → error;
+ *  anything else (unknown) → idle. */
+function runStatusToDelegationStatus(status: string): DelegationNodeStatus {
+  switch (status) {
+    case 'running':
+    case 'awaiting_input':
+      return 'running'
+    case 'queued':
+      return 'queued'
+    case 'done':
+      return 'done'
+    case 'error':
+    case 'killed':
+    case 'interrupted':
+      return 'error'
+    default:
+      return 'idle'
+  }
+}
+
+/** Short, single-line label for the inspector meta (trimmed + capped). */
+function shortLine(text: string, max = 80): string {
+  const line = text.replace(/\s+/g, ' ').trim()
+  return line.length > max ? `${line.slice(0, max)}…` : line
+}
+
+/** One delegated sub-agent (a WorkflowChild) → a leaf DelegationNode. In K,
+ *  delegated agents run in-process one level deep, so sub-agents are leaves here. */
+function subAgentNode(child: WorkflowChild): DelegationNode {
+  return {
+    id: child.id,
+    // agentType is the sub-agent kind (e.g. "implementer"); label is its human name.
+    label: child.agentType,
+    kind: 'sub-agent',
+    status: child.status, // WorkflowNodeStatus ⊂ DelegationNodeStatus (running|done|error)
+    meta: child.label ?? undefined,
+    children: [],
+  }
+}
+
+/**
+ * Build a single lead's DelegationNode: the lead + its sub-agents (from its latest
+ * run's events). Exported so P5.3 can render a single-lead tree from the same shape.
+ */
+export function leadNode(lead: ChiefOrgLead): DelegationNode {
+  const { profile, latestRun, events, wakes } = lead
+  const children = eventsToWorkflowTree(events ?? [], latestRun ?? undefined).children.map(subAgentNode)
+  const status: DelegationNodeStatus = latestRun
+    ? runStatusToDelegationStatus(latestRun.status)
+    : 'idle'
+  const meta = latestRun
+    ? shortLine(latestRun.prompt)
+    : (wakes?.length ?? 0) > 0
+      ? `${wakes.length} wake${wakes.length === 1 ? '' : 's'}`
+      : 'no runs yet'
+  return {
+    id: profile.id,
+    label: profile.name,
+    kind: 'lead',
+    status,
+    meta,
+    children,
+  }
+}
+
+/**
+ * Build the whole-org DelegationNode root: Chief → each lead → its sub-agents.
+ * The Chief's status reflects its own wake history (running when any wake is live).
+ */
+export function orgToDelegationTree(payload: ChiefOrgPayload): DelegationNode {
+  const leads = payload.leads ?? []
+  const chiefWakes = payload.chiefWakes ?? []
+  const children = leads.map(leadNode)
+  const chiefRunning = chiefWakes.some(w => w.status === 'running')
+  // "Active" matches the route's health predicate: a lead is active when its latest
+  // run is live — running/awaiting_input map to 'running' and queued to 'queued' —
+  // so this root-meta count agrees with the thin health line's leadsActive.
+  const activeLeads = children.filter(c => c.status === 'running' || c.status === 'queued').length
+  return {
+    id: 'chief',
+    label: payload.chief?.name ?? 'Chief',
+    kind: 'chief',
+    status: chiefRunning ? 'running' : 'idle',
+    meta: `${children.length} lead${children.length === 1 ? '' : 's'} · ${activeLeads} active`,
+    children,
+  }
+}

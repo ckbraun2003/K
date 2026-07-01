@@ -75,14 +75,39 @@ describe('S4 mcp synthesis: per-tier server set', () => {
     expect(servers).toEqual(['kstore', 'logistics'])
   })
 
-  it('S4-005: chief and orchestrator each mount BOTH gitnexus + kstore', () => {
-    for (const tier of ['chief', 'orchestrator'] as CharterName[]) {
-      const { cfg } = synthAs(tier)
-      const servers = Object.keys(readMcp(cfg).mcpServers).sort()
-      expect(servers, `${tier} servers`).toEqual(['gitnexus', 'kstore'])
-      // gitnexus passes through as the portable npx stdio server, untouched.
-      expect(readMcp(cfg).mcpServers.gitnexus.command).toBe('npx')
-    }
+  it('S4-005: orchestrator mounts BOTH gitnexus + kstore', () => {
+    const { cfg } = synthAs('orchestrator')
+    const servers = Object.keys(readMcp(cfg).mcpServers).sort()
+    expect(servers).toEqual(['gitnexus', 'kstore'])
+    // gitnexus passes through as the portable npx stdio server, untouched.
+    expect(readMcp(cfg).mcpServers.gitnexus.command).toBe('npx')
+  })
+
+  it('S4-005 (P5.2a): chief mounts gitnexus + kstore + mgmt', () => {
+    const { cfg } = synthAs('chief')
+    const servers = Object.keys(readMcp(cfg).mcpServers).sort()
+    expect(servers).toEqual(['gitnexus', 'kstore', 'mgmt'])
+    // gitnexus still passes through untouched.
+    expect(readMcp(cfg).mcpServers.gitnexus.command).toBe('npx')
+  })
+})
+
+describe('S4 mcp synthesis: chief mgmt binding (P5.2a)', () => {
+  it('resolves the chief mgmt server to this core\'s mgmt-server launch, no __MGMT__ placeholder', () => {
+    const { cfg, dataDir, runId } = synthAs('chief')
+    const m = readMcp(cfg).mcpServers.mgmt
+    // Rewritten to THIS core's launch (dev runs the .ts via tsx; a build runs the .js).
+    expect(m.command).toBe(process.execPath)
+    expect(m.args?.some(a => /mgmt-server\.(ts|js)$/.test(a))).toBe(true)
+    // env bound to THIS run.
+    expect(m.env?.K_DATA_DIR).toBe(dataDir)
+    expect(m.env?.K_RUN_ID).toBe(runId)
+    // no leftover placeholder anywhere in the resolved server config.
+    const blob = JSON.stringify(readMcp(cfg).mcpServers)
+    expect(blob).not.toContain('__MGMT__')
+    expect(blob).not.toContain('__KSTORE__')
+    expect(blob).not.toContain('__K_DATA_DIR__')
+    expect(blob).not.toContain('__K_RUN_ID__')
   })
 })
 
