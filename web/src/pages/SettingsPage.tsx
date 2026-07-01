@@ -14,6 +14,8 @@ import AutoTextarea from '../components/AutoTextarea'
 import ConfirmDialog from '../components/ConfirmDialog'
 // P5.5 — self-contained model-management sections (Claude default + local Ollama).
 import { ClaudeModelSection, LocalModelsSection } from './SettingsModels'
+// P5.4 — self-contained voice (push-to-talk) status section.
+import { VoiceSection } from './SettingsVoice'
 
 function StatusCard({ title, verdict }: { title: string; verdict: StatusVerdict }) {
   return (
@@ -158,6 +160,10 @@ export default function SettingsPage() {
 
       <section className="mb-8">
         <LocalModelsSection />
+      </section>
+
+      <section className="mb-8">
+        <VoiceSection />
       </section>
 
       <section>

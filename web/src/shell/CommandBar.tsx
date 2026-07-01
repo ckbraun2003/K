@@ -11,6 +11,7 @@ import { modalCard, overlayFade, dialogCard } from '../lib/motion'
 import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
 import { buildModelOptions, modelChoiceToOpts } from '../lib/run-models'
 import AutoTextarea from '../components/AutoTextarea'
+import MicButton from '../components/MicButton'
 
 export { parseProjectQuery } from '../lib/command-parse'
 
@@ -219,15 +220,23 @@ export default function CommandBar({ open, onClose }: Props) {
             className="glass glow-focus relative w-full max-w-xl overflow-hidden rounded-xl"
             variants={modalCard} initial="hidden" animate="visible" exit="exit"
           >
-            <input
-              data-testid="cmdk-input"
-              ref={inputRef}
-              value={query}
-              onChange={e => { setQuery(e.target.value); if (confirm) setConfirm(null) }}
-              onKeyDown={onKeyDown}
-              placeholder="Ask K — or type to jump…"
-              className="w-full border-b border-[var(--border)] bg-transparent px-4 py-3.5 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
-            />
+            <div className="flex items-center border-b border-[var(--border)]">
+              <input
+                data-testid="cmdk-input"
+                ref={inputRef}
+                value={query}
+                onChange={e => { setQuery(e.target.value); if (confirm) setConfirm(null) }}
+                onKeyDown={onKeyDown}
+                placeholder="Ask K — or type to jump…"
+                className="flex-1 bg-transparent px-4 py-3.5 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
+              />
+              <MicButton
+                className="mr-2"
+                title="Hold to talk — release to transcribe into the command bar"
+                onTranscript={(t) => { setQuery(q => (q ? q + ' ' : '') + t); inputRef.current?.focus() }}
+                disabled={!status?.voice?.enabled}
+              />
+            </div>
             <ul ref={listRef} className="max-h-72 overflow-y-auto py-1.5">
               {items.map((item, i) => (
                 <li key={`${item.kind}-${item.label}-${i}`}>
