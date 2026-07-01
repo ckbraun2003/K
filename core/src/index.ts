@@ -23,6 +23,7 @@ import { ollamaRoutes } from './routes/ollama.js'
 import { modelsRoutes } from './routes/models.js'
 import { voiceRoutes } from './routes/voice.js'
 import { evalsRoutes } from './routes/evals.js'
+import { memoryRoutes } from './routes/memory.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { seedProfiles } from './profiles.js'
 import { seedEvalSystems } from './eval/store.js'
@@ -112,6 +113,7 @@ export async function buildApp() {
   await app.register(modelsRoutes)
   await app.register(voiceRoutes)
   await app.register(evalsRoutes)
+  await app.register(memoryRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 
