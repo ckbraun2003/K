@@ -347,6 +347,38 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_logistics_reminders_run ON logistics_reminders(run_id, remind_at);
 
+  -- ── management working store (Chief org — P5.2a) ────────────────────────────
+  -- The Chief's management store: assignments (an objective handed to a lead) and
+  -- reports (a status write up the chain). Management is STORAGE, not execution —
+  -- persisting an assignment here does NOT dispatch the lead (autonomous delegation
+  -- is P5.2b). Run-scoped exactly like logistics_*: run_id is the managed run that
+  -- created the row (resolved from K_RUN_ID); ON DELETE SET NULL keeps the row if
+  -- its run is later removed. projects is a JSON array (the scope_projects scope).
+  -- A report's assignment_id is a nullable soft link (ON DELETE SET NULL) so a
+  -- report survives its assignment. CREATE TABLE IF NOT EXISTS (fresh installs);
+  -- these are NOT evolved via migrate().
+  CREATE TABLE IF NOT EXISTS mgmt_assignments (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    lead        TEXT NOT NULL,
+    objective   TEXT NOT NULL,
+    note        TEXT,
+    workflow    TEXT,
+    projects    TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_mgmt_assignments_run ON mgmt_assignments(run_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS mgmt_reports (
+    id             TEXT PRIMARY KEY,
+    run_id         TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    assignment_id  TEXT REFERENCES mgmt_assignments(id) ON DELETE SET NULL,
+    body           TEXT NOT NULL,
+    created_at     INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_mgmt_reports_run ON mgmt_reports(run_id, created_at);
+
   -- ── Agent org (P5.0) ─────────────────────────────────────────────────────────
   -- Durable agent identities (bible section 03, D-020): one entity per row, gated by
   -- an authority tier (secretary|chief|orchestrator). charter is the charter-asset
@@ -548,10 +580,26 @@ const insertEvent = db.prepare(`
 
 const listEvents = db.prepare(`SELECT * FROM events WHERE run_id = ? ORDER BY seq ASC`)
 
+// Delegate-relevant events for a run: every `delegate` tool_use event PLUS its paired
+// tool_result (they share a tool_use_id). This is the exact, naturally-bounded slice
+// the Chief org delegation tree needs — a run's sub-agents ARE its delegate calls
+// (D-016) — so it never materializes/truncates the full event log (a long lead run can
+// hold thousands of events; an arbitrary earliest-N cap would drop late delegates and
+// orphan pairs). Pairing still happens web-side (eventsToWorkflowTree).
+const listDelegateEvents = db.prepare(`
+  SELECT * FROM events
+  WHERE run_id = @runId
+    AND tool_use_id IN (
+      SELECT tool_use_id FROM events
+      WHERE run_id = @runId AND tool_kind = 'delegate' AND tool_use_id IS NOT NULL
+    )
+  ORDER BY seq ASC
+`)
+
 // Fetch the raw JSON line for a single event — used by the lazy per-event endpoint.
 const getEventRaw = db.prepare(`SELECT raw FROM events WHERE run_id = ? AND seq = ?`)
 
-export const eventsDb = { insertEvent, listEvents, getEventRaw }
+export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw }
 
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
@@ -990,6 +1038,44 @@ export const logisticsDb = {
   listRemindersByRunStatus,
 }
 
+// ─── management working store helpers (Chief org — P5.2a) ────────────────────
+// Backs the mgmt MCP tools (assignments / reports). Writes + ownership reads are
+// run-scoped like logistics — the null-safe `IS` operator means a null owner (no/
+// unknown run) only matches null-owner rows, so one run can never read or mutate
+// another run's assignments. `listRecentAssignments` is the ONE deliberately
+// cross-run operator read: it feeds the Chief org-status Objectives panel (not a
+// tool), so it is NOT run-scoped.
+
+const insertAssignment = db.prepare(`
+  INSERT INTO mgmt_assignments (id, run_id, lead, objective, note, workflow, projects, created_at, updated_at)
+  VALUES (@id, @runId, @lead, @objective, @note, @workflow, @projects, @createdAt, @updatedAt)
+`)
+const updateAssignment = db.prepare(`
+  UPDATE mgmt_assignments SET lead = @lead, objective = @objective, note = @note,
+    workflow = @workflow, projects = @projects, updated_at = @updatedAt WHERE id = @id
+`)
+const getAssignment = db.prepare(`SELECT * FROM mgmt_assignments WHERE id = ?`)
+const getAssignmentOwned = db.prepare(`SELECT * FROM mgmt_assignments WHERE id = ? AND run_id IS ?`)
+// Cross-run operator read (Chief org Objectives panel) — NOT run-scoped by design.
+const listRecentAssignments = db.prepare(
+  `SELECT * FROM mgmt_assignments ORDER BY created_at DESC LIMIT ?`,
+)
+
+const insertReport = db.prepare(`
+  INSERT INTO mgmt_reports (id, run_id, assignment_id, body, created_at)
+  VALUES (@id, @runId, @assignmentId, @body, @createdAt)
+`)
+const getReport = db.prepare(`SELECT * FROM mgmt_reports WHERE id = ?`)
+export const mgmtDb = {
+  insertAssignment,
+  updateAssignment,
+  getAssignment,
+  getAssignmentOwned,
+  listRecentAssignments,
+  insertReport,
+  getReport,
+}
+
 // ─── GitHub cache helpers ────────────────────────────────────────────────────
 
 const upsertGithubCache = db.prepare(`
@@ -1267,6 +1353,11 @@ const getAgentRun = db.prepare(`SELECT * FROM agent_runs WHERE id = ?`)
 const listAgentRunsByProfile = db.prepare(
   `SELECT * FROM agent_runs WHERE profile_id = ? ORDER BY created_at DESC`,
 )
+// Bounded newest-first variant — the Chief org route scans a lead's / the Chief's
+// recent activations without materializing the whole history.
+const listRecentAgentRunsByProfile = db.prepare(
+  `SELECT * FROM agent_runs WHERE profile_id = ? ORDER BY created_at DESC LIMIT ?`,
+)
 
 export const agentRunsDb = {
   insertAgentRun,
@@ -1274,4 +1365,5 @@ export const agentRunsDb = {
   updateAgentRunStatus,
   getAgentRun,
   listAgentRunsByProfile,
+  listRecentAgentRunsByProfile,
 }

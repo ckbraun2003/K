@@ -20,6 +20,7 @@ export interface Destination {
 
 export const DESTINATIONS: Destination[] = [
   { id: 'home', icon: '⌂', label: 'Home', hint: 'Fleet overview, metrics & getting started', enabled: true, section: 'primary' },
+  { id: 'chief', icon: '♛', label: 'Chief', hint: 'Org overview — objectives & delegation tree', enabled: true, section: 'primary' },
   { id: 'projects', icon: '▦', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary' },
   { id: 'graph', icon: '◉', label: 'Fleet Graph', hint: 'Visualize every project by health', enabled: true, section: 'primary' },
   { id: 'runs', icon: '▶', label: 'Runs', hint: 'Live & past agent runs', enabled: true, section: 'primary' },

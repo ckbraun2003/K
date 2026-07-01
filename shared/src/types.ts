@@ -533,6 +533,111 @@ export const ReminderSchema = z.object({
 })
 export type Reminder = z.infer<typeof ReminderSchema>
 
+// ─── AgentRun (agent-org activation — P5.0) ─────────────────────────────────
+// One activation of a durable profile into a supervised run (startAgentRun). The
+// wire projection of an `agent_runs` row, mirroring the core interface. `runId` is
+// null until the run is created; `trigger` records HOW the profile was activated.
+// Consumed by the Chief org-status surface as a lead's / the Chief's "wake" history.
+export const AgentRunTriggerSchema = z.enum(['user-message', 'schedule', 'event', 'delegation'])
+export type AgentRunTrigger = z.infer<typeof AgentRunTriggerSchema>
+
+export const AgentRunStatusSchema = z.enum(['running', 'completed', 'failed'])
+export type AgentRunStatus = z.infer<typeof AgentRunStatusSchema>
+
+export const AgentRunSchema = z.object({
+  id: z.string(),
+  profileId: z.string(),
+  runId: z.string().nullable(),
+  trigger: AgentRunTriggerSchema,
+  goal: z.string().nullable(),
+  projectId: z.string().nullable(),
+  workflowId: z.string().nullable(),
+  status: AgentRunStatusSchema,
+  createdAt: z.number(),
+  completedAt: z.number().nullable(),
+})
+export type AgentRun = z.infer<typeof AgentRunSchema>
+
+// ─── Management working store (Chief org — P5.2a) ───────────────────────────
+// The Chief's management working store — STORAGE, not execution. An `Assignment`
+// is an objective the Chief hands a lead; a `MgmtReport` is a status write up the
+// chain. Persisting an assignment here does NOT dispatch the lead (autonomous
+// K→Chief→lead delegation is P5.2b). Run-scoped exactly like the logistics store:
+// `runId` is the managed run that created the row (resolved from the injected
+// K_RUN_ID), null for rows not tied to a run.
+export const AssignmentSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  lead: z.string(), // a lead name / profile id the objective is assigned to
+  objective: z.string(),
+  note: z.string().nullable(),
+  workflow: z.string().nullable(), // the workflow choice for this assignment (pick_workflow)
+  projects: z.array(z.string()), // project scope (scope_projects); [] until scoped
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type Assignment = z.infer<typeof AssignmentSchema>
+
+export const MgmtReportSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  assignmentId: z.string().nullable(), // the assignment this report is about, when any
+  body: z.string(),
+  createdAt: z.number(),
+})
+export type MgmtReport = z.infer<typeof MgmtReportSchema>
+
+// ─── DelegationTree (Chief org view — P5.2a) ────────────────────────────────
+// A pure VIEW type for the recursive delegation tree: Chief → leads → each lead's
+// sub-agents. It is DERIVED from run events (never a stored table) — see
+// web/src/lib/delegation.ts — so it is a plain recursive interface rather than a
+// zod schema (a recursive z.lazy buys nothing for a view type that is never parsed
+// off the wire). Kept generic + minimal so the DelegationTree component can render
+// a whole-org root OR a single-lead root (P5.3 reuse).
+export type DelegationNodeStatus = 'running' | 'done' | 'error' | 'idle' | 'queued'
+
+export interface DelegationNode {
+  /** Stable id, unique within the tree (profile id, run id, or delegate tool_use id). */
+  id: string
+  /** Display label (Chief / lead name / sub-agent type). */
+  label: string
+  /** Optional node kind for the inspector (e.g. 'chief' | 'lead' | 'sub-agent'). */
+  kind?: string
+  status: DelegationNodeStatus
+  /** Optional one-line detail for the inspector (e.g. the latest run's prompt). */
+  meta?: string
+  children: DelegationNode[]
+}
+
+// ─── ChiefOrgPayload (GET /api/chief/org — P5.2a) ───────────────────────────
+// The ONE batched read that feeds the Chief org-status page. Assembled server-side
+// (core/src/routes/chief.ts) so the page issues a single query with no per-item
+// fan-out. `health` is deliberately THIN (D-026: no full health strip re-computed
+// here) — just the cheap leads-active count.
+export interface ChiefOrgLead {
+  profile: AgentProfile
+  /** The lead's most recent agent_run that reached a run (has run_id), else null. */
+  latestRun: Run | null
+  /** That run's events (bounded) — the source the sub-agent tree is derived from. */
+  events: AgentEvent[]
+  /** The lead's recent activations (bounded). */
+  wakes: AgentRun[]
+}
+
+export interface ChiefOrgHealth {
+  leadsActive: number
+}
+
+export interface ChiefOrgPayload {
+  chief: AgentProfile | null
+  leads: ChiefOrgLead[]
+  /** The Chief's own recent activations (bounded) — the autonomous-wake history. */
+  chiefWakes: AgentRun[]
+  /** Recent assignments across runs — the Objectives panel source. */
+  assignments: Assignment[]
+  health: ChiefOrgHealth
+}
+
 // A GitHub issue projected from `gh issue list --json number,title,state,url`.
 export const IssueInfoSchema = z.object({
   number: z.number().int(),

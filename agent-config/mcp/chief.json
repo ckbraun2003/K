@@ -1,5 +1,5 @@
 {
-  "_note": "chief tier (PLANNED — Phase 5) — `claude --mcp-config` shape. Same portable gitnexus stdio server, used READ-ONLY: read-only is a usage convention for the Chief (code intelligence without write authority); the absence of coding tools in chief.json allowlist is what actually enforces it. Plus the K-owned kstore working store (work-items, lessons; status-write self-gates to workflow runs). The synthesizer rewrites `__KSTORE__` + the env placeholders at run time (Wave 6). The Phase-5 mgmt-mcp is added later.",
+  "_note": "chief tier (PLANNED — Phase 5) — `claude --mcp-config` shape. Same portable gitnexus stdio server, used READ-ONLY: read-only is a usage convention for the Chief (code intelligence without write authority); the absence of coding tools in chief.json allowlist is what actually enforces it. Plus the K-owned kstore working store (work-items, lessons; status-write self-gates to workflow runs) and the mgmt working store (assignments/reports — the Chief's management STORAGE; storing an assignment does NOT dispatch a lead). The synthesizer rewrites `__KSTORE__` / `__MGMT__` + the env placeholders at run time.",
   "mcpServers": {
     "gitnexus": {
       "command": "npx",
@@ -7,6 +7,14 @@
     },
     "kstore": {
       "command": "__KSTORE__",
+      "args": [],
+      "env": {
+        "K_DATA_DIR": "__K_DATA_DIR__",
+        "K_RUN_ID": "__K_RUN_ID__"
+      }
+    },
+    "mgmt": {
+      "command": "__MGMT__",
       "args": [],
       "env": {
         "K_DATA_DIR": "__K_DATA_DIR__",
