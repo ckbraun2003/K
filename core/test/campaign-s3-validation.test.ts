@@ -151,7 +151,7 @@ describe('S3 kstore validation: extra args are silently stripped (S3-002)', () =
     createdWorkItemIds.push(item.id)
     expect(item.title).toBe('keeps only known keys')
     expect(Object.keys(item).sort()).toEqual(
-      ['body', 'createdAt', 'id', 'runId', 'status', 'title', 'updatedAt'].sort(),
+      ['body', 'createdAt', 'id', 'runId', 'scope', 'status', 'title', 'updatedAt'].sort(),
     )
     expect((item as Record<string, unknown>).bogus).toBeUndefined()
   })

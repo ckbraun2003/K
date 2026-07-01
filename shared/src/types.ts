@@ -433,12 +433,19 @@ export type AgentProfile = z.infer<typeof AgentProfileSchema>
 export const WorkItemStatusSchema = z.enum(['open', 'in_progress', 'blocked', 'done', 'cancelled'])
 export type WorkItemStatus = z.infer<typeof WorkItemStatusSchema>
 
+// D-026 unified-task-store discriminator (P5.1d1 down-payment). `personal` is the
+// run-scoped ticket the kstore tools create today (the only scope currently used);
+// `org`/`project` are reserved for the P5.1d2 collapse that folds project_tasks in.
+export const WorkItemScopeSchema = z.enum(['personal', 'org', 'project'])
+export type WorkItemScope = z.infer<typeof WorkItemScopeSchema>
+
 export const WorkItemSchema = z.object({
   id: z.string(),
   runId: z.string().nullable(),
   title: z.string(),
   body: z.string().nullable(),
   status: WorkItemStatusSchema,
+  scope: WorkItemScopeSchema,
   createdAt: z.number(),
   updatedAt: z.number(),
 })
