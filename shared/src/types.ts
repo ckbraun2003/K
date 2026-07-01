@@ -638,6 +638,27 @@ export interface ChiefOrgPayload {
   health: ChiefOrgHealth
 }
 
+// ─── Orchestrators roster (GET /api/orchestrators — P5.3a) ──────────────────
+// The slim roster read behind the Orchestrators page: one bounded scan per lead
+// yields a SLIM entry (no per-lead delegate-events fetch — that is the detail
+// view's ChiefOrgLead, reused as the detail wire type). Assembled server-side
+// (core/src/routes/orchestrators.ts) so the page issues a single batched query.
+export interface OrchestratorRosterEntry {
+  profile: AgentProfile
+  /** The lead's most recent agent_run that reached a run (has run_id), else null. */
+  latestRun: Run | null
+  /** True when latestRun is in a non-terminal (live) state. */
+  live: boolean
+  /** Count of the lead's recent activations (bounded by the per-lead scan). */
+  wakes: number
+}
+
+export interface OrchestratorRosterPayload {
+  leads: OrchestratorRosterEntry[]
+  /** Count of leads whose latest run is live. */
+  activeLeads: number
+}
+
 // A GitHub issue projected from `gh issue list --json number,title,state,url`.
 export const IssueInfoSchema = z.object({
   number: z.number().int(),

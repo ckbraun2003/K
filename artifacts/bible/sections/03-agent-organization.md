@@ -72,6 +72,15 @@ AgentProfile {                 // BUILT (P5.0) — @k/shared AgentProfileSchema 
 > seam — rolling the tracking row back to `failed` on a dispatch failure. Still planned: the Chief/K
 > autonomous wake loops and their logistics/management MCP services.
 
+> **Per-lead control plane surfaced (P5.3a).** The five discipline leads are now readable and editable
+> as a first-class operator surface: `routes/orchestrators.ts` exposes a slim roster
+> (`GET /api/orchestrators`), one-lead detail (`GET /api/orchestrators/:id`), and a per-lead authority
+> `PATCH` for skills/tools/MCP/model. The PATCH delegates to `profiles.ts::updateProfile`, which
+> re-resolves the charter's authority and runs the **fail-closed** mcp↔allowlist grant guard — so the
+> edit surface can never mount an ungranted server (rejected `400`, row unchanged). A **tier/charter
+> move is deliberately NOT patchable here** (it could flip a lead off `isLead` and out of its own
+> management surface); authority editing means skills/tools/MCP/model only (D-043).
+
 ## The control plane — authority is enforced, not advisory
 
 Authority is enforced at two layers that compose, so a tier **cannot** reach a capability above its

@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -13,6 +13,14 @@ import type { OllamaModelsResponse, OllamaCatalogResponse } from './ollama'
 import type { MemoryLesson } from './memory'
 
 export type { SkillRun } from './skill-runs'
+
+/** The per-lead authority patch (PATCH /api/orchestrators/:id). Deliberately narrowed
+ *  to the fields the detail editor mutates — skills/tools/mcp/model; tier & charter are
+ *  NOT patchable here (a tier move could drop a lead from its own roster). Mirrors the
+ *  backend zod schema so the two can't drift. Exported so the page imports one shape. */
+export type OrchestratorPatch = Partial<
+  Pick<AgentProfile, 'skills' | 'allowedTools' | 'mcpServers' | 'defaultModel'>
+>
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
 export interface OnboardResult {
@@ -222,6 +230,20 @@ export const api = {
   // (objectives · delegation tree · lead runs · wake history). Read-only.
   chief: {
     org: () => req<ChiefOrgPayload>('/chief/org'),
+  },
+  // Orchestrators control plane (P5.3a) — the discipline-lead roster (one batched
+  // read), a single lead's detail (the reused ChiefOrgLead), and per-lead authority
+  // patches. `update` is grant-guarded server-side: an ungranted MCP mount answers
+  // 400 (req throws with the guard message), NOT a silent success.
+  orchestrators: {
+    list: () => req<OrchestratorRosterPayload>('/orchestrators'),
+    get: (id: string) => req<ChiefOrgLead>(`/orchestrators/${id}`),
+    update: (id: string, patch: OrchestratorPatch) =>
+      req<AgentProfile>(`/orchestrators/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }),
   },
   // Agent/skill behavioral evals — read the seeded systems, start a (default-dry) run, and inspect
   // runs/results/regression. A real (token-spending) run requires an explicit `dry: false` body; the
