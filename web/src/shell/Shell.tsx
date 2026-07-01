@@ -18,6 +18,8 @@ import TerminalPage from '../pages/TerminalPage'
 import SettingsPage from '../pages/SettingsPage'
 import WorkflowsPage from '../pages/WorkflowsPage'
 import ChiefPage from '../pages/ChiefPage'
+import OrchestratorsPage from '../pages/OrchestratorsPage'
+import OrchestratorDetailPage from '../pages/OrchestratorDetailPage'
 import EvalsPage from '../pages/EvalsPage'
 import MemoryPage from '../pages/MemoryPage'
 import NotFound from '../pages/NotFound'
@@ -115,6 +117,8 @@ export default function Shell() {
           >
             {route.view === 'home' && <Home />}
             {route.view === 'chief' && <ChiefPage />}
+            {route.view === 'orchestrators' && <OrchestratorsPage />}
+            {route.view === 'orchestrator' && <OrchestratorDetailPage id={route.param} />}
             {route.view === 'runs' && <RunsPage runId={route.param} />}
             {route.view === 'docs' && <DocsPage slug={route.param} />}
             {route.view === 'projects' && <ProjectsPage />}

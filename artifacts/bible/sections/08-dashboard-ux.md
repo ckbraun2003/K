@@ -130,6 +130,18 @@ carries, as first-class panels:
   spec-review / quality-review) — the **same DelegationTree component** the Chief uses at whole-org
   scope, here scoped to one lead, reusing the runtime sub-agent tree (§13).
 
+> **What ships today (P5.3a).** The **Orchestrators roster** (`web/src/pages/OrchestratorsPage.tsx`,
+> one batched `GET /api/orchestrators`) and **Orchestrator detail** (`OrchestratorDetailPage.tsx`,
+> `GET /api/orchestrators/:id`) are built. Detail carries the tabbed **skills / tools / MCP·Authority**
+> editors + a read-only charter and the lead's approved-lessons memory, and reuses the **one-lead
+> `DelegationTree`** via `leadNode` (no re-derivation). Every edit is a `PATCH /api/orchestrators/:id`
+> that goes through `profiles.ts::updateProfile` — so the **mcp↔allowlist grant guard stays
+> fail-closed**: mounting an ungranted MCP server is rejected `400` and the row is unchanged (D-043).
+> The route lifts the Chief's per-lead assembly into `routes/org-shared.ts` (`isLead` / `assembleLead`
+> + a slim `rosterVitals`), so both surfaces derive a lead identically. **Deferred to P5.3b:** the
+> `workflow_definitions` table + Workflows list/detail UI and the **Settings org-default** authority/MCP
+> panel (per-lead overrides ship now; the org-default they inherit from is the P5.3b half).
+
 ### Workflows + workflow detail
 
 **Workflows** lists the named definitions; **workflow detail** shows one definition's role sequence,

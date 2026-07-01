@@ -46,6 +46,15 @@ WorkflowDefinition {            // PLANNED — Phase 5 (generalizes today's sing
   cross-project run is a later increment, not part of the first cut (same posture as D-012's staged-
   engine growth point).
 
+> **Sequencing (P5.3 split, D-043).** The named-definition mechanism above is the **P5.3b** half and is
+> still planned: a `workflow_definitions` table + repo/CRUD, `buildDelegationPrompt` generalized so
+> `implement+review` is lifted verbatim as the first named def (behaviour-preserving — the existing
+> workflow tests stay green), plus `investigate`/`refactor` seeds and the Workflows list/detail UI.
+> **P5.3a shipped first**: the Orchestrators roster + detail + per-lead authority control plane (§08).
+> Note the runtime record above is the *persisted* `WorkflowDefinition`; the existing `@k/shared`
+> `WorkflowDefinition` (roles + edges) is the read-only **diagram** type and is left untouched — P5.3b
+> introduces the DB entity under a distinct name to avoid colliding with it.
+
 ## The delegation loop
 
 The first workflow's loop is the harness's core methodology (see also §13 Observability, which

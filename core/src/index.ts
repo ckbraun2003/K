@@ -19,6 +19,7 @@ import { metricsRoutes } from './routes/metrics.js'
 import { projectsRoutes } from './routes/projects.js'
 import { skillsRoutes } from './routes/skills.js'
 import { chiefRoutes } from './routes/chief.js'
+import { orchestratorsRoutes } from './routes/orchestrators.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
 import { modelsRoutes } from './routes/models.js'
@@ -110,6 +111,7 @@ export async function buildApp() {
   await app.register(projectsRoutes)
   await app.register(skillsRoutes)
   await app.register(chiefRoutes)
+  await app.register(orchestratorsRoutes)
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
   await app.register(modelsRoutes)
