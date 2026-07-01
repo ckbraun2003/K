@@ -301,11 +301,13 @@ describe('bundle-driven mounting + kstore wiring (Wave 6)', () => {
     expect(mcp.mcpServers.gitnexus.command).toBe('npx')
   })
 
-  it('secretary mcp also carries a rewritten kstore bound to its run', () => {
+  it('secretary mcp carries a rewritten kstore AND logistics bound to its run', () => {
     const { cfg, runId } = synthAs('secretary')
     const mcp = JSON.parse(fs.readFileSync(cfg.mcpConfigPath, 'utf8'))
     expect(mcp.mcpServers.kstore.env.K_RUN_ID).toBe(runId)
     expect(mcp.mcpServers.kstore.command).toBe(process.execPath)
+    expect(mcp.mcpServers.logistics.env.K_RUN_ID).toBe(runId)
+    expect(mcp.mcpServers.logistics.command).toBe(process.execPath)
   })
 })
 

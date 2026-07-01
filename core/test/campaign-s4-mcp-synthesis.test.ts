@@ -6,8 +6,8 @@
  * K_DATA_DIR / K_RUN_ID injected. The existing agent-config test pins the
  * orchestrator kstore rewrite shape; these tests pin the SYNTHESIS angles it
  * does not:
- *   - the per-tier server SET (secretary mounts ONLY kstore — no gitnexus;
- *     chief + orchestrator mount BOTH),
+ *   - the per-tier server SET (secretary mounts kstore + logistics — no gitnexus;
+ *     chief + orchestrator mount gitnexus + kstore),
  *   - the kstore K_DATA_DIR follows the dataDir resolution chain, including the
  *     process.env.K_DATA_DIR fallback when opts.dataDir is omitted,
  *   - re-synthesizing the SAME runId is idempotent (mcp.json byte-identical).
@@ -69,10 +69,10 @@ afterAll(() => {
 })
 
 describe('S4 mcp synthesis: per-tier server set', () => {
-  it('S4-005: secretary mounts ONLY kstore (no gitnexus)', () => {
+  it('S4-005: secretary mounts kstore + logistics (no gitnexus)', () => {
     const { cfg } = synthAs('secretary')
     const servers = Object.keys(readMcp(cfg).mcpServers).sort()
-    expect(servers).toEqual(['kstore'])
+    expect(servers).toEqual(['kstore', 'logistics'])
   })
 
   it('S4-005: chief and orchestrator each mount BOTH gitnexus + kstore', () => {
@@ -97,6 +97,7 @@ describe('S4 mcp synthesis: kstore binding + dataDir resolution', () => {
       // no leftover placeholders anywhere in the resolved server config
       const blob = JSON.stringify(readMcp(cfg).mcpServers)
       expect(blob).not.toContain('__KSTORE__')
+      expect(blob).not.toContain('__LOGISTICS__')
       expect(blob).not.toContain('__K_DATA_DIR__')
       expect(blob).not.toContain('__K_RUN_ID__')
     }
