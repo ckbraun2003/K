@@ -30,18 +30,31 @@
  *  • Atomic claim: each pending row is claimed via a conditional UPDATE (pending→dispatched);
  *    if `.changes === 0` another drain already claimed it, so it is skipped — an intent is
  *    executed exactly once.
+ *  • Project scope (B1): the assignment's scope_projects names are resolved at EXECUTION
+ *    time (resolveDispatchScope) — the FIRST name maps through the projects registry to the
+ *    run's projectId + cwd, so the lead works in the scoped repo, not K's own. An
+ *    unresolvable name or a missing localPath FAILS the dispatch cleanly (fail-closed:
+ *    running a project-scoped objective in K's repo would silently violate operator intent),
+ *    and a THROW during the resolution reads (post-claim) degrades through the same
+ *    status-guarded mark-failed — the claimed intent is never stranded.
  *  • Partial-failure window: once startAgentRun succeeds the lead run is LIVE. The follow-up
  *    wiring (record lead_run_id, link the assignment, wire report-back) runs in an INNER
- *    try/catch so a wiring throw can NEVER propagate and lose the live run.
+ *    try/catch so a wiring throw can NEVER propagate and lose the live run. If that wiring
+ *    threw BEFORE the run id was recorded (setLeadDispatchRun itself), the intent would sit
+ *    'dispatched' with lead_run_id NULL forever — the catch rescues it NOW (status-guarded
+ *    mark-failed) instead of waiting for the boot sweep (reconcileOrphanedLeadDispatches).
  *  • Dispatch failure: startAgentRun rolls its own agent_runs row back to 'failed' and
  *    re-throws; the OUTER catch marks the intent 'failed' (leaving the assignment link NULL,
  *    so the Chief can retry) and degrades — a bad intent never crashes the loop.
  */
 
+import fs from 'fs'
 import { leadDispatchDb, mgmtDb } from './db.js'
 import { startAgentRun } from './agent-runs.js'
 import { reportLeadOutcomeToChief } from './chief-dispatch.js'
 import { continueLeadOutcomeToK } from './k-thread.js'
+import { getProjectByName } from './projects.js'
+import { rowToAssignment } from './mcp/mgmt.js'
 
 /** Default poll interval for the relay (ms). Overridable via env; read lazily inside
  *  startLeadDispatchRelay so it can be set after import (mirrors chief-wake's lazy reads). */
@@ -50,6 +63,38 @@ const DEFAULT_RELAY_INTERVAL_MS = 2_000
 // Re-entrancy latch: true while a drain is in flight so an overlapping interval tick
 // (or a manual call) is a no-op instead of racing the same pending rows.
 let draining = false
+
+export interface DispatchScope {
+  projectId: string | null
+  cwd?: string
+  /** Set when the scope is unusable — the dispatch must FAIL (fail-closed). */
+  error?: string
+  /** Non-fatal note (e.g. multi-project pick) — logged, dispatch proceeds. */
+  warning?: string
+}
+
+/** Resolve an assignment's scoped project names → the dispatch's project + cwd.
+ *  Rules (B1): zero names → K-repo default (projectId null, cwd undefined — today's
+ *  behavior); one or more names → the FIRST name is authoritative: it must resolve
+ *  in the projects registry AND its localPath must exist on disk, else the dispatch
+ *  fails cleanly (running a project-scoped objective in K's own repo would silently
+ *  violate operator intent). Extra names beyond the first are ignored with a warning. */
+export function resolveDispatchScope(projectNames: string[]): DispatchScope {
+  if (projectNames.length === 0) return { projectId: null }
+  const first = projectNames[0]
+  const project = getProjectByName(first)
+  if (!project) {
+    return { projectId: null, error: `scoped project "${first}" not found in the projects registry` }
+  }
+  if (!fs.existsSync(project.localPath)) {
+    return { projectId: null, error: `scoped project "${first}" localPath does not exist: ${project.localPath}` }
+  }
+  const warning =
+    projectNames.length > 1
+      ? `assignment scopes ${projectNames.length} projects — using the first ("${first}"); others ignored`
+      : undefined
+  return { projectId: project.id, cwd: project.localPath, warning }
+}
 
 /**
  * Drain the pending lead-dispatch queue: for each pending intent, atomically claim it
@@ -71,12 +116,31 @@ export async function drainLeadDispatches(): Promise<number> {
       if (leadDispatchDb.claimLeadDispatch.run({ id, dispatchedAt: Date.now() }).changes === 0) continue
 
       try {
+        // Resolve the assignment's project scope (mgmt scope_projects — names → the
+        // projects registry) at EXECUTION time, so the lead's worktree is created in the
+        // scoped repo, not K's own. Unresolvable/missing-path scope fails the dispatch
+        // cleanly (status-guarded mark-failed), never crashes the loop. This runs INSIDE
+        // the try: the intent is already claimed 'dispatched', so a THROW here (e.g.
+        // SQLITE_BUSY on the assignment/registry reads) must degrade through the same
+        // catch below — never propagate and strand the row 'dispatched' with no run
+        // until the boot-only reconcile.
+        const assignmentRow = mgmtDb.getAssignment.get(String(row.assignment_id)) as Record<string, unknown> | undefined
+        const scope = resolveDispatchScope(assignmentRow ? rowToAssignment(assignmentRow).projects : [])
+        if (scope.error) {
+          leadDispatchDb.markLeadDispatchFailed.run({ id, dispatchedAt: Date.now() })
+          console.warn(`[lead-relay] dispatch ${id} failed: ${scope.error}`)
+          continue
+        }
+        if (scope.warning) console.warn(`[lead-relay] dispatch ${id}: ${scope.warning}`)
+
         // Dispatch under the resolved lead profile in the MAIN process (its tracking-row
         // lifecycle + the report-back subscriber below outlive the mgmt-server child).
         const { runId } = await startAgentRun(String(row.lead_profile_id), {
           trigger: 'delegation',
           goal: String(row.goal),
           workflowId: String(row.workflow_id),
+          projectId: scope.projectId ?? undefined,
+          cwd: scope.cwd,
         })
         dispatched++
 
@@ -105,10 +169,22 @@ export async function drainLeadDispatches(): Promise<number> {
           }
         } catch (wireErr) {
           console.warn(`[lead-relay] dispatch ${id}: lead run ${runId} live but post-dispatch wiring failed:`, wireErr)
+          // If the run id never got recorded on the intent (setLeadDispatchRun itself threw),
+          // the row would sit 'dispatched' with lead_run_id NULL forever — the exact stranded
+          // state the boot sweep (reconcileOrphanedLeadDispatches) exists to rescue. Rescue it
+          // NOW instead (status-guarded mark-failed; assignment link stays NULL → retryable).
+          // When the run id WAS recorded, the intent is complete — leave it 'dispatched'.
+          try {
+            const cur = leadDispatchDb.getLeadDispatch.get(id) as Record<string, unknown> | undefined
+            if (cur && cur.lead_run_id == null) {
+              leadDispatchDb.markLeadDispatchFailed.run({ id, dispatchedAt: Date.now() })
+            }
+          } catch { /* best-effort — never crash the drain */ }
         }
       } catch (err) {
-        // startAgentRun threw — it already rolled its own agent_runs row back to 'failed'.
-        // Mark the intent 'failed' (assignment link stays NULL → retryable) and degrade.
+        // startAgentRun threw (it already rolled its own agent_runs row back to
+        // 'failed') — or the scope-resolution reads above did. Either way the intent is
+        // claimed: mark it 'failed' (assignment link stays NULL → retryable) and degrade.
         leadDispatchDb.markLeadDispatchFailed.run({ id, dispatchedAt: Date.now() })
         console.warn(`[lead-relay] dispatch ${id} failed:`, err)
       }

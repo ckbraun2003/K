@@ -16,6 +16,15 @@
  * Every write is path-guarded to stay under the run's configDir (the scaffold.ts
  * `writeIfAbsent` guard pattern), so a malformed tier name can never escape the
  * run sandbox.
+ *
+ * Profile-row overrides (B1): the synthesizer honors the profile's
+ * allowedTools / mcpServers / skills rows. An EMPTY (or absent — rowToAgentProfile
+ * degrades garbled JSON to []) profile array means "no override → use the tier
+ * asset". A NON-EMPTY array is the operator's narrowed grant and is enforced
+ * FAIL-CLOSED against the tier assets: the TIER defines the CEILING (allowlist /
+ * mcp template / bundle) and a profile row may only narrow within it — an
+ * above-ceiling tool, an unknown MCP server, or an out-of-bundle skill throws
+ * rather than silently mounting/granting.
  */
 
 import fs from 'fs'
@@ -24,6 +33,7 @@ import path from 'path'
 import { createRequire } from 'module'
 import { fileURLToPath, pathToFileURL } from 'url'
 import type { AgentProfile } from './profiles.js'
+import { assertMcpGrants, toolWithinCeiling } from './authority.js'
 import { isPathWithin } from './paths.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -133,6 +143,81 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     throw new Error(`agent-config: unknown charter "${charter}" — not one of ${[...KNOWN_CHARTERS].join(', ')}`)
   }
 
+  // ── Profile-row resolution + fail-closed validation (B1) ─────────────────────
+  // Resolve the effective skills/servers/tools BEFORE any write (validate-before-
+  // mutate): a rejected profile row must throw HERE, so a bad row can never leave a
+  // partially materialized run dir behind on every dispatch attempt. An EMPTY
+  // profile array (rowToAgentProfile degrades garbled JSON to []) means "no
+  // override → the tier asset"; a NON-EMPTY array is the operator's narrowed grant,
+  // enforced against the tier assets as the CEILING.
+
+  // Skills: a non-empty profile.skills row narrows WITHIN the tier bundle (the
+  // bundle is the ceiling — fail-closed). Every name is segment-checked before it
+  // is ever interpolated into a read path (step 4).
+  const bundlePath = path.join(assetsDir, 'bundles', `${charter}.json`)
+  if (!fs.existsSync(bundlePath)) throw new Error(`agent-config: bundle for tier "${charter}" not found`)
+  const bundle = JSON.parse(fs.readFileSync(bundlePath, 'utf8')) as {
+    skills?: string[]
+    agents?: string[]
+  }
+  const bundleSkills = bundle.skills ?? []
+  const usedProfileSkills = profile.skills.length > 0
+  const skillsToMount = usedProfileSkills ? profile.skills : bundleSkills
+  for (const skill of skillsToMount) {
+    assertSafeSegment(skill, 'bundle skill')
+    if (usedProfileSkills && !bundleSkills.includes(skill)) {
+      throw new Error(
+        `agent-config: profile skill "${skill}" is not in the "${charter}" tier bundle — the tier bundle is the ceiling`,
+      )
+    }
+  }
+
+  // MCP servers: the tier's mcp template defines WHICH servers exist (the ceiling).
+  // A non-empty profile.mcpServers row mounts exactly those servers; a name with no
+  // tier definition is fail-closed (we cannot invent a server config). The parsed
+  // template is filtered down to the mounted set here (template key order preserved
+  // so the no-override output stays byte-identical).
+  const mcp = JSON.parse(
+    fs.readFileSync(path.join(assetsDir, 'mcp', `${charter}.json`), 'utf8'),
+  ) as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> }
+  const tierServerKeys = Object.keys(mcp.mcpServers ?? {})
+  const serversToMount = profile.mcpServers.length > 0 ? profile.mcpServers : tierServerKeys
+  for (const name of serversToMount) {
+    if (!mcp.mcpServers?.[name]) {
+      throw new Error(
+        `agent-config: profile mounts MCP server "${name}" but tier "${charter}" defines no such server — unknown servers are fail-closed`,
+      )
+    }
+  }
+  const wantedServers = new Set(serversToMount)
+  mcp.mcpServers = Object.fromEntries(
+    Object.entries(mcp.mcpServers ?? {}).filter(([k]) => wantedServers.has(k)),
+  )
+
+  // Allowed tools: a non-empty profile.allowedTools row is the operator's narrowed
+  // grant, enforced against the tier allowlist as the ceiling (toolWithinCeiling —
+  // exact / specifier-narrowed / per-tool-MCP forms). Deliberately INLINE rather
+  // than authority.ts::assertTierCeiling: the allowlist is already parsed in hand
+  // here; the helper would re-read the assets via resolveAuthority and could drift
+  // from the exact file this synthesis consumes.
+  const allowlist = JSON.parse(
+    fs.readFileSync(path.join(assetsDir, 'allowlists', `${charter}.json`), 'utf8'),
+  ) as { allowedTools: string[] }
+  const allowedTools = profile.allowedTools.length > 0 ? profile.allowedTools : allowlist.allowedTools
+  if (profile.allowedTools.length > 0) {
+    const ceiling = new Set(allowlist.allowedTools)
+    for (const tool of allowedTools) {
+      if (!toolWithinCeiling(tool, ceiling)) {
+        throw new Error(
+          `agent-config: profile tool "${tool}" exceeds the "${charter}" tier ceiling — the tier allowlist is the ceiling`,
+        )
+      }
+    }
+  }
+  // Mounting ≠ granting (D-034) holds at synth time too: every mounted server must
+  // be granted by the FINAL (possibly profile-narrowed) allowlist.
+  assertMcpGrants(profile.tier, allowedTools, serversToMount)
+
   // 1. run config dir (path-guarded root for every write below)
   const runDir = path.join(dataDir, 'agent-runs', opts.runId)
   guardUnder(dataDir, runDir) // defense-in-depth: runDir (and thus cleanup) stays under dataDir
@@ -153,18 +238,11 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   const settingsPath = path.join(configDir, 'settings.json')
   guardedWrite(configDir, settingsPath, template.split('__HOOK__').join(hooksDirFwd))
 
-  // 4. mount ONLY the skills + worker-agent defs the tier's bundle lists — not the
-  //    whole library. The orchestrator bundle carries the full roster; chief and
-  //    secretary carry no coding agents. Every listed name is segment-checked
-  //    before it is interpolated into a read path.
-  const bundlePath = path.join(assetsDir, 'bundles', `${charter}.json`)
-  if (!fs.existsSync(bundlePath)) throw new Error(`agent-config: bundle for tier "${charter}" not found`)
-  const bundle = JSON.parse(fs.readFileSync(bundlePath, 'utf8')) as {
-    skills?: string[]
-    agents?: string[]
-  }
-  for (const skill of bundle.skills ?? []) {
-    assertSafeSegment(skill, 'bundle skill')
+  // 4. mount ONLY the skills + worker-agent defs resolved in the validation block
+  //    above (profile-narrowed or the tier bundle) — not the whole library. The
+  //    orchestrator bundle carries the full roster; chief and secretary carry no
+  //    coding agents. Skill names were segment-checked before any path use.
+  for (const skill of skillsToMount) {
     const src = path.join(assetsDir, 'skills', skill)
     if (!fs.existsSync(src)) throw new Error(`agent-config: bundle skill "${skill}" not found`)
     copyDirGuarded(configDir, src, path.join(configDir, 'skills', skill))
@@ -179,16 +257,14 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   // 5. vendor hooks/ into the run dir.
   copyDirGuarded(configDir, path.join(assetsDir, 'hooks'), path.join(configDir, 'hooks'))
 
-  // 6. MCP config for the tier → mcp.json. Copy the template, then resolve every
-  //    RUN-SCOPED K server (kstore, logistics): each placeholder command/args
-  //    become THIS core's server launch (dev runs the .ts via tsx; a build runs the
-  //    .js), and its env gets the run's K_DATA_DIR / K_RUN_ID so the child opens the
-  //    right k.db and resolves the right run. Other servers (gitnexus) pass through
-  //    untouched. Behaviour for kstore is unchanged from the single-server form
-  //    (proven by the existing synthesis tests).
-  const mcp = JSON.parse(
-    fs.readFileSync(path.join(assetsDir, 'mcp', `${charter}.json`), 'utf8'),
-  ) as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> }
+  // 6. MCP config → mcp.json from the (validated, possibly profile-narrowed)
+  //    template parsed above: resolve every RUN-SCOPED K server (kstore, logistics,
+  //    mgmt) — each placeholder command/args become THIS core's server launch (dev
+  //    runs the .ts via tsx; a build runs the .js), and its env gets the run's
+  //    K_DATA_DIR / K_RUN_ID so the child opens the right k.db and resolves the
+  //    right run. Other servers (gitnexus) pass through untouched. Behaviour for
+  //    kstore is unchanged from the single-server form (proven by the existing
+  //    synthesis tests).
   const runScopedServers: Array<[string, string]> = [
     ['kstore', 'k-store-server'],
     ['logistics', 'logistics-server'],
@@ -212,11 +288,8 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   const mcpConfigPath = path.join(configDir, 'mcp.json')
   guardedWrite(configDir, mcpConfigPath, JSON.stringify(mcp, null, 2))
 
-  // 7. allowlist for the tier.
-  const allowlist = JSON.parse(
-    fs.readFileSync(path.join(assetsDir, 'allowlists', `${charter}.json`), 'utf8'),
-  ) as { allowedTools: string[] }
-  const allowedTools = allowlist.allowedTools
+  // 7. allowlist — `allowedTools` was resolved + ceiling-checked in the validation
+  //    block above (before any write).
 
   // 8. auth resolution (Wave-0 finding: credentials are isolated too).
   //    Prefer a K-supplied token; else copy host credentials as a dogfooding

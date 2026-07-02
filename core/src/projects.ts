@@ -76,6 +76,17 @@ export function getProject(id: string): Project | null {
   return row ? rowToProject(row) : null
 }
 
+/** Look up a project by its (UNIQUE) name. Exact match first; falls back to a
+ *  case-insensitive match only when it is unambiguous (the Chief's scope_projects
+ *  names are free text). Null when nothing (or more than one) matches. */
+export function getProjectByName(name: string): Project | null {
+  const all = listProjects()
+  const exact = all.find(p => p.name === name)
+  if (exact) return exact
+  const ci = all.filter(p => p.name.toLowerCase() === name.toLowerCase())
+  return ci.length === 1 ? ci[0] : null
+}
+
 async function detectRemote(repoPath: string): Promise<string | undefined> {
   try {
     const { stdout } = await execa('git', ['remote', 'get-url', 'origin'], { cwd: repoPath })

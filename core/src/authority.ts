@@ -85,6 +85,39 @@ export function assertMcpGrants(tier: AgentTier, allowedTools: string[], mcpServ
   }
 }
 
+/** True iff `tool` is permitted under a tier ceiling `ceiling` (a Set of the tier
+ *  allowlist tokens). A tool is within the ceiling when it is an exact ceiling
+ *  member, OR a specifier-narrowed form of one (`Bash(git:*)` narrows `Bash`), OR a
+ *  per-tool MCP grant whose server-level grant the ceiling carries
+ *  (`mcp__kstore__get_x` narrows `mcp__kstore`). */
+export function toolWithinCeiling(tool: string, ceiling: ReadonlySet<string>): boolean {
+  if (ceiling.has(tool)) return true
+  const parenIdx = tool.indexOf('(')
+  if (parenIdx > 0 && ceiling.has(tool.slice(0, parenIdx))) return true
+  if (tool.startsWith('mcp__')) {
+    const rest = tool.slice(5)
+    const sepIdx = rest.indexOf('__')
+    if (sepIdx > 0 && ceiling.has('mcp__' + rest.slice(0, sepIdx))) return true
+  }
+  return false
+}
+
+/** Fail-closed ceiling guard (B1): every entry in `allowedTools` must be within the
+ *  TIER's asset allowlist — the tier is the ceiling, per-profile rows only narrow
+ *  within it (so a row can never re-grant coding tools to a non-coding tier, nor the
+ *  dead `Agent` token anywhere). Throws on the first violation with a message the
+ *  PATCH routes map to a 400. */
+export function assertTierCeiling(tier: AgentTier, allowedTools: string[], opts: { assetsDir?: string } = {}): void {
+  const ceiling = new Set(resolveAuthority(tier, opts).allowedTools)
+  for (const tool of allowedTools) {
+    if (!toolWithinCeiling(tool, ceiling)) {
+      throw new Error(
+        `authority: tool "${tool}" exceeds the "${tier}" tier ceiling — the tier allowlist is the ceiling; per-profile rows may only narrow within it`,
+      )
+    }
+  }
+}
+
 /**
  * Resolve a tier's authority from the agent-config assets. Runs the mcp↔allowlist
  * grant guard (throws on violation). `assetsDir` is injectable for tests.

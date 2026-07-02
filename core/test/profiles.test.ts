@@ -40,7 +40,8 @@ describe('createProfile / getProfile — round-trip', () => {
     expect(p.id).toBe('p50-orch')
     expect(p.tier).toBe('orchestrator')
     expect(p.charter).toBe('orchestrator') // defaulted from tier
-    expect(p.defaultModel.length).toBeGreaterThan(0)
+    // B1: seeds/creates persist NO model override; dispatch resolves the runtime default.
+    expect(p.defaultModel).toBeNull()
     // authority resolved from the orchestrator assets
     expect(p.allowedTools).toContain('Task')
     expect(p.allowedTools).toContain('Bash')

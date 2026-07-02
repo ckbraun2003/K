@@ -7,6 +7,7 @@ import type {
   OrchestratorRosterEntry,
 } from '@k/shared'
 import { agentRunsDb, runsDb, eventsDb } from '../db.js'
+import { claudeDefaultModel } from '../config-store.js'
 
 /**
  * Shared org-assembly primitives (P5.3a) — the row mappers, bounds, live-status set,
@@ -147,5 +148,15 @@ export function assembleLead(profile: AgentProfile): ChiefOrgLead {
   const events: AgentEvent[] = latestRun
     ? (eventsDb.listDelegateEvents.all({ runId: latestRun.id }) as Row[]).map(rowToAgentEvent)
     : []
-  return { profile, latestRun, events, wakes }
+  return {
+    profile,
+    latestRun,
+    events,
+    wakes,
+    // Surfaces which model the next dispatch will ACTUALLY use — the explicit row
+    // override vs the operator's runtime Claude default — so the UI renders honestly.
+    effectiveModel: profile.defaultModel != null
+      ? { model: profile.defaultModel, source: 'override' as const }
+      : { model: claudeDefaultModel(), source: 'runtime-default' as const },
+  }
 }

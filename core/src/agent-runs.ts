@@ -24,6 +24,7 @@
 
 import { randomUUID } from 'crypto'
 import { getProfile } from './profiles.js'
+import { claudeDefaultModel } from './config-store.js'
 import { startRun } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
 import { agentRunsDb } from './db.js'
@@ -43,6 +44,9 @@ export interface StartAgentRunOptions {
   thread?: string
   projectId?: string
   workflowId?: string
+  /** Working directory for the run (the scoped project's localPath). Defaults to
+   *  the K repo root inside startRun. */
+  cwd?: string
   /** Keep the run's stdin open for a warm multi-turn session (D-014 persistent
    *  stdin). Default false = today's one-shot fire-and-forget. Used by the K front
    *  door (k-thread.ts) so a warm interactive session can continue via sendInput. */
@@ -89,14 +93,17 @@ export async function startAgentRun(
   })
 
   // 2. Dispatch under the resolved profile. The profile drives config synthesis
-  //    (its tier's charter/allowlist/MCP/skills) and its defaultModel forces claude
-  //    at that model. If startRun throws, the 'running' tracking row would leak — so
-  //    roll it back to 'failed', log, and re-throw (mirrors dispatchTaskWorkflow).
+  //    (its tier's charter/allowlist/MCP/skills). Model: the profile's explicit
+  //    override wins; a null defaultModel resolves the operator's runtime Claude
+  //    default AT DISPATCH TIME (P5.5 reconciliation — the org no longer pins a
+  //    frozen literal). If startRun throws, the 'running' tracking row would leak —
+  //    so roll it back to 'failed', log, and re-throw (mirrors dispatchTaskWorkflow).
   let run
   try {
     run = await startRun(prompt, {
-      model: profile.defaultModel,
+      model: profile.defaultModel ?? claudeDefaultModel(),
       projectId: opts.projectId,
+      cwd: opts.cwd,
       profile,
       interactive: opts.interactive,
     })

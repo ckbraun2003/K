@@ -23,7 +23,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { type Status, SystemPromptBodySchema } from '@k/shared'
+import { type Status, SystemPromptBodySchema, isKnownModel } from '@k/shared'
 import { REPO_ROOT } from '../supervisor.js'
 import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
@@ -204,14 +204,15 @@ const OrgDefaultPatchSchema = z
     skills: z.array(z.string()).optional(),
     allowedTools: z.array(z.string()).optional(),
     mcpServers: z.array(z.string()).optional(),
-    defaultModel: z.string().optional(),
+    defaultModel: z.string().nullable().optional(), // null = clear to runtime default
   })
   .strict()
 
-// The ONLY updateProfile throw that is a client error (a bad MCP mount — "mounting ≠
-// granting"). Anything else is a server fault and must surface as 500. Mirrors
+// The two fail-closed client-error guards updateProfile can raise — assertMcpGrants
+// (a bad MCP mount, "mounting ≠ granting") and assertTierCeiling (the B1 tier
+// ceiling). Anything else is a server fault and must surface as 500. Mirrors
 // routes/orchestrators.ts::GRANT_GUARD_ERROR.
-const ORG_DEFAULT_GRANT_GUARD_ERROR = /does not grant it/
+const ORG_DEFAULT_GRANT_GUARD_ERROR = /does not grant it|exceeds the .* tier ceiling/
 
 /** The durable id of the org-default orchestrator authority (=== the seed row / the
  *  DEFAULT_PROFILE fallback in profiles.ts). */
@@ -325,6 +326,14 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ error: 'invalid patch' })
     if (Object.keys(parsed.data).length === 0) {
       return reply.status(400).send({ error: 'empty patch' })
+    }
+    // defaultModel must be a known Claude model id (same gate as PUT /api/claude/model);
+    // null explicitly CLEARS the override back to the runtime default. '' normalizes to
+    // that same clear-sentinel FIRST — it is the storage encoding of "no override"
+    // (db.ts rowToAgentProfile), so it must clear, never 400.
+    if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
+    if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
+      return reply.status(400).send({ error: 'unknown model' })
     }
     try {
       const updated = updateProfile(ORG_DEFAULT_ID, parsed.data)

@@ -652,6 +652,20 @@ export function migrate(d: Database.Database): void {
       WHERE NOT EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = pt.id)
     `)
   }
+  // agent_profiles.default_model reset (B1). Historically seeds froze the literal
+  // 'claude-sonnet-4-6' into every row, which silently pinned org runs and bypassed
+  // the operator's runtime Claude default (config-store claudeDefaultModel). One-shot
+  // (app_config flag): rows still carrying that exact frozen literal become '' (the
+  // "use runtime default" sentinel — see rowToAgentProfile); an operator-set override
+  // that DIFFERS survives. One-shot so an operator explicitly re-pinning
+  // 'claude-sonnet-4-6' later is never wiped by a subsequent boot.
+  if (hasTable(d, 'agent_profiles') && hasTable(d, 'app_config')) {
+    const FLAG = 'migration.agentProfileModelReset.v1'
+    if (!d.prepare(`SELECT value FROM app_config WHERE key = ?`).get(FLAG)) {
+      d.prepare(`UPDATE agent_profiles SET default_model = '' WHERE default_model = 'claude-sonnet-4-6'`).run()
+      d.prepare(`INSERT INTO app_config (key, value) VALUES (?, 'true') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(FLAG)
+    }
+  }
 }
 
 migrate(db)
@@ -1538,7 +1552,11 @@ export const agentProfilesDb = {
 /** Map an agent_profiles DB row → the canonical AgentProfile shape (@k/shared).
  *  snake→camel; the `charter` column feeds the type's `charter` (charter-asset
  *  basename); the JSON columns parse to string[] (null-safe: garbled/absent JSON
- *  degrades to [] rather than throwing, mirroring rowToReport). */
+ *  degrades to [] rather than throwing, mirroring rowToReport).
+ *  default_model: the column stays `TEXT NOT NULL` (SQLite can't drop NOT NULL
+ *  without a foreign-key-laden table rebuild); '' is the storage encoding of
+ *  "no override — use the runtime Claude default", surfaced as null at the app
+ *  boundary. */
 export function rowToAgentProfile(r: Record<string, unknown>): AgentProfile {
   const parseStrArr = (v: unknown): string[] => {
     try {
@@ -1553,7 +1571,7 @@ export function rowToAgentProfile(r: Record<string, unknown>): AgentProfile {
     name: String(r.name),
     tier: r.tier as AgentProfile['tier'],
     charter: r.charter as AgentProfile['charter'],
-    defaultModel: String(r.default_model),
+    defaultModel: r.default_model == null || r.default_model === '' ? null : String(r.default_model),
     allowedTools: parseStrArr(r.allowed_tools),
     mcpServers: parseStrArr(r.mcp_servers),
     skills: parseStrArr(r.skills),

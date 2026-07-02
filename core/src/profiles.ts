@@ -18,7 +18,7 @@
 import { randomUUID } from 'crypto'
 import type { AgentProfile } from '@k/shared'
 import { agentProfilesDb, rowToAgentProfile } from './db.js'
-import { resolveAuthority, assertMcpGrants, assertCodingToolsGating } from './authority.js'
+import { resolveAuthority, assertMcpGrants, assertTierCeiling, assertCodingToolsGating } from './authority.js'
 
 export type { AgentProfile } from '@k/shared'
 
@@ -34,12 +34,6 @@ export type AgentTier = AgentProfile['tier']
  *  charter with no backing asset (which would crash synthesis at read time). */
 export type CharterName = AgentProfile['charter']
 
-/** The default model for a profile whose row does not override it — mirrors
- *  router.ts's CLAUDE_DEFAULT_MODEL so a routed model and a profiled model agree. */
-function defaultModel(): string {
-  return process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-6'
-}
-
 // Orchestrator authority resolved once from the committed assets, for the in-memory
 // fallback below. The assets are a guaranteed part of the repo (agent-config/), so
 // this resolve is safe at module init; it also runs the mcp↔allowlist grant guard.
@@ -54,7 +48,9 @@ export const DEFAULT_PROFILE: AgentProfile = {
   name: 'orchestrator',
   tier: 'orchestrator',
   charter: 'orchestrator',
-  defaultModel: defaultModel(),
+  // null = no per-profile override — the runtime Claude default (config-store
+  // claudeDefaultModel()) is resolved at dispatch time, never frozen here.
+  defaultModel: null,
   // Copy the resolved arrays onto the exported fallback so a stray mutation of
   // DEFAULT_PROFILE (e.g. `.allowedTools.push(...)`) can't leak into the shared
   // ORCHESTRATOR_AUTHORITY and thus into every `opts.profile ?? DEFAULT_PROFILE`
@@ -90,8 +86,8 @@ export interface CreateProfileInput {
   tier: AgentTier
   /** Charter-asset basename; defaults to `tier` (the durable-tier convention). */
   charter?: CharterName
-  /** Model id; defaults to the CLAUDE_MODEL env fallback. */
-  defaultModel?: string
+  /** Explicit model override; omitted/null = use the runtime Claude default at dispatch. */
+  defaultModel?: string | null
   // allowedTools/mcpServers/skills default to the tier's resolved authority when
   // omitted — the normal path. Provide them only to record an explicit override.
   allowedTools?: string[]
@@ -111,15 +107,25 @@ export function createProfile(input: CreateProfileInput): AgentProfile {
   const allowedTools = input.allowedTools ?? auth.allowedTools
   const mcpServers = input.mcpServers ?? auth.mcpServers
   const skills = input.skills ?? auth.skills
+  // null = no override — dispatch resolves the runtime Claude default
+  // (config-store claudeDefaultModel()) at startAgentRun time.
+  const defaultModel = input.defaultModel ?? null
   // Guard the FINAL (possibly caller-overridden) values too, so an explicit override
-  // can never persist a row that mounts an ungranted MCP server (D-034 fail-closed).
+  // can never persist a row that exceeds the tier ceiling (B1 fail-closed) or mounts
+  // an ungranted MCP server (D-034 fail-closed). The ceiling is keyed by CHARTER —
+  // the same asset set the defaults above were resolved from and the synthesizer
+  // will read at dispatch (charter === tier for every durable row; keying both
+  // checks to one asset set means they can never silently diverge).
+  assertTierCeiling(charter, allowedTools)
   assertMcpGrants(input.tier, allowedTools, mcpServers)
   agentProfilesDb.insertProfile.run({
     id,
     name: input.name,
     tier: input.tier,
     charter,
-    defaultModel: input.defaultModel ?? defaultModel(),
+    // '' is the storage sentinel for "no override" (the column is TEXT NOT NULL —
+    // see rowToAgentProfile, which surfaces it as null at the app boundary).
+    defaultModel: defaultModel ?? '',
     allowedTools: JSON.stringify(allowedTools),
     mcpServers: JSON.stringify(mcpServers),
     skills: JSON.stringify(skills),
@@ -149,19 +155,25 @@ export function updateProfile(id: string, patch: UpdateProfileInput): AgentProfi
     name: patch.name ?? current.name,
     tier: patch.tier ?? current.tier,
     charter: nextCharter,
-    defaultModel: patch.defaultModel ?? current.defaultModel,
+    // Distinguish "absent" (keep current) from an explicit null (CLEAR the override
+    // back to the runtime Claude default) — `??` would conflate the two.
+    defaultModel: patch.defaultModel !== undefined ? patch.defaultModel : current.defaultModel,
     allowedTools: patch.allowedTools ?? (auth ? auth.allowedTools : current.allowedTools),
     mcpServers: patch.mcpServers ?? (auth ? auth.mcpServers : current.mcpServers),
     skills: patch.skills ?? (auth ? auth.skills : current.skills),
   }
-  // Fail-closed on the final values (mirrors createProfile).
+  // Fail-closed on the final values (mirrors createProfile): tier ceiling (B1,
+  // keyed by CHARTER — the asset set the synthesizer will read at dispatch) +
+  // mcp↔allowlist grant guard (D-034).
+  assertTierCeiling(merged.charter, merged.allowedTools)
   assertMcpGrants(merged.tier, merged.allowedTools, merged.mcpServers)
   agentProfilesDb.updateProfileRow.run({
     id: merged.id,
     name: merged.name,
     tier: merged.tier,
     charter: merged.charter,
-    defaultModel: merged.defaultModel,
+    // '' = the "no override" storage sentinel (see rowToAgentProfile).
+    defaultModel: merged.defaultModel ?? '',
     allowedTools: JSON.stringify(merged.allowedTools),
     mcpServers: JSON.stringify(merged.mcpServers),
     skills: JSON.stringify(merged.skills),
