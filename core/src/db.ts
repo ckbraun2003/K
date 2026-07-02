@@ -97,16 +97,6 @@ db.exec(`
     PRIMARY KEY (project_id, kind)
   );
 
-  CREATE TABLE IF NOT EXISTS project_tasks (
-    id           TEXT PRIMARY KEY,
-    project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    title        TEXT NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','in_progress','done')),
-    created_at   INTEGER NOT NULL,
-    completed_at INTEGER
-  );
-  CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(project_id, created_at);
-
   CREATE TABLE IF NOT EXISTS workflow_runs (
     id           TEXT PRIMARY KEY,
     project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -278,7 +268,9 @@ db.exec(`
   -- A ticket. scope (added via migrate ALTER) discriminates the store: 'run' is the
   -- EPHEMERAL default — a ticket visible only to the run that created it; 'personal'
   -- and 'org' are the DURABLE operator-global store (persist across sessions + runs);
-  -- 'project' is the folded-in project task surface (P5.1d2). run_id is the managed run
+  -- 'project' is the project task surface — the former project_tasks store, fully
+  -- collapsed here in P5.1d2b (project_id/completed_at/issue_number/issue_url/
+  -- issue_state are appended via migrate ALTER, like scope). run_id is the managed run
   -- that created it (resolved from K_RUN_ID; provenance) — ON DELETE SET NULL keeps the
   -- ticket if its run is later removed.
   CREATE TABLE IF NOT EXISTS work_items (
@@ -580,10 +572,13 @@ export function migrate(d: Database.Database): void {
     // reloaded historical run shows the pressure it actually reached.
     addColumn(d, 'events', 'context_tokens', 'INTEGER')
   }
-  // project_tasks GitHub Issues sync columns (Wave 3-7): appended via guarded
-  // ALTERs (not in CREATE TABLE) so existing DBs gain them; fresh installs get
-  // them here too since migrate() runs at boot. hasTable guard keeps migrate()
-  // safe against old-schema fixtures predating the table.
+  // project_tasks issue columns — LEGACY-UPGRADE path ONLY (P5.1d2b). The table is
+  // no longer created anywhere (dropped by the one-shot mig_project_tasks_drop
+  // below), so this block exists solely to prepare a pre-d2b project_tasks table:
+  // it appends the Wave 3-7 GitHub Issues sync columns so the final backfill can
+  // read pt.issue_number/issue_url/issue_state from any vintage of the table. Once
+  // the drop has run (or on a fresh install, where the table never exists) the
+  // hasTable guard makes this a permanent no-op.
   if (hasTable(d, 'project_tasks')) {
     addColumn(d, 'project_tasks', 'issue_number', 'INTEGER')
     addColumn(d, 'project_tasks', 'issue_url', 'TEXT')
@@ -625,7 +620,7 @@ export function migrate(d: Database.Database): void {
   if (hasTable(d, 'work_items')) {
     addColumn(d, 'work_items', 'scope', "TEXT NOT NULL DEFAULT 'run' CHECK(scope IN ('run','personal','org','project'))")
   }
-  // work_items project columns (P5.1d2, D-026/D-048): fold the deprecated
+  // work_items project columns (P5.1d2, D-026/D-048): fold the former
   // project_tasks store into the unified work_items store. project_id + the issue-
   // sync metadata (completed_at/issue_number/issue_url/issue_state) let a
   // scope='project' ticket carry everything a project_tasks row used to. Appended
@@ -644,21 +639,51 @@ export function migrate(d: Database.Database): void {
     d.exec(`CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, created_at)`)
     d.exec(`CREATE INDEX IF NOT EXISTS idx_work_items_issue ON work_items(project_id, issue_number)`)
   }
-  // project_tasks → work_items backfill (P5.1d2, D-026). Idempotent (NOT EXISTS keys
-  // on the reused project_task id === work_item id), so a re-boot never duplicates.
-  // Runs AFTER the work_items project columns above exist and AFTER the project_tasks
-  // issue-columns ALTER earlier in migrate(), so every SELECT column is present.
-  // COPY only — project_tasks rows are left in place as a frozen safety copy (the
-  // table is deprecated and dropped in d2b). project_tasks.status values
-  // (open/in_progress/done) all satisfy the work_items status CHECK. run_id is NULL
-  // (these are project-scoped, not run-scoped); scope is stamped 'project'.
-  if (hasTable(d, 'work_items') && hasTable(d, 'project_tasks')) {
-    d.exec(`
-      INSERT INTO work_items (id, run_id, project_id, title, body, status, scope, created_at, updated_at, completed_at, issue_number, issue_url, issue_state)
-      SELECT pt.id, NULL, pt.project_id, pt.title, NULL, pt.status, 'project', pt.created_at, pt.created_at, pt.completed_at, pt.issue_number, pt.issue_url, pt.issue_state
-      FROM project_tasks pt
-      WHERE NOT EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = pt.id)
-    `)
+  // project_tasks → work_items final backfill + DROP (P5.1d2b, D-026) — one-shot.
+  //
+  // THE STORY: d2a copied project_tasks into work_items(scope='project') but left
+  // project_tasks in place as a "frozen safety copy" with this backfill running on
+  // EVERY boot. Meanwhile deleteProjectTask deletes only the work_items row — so
+  // any pre-d2a task deleted via the API RESURRECTED from the frozen copy on the
+  // next boot (and an issue-linked one could then duplicate against a re-synced
+  // row, since idx_work_items_issue is non-unique). Running the backfill one last
+  // time and then DROPPING the table fixes this permanently: deletes are durable
+  // because there is no frozen copy left to resurrect from. A row deleted BEFORE
+  // this upgrade resurrects at most once (at the upgrade boot); after that the
+  // table is gone and every delete sticks.
+  //
+  // The app_config flag (not just hasTable) guards the multi-process boot race —
+  // the main server + per-run stdio MCP children all run migrate() on their own
+  // connections — and any exotic re-appearance of the table (e.g. an old fixture
+  // restored over a migrated DB) from silently re-running the backfill.
+  //
+  // Runs AFTER the work_items project columns above exist and AFTER the
+  // project_tasks legacy-upgrade ALTER earlier in migrate(), so every SELECT
+  // column is present. Idempotent within the one shot (NOT EXISTS keys on the
+  // reused project_task id === work_item id). project_tasks.status values
+  // (open/in_progress/done) all satisfy the work_items status CHECK. run_id is
+  // NULL (project-scoped, not run-scoped); scope is stamped 'project'. No
+  // foreign_keys toggling is needed for the DROP: nothing references INTO
+  // project_tasks (its own FK out to projects simply disappears with it).
+  d.exec("CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+  const D2B_FLAG = 'mig_project_tasks_drop'
+  const d2bDone = d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(D2B_FLAG)
+  if (hasTable(d, 'work_items') && hasTable(d, 'project_tasks') && !d2bDone) {
+    const applyProjectTasksDrop = d.transaction(() => {
+      // Race re-check INSIDE the lock: the pre-check above is the fast path but is
+      // computed BEFORE .immediate() acquires the write lock — a process that lost
+      // the boot race must no-op instead of re-running against the dropped table.
+      if (d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(D2B_FLAG)) return
+      d.exec(`
+        INSERT INTO work_items (id, run_id, project_id, title, body, status, scope, created_at, updated_at, completed_at, issue_number, issue_url, issue_state)
+        SELECT pt.id, NULL, pt.project_id, pt.title, NULL, pt.status, 'project', pt.created_at, pt.created_at, pt.completed_at, pt.issue_number, pt.issue_url, pt.issue_state
+        FROM project_tasks pt
+        WHERE NOT EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = pt.id)
+      `)
+      d.exec(`DROP TABLE project_tasks`)
+      d.prepare(`INSERT INTO app_config (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(D2B_FLAG)
+    })
+    applyProjectTasksDrop.immediate()
   }
   // agent_profiles.default_model reset (B1). Historically seeds froze the literal
   // 'claude-sonnet-4-6' into every row, which silently pinned org runs and bypassed
@@ -763,6 +788,48 @@ export function migrate(d: Database.Database): void {
     } else {
       applyRunScopeMigration.immediate()
     }
+  }
+
+  // (project_id, issue_number) dedupe + partial UNIQUE index (P5.1d2b): closes the
+  // syncIssues double-mirror hole — the pre-existing idx_work_items_issue is
+  // NON-unique, and getProjectTaskByIssue had no ORDER BY, so one GitHub issue
+  // could mirror into two scope='project' rows (e.g. a resurrected pre-d2a row
+  // racing a re-synced one). Dedupe first (creating a unique index over dups
+  // throws): the survivor is the newest created_at, rowid DESC as a deterministic
+  // tiebreak. `AND project_id IS NOT NULL` keeps NULL-project rows out of the
+  // dedupe partitions (SQLite window PARTITION BY groups NULLs together, while
+  // the partial unique index treats NULLs as distinct anyway). Guarded on the
+  // index's absence AND created with IF NOT EXISTS, matching the events-dedupe
+  // idiom: the absence pre-check skips the (idempotent) DELETE on later boots,
+  // while IF NOT EXISTS absorbs the multi-process boot race — two connections
+  // can both pass the pre-check, and the loser must no-op instead of throwing
+  // "index already exists" out of its boot.
+  //
+  // MUST stay AFTER the run-scope rebuild above: the rebuild drops + recreates
+  // work_items with only its own CREATE-INDEX list (which deliberately excludes
+  // this index — the rebuild copies rows BEFORE dedupe could run, so creating the
+  // unique index there could throw on a dup-carrying DB). On the one upgrade boot
+  // where both run, the rebuild happens first, then this block dedupes and
+  // recreates the index.
+  if (
+    hasTable(d, 'work_items') &&
+    !d.prepare(`SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_work_items_project_issue'`).get()
+  ) {
+    d.exec(`
+      DELETE FROM work_items
+      WHERE scope = 'project' AND issue_number IS NOT NULL AND project_id IS NOT NULL
+        AND rowid NOT IN (
+          SELECT rowid FROM (
+            SELECT rowid, ROW_NUMBER() OVER (
+              PARTITION BY project_id, issue_number
+              ORDER BY created_at DESC, rowid DESC
+            ) AS rn
+            FROM work_items
+            WHERE scope = 'project' AND issue_number IS NOT NULL AND project_id IS NOT NULL
+          ) WHERE rn = 1
+        )
+    `)
+    d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_project_issue ON work_items(project_id, issue_number) WHERE scope = 'project' AND issue_number IS NOT NULL`)
   }
 
   // agent_memory.profile_id backfill (A1): resolve each pre-existing gated lesson's
@@ -913,12 +980,14 @@ const countActiveProjectRuns = db.prepare(
   `SELECT COUNT(*) AS n FROM runs WHERE project_id = ? AND status IN ('running','queued','awaiting_input')`,
 )
 
-// Hard-delete a project and everything hanging off it. project_tasks,
-// workflow_runs and project_graphs cascade automatically (ON DELETE CASCADE); but
-// runs, verification_reports, a run's events, and github_cache have NO cascade, so
-// they're cleaned explicitly in FK-safe order inside one transaction. Deleting the
-// runs first lets workflow_runs.run_id (ON DELETE SET NULL) resolve before the
-// project row (and its workflow_runs) cascade away.
+// Hard-delete a project and everything hanging off it. workflow_runs and
+// project_graphs cascade automatically (ON DELETE CASCADE); but runs,
+// verification_reports, a run's events, github_cache, and project-scoped
+// work_items have NO cascade, so they're cleaned explicitly in FK-safe order
+// inside one transaction. Deleting the runs first lets workflow_runs.run_id
+// (ON DELETE SET NULL) resolve before the project row (and its workflow_runs)
+// cascade away. (project_tasks used to cascade here too — the table was fully
+// collapsed into work_items and dropped in P5.1d2b.)
 //
 // skill_runs/skill_evals are deliberately NOT touched: they are SKILL-scoped history
 // (anchored to skills.id), and skill-triggered runs are launched with no projectId
@@ -944,7 +1013,7 @@ const deleteProject = db.transaction((id: string) => {
   deleteProjectReports.run(id)
   deleteProjectGithubCache.run(id)
   deleteProjectWorkItems.run(id) // project-scoped work_items: NO-ACTION FK, delete before the project row
-  deleteProjectRow.run(id) // cascades the (deprecated, frozen) project_tasks, workflow_runs, project_graphs
+  deleteProjectRow.run(id) // cascades workflow_runs + project_graphs (project_tasks is gone — dropped in P5.1d2b)
 })
 
 export const projectsDb = {
@@ -1027,15 +1096,18 @@ export function rowToReport(r: Record<string, unknown>): VerificationReport {
 }
 
 // ─── ProjectTask helpers ─────────────────────────────────────────────────────
-// COLLAPSED (P5.1d2, D-026): these helpers now operate on the unified `work_items`
-// store with scope='project' instead of the deprecated (frozen) `project_tasks`
-// table. Param names/positions are UNCHANGED so every caller (routes/projects.ts,
-// github.ts, workflows.ts) and the characterization tests bind the same objects;
-// each SELECT projects the EXACT old snake_case column set so rowToProjectTask and
-// tests reading t.issue_number / t.completed_at keep working. run_id is stamped NULL
-// (project-scoped, not run-scoped) and updated_at reuses created_at on insert (the
-// old project_tasks store had no updated_at). better-sqlite3 binds named params
-// strictly, so each statement references exactly the params its callers pass.
+// FIRST-CLASS project surface of the unified work_items store (P5.1d2b, D-026).
+// No longer a compat shim over a frozen table — project_tasks was fully collapsed
+// into work_items(scope='project') and dropped in migrate(). Statement member
+// names keep the ProjectTask domain vocabulary because that is the HTTP/product
+// concept the routes expose. Param names/positions are unchanged (except
+// updateProjectTaskFromIssue, which now also binds @projectId — cross-project
+// defense); each SELECT projects the EXACT old snake_case column set so
+// rowToProjectTask and tests reading t.issue_number / t.completed_at keep working.
+// run_id is stamped NULL (project-scoped, not run-scoped) and updated_at reuses
+// created_at on insert (the old project_tasks store had no updated_at).
+// better-sqlite3 binds named params strictly, so each statement references exactly
+// the params its callers pass.
 
 const insertProjectTask = db.prepare(`
   INSERT INTO work_items (id, run_id, project_id, title, body, status, scope, created_at, updated_at, completed_at, issue_number, issue_url, issue_state)
@@ -1060,22 +1132,30 @@ const getProjectTask = db.prepare(`
 
 const deleteProjectTask = db.prepare(`DELETE FROM work_items WHERE id = ? AND project_id = ? AND scope = 'project'`)
 
-// Issue-sync lookup: a task already mirroring a given (project, issue#).
+// Issue-sync lookup: a task already mirroring a given (project, issue#). The
+// partial unique index idx_work_items_project_issue makes the pair single-row;
+// ORDER BY newest-first + LIMIT 1 is the belt keeping this deterministic even if
+// that index were ever absent — the SAME tiebreak as the migrate() dedupe's
+// survivor rule (created_at DESC, rowid DESC), so both always pick the same row.
 const getProjectTaskByIssue = db.prepare(`
   SELECT id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state
   FROM work_items WHERE project_id = ? AND issue_number = ? AND scope = 'project'
+  ORDER BY created_at DESC, rowid DESC LIMIT 1
 `)
 
 // Reconcile an existing task with its upstream issue. status/completed_at are
 // decided by the caller (sync mapping); title and issue metadata always refresh.
+// project_id is bound as cross-project defense: id is the PK today, but an
+// unbound project_id would let a caller-supplied foreign id update another
+// project's row.
 const updateProjectTaskFromIssue = db.prepare(`
   UPDATE work_items
   SET title = @title, issue_url = @issueUrl, issue_state = @issueState,
       status = @status, completed_at = @completedAt
-  WHERE id = @id AND scope = 'project'
+  WHERE id = @id AND project_id = @projectId AND scope = 'project'
 `)
 
-export const projectTasksDb = {
+export const projectWorkItemsDb = {
   insertProjectTask,
   listProjectTasks,
   updateProjectTaskStatus,
@@ -1085,8 +1165,8 @@ export const projectTasksDb = {
   updateProjectTaskFromIssue,
 }
 
-/** Map a project_tasks DB row → the shared ProjectTask shape (snake_case →
- *  camelCase, values coerced to their typed forms; nullable cols → null). The
+/** Map a project-scoped work_items DB row → the shared ProjectTask shape
+ *  (snake_case → camelCase, values coerced to typed forms; nullable cols → null). The
  *  single source for this mapping — previously copy-pasted in workflows.ts (typed,
  *  internal) and routes/projects.ts (untyped, HTTP). For a well-formed row the
  *  coercion is JSON-identical to the old raw route mapper (sqlite already returns

@@ -18,7 +18,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import type { FastifyInstance } from 'fastify'
 import { v4 as uuid } from 'uuid'
 import type { IssueInfo, Project, WorkItem } from '@k/shared'
-import { db, runsDb, projectsDb, projectTasksDb } from '../src/db.js'
+import { db, runsDb, projectsDb, projectWorkItemsDb } from '../src/db.js'
 import { kStoreTools, KStoreError, type KStoreContext } from '../src/mcp/k-store.js'
 import { syncIssues } from '../src/github.js'
 
@@ -261,7 +261,7 @@ describe('P5.1d char: syncIssues mapping', () => {
   }
 
   function tasksFor(projectId: string): Array<Record<string, unknown>> {
-    return projectTasksDb.listProjectTasks.all(projectId) as Array<Record<string, unknown>>
+    return projectWorkItemsDb.listProjectTasks.all(projectId) as Array<Record<string, unknown>>
   }
 
   const fetcher = (issues: IssueInfo[]) => async () => issues
@@ -294,7 +294,7 @@ describe('P5.1d char: syncIssues mapping', () => {
   })
 
   it('existing open task with a now-closed issue → done', async () => {
-    projectTasksDb.insertProjectTask.run({
+    projectWorkItemsDb.insertProjectTask.run({
       id: uuid(),
       projectId: project.id,
       title: 't',
@@ -312,7 +312,7 @@ describe('P5.1d char: syncIssues mapping', () => {
   })
 
   it('existing done task with a now-open issue → reopened to open', async () => {
-    projectTasksDb.insertProjectTask.run({
+    projectWorkItemsDb.insertProjectTask.run({
       id: uuid(),
       projectId: project.id,
       title: 't',

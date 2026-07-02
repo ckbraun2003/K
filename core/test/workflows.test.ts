@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, projectsDb, projectTasksDb, workflowRunsDb } from '../src/db.js'
+import { db, projectsDb, projectWorkItemsDb, workflowRunsDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { startRun } from '../src/supervisor.js'
 import type { Project, ProjectTask, Run } from '@k/shared'
@@ -105,7 +105,7 @@ describe('dispatchTaskWorkflow', () => {
       createdAt: project.createdAt,
     })
     for (const [id, title] of [[taskA, 'Task A'], [taskB, 'Task B'], [taskC, 'Task C']] as const) {
-      projectTasksDb.insertProjectTask.run({
+      projectWorkItemsDb.insertProjectTask.run({
         id, projectId: project.id, title, status: 'open', createdAt: Date.now(),
         completedAt: null, issueNumber: null, issueUrl: null, issueState: null,
       })

@@ -105,6 +105,9 @@ export const ProjectSchema = z.object({
   bibleDir: z.string().default('docs/bible'),
   healthScore: z.number().min(0).max(100).optional(),
   lastVerifiedAt: z.number().optional(), // unix ms
+  // derived at read time (never persisted) — true when localPath no longer exists
+  // on disk, so the UI can badge the project and the GitHub poller skips it.
+  pathMissing: z.boolean().optional(),
   createdAt: z.number(),
 })
 export type Project = z.infer<typeof ProjectSchema>

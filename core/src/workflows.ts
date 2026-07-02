@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'crypto'
 import type { Project, ProjectTask } from '@k/shared'
-import { projectTasksDb, workflowRunsDb, rowToProjectTask } from './db.js'
+import { projectWorkItemsDb, workflowRunsDb, rowToProjectTask } from './db.js'
 import { startRun } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
 
@@ -126,7 +126,7 @@ export async function dispatchTaskWorkflow(
   // 1. Load every task, scoped to this project. Any miss → throw (route → 400).
   const tasks: ProjectTask[] = []
   for (const taskId of taskIds) {
-    const row = projectTasksDb.getProjectTask.get(taskId, project.id) as
+    const row = projectWorkItemsDb.getProjectTask.get(taskId, project.id) as
       | Record<string, unknown>
       | undefined
     if (!row) throw new TaskNotFoundError(taskId)
@@ -135,7 +135,7 @@ export async function dispatchTaskWorkflow(
 
   // 2. Lock the selected tasks as in_progress.
   for (const task of tasks) {
-    projectTasksDb.updateProjectTaskStatus.run({
+    projectWorkItemsDb.updateProjectTaskStatus.run({
       id: task.id,
       projectId: project.id,
       status: 'in_progress',
@@ -173,7 +173,7 @@ export async function dispatchTaskWorkflow(
   } catch (e) {
     workflowRunsDb.updateWorkflowRunStatus.run('failed', Date.now(), workflowRunId)
     for (const task of tasks) {
-      projectTasksDb.updateProjectTaskStatus.run({
+      projectWorkItemsDb.updateProjectTaskStatus.run({
         id: task.id,
         projectId: project.id,
         status: task.status,

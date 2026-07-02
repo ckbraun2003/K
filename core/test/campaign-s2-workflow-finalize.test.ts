@@ -21,7 +21,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, runsDb, projectsDb, projectTasksDb, workflowRunsDb } from '../src/db.js'
+import { db, runsDb, projectsDb, projectWorkItemsDb, workflowRunsDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { startRun } from '../src/supervisor.js'
 import { kStoreTools, type KStoreContext } from '../src/mcp/k-store.js'
@@ -131,7 +131,7 @@ describe('S2-016: a successful dispatch never auto-marks the todos done', () => 
     const taskA = uuid()
     const taskB = uuid()
     for (const [id, title] of [[taskA, 'todo A'], [taskB, 'todo B']] as const) {
-      projectTasksDb.insertProjectTask.run({
+      projectWorkItemsDb.insertProjectTask.run({
         id, projectId: PROJECT_ID, title, status: 'open', createdAt: Date.now(),
         completedAt: null, issueNumber: null, issueUrl: null, issueState: null,
       })
