@@ -667,7 +667,7 @@ export function migrate(d: Database.Database): void {
   // "use runtime default" sentinel — see rowToAgentProfile); an operator-set override
   // that DIFFERS survives. One-shot so an operator explicitly re-pinning
   // 'claude-sonnet-4-6' later is never wiped by a subsequent boot.
-  if (hasTable(d, 'agent_profiles') && hasTable(d, 'app_config')) {
+  if (hasTable(d, 'agent_profiles') && hasColumn(d, 'agent_profiles', 'default_model') && hasTable(d, 'app_config')) {
     const FLAG = 'migration.agentProfileModelReset.v1'
     if (!d.prepare(`SELECT value FROM app_config WHERE key = ?`).get(FLAG)) {
       d.prepare(`UPDATE agent_profiles SET default_model = '' WHERE default_model = 'claude-sonnet-4-6'`).run()
