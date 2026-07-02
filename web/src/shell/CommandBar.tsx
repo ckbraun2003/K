@@ -11,6 +11,7 @@ import { parseProjectQuery, decideEnterMode } from '../lib/command-parse'
 import { modalCard, overlayFade, dialogCard } from '../lib/motion'
 import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
 import { buildModelOptions, modelChoiceToOpts } from '../lib/run-models'
+import { useAskK } from '../lib/useAskK'
 import AutoTextarea from '../components/AutoTextarea'
 import MicButton from '../components/MicButton'
 import Toast from '../components/Toast'
@@ -49,9 +50,10 @@ export default function CommandBar({ open, onClose }: Props) {
   // Interactive (multi-turn): keep the agent's stdin open so the operator can
   // answer its questions / send follow-ups. Claude-only; ignored for local runs.
   const [interactive, setInteractive] = useState(false)
-  // After a send to K's front door: holds the just-started run so the Undo toast
-  // (rendered outside the bar so it survives close) can kill it. null = no toast.
-  const [pendingUndo, setPendingUndo] = useState<{ runId: string; route: KRoute } | null>(null)
+  // K's front door + 5s Undo window — shared with K-home (P5.1f). Holds the just-
+  // started run so the Undo toast (rendered outside the bar so it survives close)
+  // can kill it; also owns the ask-path busy/error mirrored into the footer below.
+  const ask = useAskK()
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const confirmRunRef = useRef<HTMLButtonElement>(null)
@@ -66,8 +68,18 @@ export default function CommandBar({ open, onClose }: Props) {
   const modelOptions = useMemo(() => buildModelOptions(status?.ollama), [status])
 
   useEffect(() => {
-    if (open) { setQuery(''); setSelected(0); setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setPromptDraft(''); setInteractive(false); setTimeout(() => inputRef.current?.focus(), 50) }
+    if (open) { setQuery(''); setSelected(0); setError(null); ask.setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setPromptDraft(''); setInteractive(false); setTimeout(() => inputRef.current?.focus(), 50) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // A successful send is the only thing that sets a pending-undo entry — treat that
+  // transition as the "sent" signal and close the bar (the Undo toast lives outside
+  // the open gate, so it survives). A failed send leaves pendingUndo null → bar stays
+  // open showing the footer error.
+  useEffect(() => {
+    if (ask.pendingUndo) onClose()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ask.pendingUndo])
 
   // A new query invalidates a manual navigate/dispatch override — fall back to the default.
   useEffect(() => { setModeOverride(null) }, [query])
@@ -167,8 +179,13 @@ export default function CommandBar({ open, onClose }: Props) {
       return
     }
     if (item.kind === 'ask-k') {
-      // Compose-is-confirm: sending to K's front door needs no preview card.
-      void askK(item)
+      // Compose-is-confirm: sending to K's front door needs no preview card. The
+      // shared hook trims/guards re-entry, sets the undo window + navigates; the
+      // onClose-on-pendingUndo effect closes the bar on success. Clear any lingering
+      // dispatch-path error first so the footer's `error ?? ask.error` can't show a
+      // stale @project failure over a fresh ask error.
+      setError(null)
+      void ask.send(item.label)
       return
     }
     // dispatch-project (@project) → compose-and-confirm card before firing.
@@ -193,34 +210,6 @@ export default function CommandBar({ open, onClose }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally { busyRef.current = false; setBusy(false) }
-  }
-
-  // Send the composed message to K's front door (compose-is-confirm — no card).
-  // Optimistic: opens the run console immediately and raises an Undo toast that
-  // kills the just-started run if the operator changes their mind.
-  async function askK(item: Extract<Item, { kind: 'ask-k' }>) {
-    if (busy || busyRef.current) return
-    const message = item.label.trim()
-    if (!message) return
-    busyRef.current = true; setBusy(true); setError(null)
-    try {
-      const result = await api.k.ask(message)
-      setPendingUndo({ runId: result.runId, route: result.route })
-      onClose()
-      navigate('runs', result.runId)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally { busyRef.current = false; setBusy(false) }
-  }
-
-  // Undo a just-sent K message (best-effort kill of the started run). Capture the
-  // pending entry into a local BEFORE clearing so the Toast's onDismiss (which
-  // also nulls pendingUndo) can't race the read.
-  async function undoAskK() {
-    const p = pendingUndo
-    if (!p) return
-    setPendingUndo(null)
-    try { await api.runs.kill(p.runId) } catch { /* best-effort */ }
   }
 
   // Compose-box keys: Enter sends, Shift+Enter inserts a newline, Esc cancels
@@ -370,7 +359,9 @@ export default function CommandBar({ open, onClose }: Props) {
                 </button>
               )}
               <span className="ml-auto">
-                {busy ? '⏳ dispatching…' : error ? `⚠ ${error}` : '↑↓ select · ↵ run · esc close'}
+                {/* Dispatch (busy/error) and the ask-K path (ask.busy/ask.error) share
+                    this footer line — mirror both so a failed K send shows here too. */}
+                {busy || ask.busy ? '⏳ dispatching…' : (error ?? ask.error) ? `⚠ ${error ?? ask.error}` : '↑↓ select · ↵ run · esc close'}
               </span>
             </div>
           </motion.div>
@@ -483,12 +474,12 @@ export default function CommandBar({ open, onClose }: Props) {
     {/* Undo toast — rendered OUTSIDE the open-gated bar so it survives the bar
         closing after a send (CommandBar stays mounted in Shell when closed). */}
     <Toast
-      open={pendingUndo !== null}
+      open={ask.pendingUndo !== null}
       testid="ask-k-undo-toast"
       durationMs={5000}
-      message={<>Sent to K · <span className="text-[var(--text)]">{pendingUndo?.route.label}</span></>}
-      action={{ label: 'Undo', testid: 'ask-k-undo', onClick: () => void undoAskK() }}
-      onDismiss={() => setPendingUndo(null)}
+      message={<>Sent to K · <span className="text-[var(--text)]">{ask.pendingUndo?.route.label}</span></>}
+      action={{ label: 'Undo', testid: 'ask-k-undo', onClick: () => void ask.undo() }}
+      onDismiss={ask.clearUndo}
     />
     </>
   )

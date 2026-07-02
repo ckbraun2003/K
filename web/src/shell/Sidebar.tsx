@@ -16,22 +16,29 @@ export interface Destination {
    *  (kept only so TopBar/⌘K can resolve a label for a view reached indirectly, e.g.
    *  the Docs view reached via Help — Docs is no longer a top-level destination). */
   section: 'primary' | 'footer' | 'hidden'
+  /** Which primary sub-group the entry renders under (D-024/D-026): `direct` = talk to
+   *  / drive the org, `observe` = read-only telemetry. Only meaningful for `primary`
+   *  entries; footer/hidden leave it undefined. Orthogonal to `section` (which stays
+   *  the source of truth for NAV_DESTINATIONS, TopBar, and the chords invariant). */
+  group?: 'direct' | 'observe'
 }
 
 export const DESTINATIONS: Destination[] = [
-  { id: 'home', icon: '⌂', label: 'Home', hint: 'Fleet overview, metrics & getting started', enabled: true, section: 'primary' },
-  { id: 'chief', icon: '♛', label: 'Chief', hint: 'Org overview — objectives & delegation tree', enabled: true, section: 'primary' },
-  { id: 'orchestrators', icon: '❖', label: 'Orchestrators', hint: 'Domain leads — roster, charters & authority', enabled: true, section: 'primary' },
-  { id: 'projects', icon: '▦', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary' },
-  { id: 'graph', icon: '◉', label: 'Fleet Graph', hint: 'Visualize every project by health', enabled: true, section: 'primary' },
-  { id: 'runs', icon: '▶', label: 'Runs', hint: 'Live & past agent runs', enabled: true, section: 'primary' },
-  { id: 'workflows', icon: '⋔', label: 'Workflows', hint: 'Delegation workflow & live sub-agent trees', enabled: true, section: 'primary' },
-  { id: 'skills', icon: '⚒', label: 'Skills', hint: 'Author & trigger reusable skills', enabled: true, section: 'primary' },
-  { id: 'metrics', icon: '∿', label: 'Metrics', hint: 'Tokens, cost & run trends', enabled: true, section: 'primary' },
-  { id: 'routing', icon: '⇄', label: 'Routing', hint: 'Model routing stats', enabled: true, section: 'primary' },
-  { id: 'evals', icon: '⊨', label: 'Evals', hint: 'Agent & skill behavioral evals + baselines', enabled: true, section: 'primary' },
-  { id: 'memory', icon: '❋', label: 'Memory', hint: 'Review & approve proposed agent lessons', enabled: true, section: 'primary' },
-  { id: 'terminal', icon: '>_', label: 'Terminal', hint: 'Embedded shell', enabled: true, section: 'primary' },
+  // ── Direct: talk to / drive the org ──
+  { id: 'home', icon: '⌂', label: 'K', hint: 'Talk to K — your front door to the org', enabled: true, section: 'primary', group: 'direct' },
+  { id: 'chief', icon: '♛', label: 'Chief', hint: 'Org overview — objectives & delegation tree', enabled: true, section: 'primary', group: 'direct' },
+  { id: 'orchestrators', icon: '❖', label: 'Orchestrators', hint: 'Domain leads — roster, charters & authority', enabled: true, section: 'primary', group: 'direct' },
+  { id: 'workflows', icon: '⋔', label: 'Workflows', hint: 'Delegation workflow & live sub-agent trees', enabled: true, section: 'primary', group: 'direct' },
+  { id: 'projects', icon: '▦', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary', group: 'direct' },
+  { id: 'skills', icon: '⚒', label: 'Skills', hint: 'Author & trigger reusable skills', enabled: true, section: 'primary', group: 'direct' },
+  { id: 'memory', icon: '❋', label: 'Memory', hint: 'Review & approve proposed agent lessons', enabled: true, section: 'primary', group: 'direct' },
+  // ── Observe: read-only telemetry ──
+  { id: 'runs', icon: '▶', label: 'Runs', hint: 'Live & past agent runs', enabled: true, section: 'primary', group: 'observe' },
+  { id: 'graph', icon: '◉', label: 'Fleet Graph', hint: 'Visualize every project by health', enabled: true, section: 'primary', group: 'observe' },
+  { id: 'metrics', icon: '∿', label: 'Metrics', hint: 'Tokens, cost & run trends', enabled: true, section: 'primary', group: 'observe' },
+  { id: 'routing', icon: '⇄', label: 'Routing', hint: 'Model routing stats', enabled: true, section: 'primary', group: 'observe' },
+  { id: 'evals', icon: '⊨', label: 'Evals', hint: 'Agent & skill behavioral evals + baselines', enabled: true, section: 'primary', group: 'observe' },
+  { id: 'terminal', icon: '>_', label: 'Terminal', hint: 'Embedded shell', enabled: true, section: 'primary', group: 'observe' },
   // Footer cluster — secondary, lives below the spacer.
   { id: 'help', icon: '❔', label: 'Help', hint: 'How to use K — the user guide', enabled: true, view: 'docs', param: 'project-bible', section: 'footer' },
   { id: 'settings', icon: '⚙', label: 'Settings', hint: 'Provider/auth status & global system prompt', enabled: true, section: 'footer' },
@@ -53,7 +60,16 @@ export default function Sidebar({
   onToggleCollapse: () => void
 }) {
   const primary = DESTINATIONS.filter(d => d.section === 'primary')
+  const direct = primary.filter(d => d.group === 'direct')
+  const observe = primary.filter(d => d.group === 'observe')
   const footer = DESTINATIONS.filter(d => d.section === 'footer')
+
+  // Uppercase tracked group label — only rendered when the rail is expanded.
+  const groupLabel = (text: string) => (
+    <div className="mb-0.5 mt-1 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+      {text}
+    </div>
+  )
 
   const renderButton = (d: Destination) => {
     const target = d.view ?? d.id
@@ -119,7 +135,18 @@ export default function Sidebar({
         )}
       </div>
 
-      {primary.map(renderButton)}
+      {/* Direct — talk to / drive the org. */}
+      {!collapsed && groupLabel('Direct')}
+      {direct.map(renderButton)}
+
+      {/* Observe — read-only telemetry. Collapsed: a hairline divider stands in for
+          the group label so the two clusters stay visually distinct in the rail. */}
+      {collapsed ? (
+        <div className="my-1.5 h-px w-6 self-center bg-[var(--border)]" aria-hidden />
+      ) : (
+        groupLabel('Observe')
+      )}
+      {observe.map(renderButton)}
 
       <div className="flex-1" />
 

@@ -4,7 +4,7 @@ import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import ActivityStrip from './ActivityStrip'
 import CommandBar from './CommandBar'
-import Home from '../pages/Home'
+import KHome from '../pages/KHome'
 import RunsPage from '../pages/RunsPage'
 import DocsPage from '../pages/DocsPage'
 import ProjectsPage from '../pages/ProjectsPage'
@@ -115,7 +115,7 @@ export default function Shell() {
             animate="visible"
             exit="exit"
           >
-            {route.view === 'home' && <Home />}
+            {route.view === 'home' && <KHome />}
             {route.view === 'chief' && <ChiefPage />}
             {route.view === 'orchestrators' && <OrchestratorsPage />}
             {route.view === 'orchestrator' && <OrchestratorDetailPage id={route.param} />}

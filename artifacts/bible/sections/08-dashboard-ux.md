@@ -16,11 +16,12 @@ a scoped prefill of the K composer), **one org-status home** (Chief), **compose-
 (a full confirm-card only on escalation), a **unified scoped work-item model**, and de-duplicated
 metrics, trees, and authority panels.
 
-> **Status.** The agent-first surfaces below (K-home, Chief, Orchestrators + detail, Workflows +
-> detail, the org/MCP authority panel) are **PLANNED (Phase 5)** — this section is their UI spec.
+> **Status.** The **K-home landing** (P5.1f), **Chief** (P5.2a/b), and **Orchestrators + detail**
+> (P5.3a) now **ship**; the **Direct / Observe** sidebar regroup landed with K-home (P5.1f). Still
+> **PLANNED (Phase 5+)**: **Workflows + detail** and the **Settings org-default authority/MCP panel**.
 > The surfaces they reorganize (Runs + rich console, Graph, Metrics, Routing, Terminal, Settings,
-> the 7 project tabs) **exist today**; this section is now a *spec*, and the as-built implementation
-> history (Phases G / H / 4) lives in §13 Observability → *Implementation history*.
+> the 7 project tabs) **exist today**; this section is a *spec + as-built*, and the older observability
+> implementation history (Phases G / H / 4) lives in §13 Observability → *Implementation history*.
 
 ## Frame — four persistent zones
 
@@ -67,6 +68,17 @@ The active destination sits on a translucent-blush glass pill; `g` + first lette
 collapses to icons-only (state persisted). **Docs is not a top-level destination** — artifacts live
 per-project in the workspace Artifacts tab, and the bible stays reachable via footer Help.
 
+> **As-built (P5.1f).** The regroup ships in `web/src/shell/Sidebar.tsx`: a `group?: 'direct' |
+> 'observe'` field is added **orthogonally to** the existing `section` field (`primary`/`footer`/
+> `hidden`), which stays the source of truth for `NAV_DESTINATIONS`, `TopBar` label resolution, and
+> the **destination↔chord invariant test** (`web/test/chords.test.ts`, unchanged). **Direct** = K ·
+> Chief · Orchestrators · Workflows · Projects · Skills · Memory; **Observe** = Runs · Graph · Metrics
+> · Routing · Evals · Terminal; **footer** = Settings · Help. (Skills + Memory — authoring/governance
+> surfaces not tabled in D-024 — sit in Direct as "shape the org"; Evals sits in Observe per this
+> section's table.) Expanded rail shows "Direct"/"Observe" labels; collapsed rail shows a hairline
+> divider between the clusters. **K-home is the default `home` view** — the `home` route id is kept
+> (so every chord/route/test that references it is unchanged) and the destination is relabeled "K".
+
 ### ⌘K / K — the one front door
 
 **K (⌘K) is the only dispatch surface.** One input, two behaviors ranked in a single result list:
@@ -83,8 +95,9 @@ reads *Ask K: …* with the `routeForMessage` preview shown **inline as you type
 row); **Enter sends immediately** (compose-is-confirm, no card — D-026) via `api.k.ask`, opens the
 run console on the returned `runId`, and raises a **5 s undo** toast whose *Undo* kills that run
 within the window. Voice rides the same box (MicButton transcript → composer text). `@project`
-queries still use the compose-and-confirm card → `api.runs.start`. (The K-home landing —
-work-items · recent feed · glance-to-Chief — is a later wave.)
+queries still use the compose-and-confirm card → `api.runs.start`. **The K-home landing —
+work-items · recent feed · glance-to-Chief — ships in P5.1f** (below); the send/undo orchestration
+is now a shared `useAskK` hook (`web/src/lib/useAskK.ts`) that both ⌘K and K-home drive identically.
 
 **Every per-screen `⚡` is a scoped prefill of this one composer** — it opens K pre-targeted to the
 lead / project / symbol in view (and pre-fills the route), never an independent dispatch surface.
@@ -113,6 +126,20 @@ The friendly face, kept **calm** — **no metrics bar**. The layout is just:
 K never shows code-authority controls (it has none). A dispatched engineering request just sends with
 the **5 s undo** toast and an inline route; results bubble back into the conversation with a
 **toast-with-link** to the run. The richer org status lives on Chief, one click away.
+
+> **What ships (P5.1f).** `web/src/pages/KHome.tsx` (the default `home` view) renders, top-to-bottom:
+> a **time-aware greeting**; a **one-line glance-to-Chief** (`leadsActive` + objectives-in-flight,
+> linking to Chief); the **Ask-K composer** — an input + push-to-talk **MicButton** + inline
+> `routeForMessage` preview + a single **Send** (no interactive/force-lead/model controls) wired to the
+> shared **`useAskK`** hook (`api.k.ask` → open run console → **5 s undo** toast whose *Undo* kills the
+> run); a **work-in-flight** list; and a **recent feed** of the latest runs (View-run links). It issues
+> exactly **two batched reads on shared cache keys** — `chief-org` (glance + work-items) and `runs`
+> (feed) — plus `status` for the mic gate, with **no per-item fan-out**. **Work-items source:** because
+> the unified cross-scope `work_items` HTTP surface is **deferred** (D-026 — the shipped `work_items`
+> table is run-scoped only, D-034), K-home sources its work list from the **org objectives**
+> (`api.chief.org` `assignments`, scope=org) with a caption noting **personal-scope items are pending**
+> that later wave. Notes/Schedule (logistics, D-039) and the warm K-home color tokens are **not** in
+> P5.1f (the hero uses the existing `.glass-tint` surface).
 
 ### Chief — the single org-status home
 
