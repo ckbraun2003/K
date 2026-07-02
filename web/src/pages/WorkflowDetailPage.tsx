@@ -95,7 +95,7 @@ export default function WorkflowDetailPage({ id }: { id?: string }) {
         </button>
         <h1 className="text-sm font-semibold text-[var(--text)]">{detail.name}</h1>
         {detail.crossProject && (
-          <span className="rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#241640]">
+          <span className="rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--on-accent)]">
             cross-project
           </span>
         )}

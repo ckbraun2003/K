@@ -5,6 +5,7 @@ import type { Run, WsMessage } from '@k/shared'
 import { api } from '../lib/api'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
+import { RUNS_LIST_KEY, RUNS_LIST_LIMIT, runsListQueryFn } from '../lib/runs-query'
 import ConfirmDialog from './ConfirmDialog'
 
 interface Props {
@@ -57,20 +58,23 @@ export default function RunList({ selectedId, onSelect }: Props) {
   const [pendingKill, setPendingKill] = useState<Run | null>(null)
   const [killing, setKilling] = useState(false)
 
-  // ['runs'] is the shared default-list cache (RunList + ActivityStrip + CommandBar,
-  // live-patched by run_update). limit:100 === the server default, so the shared key
-  // is correct — a *filtered* or non-default-limit list must use a distinct queryKey.
+  // The shared default-list cache (RunList + ActivityStrip + CommandBar + KHome +
+  // Sidebar), live-patched by run_update. Key + fn come from runs-query.ts so the
+  // consumers can't drift — a *filtered* or non-default-limit list must use its
+  // own scoped queryKey, never this one.
   const { data: runs = [] } = useQuery<Run[]>({
-    queryKey: ['runs'],
-    queryFn: () => api.runs.list({ limit: 100 }),
+    queryKey: RUNS_LIST_KEY,
+    queryFn: runsListQueryFn,
     refetchInterval: 5_000,
   })
 
-  // Live updates via WebSocket
+  // Live updates via WebSocket — the setQueryData key must be EXACTLY the shared
+  // scoped key (a bare ['runs'] prefix would write a different cache entry and the
+  // live patch would silently stop reaching the list).
   useEffect(() => {
     return onWsMessage((msg: WsMessage) => {
       if (msg.type === 'run_update') {
-        qc.setQueryData<Run[]>(['runs'], old => {
+        qc.setQueryData<Run[]>(RUNS_LIST_KEY, old => {
           if (!old) return [msg.run]
           const idx = old.findIndex(r => r.id === msg.run.id)
           if (idx === -1) return [msg.run, ...old]
@@ -87,7 +91,7 @@ export default function RunList({ selectedId, onSelect }: Props) {
   // Footer totals over filtered set
   const totalCost = filteredRuns.reduce((acc, r) => acc + r.costUsd, 0)
   const totalTokens = filteredRuns.reduce((acc, r) => acc + r.tokensIn + r.tokensOut, 0)
-  const atLimit = runs.length === 100
+  const atLimit = runs.length === RUNS_LIST_LIMIT
 
   async function confirmKill() {
     if (!pendingKill) return

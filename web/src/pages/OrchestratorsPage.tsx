@@ -6,12 +6,13 @@ import { navigate } from '../lib/route'
 /**
  * Orchestrators roster (P5.3a) — the five discipline leads as slim cards. ONE batched
  * query (api.orchestrators.list) drives the whole page: no per-lead useQuery fan-out.
- * Each card shows the lead's name, its charter/tier chip, a live/idle status pill, a
- * wakes count, and an Open button into the param-routed detail view. Read-only here;
- * authority edits live in OrchestratorDetailPage.
+ * Each card shows the lead's name, a live/idle status pill, a wakes count, and an Open
+ * button into the param-routed detail view. (The charter chip was dropped — every card
+ * read "ORCHESTRATOR", carrying zero signal.) Read-only here; authority edits live in
+ * OrchestratorDetailPage.
  */
 
-/** One slim roster card. Light accents use dark-on-light text for WCAG. */
+/** One slim roster card. */
 function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
   const { profile, live, wakes } = entry
   return (
@@ -22,9 +23,6 @@ function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text)]">
           {profile.name}
-        </span>
-        <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#241640]">
-          {profile.charter}
         </span>
       </div>
 

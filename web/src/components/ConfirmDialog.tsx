@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useFocusTrap } from '../lib/useFocusTrap'
 
 interface Props {
   open: boolean
@@ -34,7 +35,11 @@ export default function ConfirmDialog({
   onCancel,
 }: Props) {
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
   const headingId = useId()
+
+  // a11y: keep Tab/Shift+Tab cycling inside the modal while it's open.
+  useFocusTrap(cardRef, open)
 
   // Focus the confirm button on open and wire global Enter/Escape so keyboard
   // handling matches the other dialogs even when focus is elsewhere.
@@ -58,6 +63,7 @@ export default function ConfirmDialog({
         >
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
           <motion.div
+            ref={cardRef}
             role="alertdialog"
             aria-modal="true"
             aria-labelledby={headingId}

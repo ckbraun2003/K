@@ -199,7 +199,7 @@ function DefinitionsSection() {
         <div className="mb-3 flex items-center gap-2">
           <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text)]">{selected.name}</h2>
           {selected.crossProject && (
-            <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#241640]">
+            <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--on-accent)]">
               cross-project
             </span>
           )}

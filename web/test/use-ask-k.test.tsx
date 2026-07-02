@@ -4,6 +4,8 @@
  *   - send(msg) calls api.k.ask once with the message, navigates to ('runs', runId),
  *     and sets pendingUndo to the returned run.
  *   - a trimmed-empty message is a no-op (no ask, no navigate).
+ *   - useAskK({ navigateOnSend: false }) sends + sets pendingUndo WITHOUT navigating
+ *     (the K-home policy — wave C1); the default stays navigate-on-send (⌘K).
  *   - undo() kills the pending run once via api.runs.kill and clears pendingUndo.
  *   - a rejected send surfaces the error and leaves pendingUndo null.
  * api + route.navigate are mocked (vi.hoisted, mirroring command-bar-ask-k.test).
@@ -71,6 +73,19 @@ describe('useAskK', () => {
     expect(mockAsk).not.toHaveBeenCalled()
     expect(mockNavigate).not.toHaveBeenCalled()
     expect(result.current.pendingUndo).toBeNull()
+  })
+
+  it('navigateOnSend:false sends + sets pendingUndo without navigating (K-home policy)', async () => {
+    const { result } = renderHook(() => useAskK({ navigateOnSend: false }))
+
+    let ok: boolean | undefined
+    await act(async () => { ok = await result.current.send(MSG) })
+
+    expect(ok).toBe(true)
+    expect(mockAsk).toHaveBeenCalledTimes(1)
+    expect(mockAsk).toHaveBeenCalledWith(MSG)
+    expect(mockNavigate).not.toHaveBeenCalled()
+    expect(result.current.pendingUndo).toEqual({ runId: 'run-123', route: routeForMessage(MSG) })
   })
 
   it('undo kills the pending run once and clears pendingUndo', async () => {

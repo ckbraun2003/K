@@ -127,6 +127,16 @@ describe('orgToDelegationTree', () => {
     expect(killed.status).toBe('error')
   })
 
+  it('a lead with no latest run but recorded wakes is idle with an "N wakes" meta (singular/plural)', () => {
+    const two = leadNode(lead({ wakes: [wake(), wake()] }))
+    expect(two.status).toBe('idle')
+    expect(two.meta).toBe('2 wakes')
+    expect(two.children).toEqual([])
+
+    const one = leadNode(lead({ wakes: [wake()] }))
+    expect(one.meta).toBe('1 wake')
+  })
+
   it('the Chief root is running only when a chief wake is live', () => {
     expect(orgToDelegationTree(payload()).status).toBe('idle')
     expect(orgToDelegationTree(payload({ chiefWakes: [wake({ status: 'running' })] })).status).toBe('running')
