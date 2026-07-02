@@ -37,6 +37,7 @@ const catalogData: OllamaCatalogResponse = {
   ],
 }
 const pullSpy = vi.fn(async () => ({ name: 'qwen2.5:0.5b', queued: true }))
+const cancelPullSpy = vi.fn(async (n: string) => ({ cancelled: n }))
 const setActiveSpy = vi.fn(async (m: string) => ({ active: m }))
 vi.mock('../src/lib/api', () => ({
   api: {
@@ -44,7 +45,7 @@ vi.mock('../src/lib/api', () => ({
       models: vi.fn(async () => modelsData),
       catalog: vi.fn(async () => catalogData),
       pull: (n: string) => pullSpy(n),
-      cancelPull: vi.fn(),
+      cancelPull: (n: string) => cancelPullSpy(n),
       setActive: (m: string) => setActiveSpy(m),
       remove: vi.fn(),
     },
@@ -68,7 +69,7 @@ function renderWithQuery(ui: React.ReactElement) {
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
 }
 
-beforeEach(() => { wsHandler = null; pullSpy.mockClear(); setActiveSpy.mockClear() })
+beforeEach(() => { wsHandler = null; pullSpy.mockClear(); cancelPullSpy.mockClear(); setActiveSpy.mockClear() })
 afterEach(() => cleanup())
 
 describe('ClaudeModelSection', () => {
@@ -116,6 +117,26 @@ describe('LocalModelsSection', () => {
     const progress = await screen.findByTestId('ollama-pull-progress')
     expect(progress.textContent).toContain('downloading')
     expect(progress.textContent).toContain('40%')
+  })
+
+  it('shows a Cancel button for an in-flight pull that calls api.ollama.cancelPull', async () => {
+    renderWithQuery(<LocalModelsSection />)
+    const pullable = await screen.findByTestId('ollama-pull-qwen2.5:0.5b')
+
+    // No cancel affordance before a pull is started.
+    expect(screen.queryByTestId('ollama-pull-cancel-qwen2.5:0.5b')).toBeNull()
+
+    fireEvent.click(pullable)
+    await waitFor(() => expect(pullSpy).toHaveBeenCalledWith('qwen2.5:0.5b'))
+    // Drive a live progress event so the row is mid-flight on the WS wire.
+    act(() => {
+      wsHandler?.({ type: 'ollama_pull', name: 'qwen2.5:0.5b', status: 'downloading', completed: 40, total: 100, percent: 40, done: false })
+    })
+
+    const cancel = await screen.findByTestId('ollama-pull-cancel-qwen2.5:0.5b')
+    fireEvent.click(cancel)
+    await waitFor(() => expect(cancelPullSpy).toHaveBeenCalledWith('qwen2.5:0.5b'))
+    expect(cancelPullSpy).toHaveBeenCalledTimes(1)
   })
 
   it('renders a cancelled pull neutrally, not as an error', async () => {

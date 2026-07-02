@@ -10,6 +10,7 @@ import { NAV_DESTINATIONS } from './Sidebar'
 import { parseProjectQuery, decideEnterMode } from '../lib/command-parse'
 import { modalCard, overlayFade, dialogCard } from '../lib/motion'
 import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
+import { RUNS_LIST_KEY, runsListQueryFn } from '../lib/runs-query'
 import { buildModelOptions, modelChoiceToOpts } from '../lib/run-models'
 import { useAskK } from '../lib/useAskK'
 import AutoTextarea from '../components/AutoTextarea'
@@ -60,7 +61,7 @@ export default function CommandBar({ open, onClose }: Props) {
   const composeRef = useRef<HTMLTextAreaElement>(null)
   const busyRef = useRef(false)
 
-  const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list(), enabled: open })
+  const { data: runs = [] } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn, enabled: open })
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list, enabled: open })
   // One batched status query (shared cache key with Settings) surfaces the live
   // Ollama model in the picker — not a per-option fetch (lessons.md: no fan-out).
@@ -255,6 +256,9 @@ export default function CommandBar({ open, onClose }: Props) {
         >
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Command palette"
             className="glass glow-focus relative w-full max-w-xl overflow-hidden rounded-xl"
             variants={modalCard} initial="hidden" animate="visible" exit="exit"
           >
@@ -477,6 +481,7 @@ export default function CommandBar({ open, onClose }: Props) {
       open={ask.pendingUndo !== null}
       testid="ask-k-undo-toast"
       durationMs={5000}
+      resetKey={ask.pendingUndo?.runId}
       message={<>Sent to K · <span className="text-[var(--text)]">{ask.pendingUndo?.route.label}</span></>}
       action={{ label: 'Undo', testid: 'ask-k-undo', onClick: () => void ask.undo() }}
       onDismiss={ask.clearUndo}

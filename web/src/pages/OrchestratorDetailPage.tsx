@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { ChiefOrgLead } from '@k/shared'
+import type { AgentProfile, ChiefOrgLead } from '@k/shared'
 import { api, type OrchestratorPatch } from '../lib/api'
 import { navigate } from '../lib/route'
 import { leadNode } from '../lib/delegation'
@@ -23,7 +23,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'charter', label: 'Charter' },
   { id: 'skills', label: 'Skills' },
   { id: 'tools', label: 'Tools' },
-  { id: 'mcp', label: 'MCP · Authority' },
+  { id: 'mcp', label: 'MCP servers' },
   { id: 'memory', label: 'Memory' },
 ]
 
@@ -54,6 +54,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<Tab>('charter')
   const [skillInput, setSkillInput] = useState('')
+  const [toolInput, setToolInput] = useState('')
   const [mcpInput, setMcpInput] = useState('')
 
   const { data: detail, isLoading, isError } = useQuery<ChiefOrgLead>({
@@ -71,11 +72,21 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
     enabled: !!id && tab === 'memory',
   })
 
+  // Org-default profile — the grant baseline every lead inherits. Fetched only for
+  // the tabs that surface its entries as add-suggestions (tools/skills datalists);
+  // shared cache key with the org-default editor so react-query dedupes the read.
+  const { data: orgDefault } = useQuery<AgentProfile>({
+    queryKey: ['org-default'],
+    queryFn: () => api.orgDefault.get(),
+    enabled: !!id && (tab === 'tools' || tab === 'skills'),
+  })
+
   const mutation = useMutation({
     mutationFn: (patch: OrchestratorPatch) => api.orchestrators.update(id!, patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orchestrator', id] })
       setSkillInput('')
+      setToolInput('')
       setMcpInput('')
     },
     // Do NOT swallow — the grant-guard 400 message is surfaced in the panel below.
@@ -106,7 +117,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
           ← Orchestrators
         </button>
         <h1 className="text-sm font-semibold text-[var(--text)]">{profile.name}</h1>
-        <span className="rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#241640]">
+        <span className="rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--on-accent)]">
           {profile.tier}
         </span>
       </div>
@@ -124,7 +135,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                 aria-pressed={tab === t.id}
                 className={
                   tab === t.id
-                    ? 'flex-1 rounded-md bg-[var(--accent)] px-2 py-1.5 text-center font-semibold text-[#241640]'
+                    ? 'flex-1 rounded-md bg-[var(--accent)] px-2 py-1.5 text-center font-semibold text-[var(--on-accent)]'
                     : 'flex-1 rounded-md px-2 py-1.5 text-center font-semibold text-[var(--muted)] transition-colors hover:text-[var(--text)]'
                 }
               >
@@ -192,9 +203,15 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                   value={skillInput}
                   onChange={e => setSkillInput(e.target.value)}
                   placeholder="add skill by name"
+                  list="orchestrator-skill-suggestions"
                   data-testid="orchestrator-skill-input"
                   className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
                 />
+                <datalist id="orchestrator-skill-suggestions">
+                  {(orgDefault?.skills ?? [])
+                    .filter(s => !profile.skills.includes(s))
+                    .map(s => <option key={s} value={s} />)}
+                </datalist>
                 <button
                   type="submit"
                   disabled={mutation.isPending || skillInput.trim() === ''}
@@ -206,32 +223,70 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
             </div>
           )}
 
-          {/* Tools — toggle rows (toggling off removes the grant). */}
+          {/* Tools — toggle rows (toggling off removes the grant) + add-by-name with
+              org-default suggestions, so a removed grant is recoverable in place. */}
           {tab === 'tools' && (
-            <div data-testid="orchestrator-panel-tools" className="space-y-1">
-              {profile.allowedTools.length === 0 ? (
-                <p className="text-xs italic text-[var(--muted)]">No tools granted.</p>
-              ) : (
-                profile.allowedTools.map(tool => (
-                  <div
-                    key={tool}
-                    className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs"
-                  >
-                    <span className="mono min-w-0 flex-1 truncate text-[var(--text)]">{tool}</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={true}
-                      disabled={mutation.isPending}
-                      onClick={() => patch({ allowedTools: profile.allowedTools.filter(t => t !== tool) })}
-                      data-testid={`orchestrator-tool-toggle-${tool}`}
-                      className="flex-shrink-0 rounded-full border border-[var(--green)]/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--green)] disabled:opacity-50"
+            <div data-testid="orchestrator-panel-tools" className="space-y-2">
+              <div className="space-y-1">
+                {profile.allowedTools.length === 0 ? (
+                  <p className="text-xs italic text-[var(--muted)]">No tools granted.</p>
+                ) : (
+                  profile.allowedTools.map(tool => (
+                    <div
+                      key={tool}
+                      className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs"
                     >
-                      on
-                    </button>
-                  </div>
-                ))
-              )}
+                      <span className="mono min-w-0 flex-1 truncate text-[var(--text)]">{tool}</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={true}
+                        disabled={mutation.isPending}
+                        onClick={() => patch({ allowedTools: profile.allowedTools.filter(t => t !== tool) })}
+                        data-testid={`orchestrator-tool-toggle-${tool}`}
+                        className="flex-shrink-0 rounded-full border border-[var(--green)]/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--green)] disabled:opacity-50"
+                      >
+                        on
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+              <form
+                className="flex gap-2"
+                onSubmit={e => {
+                  e.preventDefault()
+                  const name = toolInput.trim()
+                  if (name && !profile.allowedTools.includes(name)) {
+                    patch({ allowedTools: [...profile.allowedTools, name] })
+                  }
+                }}
+              >
+                <input
+                  value={toolInput}
+                  onChange={e => setToolInput(e.target.value)}
+                  placeholder="add tool by name"
+                  list="orchestrator-tool-suggestions"
+                  data-testid="orchestrator-tool-input"
+                  className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+                />
+                <datalist id="orchestrator-tool-suggestions">
+                  {(orgDefault?.allowedTools ?? [])
+                    .filter(t => !profile.allowedTools.includes(t))
+                    .map(t => <option key={t} value={t} />)}
+                </datalist>
+                <button
+                  type="submit"
+                  disabled={mutation.isPending || toolInput.trim() === ''}
+                  className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] disabled:opacity-50"
+                >
+                  add
+                </button>
+              </form>
+              <p className="text-[11px] text-[var(--muted)]">
+                Suggestions come from the org-default profile's grants; ungranted names are
+                validated server-side.
+              </p>
             </div>
           )}
 
@@ -293,9 +348,10 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
             </div>
           )}
 
-          {/* Memory — read-only accepted lessons for this lead. */}
+          {/* Memory — read-only accepted lessons for this lead, with a link out to the
+              Memory page where proposals are actually approved/rejected (no dead end). */}
           {tab === 'memory' && (
-            <div data-testid="orchestrator-panel-memory" className="space-y-1">
+            <div data-testid="orchestrator-panel-memory" className="space-y-2">
               {lessons.length === 0 ? (
                 <p className="text-xs italic text-[var(--muted)]" data-testid="orchestrator-memory-empty">
                   No accepted lessons for this lead.
@@ -312,6 +368,18 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                   ))}
                 </ul>
               )}
+              <p className="text-[11px] text-[var(--muted)]">
+                Accepted lessons only — approve or reject proposals on the{' '}
+                <button
+                  type="button"
+                  data-testid="orchestrator-memory-link"
+                  onClick={() => navigate('memory')}
+                  className="text-[var(--accent-hover)] hover:underline"
+                >
+                  Memory page
+                </button>
+                .
+              </p>
             </div>
           )}
 

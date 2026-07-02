@@ -27,7 +27,7 @@ function ObjectiveRow({ assignment }: { assignment: Assignment }) {
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text)]">
           {assignment.objective}
         </span>
-        <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#241640]">
+        <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--on-accent)]">
           {assignment.lead}
         </span>
       </div>

@@ -13,12 +13,17 @@ export interface PendingUndo {
  * Shared "ask K + 5s undo" orchestration (P5.1f) — extracted from CommandBar so
  * both ⌘K and K-home drive the front door identically.
  *
- * `send` is optimistic: it opens the run console immediately and raises the Undo
- * window (via `pendingUndo`). `undo` best-effort kills the started run. A trimmed-
- * empty message is a no-op. Re-entry is guarded by a synchronous ref so a double
- * click/Enter can't fire two asks.
+ * `send` is optimistic: it raises the Undo window (via `pendingUndo`) and — by
+ * default — opens the run console immediately. Navigation is CALLER-CHOSEN via
+ * `navigateOnSend` (default true): ⌘K navigates on send because its Undo toast is
+ * rendered outside the palette and survives the close; K-home passes `false` and
+ * stays put — navigating would unmount the page and kill its own Undo toast, so
+ * it offers a "View run" link on the toast instead. `undo` best-effort kills the
+ * started run. A trimmed-empty message is a no-op. Re-entry is guarded by a
+ * synchronous ref so a double click/Enter can't fire two asks.
  */
-export function useAskK() {
+export function useAskK(opts?: { navigateOnSend?: boolean }) {
+  const navigateOnSend = opts?.navigateOnSend ?? true
   const [pendingUndo, setPendingUndo] = useState<PendingUndo | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,7 +42,7 @@ export function useAskK() {
     try {
       const result = await api.k.ask(msg)
       setPendingUndo({ runId: result.runId, route: result.route })
-      navigate('runs', result.runId)
+      if (navigateOnSend) navigate('runs', result.runId)
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -46,7 +51,7 @@ export function useAskK() {
       busyRef.current = false
       setBusy(false)
     }
-  }, [])
+  }, [navigateOnSend])
 
   // Capture the pending run id into a local BEFORE clearing so the caller's
   // onDismiss (which also nulls pendingUndo) can't race the read.

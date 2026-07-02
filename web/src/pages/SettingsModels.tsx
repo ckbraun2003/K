@@ -145,6 +145,13 @@ export function LocalModelsSection() {
     onError: (e, n) =>
       setPulls(p => ({ ...p, [n]: { status: 'error', done: true, error: errMsg(e, 'pull failed') } })),
   })
+  // Cancel an in-flight pull. Do NOT flip the local pull state here — the WS
+  // `ollama_pull` stream is authoritative and reports cancelled-vs-error, which
+  // PullProgress already renders (a local flip could mask a cancel that failed).
+  const cancelPull = useMutation({
+    mutationFn: (n: string) => api.ollama.cancelPull(n),
+    onError: e => setActionError(errMsg(e, 'Failed to cancel the pull.')),
+  })
   const remove = useMutation({
     mutationFn: (n: string) => api.ollama.remove(n),
     onSuccess: () => {
@@ -275,6 +282,19 @@ export function LocalModelsSection() {
                     >
                       {item.installed ? 'Installed' : pulling ? 'Pulling…' : 'Pull'}
                     </button>
+                    {pulling && (
+                      <button
+                        type="button"
+                        data-testid={`ollama-pull-cancel-${item.name}`}
+                        onClick={() => cancelPull.mutate(item.name)}
+                        // Disable per ROW (variables = the name being cancelled) so
+                        // cancelling one pull doesn't freeze other rows' Cancel buttons.
+                        disabled={cancelPull.isPending && cancelPull.variables === item.name}
+                        className="rounded-lg border border-[var(--border)] px-2 py-1 text-[var(--muted)] transition-colors hover:border-[color:rgba(248,113,113,0.4)] hover:text-[var(--red)] disabled:opacity-40"
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </div>
                   <p className="mt-1 text-[var(--muted)]">{item.blurb}</p>
                   {ps && <PullProgress state={ps} />}

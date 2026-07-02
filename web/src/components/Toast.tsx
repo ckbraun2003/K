@@ -9,6 +9,11 @@ interface Props {
   testid?: string
   /** Auto-dismiss after this many ms (default 6000). */
   durationMs?: number
+  /** Restart the auto-dismiss countdown when this changes while open. Callers that
+   *  REPLACE the toast's subject without closing it (e.g. a second ask-K send
+   *  swapping the pending-undo run) pass the subject's id here — the new run must
+   *  get a fresh full window, not inherit the first run's dying timer. */
+  resetKey?: string | number
   onDismiss: () => void
 }
 
@@ -17,18 +22,20 @@ interface Props {
  * link (used to jump to a triggered run). fixed inset-0 is reserved for blocking
  * overlays; a toast is non-blocking so it pins to a corner with `fixed … z-50`.
  */
-export default function Toast({ open, message, action, testid, durationMs = 6000, onDismiss }: Props) {
+export default function Toast({ open, message, action, testid, durationMs = 6000, resetKey, onDismiss }: Props) {
   // Hold the latest onDismiss in a ref so an inline-arrow caller re-rendering
   // (e.g. live WS run patches) doesn't restart the auto-dismiss countdown.
   const onDismissRef = useRef(onDismiss)
   useLayoutEffect(() => {
     onDismissRef.current = onDismiss
   })
+  // `resetKey` is a deliberate dep: a changed key while open clears the running
+  // timer and starts a fresh full-duration countdown (see the prop doc above).
   useEffect(() => {
     if (!open) return
     const t = setTimeout(() => onDismissRef.current(), durationMs)
     return () => clearTimeout(t)
-  }, [open, durationMs])
+  }, [open, durationMs, resetKey])
 
   return (
     <AnimatePresence>

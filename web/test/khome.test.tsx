@@ -1,17 +1,21 @@
 /**
  * KHome — the K front-door landing page (P5.1f). Gate assertions:
- *   - a time-aware greeting renders
+ *   - a time-aware greeting renders (no hardcoded operator name)
  *   - the glance line summarizes the chief-org (leads active · objectives) and its
  *     link navigates to the Chief view
  *   - typing shows the live route preview from routeForMessage (computed in-test)
- *   - Send calls api.k.ask once, navigates to the run, and raises the undo toast;
- *     Undo kills the run via api.runs.kill
+ *   - Send calls api.k.ask once and raises the undo toast WITHOUT navigating away
+ *     (K-home stays put — wave C1); the toast's "View run" link opens the run and
+ *     Undo kills it via api.runs.kill
+ *   - a second send inside the 5s window restarts the countdown and retargets Undo
+ *     to the NEW run (Toast resetKey — wave C1)
+ *   - chief-org / runs query failures render visible error states, not empty states
  *   - work-items render one row per org objective with its lead chip
  *   - the recent feed renders runs with a View-run link that navigates
  * api + route.navigate are mocked (vi.hoisted, mirroring command-bar-ask-k.test).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, waitFor, fireEvent, within } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, fireEvent, within, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { routeForMessage, type Status, type ChiefOrgPayload, type Run } from '@k/shared'
 
@@ -76,7 +80,10 @@ function renderHome() {
   )
 }
 
+// 'auth' hits the security rule; a react/css message hits the frontend rule — two
+// DIFFERENT route labels, computed live so assertions track routeForMessage.
 const MSG = 'refactor the auth module'
+const FE_MSG = 'update the react component css'
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
@@ -93,10 +100,10 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('KHome', () => {
-  it('renders a time-aware greeting', () => {
+  it('renders a time-aware greeting without a hardcoded name', () => {
     renderHome()
     const greeting = screen.getByTestId('khome-greeting')
-    expect(greeting.textContent).toMatch(/Good (morning|afternoon|evening), Cameron\./)
+    expect(greeting.textContent).toMatch(/^Good (morning|afternoon|evening)\.$/)
   })
 
   it('glance summarizes the org and links to Chief', async () => {
@@ -121,7 +128,7 @@ describe('KHome', () => {
     expect(preview.textContent).toContain(routeForMessage(MSG).label)
   })
 
-  it('Send asks K once, opens the run, and Undo kills it', async () => {
+  it('Send asks K once, stays on K-home (no navigation), and Undo kills the run', async () => {
     renderHome()
     const input = screen.getByTestId('khome-composer') as HTMLInputElement
     fireEvent.change(input, { target: { value: MSG } })
@@ -130,13 +137,72 @@ describe('KHome', () => {
 
     await waitFor(() => expect(mockAsk).toHaveBeenCalledTimes(1))
     expect(mockAsk).toHaveBeenCalledWith(MSG)
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-123'))
 
+    // The undo toast raises IN PLACE — K-home must NOT auto-navigate to the run
+    // (navigating would unmount the page and kill this very toast).
     const undo = await screen.findByTestId('khome-undo')
     expect(screen.getByTestId('khome-undo-toast')).toBeTruthy()
+    expect(mockNavigate).not.toHaveBeenCalled()
+
     fireEvent.click(undo)
     await waitFor(() => expect(mockKill).toHaveBeenCalledWith('run-123'))
     expect(mockKill).toHaveBeenCalledTimes(1)
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('the toast View-run link navigates to the started run', async () => {
+    renderHome()
+    fireEvent.change(screen.getByTestId('khome-composer'), { target: { value: MSG } })
+    fireEvent.click(screen.getByTestId('khome-send'))
+
+    const viewRun = await screen.findByTestId('khome-view-run')
+    expect(mockNavigate).not.toHaveBeenCalled() // send alone never navigates
+    fireEvent.click(viewRun)
+    expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-123')
+    expect(mockKill).not.toHaveBeenCalled() // viewing ≠ undoing
+  })
+
+  it('a second send inside the undo window restarts the 5s countdown and retargets Undo', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let n = 0
+      mockAsk.mockImplementation(async (message: string) => {
+        n += 1
+        return { kThreadId: 'kt', agentRunId: 'ar', runId: `run-${n}`, route: routeForMessage(message), warm: false }
+      })
+      renderHome()
+      const input = screen.getByTestId('khome-composer') as HTMLInputElement
+
+      // message 1 → run-1
+      fireEvent.change(input, { target: { value: MSG } })
+      fireEvent.click(screen.getByTestId('khome-send'))
+      await screen.findByTestId('khome-undo-toast')
+
+      // ~3s into run-1's 5s window, send message 2 → run-2 (a different route label)
+      await act(async () => { vi.advanceTimersByTime(3000) })
+      fireEvent.change(input, { target: { value: FE_MSG } })
+      fireEvent.click(screen.getByTestId('khome-send'))
+      await waitFor(() =>
+        expect(screen.getByTestId('khome-undo-toast').textContent).toContain(routeForMessage(FE_MSG).label),
+      )
+
+      // Another ~2.5s (≈5.5s total): past run-1's original 5s deadline but well
+      // inside run-2's FRESH 5s window — the toast must still be open, showing the
+      // second run's route. (2.5s, not 3s: under shouldAdvanceTime the fake clock
+      // also creeps with real time, so the wider margin keeps a slow CI box from
+      // dismissing run-2's toast before the assertions run.)
+      await act(async () => { vi.advanceTimersByTime(2500) })
+      const toast = screen.getByTestId('khome-undo-toast')
+      expect(toast.textContent).toContain(routeForMessage(FE_MSG).label)
+      expect(toast.textContent).not.toContain(routeForMessage(MSG).label)
+
+      // Undo kills run-2 ONLY (never the already-committed run-1).
+      fireEvent.click(screen.getByTestId('khome-undo'))
+      await waitFor(() => expect(mockKill).toHaveBeenCalledWith('run-2'))
+      expect(mockKill).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a failed send surfaces the error, keeps the typed text, and raises no undo toast', async () => {
@@ -184,5 +250,22 @@ describe('KHome', () => {
     const links = within(section).getAllByText(/View run/)
     fireEvent.click(links[0])
     expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-1')
+  })
+
+  it('a chief-org failure surfaces glance + work-items error states (not fake zeros)', async () => {
+    mockOrg.mockRejectedValue(new Error('org down'))
+    renderHome()
+
+    expect(await screen.findByTestId('khome-workitems-error')).toBeTruthy()
+    expect(screen.getByTestId('khome-glance-error')).toBeTruthy()
+    // The Chief link keeps working even while the glance is degraded.
+    fireEvent.click(screen.getByTestId('khome-glance-link'))
+    expect(mockNavigate).toHaveBeenCalledWith('chief')
+  })
+
+  it('a runs failure surfaces the recent-feed error state', async () => {
+    mockList.mockRejectedValue(new Error('runs down'))
+    renderHome()
+    expect(await screen.findByTestId('khome-recent-error')).toBeTruthy()
   })
 })

@@ -104,7 +104,7 @@ export default function Shell() {
     >
       <div className="ambient" aria-hidden />
       <Sidebar active={route.view} collapsed={navCollapsed} onToggleCollapse={toggleNav} />
-      <TopBar view={route.view} connected={connected} onOpenCommand={() => setCommandOpen(true)} />
+      <TopBar view={route.view} param={route.param} connected={connected} onOpenCommand={() => setCommandOpen(true)} />
 
       <main className="relative z-10 overflow-hidden">
         <AnimatePresence mode="wait">
