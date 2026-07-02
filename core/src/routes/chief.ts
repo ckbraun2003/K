@@ -53,12 +53,21 @@ export async function chiefRoutes(app: FastifyInstance) {
       l => l.latestRun != null && LIVE_RUN_STATUSES.has(l.latestRun.status),
     ).length
 
+    // The K-tier edge count for the whole-org tree (user → K → Chief → …): how many times
+    // K handed work UP to the Chief. Every such hand-up is a chief activation with
+    // trigger='delegation' (delegateToChief is the only path that sets it; autonomous wakes
+    // use schedule/event), so this COUNT derives the K→Chief edge from the existing links.
+    const kDelegations = Number(
+      (agentRunsDb.countAgentRunsByProfileAndTrigger.get('chief', 'delegation') as { n?: number } | undefined)?.n ?? 0,
+    )
+
     const payload: ChiefOrgPayload = {
       chief,
       leads,
       chiefWakes,
       assignments,
       health: { leadsActive },
+      kDelegations,
     }
     return reply.send(payload)
   })

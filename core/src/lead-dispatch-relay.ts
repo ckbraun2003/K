@@ -41,6 +41,7 @@
 import { leadDispatchDb, mgmtDb } from './db.js'
 import { startAgentRun } from './agent-runs.js'
 import { reportLeadOutcomeToChief } from './chief-dispatch.js'
+import { continueLeadOutcomeToK } from './k-thread.js'
 
 /** Default poll interval for the relay (ms). Overridable via env; read lazily inside
  *  startLeadDispatchRelay so it can be set after import (mirrors chief-wake's lazy reads). */
@@ -85,7 +86,20 @@ export async function drainLeadDispatches(): Promise<number> {
           leadDispatchDb.setLeadDispatchRun.run({ id, leadRunId: runId })
           mgmtDb.setAssignmentLeadRun.run({ id: String(row.assignment_id), leadRunId: runId, updatedAt: Date.now() })
           if (row.chief_run_id != null) {
-            reportLeadOutcomeToChief(String(row.chief_run_id), runId, String(row.lead))
+            // Two INDEPENDENT best-effort hops on the same lead terminal — the lead→Chief mgmt
+            // report and the Chief→K continuation (loop-b2, no-op when the Chief woke
+            // autonomously). Each is isolated so a (rare) synchronous throw wiring one never
+            // silently skips the other.
+            try {
+              reportLeadOutcomeToChief(String(row.chief_run_id), runId, String(row.lead))
+            } catch (reportErr) {
+              console.warn(`[lead-relay] dispatch ${id}: lead→Chief report-back wiring failed:`, reportErr)
+            }
+            try {
+              continueLeadOutcomeToK(String(row.chief_run_id), runId, String(row.lead))
+            } catch (contErr) {
+              console.warn(`[lead-relay] dispatch ${id}: Chief→K continuation wiring failed:`, contErr)
+            }
           } else {
             console.warn(`[lead-relay] dispatch ${id}: no chief_run_id — lead→Chief report-back skipped`)
           }

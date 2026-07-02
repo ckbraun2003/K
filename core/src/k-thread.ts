@@ -271,6 +271,63 @@ export function reportDelegationBack(threadId: string, childRunId: string): void
   })
 }
 
+// ── Chief→K continuation (loop-b2 — complete the up-chain) ────────────────────
+//
+// reportDelegationBack (above) surfaces the CHIEF run's outcome when the CHIEF run
+// terminates. But a Chief's bounded activation can end BEFORE the lead it dispatched
+// finishes — so that report can be PRE-lead (the lead's real outcome isn't up the chain
+// yet). This seam closes the gap: it rides the LEAD run's terminal (the same main-EventBus
+// signal chief-dispatch.ts::reportLeadOutcomeToChief uses to file the lead→Chief mgmt
+// report) and continues the lead's outcome one more hop UP — onto K's durable thread —
+// so the full K→Chief→lead chain lands where the operator asked.
+
+/**
+ * Resolve the K thread that DELEGATED a given Chief run, or null. The K→Chief link is
+ * derivable with NO new table: delegateToChief patches the Chief run id onto the operator's
+ * user turn (and the ack turn), so a k_thread_turns row whose run_id = chiefRunId identifies
+ * the delegating thread. Null ⇒ the Chief run was NOT a K delegation (it woke autonomously
+ * via chief-wake, which never touches k_thread_turns) — so there is nothing to continue up.
+ */
+export function resolveKDelegationThread(chiefRunId: string): string | null {
+  const row = kThreadsDb.getThreadIdByTurnRunId.get(chiefRunId) as Row | undefined
+  return row ? String(row.thread_id) : null
+}
+
+/**
+ * Summarize a dispatched LEAD run's terminal outcome for the continuation turn on K's
+ * thread. Prefers the lead run's own assistant text (reusing this module's capped
+ * concatAssistantText — the same source reportDelegationBack falls back to); a bare status
+ * line when the lead produced no summary. Pure + exported so a test can assert the phrasing.
+ */
+export function summarizeChiefLeadContinuation(leadRunId: string, lead: string, status: string): string {
+  const verb = status === 'done' ? 'completed' : status
+  const answer = concatAssistantText(leadRunId)
+  return answer.length > 0
+    ? `Chief (via ${lead}) ${verb}: ${answer}`
+    : `Chief (via ${lead}) ${verb} — no summary was produced.`
+}
+
+/**
+ * Continue a dispatched lead's outcome UP onto K's thread (the final hop of the up-chain).
+ * Rides the shared run-lifecycle seam on the LEAD run: on the lead's terminal — once,
+ * race-backstopped — IF the parent Chief run was itself a K delegation (a k_thread_turn links
+ * it to a thread), it appends a `k` turn summarizing the lead's outcome, linked to the lead
+ * run so the continuation is part of the traceable chain. If the Chief woke autonomously (no
+ * linked thread) it is a no-op — the lead outcome stays in the Chief's mgmt store only.
+ * Deliberately independent of reportLeadOutcomeToChief (each rides its own once-latched
+ * subscriber on the same lead terminal), mirroring reportDelegationBack's shape.
+ */
+export function continueLeadOutcomeToK(chiefRunId: string, leadRunId: string, lead: string): void {
+  trackSupervisedRun(leadRunId, {
+    onStarted: () => { /* runId already known — nothing to patch */ },
+    finalize: status => {
+      const threadId = resolveKDelegationThread(chiefRunId)
+      if (threadId == null) return // Chief woke autonomously — nothing to continue up to K.
+      appendTurn(threadId, 'k', summarizeChiefLeadContinuation(leadRunId, lead, status), leadRunId)
+    },
+  })
+}
+
 /**
  * Hand an engineering-routed ask UP to the Chief (D-046). K does NOT run it itself:
  * it activates `startAgentRun('chief', { trigger:'delegation', goal })`, records an

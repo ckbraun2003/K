@@ -48,6 +48,22 @@ beforeAll(async () => {
     updatedAt: now,
   })
 
+  // One K→Chief delegation (a chief activation with trigger='delegation') so the route's
+  // kDelegations edge-count is exercised > 0. Cascade-cleaned when the 'chief' profile is
+  // dropped in afterAll (agent_runs ON DELETE CASCADE). run_id null still counts in COUNT.
+  agentRunsDb.insertAgentRun.run({
+    id: uuid(),
+    profileId: 'chief',
+    runId: null,
+    trigger: 'delegation',
+    goal: 'chief-route kDelegations edge',
+    projectId: null,
+    workflowId: null,
+    status: 'completed',
+    createdAt: now,
+    completedAt: now,
+  })
+
   // Populate the Backend lead: a supervised run + its agent_run activation + one
   // delegate tool call and its paired tool_result. The delegate call is an
   // `assistant` event carrying tool_kind='delegate' + a tool_use_id; the result is
@@ -162,6 +178,11 @@ describe('GET /api/chief/org', () => {
     // THIN health only — a leads-active count.
     expect(typeof body.health.leadsActive).toBe('number')
     expect(body.health.leadsActive).toBeGreaterThanOrEqual(0)
+
+    // The K-tier edge count for the whole-org tree — chief activations with
+    // trigger='delegation'. One was seeded above, so it is at least 1.
+    expect(typeof body.kDelegations).toBe('number')
+    expect(body.kDelegations).toBeGreaterThanOrEqual(1)
   })
 
   it('populates a lead with its latest run + delegate events (delegate-only, no truncation)', async () => {

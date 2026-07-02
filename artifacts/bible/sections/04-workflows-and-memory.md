@@ -116,6 +116,16 @@ fallback, the run's assistant text / a status line). The up/down chain — you a
 Chief, the Chief works and reports up — is thus visible in the one place the operator is already
 looking, over the existing thread + event stream (no new channel).
 
+**The report continues past the Chief's turn (D-051, loop-b b2).** A Chief's bounded activation can
+terminate BEFORE the lead it dispatched finishes — so `reportDelegationBack` (which fires on the
+**Chief** terminal) can land a PRE-lead status. loop-b b2 closes that gap: `continueLeadOutcomeToK`
+rides the **lead** run's terminal (the same main-EventBus signal the lead→Chief mgmt report uses) and,
+IF the parent Chief run was itself a K delegation (resolved from the same `k_thread_turns.run_id` link
+that recorded the hop), appends the lead's outcome one more hop UP onto the durable K thread ("Chief
+(via <lead>) completed: …"). It is idempotent (the run-lifecycle once-latch) and a **no-op when the
+Chief woke autonomously** (no linked thread). So the operator's thread reflects the lead's REAL
+outcome, not just the Chief's mid-turn status — completing the up-chain the down-chain (§03) opened.
+
 | Layer | What | Status |
 |-------|------|--------|
 | **A — tool-based lessons + gated reflection** | a managed agent calls kstore `lesson_propose` to propose ONE lesson; it lands **pending** in the `agent_memory` table and the **operator approves (or rejects)** it before it joins memory; `lesson_list` reads them back (run-scoped) | **BUILT (Phase 5)** — kstore tool + `agent_memory` table + operator gate surface (P5.1b) |

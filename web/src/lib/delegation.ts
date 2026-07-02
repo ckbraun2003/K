@@ -109,3 +109,41 @@ export function orgToDelegationTree(payload: ChiefOrgPayload): DelegationNode {
     children,
   }
 }
+
+/**
+ * Build the WHOLE-ORG DelegationNode root (loop-b2): user → K → Chief → each lead → its
+ * sub-agents. Wraps orgToDelegationTree (the Chief subtree, unchanged) under the two
+ * ancestor tiers the full chain needs to be VISIBLE (§13). The tiers are DERIVED from the
+ * delegation links, not stored: the Chief subtree from run events + delegate pairs, and the
+ * K-tier edge from `payload.kDelegations` (chief activations with trigger='delegation' — the
+ * count of times K handed work up to the Chief). K's status reflects the chain below it
+ * (running while the Chief subtree is active); the user root is the operator anchor. NEVER
+ * throws on missing data — an absent kDelegations defaults to 0.
+ */
+export function fullOrgToDelegationTree(payload: ChiefOrgPayload): DelegationNode {
+  const chief = orgToDelegationTree(payload)
+  const kDelegations = payload.kDelegations ?? 0
+  // K rides the chain: active while the Chief OR any lead below it is live — crucially
+  // including the loop-b2 window where the Chief's own activation has finalized but a lead
+  // it dispatched is still running (chief.status only reflects Chief wakes, so fold in the
+  // lead children too). The user root is a static operator anchor (always idle).
+  const subtreeActive =
+    chief.status === 'running' ||
+    chief.children.some(c => c.status === 'running' || c.status === 'queued')
+  const kNode: DelegationNode = {
+    id: 'k',
+    label: 'K',
+    kind: 'secretary',
+    status: subtreeActive ? 'running' : 'idle',
+    meta: `secretary front door · ${kDelegations} delegation${kDelegations === 1 ? '' : 's'} to Chief`,
+    children: [chief],
+  }
+  return {
+    id: 'user',
+    label: 'Operator',
+    kind: 'user',
+    status: 'idle',
+    meta: 'the front door → the whole org',
+    children: [kNode],
+  }
+}

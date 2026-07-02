@@ -261,9 +261,9 @@ Chief run's assignments and activates its lead:
 mocked supervisor, no real token-spending dispatch). The one live-path gap it flagged — the dispatch
 and its report-back ran only in the **stdio mgmt-server child**, so a real lead run's `agent_runs` row
 stayed `running` forever and the report-back subscriber died with the child — is closed by **loop-b
-b1** below. Still deferred to **loop-b b2 / P5.6**: the Chief→K report **continuation** (re-surfacing the
-lead's report up through the Chief to the durable K thread) and the multi-tier org-tree DERIVATION
-render.
+b1** below. The two remaining pieces — the Chief→K report **continuation** (re-surfacing the lead's
+report up through the Chief to the durable K thread) and the multi-tier org-tree DERIVATION render —
+are closed by **loop-b b2** (D-051), completing exit-criterion #3.
 
 ### Main-process dispatch relay (BUILT — loop-b b1, D-050)
 
@@ -293,6 +293,35 @@ EventBus can't cross the process boundary; a shared SQLite file can).
 - **The Chief→lead link derivation is unchanged** — still `assignment.run_id` (parent) +
   `assignment.lead_run_id` (child) + the lead activation's `trigger='delegation'`, no new edge table;
   the `lead_dispatches` row is a transient execution queue, not the parent→child record.
+
+### Chief→K report continuation + whole-org tree (BUILT — loop-b b2, D-051)
+
+The final hop closes the loop: a lead's outcome now flows all the way UP to K, and the whole chain is
+rendered. Two gaps remained after b1, both fixed as pure wiring over existing links (no new table):
+
+- **Chief→K report continuation.** `reportDelegationBack` (D-046) surfaces the Chief's outcome when the
+  **Chief** run terminates — but a Chief's bounded activation can end BEFORE the lead it dispatched
+  finishes, so that report can be PRE-lead. The continuation rides the **same lead-terminal signal** the
+  lead→Chief mgmt report uses: in `lead-dispatch-relay.ts`, right after `reportLeadOutcomeToChief`, the
+  relay also calls `k-thread.ts::continueLeadOutcomeToK(chiefRunId, leadRunId, lead)`. On the lead run's
+  terminal (run-lifecycle seam, once-latched) it resolves whether the parent Chief run was itself a K
+  delegation — a `k_thread_turns` row whose `run_id` = the Chief run (`kThreadsDb.getThreadIdByTurnRunId`),
+  the exact K→Chief link `delegateToChief` recorded — and, if so, appends a `k` turn to that durable
+  thread ("Chief (via <lead>) completed: <outcome>"), linked to the lead run so it stays traceable. It is
+  a **no-op when the Chief woke autonomously** (no `k_thread_turns` row links it) — then the outcome stays
+  in the Chief's mgmt store only. Deliberately independent of the lead→Chief report-back (each rides its
+  own once-latched subscriber on the same terminal), mirroring `reportDelegationBack`'s shape.
+- **The multi-tier org tree.** `web/src/lib/delegation.ts::fullOrgToDelegationTree` wraps the existing
+  Chief subtree (`orgToDelegationTree`, unchanged) under two ancestor tiers — **user → K → Chief → lead
+  → sub-agent** — reusing the same generic `DelegationTree` component (arbitrary depth). The K→Chief edge
+  is derived from the existing links, no new table: `ChiefOrgPayload.kDelegations`
+  (`agentRunsDb.countAgentRunsByProfileAndTrigger('chief','delegation')`) is the count of K hand-ups
+  (`delegateToChief` is the only path that activates the Chief with `trigger='delegation'`; autonomous
+  wakes use `schedule`/`event`). The ChiefPage now renders `fullOrgToDelegationTree(payload)`, so the
+  whole chain is VISIBLE on the one batched `GET /api/chief/org` read.
+
+With b2 the org loop is COMPLETE and observable end to end: K → Chief → lead → PR → report back to K,
+every tier visible in one derived tree — exit-criterion #3.
 
 ## The pipeline
 

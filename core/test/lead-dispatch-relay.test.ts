@@ -46,6 +46,7 @@ const { drainLeadDispatches, startLeadDispatchRelay } = await import('../src/lea
 // ── fixtures + helpers ────────────────────────────────────────────────────────
 
 const CHIEF_RUN = uuid() // the delegation parent (a real runs row)
+const K_THREAD = `relay-k-thread-${uuid().slice(0, 8)}` // the K thread that delegated CHIEF_RUN
 
 type Ctx = { runId: string | null }
 const ctxChief: Ctx = { runId: CHIEF_RUN }
@@ -113,8 +114,11 @@ beforeAll(() => {
 })
 
 afterAll(() => {
-  // FK-safe order: events → mgmt_reports → lead_dispatches → mgmt_assignments →
-  // agent_runs (SET NULL) → runs. Only our rows; shared durable seeds are left intact.
+  // FK-safe order: k_thread_turns → k_threads (the Chief→K continuation fixtures) →
+  // events → mgmt_reports → lead_dispatches → mgmt_assignments → agent_runs (SET NULL) →
+  // runs. Only our rows; shared durable seeds are left intact.
+  db.prepare(`DELETE FROM k_thread_turns WHERE thread_id = ?`).run(K_THREAD)
+  db.prepare(`DELETE FROM k_threads WHERE id = ?`).run(K_THREAD)
   db.prepare(`DELETE FROM events WHERE run_id LIKE 'mock-relay-run-%'`).run()
   db.prepare(`DELETE FROM mgmt_reports WHERE run_id = ?`).run(CHIEF_RUN)
   db.prepare(`DELETE FROM lead_dispatches WHERE chief_run_id = ?`).run(CHIEF_RUN)
@@ -220,6 +224,42 @@ describe('drainLeadDispatches: record → drain', () => {
     expect(intent(dispatchId).status).toBe('dispatched')
     // This intent is now stranded 'dispatched' with no lead_run_id — exactly the state the
     // boot sweep reconcileOrphanedLeadDispatches rescues; here we assert only the CAS.
+  })
+})
+
+// ── 6. Chief→K continuation — the lead terminal continues up to K (loop-b2) ──
+
+describe('drainLeadDispatches: Chief→K report continuation', () => {
+  it('continues the lead outcome UP onto K\'s thread when the Chief run was a K delegation', async () => {
+    // Link the Chief run to a K thread exactly as delegateToChief does (a k_thread_turn
+    // whose run_id = the Chief run) — the derivable K→Chief edge, no new table.
+    const now = Date.now()
+    db.prepare(
+      `INSERT INTO k_threads (id, title, status, active_run_id, created_at, updated_at) VALUES (?, NULL, 'active', NULL, ?, ?)`,
+    ).run(K_THREAD, now, now)
+    db.prepare(
+      `INSERT INTO k_thread_turns (id, thread_id, role, text, run_id, created_at) VALUES (?, ?, 'user', 'ship the org tree', ?, ?)`,
+    ).run(uuid(), K_THREAD, CHIEF_RUN, now)
+
+    const MARK = 'RELAY-KCONT'
+    const { assignmentId } = recordIntent(MARK)
+    await drainLeadDispatches()
+    const runId = String(assignmentLeadRun(assignmentId))
+
+    insertAssistantEvent(runId, 'Lead: opened PR #99; CI green.')
+    eventBus.emitRunUpdate(terminalRun(runId, 'done'))
+    await flush()
+
+    // The lead→Chief mgmt report still fires (unchanged), AND the outcome continues one
+    // more hop up onto K's thread — a 'k' turn framed as "Chief (via <lead>) …".
+    const kTurns = db
+      .prepare(`SELECT * FROM k_thread_turns WHERE thread_id = ? AND role = 'k'`)
+      .all(K_THREAD) as Array<Record<string, unknown>>
+    const cont = kTurns.find(t => String(t.text).includes('opened PR #99'))
+    expect(cont).toBeTruthy()
+    expect(String(cont!.text)).toContain('Chief (via Frontend)')
+    expect(String(cont!.text)).toContain('completed')
+    expect(cont!.run_id).toBe(runId) // linked to the lead run
   })
 })
 

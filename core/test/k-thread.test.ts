@@ -41,6 +41,9 @@ const {
   getKThread,
   listKThreadTurns,
   DEFAULT_K_THREAD_ID,
+  continueLeadOutcomeToK,
+  resolveKDelegationThread,
+  summarizeChiefLeadContinuation,
 } = await import('../src/k-thread.js')
 
 function resetKState() {
@@ -317,5 +320,89 @@ describe('askK — delegation to the Chief', () => {
     const turns = listKThreadTurns(DEFAULT_K_THREAD_ID)
     expect(turns.filter(t => t.role === 'user')).toHaveLength(1)
     expect(turns.filter(t => t.role === 'k')).toHaveLength(0)
+  })
+})
+
+// ── Chief→K continuation — the lead outcome completes the up-chain (loop-b2) ───
+
+/** Insert a real runs row + one assistant summary event (an FK-valid lead run). */
+function seedLeadRun(id: string, summary: string, status = 'running'): void {
+  db.prepare(
+    `INSERT INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'lead', '.', ?, ?)`,
+  ).run(id, status, Date.now())
+  db.prepare(
+    `INSERT INTO events (id, run_id, seq, type, ts, text) VALUES (?, ?, 1, 'assistant', ?, ?)`,
+  ).run(uuid(), id, Date.now(), summary)
+}
+
+const done = (id: string, status: Run['status'] = 'done'): Run =>
+  ({ id, status, tokensIn: 0, tokensOut: 0, costUsd: 0 }) as Run
+
+describe('continueLeadOutcomeToK — the lead outcome completes the up-chain to K', () => {
+  it('appends the lead outcome onto the delegating K thread on the LEAD terminal (once)', async () => {
+    // A real K→Chief delegation links the Chief run to the K thread (the derivable edge).
+    const { runId: chiefRunId } = await askK('implement the payment flow')
+    expect(resolveKDelegationThread(chiefRunId)).toBe(DEFAULT_K_THREAD_ID)
+
+    // The lead the Chief dispatched finishes AFTER the Chief's own turn could have ended.
+    const leadRunId = `mock-k-run-lead-${uuid().slice(0, 8)}`
+    seedLeadRun(leadRunId, 'Opened PR #7; CI green.')
+
+    continueLeadOutcomeToK(chiefRunId, leadRunId, 'lead-backend')
+    eventBus.emitRunUpdate(done(leadRunId))
+
+    const cont = listKThreadTurns(DEFAULT_K_THREAD_ID)
+      .filter(t => t.role === 'k')
+      .find(t => t.text.includes('Opened PR #7'))
+    expect(cont).toBeTruthy()
+    expect(cont!.text).toContain('Chief (via lead-backend)')
+    expect(cont!.text).toContain('completed')
+    expect(cont!.runId).toBe(leadRunId) // linked to the lead run — part of the traceable chain
+
+    // Fires ONCE: a duplicate terminal doesn't double-append (run-lifecycle latch).
+    eventBus.emitRunUpdate(done(leadRunId))
+    expect(
+      listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.text.includes('Opened PR #7')),
+    ).toHaveLength(1)
+  })
+
+  it('is a no-op when the Chief woke AUTONOMOUSLY (no K delegation linked)', () => {
+    ensureDefaultKThread()
+    // A Chief run with NO linked k_thread_turn (an autonomous wake) → no thread resolves.
+    const autoChiefRun = `mock-k-run-auto-${uuid().slice(0, 8)}`
+    db.prepare(
+      `INSERT INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'chief', '.', 'done', ?)`,
+    ).run(autoChiefRun, Date.now())
+    expect(resolveKDelegationThread(autoChiefRun)).toBeNull()
+
+    const leadRunId = `mock-k-run-lead2-${uuid().slice(0, 8)}`
+    seedLeadRun(leadRunId, 'Lead ran on an autonomous Chief wake.')
+
+    continueLeadOutcomeToK(autoChiefRun, leadRunId, 'lead-backend')
+    eventBus.emitRunUpdate(done(leadRunId))
+
+    // No continuation turn landed — the outcome stays in the Chief's mgmt store only.
+    expect(
+      listKThreadTurns(DEFAULT_K_THREAD_ID).some(t =>
+        t.text.includes('Lead ran on an autonomous Chief wake'),
+      ),
+    ).toBe(false)
+  })
+
+  it('summarizeChiefLeadContinuation prefers assistant text, else a bare status line', () => {
+    const runId = `mock-k-run-sum-${uuid().slice(0, 8)}`
+    db.prepare(
+      `INSERT INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'lead', '.', 'done', ?)`,
+    ).run(runId, Date.now())
+    // No assistant events yet → the bare fallback line.
+    expect(summarizeChiefLeadContinuation(runId, 'lead-frontend', 'done')).toContain(
+      'no summary was produced',
+    )
+    db.prepare(
+      `INSERT INTO events (id, run_id, seq, type, ts, text) VALUES (?, ?, 1, 'assistant', ?, ?)`,
+    ).run(uuid(), runId, Date.now(), 'Shipped the component.')
+    const s = summarizeChiefLeadContinuation(runId, 'lead-frontend', 'error')
+    expect(s).toContain('Chief (via lead-frontend) error') // non-'done' status surfaces verbatim
+    expect(s).toContain('Shipped the component.')
   })
 })

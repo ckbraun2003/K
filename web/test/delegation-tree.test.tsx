@@ -84,4 +84,32 @@ describe('DelegationTree', () => {
     expect(detail.textContent).toContain('implementer')
     expect(detail.textContent).toContain('spec-review')
   })
+
+  it('renders the whole-org chain — user → K → Chief → lead → sub-agent — all visible', () => {
+    // The multi-tier root (loop-b2): the two ancestor tiers wrap the Chief subtree.
+    const whole: DelegationNode = {
+      id: 'user',
+      label: 'Operator',
+      kind: 'user',
+      status: 'idle',
+      meta: 'the front door → the whole org',
+      children: [
+        {
+          id: 'k',
+          label: 'K',
+          kind: 'secretary',
+          status: 'running',
+          meta: 'secretary front door · 3 delegations to Chief',
+          children: [root()],
+        },
+      ],
+    }
+    render(<DelegationTree root={whole} />)
+    // Every tier of the chain is present in the DOM (the §13 visibility contract).
+    expect(screen.getByTestId('delegation-tree-node-user').textContent).toContain('Operator')
+    expect(screen.getByTestId('delegation-tree-node-k').textContent).toContain('K')
+    expect(screen.getByTestId('delegation-tree-node-chief').textContent).toContain('Chief')
+    expect(screen.getByTestId('delegation-tree-node-lead-backend').textContent).toContain('Backend')
+    expect(screen.getByTestId('delegation-tree-node-c1').textContent).toContain('implementer')
+  })
 })

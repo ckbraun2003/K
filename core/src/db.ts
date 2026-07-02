@@ -1588,6 +1588,13 @@ const getRunningAgentRunByProfile = db.prepare(
 const getAgentRunProfileByRunId = db.prepare(
   `SELECT profile_id FROM agent_runs WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`,
 )
+// Count a profile's activations for a given trigger — the whole-org tree (loop-b2) reads
+// the chief profile's 'delegation' activations as the K→Chief delegation-edge count (every
+// such chief run is one K hand-up: delegateToChief is the only path that activates the Chief
+// with trigger='delegation'; autonomous wakes use schedule/event). Cheap COUNT, no table.
+const countAgentRunsByProfileAndTrigger = db.prepare(
+  `SELECT COUNT(*) AS n FROM agent_runs WHERE profile_id = ? AND trigger = ?`,
+)
 
 export const agentRunsDb = {
   insertAgentRun,
@@ -1598,6 +1605,7 @@ export const agentRunsDb = {
   listRecentAgentRunsByProfile,
   getRunningAgentRunByProfile,
   getAgentRunProfileByRunId,
+  countAgentRunsByProfileAndTrigger,
 }
 
 // ─── Named-workflow helpers (P5.3b) ──────────────────────────────────────────
@@ -1667,6 +1675,14 @@ const insertTurn = db.prepare(`
 const getTurn = db.prepare(`SELECT * FROM k_thread_turns WHERE id = ?`)
 const patchTurnRunId = db.prepare(`UPDATE k_thread_turns SET run_id = ? WHERE id = ?`)
 const listTurns = db.prepare(`SELECT * FROM k_thread_turns WHERE thread_id = ? ORDER BY created_at ASC, id ASC`)
+// Resolve the K thread that DELEGATED a given run (loop-b2 Chief→K continuation). The
+// K→Chief link is derivable with NO new table: delegateToChief patches the Chief run id
+// onto the operator's user turn (and its ack turn), so a k_thread_turns row whose run_id =
+// the Chief run id identifies the delegating thread. A Chief run that woke AUTONOMOUSLY
+// (chief-wake) never touches k_thread_turns → this returns no row → no K continuation.
+const getThreadIdByTurnRunId = db.prepare(
+  `SELECT thread_id FROM k_thread_turns WHERE run_id = ? ORDER BY created_at ASC, id ASC LIMIT 1`,
+)
 
 export const kThreadsDb = {
   insertThread,
@@ -1677,4 +1693,5 @@ export const kThreadsDb = {
   getTurn,
   patchTurnRunId,
   listTurns,
+  getThreadIdByTurnRunId,
 }

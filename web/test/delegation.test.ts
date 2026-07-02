@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { AgentEvent, AgentProfile, AgentRun, Run, ChiefOrgLead, ChiefOrgPayload } from '@k/shared'
-import { orgToDelegationTree, leadNode } from '../src/lib/delegation'
+import { orgToDelegationTree, leadNode, fullOrgToDelegationTree } from '../src/lib/delegation'
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -136,5 +136,65 @@ describe('orgToDelegationTree', () => {
     expect(() => orgToDelegationTree(payload())).not.toThrow()
     const tree = orgToDelegationTree(payload())
     expect(tree.children).toEqual([])
+  })
+})
+
+describe('fullOrgToDelegationTree — the whole-org chain (user → K → Chief → lead → sub-agent)', () => {
+  it('wraps the Chief subtree under the user + K ancestor tiers (5 levels)', () => {
+    const events: AgentEvent[] = [
+      delegateCall('c1', 'toolu_1', { subagentType: 'implementer', toolInput: { prompt: 'go' } }),
+      delegateResult('toolu_1', { toolResult: [{ type: 'text', text: 'done' }] }),
+    ]
+    const tree = fullOrgToDelegationTree(
+      payload({
+        leads: [lead({ latestRun: run({ status: 'running' }), events })],
+        chiefWakes: [wake({ status: 'running' })],
+        kDelegations: 3,
+      }),
+    )
+
+    // level 0 — the operator (user) root
+    expect(tree.id).toBe('user')
+    expect(tree.kind).toBe('user')
+    expect(tree.children).toHaveLength(1)
+
+    // level 1 — K, carrying the K→Chief delegation-edge count
+    const k = tree.children[0]
+    expect(k.id).toBe('k')
+    expect(k.label).toBe('K')
+    expect(k.meta).toContain('3 delegations to Chief')
+    expect(k.children).toHaveLength(1)
+
+    // level 2 — the existing Chief subtree, unchanged
+    const chief = k.children[0]
+    expect(chief.id).toBe('chief')
+    expect(chief.kind).toBe('chief')
+
+    // level 3 + 4 — lead → sub-agent still derived from the run events
+    expect(chief.children[0].id).toBe('lead-backend')
+    expect(chief.children[0].children[0]).toMatchObject({ id: 'c1', kind: 'sub-agent' })
+  })
+
+  it('K rides the chain — running when the Chief subtree is active, else idle', () => {
+    const running = fullOrgToDelegationTree(payload({ chiefWakes: [wake({ status: 'running' })] }))
+    expect(running.children[0].status).toBe('running') // K
+    const idle = fullOrgToDelegationTree(payload())
+    expect(idle.children[0].status).toBe('idle')
+    // The loop-b2 window: the Chief's own activation has finalized (no live wake) but a lead
+    // it dispatched is still running → K must stay running (it rides the whole subtree).
+    const leadStillRunning = fullOrgToDelegationTree(
+      payload({ leads: [lead({ latestRun: run({ status: 'running' }) })] }),
+    )
+    expect(leadStillRunning.children[0].status).toBe('running')
+  })
+
+  it('defaults kDelegations to 0 and never throws on a minimal payload', () => {
+    expect(() => fullOrgToDelegationTree(payload())).not.toThrow()
+    const tree = fullOrgToDelegationTree(payload())
+    expect(tree.children[0].meta).toContain('0 delegations to Chief')
+    // singular grammar when exactly one
+    expect(fullOrgToDelegationTree(payload({ kDelegations: 1 })).children[0].meta).toContain(
+      '1 delegation to Chief',
+    )
   })
 })

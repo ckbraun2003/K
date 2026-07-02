@@ -53,7 +53,7 @@ The harness delegation loop is **prose methodology**, not a code object, so its 
 
 The end-to-end compact-and-**continue** success on a long, genuinely-full context is a Wave V live-verification item (the smoke proved the trigger fires; it "failed" only because the probe session was empty).
 
-## Multi-tier org observability (PLANNED — Phase 5)
+## Multi-tier org observability (BUILT — Phase 5, through loop-b b2)
 
 Today's runtime sub-agent tree observes **one run's** delegate calls (orchestrator → worker agents).
 The agent organization (§03) adds tiers **above** a run — K, the Chief, and the leads — so
@@ -91,15 +91,34 @@ observability extends from a single run's tree to the **whole org**:
   queue drained by `lead-dispatch-relay.ts`), so the lead's `agent_runs` row finalizes and the
   report-back fires on the main EventBus (visible to the WS + org tree) instead of dying with the
   mgmt-server child; a boot sweep (`reconcileOrphanedActivations`) finalizes any activation orphaned by
-  a mid-dispatch child exit. The **multi-tier tree DERIVATION render** (folding these `lead_run_id`
-  edges into the `DelegationTree` view above) is the remaining piece, deferred to **loop-b b2 / P5.6** —
-  the data is present + now populated by real runs; the whole-org multi-tier render is the polish.
+  a mid-dispatch child exit.
+- **The WHOLE-ORG tree is now RENDERED, and the up-chain reaches K (BUILT — loop-b b2, D-051).** Two
+  gaps closed exit-criterion #3 ("the result reports back up the chain — all visible in the org tree"):
+  - **The multi-tier tree DERIVATION render.** `web/src/lib/delegation.ts::fullOrgToDelegationTree`
+    wraps the existing Chief subtree (`orgToDelegationTree`, unchanged) under two ancestor tiers —
+    **user → K → Chief → lead → sub-agent** — reusing the same generic `DelegationTree` component
+    (arbitrary depth) the Chief page already renders. The **K→Chief edge** is a pure derivation from the
+    existing links, **no new table**: `ChiefOrgPayload.kDelegations` counts the Chief's
+    `trigger='delegation'` activations (every one is a K hand-up — `delegateToChief` is the only path
+    that sets it; autonomous wakes use `schedule`/`event`). K's node rides the chain (running while the
+    Chief subtree is active); the user root is the operator anchor. So the full chain is VISIBLE end to
+    end on the one batched `GET /api/chief/org` read.
+  - **The Chief→K report continuation.** A Chief's bounded activation can end BEFORE the lead it
+    dispatched finishes, so the Chief-terminal report-back (`reportDelegationBack`, D-046) could surface
+    a PRE-lead status. The continuation closes that: riding the **same lead-terminal signal** the
+    lead→Chief mgmt report uses (`lead-dispatch-relay.ts`, main EventBus), `k-thread.ts::continueLeadOutcomeToK`
+    resolves whether the parent Chief run was itself a K delegation (a `k_thread_turns` row links it to a
+    thread — `getThreadIdByTurnRunId`) and, if so, appends the lead's outcome one more hop UP onto K's
+    durable thread ("Chief (via <lead>) completed: …"), linked to the lead run so it stays traceable.
+    Idempotent (the run-lifecycle once-latch), and a **no-op when the Chief woke autonomously** (no
+    linked thread) — then the outcome stays in the Chief's mgmt store only.
 - **Memory provenance.** A gated reflection (§04) that proposes a lesson is itself an observable
   event, so you can trace *why* a profile's memory changed back to the run that earned the lesson.
 
-The remaining deferred growth (the multi-tier org-tree render over the now-derivable Chief→lead
-`lead_run_id` edges — loop-b / P5.6) rides the same enrichment foundation, pairing helpers, and
-single-wire EventBus — so it too stays a derivation.
+With loop-b b2 the org observability chain is COMPLETE: an engineering ask flows K→Chief→lead→PR and
+its result reports back up to K, and every tier — user, K, Chief, each lead, each sub-agent — is
+visible in one derived multi-tier tree over the same enrichment foundation, pairing helpers, and
+single-wire EventBus. No new table was added at any hop; the whole chain stays a derivation.
 
 ## Implementation history (dashboard)
 

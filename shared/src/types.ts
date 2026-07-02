@@ -644,6 +644,10 @@ export interface ChiefOrgPayload {
   /** Recent assignments across runs — the Objectives panel source. */
   assignments: Assignment[]
   health: ChiefOrgHealth
+  /** Count of K→Chief delegations (chief activations with trigger='delegation') — the
+   *  K-tier edge count the whole-org tree (user → K → Chief → …) renders. Optional so an
+   *  older payload without it still builds a tree (fullOrgToDelegationTree defaults to 0). */
+  kDelegations?: number
 }
 
 // ─── Orchestrators roster (GET /api/orchestrators — P5.3a) ──────────────────

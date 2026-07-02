@@ -4,7 +4,7 @@ import type { ChiefOrgPayload, Assignment, AgentRun } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { relativeTime } from '../lib/verify'
-import { orgToDelegationTree } from '../lib/delegation'
+import { fullOrgToDelegationTree } from '../lib/delegation'
 import DelegationTree from '../components/DelegationTree'
 
 /**
@@ -82,8 +82,9 @@ export default function ChiefPage() {
     queryFn: () => api.chief.org(),
   })
 
-  // Derive the whole-org delegation tree from the payload (pure builder).
-  const tree = useMemo(() => (data ? orgToDelegationTree(data) : null), [data])
+  // Derive the whole-org delegation tree from the payload (pure builder): the full
+  // user → K → Chief → lead → sub-agent chain (loop-b2), so the entire org is VISIBLE.
+  const tree = useMemo(() => (data ? fullOrgToDelegationTree(data) : null), [data])
 
   return (
     <div className="h-full overflow-y-auto p-5">
