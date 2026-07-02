@@ -42,6 +42,14 @@ const DEFAULT_ASSETS_DIR = path.join(__dirname, '../../agent-config')
  *  The subagent-spawn tool-id is `Task` (the CLI's literal token), never `Agent`. */
 export const CODING_TOOLS = ['Bash', 'Write', 'Edit', 'Task'] as const
 
+/** The fail-closed CLIENT-ERROR signal from the two grant guards — assertMcpGrants
+ *  ("mounting ≠ granting", D-034) and assertTierCeiling (the B1 tier ceiling). The
+ *  PATCH routes (orchestrators / org-default) map an `instanceof GrantError` to a
+ *  400 with the message verbatim; any other throw is a server fault → 500. A typed
+ *  class instead of message-regex matching, so the routes can't drift from the
+ *  guard wording. */
+export class GrantError extends Error {}
+
 export interface TierAuthority {
   tier: AgentTier
   allowedTools: string[] // the claude --allowedTools allowlist for the tier
@@ -67,9 +75,9 @@ function readJson<T>(file: string, label: string): T {
 /**
  * Guard: every MCP server mounted for the tier must be granted in its allowlist —
  * either a server-level `mcp__<server>` grant or a per-tool `mcp__<server>__<tool>`
- * grant. Throws (fail-closed) on the first ungranted server. This is the runtime
- * teeth behind D-034's "mounting ≠ granting" lesson, so a seeded profile can never
- * carry a mounted-but-denied server.
+ * grant. Throws GrantError (fail-closed) on the first ungranted server. This is the
+ * runtime teeth behind D-034's "mounting ≠ granting" lesson, so a seeded profile can
+ * never carry a mounted-but-denied server.
  */
 export function assertMcpGrants(tier: AgentTier, allowedTools: string[], mcpServers: string[]): void {
   for (const server of mcpServers) {
@@ -77,7 +85,7 @@ export function assertMcpGrants(tier: AgentTier, allowedTools: string[], mcpServ
       allowedTools.includes(`mcp__${server}`) ||
       allowedTools.some(t => t.startsWith(`mcp__${server}__`))
     if (!granted) {
-      throw new Error(
+      throw new GrantError(
         `authority: tier "${tier}" mounts MCP server "${server}" but does not grant it ` +
           `(add "mcp__${server}" to allowlists/${tier}.json) — mounting an MCP server ≠ granting it`,
       )
@@ -105,13 +113,13 @@ export function toolWithinCeiling(tool: string, ceiling: ReadonlySet<string>): b
 /** Fail-closed ceiling guard (B1): every entry in `allowedTools` must be within the
  *  TIER's asset allowlist — the tier is the ceiling, per-profile rows only narrow
  *  within it (so a row can never re-grant coding tools to a non-coding tier, nor the
- *  dead `Agent` token anywhere). Throws on the first violation with a message the
- *  PATCH routes map to a 400. */
+ *  dead `Agent` token anywhere). Throws GrantError on the first violation — the
+ *  typed signal the PATCH routes map to a 400. */
 export function assertTierCeiling(tier: AgentTier, allowedTools: string[], opts: { assetsDir?: string } = {}): void {
   const ceiling = new Set(resolveAuthority(tier, opts).allowedTools)
   for (const tool of allowedTools) {
     if (!toolWithinCeiling(tool, ceiling)) {
-      throw new Error(
+      throw new GrantError(
         `authority: tool "${tool}" exceeds the "${tier}" tier ceiling — the tier allowlist is the ceiling; per-profile rows may only narrow within it`,
       )
     }

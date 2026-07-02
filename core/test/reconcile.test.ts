@@ -14,6 +14,7 @@ import {
   reconcileStaleActivations,
   reconcileOrphanedActivations,
   reconcileOrphanedLeadDispatches,
+  reconcileStaleKThreads,
 } from '../src/supervisor.js'
 
 const tmpPath = path.join(os.tmpdir(), `k-reconcile-${Date.now()}.db`)
@@ -261,6 +262,90 @@ beforeAll(() => {
 afterAll(() => {
   try { ldDb?.close() } catch { /* ignore */ }
   try { fs.unlinkSync(LD_TMP_PATH) } catch { /* ignore */ }
+})
+
+/**
+ * reconcileStaleKThreads() clears k_threads stuck pointing at a DEAD warm run — the
+ * live-observed crash/boot symptom: status='active' with an active_run_id whose run
+ * is terminal (the captureAnswers subscriber died with the process) or missing
+ * entirely. A thread whose run is still live, and an already-idle thread, are BOTH
+ * untouched. Temp DB with runs + k_threads (no FK needed for this unit).
+ */
+const KT_TMP_PATH = path.join(os.tmpdir(), `k-reconcile-kt-${Date.now()}.db`)
+let ktDb: Database.Database
+
+const KT_TERMINAL = 'kt-terminal'   // active, run done         → cleared + idle
+const KT_MISSING = 'kt-missing'     // active, run row missing  → cleared + idle
+const KT_LIVE = 'kt-live'           // active, run running      → untouched
+const KT_IDLE = 'kt-idle'           // already idle, null run   → untouched
+
+const KT_RUN_DONE = uuid()
+const KT_RUN_LIVE = uuid()
+
+function seedKThreads(d: Database.Database) {
+  d.exec(`
+    CREATE TABLE runs (
+      id TEXT PRIMARY KEY, prompt TEXT NOT NULL, cwd TEXT NOT NULL, worktree TEXT,
+      status TEXT NOT NULL DEFAULT 'queued', created_at INTEGER NOT NULL, ended_at INTEGER
+    );
+    CREATE TABLE k_threads (
+      id TEXT PRIMARY KEY, title TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','idle')),
+      active_run_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+  `)
+  const insRun = d.prepare(`INSERT INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'p', '/tmp', ?, ?)`)
+  insRun.run(KT_RUN_DONE, 'done', Date.now())
+  insRun.run(KT_RUN_LIVE, 'running', Date.now())
+  const insThread = d.prepare(
+    `INSERT INTO k_threads (id, title, status, active_run_id, created_at, updated_at) VALUES (?, NULL, ?, ?, ?, 1)`,
+  )
+  insThread.run(KT_TERMINAL, 'active', KT_RUN_DONE, Date.now())
+  insThread.run(KT_MISSING, 'active', 'no-such-run', Date.now())
+  insThread.run(KT_LIVE, 'active', KT_RUN_LIVE, Date.now())
+  insThread.run(KT_IDLE, 'idle', null, Date.now())
+}
+
+beforeAll(() => {
+  ktDb = new Database(KT_TMP_PATH)
+  seedKThreads(ktDb)
+})
+
+afterAll(() => {
+  try { ktDb?.close() } catch { /* ignore */ }
+  try { fs.unlinkSync(KT_TMP_PATH) } catch { /* ignore */ }
+})
+
+describe('reconcileStaleKThreads', () => {
+  it('clears threads pointing at a terminal or missing run; leaves live + idle threads untouched', () => {
+    const n = reconcileStaleKThreads(ktDb)
+    expect(n).toBe(2)
+
+    const get = ktDb.prepare('SELECT status, active_run_id, updated_at FROM k_threads WHERE id = ?')
+    const terminal = get.get(KT_TERMINAL) as { status: string; active_run_id: string | null; updated_at: number }
+    const missing = get.get(KT_MISSING) as { status: string; active_run_id: string | null }
+    const live = get.get(KT_LIVE) as { status: string; active_run_id: string | null }
+    const idle = get.get(KT_IDLE) as { status: string; active_run_id: string | null; updated_at: number }
+
+    // terminal-run thread: cleared + idle, updated_at stamped.
+    expect(terminal.status).toBe('idle')
+    expect(terminal.active_run_id).toBeNull()
+    expect(terminal.updated_at).toBeGreaterThan(1)
+    // missing-run thread: cleared + idle.
+    expect(missing.status).toBe('idle')
+    expect(missing.active_run_id).toBeNull()
+    // live-run thread: untouched.
+    expect(live.status).toBe('active')
+    expect(live.active_run_id).toBe(KT_RUN_LIVE)
+    // already-idle thread: untouched (updated_at not re-stamped).
+    expect(idle.status).toBe('idle')
+    expect(idle.active_run_id).toBeNull()
+    expect(idle.updated_at).toBe(1)
+  })
+
+  it('is idempotent — a second sweep finds nothing stale', () => {
+    expect(reconcileStaleKThreads(ktDb)).toBe(0)
+  })
 })
 
 describe('reconcileOrphanedLeadDispatches', () => {

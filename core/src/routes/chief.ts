@@ -57,6 +57,9 @@ export async function chiefRoutes(app: FastifyInstance) {
     // K handed work UP to the Chief. Every such hand-up is a chief activation with
     // trigger='delegation' (delegateToChief is the only path that sets it; autonomous wakes
     // use schedule/event), so this COUNT derives the K→Chief edge from the existing links.
+    // 'failed' rows are excluded by the statement, which also drops delegations whose run
+    // errored mid-flight — the meta reads as SUCCESSFUL hand-ups, not raw attempts (see
+    // db.ts::countAgentRunsByProfileAndTrigger).
     const kDelegations = Number(
       (agentRunsDb.countAgentRunsByProfileAndTrigger.get('chief', 'delegation') as { n?: number } | undefined)?.n ?? 0,
     )
@@ -68,6 +71,9 @@ export async function chiefRoutes(app: FastifyInstance) {
       assignments,
       health: { leadsActive },
       kDelegations,
+      // Server-authoritative live-leads count (=== health.leadsActive) — surfaced at
+      // the top level so the web tree stops re-deriving it client-side.
+      leadsActive,
     }
     return reply.send(payload)
   })

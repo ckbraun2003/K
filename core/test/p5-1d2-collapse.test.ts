@@ -114,6 +114,9 @@ describe('P5.1d2: migrate() backfills project_tasks → work_items (idempotently
     expect(row.run_id).toBeNull()
 
     // Second migrate() must NOT duplicate (NOT EXISTS keys on the reused id).
+    // Force the FULL scan (the user_version fast path would skip the backfill
+    // entirely) — the NOT EXISTS guard is what's under test.
+    tempDb.pragma('user_version = 0')
     expect(() => migrate(tempDb)).not.toThrow()
     const count = tempDb.prepare(`SELECT COUNT(*) AS n FROM work_items WHERE id = ?`).get(taskId) as { n: number }
     expect(count.n).toBe(1)

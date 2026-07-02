@@ -14,6 +14,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { mgmtTools, MgmtError, type MgmtContext } from './mgmt.js'
+import { toolErrorMessage } from './server-glue.js'
 
 const ctx: MgmtContext = { runId: process.env.K_RUN_ID ?? null }
 
@@ -30,14 +31,12 @@ for (const tool of mgmtTools) {
         const result = await tool.handler(args, ctx)
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
       } catch (e) {
-        // MgmtError messages are caller-facing by design. Anything else is an
-        // internal fault: return a generic message (don't leak SQLite/schema
-        // internals to the agent) and log the detail to stderr.
-        if (!(e instanceof MgmtError)) {
-          console.error(`[mgmt] ${tool.name} failed:`, e)
-        }
-        const msg = e instanceof MgmtError ? e.message : `mgmt: internal error in ${tool.name}.`
-        return { content: [{ type: 'text' as const, text: msg }], isError: true }
+        // Shared mapper (server-glue.ts): MgmtError → verbatim; ZodError → an
+        // arg-issue summary the agent can self-correct from; anything else → the
+        // generic internal line, with the detail logged to stderr only.
+        const { text, internal } = toolErrorMessage(e, 'mgmt', tool.name, MgmtError)
+        if (internal) console.error(`[mgmt] ${tool.name} failed:`, e)
+        return { content: [{ type: 'text' as const, text }], isError: true }
       }
     },
   )

@@ -111,6 +111,9 @@ describe('A1 migration: rebuilds a work_items carrying the OLD scope CHECK', () 
   })
 
   it('(b) is a flag-guarded one-shot: durable personal AND org rows survive a re-migrate', () => {
+    // Force the FULL scan (the user_version fast path would skip it) — the FLAG,
+    // not the version gate, is what must protect durable rows here.
+    d.pragma('user_version = 0')
     const durableId = uuid()
     const durableOrgId = uuid()
     d.prepare(`INSERT INTO work_items (id, run_id, title, status, created_at, updated_at, scope)

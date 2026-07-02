@@ -142,6 +142,9 @@ describe('A1: mig_agent_memory_profile_backfill', () => {
     expect(d.prepare('SELECT 1 FROM app_config WHERE key = ?').get(MEM_BACKFILL_FLAG)).toBeTruthy()
 
     // One-shot: a NEW null-profile lesson inserted after the flag is set is NOT backfilled.
+    // Force the FULL scan (the user_version fast path would skip it) — the FLAG is
+    // what must gate the backfill here.
+    d.pragma('user_version = 0')
     const afterFlag = uuid()
     d.prepare(`INSERT INTO agent_memory (id, run_id, lesson, status, created_at, reviewed_at, profile_id)
                VALUES (?, ?, 'after flag', 'pending', 1, NULL, NULL)`).run(afterFlag, runWith)

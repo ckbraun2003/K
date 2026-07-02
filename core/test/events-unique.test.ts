@@ -69,6 +69,9 @@ describe('migrate() — events(run_id, seq) uniqueness', () => {
   })
 
   it('migrate() is idempotent against the deduped DB', () => {
+    // Force the FULL scan — the user_version fast path would otherwise skip the
+    // dedupe+index branch this case exists to re-run.
+    tempDb.pragma('user_version = 0')
     expect(() => migrate(tempDb)).not.toThrow()
   })
 })

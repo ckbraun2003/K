@@ -77,6 +77,9 @@ describe('S1 — migrate() idempotency across all branches', () => {
     const { db: c } = tmpDb()
     c.exec(OLD_FULL_DDL)
     expect(() => migrate(c)).not.toThrow() // first pass: adds columns/indexes, dedup
+    // Force the FULL scan on the second pass — the user_version fast path would
+    // otherwise no-op trivially; the per-branch idempotency is what's under test.
+    c.pragma('user_version = 0')
     expect(() => migrate(c)).not.toThrow() // second pass: idempotent no-op
 
     const cols = (t: string) => (c.pragma(`table_info(${t})`) as Array<{ name: string }>).map(x => x.name)
@@ -112,6 +115,9 @@ describe('S1 — two connections migrating the same old-schema file', () => {
     const c2 = new Database(p)
     try {
       expect(() => migrate(c1)).not.toThrow()
+      // Reset the (file-level) user_version c1 just stamped so c2 takes the FULL
+      // scan — the hasColumn skip, not the version fast path, is what's under test.
+      c2.pragma('user_version = 0')
       expect(() => migrate(c2)).not.toThrow() // sees c1's committed project_id, skips
       const cols = (c2.pragma('table_info(runs)') as Array<{ name: string }>).map(c => c.name)
       expect(cols.filter(n => n === 'project_id')).toHaveLength(1) // added exactly once
