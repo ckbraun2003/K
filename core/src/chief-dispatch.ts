@@ -144,9 +144,11 @@ export function summarizeLeadOutcome(leadRunId: string, status: string, lead: st
  * Report a dispatched lead run's outcome UP into the Chief's mgmt store — the downward
  * mirror of k-thread.ts::reportDelegationBack. Rides the shared run-lifecycle seam
  * (trackSupervisedRun): on the lead run's terminal — once, race-backstopped — it files
- * a mgmt report scoped to the Chief's run (run_id = chiefRunId), so the Chief's next
- * activation can read the lead's outcome from its own store. assignmentId is null: the
- * report is a status write up the chain, not itself an assignment.
+ * a mgmt report with run_id = chiefRunId (provenance). The Chief's NEXT activation reads
+ * it via the cross-activation mgmt read tools (report_list / assignment_list) — those
+ * reads are durable, NOT run-scoped, so a later Chief wake sees this lead's outcome even
+ * though it ran under a different run. assignmentId is null: the report is a status write
+ * up the chain, not itself an assignment.
  */
 export function reportLeadOutcomeToChief(chiefRunId: string, leadRunId: string, lead: string): void {
   trackSupervisedRun(leadRunId, {

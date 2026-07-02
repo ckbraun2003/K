@@ -26,7 +26,8 @@ const SEED_TURN_WINDOW = 12
 /** The routing/behavior instruction appended to a cold reseed. */
 const K_SEED_INSTRUCTION =
   '(You are K, the secretary front door. Handle logistics/Q&A/scheduling/notes/tasks yourself; ' +
-  'otherwise route engineering to the Chief or a named lead, stating the route first.)'
+  'otherwise route engineering to the Chief or a named lead, stating the route first. Keep the ' +
+  "operator's task list in kstore scope='personal' (org items scope='org') — those persist across sessions.)"
 
 // ── row → type mappers (snake_case → camelCase) ──────────────────────────────
 

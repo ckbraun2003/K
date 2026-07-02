@@ -1,12 +1,15 @@
 /**
- * P5.1d1 — feature tests for the additive work_items.scope column (D-026).
+ * P5.1d1 — feature tests for the work_items.scope column (D-026), updated for the A1
+ * durable operator-global rename (default scope 'personal' → 'run'; project tickets
+ * are created via the projects API, not kstore).
  *
- * RED on unmodified source, GREEN after the change. Two parts:
- *   1. kstore behavior — create defaults scope to 'personal', honors an explicit
- *      scope, surfaces it through rowToWorkItem/list, and zod-rejects a bad value.
+ * Two parts:
+ *   1. kstore behavior — create defaults scope to 'run', honors an explicit durable
+ *      scope, surfaces it through rowToWorkItem/list, rejects a project-scope create,
+ *      and zod-rejects a bad value.
  *   2. migrate() — on an old-schema DB that HAS a work_items table (no scope col),
- *      it adds the column, is idempotent on a second call, and does NOT throw when
- *      work_items is absent (the hasTable guard). Modeled on db-migration.test.ts.
+ *      it adds the column (DEFAULT 'run' backfill), is idempotent on a second call,
+ *      and does NOT throw when work_items is absent (the hasTable guard).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
@@ -15,7 +18,7 @@ import path from 'path'
 import os from 'os'
 import fs from 'fs'
 import { db, runsDb, projectsDb, migrate } from '../src/db.js'
-import { kStoreTools, type KStoreContext } from '../src/mcp/k-store.js'
+import { kStoreTools, KStoreError, type KStoreContext } from '../src/mcp/k-store.js'
 import type { WorkItem } from '@k/shared'
 
 // ── kstore scope behavior ─────────────────────────────────────────────────────
@@ -64,25 +67,24 @@ describe('P5.1d1: work_item scope column (kstore)', () => {
     db.prepare('DELETE FROM projects WHERE id = ?').run(PROJECT_ID)
   })
 
-  it('create WITHOUT scope defaults to personal', () => {
+  it('create WITHOUT scope defaults to run', () => {
+    // The run-scoped default was RENAMED 'personal' → 'run' (identical semantics:
+    // ephemeral, visible only to this run).
     const item = call('work_item_create', { title: 'no scope given' }, ctx) as WorkItem
     createdWorkItemIds.push(item.id)
-    expect(item.scope).toBe('personal')
+    expect(item.scope).toBe('run')
   })
 
-  it('create WITH scope:project persists and returns project', () => {
-    const item = call('work_item_create', { title: 'scoped', scope: 'project' }, ctx) as WorkItem
-    createdWorkItemIds.push(item.id)
-    expect(item.scope).toBe('project')
-    // persisted on the row (not just echoed)
-    const row = db.prepare('SELECT scope FROM work_items WHERE id = ?').get(item.id) as { scope: string }
-    expect(row.scope).toBe('project')
+  it('create WITH scope:project is REJECTED (project tickets use the projects API)', () => {
+    // Project creation moved OFF kstore by design — the pre-parse guard throws.
+    expect(() => call('work_item_create', { title: 'scoped', scope: 'project' }, ctx)).toThrow(KStoreError)
   })
 
-  it('rowToWorkItem/list surfaces scope', () => {
+  it('rowToWorkItem/list surfaces a durable scope', () => {
     const created = call('work_item_create', { title: 'listed', scope: 'org' }, ctx) as WorkItem
     createdWorkItemIds.push(created.id)
-    const list = call('work_item_list', {}, ctx) as WorkItem[]
+    // durable rows are read via the scope filter (NOT the default run list).
+    const list = call('work_item_list', { scope: 'org' }, ctx) as WorkItem[]
     const found = list.find(w => w.id === created.id)!
     expect(found.scope).toBe('org')
   })
@@ -136,9 +138,10 @@ describe('P5.1d1: migrate() evolves work_items with scope', () => {
     expect(() => migrate(tempDb)).not.toThrow()
     const cols = tempDb.pragma('table_info(work_items)') as Array<{ name: string }>
     expect(cols.map(c => c.name)).toContain('scope')
-    // DEFAULT 'personal' backfilled the legacy row.
+    // DEFAULT 'run' backfilled the legacy row (the run-scoped default, renamed from
+    // 'personal' — identical ephemeral single-run semantics).
     const legacy = tempDb.prepare(`SELECT scope FROM work_items`).get() as { scope: string }
-    expect(legacy.scope).toBe('personal')
+    expect(legacy.scope).toBe('run')
 
     // Second call is idempotent — must not throw (addColumn skips an existing col).
     expect(() => migrate(tempDb)).not.toThrow()
