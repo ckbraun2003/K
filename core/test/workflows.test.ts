@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, projectsDb, workflowRunsDb } from '../src/db.js'
+import { db, projectsDb, projectTasksDb, workflowRunsDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { startRun } from '../src/supervisor.js'
 import type { Project, ProjectTask, Run } from '@k/shared'
@@ -105,16 +105,16 @@ describe('dispatchTaskWorkflow', () => {
       createdAt: project.createdAt,
     })
     for (const [id, title] of [[taskA, 'Task A'], [taskB, 'Task B'], [taskC, 'Task C']] as const) {
-      db.prepare(
-        `INSERT INTO project_tasks (id, project_id, title, status, created_at, completed_at)
-         VALUES (?, ?, ?, 'open', ?, NULL)`,
-      ).run(id, project.id, title, Date.now())
+      projectTasksDb.insertProjectTask.run({
+        id, projectId: project.id, title, status: 'open', createdAt: Date.now(),
+        completedAt: null, issueNumber: null, issueUrl: null, issueState: null,
+      })
     }
   })
 
   afterAll(() => {
     db.prepare('DELETE FROM workflow_runs WHERE project_id = ?').run(project.id)
-    db.prepare('DELETE FROM project_tasks WHERE project_id = ?').run(project.id)
+    db.prepare('DELETE FROM work_items WHERE project_id = ?').run(project.id)
     db.prepare(`DELETE FROM runs WHERE id LIKE 'mock-wf-run-%'`).run()
     db.prepare('DELETE FROM projects WHERE id = ?').run(project.id)
   })
@@ -130,7 +130,7 @@ describe('dispatchTaskWorkflow', () => {
 
     // Tasks locked to in_progress (NOT done).
     for (const id of [taskA, taskB]) {
-      const t = db.prepare('SELECT status FROM project_tasks WHERE id = ?').get(id) as { status: string }
+      const t = db.prepare('SELECT status FROM work_items WHERE id = ?').get(id) as { status: string }
       expect(t.status).toBe('in_progress')
     }
 
@@ -173,7 +173,7 @@ describe('dispatchTaskWorkflow', () => {
     expect(rows.some(r => r.status === 'failed')).toBe(true)
 
     // The selected task is reverted to 'open' (not left in_progress).
-    const t = db.prepare('SELECT status FROM project_tasks WHERE id = ?').get(taskC) as { status: string }
+    const t = db.prepare('SELECT status FROM work_items WHERE id = ?').get(taskC) as { status: string }
     expect(t.status).toBe('open')
   })
 })

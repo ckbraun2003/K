@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, projectsDb, workflowRunsDb } from '../src/db.js'
+import { db, projectsDb, projectTasksDb, workflowRunsDb } from '../src/db.js'
 import { startRun } from '../src/supervisor.js'
 import type { Project } from '@k/shared'
 
@@ -49,15 +49,15 @@ beforeAll(() => {
     id: PROJECT_ID, name: project.name, localPath: project.localPath,
     githubRemote: null, workspaceManaged: 0, bibleDir: project.bibleDir, createdAt: project.createdAt,
   })
-  db.prepare(
-    `INSERT INTO project_tasks (id, project_id, title, status, created_at, completed_at)
-     VALUES (?, ?, 'ready to ship', 'open', ?, NULL)`,
-  ).run(OPEN_TASK, PROJECT_ID, Date.now())
+  projectTasksDb.insertProjectTask.run({
+    id: OPEN_TASK, projectId: PROJECT_ID, title: 'ready to ship', status: 'open',
+    createdAt: Date.now(), completedAt: null, issueNumber: null, issueUrl: null, issueState: null,
+  })
 })
 
 afterAll(() => {
   db.prepare('DELETE FROM workflow_runs WHERE project_id = ?').run(PROJECT_ID)
-  db.prepare('DELETE FROM project_tasks WHERE project_id = ?').run(PROJECT_ID)
+  db.prepare('DELETE FROM work_items WHERE project_id = ?').run(PROJECT_ID)
   db.prepare(`DELETE FROM runs WHERE id LIKE 'mock-s4-lh-run-%'`).run()
   db.prepare('DELETE FROM projects WHERE id = ?').run(PROJECT_ID)
 })
@@ -70,7 +70,7 @@ describe('S4 dispatchTaskWorkflow: a missing task in a batch locks nothing', () 
     await expect(dispatchTaskWorkflow(project, [OPEN_TASK, missing])).rejects.toThrow(/Task not found/)
 
     // The valid task was NOT locked to in_progress (validation precedes mutation).
-    const t = db.prepare('SELECT status, completed_at FROM project_tasks WHERE id = ?').get(OPEN_TASK) as {
+    const t = db.prepare('SELECT status, completed_at FROM work_items WHERE id = ?').get(OPEN_TASK) as {
       status: string; completed_at: number | null
     }
     expect(t.status).toBe('open')

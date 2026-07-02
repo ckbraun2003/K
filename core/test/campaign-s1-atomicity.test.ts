@@ -98,6 +98,7 @@ describe('S1 — projectsDb.deleteProject removes the project + all dependents a
     expect(count('SELECT COUNT(*) AS n FROM events WHERE run_id = ?', runId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM verification_reports WHERE project_id = ?', projectId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM project_tasks WHERE project_id = ?', projectId)).toBe(0)
+    expect(count('SELECT COUNT(*) AS n FROM work_items WHERE project_id = ?', projectId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM workflow_runs WHERE project_id = ?', projectId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM project_graphs WHERE project_id = ?', projectId)).toBe(0)
   })

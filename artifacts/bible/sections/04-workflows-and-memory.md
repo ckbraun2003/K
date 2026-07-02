@@ -160,17 +160,23 @@ WorkItem {                     // PLANNED — Phase 5 (unified; replaces the age
 }
 ```
 
-> **What ships today (run-scoped, kstore; `scope` column landed P5.1d1).** The built `work_items`
-> table + kstore tools (`work_item_create` / `work_item_list` / `work_item_update`) are the
-> storage-as-tools replacement for the home-dev `tasks/todo.md` — tickets are **run-scoped** (owned
-> by the managed run that created them; a run reads/mutates only its own). The **`scope` discriminator
-> has landed** as the D-026 down-payment (P5.1d1, **D-045**): every ticket now carries `scope`,
-> additively, defaulting to **`personal`** (== today's run-scoped semantics); `org`/`project` are
-> reserved and `work_item_create` accepts an optional `scope`. What remains **deferred to P5.1d2** is
-> the *collapse* — adding `work_items.project_id`, migrating `project_tasks` rows into `work_items`
-> (`scope: 'project'`), and rewiring the project routes, issue-sync, and Tasks UI onto the one store.
-> Until then the operator's project Tasks tab still reads `project_tasks` (§05), and row **promotion**
-> (`personal → org → project` via update) is P5.1d2, not yet wired.
+> **What ships today (unified storage; `scope` P5.1d1, storage collapse P5.1d2a).** The built
+> `work_items` table + kstore tools (`work_item_create` / `work_item_list` / `work_item_update`) are the
+> storage-as-tools replacement for the home-dev `tasks/todo.md`; run-scoped (`scope='personal'`)
+> tickets are owned by the managed run that created them (a run reads/mutates only its own). The
+> **`scope` discriminator landed** as the D-026 down-payment (P5.1d1, **D-045**), defaulting to
+> **`personal`**. The **storage collapse then landed** (P5.1d2a, **D-048**): `work_items` gained
+> `project_id` + the issue-sync columns (`completed_at` / `issue_number` / `issue_url` / `issue_state`),
+> a guarded, idempotent `migrate()` **backfills** every `project_tasks` row into `work_items`
+> (`scope='project'`, `project_id` set, issue-linkage preserved), and the `projectTasksDb` helpers are
+> **re-pointed onto the one `work_items` store** — so the project Tasks route, GitHub issue-sync, and
+> the delegation-dispatch path already read/write the unified table **behind their unchanged public
+> APIs** (the P5.1d characterization tests stay green through the collapse). The old `project_tasks`
+> table is **deprecated + frozen** (its rows copied, not deleted; nothing writes to it) pending a drop.
+> What remains **deferred to P5.1d2b** is the surface reroute — having `routes/projects.ts` /
+> `github.ts::syncIssues` / `workflows.ts` call the work-item store *directly* (retiring the
+> compatibility helpers), collapsing the two Tasks UI surfaces into one **scope-aware** view, wiring
+> row **promotion** (`personal → org → project` via `work_item_update`), and dropping `project_tasks`.
 >
 > ```ts
 > WorkItem {                   // BUILT — kstore working store (scope column landed P5.1d1)

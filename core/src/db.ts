@@ -577,6 +577,41 @@ export function migrate(d: Database.Database): void {
   if (hasTable(d, 'work_items')) {
     addColumn(d, 'work_items', 'scope', "TEXT NOT NULL DEFAULT 'personal' CHECK(scope IN ('personal','org','project'))")
   }
+  // work_items project columns (P5.1d2, D-026/D-048): fold the deprecated
+  // project_tasks store into the unified work_items store. project_id + the issue-
+  // sync metadata (completed_at/issue_number/issue_url/issue_state) let a
+  // scope='project' ticket carry everything a project_tasks row used to. Appended
+  // via guarded ALTER (not in CREATE TABLE) exactly like `scope` — migrate() runs at
+  // boot so fresh installs and existing DBs both gain them. project_id is a PLAIN FK
+  // with NO ON DELETE action (matching the runs.project_id precedent; project-scoped
+  // rows are cleaned explicitly in deleteProject) — ADD COLUMN with REFERENCES is
+  // legal under foreign_keys=ON (default NULL). The hasTable guard keeps migrate()
+  // safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'work_items')) {
+    addColumn(d, 'work_items', 'project_id', 'TEXT REFERENCES projects(id)')
+    addColumn(d, 'work_items', 'completed_at', 'INTEGER')
+    addColumn(d, 'work_items', 'issue_number', 'INTEGER')
+    addColumn(d, 'work_items', 'issue_url', 'TEXT')
+    addColumn(d, 'work_items', 'issue_state', 'TEXT')
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, created_at)`)
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_work_items_issue ON work_items(project_id, issue_number)`)
+  }
+  // project_tasks → work_items backfill (P5.1d2, D-026). Idempotent (NOT EXISTS keys
+  // on the reused project_task id === work_item id), so a re-boot never duplicates.
+  // Runs AFTER the work_items project columns above exist and AFTER the project_tasks
+  // issue-columns ALTER earlier in migrate(), so every SELECT column is present.
+  // COPY only — project_tasks rows are left in place as a frozen safety copy (the
+  // table is deprecated and dropped in d2b). project_tasks.status values
+  // (open/in_progress/done) all satisfy the work_items status CHECK. run_id is NULL
+  // (these are project-scoped, not run-scoped); scope is stamped 'project'.
+  if (hasTable(d, 'work_items') && hasTable(d, 'project_tasks')) {
+    d.exec(`
+      INSERT INTO work_items (id, run_id, project_id, title, body, status, scope, created_at, updated_at, completed_at, issue_number, issue_url, issue_state)
+      SELECT pt.id, NULL, pt.project_id, pt.title, NULL, pt.status, 'project', pt.created_at, pt.created_at, pt.completed_at, pt.issue_number, pt.issue_url, pt.issue_state
+      FROM project_tasks pt
+      WHERE NOT EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = pt.id)
+    `)
+  }
 }
 
 migrate(db)
@@ -714,13 +749,19 @@ const deleteProjectRunEvents = db.prepare(
 const deleteProjectRuns = db.prepare(`DELETE FROM runs WHERE project_id = ?`)
 const deleteProjectReports = db.prepare(`DELETE FROM verification_reports WHERE project_id = ?`)
 const deleteProjectGithubCache = db.prepare(`DELETE FROM github_cache WHERE project_id = ?`)
+// Project-scoped work_items (the collapsed project_tasks store, P5.1d2): project_id
+// is a NO-ACTION FK (no ON DELETE cascade), so these rows must be removed before the
+// project row or the delete throws a FK violation. Personal items (project_id NULL,
+// the run-scoped kstore tickets) are untouched.
+const deleteProjectWorkItems = db.prepare(`DELETE FROM work_items WHERE project_id = ?`)
 const deleteProjectRow = db.prepare(`DELETE FROM projects WHERE id = ?`)
 const deleteProject = db.transaction((id: string) => {
   deleteProjectRunEvents.run(id)
   deleteProjectRuns.run(id)
   deleteProjectReports.run(id)
   deleteProjectGithubCache.run(id)
-  deleteProjectRow.run(id) // cascades project_tasks, workflow_runs, project_graphs
+  deleteProjectWorkItems.run(id) // project-scoped work_items: NO-ACTION FK, delete before the project row
+  deleteProjectRow.run(id) // cascades the (deprecated, frozen) project_tasks, workflow_runs, project_graphs
 })
 
 export const projectsDb = {
@@ -803,36 +844,52 @@ export function rowToReport(r: Record<string, unknown>): VerificationReport {
 }
 
 // ─── ProjectTask helpers ─────────────────────────────────────────────────────
+// COLLAPSED (P5.1d2, D-026): these helpers now operate on the unified `work_items`
+// store with scope='project' instead of the deprecated (frozen) `project_tasks`
+// table. Param names/positions are UNCHANGED so every caller (routes/projects.ts,
+// github.ts, workflows.ts) and the characterization tests bind the same objects;
+// each SELECT projects the EXACT old snake_case column set so rowToProjectTask and
+// tests reading t.issue_number / t.completed_at keep working. run_id is stamped NULL
+// (project-scoped, not run-scoped) and updated_at reuses created_at on insert (the
+// old project_tasks store had no updated_at). better-sqlite3 binds named params
+// strictly, so each statement references exactly the params its callers pass.
 
 const insertProjectTask = db.prepare(`
-  INSERT INTO project_tasks (id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state)
-  VALUES (@id, @projectId, @title, @status, @createdAt, @completedAt, @issueNumber, @issueUrl, @issueState)
+  INSERT INTO work_items (id, run_id, project_id, title, body, status, scope, created_at, updated_at, completed_at, issue_number, issue_url, issue_state)
+  VALUES (@id, NULL, @projectId, @title, NULL, @status, 'project', @createdAt, @createdAt, @completedAt, @issueNumber, @issueUrl, @issueState)
 `)
 
 const listProjectTasks = db.prepare(`
-  SELECT * FROM project_tasks WHERE project_id = ? ORDER BY created_at DESC
+  SELECT id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state
+  FROM work_items WHERE project_id = ? AND scope = 'project' ORDER BY created_at DESC
 `)
 
 const updateProjectTaskStatus = db.prepare(`
-  UPDATE project_tasks
+  UPDATE work_items
   SET status = @status, completed_at = @completedAt
-  WHERE id = @id AND project_id = @projectId
+  WHERE id = @id AND project_id = @projectId AND scope = 'project'
 `)
 
-const getProjectTask = db.prepare(`SELECT * FROM project_tasks WHERE id = ? AND project_id = ?`)
+const getProjectTask = db.prepare(`
+  SELECT id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state
+  FROM work_items WHERE id = ? AND project_id = ? AND scope = 'project'
+`)
 
-const deleteProjectTask = db.prepare(`DELETE FROM project_tasks WHERE id = ? AND project_id = ?`)
+const deleteProjectTask = db.prepare(`DELETE FROM work_items WHERE id = ? AND project_id = ? AND scope = 'project'`)
 
 // Issue-sync lookup: a task already mirroring a given (project, issue#).
-const getProjectTaskByIssue = db.prepare(`SELECT * FROM project_tasks WHERE project_id = ? AND issue_number = ?`)
+const getProjectTaskByIssue = db.prepare(`
+  SELECT id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state
+  FROM work_items WHERE project_id = ? AND issue_number = ? AND scope = 'project'
+`)
 
 // Reconcile an existing task with its upstream issue. status/completed_at are
 // decided by the caller (sync mapping); title and issue metadata always refresh.
 const updateProjectTaskFromIssue = db.prepare(`
-  UPDATE project_tasks
+  UPDATE work_items
   SET title = @title, issue_url = @issueUrl, issue_state = @issueState,
       status = @status, completed_at = @completedAt
-  WHERE id = @id
+  WHERE id = @id AND scope = 'project'
 `)
 
 export const projectTasksDb = {
@@ -896,8 +953,13 @@ export const workflowRunsDb = {
 }
 
 // ─── kstore: work-item helpers ───────────────────────────────────────────────
-// Backs the kstore MCP work-item tools. Tickets are run-scoped (run_id), not
-// project-scoped — work_items↔project_tasks unification is a Phase-5 follow-up.
+// Backs the kstore MCP work-item tools — the run-scoped (run_id) PERSONAL/ORG
+// tickets. project-scoped tickets now live in this SAME table (scope='project',
+// P5.1d2, the project_tasks fold below). The run-scoped fetch/list statements
+// therefore ALSO guard `scope != 'project'`: `run_id IS ?` alone is null-safe but a
+// null owner (K_RUN_ID unset / missing run row / start-of-run race) would otherwise
+// match the backfilled project rows (run_id NULL) and let kstore read/mutate a
+// project task — so the scope guard keeps the project surface isolated from kstore.
 
 const insertWorkItem = db.prepare(`
   INSERT INTO work_items (id, run_id, title, body, status, scope, created_at, updated_at)
@@ -911,12 +973,12 @@ const getWorkItem = db.prepare(`SELECT * FROM work_items WHERE id = ?`)
 // Run-scoped fetch — `IS` is null-safe so a null owner (no/unknown run) only
 // matches null-owner rows. The tools resolve ownership through this so one run
 // can never read or mutate another run's tickets.
-const getWorkItemOwned = db.prepare(`SELECT * FROM work_items WHERE id = ? AND run_id IS ?`)
+const getWorkItemOwned = db.prepare(`SELECT * FROM work_items WHERE id = ? AND run_id IS ? AND scope != 'project'`)
 const listWorkItemsByRun = db.prepare(
-  `SELECT * FROM work_items WHERE run_id IS ? ORDER BY created_at DESC LIMIT ?`,
+  `SELECT * FROM work_items WHERE run_id IS ? AND scope != 'project' ORDER BY created_at DESC LIMIT ?`,
 )
 const listWorkItemsByRunStatus = db.prepare(
-  `SELECT * FROM work_items WHERE run_id IS ? AND status = ? ORDER BY created_at DESC LIMIT ?`,
+  `SELECT * FROM work_items WHERE run_id IS ? AND scope != 'project' AND status = ? ORDER BY created_at DESC LIMIT ?`,
 )
 
 export const workItemsDb = {

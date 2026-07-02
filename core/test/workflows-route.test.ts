@@ -82,7 +82,7 @@ function taskStatus(taskId: string, projectId: string): string | undefined {
 afterAll(() => {
   for (const id of projectIds) {
     db.prepare('DELETE FROM workflow_runs WHERE project_id = ?').run(id)
-    db.prepare('DELETE FROM project_tasks WHERE project_id = ?').run(id)
+    db.prepare('DELETE FROM work_items WHERE project_id = ?').run(id)
     db.prepare('DELETE FROM projects WHERE id = ?').run(id)
   }
   try { db.prepare(`DELETE FROM runs WHERE id = 'mock-run'`).run() } catch { /* ignore */ }

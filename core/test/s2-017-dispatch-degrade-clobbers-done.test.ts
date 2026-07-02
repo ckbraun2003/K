@@ -26,7 +26,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, projectsDb } from '../src/db.js'
+import { db, projectsDb, projectTasksDb } from '../src/db.js'
 import { startRun } from '../src/supervisor.js'
 import type { Project } from '@k/shared'
 
@@ -62,15 +62,15 @@ beforeAll(() => {
     githubRemote: null, workspaceManaged: 0, bibleDir: project.bibleDir, createdAt: project.createdAt,
   })
   // A task that is already DONE before any workflow touches it.
-  db.prepare(
-    `INSERT INTO project_tasks (id, project_id, title, status, created_at, completed_at)
-     VALUES (?, ?, 'already shipped', 'done', ?, ?)`,
-  ).run(DONE_TASK, PROJECT_ID, Date.now(), COMPLETED_AT)
+  projectTasksDb.insertProjectTask.run({
+    id: DONE_TASK, projectId: PROJECT_ID, title: 'already shipped', status: 'done',
+    createdAt: Date.now(), completedAt: COMPLETED_AT, issueNumber: null, issueUrl: null, issueState: null,
+  })
 })
 
 afterAll(() => {
   db.prepare('DELETE FROM workflow_runs WHERE project_id = ?').run(PROJECT_ID)
-  db.prepare('DELETE FROM project_tasks WHERE project_id = ?').run(PROJECT_ID)
+  db.prepare('DELETE FROM work_items WHERE project_id = ?').run(PROJECT_ID)
   db.prepare(`DELETE FROM runs WHERE id LIKE 'mock-s2017-run-%'`).run()
   db.prepare('DELETE FROM projects WHERE id = ?').run(PROJECT_ID)
 })
@@ -81,7 +81,7 @@ describe('S2-017: a failed dispatch must not un-complete a previously-done task'
 
     await expect(dispatchTaskWorkflow(project, [DONE_TASK])).rejects.toThrow(/spawn failed/)
 
-    const t = db.prepare('SELECT status, completed_at FROM project_tasks WHERE id = ?').get(DONE_TASK) as {
+    const t = db.prepare('SELECT status, completed_at FROM work_items WHERE id = ?').get(DONE_TASK) as {
       status: string
       completed_at: number | null
     }

@@ -11,7 +11,7 @@
  *   - finalizeWorkflowRun is last-writer-wins — it has no terminal lock of its
  *     own (S2-015);
  *   - COMPLETION INVARIANT: a successful (terminal 'done') dispatch finalizes the
- *     workflow_run to 'completed' but the selected project_tasks stay
+ *     workflow_run to 'completed' but the selected tasks stay
  *     'in_progress' — the harness NEVER auto-marks a todo 'done'; the PR does
  *     (S2-016).
  *
@@ -21,7 +21,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, runsDb, projectsDb, workflowRunsDb } from '../src/db.js'
+import { db, runsDb, projectsDb, projectTasksDb, workflowRunsDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { startRun } from '../src/supervisor.js'
 import { kStoreTools, type KStoreContext } from '../src/mcp/k-store.js'
@@ -66,7 +66,7 @@ beforeAll(() => {
 
 afterAll(() => {
   db.prepare('DELETE FROM workflow_runs WHERE project_id = ?').run(PROJECT_ID)
-  db.prepare('DELETE FROM project_tasks WHERE project_id = ?').run(PROJECT_ID)
+  db.prepare('DELETE FROM work_items WHERE project_id = ?').run(PROJECT_ID)
   db.prepare(`DELETE FROM runs WHERE id LIKE 'mock-s2fin-run-%'`).run()
   db.prepare('DELETE FROM runs WHERE prompt = ?').run('s2 fin status fixture')
   db.prepare('DELETE FROM projects WHERE id = ?').run(PROJECT_ID)
@@ -131,10 +131,10 @@ describe('S2-016: a successful dispatch never auto-marks the todos done', () => 
     const taskA = uuid()
     const taskB = uuid()
     for (const [id, title] of [[taskA, 'todo A'], [taskB, 'todo B']] as const) {
-      db.prepare(
-        `INSERT INTO project_tasks (id, project_id, title, status, created_at, completed_at)
-         VALUES (?, ?, ?, 'open', ?, NULL)`,
-      ).run(id, PROJECT_ID, title, Date.now())
+      projectTasksDb.insertProjectTask.run({
+        id, projectId: PROJECT_ID, title, status: 'open', createdAt: Date.now(),
+        completedAt: null, issueNumber: null, issueUrl: null, issueState: null,
+      })
     }
 
     const { workflowRunId, runId } = await dispatchTaskWorkflow(project, [taskA, taskB])
@@ -148,7 +148,7 @@ describe('S2-016: a successful dispatch never auto-marks the todos done', () => 
 
     // …but BOTH todos remain in_progress — the harness did NOT auto-mark done.
     for (const id of [taskA, taskB]) {
-      const t = db.prepare('SELECT status, completed_at FROM project_tasks WHERE id = ?').get(id) as
+      const t = db.prepare('SELECT status, completed_at FROM work_items WHERE id = ?').get(id) as
         { status: string; completed_at: number | null }
       expect(t.status).toBe('in_progress')
       expect(t.completed_at).toBeNull()
