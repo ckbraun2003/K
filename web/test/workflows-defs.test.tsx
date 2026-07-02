@@ -93,8 +93,13 @@ describe('WorkflowsPage — Definitions list', () => {
 describe('WorkflowDetailPage', () => {
   it('seeds the scaffold editor from the loaded definition', async () => {
     renderWithQuery(<WorkflowDetailPage id="code-wave" />)
-    await waitFor(() => expect(screen.getByTestId('workflow-detail-scaffold')).toBeTruthy())
-    expect((screen.getByTestId('workflow-detail-scaffold') as HTMLTextAreaElement).value).toContain('{{CHECKLIST}}')
+    // Wait for the SEEDED VALUE, not just the textarea's existence: the editor is
+    // populated by an effect after the definition query resolves, so an existence
+    // wait + a synchronous .value check races the seeding (passes on a fast worktree,
+    // fails under load in the main tree). Assert the value inside waitFor.
+    await waitFor(() =>
+      expect((screen.getByTestId('workflow-detail-scaffold') as HTMLTextAreaElement).value).toContain('{{CHECKLIST}}'),
+    )
   })
 
   it('saves an edited scaffold via api.workflows.update', async () => {

@@ -16,7 +16,7 @@ import { getWorkflowDef, listWorkflowDefs, updateWorkflowDef } from '../workflow
 const WorkflowPatchSchema = z
   .object({
     name: z.string().min(1).optional(),
-    promptScaffold: z.string().optional(),
+    promptScaffold: z.string().min(1).optional(),
     crossProject: z.boolean().optional(),
     roles: z
       .array(z.object({ id: z.string(), label: z.string(), description: z.string() }))
