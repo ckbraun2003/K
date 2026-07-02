@@ -16,7 +16,7 @@ import { v4 as uuid } from 'uuid'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { AgentEventSchema, type AgentEvent, type Run } from '@k/shared'
+import { AgentEventSchema, type AgentEvent, type Run, type AgentProfile } from '@k/shared'
 import { eventBus } from './events.js'
 import { db, runsDb, projectsDb } from './db.js'
 import { route } from './router.js'
@@ -102,6 +102,11 @@ export type StartRunOptions = {
   /** Keep stdin open for multi-turn HITL (claude only). Default false → today's
    *  one-shot fire-and-forget run. */
   interactive?: boolean
+  /** The agent profile whose tier drives config synthesis (charter, allowlist, MCP,
+   *  skills). Defaults to DEFAULT_PROFILE (orchestrator) so every existing caller is
+   *  unchanged; startAgentRun passes the resolved profile so a run gets ITS tier's
+   *  config, not the orchestrator's. Ignored for ollama runs (no config synthesis). */
+  profile?: AgentProfile
 }
 
 export async function startRun(prompt: string, opts: StartRunOptions = {}): Promise<Run> {
@@ -177,8 +182,9 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
 
   const inWorktree = effectiveCwd === worktreePath
 
-  // Launch in background — don't await
-  void runAgent(run, prompt, effectiveCwd, inWorktree, interactive)
+  // Launch in background — don't await. The profile (default: orchestrator) drives
+  // per-tier config synthesis inside runAgent.
+  void runAgent(run, prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE)
 
   return run
 }
@@ -249,6 +255,60 @@ export function reconcileStaleRuns(d: import('better-sqlite3').Database = db): n
 }
 
 /**
+ * Flip every `running` agent_runs tracking row (a profile "activation") to terminal
+ * `failed`. At boot these are necessarily stale: the `trackSupervisedRun` subscriber
+ * that finalizes an activation row does NOT survive a process restart, so a crash
+ * mid-activation leaves the row `running` forever. This is not just a cosmetic metric
+ * leak — the Chief autonomous-wake already-running guard (chief-wake.ts Guard B) reads
+ * a `running` chief activation as "the Chief is busy" and would then NEVER wake again
+ * while an orphaned row lingers. Mirrors reconcileStaleRuns (pure DB mutation; takes
+ * the handle for unit-testing). Returns the number of rows reconciled.
+ */
+export function reconcileStaleActivations(d: import('better-sqlite3').Database = db): number {
+  const res = d
+    .prepare(`UPDATE agent_runs SET status = 'failed', completed_at = ? WHERE status = 'running'`)
+    .run(Date.now())
+  return res.changes
+}
+
+export function reconcileOrphanedActivations(d: import('better-sqlite3').Database = db): number {
+  const now = Date.now()
+  // agent_runs stuck 'running' whose LINKED run is already terminal — the precise safety net
+  // for a child that exited mid-dispatch (the run finished, the tracking subscriber died with
+  // the child). Derive the activation status from the run's terminal status (done → completed,
+  // any other terminal → failed) — strictly more correct than the blanket reconcileStaleActivations
+  // this runs BEFORE, so a mid-dispatch-COMPLETED lead becomes 'completed', not clobbered to 'failed'.
+  // Terminal set mirrors run-lifecycle.ts::TERMINAL_RUN_STATUSES.
+  const rows = d.prepare(
+    `SELECT ar.id AS id, r.status AS run_status FROM agent_runs ar JOIN runs r ON r.id = ar.run_id
+      WHERE ar.status = 'running' AND r.status IN ('done','error','killed','interrupted')`
+  ).all() as Array<{ id: string; run_status: string }>
+  const upd = d.prepare(`UPDATE agent_runs SET status = ?, completed_at = ? WHERE id = ? AND status = 'running'`)
+  let n = 0
+  for (const row of rows) n += upd.run(row.run_status === 'done' ? 'completed' : 'failed', now, row.id).changes
+  return n
+}
+
+/**
+ * Finalize lead-dispatch INTENTS stranded 'dispatched' with no lead_run_id. The relay
+ * (lead-dispatch-relay.ts) claims a queued intent (pending→dispatched CAS) BEFORE it
+ * awaits startAgentRun; if the main process crashes in that window the row is left
+ * 'dispatched', lead_run_id NULL. Nothing else recovers it: it is no longer 'pending' (so
+ * the drain skips it) yet getActiveLeadDispatchByAssignment counts 'dispatched' as active
+ * (so the Chief's re-dispatch is rejected) — the assignment could never get a lead. Mark it
+ * 'failed' (the assignment link is still NULL → the Chief can re-dispatch a fresh intent).
+ * We deliberately do NOT re-'pending' it: a crash AFTER startAgentRun spawned the run but
+ * BEFORE setLeadDispatchRun recorded it would then double-execute the lead. Mirrors
+ * reconcileStaleRuns (pure DB; takes the handle for unit-testing). Returns rows reconciled.
+ */
+export function reconcileOrphanedLeadDispatches(d: import('better-sqlite3').Database = db): number {
+  const res = d
+    .prepare(`UPDATE lead_dispatches SET status = 'failed', dispatched_at = ? WHERE status = 'dispatched' AND lead_run_id IS NULL`)
+    .run(Date.now())
+  return res.changes
+}
+
+/**
  * Best-effort prune of orphaned git worktrees left by crashed runs. Runs
  * `git worktree prune` then removes leftover `.worktrees/*` directories that no
  * longer map to an active run. Never throws — Windows file locks can make removal
@@ -289,6 +349,24 @@ export function reconcileOnBoot(): void {
   } catch (err) {
     console.warn('[supervisor] reconcileStaleRuns failed:', (err as Error).message)
   }
+  try {
+    const o = reconcileOrphanedActivations()
+    if (o > 0) console.log(`[supervisor] boot sweep: finalized ${o} orphaned activation(s) by run status`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileOrphanedActivations failed:', (err as Error).message)
+  }
+  try {
+    const m = reconcileStaleActivations()
+    if (m > 0) console.log(`[supervisor] boot sweep: marked ${m} stale agent activation(s) failed`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileStaleActivations failed:', (err as Error).message)
+  }
+  try {
+    const p = reconcileOrphanedLeadDispatches()
+    if (p > 0) console.log(`[supervisor] boot sweep: reset ${p} stranded lead-dispatch intent(s) to failed`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileOrphanedLeadDispatches failed:', (err as Error).message)
+  }
   pruneOrphanWorktrees()
   // Sweep per-run config dirs orphaned by a crash — same key space (run id) as
   // worktrees, so anything not held by an active process is stale.
@@ -306,7 +384,7 @@ function isTurnEndLine(line: string): boolean {
   try { return (JSON.parse(line) as { type?: string }).type === 'result' } catch { return false }
 }
 
-async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boolean, interactive: boolean) {
+async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boolean, interactive: boolean, profile: AgentProfile = DEFAULT_PROFILE) {
   emitStatusEvent(run.id, 'running', nextSeq(run.id), Date.now())
   eventBus.emitRunUpdate({ ...run, status: 'running' })
 
@@ -328,7 +406,7 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
     // host ~/.claude is NEVER loaded and the run gets K's per-tier allowlist, MCP,
     // settings, and injected L0+L1 system prompt. ollama runs are unaffected.
     if (provider.name === 'claude') {
-      synth = synthesizeConfigDir(DEFAULT_PROFILE, { runId: run.id })
+      synth = synthesizeConfigDir(profile, { runId: run.id })
     }
 
     const proc = execa(

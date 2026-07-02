@@ -30,6 +30,13 @@ export function ollamaVerdict(o: Status['ollama']): StatusVerdict {
     : { tone: 'red', label: 'Unreachable', detail: o.baseUrl }
 }
 
+export function voiceVerdict(v: Status['voice']): StatusVerdict {
+  if (!v.enabled) return { tone: 'amber', label: 'Disabled', detail: 'ENABLE_VOICE not set' }
+  return v.reachable
+    ? { tone: 'green', label: 'Reachable', detail: `${v.model} @ ${v.baseUrl}` }
+    : { tone: 'red', label: 'Unreachable', detail: v.baseUrl }
+}
+
 export function githubVerdict(g: Status['github']): StatusVerdict {
   return g.authenticated
     ? { tone: 'green', label: 'Authenticated', detail: g.user ? `as ${g.user}` : '' }

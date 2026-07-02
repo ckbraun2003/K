@@ -400,6 +400,31 @@ export const WorkflowRunSchema = z.object({
 })
 export type WorkflowRun = z.infer<typeof WorkflowRunSchema>
 
+// ─── AgentProfile (agent org — P5.0) ───────────────────────────────────────
+// The K-owned durable identity for a managed run. One entity differentiated by
+// an authority `tier` (bible §03, D-020): secretary (K) · chief · orchestrator
+// (leads). `charter` is the charter-asset BASENAME the profile materializes
+// (=== tier for the durable tiers) — the actual charter PROMPT lives in
+// agent-config/tiers/<charter>.charter.md (single source, loaded by the
+// synthesizer), never inlined here. `allowedTools`/`mcpServers`/`skills` are the
+// resolved authority for the tier (authority.ts), mirrored onto the row so the
+// grant is a durable, inspectable record. This schema is the canonical type-truth
+// that core/src/profiles.ts's interface mirrors.
+export const AgentTierSchema = z.enum(['secretary', 'chief', 'orchestrator'])
+export type AgentTier = z.infer<typeof AgentTierSchema>
+
+export const AgentProfileSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  tier: AgentTierSchema,
+  charter: AgentTierSchema, // charter-asset basename (=== tier for durable tiers)
+  defaultModel: z.string(), // KNOWN_MODELS id
+  allowedTools: z.array(z.string()), // claude --allowedTools allowlist (tier-gated)
+  mcpServers: z.array(z.string()), // tier-scoped MCP servers this profile mounts
+  skills: z.array(z.string()), // skill dir names this profile mounts
+})
+export type AgentProfile = z.infer<typeof AgentProfileSchema>
+
 // ─── WorkItem (kstore) ─────────────────────────────────────────────────────
 // A "ticket" in K's working store — STORAGE, not execution. Managed agents
 // create/track work items through the kstore MCP tool instead of the home-dev
@@ -408,12 +433,19 @@ export type WorkflowRun = z.infer<typeof WorkflowRunSchema>
 export const WorkItemStatusSchema = z.enum(['open', 'in_progress', 'blocked', 'done', 'cancelled'])
 export type WorkItemStatus = z.infer<typeof WorkItemStatusSchema>
 
+// D-026 unified-task-store discriminator (P5.1d1 down-payment). `personal` is the
+// run-scoped ticket the kstore tools create today (the only scope currently used);
+// `org`/`project` are reserved for the P5.1d2 collapse that folds project_tasks in.
+export const WorkItemScopeSchema = z.enum(['personal', 'org', 'project'])
+export type WorkItemScope = z.infer<typeof WorkItemScopeSchema>
+
 export const WorkItemSchema = z.object({
   id: z.string(),
   runId: z.string().nullable(),
   title: z.string(),
   body: z.string().nullable(),
   status: WorkItemStatusSchema,
+  scope: WorkItemScopeSchema,
   createdAt: z.number(),
   updatedAt: z.number(),
 })
@@ -464,6 +496,180 @@ export const WorkflowStepSchema = z.object({
   updatedAt: z.number(),
 })
 export type WorkflowStep = z.infer<typeof WorkflowStepSchema>
+
+// ─── Logistics working store (calendar / notes / scheduling) ────────────────
+// K's secretary-tier logistics working store — STORAGE, not execution. Notes,
+// calendar events, and reminders reached through the logistics MCP tool (never a
+// file), run-scoped exactly like the kstore work-items: `runId` is the managed run
+// that created the row (resolved from the injected K_RUN_ID), null for rows not
+// tied to a run. Storing a calendar event here does NOT schedule it on any real
+// calendar — that is a separate (connector) concern.
+export const NoteSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  body: z.string(),
+  done: z.boolean(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type Note = z.infer<typeof NoteSchema>
+
+export const CalendarEventSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  title: z.string(),
+  startsAt: z.number(),
+  endsAt: z.number().nullable(),
+  location: z.string().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type CalendarEvent = z.infer<typeof CalendarEventSchema>
+
+export const ReminderStatusSchema = z.enum(['pending', 'done', 'cancelled'])
+export type ReminderStatus = z.infer<typeof ReminderStatusSchema>
+
+export const ReminderSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  text: z.string(),
+  remindAt: z.number(),
+  status: ReminderStatusSchema,
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type Reminder = z.infer<typeof ReminderSchema>
+
+// ─── AgentRun (agent-org activation — P5.0) ─────────────────────────────────
+// One activation of a durable profile into a supervised run (startAgentRun). The
+// wire projection of an `agent_runs` row, mirroring the core interface. `runId` is
+// null until the run is created; `trigger` records HOW the profile was activated.
+// Consumed by the Chief org-status surface as a lead's / the Chief's "wake" history.
+export const AgentRunTriggerSchema = z.enum(['user-message', 'schedule', 'event', 'delegation'])
+export type AgentRunTrigger = z.infer<typeof AgentRunTriggerSchema>
+
+export const AgentRunStatusSchema = z.enum(['running', 'completed', 'failed'])
+export type AgentRunStatus = z.infer<typeof AgentRunStatusSchema>
+
+export const AgentRunSchema = z.object({
+  id: z.string(),
+  profileId: z.string(),
+  runId: z.string().nullable(),
+  trigger: AgentRunTriggerSchema,
+  goal: z.string().nullable(),
+  projectId: z.string().nullable(),
+  workflowId: z.string().nullable(),
+  status: AgentRunStatusSchema,
+  createdAt: z.number(),
+  completedAt: z.number().nullable(),
+})
+export type AgentRun = z.infer<typeof AgentRunSchema>
+
+// ─── Management working store (Chief org — P5.2a) ───────────────────────────
+// The Chief's management working store — STORAGE, not execution. An `Assignment`
+// is an objective the Chief hands a lead; a `MgmtReport` is a status write up the
+// chain. Persisting an assignment here does NOT dispatch the lead (autonomous
+// K→Chief→lead delegation is P5.2b). Run-scoped exactly like the logistics store:
+// `runId` is the managed run that created the row (resolved from the injected
+// K_RUN_ID), null for rows not tied to a run.
+export const AssignmentSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  lead: z.string(), // a lead name / profile id the objective is assigned to
+  objective: z.string(),
+  note: z.string().nullable(),
+  workflow: z.string().nullable(), // the workflow choice for this assignment (pick_workflow)
+  projects: z.array(z.string()), // project scope (scope_projects); [] until scoped
+  leadRunId: z.string().nullable(), // the dispatched lead's run id (dispatch_lead); null until dispatched — the Chief→lead parent→child link (parent = runId)
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type Assignment = z.infer<typeof AssignmentSchema>
+
+export const MgmtReportSchema = z.object({
+  id: z.string(),
+  runId: z.string().nullable(),
+  assignmentId: z.string().nullable(), // the assignment this report is about, when any
+  body: z.string(),
+  createdAt: z.number(),
+})
+export type MgmtReport = z.infer<typeof MgmtReportSchema>
+
+// ─── DelegationTree (Chief org view — P5.2a) ────────────────────────────────
+// A pure VIEW type for the recursive delegation tree: Chief → leads → each lead's
+// sub-agents. It is DERIVED from run events (never a stored table) — see
+// web/src/lib/delegation.ts — so it is a plain recursive interface rather than a
+// zod schema (a recursive z.lazy buys nothing for a view type that is never parsed
+// off the wire). Kept generic + minimal so the DelegationTree component can render
+// a whole-org root OR a single-lead root (P5.3 reuse).
+export type DelegationNodeStatus = 'running' | 'done' | 'error' | 'idle' | 'queued'
+
+export interface DelegationNode {
+  /** Stable id, unique within the tree (profile id, run id, or delegate tool_use id). */
+  id: string
+  /** Display label (Chief / lead name / sub-agent type). */
+  label: string
+  /** Optional node kind for the inspector (e.g. 'chief' | 'lead' | 'sub-agent'). */
+  kind?: string
+  status: DelegationNodeStatus
+  /** Optional one-line detail for the inspector (e.g. the latest run's prompt). */
+  meta?: string
+  children: DelegationNode[]
+}
+
+// ─── ChiefOrgPayload (GET /api/chief/org — P5.2a) ───────────────────────────
+// The ONE batched read that feeds the Chief org-status page. Assembled server-side
+// (core/src/routes/chief.ts) so the page issues a single query with no per-item
+// fan-out. `health` is deliberately THIN (D-026: no full health strip re-computed
+// here) — just the cheap leads-active count.
+export interface ChiefOrgLead {
+  profile: AgentProfile
+  /** The lead's most recent agent_run that reached a run (has run_id), else null. */
+  latestRun: Run | null
+  /** That run's events (bounded) — the source the sub-agent tree is derived from. */
+  events: AgentEvent[]
+  /** The lead's recent activations (bounded). */
+  wakes: AgentRun[]
+}
+
+export interface ChiefOrgHealth {
+  leadsActive: number
+}
+
+export interface ChiefOrgPayload {
+  chief: AgentProfile | null
+  leads: ChiefOrgLead[]
+  /** The Chief's own recent activations (bounded) — the autonomous-wake history. */
+  chiefWakes: AgentRun[]
+  /** Recent assignments across runs — the Objectives panel source. */
+  assignments: Assignment[]
+  health: ChiefOrgHealth
+  /** Count of K→Chief delegations (chief activations with trigger='delegation') — the
+   *  K-tier edge count the whole-org tree (user → K → Chief → …) renders. Optional so an
+   *  older payload without it still builds a tree (fullOrgToDelegationTree defaults to 0). */
+  kDelegations?: number
+}
+
+// ─── Orchestrators roster (GET /api/orchestrators — P5.3a) ──────────────────
+// The slim roster read behind the Orchestrators page: one bounded scan per lead
+// yields a SLIM entry (no per-lead delegate-events fetch — that is the detail
+// view's ChiefOrgLead, reused as the detail wire type). Assembled server-side
+// (core/src/routes/orchestrators.ts) so the page issues a single batched query.
+export interface OrchestratorRosterEntry {
+  profile: AgentProfile
+  /** The lead's most recent agent_run that reached a run (has run_id), else null. */
+  latestRun: Run | null
+  /** True when latestRun is in a non-terminal (live) state. */
+  live: boolean
+  /** Count of the lead's recent activations (bounded by the per-lead scan). */
+  wakes: number
+}
+
+export interface OrchestratorRosterPayload {
+  leads: OrchestratorRosterEntry[]
+  /** Count of leads whose latest run is live. */
+  activeLeads: number
+}
 
 // A GitHub issue projected from `gh issue list --json number,title,state,url`.
 export const IssueInfoSchema = z.object({
@@ -681,3 +887,127 @@ export const DELEGATION_WORKFLOW: WorkflowDefinition = {
     { from: 'quality-review', to: 'orchestrator', label: 'fixes' },
   ],
 }
+
+// ─── Named workflow definitions (P5.3b, D-047) ───────────────────────────────
+// DISTINCT from `WorkflowDefinition` above (that is the roles+edges DIAGRAM type for
+// the D-016 viz). `NamedWorkflow` is the DB-backed, operator-editable workflow TEMPLATE:
+// a name, an ordered role list, a prompt scaffold (rendered with the todo checklist at
+// dispatch), and a cross_project flag (execution deferred — D-012/D-026 posture).
+export interface NamedWorkflow {
+  id: string
+  name: string
+  roles: WorkflowRole[]
+  /** The delegation-prompt template; `{{CHECKLIST}}` is replaced with the numbered todo list. */
+  promptScaffold: string
+  /** Reserved: may this workflow reach outside the current project? Execution deferred. */
+  crossProject: boolean
+  createdAt: number
+}
+
+// ─── K front door (P5.1c — "talk to K") ─────────────────────────────────────
+// The route surfaced when composing a message to K. `routeForMessage` is a shared,
+// deterministic PREVIEW so the client and server agree on the likely hand-up before
+// send — K's runtime tool/hand-up decision at execution time is AUTHORITATIVE.
+
+export const KRouteTargetSchema = z.enum([
+  'logistics',
+  'chief',
+  'frontend',
+  'backend',
+  'systems',
+  'security',
+  'network',
+])
+export type KRouteTarget = z.infer<typeof KRouteTargetSchema>
+
+export const KRouteSchema = z.object({
+  target: KRouteTargetSchema,
+  label: z.string(),
+  escalates: z.boolean(),
+})
+export type KRoute = z.infer<typeof KRouteSchema>
+
+/** target → human label, defined once so client + server render identically. */
+const K_ROUTE_LABELS: Record<KRouteTarget, string> = {
+  logistics: 'K handles directly',
+  chief: 'Chief',
+  frontend: 'Chief → Frontend Lead',
+  backend: 'Chief → Backend Lead',
+  systems: 'Chief → Systems Lead',
+  security: 'Chief → Security Lead',
+  network: 'Chief → Network Lead',
+}
+
+/** Ordered lead rules — first match wins. Kept as a testable array (not a switch). */
+const K_ROUTE_RULES: ReadonlyArray<{ target: KRouteTarget; re: RegExp }> = [
+  { target: 'frontend', re: /\b(frontend|front-end|ui|react|css|component|styling|tailwind)\b/ },
+  { target: 'backend', re: /\b(backend|back-end|api|endpoint|server|database|\bdb\b|sql)\b/ },
+  { target: 'systems', re: /\b(systems?|infra|infrastructure|build|ci|pipeline|deploy)\b/ },
+  { target: 'security', re: /\b(security|auth|vulnerab\w*|cve|exploit|secret|credential)\b/ },
+  { target: 'network', re: /\b(network|proxy|dns|socket|tls|latency)\b/ },
+]
+
+/** Generic engineering (no named lead) → hand up to the Chief. */
+const K_ENGINEERING_RE = /\b(code|refactor|bug|implement|fix|feature|test|merge|\bpr\b|commit|deploy|build)\b/
+
+/**
+ * Deterministic route PREVIEW for a message to K. Lowercases the message, then in a
+ * fixed priority order (frontend → backend → systems → security → network → generic
+ * engineering) returns the first match; anything else K handles directly (logistics).
+ *
+ * This is ONLY a preview so the composer (and server) can show the likely hand-up
+ * before send. K's runtime decision — which tool it reaches for, and whether it
+ * actually hands up to the Chief/a lead — is AUTHORITATIVE and may differ.
+ */
+export function routeForMessage(message: string): KRoute {
+  const m = message.toLowerCase()
+  for (const rule of K_ROUTE_RULES) {
+    if (rule.re.test(m)) {
+      return { target: rule.target, label: K_ROUTE_LABELS[rule.target], escalates: true }
+    }
+  }
+  if (K_ENGINEERING_RE.test(m)) {
+    return { target: 'chief', label: K_ROUTE_LABELS.chief, escalates: true }
+  }
+  return { target: 'logistics', label: K_ROUTE_LABELS.logistics, escalates: false }
+}
+
+/** Body for POST /api/k/ask — the operator's message to K. */
+export const KAskBodySchema = z.object({ message: z.string().min(1).max(20000) })
+export type KAskBody = z.infer<typeof KAskBodySchema>
+
+/** One turn in the durable K thread (D-023: persistent identity). `runId` is the
+ *  run that produced/received the turn (null until known). */
+export const KThreadTurnSchema = z.object({
+  id: z.string(),
+  threadId: z.string(),
+  role: z.enum(['user', 'k']),
+  text: z.string(),
+  runId: z.string().nullable(),
+  createdAt: z.number(),
+})
+export type KThreadTurn = z.infer<typeof KThreadTurnSchema>
+
+/** The durable K conversation — the source of truth that survives reload. `status`
+ *  is a display hint; `activeRunId` is the warm interactive run (null when cold). */
+export const KThreadSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  status: z.enum(['active', 'idle']),
+  activeRunId: z.string().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type KThread = z.infer<typeof KThreadSchema>
+
+/** Result of POST /api/k/ask. `warm` = true when the message continued a live
+ *  interactive run; false when a fresh run was started (seeded from the thread).
+ *  `agentRunId` is the agent_runs tracking id (null on the warm path). */
+export const KAskResultSchema = z.object({
+  kThreadId: z.string(),
+  agentRunId: z.string().nullable(),
+  runId: z.string(),
+  route: KRouteSchema,
+  warm: z.boolean(),
+})
+export type KAskResult = z.infer<typeof KAskResultSchema>

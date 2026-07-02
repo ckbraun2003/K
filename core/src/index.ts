@@ -18,15 +18,25 @@ import { artifactsRoutes } from './routes/artifacts.js'
 import { metricsRoutes } from './routes/metrics.js'
 import { projectsRoutes } from './routes/projects.js'
 import { skillsRoutes } from './routes/skills.js'
+import { chiefRoutes } from './routes/chief.js'
+import { orchestratorsRoutes } from './routes/orchestrators.js'
+import { workflowsRoutes } from './routes/workflows.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
+import { modelsRoutes } from './routes/models.js'
 import { voiceRoutes } from './routes/voice.js'
 import { evalsRoutes } from './routes/evals.js'
+import { memoryRoutes } from './routes/memory.js'
+import { kRoutes } from './routes/k.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
+import { seedProfiles } from './profiles.js'
+import { seedWorkflowDefinitions } from './workflow-defs.js'
 import { seedEvalSystems } from './eval/store.js'
 import { compileBible } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
+import { startChiefWake } from './chief-wake.js'
+import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
 import { getProject } from './projects.js'
 import { reconcileOnBoot } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
@@ -60,6 +70,10 @@ const TERMINAL_TOKEN = process.env.TERMINAL_TOKEN ?? 'dev-terminal-token'
 // Captured at bootstrap so the Fastify onClose hook can tear down the
 // auto-reindex EventBus subscription (set in start(); undefined in tests).
 let stopGraphAutoReindex: (() => void) | undefined
+// Same, for the Chief autonomous wake (cron tick + run-completion subscription).
+let stopChiefWake: (() => void) | undefined
+// Same, for the MAIN-process lead-dispatch relay (drains the child-recorded intent queue).
+let stopLeadDispatchRelay: (() => void) | undefined
 
 /**
  * Build the Fastify app: CORS, WS plugin, auth hook, health, REST routes, and
@@ -105,10 +119,16 @@ export async function buildApp() {
   await app.register(metricsRoutes)
   await app.register(projectsRoutes)
   await app.register(skillsRoutes)
+  await app.register(chiefRoutes)
+  await app.register(orchestratorsRoutes)
+  await app.register(workflowsRoutes)
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
+  await app.register(modelsRoutes)
   await app.register(voiceRoutes)
   await app.register(evalsRoutes)
+  await app.register(memoryRoutes)
+  await app.register(kRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 
@@ -227,6 +247,8 @@ export async function buildApp() {
   app.addHook('onClose', () => {
     stopGithubPoller()
     stopGraphAutoReindex?.()
+    stopChiefWake?.()
+    stopLeadDispatchRelay?.()
   })
   return app
 }
@@ -261,6 +283,8 @@ async function start() {
   await compileBible()
   await seedUiDemo()  // ensure the Command Deck `ui-demo` artifact is present
   seedBuiltinSkills() // ensure the authored agent-config/skills/* appear in the Skills tab
+  seedProfiles()      // ensure the durable agent-org profiles (K, Chief, orchestrator + leads) exist
+  seedWorkflowDefinitions() // ensure the built-in named workflow templates (code-wave, investigate, refactor) exist
   // Seed the eval registry (testing/eval/* → eval_* tables) so the Evals surface has systems to run.
   // Idempotent; guarded so a missing/garbled testing/eval/ dir logs and continues rather than aborting boot.
   try {
@@ -276,6 +300,12 @@ async function start() {
   // Auto-reindex a project's knowledge graph after a run touching it completes
   // (debounced + guarded). Default ON; set GRAPH_AUTO_REINDEX=0 to disable.
   stopGraphAutoReindex = registerGraphAutoReindex(getProject)
+  // Wake the Chief autonomously on a schedule tick + on subscribed run-completion
+  // events (debounced + already-running/self-wake guarded). Default ON; CHIEF_WAKE=0.
+  stopChiefWake = startChiefWake()
+  // Drain the DB-backed lead-dispatch intent queue in this long-lived process (so a lead
+  // run + its report-back outlive the ephemeral mgmt-server child). Default ON; LEAD_DISPATCH_RELAY=0.
+  stopLeadDispatchRelay = startLeadDispatchRelay()
   startOllamaProbe()  // no-op unless ENABLE_OLLAMA; keeps router reachability fresh
   console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
   console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)

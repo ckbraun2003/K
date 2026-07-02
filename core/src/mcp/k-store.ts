@@ -17,6 +17,7 @@ import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
 import {
   WorkItemStatusSchema,
+  WorkItemScopeSchema,
   LessonStatusSchema,
   WorkflowStepKindSchema,
   WorkflowStepStatusSchema,
@@ -52,6 +53,7 @@ function rowToWorkItem(r: Row): WorkItem {
     title: String(r.title),
     body: asStrOrNull(r.body),
     status: r.status as WorkItem['status'],
+    scope: r.scope as WorkItem['scope'],
     createdAt: asNum(r.created_at),
     updatedAt: asNum(r.updated_at),
   }
@@ -103,7 +105,12 @@ const notInWorkflow = (): NotInWorkflow => ({
 
 // ── handlers ──────────────────────────────────────────────────────────────────
 
-const WorkItemCreateInput = { title: z.string().min(1).max(500), body: z.string().max(20_000).optional() }
+const WorkItemCreateInput = {
+  title: z.string().min(1).max(500),
+  body: z.string().max(20_000).optional(),
+  // D-026 scope discriminator; defaults to 'personal' (run-scoped) when omitted.
+  scope: WorkItemScopeSchema.optional(),
+}
 function workItemCreate(args: unknown, ctx: KStoreContext): WorkItem {
   const a = z.object(WorkItemCreateInput).parse(args ?? {})
   const now = Date.now()
@@ -114,6 +121,7 @@ function workItemCreate(args: unknown, ctx: KStoreContext): WorkItem {
     title: a.title,
     body: a.body ?? null,
     status: 'open',
+    scope: a.scope ?? 'personal',
     createdAt: now,
     updatedAt: now,
   })

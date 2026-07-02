@@ -15,7 +15,9 @@ export interface Chord {
 // Mnemonics chosen to avoid colliding with each other. `g g` → Fleet Graph is
 // intentional (the prefix key is also a valid target once the chord is armed).
 export const CHORDS: Chord[] = [
-  { key: 'h', view: 'home', label: 'Home' },
+  { key: 'h', view: 'home', label: 'K' },
+  { key: 'c', view: 'chief', label: 'Chief' },
+  { key: 'o', view: 'orchestrators', label: 'Orchestrators' },
   { key: 'p', view: 'projects', label: 'Projects' },
   { key: 'g', view: 'graph', label: 'Fleet Graph' },
   { key: 'r', view: 'runs', label: 'Runs' },
@@ -23,6 +25,7 @@ export const CHORDS: Chord[] = [
   { key: 'm', view: 'metrics', label: 'Metrics' },
   { key: 'x', view: 'routing', label: 'Routing' },
   { key: 'e', view: 'evals', label: 'Evals' },
+  { key: 'y', view: 'memory', label: 'Memory' },
   { key: 't', view: 'terminal', label: 'Terminal' },
   { key: 'w', view: 'workflows', label: 'Workflows' },
   { key: 'd', view: 'docs', label: 'Docs' },

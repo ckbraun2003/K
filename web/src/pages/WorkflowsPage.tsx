@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Run, AgentEvent, WsMessage } from '@k/shared'
+import type { Run, AgentEvent, WsMessage, NamedWorkflow } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
 import { mergeEvents } from '../components/RunConsole'
 import { eventsToWorkflowTree } from '../lib/workflow'
-import WorkflowDiagram from '../components/WorkflowDiagram'
 import WorkflowChecklist from '../components/WorkflowChecklist'
 import RunTree from '../components/RunTree'
 
 type Tab = 'defined' | 'run'
+
+/** The role sequence as a compact chain string (e.g. "orchestrator → implementer → …").
+ *  Pure + exported for unit-testing. */
+export function roleChain(roles: NamedWorkflow['roles']): string {
+  return roles.map(r => r.id).join(' → ')
+}
 
 // Non-terminal run statuses — while the run is live we poll the checklist so the
 // orchestrator's status-writes surface without a dedicated WS channel.
@@ -131,6 +136,100 @@ function RunTreeSection({ initialRunId }: { initialRunId?: string }) {
   )
 }
 
+/** The Definitions list + preview (the operator-editable named workflow templates). One
+ *  batched query; a selected row previews its role chain + cross-project flag and opens the
+ *  editor. Matches the ui-demo Workflows screen (list left, preview right). */
+function DefinitionsSection() {
+  const { data: defs, isLoading, isError } = useQuery<NamedWorkflow[]>({
+    queryKey: ['workflow-defs'],
+    queryFn: () => api.workflows.list(),
+  })
+
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
+
+  // Default the selection to the first definition once the list arrives.
+  useEffect(() => {
+    if (!selectedId && defs && defs.length > 0) setSelectedId(defs[0].id)
+  }, [defs, selectedId])
+
+  if (isLoading) return <p className="text-xs italic text-[var(--muted)]">Loading definitions…</p>
+  if (isError) return <p className="text-xs italic text-[var(--red)]">Failed to load workflow definitions.</p>
+  if (!defs || defs.length === 0) {
+    return (
+      <p className="text-xs italic text-[var(--muted)]" data-testid="workflow-defs-empty">
+        No workflow definitions seeded yet.
+      </p>
+    )
+  }
+
+  const selected = defs.find(d => d.id === selectedId) ?? defs[0]
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      {/* Left — the definitions list. */}
+      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Definitions</h2>
+        <ul className="space-y-1">
+          {defs.map(def => (
+            <li key={def.id}>
+              <button
+                type="button"
+                onClick={() => setSelectedId(def.id)}
+                data-testid={`workflow-def-row-${def.id}`}
+                aria-pressed={def.id === selected.id}
+                className={cn(
+                  'w-full rounded-lg border px-3 py-2 text-left transition-colors',
+                  def.id === selected.id
+                    ? 'border-[color:rgba(56,189,248,0.45)] bg-[var(--raised)]'
+                    : 'border-[var(--border)] hover:border-[color:rgba(56,189,248,0.25)]',
+                )}
+              >
+                <span className="block truncate text-sm font-semibold text-[var(--text)]">{def.name}</span>
+                <span className="mono mt-0.5 block truncate text-[11px] text-[var(--muted)]">
+                  {roleChain(def.roles)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* Right — preview of the selected definition. */}
+      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" data-testid="workflow-def-preview">
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text)]">{selected.name}</h2>
+          {selected.crossProject && (
+            <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#241640]">
+              cross-project
+            </span>
+          )}
+        </div>
+
+        {/* Role chain as a sequential pipeline of chips. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {selected.roles.map((role, i) => (
+            <span key={role.id} className="flex items-center gap-1.5">
+              <span className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-[11px] font-semibold text-[var(--text)]">
+                {role.label}
+              </span>
+              {i < selected.roles.length - 1 && <span className="text-[var(--muted)]">→</span>}
+            </span>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => navigate('workflow-detail', selected.id)}
+          data-testid="workflow-def-open"
+          className="mt-4 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)]"
+        >
+          Open
+        </button>
+      </section>
+    </div>
+  )
+}
+
 export default function WorkflowsPage({ runId }: { runId?: string }) {
   // Deep-linked to a run → open the live tree; otherwise show the defined loop.
   const [tab, setTab] = useState<Tab>(runId ? 'run' : 'defined')
@@ -173,9 +272,9 @@ export default function WorkflowsPage({ runId }: { runId?: string }) {
       {tab === 'defined' ? (
         <section>
           <p className="mb-4 max-w-2xl text-xs text-[var(--muted)]">
-            The harness code-wave delegation loop. Select a role to read its responsibility.
+            The named workflow templates. Select a definition to preview its role chain, or open it to edit.
           </p>
-          <WorkflowDiagram />
+          <DefinitionsSection />
         </section>
       ) : (
         <section>

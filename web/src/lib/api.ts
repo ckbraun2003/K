@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -9,8 +9,24 @@ import type {
   EvalResultRow,
   BaselineCompare,
 } from './evals'
+import type { OllamaModelsResponse, OllamaCatalogResponse } from './ollama'
+import type { MemoryLesson } from './memory'
 
 export type { SkillRun } from './skill-runs'
+
+/** The per-lead authority patch (PATCH /api/orchestrators/:id). Deliberately narrowed
+ *  to the fields the detail editor mutates — skills/tools/mcp/model; tier & charter are
+ *  NOT patchable here (a tier move could drop a lead from its own roster). Mirrors the
+ *  backend zod schema so the two can't drift. Exported so the page imports one shape. */
+export type OrchestratorPatch = Partial<
+  Pick<AgentProfile, 'skills' | 'allowedTools' | 'mcpServers' | 'defaultModel'>
+>
+
+/** The named-workflow patch (PATCH /api/workflows/:id). Mirrors the backend zod schema —
+ *  the fields the WorkflowDetail editor mutates (name/scaffold/cross-project/roles). */
+export type NamedWorkflowPatch = Partial<
+  Pick<NamedWorkflow, 'name' | 'roles' | 'promptScaffold' | 'crossProject'>
+>
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
 export interface OnboardResult {
@@ -216,6 +232,49 @@ export const api = {
     evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),
     runs: (id: string) => req<SkillRun[]>(`/skills/${id}/runs`),
   },
+  // Chief org-status — the ONE batched read behind the Chief overview page
+  // (objectives · delegation tree · lead runs · wake history). Read-only.
+  chief: {
+    org: () => req<ChiefOrgPayload>('/chief/org'),
+  },
+  // Orchestrators control plane (P5.3a) — the discipline-lead roster (one batched
+  // read), a single lead's detail (the reused ChiefOrgLead), and per-lead authority
+  // patches. `update` is grant-guarded server-side: an ungranted MCP mount answers
+  // 400 (req throws with the guard message), NOT a silent success.
+  orchestrators: {
+    list: () => req<OrchestratorRosterPayload>('/orchestrators'),
+    get: (id: string) => req<ChiefOrgLead>(`/orchestrators/${id}`),
+    update: (id: string, patch: OrchestratorPatch) =>
+      req<AgentProfile>(`/orchestrators/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }),
+  },
+  // Named workflow definitions (P5.3b) — the operator-editable workflow templates
+  // (list · one-detail · edit). `update` is a read-merge-write patch server-side.
+  workflows: {
+    list: () => req<NamedWorkflow[]>('/workflows'),
+    get: (id: string) => req<NamedWorkflow>(`/workflows/${id}`),
+    update: (id: string, patch: NamedWorkflowPatch) =>
+      req<NamedWorkflow>(`/workflows/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }),
+  },
+  // Org-default authority (P5.3b) — the default-orchestrator grant each discipline lead
+  // inherits unless overridden. `update` is grant-guarded server-side (an ungranted MCP
+  // mount answers 400, NOT a silent success), mirroring orchestrators.update.
+  orgDefault: {
+    get: () => req<AgentProfile>('/org-default'),
+    update: (patch: OrchestratorPatch) =>
+      req<AgentProfile>('/org-default', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }),
+  },
   // Agent/skill behavioral evals — read the seeded systems, start a (default-dry) run, and inspect
   // runs/results/regression. A real (token-spending) run requires an explicit `dry: false` body; the
   // backend defaults `dry` to true, so omitting it is always free.
@@ -239,6 +298,91 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
+  },
+  // Agent-memory operator gate — list pending/accepted/rejected proposed lessons (memory layer A)
+  // and approve/reject each. One batched list query per status (no per-item fan-out); approve/reject
+  // flip the same agent_memory row the kstore lesson_propose tool wrote.
+  memory: {
+    lessons: (opts?: { status?: LessonStatus; profileId?: string }) => {
+      const params = new URLSearchParams()
+      if (opts?.status !== undefined) params.set('status', opts.status)
+      if (opts?.profileId !== undefined) params.set('profileId', opts.profileId)
+      const qs = params.size > 0 ? `?${params.toString()}` : ''
+      return req<MemoryLesson[]>(`/memory/lessons${qs}`)
+    },
+    approve: (id: string) => req<MemoryLesson>(`/memory/lessons/${id}/approve`, { method: 'POST' }),
+    reject: (id: string) => req<MemoryLesson>(`/memory/lessons/${id}/reject`, { method: 'POST' }),
+  },
+  // Local models (Ollama) — model management over the core routes/ollama.ts surface.
+  // Pull is fire-and-forget (202): progress arrives as `ollama_pull` WS messages,
+  // not in this response. All bodies are JSON; req() guards the empty/204 case.
+  ollama: {
+    models: () => req<OllamaModelsResponse>('/ollama/models'),
+    catalog: () => req<OllamaCatalogResponse>('/ollama/catalog'),
+    pull: (name: string) =>
+      req<{ name: string; queued: boolean }>('/ollama/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+    cancelPull: (name: string) =>
+      req<{ cancelled: string }>('/ollama/pull/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+    setActive: (model: string) =>
+      req<{ active: string }>('/ollama/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      }),
+    // DELETE carries the name in the BODY (namespaced tags contain '/', which a
+    // path param can't route) — matches the core route contract.
+    remove: (name: string) =>
+      req<{ removed: string }>('/ollama/models', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+  },
+  // Runtime Claude default model — the global default the router uses for claude
+  // routes, now app_config-managed (no restart). options = the known registry.
+  claudeModel: {
+    get: () => req<{ model: string; options: { id: string; label: string }[] }>('/claude/model'),
+    set: (model: string) =>
+      req<{ model: string }>('/claude/model', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      }),
+  },
+  // Voice — push-to-talk transcription. The browser holds NO transcription key:
+  // core proxies the raw audio to a local Whisper server and returns { text }.
+  voice: {
+    // Raw binary POST — core proxies to local Whisper and returns { text }.
+    transcribe: (audio: Blob) =>
+      // `audio.type || 'application/octet-stream'` — the `||` is intentional: an
+      // empty-string mime must fall back to octet-stream (a valid audio parser on
+      // core). This is NOT a null/undefined-sentinel case, so `??` would be wrong
+      // here (it would let '' through and core would 415 the request).
+      req<{ text: string }>('/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': audio.type || 'application/octet-stream' },
+        body: audio,
+      }),
+  },
+  // Talk to K (P5.1c) — the front door. `ask` activates K on a message (warm or
+  // fresh) and streams over the existing run wire; `thread` reads the durable K
+  // conversation (source of truth, survives reload).
+  k: {
+    ask: (message: string) =>
+      req<KAskResult>('/k/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      }),
+    thread: () => req<{ thread: KThread; turns: KThreadTurn[] }>('/k/thread'),
   },
   // Settings — provider/auth status + the global system prompt (repo-root CLAUDE.md).
   status: () => req<Status>('/status'),

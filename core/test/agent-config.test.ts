@@ -194,14 +194,14 @@ describe('synthesizeConfigDir', () => {
     ).toThrow(/unsafe runId/)
   })
 
-  it('rejects a traversal charterTier before reading assets', () => {
+  it('rejects a traversal charter before reading assets', () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-agcfg-'))
     tmpDirs.push(dataDir)
     // deliberately invalid (simulates an untyped DB value) — cast past CharterName
-    const evil = { ...DEFAULT_PROFILE, charterTier: '../../secret' as unknown as CharterName }
+    const evil = { ...DEFAULT_PROFILE, charter: '../../secret' as unknown as CharterName }
     expect(() =>
       synthesizeConfigDir(evil, { runId: 'run-x', dataDir, assetsDir: ASSET_DIR }),
-    ).toThrow(/unsafe charterTier/)
+    ).toThrow(/unsafe charter/)
   })
 })
 
@@ -211,7 +211,7 @@ describe('bundle-driven mounting + kstore wiring (Wave 6)', () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-agcfg-'))
     tmpDirs.push(dataDir)
     const runId = 'run-' + Math.random().toString(36).slice(2)
-    const profile = { ...DEFAULT_PROFILE, tier: charterTier, charterTier }
+    const profile = { ...DEFAULT_PROFILE, tier: charterTier, charter: charterTier }
     const cfg = synthesizeConfigDir(profile, { runId, dataDir, assetsDir: ASSET_DIR })
     return { cfg, dataDir, runId }
   }
@@ -267,13 +267,13 @@ describe('bundle-driven mounting + kstore wiring (Wave 6)', () => {
     expect(agentNames(cfg.configDir)).toEqual([])
   })
 
-  it('rejects a safe-but-unknown charterTier (allowlist guard)', () => {
+  it('rejects a safe-but-unknown charter (allowlist guard)', () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-agcfg-'))
     tmpDirs.push(dataDir)
-    const profile = { ...DEFAULT_PROFILE, charterTier: 'wizard' as unknown as CharterName }
+    const profile = { ...DEFAULT_PROFILE, charter: 'wizard' as unknown as CharterName }
     expect(() =>
       synthesizeConfigDir(profile, { runId: 'run-x', dataDir, assetsDir: ASSET_DIR }),
-    ).toThrow(/unknown charterTier/)
+    ).toThrow(/unknown charter/)
   })
 
   it('rewrites the kstore MCP server: real node command/args + injected K_DATA_DIR/K_RUN_ID, no placeholders left', () => {
@@ -301,11 +301,13 @@ describe('bundle-driven mounting + kstore wiring (Wave 6)', () => {
     expect(mcp.mcpServers.gitnexus.command).toBe('npx')
   })
 
-  it('secretary mcp also carries a rewritten kstore bound to its run', () => {
+  it('secretary mcp carries a rewritten kstore AND logistics bound to its run', () => {
     const { cfg, runId } = synthAs('secretary')
     const mcp = JSON.parse(fs.readFileSync(cfg.mcpConfigPath, 'utf8'))
     expect(mcp.mcpServers.kstore.env.K_RUN_ID).toBe(runId)
     expect(mcp.mcpServers.kstore.command).toBe(process.execPath)
+    expect(mcp.mcpServers.logistics.env.K_RUN_ID).toBe(runId)
+    expect(mcp.mcpServers.logistics.command).toBe(process.execPath)
   })
 })
 

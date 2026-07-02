@@ -130,3 +130,62 @@ describe('db migration — runs.project_id', () => {
     expect(row.project_id).toBe(PROJECT_ID)
   })
 })
+
+// P5.4 loop-a: the Chief→lead link column. The guarded ALTER MUST match the CREATE-TABLE
+// decl (ON DELETE SET NULL) — a migrated DB that dropped the on-delete action would block
+// a `DELETE FROM runs` on a dispatched assignment instead of nulling the link.
+describe('migrate() — mgmt_assignments.lead_run_id (guarded ALTER + FK action)', () => {
+  const tmpPath = path.join(os.tmpdir(), `k-migration-leadrun-${Date.now()}.db`)
+  let tempDb: Database.Database
+
+  afterAll(() => {
+    try { tempDb?.close() } catch { /* ignore */ }
+    try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+  })
+
+  it('adds lead_run_id on an old-schema mgmt_assignments and enforces ON DELETE SET NULL', () => {
+    tempDb = new Database(tmpPath)
+    tempDb.pragma('foreign_keys = ON')
+
+    // Old-schema (pre-P5.4): mgmt_assignments WITHOUT lead_run_id + the runs table it FKs.
+    tempDb.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY);
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY, prompt TEXT NOT NULL, cwd TEXT NOT NULL, worktree TEXT,
+        status TEXT NOT NULL DEFAULT 'queued', provider TEXT NOT NULL DEFAULT 'claude',
+        model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6', tokens_in INTEGER NOT NULL DEFAULT 0,
+        tokens_out INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL, ended_at INTEGER
+      );
+      CREATE TABLE mgmt_assignments (
+        id TEXT PRIMARY KEY,
+        run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        lead TEXT NOT NULL, objective TEXT NOT NULL, note TEXT, workflow TEXT,
+        projects TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      );
+    `)
+
+    migrate(tempDb)
+
+    const cols = (tempDb.pragma('table_info(mgmt_assignments)') as Array<{ name: string }>).map(c => c.name)
+    expect(cols).toContain('lead_run_id')
+
+    // Seed a run + an assignment linking to it, then delete the run: the FK's ON DELETE
+    // SET NULL must null lead_run_id rather than raise a constraint error.
+    const now = Date.now()
+    tempDb.prepare(`INSERT INTO runs (id, prompt, cwd, created_at) VALUES ('lr-run', 'x', '.', ?)`).run(now)
+    tempDb.prepare(
+      `INSERT INTO mgmt_assignments (id, run_id, lead, objective, projects, lead_run_id, created_at, updated_at)
+       VALUES ('lr-asg', NULL, 'Frontend', 'o', '[]', 'lr-run', ?, ?)`,
+    ).run(now, now)
+
+    expect(() => tempDb.prepare(`DELETE FROM runs WHERE id = 'lr-run'`).run()).not.toThrow()
+    const asg = tempDb.prepare(`SELECT lead_run_id FROM mgmt_assignments WHERE id = 'lr-asg'`).get() as
+      { lead_run_id: string | null }
+    expect(asg.lead_run_id).toBeNull()
+  })
+
+  it('migrate() is idempotent for the lead_run_id branch', () => {
+    expect(() => migrate(tempDb)).not.toThrow()
+  })
+})

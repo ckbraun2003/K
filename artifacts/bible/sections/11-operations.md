@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-06-30
+updated: 2026-07-01
 ---
 
 ## Running locally
@@ -23,7 +23,7 @@ PORT=3001
 HOST=127.0.0.1                        # loopback default; only set 0.0.0.0 behind Tailscale / an auth proxy (see Remote access)
 HARNESS_TOKEN=                        # leave UNSET to auto-generate+persist a strong token on first run (see Remote access)
 CORS_ORIGIN=http://localhost:5173
-CLAUDE_MODEL=claude-sonnet-4-6
+CLAUDE_MODEL=claude-sonnet-4-6        # first-run SEED for the runtime Claude default (now app_config-managed — change it in Settings, no restart)
 RUN_PERMISSION_MODE=acceptEdits       # claude --permission-mode for worktree runs; default acceptEdits.
                                       #   one of default|plan|acceptEdits|bypassPermissions (invalid → acceptEdits + warn).
                                       #   only applied inside a disposable worktree; fallback-to-cwd runs stay default-restricted.
@@ -32,6 +32,15 @@ ENABLE_OLLAMA=false
 GITHUB_POLL_MS=60000                  # gh polling interval
 ENABLE_GITHUB_POLL=true               # set false to disable
 ```
+
+### Runtime config (no restart)
+
+Several values above are now first-run **seeds**, not frozen constants. The **Claude default model**
+(`CLAUDE_MODEL`), the **Ollama** enable / base-url / active-model, and the **voice** settings are
+persisted in the `app_config` table and editable live from **Settings** — a change applies to the very
+next run without touching `.env` or restarting core. Each env var is consulted only when `app_config`
+has no stored value for its key (seed-then-override; `config-store.ts`). This retires the earlier
+recon finding that the Claude default model was an env-frozen `const` read once at `router.ts` load.
 
 ## Data locations
 
@@ -150,7 +159,11 @@ Beyond the registry/metrics endpoints, the project + verification surface is:
 | `core/src/supervisor.ts` | agent lifecycle: worktree + spawn + parse + emit |
 | `core/src/run-lifecycle.ts` | `trackSupervisedRun` — the shared supervised-run lifecycle seam (insert tracking row → `startRun` → subscribe-until-terminal → finalize-exactly-once + race backstop); the 3 supervised callers ride it, and `startAgentRun` (P5) extends it (F2.W1) |
 | `core/src/agent-config.ts` | `synthesizeConfigDir` — builds the per-run `CLAUDE_CONFIG_DIR` (settings, allowlist, MCP, vendored skills, injected L0+L1 prompt) so host `~/.claude` never loads |
-| `core/src/profiles.ts` | `AgentProfile` registry + the single default `controller` profile (pre-Phase-5 bridge) |
+| `core/src/profiles.ts` | DB-backed `AgentProfile` registry (get/list/create/update + `seedProfiles`) over `agent_profiles`; keeps `DEFAULT_PROFILE` as the orchestrator fallback (P5.0) |
+| `core/src/authority.ts` | `resolveAuthority(tier)` → `{allowedTools, mcpServers, skills}` from `agent-config/{allowlists,mcp,bundles}`; fail-closed mcp↔allowlist grant guard + coding-tools gating check (P5.0) |
+| `core/src/agent-runs.ts` | `startAgentRun(profileId, {trigger, goal\|thread, …})` — activates a profile into a supervised run over the `run-lifecycle` seam, tracked in `agent_runs`, with dispatch-failure rollback (P5.0) |
+| `core/src/k-thread.ts` | K front-door runtime (D-023, P5.1c) — `askK` (warm-vs-fresh dispatch), durable K thread over `k_threads`/`k_thread_turns`, `renderSeed` (cold reseed), `captureAnswers` (K replies → thread at each turn boundary); SDK-free, reuses the D-014 persistent-stdin loop |
+| `core/src/routes/k.ts` | the "talk to K" HTTP surface (P5.1c) — `POST /api/k/ask` (activate K, returns `KAskResult`) + `GET /api/k/thread` (the durable thread + turns) |
 | `core/src/claude-args.ts` | pure: resolve `RUN_PERMISSION_MODE` + build claude CLI argv (worktree-gated `--permission-mode`, per-tier `--allowedTools`, `--mcp-config`/`--strict-mcp-config`) |
 | `core/src/auth.ts` | token resolution/persistence (`resolveHarnessToken`), safety gate (`unsafeBootReason`), constant-time compare (`tokensEqual`/`wsTokenOk`), and `isAuthExempt(url)` pathname exemption (decodes once, no dot-segment bypass) |
 | `core/src/project-match.ts` | pure: `matchProjectByCwd` — deepest-root prefix match for run→project inference |
@@ -215,30 +228,33 @@ the REST API with a `git credential` token.
   authenticating HTTPS reverse proxy (see Remote access). The non-loopback safety
   gate prevents booting that posture with a weak/empty token.
 
-## Phase 5 — Agent Organization (PLANNED storage / env / key files)
+## Phase 5 — Agent Organization (storage / env / key files)
 
-None of the following exists yet; it is recorded here so the operational surface of the agent org
-(§03, §04) is planned, not discovered. All new SQLite tables follow the existing guarded-ALTER
-migration discipline above.
+**P5.0 (foundation) is BUILT.** The `agent_profiles` + `agent_runs` tables, the `agent_memory`
+`profile_id` link, `authority.ts`, and `startAgentRun` now ship (D-037). The remaining rows below are
+still planned and recorded so the operational surface of the agent org (§03, §04) is planned, not
+discovered. All new SQLite tables follow the existing guarded-ALTER migration discipline above.
 
-**New tables (planned).**
+**Tables.**
 
-| Table | Holds |
-|-------|-------|
-| `agent_profiles` | one row per durable tier (K · Chief · each lead): `tier`, `charter`, `default_model`, `allowed_tools` (JSON), `mcp_servers` (JSON), `skills` (JSON) |
-| `agent_memory` | per-profile lessons (layer A): `profile_id`, `lesson`, `status` (`pending`/`approved`/`rejected`), `source_run_id`, `created_at` — the gated-reflection store |
-| `workflow_definitions` | named workflows: `name`, `roles` (JSON), `prompt_scaffold`, `cross_project` — generalizing today's single `buildDelegationPrompt` |
-| `work_items` | unified scoped task store (replaces the `agent_tasks` / `project_tasks` split): `scope` (`personal`/`org`/`project`), `text`, `status`, `project_id` (set iff `scope='project'`), `created_at` |
+| Table | Status | Holds |
+|-------|--------|-------|
+| `agent_profiles` | **BUILT (P5.0)** | one row per durable profile (K · Chief · orchestrator + the five leads): `tier`, `charter` (charter-asset basename), `default_model`, `allowed_tools` (JSON), `mcp_servers` (JSON), `skills` (JSON); `name` UNIQUE so the seed is idempotent |
+| `agent_memory` | **BUILT** (kstore; `profile_id` added P5.0) | gated lessons (layer A): `run_id` (source run), `lesson`, `status` (`pending`/`accepted`/`rejected`), `created_at`, `reviewed_at`, + `profile_id` (P5.0) — the gated-reflection store |
+| `agent_runs` | **BUILT (P5.0)** | one activation of a profile into a supervised run: `profile_id`, `run_id`, `trigger`, `goal`, `project_id`, `workflow_id`, `status` — the `startAgentRun` tracking row (rides the run-lifecycle seam) |
+| `workflow_definitions` | planned | named workflows: `name`, `roles` (JSON), `prompt_scaffold`, `cross_project` — generalizing today's single `buildDelegationPrompt` |
+| `work_items` | scope model planned | unified scoped task store (the `agent_tasks` / `project_tasks` unification under a `scope` column) — the run-scoped `work_items` ships today (kstore) |
 
 **New env (planned).** Per-tier MCP server endpoints/toggles (`LOGISTICS_MCP_*`, `MGMT_MCP_*`,
 status-write MCP), the Google connector credentials K mounts (Calendar/Gmail/Drive), and a flag for
 K's hybrid idle-timeout (when an idle K session is torn down and re-seeded on the next message/wake).
 
-**New key files (planned).**
+**Key files.**
 
-| File | Purpose |
-|------|---------|
-| `core/src/profiles.ts` | `AgentProfile` registry + `startAgentRun` (generalizes `startRun`) |
-| `core/src/authority.ts` | tier → allowed tools/skills/MCPs resolution; the `--allowedTools` allowlist + MCP mount gating |
-| `core/src/memory.ts` | layer-A lessons store + gated end-of-run reflection (propose → approve) |
-| `core/src/workflows.ts` | extended from the single delegation loop to named `WorkflowDefinition`s |
+| File | Status | Purpose |
+|------|--------|---------|
+| `core/src/profiles.ts` | **BUILT (P5.0)** | DB-backed `AgentProfile` registry (get/list/create/update + `seedProfiles`) |
+| `core/src/authority.ts` | **BUILT (P5.0)** | tier → allowed tools/skills/MCPs resolution + the mcp↔allowlist grant guard |
+| `core/src/agent-runs.ts` | **BUILT (P5.0)** | `startAgentRun` — generalizes `startRun`, riding the `run-lifecycle` seam |
+| `core/src/memory.ts` | planned | layer-A lessons store + gated end-of-run reflection (propose → approve) |
+| `core/src/workflows.ts` | partly built | extend from the single delegation loop to named `WorkflowDefinition`s |

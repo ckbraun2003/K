@@ -5,8 +5,8 @@ export type Route = { view: string; param?: string; subParam?: string }
 /** Views Shell can render. An unrouted hash (e.g. #/nonsense) is a 404 — see
  *  Shell's default branch and TopBar's title fallback. */
 export const KNOWN_VIEWS = new Set([
-  'home', 'runs', 'docs', 'projects', 'metrics', 'routing',
-  'verify', 'project', 'graph', 'skills', 'terminal', 'settings', 'workflows', 'evals',
+  'home', 'chief', 'orchestrators', 'orchestrator', 'runs', 'docs', 'projects', 'metrics', 'routing',
+  'verify', 'project', 'graph', 'skills', 'terminal', 'settings', 'workflows', 'workflow-detail', 'evals', 'memory',
 ])
 
 export function isKnownView(view: string): boolean {

@@ -6,8 +6,8 @@
  * K_DATA_DIR / K_RUN_ID injected. The existing agent-config test pins the
  * orchestrator kstore rewrite shape; these tests pin the SYNTHESIS angles it
  * does not:
- *   - the per-tier server SET (secretary mounts ONLY kstore — no gitnexus;
- *     chief + orchestrator mount BOTH),
+ *   - the per-tier server SET (secretary mounts kstore + logistics — no gitnexus;
+ *     chief + orchestrator mount gitnexus + kstore),
  *   - the kstore K_DATA_DIR follows the dataDir resolution chain, including the
  *     process.env.K_DATA_DIR fallback when opts.dataDir is omitted,
  *   - re-synthesizing the SAME runId is idempotent (mcp.json byte-identical).
@@ -35,7 +35,7 @@ function freshDataDir(): string {
 function synthAs(charterTier: CharterName, opts: { dataDir?: string; runId?: string } = {}) {
   const dataDir = opts.dataDir ?? freshDataDir()
   const runId = opts.runId ?? 'run-' + Math.random().toString(36).slice(2)
-  const profile = { ...DEFAULT_PROFILE, tier: charterTier, charterTier }
+  const profile = { ...DEFAULT_PROFILE, tier: charterTier, charter: charterTier }
   const cfg = synthesizeConfigDir(profile, { runId, dataDir, assetsDir: ASSET_DIR })
   return { cfg, dataDir, runId }
 }
@@ -69,20 +69,45 @@ afterAll(() => {
 })
 
 describe('S4 mcp synthesis: per-tier server set', () => {
-  it('S4-005: secretary mounts ONLY kstore (no gitnexus)', () => {
+  it('S4-005: secretary mounts kstore + logistics (no gitnexus)', () => {
     const { cfg } = synthAs('secretary')
     const servers = Object.keys(readMcp(cfg).mcpServers).sort()
-    expect(servers).toEqual(['kstore'])
+    expect(servers).toEqual(['kstore', 'logistics'])
   })
 
-  it('S4-005: chief and orchestrator each mount BOTH gitnexus + kstore', () => {
-    for (const tier of ['chief', 'orchestrator'] as CharterName[]) {
-      const { cfg } = synthAs(tier)
-      const servers = Object.keys(readMcp(cfg).mcpServers).sort()
-      expect(servers, `${tier} servers`).toEqual(['gitnexus', 'kstore'])
-      // gitnexus passes through as the portable npx stdio server, untouched.
-      expect(readMcp(cfg).mcpServers.gitnexus.command).toBe('npx')
-    }
+  it('S4-005: orchestrator mounts BOTH gitnexus + kstore', () => {
+    const { cfg } = synthAs('orchestrator')
+    const servers = Object.keys(readMcp(cfg).mcpServers).sort()
+    expect(servers).toEqual(['gitnexus', 'kstore'])
+    // gitnexus passes through as the portable npx stdio server, untouched.
+    expect(readMcp(cfg).mcpServers.gitnexus.command).toBe('npx')
+  })
+
+  it('S4-005 (P5.2a): chief mounts gitnexus + kstore + mgmt', () => {
+    const { cfg } = synthAs('chief')
+    const servers = Object.keys(readMcp(cfg).mcpServers).sort()
+    expect(servers).toEqual(['gitnexus', 'kstore', 'mgmt'])
+    // gitnexus still passes through untouched.
+    expect(readMcp(cfg).mcpServers.gitnexus.command).toBe('npx')
+  })
+})
+
+describe('S4 mcp synthesis: chief mgmt binding (P5.2a)', () => {
+  it('resolves the chief mgmt server to this core\'s mgmt-server launch, no __MGMT__ placeholder', () => {
+    const { cfg, dataDir, runId } = synthAs('chief')
+    const m = readMcp(cfg).mcpServers.mgmt
+    // Rewritten to THIS core's launch (dev runs the .ts via tsx; a build runs the .js).
+    expect(m.command).toBe(process.execPath)
+    expect(m.args?.some(a => /mgmt-server\.(ts|js)$/.test(a))).toBe(true)
+    // env bound to THIS run.
+    expect(m.env?.K_DATA_DIR).toBe(dataDir)
+    expect(m.env?.K_RUN_ID).toBe(runId)
+    // no leftover placeholder anywhere in the resolved server config.
+    const blob = JSON.stringify(readMcp(cfg).mcpServers)
+    expect(blob).not.toContain('__MGMT__')
+    expect(blob).not.toContain('__KSTORE__')
+    expect(blob).not.toContain('__K_DATA_DIR__')
+    expect(blob).not.toContain('__K_RUN_ID__')
   })
 })
 
@@ -97,6 +122,7 @@ describe('S4 mcp synthesis: kstore binding + dataDir resolution', () => {
       // no leftover placeholders anywhere in the resolved server config
       const blob = JSON.stringify(readMcp(cfg).mcpServers)
       expect(blob).not.toContain('__KSTORE__')
+      expect(blob).not.toContain('__LOGISTICS__')
       expect(blob).not.toContain('__K_DATA_DIR__')
       expect(blob).not.toContain('__K_RUN_ID__')
     }

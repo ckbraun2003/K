@@ -2,7 +2,7 @@
 title: Observability
 icon: "👁"
 status: active
-updated: 2026-06-28
+updated: 2026-07-01
 ---
 
 Phase 4's Track D makes the harness **observable**: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard *surfaces* it powers. The *Implementation history* appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.
@@ -53,7 +53,7 @@ The harness delegation loop is **prose methodology**, not a code object, so its 
 
 The end-to-end compact-and-**continue** success on a long, genuinely-full context is a Wave V live-verification item (the smoke proved the trigger fires; it "failed" only because the probe session was empty).
 
-## Multi-tier org observability (PLANNED — Phase 5)
+## Multi-tier org observability (BUILT — Phase 5, through loop-b b2)
 
 Today's runtime sub-agent tree observes **one run's** delegate calls (orchestrator → worker agents).
 The agent organization (§03) adds tiers **above** a run — K, the Chief, and the leads — so
@@ -63,15 +63,62 @@ observability extends from a single run's tree to the **whole org**:
   activations, the Chief's assignments and autonomous wakes, and each lead's workflow runs all land
   as the same `AgentEvent` stream — the activity strip and Runs surface them uniformly, tagged by
   the activating profile.
-- **The org tree.** The per-run delegation tree generalizes into a tier-aware view: a user request
-  → K → Chief → lead → role subagents, each node carrying status, trigger kind (user / schedule /
-  event / delegation), and the hand-off prompt + result — reusing the same pairing helpers, just
-  rooted higher.
+- **The org tree (BUILT — P5.2a).** The per-run delegation tree generalizes into a tier-aware view:
+  Chief → each lead → the lead's role subagents, each node carrying status and (for a lead) its
+  latest run's prompt. This is a **derivation, not a new subsystem** — a reusable, generic
+  `DelegationTree` component (`web/src/components/DelegationTree.tsx`) renders any `DelegationNode`
+  root, and a pure builder (`web/src/lib/delegation.ts`) assembles the whole-org root by **reusing
+  `eventsToWorkflowTree` unchanged** for each lead's sub-agent level. It is fed by ONE batched read,
+  `GET /api/chief/org` (`ChiefOrgPayload`: the Chief profile, each lead's latest run + events +
+  wakes, the Chief's own wakes, recent assignments, and a THIN health line), surfaced on the **Chief**
+  org-overview page (§08) alongside the Objectives panel (from the mgmt store's assignments) and the
+  Chief's autonomous-wake history.
+- **The autonomous-wake history is now REAL (BUILT — P5.2b, D-044).** The `chiefWakes` list in that
+  payload (rendered by the ChiefPage `WakeRow`) is fed by **actual autonomous wakes**, not a hand-seed:
+  `core/src/chief-wake.ts` wires the reused scheduler + EventBus into `startAgentRun('chief', …)`, so
+  each wake is an `agent_runs` row (`profile_id='chief'`) that the route already reads. Every row carries
+  the four wake facts straight from existing columns — **trigger** (`schedule` | `event`), **time**
+  (`created_at`), **run id** (`run_id`, a view-run link), and **outcome** (`status`: running → completed
+  | failed). The wake is debounced + already-running- + self-wake-guarded, and a dispatch failure lands
+  as a `failed` row via the `startAgentRun` rollback — so the observed history is faithful to what fired.
+- **The Chief→lead link is now DERIVABLE (BUILT — loop-a, D-049).** With the autonomous dispatch built
+  (§03), a Chief→lead edge is derivable from the stored data with **no new table**: an assignment's
+  `run_id` is the Chief run (parent), its `lead_run_id` is the dispatched lead run (child), and the
+  lead activation's `agent_runs.trigger='delegation'` marks the hop — the exact mirror of K→Chief's
+  `k_thread_turns.run_id` + trigger. The lead's outcome is filed back as a mgmt `report` on the Chief's
+  run, so it lands in the same store the org page already reads. **loop-b b1 (D-050) makes this edge
+  fill for a REAL run:** the dispatch executes in the long-lived main process (a `lead_dispatches`
+  queue drained by `lead-dispatch-relay.ts`), so the lead's `agent_runs` row finalizes and the
+  report-back fires on the main EventBus (visible to the WS + org tree) instead of dying with the
+  mgmt-server child; a boot sweep (`reconcileOrphanedActivations`) finalizes any activation orphaned by
+  a mid-dispatch child exit.
+- **The WHOLE-ORG tree is now RENDERED, and the up-chain reaches K (BUILT — loop-b b2, D-051).** Two
+  gaps closed exit-criterion #3 ("the result reports back up the chain — all visible in the org tree"):
+  - **The multi-tier tree DERIVATION render.** `web/src/lib/delegation.ts::fullOrgToDelegationTree`
+    wraps the existing Chief subtree (`orgToDelegationTree`, unchanged) under two ancestor tiers —
+    **user → K → Chief → lead → sub-agent** — reusing the same generic `DelegationTree` component
+    (arbitrary depth) the Chief page already renders. The **K→Chief edge** is a pure derivation from the
+    existing links, **no new table**: `ChiefOrgPayload.kDelegations` counts the Chief's
+    `trigger='delegation'` activations (every one is a K hand-up — `delegateToChief` is the only path
+    that sets it; autonomous wakes use `schedule`/`event`). K's node rides the chain (running while the
+    Chief subtree is active); the user root is the operator anchor. So the full chain is VISIBLE end to
+    end on the one batched `GET /api/chief/org` read.
+  - **The Chief→K report continuation.** A Chief's bounded activation can end BEFORE the lead it
+    dispatched finishes, so the Chief-terminal report-back (`reportDelegationBack`, D-046) could surface
+    a PRE-lead status. The continuation closes that: riding the **same lead-terminal signal** the
+    lead→Chief mgmt report uses (`lead-dispatch-relay.ts`, main EventBus), `k-thread.ts::continueLeadOutcomeToK`
+    resolves whether the parent Chief run was itself a K delegation (a `k_thread_turns` row links it to a
+    thread — `getThreadIdByTurnRunId`) and, if so, appends the lead's outcome one more hop UP onto K's
+    durable thread ("Chief (via <lead>) completed: …"), linked to the lead run so it stays traceable.
+    Idempotent (the run-lifecycle once-latch), and a **no-op when the Chief woke autonomously** (no
+    linked thread) — then the outcome stays in the Chief's mgmt store only.
 - **Memory provenance.** A gated reflection (§04) that proposes a lesson is itself an observable
   event, so you can trace *why* a profile's memory changed back to the run that earned the lesson.
 
-This is the deferred growth point for observability; the enrichment foundation, pairing helpers, and
-single-wire EventBus already make it a derivation, not a new subsystem.
+With loop-b b2 the org observability chain is COMPLETE: an engineering ask flows K→Chief→lead→PR and
+its result reports back up to K, and every tier — user, K, Chief, each lead, each sub-agent — is
+visible in one derived multi-tier tree over the same enrichment foundation, pairing helpers, and
+single-wire EventBus. No new table was added at any hop; the whole chain stays a derivation.
 
 ## Implementation history (dashboard)
 

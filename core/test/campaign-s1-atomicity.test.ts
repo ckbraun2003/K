@@ -38,11 +38,11 @@ describe('S1 — db.transaction rolls back on a mid-batch throw', () => {
     const now = Date.now()
     const tx = db.transaction(() => {
       workItemsDb.insertWorkItem.run({
-        id: a, runId: null, title: 'ok', body: null, status: 'open', createdAt: now, updatedAt: now,
+        id: a, runId: null, title: 'ok', body: null, status: 'open', scope: 'personal', createdAt: now, updatedAt: now,
       })
       // status not in the CHECK enum → throws, aborting the transaction.
       workItemsDb.insertWorkItem.run({
-        id: b, runId: null, title: 'bad', body: null, status: 'NOPE', createdAt: now, updatedAt: now,
+        id: b, runId: null, title: 'bad', body: null, status: 'NOPE', scope: 'personal', createdAt: now, updatedAt: now,
       })
     })
     expect(() => tx()).toThrow(/CHECK constraint/i)
@@ -98,6 +98,7 @@ describe('S1 — projectsDb.deleteProject removes the project + all dependents a
     expect(count('SELECT COUNT(*) AS n FROM events WHERE run_id = ?', runId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM verification_reports WHERE project_id = ?', projectId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM project_tasks WHERE project_id = ?', projectId)).toBe(0)
+    expect(count('SELECT COUNT(*) AS n FROM work_items WHERE project_id = ?', projectId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM workflow_runs WHERE project_id = ?', projectId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM project_graphs WHERE project_id = ?', projectId)).toBe(0)
   })

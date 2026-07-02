@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-06-30
+updated: 2026-07-01
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -16,11 +16,12 @@ a scoped prefill of the K composer), **one org-status home** (Chief), **compose-
 (a full confirm-card only on escalation), a **unified scoped work-item model**, and de-duplicated
 metrics, trees, and authority panels.
 
-> **Status.** The agent-first surfaces below (K-home, Chief, Orchestrators + detail, Workflows +
-> detail, the org/MCP authority panel) are **PLANNED (Phase 5)** — this section is their UI spec.
+> **Status.** The **K-home landing** (P5.1f), **Chief** (P5.2a/b), and **Orchestrators + detail**
+> (P5.3a) now **ship**; the **Direct / Observe** sidebar regroup landed with K-home (P5.1f). Still
+> **PLANNED (Phase 5+)**: **Workflows + detail** and the **Settings org-default authority/MCP panel**.
 > The surfaces they reorganize (Runs + rich console, Graph, Metrics, Routing, Terminal, Settings,
-> the 7 project tabs) **exist today**; this section is now a *spec*, and the as-built implementation
-> history (Phases G / H / 4) lives in §13 Observability → *Implementation history*.
+> the 7 project tabs) **exist today**; this section is a *spec + as-built*, and the older observability
+> implementation history (Phases G / H / 4) lives in §13 Observability → *Implementation history*.
 
 ## Frame — four persistent zones
 
@@ -67,6 +68,17 @@ The active destination sits on a translucent-blush glass pill; `g` + first lette
 collapses to icons-only (state persisted). **Docs is not a top-level destination** — artifacts live
 per-project in the workspace Artifacts tab, and the bible stays reachable via footer Help.
 
+> **As-built (P5.1f).** The regroup ships in `web/src/shell/Sidebar.tsx`: a `group?: 'direct' |
+> 'observe'` field is added **orthogonally to** the existing `section` field (`primary`/`footer`/
+> `hidden`), which stays the source of truth for `NAV_DESTINATIONS`, `TopBar` label resolution, and
+> the **destination↔chord invariant test** (`web/test/chords.test.ts`, unchanged). **Direct** = K ·
+> Chief · Orchestrators · Workflows · Projects · Skills · Memory; **Observe** = Runs · Graph · Metrics
+> · Routing · Evals · Terminal; **footer** = Settings · Help. (Skills + Memory — authoring/governance
+> surfaces not tabled in D-024 — sit in Direct as "shape the org"; Evals sits in Observe per this
+> section's table.) Expanded rail shows "Direct"/"Observe" labels; collapsed rail shows a hairline
+> divider between the clusters. **K-home is the default `home` view** — the `home` route id is kept
+> (so every chord/route/test that references it is unchanged) and the destination is relabeled "K".
+
 ### ⌘K / K — the one front door
 
 **K (⌘K) is the only dispatch surface.** One input, two behaviors ranked in a single result list:
@@ -77,6 +89,15 @@ per-project in the workspace Artifacts tab, and the bible stays reachable via fo
   cross-project / a destructive kill·delete·reassign). *Force a specific lead* is an **advanced
   toggle**, not the default. Inside a workspace the composer is project-scoped.
 - **Navigate:** fuzzy jump to any project, run, PR, work-item, orchestrator, workflow, or bible section.
+
+**Ask-K composer — DELIVERED P5.1c2 in ⌘K.** A plain (non-`@`) query is K's front door: the row
+reads *Ask K: …* with the `routeForMessage` preview shown **inline as you type** (and again on the
+row); **Enter sends immediately** (compose-is-confirm, no card — D-026) via `api.k.ask`, opens the
+run console on the returned `runId`, and raises a **5 s undo** toast whose *Undo* kills that run
+within the window. Voice rides the same box (MicButton transcript → composer text). `@project`
+queries still use the compose-and-confirm card → `api.runs.start`. **The K-home landing —
+work-items · recent feed · glance-to-Chief — ships in P5.1f** (below); the send/undo orchestration
+is now a shared `useAskK` hook (`web/src/lib/useAskK.ts`) that both ⌘K and K-home drive identically.
 
 **Every per-screen `⚡` is a scoped prefill of this one composer** — it opens K pre-targeted to the
 lead / project / symbol in view (and pre-fills the route), never an independent dispatch surface.
@@ -106,6 +127,20 @@ K never shows code-authority controls (it has none). A dispatched engineering re
 the **5 s undo** toast and an inline route; results bubble back into the conversation with a
 **toast-with-link** to the run. The richer org status lives on Chief, one click away.
 
+> **What ships (P5.1f).** `web/src/pages/KHome.tsx` (the default `home` view) renders, top-to-bottom:
+> a **time-aware greeting**; a **one-line glance-to-Chief** (`leadsActive` + objectives-in-flight,
+> linking to Chief); the **Ask-K composer** — an input + push-to-talk **MicButton** + inline
+> `routeForMessage` preview + a single **Send** (no interactive/force-lead/model controls) wired to the
+> shared **`useAskK`** hook (`api.k.ask` → open run console → **5 s undo** toast whose *Undo* kills the
+> run); a **work-in-flight** list; and a **recent feed** of the latest runs (View-run links). It issues
+> exactly **two batched reads on shared cache keys** — `chief-org` (glance + work-items) and `runs`
+> (feed) — plus `status` for the mic gate, with **no per-item fan-out**. **Work-items source:** because
+> the unified cross-scope `work_items` HTTP surface is **deferred** (D-026 — the shipped `work_items`
+> table is run-scoped only, D-034), K-home sources its work list from the **org objectives**
+> (`api.chief.org` `assignments`, scope=org) with a caption noting **personal-scope items are pending**
+> that later wave. Notes/Schedule (logistics, D-039) and the warm K-home color tokens are **not** in
+> P5.1f (the hero uses the existing `.glass-tint` surface).
+
 ### Chief — the single org-status home
 
 The one place to see the whole org at once: the active **objectives**, **one whole-org delegation
@@ -130,12 +165,35 @@ carries, as first-class panels:
   spec-review / quality-review) — the **same DelegationTree component** the Chief uses at whole-org
   scope, here scoped to one lead, reusing the runtime sub-agent tree (§13).
 
+> **What ships today (P5.3a).** The **Orchestrators roster** (`web/src/pages/OrchestratorsPage.tsx`,
+> one batched `GET /api/orchestrators`) and **Orchestrator detail** (`OrchestratorDetailPage.tsx`,
+> `GET /api/orchestrators/:id`) are built. Detail carries the tabbed **skills / tools / MCP·Authority**
+> editors + a read-only charter and the lead's approved-lessons memory, and reuses the **one-lead
+> `DelegationTree`** via `leadNode` (no re-derivation). Every edit is a `PATCH /api/orchestrators/:id`
+> that goes through `profiles.ts::updateProfile` — so the **mcp↔allowlist grant guard stays
+> fail-closed**: mounting an ungranted MCP server is rejected `400` and the row is unchanged (D-043).
+> The route lifts the Chief's per-lead assembly into `routes/org-shared.ts` (`isLead` / `assembleLead`
+> + a slim `rosterVitals`), so both surfaces derive a lead identically. **Now built (P5.3b, D-047):** the
+> `workflow_definitions` table + Workflows list/detail UI and the **Settings org-default** authority/MCP
+> panel — the org-default the per-lead overrides inherit from.
+
 ### Workflows + workflow detail
 
 **Workflows** lists the named definitions; **workflow detail** shows one definition's role sequence,
 prompt scaffold, and cross-project scope flag. The previously-abstract standalone "Workflows
 diagram" is **folded into** orchestrator/workflow detail, where it has real context (a lead actually
 running it) rather than floating on its own.
+
+> **What ships (P5.3b, D-047).** `WorkflowsPage`'s **Defined** tab is now a **Definitions list +
+> preview** (one batched `GET /api/workflows`) — each row shows the name + role chain; the preview
+> renders the role pipeline + cross-project badge with an **Open** into `WorkflowDetailPage`
+> (`GET /api/workflows/:id`). Detail edits the **name**, **prompt scaffold** (`{{CHECKLIST}}`-tokened),
+> and **cross-project** toggle via `PATCH /api/workflows/:id` (read-merge-write; a duplicate name is a
+> `400`, roles are read-only for now). The **Run tree** tab is unchanged. In **Settings**, an
+> **Org-default authority** section reads/edits the `default-orchestrator` grant (skills / tools /
+> MCP) via `GET`/`PATCH /api/org-default` — grant-guarded fail-closed exactly like the per-lead
+> orchestrators PATCH — so the "inherits the org default unless overridden" panel above has a real
+> source to inherit from.
 
 Likewise, the standalone **Skills** destination folds into the orchestrator-detail **skills
 editor** above, where each skill is scoped to the lead that uses it rather than floating in a
@@ -179,14 +237,26 @@ A project opens into its workspace (unchanged in shape):
   the editable source of the **org-default** tier → tools/skills/MCPs map. **Per-lead overrides** to
   that default live on **Orchestrator detail** ("inherits org default unless overridden"); Settings
   owns the default, detail owns the delta — the map is edited in exactly one place per scope.
-- **Local models (Ollama)** *(PLANNED, D-030)* — a model-management surface in Settings: the
-  **installed** models with an **active** badge and one-click *set active* (applies live, **no
-  restart**), a **curated catalog** with sizes and a **"fits on disk?"** badge + **Pull** (live
-  progress bar over the WS wire), an advanced **pull-any-tag** box, and a cross-link to **Routing**
-  for per-model outcomes. The active selection is what the router uses whenever it routes to Ollama.
-- **Voice transcription** *(PLANNED, D-031)* — engine status (local Whisper reachable · model), an
-  **enable** toggle, and the push-to-talk hotkey. With voice off the composer mic is disabled with a
-  tooltip; audio is transcribed locally and never leaves the box.
+- **Claude default model** *(DELIVERED 5.5)* — a Settings picker sets the **global Claude default
+  model** the router uses for Claude runs. It is `app_config`-managed (validated against the known
+  registry), so a change applies to the **next run with no restart** — the model is no longer an
+  env-frozen constant. The per-run ⌘K picker still overrides it for a single dispatch.
+- **Local models (Ollama)** *(D-030, DELIVERED 5.5)* — a model-management surface in Settings: the
+  **installed** models with an **active** badge + an **active-model selector** (applies live, **no
+  restart**) and per-model **Remove**, plus a **curated catalog** with sizes and a **"fits on disk?"**
+  badge + **Pull** with a **live progress bar over the EventBus→WS wire** (`ollama_pull`). The active
+  selection is what the router uses whenever it routes to Ollama, and the **⌘K dispatch picker**
+  reflects that live active model. *Still planned:* an advanced **pull-any-tag** box and a cross-link
+  to **Routing** for per-model outcomes.
+- **Voice transcription** *(D-031, DELIVERED 5.4)* — a reusable **push-to-talk `MicButton`** wired into
+  the **⌘K command bar** and the **run-console HITL reply box** (the K composer drops in the same button
+  once P5.1 lands): hold to record (browser `MediaRecorder`) → release → `POST /api/transcribe` (core
+  proxies to a local Whisper server; the **browser holds no key**) → the transcript lands as **ordinary
+  text** in the target input for review before send. Settings shows a **read-only voice status card**
+  (Whisper reachable · model · baseUrl, mirroring the provider status cards). Voice is enabled via
+  `ENABLE_VOICE` — there is **no runtime toggle** (it needs a local Whisper server); with voice off the
+  mic is disabled with a tooltip, and a **denied mic or unreachable Whisper degrades cleanly to the
+  keyboard** (nothing lands on failure). Audio is transcribed locally and never leaves the box.
 - **Help** — opens this bible (and the `g` chord).
 
 ## Universal interaction patterns
@@ -263,7 +333,7 @@ Sonner toasts (toast-with-link + the 5 s undo toast) — plus custom: MetricCard
 ActivityStrip, GraphCanvas, NodeInspector, RunConsole, ToolCall (rich console), plus the PLANNED
 **KChat** (the one front-door composer), **DelegationTree** (one component, reused at whole-org and
 one-lead scope), AuthorityPanel (org-default in Settings · per-lead override on detail), CharterEditor,
-**MicButton** (push-to-talk in the composer / ⌘K / HITL reply), a **LocalModels** manager (catalog +
+**MicButton** (push-to-talk — DELIVERED 5.4 in ⌘K + HITL reply; drops into the composer with P5.1), a **LocalModels** manager (catalog +
 pull progress + active selector), and a slim OrgCard / roster card.
 
 ## Accessibility & quality bar

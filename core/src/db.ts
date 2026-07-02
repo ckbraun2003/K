@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
-import type { RunStatus, VerificationReport, ProjectTask } from '@k/shared'
+import type { RunStatus, VerificationReport, ProjectTask, AgentProfile, NamedWorkflow, WorkflowRole } from '@k/shared'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
@@ -118,6 +118,20 @@ db.exec(`
     completed_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_workflow_runs_project ON workflow_runs(project_id, created_at);
+
+  -- Operator-editable named workflow TEMPLATES (P5.3b). name is UNIQUE so the seed is
+  -- idempotent by name. roles is a JSON array of {id,label,description}; prompt_scaffold
+  -- carries the delegation-prompt template (with a {{CHECKLIST}} token); cross_project is
+  -- a reserved flag (execution deferred). This is the DB entity distinct from the @k/shared
+  -- WorkflowDefinition diagram type (D-047).
+  CREATE TABLE IF NOT EXISTS workflow_definitions (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    roles           TEXT NOT NULL DEFAULT '[]',
+    prompt_scaffold TEXT NOT NULL,
+    cross_project   INTEGER NOT NULL DEFAULT 0,
+    created_at      INTEGER NOT NULL
+  );
 
   CREATE TABLE IF NOT EXISTS skills (
     id           TEXT PRIMARY KEY,
@@ -305,6 +319,175 @@ db.exec(`
     UNIQUE(workflow_run_id, label)
   );
   CREATE INDEX IF NOT EXISTS idx_workflow_steps_run ON workflow_steps(workflow_run_id, seq);
+
+  -- ── logistics working store (P5.1a) ─────────────────────────────────────────
+  -- K's secretary-tier logistics store: notes, calendar events, and reminders the
+  -- secretary reaches through the logistics MCP server (calendar/notes/scheduling)
+  -- — STORAGE, not execution. Run-scoped exactly like work_items: run_id is the
+  -- managed run that created the row (resolved from K_RUN_ID); ON DELETE SET NULL
+  -- keeps the row if its run is later removed. CREATE TABLE IF NOT EXISTS (fresh
+  -- installs); these are NOT evolved via migrate().
+  CREATE TABLE IF NOT EXISTS logistics_notes (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    body        TEXT NOT NULL,
+    done        INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_logistics_notes_run ON logistics_notes(run_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS logistics_events (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    title       TEXT NOT NULL,
+    starts_at   INTEGER NOT NULL,
+    ends_at     INTEGER,
+    location    TEXT,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_logistics_events_run ON logistics_events(run_id, starts_at);
+
+  CREATE TABLE IF NOT EXISTS logistics_reminders (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    text        TEXT NOT NULL,
+    remind_at   INTEGER NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending'
+                  CHECK(status IN ('pending','done','cancelled')),
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_logistics_reminders_run ON logistics_reminders(run_id, remind_at);
+
+  -- ── management working store (Chief org — P5.2a) ────────────────────────────
+  -- The Chief's management store: assignments (an objective handed to a lead) and
+  -- reports (a status write up the chain). Management is STORAGE, not execution —
+  -- persisting an assignment here does NOT dispatch the lead (autonomous delegation
+  -- is P5.2b). Run-scoped exactly like logistics_*: run_id is the managed run that
+  -- created the row (resolved from K_RUN_ID); ON DELETE SET NULL keeps the row if
+  -- its run is later removed. projects is a JSON array (the scope_projects scope).
+  -- A report's assignment_id is a nullable soft link (ON DELETE SET NULL) so a
+  -- report survives its assignment. CREATE TABLE IF NOT EXISTS (fresh installs);
+  -- these are NOT evolved via migrate().
+  CREATE TABLE IF NOT EXISTS mgmt_assignments (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    lead        TEXT NOT NULL,
+    objective   TEXT NOT NULL,
+    note        TEXT,
+    workflow    TEXT,
+    projects    TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    lead_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,   -- the dispatched lead's run (dispatch_lead); NULL until dispatched
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_mgmt_assignments_run ON mgmt_assignments(run_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS mgmt_reports (
+    id             TEXT PRIMARY KEY,
+    run_id         TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    assignment_id  TEXT REFERENCES mgmt_assignments(id) ON DELETE SET NULL,
+    body           TEXT NOT NULL,
+    created_at     INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_mgmt_reports_run ON mgmt_reports(run_id, created_at);
+
+  -- ── K front door — durable threads (P5.1c, D-023) ───────────────────────────
+  -- K's persistent identity: the durable conversation is the SOURCE OF TRUTH
+  -- (survives reload), while execution is ephemeral. active_run_id is the warm
+  -- interactive run K is chatting on (null when cold/idle); ON DELETE SET NULL so
+  -- clearing a finished run keeps the thread. status is a display hint.
+  -- CREATE TABLE IF NOT EXISTS (fresh installs); NOT evolved via migrate().
+  CREATE TABLE IF NOT EXISTS k_threads (
+    id            TEXT PRIMARY KEY,
+    title         TEXT,
+    status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','idle')),
+    active_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS k_thread_turns (
+    id         TEXT PRIMARY KEY,
+    thread_id  TEXT NOT NULL REFERENCES k_threads(id) ON DELETE CASCADE,
+    role       TEXT NOT NULL CHECK(role IN ('user','k')),
+    text       TEXT NOT NULL,
+    run_id     TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_k_thread_turns ON k_thread_turns(thread_id, created_at);
+
+  -- ── Agent org (P5.0) ─────────────────────────────────────────────────────────
+  -- Durable agent identities (bible section 03, D-020): one entity per row, gated by
+  -- an authority tier (secretary|chief|orchestrator). charter is the charter-asset
+  -- BASENAME the profile materializes (=== tier for the durable tiers) — the charter
+  -- PROMPT itself lives in agent-config/tiers/<charter>.charter.md (single source,
+  -- loaded by the synthesizer), never inlined here. allowed_tools/mcp_servers/skills
+  -- are JSON arrays mirroring the tier's resolved authority (authority.ts) so a row
+  -- is a durable, inspectable grant. name is UNIQUE so the seed is idempotent by name.
+  CREATE TABLE IF NOT EXISTS agent_profiles (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL UNIQUE,
+    tier          TEXT NOT NULL CHECK(tier IN ('secretary','chief','orchestrator')),
+    charter       TEXT NOT NULL CHECK(charter IN ('secretary','chief','orchestrator')),
+    default_model TEXT NOT NULL,
+    allowed_tools TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    mcp_servers   TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    skills        TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    created_at    INTEGER NOT NULL
+  );
+
+  -- One activation of a profile into a supervised run (startAgentRun). This is the
+  -- tracking row the run-lifecycle seam patches (run_id) then finalizes (status),
+  -- mirroring skill_runs/workflow_runs. run_id is null until the run is created;
+  -- ON DELETE SET NULL keeps the activation record if its run is later removed.
+  CREATE TABLE IF NOT EXISTS agent_runs (
+    id           TEXT PRIMARY KEY,
+    profile_id   TEXT NOT NULL REFERENCES agent_profiles(id) ON DELETE CASCADE,
+    run_id       TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    trigger      TEXT NOT NULL
+                   CHECK(trigger IN ('user-message','schedule','event','delegation')),
+    goal         TEXT,
+    project_id   TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    workflow_id  TEXT,   -- loose ref (no FK on purpose): a planned WorkflowDefinition id, whose table doesn't exist yet
+
+    status       TEXT NOT NULL DEFAULT 'running'
+                   CHECK(status IN ('running','completed','failed')),
+    created_at   INTEGER NOT NULL,
+    completed_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_runs_profile ON agent_runs(profile_id, created_at);
+  -- Point-lookup index for the by-run_id reads (the Chief autonomous-wake self-wake
+  -- guard fires on EVERY terminal run_update — a hot path — so run_id must be indexed).
+  CREATE INDEX IF NOT EXISTS idx_agent_runs_run_id ON agent_runs(run_id);
+
+  -- Chief→lead dispatch INTENT queue (loop-b). The mgmt dispatch_lead tool runs in the
+  -- ephemeral per-Chief-run stdio mgmt-server CHILD process, which dies at the Chief's
+  -- turn end — so it can only RECORD the intent to dispatch a lead, never EXECUTE it (the
+  -- lead run + its report-back subscriber must outlive the child). This DB-backed queue is
+  -- the child->main hand-off: dispatch_lead inserts a 'pending' row; a relay in the
+  -- long-lived MAIN process (lead-dispatch-relay.ts) drains pending rows, claims each
+  -- atomically (pending->dispatched), and runs startAgentRun there. status: pending ->
+  -- dispatched (claimed+executed) | failed (startAgentRun threw). chief_run_id is the
+  -- parent Chief run (ON DELETE SET NULL); lead_run_id is the dispatched lead's run once
+  -- executed (ON DELETE SET NULL). Brand-new table -> CREATE-only (no migrate() ALTER).
+  CREATE TABLE IF NOT EXISTS lead_dispatches (
+    id              TEXT PRIMARY KEY,
+    assignment_id   TEXT NOT NULL REFERENCES mgmt_assignments(id) ON DELETE CASCADE,
+    chief_run_id    TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    lead_profile_id TEXT NOT NULL,
+    lead            TEXT NOT NULL,
+    workflow_id     TEXT NOT NULL,
+    goal            TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                      CHECK(status IN ('pending','dispatched','failed')),
+    lead_run_id     TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    created_at      INTEGER NOT NULL,
+    dispatched_at   INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_lead_dispatches_status ON lead_dispatches(status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_lead_dispatches_assignment ON lead_dispatches(assignment_id);
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -401,6 +584,74 @@ export function migrate(d: Database.Database): void {
     addColumn(d, 'project_tasks', 'issue_state', 'TEXT')
     d.exec(`CREATE INDEX IF NOT EXISTS idx_project_tasks_issue ON project_tasks(project_id, issue_number)`)
   }
+  // agent_memory.profile_id (P5.0): links a gated lesson to the profile whose run
+  // proposed it, so memory can grow into per-profile retrieval (layers B/C). The
+  // pre-existing kstore agent_memory table only carried run_id (the source run);
+  // profile_id is appended via guarded ALTER so existing DBs gain it. ADD COLUMN
+  // with REFERENCES is legal under foreign_keys=ON (default NULL); agent_profiles is
+  // created in the DDL above, so the referenced table exists before this runs. The
+  // hasTable guard keeps migrate() safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'agent_memory')) {
+    addColumn(d, 'agent_memory', 'profile_id', 'TEXT REFERENCES agent_profiles(id)')
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_agent_memory_profile ON agent_memory(profile_id, created_at)`)
+  }
+  // mgmt_assignments.lead_run_id (P5.4 autonomous loop): the Chief→lead parent→child
+  // link — the dispatched lead's run id on the Chief's durable assignment (parent =
+  // run_id). Appended via guarded ALTER so existing DBs gain it; fresh installs get it
+  // from the DDL above. The decl MUST match the CREATE-TABLE column EXACTLY, incl.
+  // `ON DELETE SET NULL` — otherwise a migrated DB defaults to NO ACTION and a
+  // `DELETE FROM runs` (e.g. deleteProject) would hit an FK violation on a dispatched
+  // assignment while a fresh install would null the link. ADD COLUMN with a REFERENCES
+  // clause (incl. ON DELETE) is legal under foreign_keys=ON because the default is NULL.
+  // hasTable guard keeps migrate() safe against old-schema fixtures.
+  if (hasTable(d, 'mgmt_assignments')) {
+    addColumn(d, 'mgmt_assignments', 'lead_run_id', 'TEXT REFERENCES runs(id) ON DELETE SET NULL')
+  }
+  // work_items.scope (P5.1d1, D-026): the personal|org|project discriminator the
+  // unified-task-store collapse (P5.1d2) keys on. Appended via guarded ALTER (not
+  // in CREATE TABLE) exactly like score_breakdown / project_tasks-issue — migrate()
+  // runs at boot so fresh installs and existing DBs both gain it. DEFAULT 'personal'
+  // backfills every existing ticket (personal == run-scoped, the only scope today;
+  // org/project are reserved for the P5.1d2 collapse). The hasTable guard keeps
+  // migrate() safe against old-schema fixtures predating the table (db-migration.test.ts).
+  if (hasTable(d, 'work_items')) {
+    addColumn(d, 'work_items', 'scope', "TEXT NOT NULL DEFAULT 'personal' CHECK(scope IN ('personal','org','project'))")
+  }
+  // work_items project columns (P5.1d2, D-026/D-048): fold the deprecated
+  // project_tasks store into the unified work_items store. project_id + the issue-
+  // sync metadata (completed_at/issue_number/issue_url/issue_state) let a
+  // scope='project' ticket carry everything a project_tasks row used to. Appended
+  // via guarded ALTER (not in CREATE TABLE) exactly like `scope` — migrate() runs at
+  // boot so fresh installs and existing DBs both gain them. project_id is a PLAIN FK
+  // with NO ON DELETE action (matching the runs.project_id precedent; project-scoped
+  // rows are cleaned explicitly in deleteProject) — ADD COLUMN with REFERENCES is
+  // legal under foreign_keys=ON (default NULL). The hasTable guard keeps migrate()
+  // safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'work_items')) {
+    addColumn(d, 'work_items', 'project_id', 'TEXT REFERENCES projects(id)')
+    addColumn(d, 'work_items', 'completed_at', 'INTEGER')
+    addColumn(d, 'work_items', 'issue_number', 'INTEGER')
+    addColumn(d, 'work_items', 'issue_url', 'TEXT')
+    addColumn(d, 'work_items', 'issue_state', 'TEXT')
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, created_at)`)
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_work_items_issue ON work_items(project_id, issue_number)`)
+  }
+  // project_tasks → work_items backfill (P5.1d2, D-026). Idempotent (NOT EXISTS keys
+  // on the reused project_task id === work_item id), so a re-boot never duplicates.
+  // Runs AFTER the work_items project columns above exist and AFTER the project_tasks
+  // issue-columns ALTER earlier in migrate(), so every SELECT column is present.
+  // COPY only — project_tasks rows are left in place as a frozen safety copy (the
+  // table is deprecated and dropped in d2b). project_tasks.status values
+  // (open/in_progress/done) all satisfy the work_items status CHECK. run_id is NULL
+  // (these are project-scoped, not run-scoped); scope is stamped 'project'.
+  if (hasTable(d, 'work_items') && hasTable(d, 'project_tasks')) {
+    d.exec(`
+      INSERT INTO work_items (id, run_id, project_id, title, body, status, scope, created_at, updated_at, completed_at, issue_number, issue_url, issue_state)
+      SELECT pt.id, NULL, pt.project_id, pt.title, NULL, pt.status, 'project', pt.created_at, pt.created_at, pt.completed_at, pt.issue_number, pt.issue_url, pt.issue_state
+      FROM project_tasks pt
+      WHERE NOT EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = pt.id)
+    `)
+  }
 }
 
 migrate(db)
@@ -455,10 +706,31 @@ const insertEvent = db.prepare(`
 
 const listEvents = db.prepare(`SELECT * FROM events WHERE run_id = ? ORDER BY seq ASC`)
 
+// Delegate-relevant events for a run: every `delegate` tool_use event PLUS its paired
+// tool_result (they share a tool_use_id). This is the exact, naturally-bounded slice
+// the Chief org delegation tree needs — a run's sub-agents ARE its delegate calls
+// (D-016) — so it never materializes/truncates the full event log (a long lead run can
+// hold thousands of events; an arbitrary earliest-N cap would drop late delegates and
+// orphan pairs). Pairing still happens web-side (eventsToWorkflowTree).
+const listDelegateEvents = db.prepare(`
+  SELECT * FROM events
+  WHERE run_id = @runId
+    AND tool_use_id IN (
+      SELECT tool_use_id FROM events
+      WHERE run_id = @runId AND tool_kind = 'delegate' AND tool_use_id IS NOT NULL
+    )
+  ORDER BY seq ASC
+`)
+
 // Fetch the raw JSON line for a single event — used by the lazy per-event endpoint.
 const getEventRaw = db.prepare(`SELECT raw FROM events WHERE run_id = ? AND seq = ?`)
 
-export const eventsDb = { insertEvent, listEvents, getEventRaw }
+// Bounded, pre-filtered assistant-event scan (oldest→newest) — the lead report-back
+// (chief-dispatch.ts::concatLeadAssistantText) reads only enough assistant text to fill
+// its output cap, so a long lead run never materializes its whole event log.
+const listAssistantEvents = db.prepare(`SELECT * FROM events WHERE run_id = ? AND type = 'assistant' ORDER BY seq ASC LIMIT ?`)
+
+export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listAssistantEvents }
 
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
@@ -522,13 +794,19 @@ const deleteProjectRunEvents = db.prepare(
 const deleteProjectRuns = db.prepare(`DELETE FROM runs WHERE project_id = ?`)
 const deleteProjectReports = db.prepare(`DELETE FROM verification_reports WHERE project_id = ?`)
 const deleteProjectGithubCache = db.prepare(`DELETE FROM github_cache WHERE project_id = ?`)
+// Project-scoped work_items (the collapsed project_tasks store, P5.1d2): project_id
+// is a NO-ACTION FK (no ON DELETE cascade), so these rows must be removed before the
+// project row or the delete throws a FK violation. Personal items (project_id NULL,
+// the run-scoped kstore tickets) are untouched.
+const deleteProjectWorkItems = db.prepare(`DELETE FROM work_items WHERE project_id = ?`)
 const deleteProjectRow = db.prepare(`DELETE FROM projects WHERE id = ?`)
 const deleteProject = db.transaction((id: string) => {
   deleteProjectRunEvents.run(id)
   deleteProjectRuns.run(id)
   deleteProjectReports.run(id)
   deleteProjectGithubCache.run(id)
-  deleteProjectRow.run(id) // cascades project_tasks, workflow_runs, project_graphs
+  deleteProjectWorkItems.run(id) // project-scoped work_items: NO-ACTION FK, delete before the project row
+  deleteProjectRow.run(id) // cascades the (deprecated, frozen) project_tasks, workflow_runs, project_graphs
 })
 
 export const projectsDb = {
@@ -611,36 +889,52 @@ export function rowToReport(r: Record<string, unknown>): VerificationReport {
 }
 
 // ─── ProjectTask helpers ─────────────────────────────────────────────────────
+// COLLAPSED (P5.1d2, D-026): these helpers now operate on the unified `work_items`
+// store with scope='project' instead of the deprecated (frozen) `project_tasks`
+// table. Param names/positions are UNCHANGED so every caller (routes/projects.ts,
+// github.ts, workflows.ts) and the characterization tests bind the same objects;
+// each SELECT projects the EXACT old snake_case column set so rowToProjectTask and
+// tests reading t.issue_number / t.completed_at keep working. run_id is stamped NULL
+// (project-scoped, not run-scoped) and updated_at reuses created_at on insert (the
+// old project_tasks store had no updated_at). better-sqlite3 binds named params
+// strictly, so each statement references exactly the params its callers pass.
 
 const insertProjectTask = db.prepare(`
-  INSERT INTO project_tasks (id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state)
-  VALUES (@id, @projectId, @title, @status, @createdAt, @completedAt, @issueNumber, @issueUrl, @issueState)
+  INSERT INTO work_items (id, run_id, project_id, title, body, status, scope, created_at, updated_at, completed_at, issue_number, issue_url, issue_state)
+  VALUES (@id, NULL, @projectId, @title, NULL, @status, 'project', @createdAt, @createdAt, @completedAt, @issueNumber, @issueUrl, @issueState)
 `)
 
 const listProjectTasks = db.prepare(`
-  SELECT * FROM project_tasks WHERE project_id = ? ORDER BY created_at DESC
+  SELECT id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state
+  FROM work_items WHERE project_id = ? AND scope = 'project' ORDER BY created_at DESC
 `)
 
 const updateProjectTaskStatus = db.prepare(`
-  UPDATE project_tasks
+  UPDATE work_items
   SET status = @status, completed_at = @completedAt
-  WHERE id = @id AND project_id = @projectId
+  WHERE id = @id AND project_id = @projectId AND scope = 'project'
 `)
 
-const getProjectTask = db.prepare(`SELECT * FROM project_tasks WHERE id = ? AND project_id = ?`)
+const getProjectTask = db.prepare(`
+  SELECT id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state
+  FROM work_items WHERE id = ? AND project_id = ? AND scope = 'project'
+`)
 
-const deleteProjectTask = db.prepare(`DELETE FROM project_tasks WHERE id = ? AND project_id = ?`)
+const deleteProjectTask = db.prepare(`DELETE FROM work_items WHERE id = ? AND project_id = ? AND scope = 'project'`)
 
 // Issue-sync lookup: a task already mirroring a given (project, issue#).
-const getProjectTaskByIssue = db.prepare(`SELECT * FROM project_tasks WHERE project_id = ? AND issue_number = ?`)
+const getProjectTaskByIssue = db.prepare(`
+  SELECT id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state
+  FROM work_items WHERE project_id = ? AND issue_number = ? AND scope = 'project'
+`)
 
 // Reconcile an existing task with its upstream issue. status/completed_at are
 // decided by the caller (sync mapping); title and issue metadata always refresh.
 const updateProjectTaskFromIssue = db.prepare(`
-  UPDATE project_tasks
+  UPDATE work_items
   SET title = @title, issue_url = @issueUrl, issue_state = @issueState,
       status = @status, completed_at = @completedAt
-  WHERE id = @id
+  WHERE id = @id AND scope = 'project'
 `)
 
 export const projectTasksDb = {
@@ -704,12 +998,17 @@ export const workflowRunsDb = {
 }
 
 // ─── kstore: work-item helpers ───────────────────────────────────────────────
-// Backs the kstore MCP work-item tools. Tickets are run-scoped (run_id), not
-// project-scoped — work_items↔project_tasks unification is a Phase-5 follow-up.
+// Backs the kstore MCP work-item tools — the run-scoped (run_id) PERSONAL/ORG
+// tickets. project-scoped tickets now live in this SAME table (scope='project',
+// P5.1d2, the project_tasks fold below). The run-scoped fetch/list statements
+// therefore ALSO guard `scope != 'project'`: `run_id IS ?` alone is null-safe but a
+// null owner (K_RUN_ID unset / missing run row / start-of-run race) would otherwise
+// match the backfilled project rows (run_id NULL) and let kstore read/mutate a
+// project task — so the scope guard keeps the project surface isolated from kstore.
 
 const insertWorkItem = db.prepare(`
-  INSERT INTO work_items (id, run_id, title, body, status, created_at, updated_at)
-  VALUES (@id, @runId, @title, @body, @status, @createdAt, @updatedAt)
+  INSERT INTO work_items (id, run_id, title, body, status, scope, created_at, updated_at)
+  VALUES (@id, @runId, @title, @body, @status, @scope, @createdAt, @updatedAt)
 `)
 const updateWorkItem = db.prepare(`
   UPDATE work_items SET title = @title, body = @body, status = @status, updated_at = @updatedAt
@@ -719,12 +1018,12 @@ const getWorkItem = db.prepare(`SELECT * FROM work_items WHERE id = ?`)
 // Run-scoped fetch — `IS` is null-safe so a null owner (no/unknown run) only
 // matches null-owner rows. The tools resolve ownership through this so one run
 // can never read or mutate another run's tickets.
-const getWorkItemOwned = db.prepare(`SELECT * FROM work_items WHERE id = ? AND run_id IS ?`)
+const getWorkItemOwned = db.prepare(`SELECT * FROM work_items WHERE id = ? AND run_id IS ? AND scope != 'project'`)
 const listWorkItemsByRun = db.prepare(
-  `SELECT * FROM work_items WHERE run_id IS ? ORDER BY created_at DESC LIMIT ?`,
+  `SELECT * FROM work_items WHERE run_id IS ? AND scope != 'project' ORDER BY created_at DESC LIMIT ?`,
 )
 const listWorkItemsByRunStatus = db.prepare(
-  `SELECT * FROM work_items WHERE run_id IS ? AND status = ? ORDER BY created_at DESC LIMIT ?`,
+  `SELECT * FROM work_items WHERE run_id IS ? AND scope != 'project' AND status = ? ORDER BY created_at DESC LIMIT ?`,
 )
 
 export const workItemsDb = {
@@ -752,8 +1051,35 @@ const listLessonsByRun = db.prepare(
 const listLessonsByRunStatus = db.prepare(
   `SELECT * FROM agent_memory WHERE run_id IS ? AND status = ? ORDER BY created_at DESC LIMIT ?`,
 )
+// Operator-gate lists (P5.1b): fleet-wide (not run-scoped) by status, joined to the
+// proposing profile's name so the review surface shows who proposed each lesson. The
+// join is LEFT so an unassigned (profile_id NULL) lesson still lists. profile_id exists
+// because migrate(db) (which ALTERs it in) runs before these statements are prepared.
+const listLessonsByStatusJoined = db.prepare(
+  `SELECT m.*, p.name AS profile_name FROM agent_memory m
+     LEFT JOIN agent_profiles p ON m.profile_id = p.id
+   WHERE m.status = ? ORDER BY m.created_at DESC LIMIT ?`,
+)
+const listLessonsByStatusProfileJoined = db.prepare(
+  `SELECT m.*, p.name AS profile_name FROM agent_memory m
+     LEFT JOIN agent_profiles p ON m.profile_id = p.id
+   WHERE m.status = ? AND m.profile_id = ? ORDER BY m.created_at DESC LIMIT ?`,
+)
+// Flip a lesson's status in place (pending→accepted|rejected) and stamp reviewed_at.
+// This mutates the SAME row insertLesson wrote (the SEAMS contract with the producer).
+const updateLessonStatus = db.prepare(
+  `UPDATE agent_memory SET status = @status, reviewed_at = @reviewedAt WHERE id = @id`,
+)
 
-export const agentMemoryDb = { insertLesson, getLesson, listLessonsByRun, listLessonsByRunStatus }
+export const agentMemoryDb = {
+  insertLesson,
+  getLesson,
+  listLessonsByRun,
+  listLessonsByRunStatus,
+  listLessonsByStatusJoined,
+  listLessonsByStatusProfileJoined,
+  updateLessonStatus,
+}
 
 // ─── kstore: workflow-step (status-write) helpers ────────────────────────────
 // Backs workflow_step_set / workflow_status_set. The MCP server resolves the
@@ -812,6 +1138,164 @@ export const workflowStepsDb = {
   listWorkflowSteps,
   setWorkflowStep,
 }
+
+// ─── logistics working store helpers (P5.1a) ─────────────────────────────────
+// Backs the logistics MCP tools (notes / calendar events / reminders). Every row
+// is run-scoped like work_items — the null-safe `IS` operator means a null owner
+// (no/unknown run) only matches null-owner rows, so one run can never read or
+// mutate another run's logistics rows. The calendar-event statement CONSTS are
+// `logistics*`-prefixed to avoid colliding with the agent-events helpers
+// (module-scope insertEvent / getEventRaw / listEvents); they are exposed under
+// clean keys on the `logisticsDb` object below.
+
+// notes
+const insertNote = db.prepare(`
+  INSERT INTO logistics_notes (id, run_id, body, done, created_at, updated_at)
+  VALUES (@id, @runId, @body, @done, @createdAt, @updatedAt)
+`)
+const updateNote = db.prepare(`
+  UPDATE logistics_notes SET body = @body, done = @done, updated_at = @updatedAt WHERE id = @id
+`)
+const getNote = db.prepare(`SELECT * FROM logistics_notes WHERE id = ?`)
+const getNoteOwned = db.prepare(`SELECT * FROM logistics_notes WHERE id = ? AND run_id IS ?`)
+const listNotesByRun = db.prepare(
+  `SELECT * FROM logistics_notes WHERE run_id IS ? ORDER BY created_at DESC LIMIT ?`,
+)
+const listNotesByRunDone = db.prepare(
+  `SELECT * FROM logistics_notes WHERE run_id IS ? AND done = ? ORDER BY created_at DESC LIMIT ?`,
+)
+
+// calendar events (consts prefixed to avoid the agent-events insertEvent/listEvents)
+const insertLogisticsEvent = db.prepare(`
+  INSERT INTO logistics_events (id, run_id, title, starts_at, ends_at, location, created_at, updated_at)
+  VALUES (@id, @runId, @title, @startsAt, @endsAt, @location, @createdAt, @updatedAt)
+`)
+const updateLogisticsEvent = db.prepare(`
+  UPDATE logistics_events SET title = @title, starts_at = @startsAt, ends_at = @endsAt,
+    location = @location, updated_at = @updatedAt WHERE id = @id
+`)
+const getLogisticsEvent = db.prepare(`SELECT * FROM logistics_events WHERE id = ?`)
+const getLogisticsEventOwned = db.prepare(`SELECT * FROM logistics_events WHERE id = ? AND run_id IS ?`)
+// The from/to window is pushed INTO SQL (not filtered in JS after a LIMIT) so the
+// LIMIT caps the WINDOWED set — a caller passing `from` can never silently miss an
+// in-window event that sorts after `limit` earlier out-of-window rows.
+const listLogisticsEventsByRun = db.prepare(
+  `SELECT * FROM logistics_events WHERE run_id IS ? AND starts_at >= ? AND starts_at <= ? ORDER BY starts_at ASC LIMIT ?`,
+)
+
+// reminders
+const insertReminder = db.prepare(`
+  INSERT INTO logistics_reminders (id, run_id, text, remind_at, status, created_at, updated_at)
+  VALUES (@id, @runId, @text, @remindAt, @status, @createdAt, @updatedAt)
+`)
+const updateReminder = db.prepare(`
+  UPDATE logistics_reminders SET status = @status, updated_at = @updatedAt WHERE id = @id
+`)
+const getReminder = db.prepare(`SELECT * FROM logistics_reminders WHERE id = ?`)
+const getReminderOwned = db.prepare(`SELECT * FROM logistics_reminders WHERE id = ? AND run_id IS ?`)
+const listRemindersByRun = db.prepare(
+  `SELECT * FROM logistics_reminders WHERE run_id IS ? ORDER BY remind_at ASC LIMIT ?`,
+)
+const listRemindersByRunStatus = db.prepare(
+  `SELECT * FROM logistics_reminders WHERE run_id IS ? AND status = ? ORDER BY remind_at ASC LIMIT ?`,
+)
+
+export const logisticsDb = {
+  // notes
+  insertNote,
+  updateNote,
+  getNote,
+  getNoteOwned,
+  listNotesByRun,
+  listNotesByRunDone,
+  // calendar events
+  insertEvent: insertLogisticsEvent,
+  updateEvent: updateLogisticsEvent,
+  getEvent: getLogisticsEvent,
+  getEventOwned: getLogisticsEventOwned,
+  listEventsByRun: listLogisticsEventsByRun,
+  // reminders
+  insertReminder,
+  updateReminder,
+  getReminder,
+  getReminderOwned,
+  listRemindersByRun,
+  listRemindersByRunStatus,
+}
+
+// ─── management working store helpers (Chief org — P5.2a) ────────────────────
+// Backs the mgmt MCP tools (assignments / reports). Writes + ownership reads are
+// run-scoped like logistics — the null-safe `IS` operator means a null owner (no/
+// unknown run) only matches null-owner rows, so one run can never read or mutate
+// another run's assignments. `listRecentAssignments` is the ONE deliberately
+// cross-run operator read: it feeds the Chief org-status Objectives panel (not a
+// tool), so it is NOT run-scoped.
+
+const insertAssignment = db.prepare(`
+  INSERT INTO mgmt_assignments (id, run_id, lead, objective, note, workflow, projects, created_at, updated_at)
+  VALUES (@id, @runId, @lead, @objective, @note, @workflow, @projects, @createdAt, @updatedAt)
+`)
+const updateAssignment = db.prepare(`
+  UPDATE mgmt_assignments SET lead = @lead, objective = @objective, note = @note,
+    workflow = @workflow, projects = @projects, updated_at = @updatedAt WHERE id = @id
+`)
+// Record the Chief→lead parent→child link (dispatch_lead): the dispatched lead's run
+// id on the Chief's durable assignment. Distinct from updateAssignment so a dispatch
+// only touches lead_run_id (+ updated_at), never the stored lead/objective/workflow.
+const setAssignmentLeadRun = db.prepare(
+  `UPDATE mgmt_assignments SET lead_run_id = @leadRunId, updated_at = @updatedAt WHERE id = @id`,
+)
+const getAssignment = db.prepare(`SELECT * FROM mgmt_assignments WHERE id = ?`)
+const getAssignmentOwned = db.prepare(`SELECT * FROM mgmt_assignments WHERE id = ? AND run_id IS ?`)
+// Cross-run operator read (Chief org Objectives panel) — NOT run-scoped by design.
+const listRecentAssignments = db.prepare(
+  `SELECT * FROM mgmt_assignments ORDER BY created_at DESC LIMIT ?`,
+)
+
+const insertReport = db.prepare(`
+  INSERT INTO mgmt_reports (id, run_id, assignment_id, body, created_at)
+  VALUES (@id, @runId, @assignmentId, @body, @createdAt)
+`)
+const getReport = db.prepare(`SELECT * FROM mgmt_reports WHERE id = ?`)
+// Reports a given run filed, newest-first (bounded). Powers the K→Chief report-back
+// (k-thread.ts): when a delegated Chief run reaches terminal, K surfaces the Chief's
+// latest status report up onto its own thread. A read-only helper — the report row is
+// still written only by the mgmt `report` tool (no new write path, no schema change).
+const listReportsByRun = db.prepare(
+  // id DESC is a deterministic tie-break so two reports written in the same ms have a
+  // stable "latest" (the report-back reads LIMIT 1 as the Chief's latest status).
+  `SELECT * FROM mgmt_reports WHERE run_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+)
+export const mgmtDb = {
+  insertAssignment,
+  updateAssignment,
+  setAssignmentLeadRun,
+  getAssignment,
+  getAssignmentOwned,
+  listRecentAssignments,
+  insertReport,
+  getReport,
+  listReportsByRun,
+}
+
+// ─── Lead-dispatch intent queue (loop-b) ─────────────────────────────────────
+// The child→main dispatch hand-off (see the lead_dispatches DDL above). `dispatch_lead`
+// (mgmt.ts, in the ephemeral child) RECORDS a 'pending' intent; the MAIN-process relay
+// (lead-dispatch-relay.ts) drains + claims + executes it. claimLeadDispatch is the atomic
+// pending→dispatched CAS so an overlapping drain can never double-execute one intent.
+
+const insertLeadDispatch = db.prepare(`
+  INSERT INTO lead_dispatches (id, assignment_id, chief_run_id, lead_profile_id, lead, workflow_id, goal, status, lead_run_id, created_at, dispatched_at)
+  VALUES (@id, @assignmentId, @chiefRunId, @leadProfileId, @lead, @workflowId, @goal, 'pending', NULL, @createdAt, NULL)
+`)
+const listPendingLeadDispatches = db.prepare(`SELECT * FROM lead_dispatches WHERE status = 'pending' ORDER BY created_at ASC`)
+const getLeadDispatch = db.prepare(`SELECT * FROM lead_dispatches WHERE id = ?`)
+const getActiveLeadDispatchByAssignment = db.prepare(`SELECT * FROM lead_dispatches WHERE assignment_id = ? AND status IN ('pending','dispatched') ORDER BY created_at DESC LIMIT 1`)
+// Atomically claim a pending intent (pending→dispatched) so an overlapping drain can't double-execute it.
+const claimLeadDispatch = db.prepare(`UPDATE lead_dispatches SET status = 'dispatched', dispatched_at = @dispatchedAt WHERE id = @id AND status = 'pending'`)
+const setLeadDispatchRun = db.prepare(`UPDATE lead_dispatches SET lead_run_id = @leadRunId WHERE id = @id`)
+const markLeadDispatchFailed = db.prepare(`UPDATE lead_dispatches SET status = 'failed', dispatched_at = @dispatchedAt WHERE id = @id AND status = 'dispatched'`)
+export const leadDispatchDb = { insertLeadDispatch, listPendingLeadDispatches, getLeadDispatch, getActiveLeadDispatchByAssignment, claimLeadDispatch, setLeadDispatchRun, markLeadDispatchFailed }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────
 
@@ -1022,4 +1506,192 @@ export const configDb = {
   set(key: string, value: string): void {
     upsertConfigRow.run(key, value)
   },
+}
+
+// ─── Agent-profile helpers (P5.0) ────────────────────────────────────────────
+// The durable agent-org registry. JSON columns (allowed_tools/mcp_servers/skills)
+// are bound already-stringified at the call site (profiles.ts), mirroring the
+// eval_systems convention. `name` is UNIQUE so the seed is idempotent by name.
+
+const insertProfile = db.prepare(`
+  INSERT INTO agent_profiles (id, name, tier, charter, default_model, allowed_tools, mcp_servers, skills, created_at)
+  VALUES (@id, @name, @tier, @charter, @defaultModel, @allowedTools, @mcpServers, @skills, @createdAt)
+`)
+const getProfileRow = db.prepare(`SELECT * FROM agent_profiles WHERE id = ?`)
+const getProfileByNameRow = db.prepare(`SELECT * FROM agent_profiles WHERE name = ?`)
+const listProfileRows = db.prepare(`SELECT * FROM agent_profiles ORDER BY created_at ASC`)
+const updateProfileRow = db.prepare(`
+  UPDATE agent_profiles
+  SET name = @name, tier = @tier, charter = @charter, default_model = @defaultModel,
+      allowed_tools = @allowedTools, mcp_servers = @mcpServers, skills = @skills
+  WHERE id = @id
+`)
+
+export const agentProfilesDb = {
+  insertProfile,
+  getProfileRow,
+  getProfileByNameRow,
+  listProfileRows,
+  updateProfileRow,
+}
+
+/** Map an agent_profiles DB row → the canonical AgentProfile shape (@k/shared).
+ *  snake→camel; the `charter` column feeds the type's `charter` (charter-asset
+ *  basename); the JSON columns parse to string[] (null-safe: garbled/absent JSON
+ *  degrades to [] rather than throwing, mirroring rowToReport). */
+export function rowToAgentProfile(r: Record<string, unknown>): AgentProfile {
+  const parseStrArr = (v: unknown): string[] => {
+    try {
+      const p = JSON.parse(String(v ?? '[]'))
+      return Array.isArray(p) ? p.map(String) : []
+    } catch {
+      return []
+    }
+  }
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    tier: r.tier as AgentProfile['tier'],
+    charter: r.charter as AgentProfile['charter'],
+    defaultModel: String(r.default_model),
+    allowedTools: parseStrArr(r.allowed_tools),
+    mcpServers: parseStrArr(r.mcp_servers),
+    skills: parseStrArr(r.skills),
+  }
+}
+
+// ─── Agent-run helpers (P5.0) ────────────────────────────────────────────────
+// The startAgentRun tracking rows — patched with the run id, then finalized on
+// terminal, via the run-lifecycle seam (mirrors skill_runs / workflow_runs).
+
+const insertAgentRun = db.prepare(`
+  INSERT INTO agent_runs (id, profile_id, run_id, trigger, goal, project_id, workflow_id, status, created_at, completed_at)
+  VALUES (@id, @profileId, @runId, @trigger, @goal, @projectId, @workflowId, @status, @createdAt, @completedAt)
+`)
+const patchAgentRunId = db.prepare(`UPDATE agent_runs SET run_id = ? WHERE id = ?`)
+const updateAgentRunStatus = db.prepare(`UPDATE agent_runs SET status = ?, completed_at = ? WHERE id = ?`)
+const getAgentRun = db.prepare(`SELECT * FROM agent_runs WHERE id = ?`)
+const listAgentRunsByProfile = db.prepare(
+  `SELECT * FROM agent_runs WHERE profile_id = ? ORDER BY created_at DESC`,
+)
+// Bounded newest-first variant — the Chief org route scans a lead's / the Chief's
+// recent activations without materializing the whole history.
+const listRecentAgentRunsByProfile = db.prepare(
+  `SELECT * FROM agent_runs WHERE profile_id = ? ORDER BY created_at DESC LIMIT ?`,
+)
+// Chief autonomous wake (P5.2b, D-044) — the two guards' single-row reads (no table).
+// Guard B: is a profile already mid-activation? (one Chief run at a time.)
+const getRunningAgentRunByProfile = db.prepare(
+  `SELECT id FROM agent_runs WHERE profile_id = ? AND status = 'running' ORDER BY created_at DESC LIMIT 1`,
+)
+// Self-wake guard: which profile owns the activation that produced this run_id?
+const getAgentRunProfileByRunId = db.prepare(
+  `SELECT profile_id FROM agent_runs WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`,
+)
+// Count a profile's activations for a given trigger — the whole-org tree (loop-b2) reads
+// the chief profile's 'delegation' activations as the K→Chief delegation-edge count (every
+// such chief run is one K hand-up: delegateToChief is the only path that activates the Chief
+// with trigger='delegation'; autonomous wakes use schedule/event). Cheap COUNT, no table.
+const countAgentRunsByProfileAndTrigger = db.prepare(
+  `SELECT COUNT(*) AS n FROM agent_runs WHERE profile_id = ? AND trigger = ?`,
+)
+
+export const agentRunsDb = {
+  insertAgentRun,
+  patchAgentRunId,
+  updateAgentRunStatus,
+  getAgentRun,
+  listAgentRunsByProfile,
+  listRecentAgentRunsByProfile,
+  getRunningAgentRunByProfile,
+  getAgentRunProfileByRunId,
+  countAgentRunsByProfileAndTrigger,
+}
+
+// ─── Named-workflow helpers (P5.3b) ──────────────────────────────────────────
+// The operator-editable workflow-template registry. JSON columns (roles) and the
+// prompt_scaffold are bound already-stringified at the call site (workflow-defs.ts),
+// mirroring the agent_profiles convention. `name` is UNIQUE so the seed is idempotent
+// by name. This is the DB entity distinct from the @k/shared WorkflowDefinition diagram.
+
+const insertWorkflowDef = db.prepare(`
+  INSERT INTO workflow_definitions (id, name, roles, prompt_scaffold, cross_project, created_at)
+  VALUES (@id, @name, @roles, @promptScaffold, @crossProject, @createdAt)
+`)
+const getWorkflowDefRow = db.prepare(`SELECT * FROM workflow_definitions WHERE id = ?`)
+const getWorkflowDefByNameRow = db.prepare(`SELECT * FROM workflow_definitions WHERE name = ?`)
+const listWorkflowDefRows = db.prepare(`SELECT * FROM workflow_definitions ORDER BY created_at ASC`)
+const updateWorkflowDefRow = db.prepare(`
+  UPDATE workflow_definitions
+  SET name = @name, roles = @roles, prompt_scaffold = @promptScaffold, cross_project = @crossProject
+  WHERE id = @id
+`)
+
+export const workflowDefsDb = {
+  insertWorkflowDef,
+  getWorkflowDefRow,
+  getWorkflowDefByNameRow,
+  listWorkflowDefRows,
+  updateWorkflowDefRow,
+}
+
+/** Map a workflow_definitions DB row → the canonical NamedWorkflow shape (@k/shared).
+ *  snake→camel; `roles` parses to WorkflowRole[] (null-safe: garbled/absent JSON degrades
+ *  to [] rather than throwing, mirroring rowToAgentProfile); `cross_project` int→bool. */
+export function rowToNamedWorkflow(r: Record<string, unknown>): NamedWorkflow {
+  let roles: WorkflowRole[] = []
+  try {
+    const p = JSON.parse(String(r.roles ?? '[]'))
+    if (Array.isArray(p)) roles = p as WorkflowRole[]
+  } catch {
+    roles = []
+  }
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    roles,
+    promptScaffold: String(r.prompt_scaffold),
+    crossProject: r.cross_project === 1 || Number(r.cross_project) === 1,
+    createdAt: Number(r.created_at),
+  }
+}
+
+// ─── K front-door threads (P5.1c, D-023) ─────────────────────────────────────
+// The durable K conversation (persistent identity) + its turns. `active_run_id`
+// tracks the warm interactive run; it's nulled when that run reaches terminal.
+
+const insertThread = db.prepare(`
+  INSERT INTO k_threads (id, title, status, active_run_id, created_at, updated_at)
+  VALUES (@id, @title, @status, @activeRunId, @createdAt, @updatedAt)
+`)
+const getThread = db.prepare(`SELECT * FROM k_threads WHERE id = ?`)
+const updateThreadActiveRun = db.prepare(`UPDATE k_threads SET active_run_id = ?, updated_at = ? WHERE id = ?`)
+const updateThreadStatus = db.prepare(`UPDATE k_threads SET status = ?, updated_at = ? WHERE id = ?`)
+
+const insertTurn = db.prepare(`
+  INSERT INTO k_thread_turns (id, thread_id, role, text, run_id, created_at)
+  VALUES (@id, @threadId, @role, @text, @runId, @createdAt)
+`)
+const getTurn = db.prepare(`SELECT * FROM k_thread_turns WHERE id = ?`)
+const patchTurnRunId = db.prepare(`UPDATE k_thread_turns SET run_id = ? WHERE id = ?`)
+const listTurns = db.prepare(`SELECT * FROM k_thread_turns WHERE thread_id = ? ORDER BY created_at ASC, id ASC`)
+// Resolve the K thread that DELEGATED a given run (loop-b2 Chief→K continuation). The
+// K→Chief link is derivable with NO new table: delegateToChief patches the Chief run id
+// onto the operator's user turn (and its ack turn), so a k_thread_turns row whose run_id =
+// the Chief run id identifies the delegating thread. A Chief run that woke AUTONOMOUSLY
+// (chief-wake) never touches k_thread_turns → this returns no row → no K continuation.
+const getThreadIdByTurnRunId = db.prepare(
+  `SELECT thread_id FROM k_thread_turns WHERE run_id = ? ORDER BY created_at ASC, id ASC LIMIT 1`,
+)
+
+export const kThreadsDb = {
+  insertThread,
+  getThread,
+  updateThreadActiveRun,
+  updateThreadStatus,
+  insertTurn,
+  getTurn,
+  patchTurnRunId,
+  listTurns,
+  getThreadIdByTurnRunId,
 }

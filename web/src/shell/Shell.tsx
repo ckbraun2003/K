@@ -4,7 +4,7 @@ import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import ActivityStrip from './ActivityStrip'
 import CommandBar from './CommandBar'
-import Home from '../pages/Home'
+import KHome from '../pages/KHome'
 import RunsPage from '../pages/RunsPage'
 import DocsPage from '../pages/DocsPage'
 import ProjectsPage from '../pages/ProjectsPage'
@@ -17,7 +17,12 @@ import SkillsPage from '../pages/SkillsPage'
 import TerminalPage from '../pages/TerminalPage'
 import SettingsPage from '../pages/SettingsPage'
 import WorkflowsPage from '../pages/WorkflowsPage'
+import WorkflowDetailPage from '../pages/WorkflowDetailPage'
+import ChiefPage from '../pages/ChiefPage'
+import OrchestratorsPage from '../pages/OrchestratorsPage'
+import OrchestratorDetailPage from '../pages/OrchestratorDetailPage'
 import EvalsPage from '../pages/EvalsPage'
+import MemoryPage from '../pages/MemoryPage'
 import NotFound from '../pages/NotFound'
 import { useHashRoute, navigate, isKnownView } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
@@ -111,7 +116,10 @@ export default function Shell() {
             animate="visible"
             exit="exit"
           >
-            {route.view === 'home' && <Home />}
+            {route.view === 'home' && <KHome />}
+            {route.view === 'chief' && <ChiefPage />}
+            {route.view === 'orchestrators' && <OrchestratorsPage />}
+            {route.view === 'orchestrator' && <OrchestratorDetailPage id={route.param} />}
             {route.view === 'runs' && <RunsPage runId={route.param} />}
             {route.view === 'docs' && <DocsPage slug={route.param} />}
             {route.view === 'projects' && <ProjectsPage />}
@@ -124,7 +132,9 @@ export default function Shell() {
             {route.view === 'terminal' && <TerminalPage />}
             {route.view === 'settings' && <SettingsPage />}
             {route.view === 'workflows' && <WorkflowsPage runId={route.param} />}
+            {route.view === 'workflow-detail' && <WorkflowDetailPage id={route.param} />}
             {route.view === 'evals' && <EvalsPage />}
+            {route.view === 'memory' && <MemoryPage />}
             {!isKnownView(route.view) && <NotFound route={route.view} />}
           </motion.div>
         </AnimatePresence>
