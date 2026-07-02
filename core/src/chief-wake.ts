@@ -42,8 +42,9 @@ import { isTerminalRunStatus } from './run-lifecycle.js'
 
 /** The Chief's default schedule-wake instruction (the `-p` seed for a cron wake). */
 export const DEFAULT_CHIEF_WAKE_GOAL =
-  'Autonomous org check-in: review active leads, in-flight workflows, and open objectives; ' +
-  'surface blockers, and note any unstaffed work. Report a concise status; do not dispatch new work yet.'
+  'Autonomous org check-in: review active leads and open objectives with the mgmt read tools ' +
+  '(assignment_list, report_list); surface blockers and note any unstaffed work. Report a concise ' +
+  'status; do not dispatch new work yet.'
 
 /** Default cron for the Chief's scheduled wake (every 15 minutes). A literal default;
  *  the `CHIEF_WAKE_CRON` env override is read lazily inside startChiefWake() so it can

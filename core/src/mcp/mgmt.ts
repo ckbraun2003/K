@@ -2,8 +2,11 @@
  * mgmt — the Chief's management working store behind the mgmt stdio MCP server.
  *
  * This module is the AUTHORITATIVE store logic for the mgmt tools (assign a lead an
- * objective, pick a workflow for it, scope its projects, and write a status report
- * up the chain). Like logistics.ts / k-store.ts it is deliberately FREE of any
+ * objective, pick a workflow for it, scope its projects, write a status report up the
+ * chain, and — assignment_list / report_list — READ the store back). WRITES stay
+ * run-scoped (a run mutates only its own rows); READS are DURABLE across Chief
+ * activations (the Chief's next wake reviews active leads + open objectives + reports
+ * filed back by dispatched leads). Like logistics.ts / k-store.ts it is deliberately FREE of any
  * MCP-SDK or transport import so it can be:
  *   - unit-tested directly against the DB (see core/test/mgmt.test.ts), and
  *   - reused by the stdio MCP server (mgmt-server.ts).
@@ -232,6 +235,36 @@ function dispatchLead(args: unknown, ctx: MgmtContext) {
   return { assignmentId: a.assignmentId, leadProfileId, workflowId, dispatchId, status: 'pending' as const }
 }
 
+// ── read tools (durable across Chief activations) ─────────────────────────────
+
+const AssignmentListInput = { limit: z.number().int().min(1).max(100).optional() }
+/** List recent assignments across Chief activations (durable read — NOT run-scoped),
+ *  each enriched with the dispatched lead run's CURRENT status (null when undispatched).
+ *  Lets the Chief's next activation review active leads + open objectives. */
+function assignmentList(args: unknown): Array<Assignment & { leadRunStatus: string | null }> {
+  const a = z.object(AssignmentListInput).parse(args ?? {})
+  const limit = a.limit ?? 20
+  const rows = mgmtDb.listRecentAssignments.all(limit) as Row[]
+  return rows.map(row => {
+    const leadRunId = row.lead_run_id
+    const leadRunStatus =
+      leadRunId != null
+        ? ((runsDb.getRun.get(String(leadRunId)) as { status?: string } | undefined)?.status ?? null)
+        : null
+    return { ...rowToAssignment(row), leadRunStatus }
+  })
+}
+
+const ReportListInput = { limit: z.number().int().min(1).max(100).optional() }
+/** List recent status reports across Chief activations (durable read — NOT run-scoped),
+ *  newest first, incl. reports filed back by dispatched leads. */
+function reportList(args: unknown): MgmtReport[] {
+  const a = z.object(ReportListInput).parse(args ?? {})
+  const limit = a.limit ?? 20
+  const rows = mgmtDb.listRecentReports.all(limit) as Row[]
+  return rows.map(rowToReport)
+}
+
 // ── registry ────────────────────────────────────────────────────────────────
 
 export interface MgmtTool {
@@ -280,5 +313,19 @@ export const mgmtTools: MgmtTool[] = [
       "Record the intent to dispatch the lead on one of this run's assignments: seeds the lead run prompt from its chosen workflow (default code-wave) and queues a dispatch that the main-process relay then executes as a supervised delegation run (recording the Chief→lead link and wiring the report-back). Guards double-dispatch (an assignment already dispatched or with a pending intent is rejected). Returns { assignmentId, leadProfileId, workflowId, dispatchId, status }.",
     inputShape: DispatchLeadInput,
     handler: dispatchLead,
+  },
+  {
+    name: 'assignment_list',
+    description:
+      'List recent assignments across Chief activations (the durable management store): lead, objective, workflow, projects, and the dispatched lead run + its current status. Readable across activations — use this to review active leads and open objectives.',
+    inputShape: AssignmentListInput,
+    handler: assignmentList,
+  },
+  {
+    name: 'report_list',
+    description:
+      'List recent status reports across Chief activations (newest first), including reports filed back by dispatched leads. Readable across activations.',
+    inputShape: ReportListInput,
+    handler: reportList,
   },
 ]

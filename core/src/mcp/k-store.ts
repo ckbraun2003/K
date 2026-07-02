@@ -2,8 +2,11 @@
  * kstore — the working-store tool layer behind K's stdio MCP server.
  *
  * This module is the AUTHORITATIVE store logic for the kstore tools (work-item
- * CRUD, lesson propose/list, workflow status-write). It is deliberately FREE of
- * any MCP-SDK or transport import so it can be:
+ * CRUD, lesson propose/list, workflow status-write). Work items span scopes: 'run'
+ * is the EPHEMERAL default (visible only to the creating run); 'personal'/'org' are
+ * the DURABLE operator-global store (persist across sessions + runs — the operator's
+ * own list and the org-wide list); 'project' is the projects surface (not creatable
+ * here). It is deliberately FREE of any MCP-SDK or transport import so it can be:
  *   - unit-tested directly against the DB (see core/test/kstore.test.ts), and
  *   - reused by both the stdio MCP server (k-store-server.ts) and, if the
  *     MCP-in-`-p` path proves flaky on Windows, a thin Bash CLI over the same store.
@@ -17,7 +20,6 @@ import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
 import {
   WorkItemStatusSchema,
-  WorkItemScopeSchema,
   LessonStatusSchema,
   WorkflowStepKindSchema,
   WorkflowStepStatusSchema,
@@ -25,7 +27,7 @@ import {
   type Lesson,
   type WorkflowStep,
 } from '@k/shared'
-import { workItemsDb, agentMemoryDb, workflowStepsDb, workflowRunsDb, runsDb } from '../db.js'
+import { workItemsDb, agentMemoryDb, workflowStepsDb, workflowRunsDb, runsDb, agentRunsDb } from '../db.js'
 
 /** Per-call context the server/CLI injects. `runId` is the managed run (K_RUN_ID). */
 export interface KStoreContext {
@@ -46,7 +48,9 @@ type Row = Record<string, unknown>
 const asNum = (v: unknown): number => Number(v)
 const asStrOrNull = (v: unknown): string | null => (v == null ? null : String(v))
 
-function rowToWorkItem(r: Row): WorkItem {
+/** Map a work_items row → the shared WorkItem shape. Exported as the ONE mapping
+ *  authority the durable work-items HTTP route (routes/k.ts) reuses. */
+export function rowToWorkItem(r: Row): WorkItem {
   return {
     id: String(r.id),
     runId: asStrOrNull(r.run_id),
@@ -105,23 +109,44 @@ const notInWorkflow = (): NotInWorkflow => ({
 
 // ── handlers ──────────────────────────────────────────────────────────────────
 
+/** Reject a caller trying to reach the PROJECT surface through kstore. Project
+ *  tickets are created/managed via the projects API, never kstore — so `scope:
+ *  'project'` on any kstore work-item arg is a clean, explicit error (the advertised
+ *  schema doesn't even list it). Checked on the RAW args before the zod parse. */
+function rejectProjectScope(args: unknown): void {
+  if (
+    args != null &&
+    typeof args === 'object' &&
+    (args as Record<string, unknown>).scope === 'project'
+  ) {
+    throw new KStoreError(
+      'project tasks are created and managed through the projects surface/API, not kstore.',
+    )
+  }
+}
+
+// D-026 scope discriminator for creates: 'run' (default, EPHEMERAL run-scoped),
+// 'personal'/'org' (DURABLE operator-global). 'project' is intentionally excluded
+// (guarded above) — the advertised schema only lists the legal creates.
 const WorkItemCreateInput = {
   title: z.string().min(1).max(500),
   body: z.string().max(20_000).optional(),
-  // D-026 scope discriminator; defaults to 'personal' (run-scoped) when omitted.
-  scope: WorkItemScopeSchema.optional(),
+  scope: z.enum(['run', 'personal', 'org']).optional(),
 }
 function workItemCreate(args: unknown, ctx: KStoreContext): WorkItem {
+  rejectProjectScope(args)
   const a = z.object(WorkItemCreateInput).parse(args ?? {})
   const now = Date.now()
   const id = uuid()
+  // run_id is recorded on every insert as PROVENANCE — even a durable item records
+  // which run created it. The scope decides visibility, not run_id.
   workItemsDb.insertWorkItem.run({
     id,
     runId: resolveOwnerRunId(ctx),
     title: a.title,
     body: a.body ?? null,
     status: 'open',
-    scope: a.scope ?? 'personal',
+    scope: a.scope ?? 'run',
     createdAt: now,
     updatedAt: now,
   })
@@ -130,13 +155,25 @@ function workItemCreate(args: unknown, ctx: KStoreContext): WorkItem {
 
 const WorkItemListInput = {
   status: WorkItemStatusSchema.optional(),
+  scope: z.enum(['run', 'personal', 'org']).optional(),
   limit: z.number().int().min(1).max(200).optional(),
 }
 function workItemList(args: unknown, ctx: KStoreContext): WorkItem[] {
+  rejectProjectScope(args)
   const a = z.object(WorkItemListInput).parse(args ?? {})
-  const owner = resolveOwnerRunId(ctx)
   const limit = a.limit ?? 50
-  // Scoped to the caller's run — a run never lists another run's tickets.
+  // Durable scopes ('personal'/'org') read the operator-global store — NO run filter.
+  if (a.scope === 'personal' || a.scope === 'org') {
+    const rows = (
+      a.status
+        ? workItemsDb.listWorkItemsByScopeStatus.all(a.scope, a.status, limit)
+        : workItemsDb.listWorkItemsByScope.all(a.scope, limit)
+    ) as Row[]
+    return rows.map(rowToWorkItem)
+  }
+  // Default ('run', or omitted): scoped to the caller's run — a run never lists
+  // another run's ephemeral tickets (unchanged semantics).
+  const owner = resolveOwnerRunId(ctx)
   const rows = (
     a.status
       ? workItemsDb.listWorkItemsByRunStatus.all(owner, a.status, limit)
@@ -156,9 +193,13 @@ function workItemUpdate(args: unknown, ctx: KStoreContext): WorkItem {
   if (a.status === undefined && a.title === undefined && a.body === undefined) {
     throw new KStoreError('work_item_update needs at least one of: status, title, body.')
   }
-  // Ownership-scoped fetch: an item owned by another run reads as "not found",
-  // so a run can neither confirm its existence nor mutate it.
-  const existing = workItemsDb.getWorkItemOwned.get(a.id, resolveOwnerRunId(ctx)) as Row | undefined
+  // Two-step resolve. First the run-scoped ownership fetch: a 'run' item owned by
+  // another run reads as "not found". If that misses, try the DURABLE store: a
+  // 'personal'/'org' item is operator-global — updatable from ANY run (incl. a null
+  // owner). 'project' rows stay unreachable (both statements exclude them). Scope
+  // itself is never updated.
+  const existing = (workItemsDb.getWorkItemOwned.get(a.id, resolveOwnerRunId(ctx)) ??
+    workItemsDb.getWorkItemDurable.get(a.id)) as Row | undefined
   if (!existing) throw new KStoreError(`work item "${a.id}" not found.`)
   const cur = rowToWorkItem(existing)
   workItemsDb.updateWorkItem.run({
@@ -175,13 +216,21 @@ const LessonProposeInput = { lesson: z.string().min(1).max(4_000) }
 function lessonPropose(args: unknown, ctx: KStoreContext): Lesson {
   const a = z.object(LessonProposeInput).parse(args ?? {})
   const id = uuid()
+  // Resolve the calling run's proposing profile (via its agent_runs activation) so a
+  // lesson lands linked to who proposed it — the memory-gate review surface reads it,
+  // and it seeds per-profile retrieval. Best-effort: a run with no agent_runs row → null.
+  const owner = resolveOwnerRunId(ctx)
+  const prof = owner
+    ? (agentRunsDb.getAgentRunProfileByRunId.get(owner) as { profile_id?: string } | undefined)
+    : undefined
   agentMemoryDb.insertLesson.run({
     id,
-    runId: resolveOwnerRunId(ctx),
+    runId: owner,
     lesson: a.lesson,
     status: 'pending',
     createdAt: Date.now(),
     reviewedAt: null,
+    profileId: prof?.profile_id ?? null,
   })
   // Fetch by the generated id (status stays 'pending' — layer-A gated).
   return rowToLesson(agentMemoryDb.getLesson.get(id) as Row)
@@ -262,21 +311,21 @@ export const kStoreTools: KStoreTool[] = [
   {
     name: 'work_item_create',
     description:
-      'Create a work item (ticket) in K\'s working store. Use this instead of writing a tasks file. Returns the created item.',
+      "Create a work item (ticket). scope='run' (default) is EPHEMERAL — visible only to this run. scope='personal' (the operator's own list) and scope='org' (org-wide) are DURABLE — they persist across sessions and runs. Project tasks cannot be created here (use the projects surface). Returns the created item.",
     inputShape: WorkItemCreateInput,
     handler: workItemCreate,
   },
   {
     name: 'work_item_list',
     description:
-      'List this run\'s recent work items, optionally filtered by status. Returns an array of items.',
+      "List work items. scope='run' (default) lists this run's ephemeral tickets; scope='personal' or scope='org' lists the durable operator-global store that persists across sessions. Optionally filter by status. Returns an array of items.",
     inputShape: WorkItemListInput,
     handler: workItemList,
   },
   {
     name: 'work_item_update',
     description:
-      'Update one of this run\'s work items by id — set its status and/or edit its title/body. Returns the updated item.',
+      "Update a work item by id — set its status and/or edit its title/body. 'run'-scoped items must belong to this run; durable 'personal'/'org' items can be updated from any session. Returns the updated item.",
     inputShape: WorkItemUpdateInput,
     handler: workItemUpdate,
   },

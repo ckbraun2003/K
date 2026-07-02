@@ -435,10 +435,12 @@ export type AgentProfile = z.infer<typeof AgentProfileSchema>
 export const WorkItemStatusSchema = z.enum(['open', 'in_progress', 'blocked', 'done', 'cancelled'])
 export type WorkItemStatus = z.infer<typeof WorkItemStatusSchema>
 
-// D-026 unified-task-store discriminator (P5.1d1 down-payment). `personal` is the
-// run-scoped ticket the kstore tools create today (the only scope currently used);
-// `org`/`project` are reserved for the P5.1d2 collapse that folds project_tasks in.
-export const WorkItemScopeSchema = z.enum(['personal', 'org', 'project'])
+// D-026 unified-task-store discriminator. `run` = the ephemeral run-scoped default
+// (a ticket visible only to the run that created it — the kstore working default);
+// `personal`/`org` = the DURABLE operator-global store (persists across sessions and
+// runs — `personal` is the operator's own list, `org` is org-wide); `project` = the
+// project task surface (folded in via P5.1d2).
+export const WorkItemScopeSchema = z.enum(['run', 'personal', 'org', 'project'])
 export type WorkItemScope = z.infer<typeof WorkItemScopeSchema>
 
 export const WorkItemSchema = z.object({
@@ -980,6 +982,26 @@ export function routeForMessage(message: string): KRoute {
 /** Body for POST /api/k/ask — the operator's message to K. */
 export const KAskBodySchema = z.object({ message: z.string().min(1).max(20000) })
 export type KAskBody = z.infer<typeof KAskBodySchema>
+
+// ─── Durable work-items HTTP surface (operator-global) ───────────────────────
+// The two DURABLE scopes an operator creates/reads over the /api/k/work-items API:
+// `personal` (the operator's own list) and `org` (org-wide). The ephemeral `run`
+// scope and the `project` surface are NOT creatable/listable here by design.
+export const DurableWorkItemScopeSchema = z.enum(['personal', 'org'])
+export type DurableWorkItemScope = z.infer<typeof DurableWorkItemScopeSchema>
+
+/** Body for POST /api/k/work-items — create a durable operator-global work item.
+ *  scope defaults to 'personal'; run/project scopes are not creatable here. */
+export const KWorkItemCreateBodySchema = z.object({
+  title: z.string().min(1).max(500),
+  body: z.string().max(20000).optional(),
+  scope: DurableWorkItemScopeSchema.default('personal'),
+})
+export type KWorkItemCreateBody = z.infer<typeof KWorkItemCreateBodySchema>
+
+/** Body for PATCH /api/k/work-items/:id — set a durable work item's status. */
+export const KWorkItemPatchBodySchema = z.object({ status: WorkItemStatusSchema })
+export type KWorkItemPatchBody = z.infer<typeof KWorkItemPatchBodySchema>
 
 /** One turn in the durable K thread (D-023: persistent identity). `runId` is the
  *  run that produced/received the turn (null until known). */

@@ -4,9 +4,10 @@
  * Exercises the SDK-free tool handlers in core/src/mcp/logistics.ts directly
  * through the `logisticsTools` registry, against the real DB singleton with run
  * fixtures. Covers notes / calendar-events / reminders CRUD, the K_RUN_ID→owner
- * resolution (bogus run degrades to a null owner, no FK error), the from/to
- * event window filter, and — crucially — RUN SCOPING (one run can neither read
- * nor mutate another run's rows). The MCP transport glue (logistics-server.ts) is
+ * resolution on INSERT (bogus run degrades to a null owner, no FK error), the
+ * from/to event window filter, and — post-A1 — the OPERATOR-DURABLE model: the
+ * store is operator-global (single operator), so any session may list/update any
+ * row; run_id is provenance only. The MCP transport glue (logistics-server.ts) is
  * intentionally not unit-tested here.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
@@ -104,14 +105,14 @@ describe('logistics: notes', () => {
     expect(() => call('note_add', { body: '' }, ctxA)).toThrow()
   })
 
-  it('a bogus K_RUN_ID degrades to a null owner instead of an FK error', () => {
+  it('a bogus K_RUN_ID degrades to a null owner on insert (no FK error); the row is still durable', () => {
     const note = call('note_add', { body: 'no real run' }, bogusCtx) as Note
     expect(note.runId).toBeNull()
-    // the null-owner ctx (no run at all) can see it; a real run cannot
+    // durable/operator-global: any session lists it — the null-owner ctx AND a real run.
     const seen = call('note_list', {}, noneCtx) as Note[]
     expect(seen.some(n => n.id === note.id)).toBe(true)
-    const notSeen = call('note_list', {}, ctxA) as Note[]
-    expect(notSeen.some(n => n.id === note.id)).toBe(false)
+    const alsoSeen = call('note_list', {}, ctxA) as Note[]
+    expect(alsoSeen.some(n => n.id === note.id)).toBe(true)
   })
 })
 
@@ -193,31 +194,41 @@ describe('logistics: reminders', () => {
   })
 })
 
-describe('logistics: run scoping (a run cannot read or mutate another run\'s rows)', () => {
-  it('RUN_B cannot list or mutate RUN_A\'s note; owner still can', () => {
+// A1: the logistics store is OPERATOR-DURABLE (single operator) — run B CAN list and
+// mutate a row run A created (rows persist across sessions/runs; run_id is provenance).
+// This is the intended flip from the pre-A1 run-scoped isolation.
+describe('logistics: operator-durable (any run can read + mutate any row)', () => {
+  it('RUN_B lists and mutates RUN_A\'s note', () => {
     const mine = call('note_add', { body: 'A-owned note' }, ctxA) as Note
     const bList = call('note_list', {}, ctxB) as Note[]
-    expect(bList.some(n => n.id === mine.id)).toBe(false)
-    expect(() => call('note_update', { id: mine.id, done: true }, ctxB)).toThrow(LogisticsError)
-    const owned = call('note_update', { id: mine.id, done: true }, ctxA) as Note
-    expect(owned.done).toBe(true)
+    expect(bList.some(n => n.id === mine.id)).toBe(true)
+    const byB = call('note_update', { id: mine.id, done: true }, ctxB) as Note
+    expect(byB.done).toBe(true)
+    // provenance unchanged: the row still records RUN_A as its creator.
+    expect(byB.runId).toBe(RUN_A)
   })
 
-  it('RUN_B cannot list or mutate RUN_A\'s event; owner still can', () => {
+  it('RUN_B lists and mutates RUN_A\'s event', () => {
     const mine = call('event_add', { title: 'A-owned event', startsAt: 7 }, ctxA) as CalendarEvent
     const bList = call('event_list', {}, ctxB) as CalendarEvent[]
-    expect(bList.some(e => e.id === mine.id)).toBe(false)
-    expect(() => call('event_update', { id: mine.id, title: 'hijack' }, ctxB)).toThrow(LogisticsError)
-    const owned = call('event_update', { id: mine.id, title: 'kept' }, ctxA) as CalendarEvent
-    expect(owned.title).toBe('kept')
+    expect(bList.some(e => e.id === mine.id)).toBe(true)
+    const byB = call('event_update', { id: mine.id, title: 'kept' }, ctxB) as CalendarEvent
+    expect(byB.title).toBe('kept')
+    expect(byB.runId).toBe(RUN_A)
   })
 
-  it('RUN_B cannot list or mutate RUN_A\'s reminder; owner still can', () => {
+  it('RUN_B lists and mutates RUN_A\'s reminder', () => {
     const mine = call('reminder_add', { text: 'A-owned reminder', remindAt: 9 }, ctxA) as Reminder
     const bList = call('reminder_list', {}, ctxB) as Reminder[]
-    expect(bList.some(r => r.id === mine.id)).toBe(false)
-    expect(() => call('reminder_update', { id: mine.id, status: 'cancelled' }, ctxB)).toThrow(LogisticsError)
-    const owned = call('reminder_update', { id: mine.id, status: 'cancelled' }, ctxA) as Reminder
-    expect(owned.status).toBe('cancelled')
+    expect(bList.some(r => r.id === mine.id)).toBe(true)
+    const byB = call('reminder_update', { id: mine.id, status: 'cancelled' }, ctxB) as Reminder
+    expect(byB.status).toBe('cancelled')
+    expect(byB.runId).toBe(RUN_A)
+  })
+
+  it('an unknown id is still not found (LogisticsError)', () => {
+    expect(() => call('note_update', { id: uuid(), done: true }, ctxB)).toThrow(LogisticsError)
+    expect(() => call('event_update', { id: uuid(), title: 'x' }, ctxB)).toThrow(LogisticsError)
+    expect(() => call('reminder_update', { id: uuid(), status: 'done' }, ctxB)).toThrow(LogisticsError)
   })
 })

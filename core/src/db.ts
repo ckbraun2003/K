@@ -275,8 +275,12 @@ db.exec(`
   -- place of the home-dev tasks/*.md files. work_items = tickets; agent_memory =
   -- gated lessons (layer A); workflow_steps = the live status/progress checklist.
 
-  -- A ticket. run_id is the managed run that created it (resolved from K_RUN_ID);
-  -- ON DELETE SET NULL keeps the ticket if its run is later removed.
+  -- A ticket. scope (added via migrate ALTER) discriminates the store: 'run' is the
+  -- EPHEMERAL default — a ticket visible only to the run that created it; 'personal'
+  -- and 'org' are the DURABLE operator-global store (persist across sessions + runs);
+  -- 'project' is the folded-in project task surface (P5.1d2). run_id is the managed run
+  -- that created it (resolved from K_RUN_ID; provenance) — ON DELETE SET NULL keeps the
+  -- ticket if its run is later removed.
   CREATE TABLE IF NOT EXISTS work_items (
     id          TEXT PRIMARY KEY,
     run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
@@ -320,11 +324,12 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_workflow_steps_run ON workflow_steps(workflow_run_id, seq);
 
-  -- ── logistics working store (P5.1a) ─────────────────────────────────────────
+  -- ── logistics working store (P5.1a; operator-durable, A1) ────────────────────
   -- K's secretary-tier logistics store: notes, calendar events, and reminders the
   -- secretary reaches through the logistics MCP server (calendar/notes/scheduling)
-  -- — STORAGE, not execution. Run-scoped exactly like work_items: run_id is the
-  -- managed run that created the row (resolved from K_RUN_ID); ON DELETE SET NULL
+  -- — STORAGE, not execution. OPERATOR-DURABLE (single operator): rows persist across
+  -- sessions + runs and any session may read/mutate them; run_id is PROVENANCE only
+  -- (the managed run that created the row, resolved from K_RUN_ID), ON DELETE SET NULL
   -- keeps the row if its run is later removed. CREATE TABLE IF NOT EXISTS (fresh
   -- installs); these are NOT evolved via migrate().
   CREATE TABLE IF NOT EXISTS logistics_notes (
@@ -361,13 +366,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_logistics_reminders_run ON logistics_reminders(run_id, remind_at);
 
-  -- ── management working store (Chief org — P5.2a) ────────────────────────────
+  -- ── management working store (Chief org — P5.2a; durable reads, A1) ──────────
   -- The Chief's management store: assignments (an objective handed to a lead) and
   -- reports (a status write up the chain). Management is STORAGE, not execution —
   -- persisting an assignment here does NOT dispatch the lead (autonomous delegation
-  -- is P5.2b). Run-scoped exactly like logistics_*: run_id is the managed run that
-  -- created the row (resolved from K_RUN_ID); ON DELETE SET NULL keeps the row if
-  -- its run is later removed. projects is a JSON array (the scope_projects scope).
+  -- is P5.2b). WRITES stay run-scoped (a run mutates only its own rows); READS are
+  -- DURABLE across Chief activations (assignment_list / report_list). run_id is the
+  -- managed run that created the row (resolved from K_RUN_ID); ON DELETE SET NULL
+  -- keeps the row if its run is later removed. projects is a JSON array (scope_projects).
   -- A report's assignment_id is a nullable soft link (ON DELETE SET NULL) so a
   -- report survives its assignment. CREATE TABLE IF NOT EXISTS (fresh installs);
   -- these are NOT evolved via migrate().
@@ -607,15 +613,17 @@ export function migrate(d: Database.Database): void {
   if (hasTable(d, 'mgmt_assignments')) {
     addColumn(d, 'mgmt_assignments', 'lead_run_id', 'TEXT REFERENCES runs(id) ON DELETE SET NULL')
   }
-  // work_items.scope (P5.1d1, D-026): the personal|org|project discriminator the
-  // unified-task-store collapse (P5.1d2) keys on. Appended via guarded ALTER (not
-  // in CREATE TABLE) exactly like score_breakdown / project_tasks-issue — migrate()
-  // runs at boot so fresh installs and existing DBs both gain it. DEFAULT 'personal'
-  // backfills every existing ticket (personal == run-scoped, the only scope today;
-  // org/project are reserved for the P5.1d2 collapse). The hasTable guard keeps
-  // migrate() safe against old-schema fixtures predating the table (db-migration.test.ts).
+  // work_items.scope (D-026): the run|personal|org|project discriminator. Appended
+  // via guarded ALTER (not in CREATE TABLE) exactly like score_breakdown /
+  // project_tasks-issue — migrate() runs at boot so fresh installs AND pre-scope DBs
+  // both gain the NEW enum. DEFAULT 'run' backfills legacy pre-scope rows to run-scoped
+  // semantics — which is exactly what they were (ephemeral, single-run kstore tickets).
+  // A DB that already carried the OLD scope CHECK (DEFAULT 'personal', enum without
+  // 'run') is rebuilt to the new enum by the one-shot mig_work_items_run_scope below —
+  // SQLite cannot alter a CHECK in place. The hasTable guard keeps migrate() safe
+  // against old-schema fixtures predating the table (db-migration.test.ts).
   if (hasTable(d, 'work_items')) {
-    addColumn(d, 'work_items', 'scope', "TEXT NOT NULL DEFAULT 'personal' CHECK(scope IN ('personal','org','project'))")
+    addColumn(d, 'work_items', 'scope', "TEXT NOT NULL DEFAULT 'run' CHECK(scope IN ('run','personal','org','project'))")
   }
   // work_items project columns (P5.1d2, D-026/D-048): fold the deprecated
   // project_tasks store into the unified work_items store. project_id + the issue-
@@ -665,6 +673,122 @@ export function migrate(d: Database.Database): void {
       d.prepare(`UPDATE agent_profiles SET default_model = '' WHERE default_model = 'claude-sonnet-4-6'`).run()
       d.prepare(`INSERT INTO app_config (key, value) VALUES (?, 'true') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(FLAG)
     }
+  }
+
+  // work_items run-scope rename (A1, D-026): the durable operator-global store. A DB
+  // that already carried the OLD scope column (DEFAULT 'personal', CHECK without 'run')
+  // must be REBUILT — SQLite cannot alter a CHECK in place — and its legacy 'personal'
+  // AND 'org' rows re-stamped 'run': BOTH were reachable via work_item_create pre-A1
+  // and behaved identically run-scoped (reads filtered `run_id IS ? AND scope !=
+  // 'project'`), and there are no DURABLE rows yet. Flag-guarded one-shot: WITHOUT the
+  // flag, the plain →run UPDATE would clobber every future durable 'personal'/'org'
+  // row on every boot — the flag is exactly what makes this a one-time migration.
+  // app_config is created first because old-schema test fixtures lack it (idempotent,
+  // matches the main DDL).
+  d.exec("CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+  const RUN_SCOPE_FLAG = 'mig_work_items_run_scope'
+  const runScopeDone = d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(RUN_SCOPE_FLAG)
+  if (hasTable(d, 'work_items') && !runScopeDone) {
+    const ddl = d
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='work_items'`)
+      .get() as { sql?: string } | undefined
+    // run_id / runs(id) are UNQUOTED identifiers, so /'run'/ (the quoted CHECK literal)
+    // can't false-positive: its absence means the table carries the OLD CHECK enum.
+    const needsRebuild = ddl?.sql != null && !/'run'/.test(ddl.sql)
+    // ONE IMMEDIATE transaction (auto-ROLLBACK on throw — the codebase's safe-migration
+    // idiom, mirroring db.transaction elsewhere): rebuild (when needed) + the
+    // personal→run re-stamp + the flag commit atomically, so a mid-migration failure can
+    // never leave a half-rebuilt table, a re-stamp without its flag, or a dangling open
+    // transaction on this connection.
+    const applyRunScopeMigration = d.transaction(() => {
+      // Race re-check INSIDE the lock (multi-process boot: the main server + up to
+      // three per-run stdio MCP children each open k.db and run migrate() on their own
+      // connections). The pre-checks above (flag + needsRebuild) are the fast path but
+      // are computed BEFORE .immediate() acquires the write lock — a process that lost
+      // the race would otherwise redo the full rebuild against the already-rebuilt
+      // table. If the winner already committed the flag, no-op out.
+      if (d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(RUN_SCOPE_FLAG)) return
+      if (needsRebuild) {
+        // Copy → drop → rename a NEW table with the current schema. Renaming the NEW
+        // table (referenced by nothing) avoids RENAME rewriting other tables' FK clauses.
+        d.exec(`
+          CREATE TABLE work_items_new (
+            id          TEXT PRIMARY KEY,
+            run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+            title       TEXT NOT NULL,
+            body        TEXT,
+            status      TEXT NOT NULL DEFAULT 'open'
+                          CHECK(status IN ('open','in_progress','blocked','done','cancelled')),
+            created_at  INTEGER NOT NULL,
+            updated_at  INTEGER NOT NULL,
+            scope       TEXT NOT NULL DEFAULT 'run'
+                          CHECK(scope IN ('run','personal','org','project')),
+            project_id   TEXT REFERENCES projects(id),
+            completed_at INTEGER,
+            issue_number INTEGER,
+            issue_url    TEXT,
+            issue_state  TEXT
+          );
+          INSERT INTO work_items_new
+            (id, run_id, title, body, status, created_at, updated_at, scope, project_id, completed_at, issue_number, issue_url, issue_state)
+          SELECT
+            id, run_id, title, body, status, created_at, updated_at, scope, project_id, completed_at, issue_number, issue_url, issue_state
+          FROM work_items;
+          DROP TABLE work_items;
+          ALTER TABLE work_items_new RENAME TO work_items;
+          CREATE INDEX IF NOT EXISTS idx_work_items_run ON work_items(run_id, created_at);
+          CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, created_at);
+          CREATE INDEX IF NOT EXISTS idx_work_items_issue ON work_items(project_id, issue_number);
+        `)
+      }
+      // Re-stamp legacy 'personal' AND 'org' rows to 'run' — both were creatable via
+      // kstore pre-A1 and behaved identically run-scoped; an untouched legacy 'org' row
+      // would otherwise silently ESCALATE into the durable operator-global view on the
+      // upgrade boot. Guarded one-shot: the flag (committed in the SAME transaction)
+      // stops this from ever clobbering a future durable 'personal'/'org' row.
+      d.exec(`UPDATE work_items SET scope = 'run' WHERE scope IN ('personal','org')`)
+      d.prepare(`INSERT INTO app_config (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(RUN_SCOPE_FLAG)
+    })
+    if (needsRebuild) {
+      // FKs OFF so DROP TABLE doesn't fire workflow_steps.work_item_id's ON DELETE SET
+      // NULL (ids are preserved in the copy) and the copy is unchecked. The pragma must
+      // be toggled OUTSIDE the transaction (foreign_keys is a no-op inside one); the
+      // finally restores it on success AND on a (rolled-back) failure.
+      d.pragma('foreign_keys = OFF')
+      try {
+        applyRunScopeMigration.immediate()
+      } finally {
+        d.pragma('foreign_keys = ON')
+      }
+    } else {
+      applyRunScopeMigration.immediate()
+    }
+  }
+
+  // agent_memory.profile_id backfill (A1): resolve each pre-existing gated lesson's
+  // proposing profile from its source run's most-recent agent_runs row, so durable
+  // memory can grow into per-profile retrieval. Best-effort by design — a lesson whose
+  // run has no agent_runs row stays NULL. Flag-guarded one-shot (kstore lessonPropose
+  // now binds profile_id on new inserts). Guarded on hasColumn too, for exotic fixtures
+  // whose agent_memory predates the profile_id ALTER above.
+  const MEM_BACKFILL_FLAG = 'mig_agent_memory_profile_backfill'
+  const memBackfillDone = d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(MEM_BACKFILL_FLAG)
+  if (
+    !memBackfillDone &&
+    hasTable(d, 'agent_memory') &&
+    hasTable(d, 'agent_runs') &&
+    hasColumn(d, 'agent_memory', 'profile_id')
+  ) {
+    d.exec(`
+      UPDATE agent_memory
+      SET profile_id = (
+        SELECT ar.profile_id FROM agent_runs ar
+        WHERE ar.run_id = agent_memory.run_id
+        ORDER BY ar.created_at DESC LIMIT 1
+      )
+      WHERE profile_id IS NULL AND run_id IS NOT NULL
+    `)
+    d.prepare(`INSERT INTO app_config (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(MEM_BACKFILL_FLAG)
   }
 }
 
@@ -1012,13 +1136,15 @@ export const workflowRunsDb = {
 }
 
 // ─── kstore: work-item helpers ───────────────────────────────────────────────
-// Backs the kstore MCP work-item tools — the run-scoped (run_id) PERSONAL/ORG
-// tickets. project-scoped tickets now live in this SAME table (scope='project',
-// P5.1d2, the project_tasks fold below). The run-scoped fetch/list statements
-// therefore ALSO guard `scope != 'project'`: `run_id IS ?` alone is null-safe but a
-// null owner (K_RUN_ID unset / missing run row / start-of-run race) would otherwise
-// match the backfilled project rows (run_id NULL) and let kstore read/mutate a
-// project task — so the scope guard keeps the project surface isolated from kstore.
+// Backs the kstore MCP work-item tools + the durable work-items HTTP surface.
+// The store now spans FOUR scopes: 'run' (the EPHEMERAL run-scoped default —
+// visible only to the creating run), 'personal'/'org' (the DURABLE operator-global
+// store — persists across sessions + runs), and 'project' (the folded-in project
+// task surface). The run-scoped fetch/list statements key on the EXPLICIT `scope =
+// 'run'`: `run_id IS ?` alone is null-safe but a null owner would otherwise match
+// backfilled project rows AND durable rows (both run_id NULL), so keying on 'run'
+// isolates the ephemeral run view from the durable + project surfaces. Durable rows
+// are read through the scope-keyed statements (NO run filter — operator-global).
 
 const insertWorkItem = db.prepare(`
   INSERT INTO work_items (id, run_id, title, body, status, scope, created_at, updated_at)
@@ -1029,15 +1155,33 @@ const updateWorkItem = db.prepare(`
   WHERE id = @id
 `)
 const getWorkItem = db.prepare(`SELECT * FROM work_items WHERE id = ?`)
-// Run-scoped fetch — `IS` is null-safe so a null owner (no/unknown run) only
-// matches null-owner rows. The tools resolve ownership through this so one run
-// can never read or mutate another run's tickets.
-const getWorkItemOwned = db.prepare(`SELECT * FROM work_items WHERE id = ? AND run_id IS ? AND scope != 'project'`)
+// Run-scoped fetch — `IS` is null-safe so a null owner (no/unknown run) only matches
+// null-owner rows; `scope = 'run'` keeps the ephemeral run view isolated from the
+// durable ('personal'/'org') + 'project' surfaces. One run can never read or mutate
+// another run's ephemeral tickets.
+const getWorkItemOwned = db.prepare(`SELECT * FROM work_items WHERE id = ? AND run_id IS ? AND scope = 'run'`)
 const listWorkItemsByRun = db.prepare(
-  `SELECT * FROM work_items WHERE run_id IS ? AND scope != 'project' ORDER BY created_at DESC LIMIT ?`,
+  `SELECT * FROM work_items WHERE run_id IS ? AND scope = 'run' ORDER BY created_at DESC LIMIT ?`,
 )
 const listWorkItemsByRunStatus = db.prepare(
-  `SELECT * FROM work_items WHERE run_id IS ? AND scope != 'project' AND status = ? ORDER BY created_at DESC LIMIT ?`,
+  `SELECT * FROM work_items WHERE run_id IS ? AND scope = 'run' AND status = ? ORDER BY created_at DESC LIMIT ?`,
+)
+// Durable operator-global reads (NO run filter). getWorkItemDurable resolves a
+// 'personal'/'org' row from ANY run (durable items are updatable from any session);
+// 'project' rows stay unreachable. The list statements back both the kstore
+// scope='personal'|'org' path and the /api/k/work-items HTTP surface.
+const getWorkItemDurable = db.prepare(`SELECT * FROM work_items WHERE id = ? AND scope IN ('personal','org')`)
+const listWorkItemsByScope = db.prepare(
+  `SELECT * FROM work_items WHERE scope = ? ORDER BY created_at DESC LIMIT ?`,
+)
+const listWorkItemsByScopeStatus = db.prepare(
+  `SELECT * FROM work_items WHERE scope = ? AND status = ? ORDER BY created_at DESC LIMIT ?`,
+)
+const listDurableWorkItems = db.prepare(
+  `SELECT * FROM work_items WHERE scope IN ('personal','org') ORDER BY created_at DESC LIMIT ?`,
+)
+const listDurableWorkItemsByStatus = db.prepare(
+  `SELECT * FROM work_items WHERE scope IN ('personal','org') AND status = ? ORDER BY created_at DESC LIMIT ?`,
 )
 
 export const workItemsDb = {
@@ -1047,6 +1191,11 @@ export const workItemsDb = {
   getWorkItemOwned,
   listWorkItemsByRun,
   listWorkItemsByRunStatus,
+  getWorkItemDurable,
+  listWorkItemsByScope,
+  listWorkItemsByScopeStatus,
+  listDurableWorkItems,
+  listDurableWorkItemsByStatus,
 }
 
 // ─── kstore: agent-memory (lesson) helpers ───────────────────────────────────
@@ -1054,8 +1203,8 @@ export const workItemsDb = {
 // operator accepts/rejects out of band (memory layer A — no retrieval here).
 
 const insertLesson = db.prepare(`
-  INSERT INTO agent_memory (id, run_id, lesson, status, created_at, reviewed_at)
-  VALUES (@id, @runId, @lesson, @status, @createdAt, @reviewedAt)
+  INSERT INTO agent_memory (id, run_id, lesson, status, created_at, reviewed_at, profile_id)
+  VALUES (@id, @runId, @lesson, @status, @createdAt, @reviewedAt, @profileId)
 `)
 const getLesson = db.prepare(`SELECT * FROM agent_memory WHERE id = ?`)
 // Run-scoped lists (null-safe `IS`) so a run only sees the lessons it proposed.
@@ -1153,11 +1302,12 @@ export const workflowStepsDb = {
   setWorkflowStep,
 }
 
-// ─── logistics working store helpers (P5.1a) ─────────────────────────────────
-// Backs the logistics MCP tools (notes / calendar events / reminders). Every row
-// is run-scoped like work_items — the null-safe `IS` operator means a null owner
-// (no/unknown run) only matches null-owner rows, so one run can never read or
-// mutate another run's logistics rows. The calendar-event statement CONSTS are
+// ─── logistics working store helpers (P5.1a; operator-durable, A1) ────────────
+// Backs the logistics MCP tools (notes / calendar events / reminders). The store is
+// OPERATOR-DURABLE (single operator): reads + update-fetches are operator-global —
+// notes/events/reminders persist across sessions + runs, so any session may list or
+// mutate them. run_id is recorded on INSERT as PROVENANCE only (which run created the
+// row), never as an access filter. The calendar-event statement CONSTS are
 // `logistics*`-prefixed to avoid colliding with the agent-events helpers
 // (module-scope insertEvent / getEventRaw / listEvents); they are exposed under
 // clean keys on the `logisticsDb` object below.
@@ -1171,12 +1321,11 @@ const updateNote = db.prepare(`
   UPDATE logistics_notes SET body = @body, done = @done, updated_at = @updatedAt WHERE id = @id
 `)
 const getNote = db.prepare(`SELECT * FROM logistics_notes WHERE id = ?`)
-const getNoteOwned = db.prepare(`SELECT * FROM logistics_notes WHERE id = ? AND run_id IS ?`)
-const listNotesByRun = db.prepare(
-  `SELECT * FROM logistics_notes WHERE run_id IS ? ORDER BY created_at DESC LIMIT ?`,
+const listNotes = db.prepare(
+  `SELECT * FROM logistics_notes ORDER BY created_at DESC LIMIT ?`,
 )
-const listNotesByRunDone = db.prepare(
-  `SELECT * FROM logistics_notes WHERE run_id IS ? AND done = ? ORDER BY created_at DESC LIMIT ?`,
+const listNotesByDone = db.prepare(
+  `SELECT * FROM logistics_notes WHERE done = ? ORDER BY created_at DESC LIMIT ?`,
 )
 
 // calendar events (consts prefixed to avoid the agent-events insertEvent/listEvents)
@@ -1189,12 +1338,12 @@ const updateLogisticsEvent = db.prepare(`
     location = @location, updated_at = @updatedAt WHERE id = @id
 `)
 const getLogisticsEvent = db.prepare(`SELECT * FROM logistics_events WHERE id = ?`)
-const getLogisticsEventOwned = db.prepare(`SELECT * FROM logistics_events WHERE id = ? AND run_id IS ?`)
 // The from/to window is pushed INTO SQL (not filtered in JS after a LIMIT) so the
 // LIMIT caps the WINDOWED set — a caller passing `from` can never silently miss an
-// in-window event that sorts after `limit` earlier out-of-window rows.
-const listLogisticsEventsByRun = db.prepare(
-  `SELECT * FROM logistics_events WHERE run_id IS ? AND starts_at >= ? AND starts_at <= ? ORDER BY starts_at ASC LIMIT ?`,
+// in-window event that sorts after `limit` earlier out-of-window rows. Operator-global
+// (NO run filter).
+const listLogisticsEvents = db.prepare(
+  `SELECT * FROM logistics_events WHERE starts_at >= ? AND starts_at <= ? ORDER BY starts_at ASC LIMIT ?`,
 )
 
 // reminders
@@ -1206,12 +1355,11 @@ const updateReminder = db.prepare(`
   UPDATE logistics_reminders SET status = @status, updated_at = @updatedAt WHERE id = @id
 `)
 const getReminder = db.prepare(`SELECT * FROM logistics_reminders WHERE id = ?`)
-const getReminderOwned = db.prepare(`SELECT * FROM logistics_reminders WHERE id = ? AND run_id IS ?`)
-const listRemindersByRun = db.prepare(
-  `SELECT * FROM logistics_reminders WHERE run_id IS ? ORDER BY remind_at ASC LIMIT ?`,
+const listReminders = db.prepare(
+  `SELECT * FROM logistics_reminders ORDER BY remind_at ASC LIMIT ?`,
 )
-const listRemindersByRunStatus = db.prepare(
-  `SELECT * FROM logistics_reminders WHERE run_id IS ? AND status = ? ORDER BY remind_at ASC LIMIT ?`,
+const listRemindersByStatus = db.prepare(
+  `SELECT * FROM logistics_reminders WHERE status = ? ORDER BY remind_at ASC LIMIT ?`,
 )
 
 export const logisticsDb = {
@@ -1219,31 +1367,29 @@ export const logisticsDb = {
   insertNote,
   updateNote,
   getNote,
-  getNoteOwned,
-  listNotesByRun,
-  listNotesByRunDone,
+  listNotes,
+  listNotesByDone,
   // calendar events
   insertEvent: insertLogisticsEvent,
   updateEvent: updateLogisticsEvent,
   getEvent: getLogisticsEvent,
-  getEventOwned: getLogisticsEventOwned,
-  listEventsByRun: listLogisticsEventsByRun,
+  listEvents: listLogisticsEvents,
   // reminders
   insertReminder,
   updateReminder,
   getReminder,
-  getReminderOwned,
-  listRemindersByRun,
-  listRemindersByRunStatus,
+  listReminders,
+  listRemindersByStatus,
 }
 
-// ─── management working store helpers (Chief org — P5.2a) ────────────────────
-// Backs the mgmt MCP tools (assignments / reports). Writes + ownership reads are
-// run-scoped like logistics — the null-safe `IS` operator means a null owner (no/
-// unknown run) only matches null-owner rows, so one run can never read or mutate
-// another run's assignments. `listRecentAssignments` is the ONE deliberately
-// cross-run operator read: it feeds the Chief org-status Objectives panel (not a
-// tool), so it is NOT run-scoped.
+// ─── management working store helpers (Chief org — P5.2a; durable reads, A1) ──
+// Backs the mgmt MCP tools (assignments / reports). WRITES stay run-scoped — the
+// null-safe `IS` ownership fetch means one run can never MUTATE another run's
+// assignments (pick_workflow/scope_projects/report/dispatch keep their ownership
+// guards). READS are DURABLE across Chief activations: `listRecentAssignments` and
+// `listRecentReports` are cross-run operator/Chief reads (the assignment_list /
+// report_list tools + the Chief org-status Objectives panel), so they are NOT
+// run-scoped. `listReportsByRun` stays run-scoped (the K→Chief report-back).
 
 const insertAssignment = db.prepare(`
   INSERT INTO mgmt_assignments (id, run_id, lead, objective, note, workflow, projects, created_at, updated_at)
@@ -1280,6 +1426,12 @@ const listReportsByRun = db.prepare(
   // stable "latest" (the report-back reads LIMIT 1 as the Chief's latest status).
   `SELECT * FROM mgmt_reports WHERE run_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
 )
+// Cross-activation operator/Chief read (report_list tool) — NOT run-scoped by design:
+// newest-first across all Chief activations, incl. reports filed back by dispatched
+// leads. id DESC is the same deterministic same-ms tie-break as listReportsByRun.
+const listRecentReports = db.prepare(
+  `SELECT * FROM mgmt_reports ORDER BY created_at DESC, id DESC LIMIT ?`,
+)
 export const mgmtDb = {
   insertAssignment,
   updateAssignment,
@@ -1290,6 +1442,7 @@ export const mgmtDb = {
   insertReport,
   getReport,
   listReportsByRun,
+  listRecentReports,
 }
 
 // ─── Lead-dispatch intent queue (loop-b) ─────────────────────────────────────
