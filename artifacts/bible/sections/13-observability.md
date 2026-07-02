@@ -86,9 +86,14 @@ observability extends from a single run's tree to the **whole org**:
   `run_id` is the Chief run (parent), its `lead_run_id` is the dispatched lead run (child), and the
   lead activation's `agent_runs.trigger='delegation'` marks the hop — the exact mirror of K→Chief's
   `k_thread_turns.run_id` + trigger. The lead's outcome is filed back as a mgmt `report` on the Chief's
-  run, so it lands in the same store the org page already reads. The **multi-tier tree DERIVATION
-  render** (folding these `lead_run_id` edges into the `DelegationTree` view above) is deferred to
-  **loop-b / P5.6** — the data is now present; the whole-org multi-tier render is the remaining polish.
+  run, so it lands in the same store the org page already reads. **loop-b b1 (D-050) makes this edge
+  fill for a REAL run:** the dispatch executes in the long-lived main process (a `lead_dispatches`
+  queue drained by `lead-dispatch-relay.ts`), so the lead's `agent_runs` row finalizes and the
+  report-back fires on the main EventBus (visible to the WS + org tree) instead of dying with the
+  mgmt-server child; a boot sweep (`reconcileOrphanedActivations`) finalizes any activation orphaned by
+  a mid-dispatch child exit. The **multi-tier tree DERIVATION render** (folding these `lead_run_id`
+  edges into the `DelegationTree` view above) is the remaining piece, deferred to **loop-b b2 / P5.6** —
+  the data is present + now populated by real runs; the whole-org multi-tier render is the polish.
 - **Memory provenance.** A gated reflection (§04) that proposes a lesson is itself an observable
   event, so you can trace *why* a profile's memory changed back to the run that earned the lesson.
 

@@ -36,6 +36,7 @@ import { compileBible } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
+import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
 import { getProject } from './projects.js'
 import { reconcileOnBoot } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
@@ -71,6 +72,8 @@ const TERMINAL_TOKEN = process.env.TERMINAL_TOKEN ?? 'dev-terminal-token'
 let stopGraphAutoReindex: (() => void) | undefined
 // Same, for the Chief autonomous wake (cron tick + run-completion subscription).
 let stopChiefWake: (() => void) | undefined
+// Same, for the MAIN-process lead-dispatch relay (drains the child-recorded intent queue).
+let stopLeadDispatchRelay: (() => void) | undefined
 
 /**
  * Build the Fastify app: CORS, WS plugin, auth hook, health, REST routes, and
@@ -245,6 +248,7 @@ export async function buildApp() {
     stopGithubPoller()
     stopGraphAutoReindex?.()
     stopChiefWake?.()
+    stopLeadDispatchRelay?.()
   })
   return app
 }
@@ -299,6 +303,9 @@ async function start() {
   // Wake the Chief autonomously on a schedule tick + on subscribed run-completion
   // events (debounced + already-running/self-wake guarded). Default ON; CHIEF_WAKE=0.
   stopChiefWake = startChiefWake()
+  // Drain the DB-backed lead-dispatch intent queue in this long-lived process (so a lead
+  // run + its report-back outlive the ephemeral mgmt-server child). Default ON; LEAD_DISPATCH_RELAY=0.
+  stopLeadDispatchRelay = startLeadDispatchRelay()
   startOllamaProbe()  // no-op unless ENABLE_OLLAMA; keeps router reachability fresh
   console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
   console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)

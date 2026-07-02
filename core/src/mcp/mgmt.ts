@@ -8,13 +8,15 @@
  *   - unit-tested directly against the DB (see core/test/mgmt.test.ts), and
  *   - reused by the stdio MCP server (mgmt-server.ts).
  *
- * Management is mostly STORAGE, not execution: assign_lead / pick_workflow /
- * scope_projects / report only persist rows — assigning a lead an objective does NOT
- * dispatch it. The ONE EXECUTION tool is `dispatch_lead` (loop-a, P5.4): the downward
- * Chief→lead hop that activates the assignment's lead as a supervised delegation run
- * seeded from its chosen NamedWorkflow, records the Chief→lead link, and wires the
- * lead's report-back. Every row is scoped to the injected K_RUN_ID, so one run can
- * never read, mutate, or dispatch another run's management rows.
+ * Management is ALL STORAGE, not execution: assign_lead / pick_workflow /
+ * scope_projects / report persist rows, and `dispatch_lead` (loop-a P5.4, decoupled in
+ * loop-b) only RECORDS a dispatch intent — it does NOT execute the lead run. This module
+ * runs inside the ephemeral per-Chief-run stdio mgmt-server CHILD, which dies at the
+ * Chief's turn end; a lead run + its report-back subscriber must outlive that, so
+ * `dispatch_lead` seeds the run prompt and inserts a 'pending' row into the DB-backed
+ * `lead_dispatches` queue that the long-lived MAIN-process relay
+ * (lead-dispatch-relay.ts) drains and executes. Every row is scoped to the injected
+ * K_RUN_ID, so one run can never read, mutate, or dispatch another run's management rows.
  *
  * Each tool carries its own zod input shape (authoritative validation lives in the
  * handler) plus a `ctx` with the injected K_RUN_ID.
@@ -22,9 +24,8 @@
 import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
 import type { Assignment, MgmtReport } from '@k/shared'
-import { mgmtDb, runsDb } from '../db.js'
-import { startAgentRun } from '../agent-runs.js'
-import { resolveLeadProfileId, resolveLeadWorkflow, buildLeadSeed, reportLeadOutcomeToChief } from '../chief-dispatch.js'
+import { mgmtDb, runsDb, leadDispatchDb } from '../db.js'
+import { resolveLeadProfileId, resolveLeadWorkflow, buildLeadSeed } from '../chief-dispatch.js'
 
 /** Per-call context the server injects. `runId` is the managed run (K_RUN_ID). */
 export interface MgmtContext {
@@ -182,44 +183,53 @@ function report(args: unknown, ctx: MgmtContext): MgmtReport {
 const DispatchLeadInput = {
   assignmentId: z.string().min(1).max(100),
 }
-/** Execution (NOT storage): dispatch the lead recorded on one of this run's assignments.
- *  Resolves the lead profile + the workflow scaffold, seeds the run prompt from that
- *  NamedWorkflow, activates startAgentRun('lead-…', {trigger:'delegation'}), records the
- *  Chief→lead parent→child link on the assignment (lead_run_id; parent = run_id), and wires
- *  the lead→Chief report-back. Guards double-dispatch (lead_run_id already set) and cross-run
- *  ownership. Async (awaited by mgmt-server).
+/** RECORD (not execute): record the intent to dispatch the lead on one of this run's
+ *  assignments. This tool runs inside the ephemeral per-Chief-run stdio mgmt-server CHILD
+ *  process (it dies at the Chief's turn end), so it CANNOT execute the lead run itself — a
+ *  lead run + its report-back subscriber must outlive the child. Instead it resolves the
+ *  lead profile + the workflow scaffold, seeds the run prompt from that NamedWorkflow, and
+ *  inserts a 'pending' row into the DB-backed `lead_dispatches` queue; the long-lived MAIN
+ *  process relay (lead-dispatch-relay.ts::drainLeadDispatches) claims it, runs
+ *  startAgentRun('lead-…', {trigger:'delegation'}), records the Chief→lead link, and wires
+ *  the report-back — all in a process that stays up.
  *
- *  LIVE-PATH TOPOLOGY (deferred — conductor's gated live smoke / loop-b): a Chief run
- *  invokes this tool through the stdio mgmt-server CHILD, so today the lead dispatch +
- *  its report-back subscriber run bound to THAT child's process/EventBus. In-process the
- *  seams are exact (verified mocked); wiring the dispatch to the long-lived main process
- *  (so lead supervision + report-back + WS streaming outlive the Chief's turn) is a
- *  follow-up, NOT part of this seam wave. */
-async function dispatchLead(args: unknown, ctx: MgmtContext) {
+ *  Guards double-dispatch two ways: the assignment already carries a lead_run_id (already
+ *  executed), OR it already has a pending/dispatched intent in the queue (recorded but not
+ *  yet retired). Cross-run ownership is enforced too. Sync (the child await-s the value).
+ *  Returns { assignmentId, leadProfileId, workflowId, dispatchId, status }. */
+function dispatchLead(args: unknown, ctx: MgmtContext) {
   const a = z.object(DispatchLeadInput).parse(args ?? {})
   const owner = resolveOwnerRunId(ctx)
   const row = mgmtDb.getAssignmentOwned.get(a.assignmentId, owner) as Row | undefined
   if (!row) throw new MgmtError(`assignment "${a.assignmentId}" not found for this run.`)
-  // Double-dispatch guard. This is a check-then-act around the await below; it is safe
-  // because one run's mgmt tool calls are SERIALIZED over its single stdio channel (one
-  // Chief agent driving one mgmt-server), so a same-assignment re-dispatch across turns
-  // reads a now-set lead_run_id and is rejected. It does NOT defend truly-concurrent
-  // callers on one assignment (a scenario the single-client model precludes).
+  // Double-dispatch guard, part 1: the lead has already been executed (link recorded).
   if (row.lead_run_id != null) {
     throw new MgmtError(`assignment "${a.assignmentId}" already dispatched (run ${String(row.lead_run_id)}).`)
+  }
+  // Double-dispatch guard, part 2: an intent is already queued for this assignment
+  // (pending or dispatched but not yet retired). This is a check-then-act, safe because one
+  // run's mgmt tool calls are SERIALIZED over its single stdio channel (one Chief agent
+  // driving one mgmt-server), so a same-assignment re-record across turns is rejected.
+  if (leadDispatchDb.getActiveLeadDispatchByAssignment.get(a.assignmentId)) {
+    throw new MgmtError(`assignment "${a.assignmentId}" already has a pending dispatch.`)
   }
   const leadProfileId = resolveLeadProfileId(String(row.lead))
   if (!leadProfileId) throw new MgmtError(`no lead profile matches "${String(row.lead)}".`)
   const { workflowId, scaffold } = resolveLeadWorkflow(asStrOrNull(row.workflow))
   const goal = buildLeadSeed(String(row.objective), scaffold)
-  // Dispatch (mocked in tests). startAgentRun rolls its own tracking row back to 'failed'
-  // and re-throws on a dispatch failure — so a failure leaves lead_run_id NULL (retryable).
-  const { agentRunId, runId } = await startAgentRun(leadProfileId, { trigger: 'delegation', goal, workflowId })
-  // Record the parent(Chief run)→child(lead run) link on the Chief's durable assignment.
-  mgmtDb.setAssignmentLeadRun.run({ id: a.assignmentId, leadRunId: runId, updatedAt: Date.now() })
-  // Report the lead's terminal outcome UP to the Chief's mgmt store.
-  if (owner) reportLeadOutcomeToChief(owner, runId, String(row.lead))
-  return { assignmentId: a.assignmentId, leadProfileId, agentRunId, runId }
+  // Record the intent; the MAIN-process relay drains + executes it.
+  const dispatchId = uuid()
+  leadDispatchDb.insertLeadDispatch.run({
+    id: dispatchId,
+    assignmentId: a.assignmentId,
+    chiefRunId: owner,
+    leadProfileId,
+    lead: String(row.lead),
+    workflowId,
+    goal,
+    createdAt: Date.now(),
+  })
+  return { assignmentId: a.assignmentId, leadProfileId, workflowId, dispatchId, status: 'pending' as const }
 }
 
 // ── registry ────────────────────────────────────────────────────────────────
@@ -230,7 +240,8 @@ export interface MgmtTool {
   /** Raw zod shape — advertised to MCP as the tool's input schema. */
   inputShape: z.ZodRawShape
   /** Authoritative handler. Validates `args` itself; throws MgmtError on caller error.
-   *  May be sync (the storage tools) or async (`dispatch_lead`) — the server awaits it. */
+   *  All mgmt handlers are sync (storage only); typed to allow a Promise so the server's
+   *  `await tool.handler(...)` glue stays uniform. */
   handler: (args: unknown, ctx: MgmtContext) => unknown | Promise<unknown>
 }
 
@@ -266,7 +277,7 @@ export const mgmtTools: MgmtTool[] = [
   {
     name: 'dispatch_lead',
     description:
-      "Dispatch (EXECUTE) the lead recorded on one of this run's assignments: activates the lead as a supervised delegation run seeded from its chosen workflow (default code-wave), records the Chief→lead link, and wires the lead's report-back. Guards double-dispatch. Returns { assignmentId, leadProfileId, agentRunId, runId }.",
+      "Record the intent to dispatch the lead on one of this run's assignments: seeds the lead run prompt from its chosen workflow (default code-wave) and queues a dispatch that the main-process relay then executes as a supervised delegation run (recording the Chief→lead link and wiring the report-back). Guards double-dispatch (an assignment already dispatched or with a pending intent is rejected). Returns { assignmentId, leadProfileId, workflowId, dispatchId, status }.",
     inputShape: DispatchLeadInput,
     handler: dispatchLead,
   },

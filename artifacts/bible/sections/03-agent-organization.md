@@ -257,14 +257,42 @@ Chief run's assignments and activates its lead:
   (retryable) via `startAgentRun`'s failed-row rollback. The store logic stays SDK-free;
   `mgmt-server.ts` now `await`s the tool handler (async-tool support).
 
-**Scope.** This is **loop-a** (the Chief→lead dispatch + report-back), landed as **seams verified
-in-process with a mocked supervisor** (no real token-spending dispatch). **loop-b** — the Chief→K
-report continuation / re-wake and the multi-tier org-tree DERIVATION render — is deferred (P5.6).
-One live-path wiring is also deferred to the conductor's gated live smoke: because a Chief run invokes
-`dispatch_lead` through the **stdio mgmt-server child**, today the lead dispatch + its report-back
-subscriber are bound to that child's process/EventBus; moving the dispatch onto the long-lived **main
-process** (so lead supervision, report-back, and WS streaming outlive the Chief's turn) is the
-remaining wiring before the end-to-end autonomous loop runs for real.
+**Scope.** loop-a landed the Chief→lead dispatch + report-back **seams** (verified in-process with a
+mocked supervisor, no real token-spending dispatch). The one live-path gap it flagged — the dispatch
+and its report-back ran only in the **stdio mgmt-server child**, so a real lead run's `agent_runs` row
+stayed `running` forever and the report-back subscriber died with the child — is closed by **loop-b
+b1** below. Still deferred to **loop-b b2 / P5.6**: the Chief→K report **continuation** (re-surfacing the
+lead's report up through the Chief to the durable K thread) and the multi-tier org-tree DERIVATION
+render.
+
+### Main-process dispatch relay (BUILT — loop-b b1, D-050)
+
+The dispatch now **runs for real** in the long-lived process. `dispatch_lead` is DECOUPLED into
+*record* (child) + *execute* (main): because the mgmt-server child dies at the Chief's turn end, the
+tool can only **record** the intent, never run the lead. So `dispatch_lead` resolves the lead
+profile + workflow + seed prompt exactly as before, but instead of calling `startAgentRun` it inserts a
+`pending` row into a **DB-backed `lead_dispatches` queue** (the child→main hand-off — an in-process
+EventBus can't cross the process boundary; a shared SQLite file can).
+
+- **The relay** (`core/src/lead-dispatch-relay.ts`, wired at boot in `index.ts` with a stop-fn on
+  `onClose`, mirroring `startChiefWake`; default ON, `LEAD_DISPATCH_RELAY=0` opts out) polls the queue,
+  **atomically claims** each pending row (`pending→dispatched` CAS, so an overlapping drain can't
+  double-execute), then performs the real `startAgentRun(leadProfileId, { trigger:'delegation', goal,
+  workflowId })` **in the main process** — so the run's `agent_runs` tracking-row lifecycle AND the
+  lead→Chief report-back (`reportLeadOutcomeToChief`, re-subscribed on the **main** EventBus) both
+  finalize in a process that stays up. `drainLeadDispatches()` is the directly unit-testable seam.
+- **Partial-failure window closed** (loop-a carry-forward): once `startAgentRun` succeeds the lead run
+  is LIVE, so the follow-up wiring (`setAssignmentLeadRun` + report-back) runs in an inner try/catch — a
+  wiring throw can never lose the live run. A `startAgentRun` failure marks the intent `failed`, leaves
+  the assignment link NULL (retryable), and degrades without crashing the loop; a null `chief_run_id`
+  logs a skip rather than dropping the report silently.
+- **Boot reconciliation** (`supervisor.ts::reconcileOrphanedActivations`, additive) is the safety net
+  for a child that exited mid-dispatch: it finalizes `agent_runs` rows stuck `running` whose linked run
+  is already terminal (done → `completed`, else `failed`), running BEFORE the blanket
+  `reconcileStaleActivations` so a mid-dispatch-COMPLETED lead is recorded `completed`, not clobbered.
+- **The Chief→lead link derivation is unchanged** — still `assignment.run_id` (parent) +
+  `assignment.lead_run_id` (child) + the lead activation's `trigger='delegation'`, no new edge table;
+  the `lead_dispatches` row is a transient execution queue, not the parent→child record.
 
 ## The pipeline
 

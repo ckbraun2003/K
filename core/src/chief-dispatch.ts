@@ -42,6 +42,10 @@ export const DEFAULT_LEAD_WORKFLOW_ID = 'code-wave'
  *  huge raw transcript into the Chief's mgmt store (mirrors k-thread's cap). */
 export const LEAD_REPORT_TEXT_CAP = 2_000
 
+/** How many of the lead run's earliest `assistant` events the report-back scans (seq ASC)
+ *  — enough to fill the 2k cap without materializing a long lead run's whole event log. */
+const LEAD_REPORT_EVENT_SCAN = 50
+
 /** The charter line appended to every dispatched lead's seed prompt: it tells the
  *  lead it is an orchestrator dispatched by the Chief and that it must OPEN A PR
  *  (never push to a default branch) when done. */
@@ -110,14 +114,14 @@ export function buildLeadSeed(objective: string, scaffold: string): string {
   return `${renderWorkflowPrompt(scaffold, [{ title: objective }])}\n\n${LEAD_CHARTER_LINE}`
 }
 
-/** Concatenate a lead run's `assistant` event texts (oldest→newest), capped — the
- *  lead's own final answer for the report-back. Mirrors k-thread.ts::concatAssistantText
- *  (a one-shot capped summary, not a stateful turn-by-turn capture). */
+/** Concatenate a bounded prefix of a lead run's `assistant` event texts (oldest→newest,
+ *  up to LEAD_REPORT_EVENT_SCAN events) then cap to LEAD_REPORT_TEXT_CAP — the report-back
+ *  summary of the lead's own words. Mirrors k-thread.ts::concatAssistantText (a one-shot
+ *  capped summary, not a stateful turn-by-turn capture). */
 function concatLeadAssistantText(runId: string): string {
-  const rows = eventsDb.listEvents.all(runId) as Row[]
+  const rows = eventsDb.listAssistantEvents.all(runId, LEAD_REPORT_EVENT_SCAN) as Row[]
   const parts: string[] = []
   for (const row of rows) {
-    if (row.type !== 'assistant') continue
     const text = row.text == null ? '' : String(row.text)
     if (text.length > 0) parts.push(text)
   }

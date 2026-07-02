@@ -271,6 +271,43 @@ export function reconcileStaleActivations(d: import('better-sqlite3').Database =
   return res.changes
 }
 
+export function reconcileOrphanedActivations(d: import('better-sqlite3').Database = db): number {
+  const now = Date.now()
+  // agent_runs stuck 'running' whose LINKED run is already terminal — the precise safety net
+  // for a child that exited mid-dispatch (the run finished, the tracking subscriber died with
+  // the child). Derive the activation status from the run's terminal status (done → completed,
+  // any other terminal → failed) — strictly more correct than the blanket reconcileStaleActivations
+  // this runs BEFORE, so a mid-dispatch-COMPLETED lead becomes 'completed', not clobbered to 'failed'.
+  // Terminal set mirrors run-lifecycle.ts::TERMINAL_RUN_STATUSES.
+  const rows = d.prepare(
+    `SELECT ar.id AS id, r.status AS run_status FROM agent_runs ar JOIN runs r ON r.id = ar.run_id
+      WHERE ar.status = 'running' AND r.status IN ('done','error','killed','interrupted')`
+  ).all() as Array<{ id: string; run_status: string }>
+  const upd = d.prepare(`UPDATE agent_runs SET status = ?, completed_at = ? WHERE id = ? AND status = 'running'`)
+  let n = 0
+  for (const row of rows) n += upd.run(row.run_status === 'done' ? 'completed' : 'failed', now, row.id).changes
+  return n
+}
+
+/**
+ * Finalize lead-dispatch INTENTS stranded 'dispatched' with no lead_run_id. The relay
+ * (lead-dispatch-relay.ts) claims a queued intent (pending→dispatched CAS) BEFORE it
+ * awaits startAgentRun; if the main process crashes in that window the row is left
+ * 'dispatched', lead_run_id NULL. Nothing else recovers it: it is no longer 'pending' (so
+ * the drain skips it) yet getActiveLeadDispatchByAssignment counts 'dispatched' as active
+ * (so the Chief's re-dispatch is rejected) — the assignment could never get a lead. Mark it
+ * 'failed' (the assignment link is still NULL → the Chief can re-dispatch a fresh intent).
+ * We deliberately do NOT re-'pending' it: a crash AFTER startAgentRun spawned the run but
+ * BEFORE setLeadDispatchRun recorded it would then double-execute the lead. Mirrors
+ * reconcileStaleRuns (pure DB; takes the handle for unit-testing). Returns rows reconciled.
+ */
+export function reconcileOrphanedLeadDispatches(d: import('better-sqlite3').Database = db): number {
+  const res = d
+    .prepare(`UPDATE lead_dispatches SET status = 'failed', dispatched_at = ? WHERE status = 'dispatched' AND lead_run_id IS NULL`)
+    .run(Date.now())
+  return res.changes
+}
+
 /**
  * Best-effort prune of orphaned git worktrees left by crashed runs. Runs
  * `git worktree prune` then removes leftover `.worktrees/*` directories that no
@@ -313,10 +350,22 @@ export function reconcileOnBoot(): void {
     console.warn('[supervisor] reconcileStaleRuns failed:', (err as Error).message)
   }
   try {
+    const o = reconcileOrphanedActivations()
+    if (o > 0) console.log(`[supervisor] boot sweep: finalized ${o} orphaned activation(s) by run status`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileOrphanedActivations failed:', (err as Error).message)
+  }
+  try {
     const m = reconcileStaleActivations()
     if (m > 0) console.log(`[supervisor] boot sweep: marked ${m} stale agent activation(s) failed`)
   } catch (err) {
     console.warn('[supervisor] reconcileStaleActivations failed:', (err as Error).message)
+  }
+  try {
+    const p = reconcileOrphanedLeadDispatches()
+    if (p > 0) console.log(`[supervisor] boot sweep: reset ${p} stranded lead-dispatch intent(s) to failed`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileOrphanedLeadDispatches failed:', (err as Error).message)
   }
   pruneOrphanWorktrees()
   // Sweep per-run config dirs orphaned by a crash — same key space (run id) as

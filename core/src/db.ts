@@ -461,6 +461,33 @@ db.exec(`
   -- Point-lookup index for the by-run_id reads (the Chief autonomous-wake self-wake
   -- guard fires on EVERY terminal run_update — a hot path — so run_id must be indexed).
   CREATE INDEX IF NOT EXISTS idx_agent_runs_run_id ON agent_runs(run_id);
+
+  -- Chief→lead dispatch INTENT queue (loop-b). The mgmt dispatch_lead tool runs in the
+  -- ephemeral per-Chief-run stdio mgmt-server CHILD process, which dies at the Chief's
+  -- turn end — so it can only RECORD the intent to dispatch a lead, never EXECUTE it (the
+  -- lead run + its report-back subscriber must outlive the child). This DB-backed queue is
+  -- the child->main hand-off: dispatch_lead inserts a 'pending' row; a relay in the
+  -- long-lived MAIN process (lead-dispatch-relay.ts) drains pending rows, claims each
+  -- atomically (pending->dispatched), and runs startAgentRun there. status: pending ->
+  -- dispatched (claimed+executed) | failed (startAgentRun threw). chief_run_id is the
+  -- parent Chief run (ON DELETE SET NULL); lead_run_id is the dispatched lead's run once
+  -- executed (ON DELETE SET NULL). Brand-new table -> CREATE-only (no migrate() ALTER).
+  CREATE TABLE IF NOT EXISTS lead_dispatches (
+    id              TEXT PRIMARY KEY,
+    assignment_id   TEXT NOT NULL REFERENCES mgmt_assignments(id) ON DELETE CASCADE,
+    chief_run_id    TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    lead_profile_id TEXT NOT NULL,
+    lead            TEXT NOT NULL,
+    workflow_id     TEXT NOT NULL,
+    goal            TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                      CHECK(status IN ('pending','dispatched','failed')),
+    lead_run_id     TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    created_at      INTEGER NOT NULL,
+    dispatched_at   INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_lead_dispatches_status ON lead_dispatches(status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_lead_dispatches_assignment ON lead_dispatches(assignment_id);
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -698,7 +725,12 @@ const listDelegateEvents = db.prepare(`
 // Fetch the raw JSON line for a single event — used by the lazy per-event endpoint.
 const getEventRaw = db.prepare(`SELECT raw FROM events WHERE run_id = ? AND seq = ?`)
 
-export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw }
+// Bounded, pre-filtered assistant-event scan (oldest→newest) — the lead report-back
+// (chief-dispatch.ts::concatLeadAssistantText) reads only enough assistant text to fill
+// its output cap, so a long lead run never materializes its whole event log.
+const listAssistantEvents = db.prepare(`SELECT * FROM events WHERE run_id = ? AND type = 'assistant' ORDER BY seq ASC LIMIT ?`)
+
+export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listAssistantEvents }
 
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
@@ -1245,6 +1277,25 @@ export const mgmtDb = {
   getReport,
   listReportsByRun,
 }
+
+// ─── Lead-dispatch intent queue (loop-b) ─────────────────────────────────────
+// The child→main dispatch hand-off (see the lead_dispatches DDL above). `dispatch_lead`
+// (mgmt.ts, in the ephemeral child) RECORDS a 'pending' intent; the MAIN-process relay
+// (lead-dispatch-relay.ts) drains + claims + executes it. claimLeadDispatch is the atomic
+// pending→dispatched CAS so an overlapping drain can never double-execute one intent.
+
+const insertLeadDispatch = db.prepare(`
+  INSERT INTO lead_dispatches (id, assignment_id, chief_run_id, lead_profile_id, lead, workflow_id, goal, status, lead_run_id, created_at, dispatched_at)
+  VALUES (@id, @assignmentId, @chiefRunId, @leadProfileId, @lead, @workflowId, @goal, 'pending', NULL, @createdAt, NULL)
+`)
+const listPendingLeadDispatches = db.prepare(`SELECT * FROM lead_dispatches WHERE status = 'pending' ORDER BY created_at ASC`)
+const getLeadDispatch = db.prepare(`SELECT * FROM lead_dispatches WHERE id = ?`)
+const getActiveLeadDispatchByAssignment = db.prepare(`SELECT * FROM lead_dispatches WHERE assignment_id = ? AND status IN ('pending','dispatched') ORDER BY created_at DESC LIMIT 1`)
+// Atomically claim a pending intent (pending→dispatched) so an overlapping drain can't double-execute it.
+const claimLeadDispatch = db.prepare(`UPDATE lead_dispatches SET status = 'dispatched', dispatched_at = @dispatchedAt WHERE id = @id AND status = 'pending'`)
+const setLeadDispatchRun = db.prepare(`UPDATE lead_dispatches SET lead_run_id = @leadRunId WHERE id = @id`)
+const markLeadDispatchFailed = db.prepare(`UPDATE lead_dispatches SET status = 'failed', dispatched_at = @dispatchedAt WHERE id = @id`)
+export const leadDispatchDb = { insertLeadDispatch, listPendingLeadDispatches, getLeadDispatch, getActiveLeadDispatchByAssignment, claimLeadDispatch, setLeadDispatchRun, markLeadDispatchFailed }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────
 
