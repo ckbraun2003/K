@@ -2,7 +2,7 @@
 title: Observability
 icon: "👁"
 status: active
-updated: 2026-07-01
+updated: 2026-07-02
 ---
 
 Phase 4's Track D makes the harness **observable**: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard *surfaces* it powers. The *Implementation history* appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.
@@ -79,8 +79,10 @@ observability extends from a single run's tree to the **whole org**:
   each wake is an `agent_runs` row (`profile_id='chief'`) that the route already reads. Every row carries
   the four wake facts straight from existing columns — **trigger** (`schedule` | `event`), **time**
   (`created_at`), **run id** (`run_id`, a view-run link), and **outcome** (`status`: running → completed
-  | failed). The wake is debounced + already-running- + self-wake-guarded, and a dispatch failure lands
-  as a `failed` row via the `startAgentRun` rollback — so the observed history is faithful to what fired.
+  | failed). The wake is debounced + already-running- + self-wake-guarded — and since P5.7 **governed**
+  (org-relevant terminals only, a rolling-hour cap, a kill switch — D-057, §03; a suppressed wake
+  creates **no** ledger row) — and a dispatch failure lands as a `failed` row via the `startAgentRun`
+  rollback: the observed history is faithful to what actually fired.
 - **The Chief→lead link is now DERIVABLE (BUILT — loop-a, D-049).** With the autonomous dispatch built
   (§03), a Chief→lead edge is derivable from the stored data with **no new table**: an assignment's
   `run_id` is the Chief run (parent), its `lead_run_id` is the dispatched lead run (child), and the
@@ -99,10 +101,12 @@ observability extends from a single run's tree to the **whole org**:
     **user → K → Chief → lead → sub-agent** — reusing the same generic `DelegationTree` component
     (arbitrary depth) the Chief page already renders. The **K→Chief edge** is a pure derivation from the
     existing links, **no new table**: `ChiefOrgPayload.kDelegations` counts the Chief's
-    `trigger='delegation'` activations (every one is a K hand-up — `delegateToChief` is the only path
-    that sets it; autonomous wakes use `schedule`/`event`). K's node rides the chain (running while the
-    Chief subtree is active); the user root is the operator anchor. So the full chain is VISIBLE end to
-    end on the one batched `GET /api/chief/org` read.
+    **successful** `trigger='delegation'` activations — `failed` rows are excluded since P5.7, a
+    documented undercount of raw attempts (every counted one is a K hand-up — `delegateToChief` is the
+    only path that sets the trigger; autonomous wakes use `schedule`/`event`). K's node rides the chain
+    (running while the Chief subtree is active); the user root is the operator anchor. So the full
+    chain is VISIBLE end to end on the one batched `GET /api/chief/org` read (whose live-leads count
+    is the server-authoritative `leadsActive` — the client no longer re-derives it).
   - **The Chief→K report continuation.** A Chief's bounded activation can end BEFORE the lead it
     dispatched finishes, so the Chief-terminal report-back (`reportDelegationBack`, D-046) could surface
     a PRE-lead status. The continuation closes that: riding the **same lead-terminal signal** the

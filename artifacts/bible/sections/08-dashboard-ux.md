@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-01
+updated: 2026-07-02
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -16,12 +16,16 @@ a scoped prefill of the K composer), **one org-status home** (Chief), **compose-
 (a full confirm-card only on escalation), a **unified scoped work-item model**, and de-duplicated
 metrics, trees, and authority panels.
 
-> **Status.** The **K-home landing** (P5.1f), **Chief** (P5.2a/b), and **Orchestrators + detail**
-> (P5.3a) now **ship**; the **Direct / Observe** sidebar regroup landed with K-home (P5.1f). Still
-> **PLANNED (Phase 5+)**: **Workflows + detail** and the **Settings org-default authority/MCP panel**.
-> The surfaces they reorganize (Runs + rich console, Graph, Metrics, Routing, Terminal, Settings,
-> the 7 project tabs) **exist today**; this section is a *spec + as-built*, and the older observability
-> implementation history (Phases G / H / 4) lives in §13 Observability → *Implementation history*.
+> **Status.** The **K-home landing** (P5.1f), **Chief** (P5.2a/b), **Orchestrators + detail**
+> (P5.3a), **Workflows + detail** and the **Settings org-default authority/MCP panel** (P5.3b) all
+> **ship**; the **Direct / Observe** sidebar regroup landed with K-home (P5.1f). **P5.7 (C1 + C2,
+> 2026-07-02)** brought the surfaces to *pragmatic parity* with the approved demo — K-home secretary
+> cards + composer power controls, Chief actuation (hand-work / reassign / stop), per-lead health
+> lines + the effective-model chip, the workflow launcher, breadcrumbs, and live WS invalidation
+> (details in each block below). The surfaces they reorganize (Runs + rich console, Graph, Metrics,
+> Routing, Terminal, Settings, the 7 project tabs) **exist today**; this section is a
+> *spec + as-built*, and the older observability implementation history (Phases G / H / 4) lives in
+> §13 Observability → *Implementation history*.
 
 ## Frame — four persistent zones
 
@@ -110,7 +114,7 @@ progress, last completed action, and pause-all. Click any entry → its full run
 ($ / runs / tokens) live only in Metrics** — the strip never prints aggregates (metric uniqueness:
 every number appears in exactly one place).
 
-## Direct — the org surfaces (PLANNED, Phase 5)
+## Direct — the org surfaces (BUILT — Phase 5, parity P5.7)
 
 ### K — home (the landing)
 
@@ -127,19 +131,23 @@ K never shows code-authority controls (it has none). A dispatched engineering re
 the **5 s undo** toast and an inline route; results bubble back into the conversation with a
 **toast-with-link** to the run. The richer org status lives on Chief, one click away.
 
-> **What ships (P5.1f).** `web/src/pages/KHome.tsx` (the default `home` view) renders, top-to-bottom:
-> a **time-aware greeting**; a **one-line glance-to-Chief** (`leadsActive` + objectives-in-flight,
-> linking to Chief); the **Ask-K composer** — an input + push-to-talk **MicButton** + inline
-> `routeForMessage` preview + a single **Send** (no interactive/force-lead/model controls) wired to the
-> shared **`useAskK`** hook (`api.k.ask` → open run console → **5 s undo** toast whose *Undo* kills the
-> run); a **work-in-flight** list; and a **recent feed** of the latest runs (View-run links). It issues
-> exactly **two batched reads on shared cache keys** — `chief-org` (glance + work-items) and `runs`
-> (feed) — plus `status` for the mic gate, with **no per-item fan-out**. **Work-items source:** because
-> the unified cross-scope `work_items` HTTP surface is **deferred** (D-026 — the shipped `work_items`
-> table is run-scoped only, D-034), K-home sources its work list from the **org objectives**
-> (`api.chief.org` `assignments`, scope=org) with a caption noting **personal-scope items are pending**
-> that later wave. Notes/Schedule (logistics, D-039) and the warm K-home color tokens are **not** in
-> P5.1f (the hero uses the existing `.glass-tint` surface).
+> **What ships (P5.1f, brought to parity in P5.7 C1/C2).** `web/src/pages/KHome.tsx` (the default
+> `home` view) renders, top-to-bottom: a **time-aware greeting** (no hardcoded operator name); a
+> **one-line glance-to-Chief** (`leadsActive` + objectives-in-flight, linking to Chief); the
+> **Ask-K composer** — an input + push-to-talk **MicButton** + inline `routeForMessage` preview +
+> **power controls** (a **model override** picker over the `KNOWN_MODELS` registry and a **forced
+> route** selector — `KAskBody.{model, forceRoute}`, §03) — wired to the shared **`useAskK`** hook;
+> a **3-card glance grid** — **Notes** and **Schedule** (read-only cards over the durable logistics
+> store via the thin `GET /api/k/notes` / `GET /api/k/schedule` routes; overdue pending reminders
+> deliberately included) and **Your work** — **real durable personal work items**
+> (`GET/POST/PATCH /api/k/work-items`: checkbox toggle open↔done, an inline add composer, honest
+> empty/error states — the earlier org-objectives stopgap and its "coming soon" caption are gone);
+> and a **recent feed** of the latest runs (View-run links). **K-home does NOT auto-navigate on
+> send** (P5.7 C1): the **5 s undo** toast stays in place with a *View run →* link (navigate only on
+> click), and a second send inside the window restarts the countdown for the new run — ⌘K keeps its
+> open-the-console behavior (`useAskK`'s `navigateOnSend` is caller-chosen). The demo's
+> "Interactive" checkbox is **deliberately absent** for K sends — the K path is already interactive
+> by design, so the control would map to nothing.
 
 ### Chief — the single org-status home
 
@@ -149,6 +157,19 @@ history** (schedule/event triggers that woke the org), and a **thin health line*
 **Metrics** and **Projects**. It is the org-status home — **not a full health strip** (those numbers
 live in Metrics) and **not a second authority panel** (the authority map lives in Settings /
 Orchestrator detail). Reports the Chief produces for the user surface here and on K-home.
+
+> **As-built actuation (P5.7 C2).** The Chief page is no longer watch-only:
+> - The whole-org **DelegationTree gains inspector actions** (a `renderActions` prop): **Open
+>   lead** (jump to the lead's control plane), **View run** (the node's backing run console), and
+>   **Stop run** on a live/queued lead node — ConfirmDialog-gated (destructive) over the existing
+>   kill route, offered precisely because a live lead run blocks reassign.
+> - A **hand-Chief-work composer** — a forced `chief` route through the same shared front door
+>   (`useAskK` + `forceRoute:'chief'`), with an honest static "will hand to Chief" caption.
+> - **Operator reassign** — each objective row can move to another lead:
+>   `PATCH /api/chief/assignments/:id` (confirm-carded; `409` while the current lead run is live or
+>   a dispatch intent is in flight — stop first, then reassign; `400` same-lead; clears the stale
+>   `lead_run_id`; files a durable mgmt audit report). Unwedged by the D-060 liveness-derivation
+>   fix (§03).
 
 ### Orchestrators + orchestrator detail
 
@@ -176,6 +197,17 @@ carries, as first-class panels:
 > + a slim `rosterVitals`), so both surfaces derive a lead identically. **Now built (P5.3b, D-047):** the
 > `workflow_definitions` table + Workflows list/detail UI and the **Settings org-default** authority/MCP
 > panel — the org-default the per-lead overrides inherit from.
+>
+> **P5.7 parity (C1 + C2).** Roster cards and the detail header carry a **per-lead recent-health
+> line** — "S/T recent OK" with an amber tint on failures, derived from the last 10 `agent_runs`
+> activations (the terminal-status truth; nothing invented when there is no history — the demo's
+> health *scores/bands* were consciously not built). The detail header renders an **`effectiveModel`
+> chip** — "override: `<model>`" vs "runtime default (`<model>`)" — matching the D-056 resolution
+> order honestly. The **Skills and Tools editors gain add-by-name affordances** with org-default
+> datalist suggestions (a removed grant is recoverable in place; adds are still ceiling-checked
+> fail-closed server-side, D-054); the "MCP · Authority" tab is renamed **MCP servers**; the Memory
+> tab links out to the Memory page (no dead end); and the roster cards drop the identical,
+> meaningless tier chip.
 
 ### Workflows + workflow detail
 
@@ -194,6 +226,13 @@ running it) rather than floating on its own.
 > MCP) via `GET`/`PATCH /api/org-default` — grant-guarded fail-closed exactly like the per-lead
 > orchestrators PATCH — so the "inherits the org default unless overridden" panel above has a real
 > source to inherit from.
+>
+> **P5.7 C2 — the launcher.** `WorkflowDetailPage` gains a **"Run this workflow"** dialog: pick a
+> project → its open tasks → dispatch. The task-dispatch route accepts an optional **`workflowId`**
+> and renders *that* definition's scaffold through the existing `renderWorkflowPrompt` seam
+> (unknown id → `400`, validate-before-mutate — §04). The **Run tree** tab's picker now defaults to
+> a **workflow-only run filter** (fed by the new `GET /api/workflows/runs`) with an all-runs
+> toggle; deep links default to all.
 
 Likewise, the standalone **Skills** destination folds into the orchestrator-detail **skills
 editor** above, where each skill is scoped to the lead that uses it rather than floating in a
@@ -233,7 +272,8 @@ A project opens into its workspace (unchanged in shape):
 
 - **Settings** — provider/auth **status** cards (claude / ollama / voice / github / auth posture, **no
   secrets**), the **guarded global CLAUDE.md editor** (fixed path, gitnexus block preserved, atomic
-  write, backups, confirm-before-save), and a **NEW org-default authority / MCP panel** (PLANNED) —
+  write, backups, confirm-before-save), and the **org-default authority / MCP panel** (BUILT —
+  P5.3b, D-047; enforced at synthesis since P5.7, D-054) —
   the editable source of the **org-default** tier → tools/skills/MCPs map. **Per-lead overrides** to
   that default live on **Orchestrator detail** ("inherits org default unless overridden"); Settings
   owns the default, detail owns the delta — the map is edited in exactly one place per scope.
@@ -271,7 +311,17 @@ A project opens into its workspace (unchanged in shape):
 - **Metric uniqueness.** Every metric is printed in **exactly one place** — live state in the
   activity strip, day totals and trends in Metrics, health on Chief's thin line / project Overview.
   No surface re-prints another's numbers.
-- Live state always streams over the existing WebSocket; the UI never blocks on a poll.
+- Live state always streams over the existing WebSocket; the UI never blocks on a poll. **The org
+  views are live too (P5.7 C1):** `run_update` WS events also invalidate the chief-org /
+  orchestrators / orchestrator-detail queries — throttled leading+trailing at 250 ms
+  (`lib/live-invalidate.ts`) so a chatty run can't stampede refetches.
+- **Breadcrumbs (P5.7 C1).** The TopBar renders real breadcrumbs for the param-routed detail views
+  — *Orchestrators › \<name\>*, *Workflows › \<name\>*, *Projects › \<name\>* — reusing the owning
+  pages' exact query keys so react-query dedupes the read.
+- **Focus + a11y (P5.7 C1).** The ⌘K palette carries `role="dialog"`/`aria-modal`/label;
+  ConfirmDialog and the evals RunDialog get a **focus trap** (`lib/useFocusTrap.ts`,
+  container-boundary safe). The 6-file hardcoded on-accent hex is replaced by the `--on-accent`
+  token (the D-013 WCAG rule, tokenized).
 
 ## Knowledge graph spec (fleet + per-project)
 
