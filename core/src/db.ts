@@ -1294,7 +1294,7 @@ const getActiveLeadDispatchByAssignment = db.prepare(`SELECT * FROM lead_dispatc
 // Atomically claim a pending intent (pending→dispatched) so an overlapping drain can't double-execute it.
 const claimLeadDispatch = db.prepare(`UPDATE lead_dispatches SET status = 'dispatched', dispatched_at = @dispatchedAt WHERE id = @id AND status = 'pending'`)
 const setLeadDispatchRun = db.prepare(`UPDATE lead_dispatches SET lead_run_id = @leadRunId WHERE id = @id`)
-const markLeadDispatchFailed = db.prepare(`UPDATE lead_dispatches SET status = 'failed', dispatched_at = @dispatchedAt WHERE id = @id`)
+const markLeadDispatchFailed = db.prepare(`UPDATE lead_dispatches SET status = 'failed', dispatched_at = @dispatchedAt WHERE id = @id AND status = 'dispatched'`)
 export const leadDispatchDb = { insertLeadDispatch, listPendingLeadDispatches, getLeadDispatch, getActiveLeadDispatchByAssignment, claimLeadDispatch, setLeadDispatchRun, markLeadDispatchFailed }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────
