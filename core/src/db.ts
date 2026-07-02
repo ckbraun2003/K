@@ -1238,12 +1238,19 @@ const listWorkflowRunsByProject = db.prepare(`
   SELECT * FROM workflow_runs WHERE project_id = ? ORDER BY created_at DESC
 `)
 
+// Cross-project newest-first list (bounded) — backs GET /api/workflows/runs, the
+// Workflows run-picker's "which runs were workflow-dispatched?" identity source.
+const listRecentWorkflowRuns = db.prepare(`
+  SELECT * FROM workflow_runs ORDER BY created_at DESC LIMIT ?
+`)
+
 export const workflowRunsDb = {
   insertWorkflowRun,
   patchWorkflowRunId,
   updateWorkflowRunStatus,
   getWorkflowRun,
   listWorkflowRunsByProject,
+  listRecentWorkflowRuns,
 }
 
 // ─── kstore: work-item helpers ───────────────────────────────────────────────

@@ -155,8 +155,10 @@ function safeJsonColumn(v: unknown): unknown {
   try { return JSON.parse(v as string) } catch { return undefined }
 }
 
-/** workflow_runs row → WorkflowRun shape (snake→camel; task_ids JSON → array). */
-function dbRowToWorkflowRun(r: Record<string, unknown>) {
+/** workflow_runs row → WorkflowRun shape (snake→camel; task_ids JSON → array,
+ *  parsed defensively). Exported so routes/workflows.ts's runs list reuses this ONE
+ *  mapping authority instead of mirroring it. */
+export function dbRowToWorkflowRun(r: Record<string, unknown>) {
   return {
     id: r.id, projectId: r.project_id, runId: r.run_id ?? null,
     taskIds: safeJsonColumn(r.task_ids) ?? [], mode: r.mode, status: r.status,

@@ -12,7 +12,7 @@ import { v4 as uuid } from 'uuid'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { db, projectsDb, projectWorkItemsDb } from '../src/db.js'
+import { db, projectsDb, projectWorkItemsDb, workflowDefsDb } from '../src/db.js'
 import { projectsRoutes } from '../src/routes/projects.js'
 import type { Project } from '@k/shared'
 
@@ -229,6 +229,64 @@ describe('POST /api/projects/:id/tasks/dispatch', () => {
       expect(res.statusCode).toBe(400)
       expect(res.json().error).toBeTruthy()
       expect(startRunMock).not.toHaveBeenCalled()
+    } finally {
+      await app.close()
+    }
+  })
+
+  // ── workflow-scaffold dispatch (C2 "Run this workflow") ──────────────────────
+
+  it('workflowId seeds the prompt from that definition\'s scaffold', async () => {
+    // A dedicated def row (not a seed dependency — this harness never bootstraps)
+    // with a DISTINCTIVE scaffold so the prompt assertion can't false-positive on
+    // the default code-wave text.
+    const defId = `wf-c2-${uuid().slice(0, 8)}`
+    workflowDefsDb.insertWorkflowDef.run({
+      id: defId, name: `wf-c2-test-${defId}`, roles: JSON.stringify([]),
+      promptScaffold: 'C2-DISTINCTIVE-SCAFFOLD over:\n{{CHECKLIST}}',
+      crossProject: 0, createdAt: Date.now(),
+    })
+    const project = insertProject()
+    const t1 = insertTask(project.id, 'scaffolded todo')
+    const app = Fastify()
+    await app.register(projectsRoutes)
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${project.id}/tasks/dispatch`,
+        payload: { taskIds: [t1], workflowId: defId },
+      })
+      expect(res.statusCode).toBe(202)
+      expect(startRunMock).toHaveBeenCalledTimes(1)
+      const [prompt] = startRunMock.mock.calls[0]
+      // The def's scaffold rendered with the checklist — not the code-wave default.
+      expect(prompt).toContain('C2-DISTINCTIVE-SCAFFOLD over:')
+      expect(prompt).toContain('1. [ ] scaffolded todo')
+      expect(prompt).not.toContain('orchestrator of the harness delegation loop')
+    } finally {
+      db.prepare('DELETE FROM workflow_definitions WHERE id = ?').run(defId)
+      await app.close()
+    }
+  })
+
+  it('unknown workflowId → 400, NO workflow_run row inserted and NO task locked', async () => {
+    const project = insertProject()
+    const t1 = insertTask(project.id, 'stays open')
+    const app = Fastify()
+    await app.register(projectsRoutes)
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${project.id}/tasks/dispatch`,
+        payload: { taskIds: [t1], workflowId: 'no-such-workflow' },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error).toBe('unknown workflow')
+      expect(startRunMock).not.toHaveBeenCalled()
+      // Resolved BEFORE dispatch: nothing was mutated.
+      const wfRows = db.prepare('SELECT * FROM workflow_runs WHERE project_id = ?').all(project.id)
+      expect(wfRows).toHaveLength(0)
+      expect(taskStatus(t1, project.id)).toBe('open')
     } finally {
       await app.close()
     }

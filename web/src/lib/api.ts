@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -176,11 +176,14 @@ export const api = {
         req<void>(`/projects/${projectId}/tasks/${taskId}`, { method: 'DELETE' }),
       sync: (projectId: string) =>
         req<{ synced: number; degraded: boolean }>(`/projects/${projectId}/tasks/sync`, { method: 'POST' }),
-      dispatchWorkflow: (projectId: string, taskIds: string[]) =>
+      // `workflowId` (optional) names the workflow template whose scaffold seeds the
+      // dispatch prompt; included in the body only when set (JSON.stringify drops
+      // undefined fields) so the default code-wave path is byte-identical.
+      dispatchWorkflow: (projectId: string, taskIds: string[], workflowId?: string) =>
         req<{ workflowRunId: string; runId: string }>(`/projects/${projectId}/tasks/dispatch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ taskIds }),
+          body: JSON.stringify({ taskIds, workflowId }),
         }),
     },
     graph: (id: string) =>
@@ -232,10 +235,18 @@ export const api = {
     evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),
     runs: (id: string) => req<SkillRun[]>(`/skills/${id}/runs`),
   },
-  // Chief org-status — the ONE batched read behind the Chief overview page
-  // (objectives · delegation tree · lead runs · wake history). Read-only.
+  // Chief org surface — the ONE batched read behind the Chief overview page
+  // (objectives · delegation tree · lead runs · wake history) plus the reassign
+  // write. `reassign` may 409 (live lead run / pending dispatch) — the caller
+  // surfaces req's thrown error message in its confirm dialog.
   chief: {
     org: () => req<ChiefOrgPayload>('/chief/org'),
+    reassign: (assignmentId: string, leadProfileId: string) =>
+      req<Assignment>(`/chief/assignments/${assignmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadProfileId }),
+      }),
   },
   // Orchestrators control plane (P5.3a) — the discipline-lead roster (one batched
   // read), a single lead's detail (the reused ChiefOrgLead), and per-lead authority
@@ -253,9 +264,12 @@ export const api = {
   },
   // Named workflow definitions (P5.3b) — the operator-editable workflow templates
   // (list · one-detail · edit). `update` is a read-merge-write patch server-side.
+  // `runs` lists the recent workflow_runs (bounded) — the run-picker's identity
+  // source for "which runs were workflow-dispatched?".
   workflows: {
     list: () => req<NamedWorkflow[]>('/workflows'),
     get: (id: string) => req<NamedWorkflow>(`/workflows/${id}`),
+    runs: () => req<WorkflowRun[]>('/workflows/runs'),
     update: (id: string, patch: NamedWorkflowPatch) =>
       req<NamedWorkflow>(`/workflows/${id}`, {
         method: 'PATCH',
@@ -373,16 +387,37 @@ export const api = {
       }),
   },
   // Talk to K (P5.1c) — the front door. `ask` activates K on a message (warm or
-  // fresh) and streams over the existing run wire; `thread` reads the durable K
-  // conversation (source of truth, survives reload).
+  // fresh) and streams over the existing run wire; the optional power controls
+  // (model override / forced route) ride the same body — undefined fields are
+  // naturally omitted by JSON.stringify. `thread` reads the durable K conversation
+  // (source of truth, survives reload). `notes`/`schedule`/`workItems` are the
+  // K-home glance reads + the durable personal work-item surface.
   k: {
-    ask: (message: string) =>
+    ask: (message: string, opts?: { model?: string; forceRoute?: KForceRoute }) =>
       req<KAskResult>('/k/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, ...opts }),
       }),
     thread: () => req<{ thread: KThread; turns: KThreadTurn[] }>('/k/thread'),
+    notes: () => req<Note[]>('/k/notes'),
+    schedule: () => req<KSchedule>('/k/schedule'),
+    workItems: {
+      list: (scope?: DurableWorkItemScope) =>
+        req<WorkItem[]>(`/k/work-items${scope !== undefined ? `?scope=${scope}` : ''}`),
+      create: (title: string) =>
+        req<WorkItem>('/k/work-items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, scope: 'personal' }),
+        }),
+      setStatus: (id: string, status: WorkItemStatus) =>
+        req<WorkItem>(`/k/work-items/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        }),
+    },
   },
   // Settings — provider/auth status + the global system prompt (repo-root CLAUDE.md).
   status: () => req<Status>('/status'),

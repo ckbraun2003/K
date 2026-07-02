@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import type { KRoute } from '@k/shared'
+import type { KRoute, KForceRoute } from '@k/shared'
 import { api } from './api'
 import { navigate } from './route'
 
@@ -32,7 +32,12 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
   // Resolves `true` when the message was sent (run started + undo window open),
   // `false` on a trimmed-empty / re-entrant call or a dispatch failure — so a
   // caller can clear its composer on success only and keep the text on failure.
-  const send = useCallback(async (message: string): Promise<boolean> => {
+  // `opts` are the per-ask power controls (model override / forced route), passed
+  // through to api.k.ask untouched.
+  const send = useCallback(async (
+    message: string,
+    opts?: { model?: string; forceRoute?: KForceRoute },
+  ): Promise<boolean> => {
     const msg = message.trim()
     if (!msg) return false
     if (busyRef.current) return false
@@ -40,7 +45,7 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
     setBusy(true)
     setError(null)
     try {
-      const result = await api.k.ask(msg)
+      const result = await api.k.ask(msg, opts)
       setPendingUndo({ runId: result.runId, route: result.route })
       if (navigateOnSend) navigate('runs', result.runId)
       return true

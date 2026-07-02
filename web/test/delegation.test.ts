@@ -147,6 +147,36 @@ describe('orgToDelegationTree', () => {
     const tree = orgToDelegationTree(payload())
     expect(tree.children).toEqual([])
   })
+
+  it('the chief meta consumes the SERVER-authoritative leads-active count, not a client re-derivation', () => {
+    // A running lead child but leadsActive: 0 from the server — the server number
+    // wins (the old client-side predicate over children is gone: two computations
+    // of one fact can only drift).
+    const zero = orgToDelegationTree(
+      payload({ leads: [lead({ latestRun: run({ status: 'running' }) })], leadsActive: 0 }),
+    )
+    expect(zero.meta).toBe('1 lead · 0 active')
+
+    // Top-level leadsActive wins; absent → health.leadsActive; absent → 0.
+    expect(orgToDelegationTree(payload({ leadsActive: 4 })).meta).toBe('0 leads · 4 active')
+    expect(orgToDelegationTree(payload({ health: { leadsActive: 2 } })).meta).toBe('0 leads · 2 active')
+    expect(orgToDelegationTree(payload()).meta).toBe('0 leads · 0 active')
+  })
+
+  it('carries runId onto the lead node (latest run) and the chief node (newest wake with a run)', () => {
+    const be = leadNode(lead({ latestRun: run({ id: 'run-be-7' }) }))
+    expect(be.runId).toBe('run-be-7')
+    expect(leadNode(lead()).runId).toBeUndefined()
+
+    const tree = orgToDelegationTree(
+      payload({
+        chiefWakes: [wake({ runId: null }), wake({ runId: 'run-chief-3' })],
+      }),
+    )
+    // The first wake with a non-null runId wins (wakes arrive newest-first).
+    expect(tree.runId).toBe('run-chief-3')
+    expect(orgToDelegationTree(payload()).runId).toBeUndefined()
+  })
 })
 
 describe('fullOrgToDelegationTree — the whole-org chain (user → K → Chief → lead → sub-agent)', () => {

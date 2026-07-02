@@ -8,6 +8,7 @@ import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { dispatchTaskWorkflow, TaskNotFoundError } from '../workflows.js'
+import { getWorkflowDef } from '../workflow-defs.js'
 import { verificationDb, rowToReport, projectWorkItemsDb, projectsDb, rowToProjectTask } from '../db.js'
 import { buildGraph, getGraphMeta, isGraphStale, enrichNodes } from '../graph.js'
 import { CreatePrOptsSchema, GraphDispatchBodySchema, DispatchTasksBodySchema, type ProjectTask, type GithubStatus } from '@k/shared'
@@ -229,14 +230,23 @@ export async function projectsRoutes(app: FastifyInstance) {
   // POST /api/projects/:id/tasks/dispatch — launch ONE supervised delegation run
   // over a batch of selected todos. The selected tasks flip to in_progress and a
   // workflow_run row tracks the run lifecycle (see workflows.ts). 202 because the
-  // agent run is async (mirrors how skills /trigger returns 202).
+  // agent run is async (mirrors how skills /trigger returns 202). An optional
+  // `workflowId` seeds the prompt from that NamedWorkflow's scaffold (C2 "Run this
+  // workflow") — resolved BEFORE dispatch so an unknown id is a clean 400 with no
+  // workflow_run row inserted and no task locked.
   app.post<{ Params: { id: string }; Body: unknown }>('/api/projects/:id/tasks/dispatch', async (req, reply) => {
     const project = getProject(req.params.id)
     if (!project) return reply.status(404).send({ error: 'not found' })
     const parsed = DispatchTasksBodySchema.safeParse(req.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? 'invalid body' })
+    let scaffold: string | undefined
+    if (parsed.data.workflowId !== undefined) {
+      const def = getWorkflowDef(parsed.data.workflowId)
+      if (!def) return reply.status(400).send({ error: 'unknown workflow' })
+      scaffold = def.promptScaffold
+    }
     try {
-      const { workflowRunId, runId } = await dispatchTaskWorkflow(project, parsed.data.taskIds)
+      const { workflowRunId, runId } = await dispatchTaskWorkflow(project, parsed.data.taskIds, { scaffold })
       return reply.status(202).send({ workflowRunId, runId })
     } catch (e) {
       // A bad/foreign taskId is a client error → 400; anything else is a 500.

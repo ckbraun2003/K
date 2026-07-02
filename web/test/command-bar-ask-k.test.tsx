@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor, fireEvent, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { routeForMessage, type Status } from '@k/shared'
+import { routeForMessage, routeForTarget, type Status } from '@k/shared'
 
 const statusValue: Status = {
   claude: { available: true },
@@ -32,6 +32,15 @@ vi.mock('../src/lib/api', () => ({
     k: { ask: mockAsk },
     runs: { list: async () => [], kill: mockKill },
     projects: { list: async () => [] },
+    claudeModel: {
+      get: async () => ({
+        model: 'claude-sonnet-4-6',
+        options: [
+          { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+          { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+        ],
+      }),
+    },
     status: async () => statusValue,
     voice: { transcribe: async () => ({ text: '' }) },
   },
@@ -105,9 +114,10 @@ describe('CommandBar → K front door', () => {
     const row = await screen.findByTestId('cmdk-row-ask-k')
     fireEvent.click(row)
 
-    // (2) api.k.ask called exactly once with the typed message.
+    // (2) api.k.ask called exactly once with the typed message + the default
+    // power-control opts ('default'/'' → no override).
     await waitFor(() => expect(mockAsk).toHaveBeenCalledTimes(1))
-    expect(mockAsk).toHaveBeenCalledWith(MSG)
+    expect(mockAsk).toHaveBeenCalledWith(MSG, { model: undefined, forceRoute: undefined })
     // REQ 3: the run console is opened with the runId api.k.ask returned.
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-123'))
 
@@ -118,6 +128,29 @@ describe('CommandBar → K front door', () => {
 
     await waitFor(() => expect(mockKill).toHaveBeenCalledWith('run-123'))
     expect(mockKill).toHaveBeenCalledTimes(1)
+  })
+
+  it('the footer power controls force the route (preview + send opts) and pick a model', async () => {
+    renderBar()
+    const input = screen.getByTestId('cmdk-input') as HTMLInputElement
+    fireEvent.change(input, { target: { value: FE_MSG } })
+
+    // Classifier preview first (frontend for a react/css message)…
+    const preview = await screen.findByTestId('k-route-preview')
+    expect(preview.textContent).toContain(routeForMessage(FE_MSG).label)
+
+    // …then FORCE chief: the strip must show routeForTarget's label — the same
+    // shared mapping the server applies — not the classifier's guess.
+    fireEvent.change(screen.getByTestId('cmdk-force-route'), { target: { value: 'chief' } })
+    await waitFor(() =>
+      expect(screen.getByTestId('k-route-preview').textContent).toContain(routeForTarget('chief').label),
+    )
+
+    // Pick a model, send: both overrides ride the ask body.
+    fireEvent.change(screen.getByTestId('cmdk-model-select'), { target: { value: 'claude-opus-4-8' } })
+    fireEvent.click(await screen.findByTestId('cmdk-row-ask-k'))
+    await waitFor(() => expect(mockAsk).toHaveBeenCalledTimes(1))
+    expect(mockAsk).toHaveBeenCalledWith(FE_MSG, { model: 'claude-opus-4-8', forceRoute: 'chief' })
   })
 
   it('a failed ask surfaces the error and raises no undo toast', async () => {

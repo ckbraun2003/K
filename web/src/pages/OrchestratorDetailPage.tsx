@@ -120,6 +120,28 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
         <span className="rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--on-accent)]">
           {profile.tier}
         </span>
+        {/* The model the NEXT dispatch will actually use — override vs runtime
+            default, exactly as the server resolved it (org-shared.ts). */}
+        {detail.effectiveModel && (
+          <span
+            data-testid="orchestrator-effective-model"
+            className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]"
+          >
+            {detail.effectiveModel.source === 'override'
+              ? `override: ${detail.effectiveModel.model}`
+              : `runtime default (${detail.effectiveModel.model})`}
+          </span>
+        )}
+        {/* Recent-run health — same real counts as the roster card (one authority). */}
+        {detail.recent && detail.recent.total > 0 && (
+          <span
+            data-testid="orchestrator-detail-recent"
+            className={`text-[11px] ${detail.recent.failed === 0 ? 'text-[var(--green)]' : 'text-[var(--amber)]'}`}
+          >
+            {detail.recent.succeeded}/{detail.recent.total} recent ✓
+            {detail.recent.failed > 0 && ` · ${detail.recent.failed} failed`}
+          </span>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -284,7 +306,9 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                 </button>
               </form>
               <p className="text-[11px] text-[var(--muted)]">
-                Suggestions come from the org-default profile's grants.
+                Suggestions come from the org-default profile's grants. Adds are validated
+                server-side against the orchestrator tier ceiling — a tool beyond the tier
+                allowlist is rejected.
               </p>
             </div>
           )}

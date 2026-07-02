@@ -1,23 +1,25 @@
 /**
- * KHome — the K front-door landing page (P5.1f). Gate assertions:
+ * KHome — the K front-door landing page (P5.1f → C2 parity). Gate assertions:
  *   - a time-aware greeting renders (no hardcoded operator name)
  *   - the glance line summarizes the chief-org (leads active · objectives) and its
  *     link navigates to the Chief view
- *   - typing shows the live route preview from routeForMessage (computed in-test)
+ *   - typing shows the live route preview from routeForMessage (computed in-test);
+ *     a FORCED route overrides it with routeForTarget's label (honest preview)
+ *   - the power controls (model select · force-route select) ride the send opts
  *   - Send calls api.k.ask once and raises the undo toast WITHOUT navigating away
  *     (K-home stays put — wave C1); the toast's "View run" link opens the run and
  *     Undo kills it via api.runs.kill
  *   - a second send inside the 5s window restarts the countdown and retargets Undo
  *     to the NEW run (Toast resetKey — wave C1)
- *   - chief-org / runs query failures render visible error states, not empty states
- *   - work-items render one row per org objective with its lead chip
- *   - the recent feed renders runs with a View-run link that navigates
+ *   - the Notes / Schedule / Your-work cards render their reads, empty states, and
+ *     error states; work-item toggle PATCHes and the add composer POSTs (C2)
+ *   - chief-org / runs / card query failures render visible error states
  * api + route.navigate are mocked (vi.hoisted, mirroring command-bar-ask-k.test).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor, fireEvent, within, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { routeForMessage, type Status, type ChiefOrgPayload, type Run } from '@k/shared'
+import { routeForMessage, routeForTarget, type Status, type ChiefOrgPayload, type Run, type Note, type KSchedule, type WorkItem } from '@k/shared'
 
 const statusValue: Status = {
   claude: { available: true },
@@ -32,8 +34,8 @@ const orgPayload: ChiefOrgPayload = {
   leads: [],
   chiefWakes: [],
   assignments: [
-    { id: 'a1', runId: null, lead: 'Frontend Lead', objective: 'Ship the auth refactor', note: null, workflow: null, projects: [], createdAt: 1, updatedAt: 1 },
-    { id: 'a2', runId: null, lead: 'Backend Lead', objective: 'Harden the API surface', note: null, workflow: null, projects: [], createdAt: 2, updatedAt: 2 },
+    { id: 'a1', runId: null, lead: 'Frontend Lead', objective: 'Ship the auth refactor', note: null, workflow: null, projects: [], leadRunId: null, createdAt: 1, updatedAt: 1 },
+    { id: 'a2', runId: null, lead: 'Backend Lead', objective: 'Harden the API surface', note: null, workflow: null, projects: [], leadRunId: null, createdAt: 2, updatedAt: 2 },
   ],
   health: { leadsActive: 3 },
 }
@@ -43,20 +45,55 @@ const runsList: Run[] = [
   { id: 'run-2', prompt: 'auth refactor — diff +120 −44', cwd: '/x', status: 'running', provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, createdAt: Date.now() - 120_000 },
 ]
 
-const { mockAsk, mockKill, mockList, mockOrg, mockStatus, mockNavigate } = vi.hoisted(() => ({
+const notesList: Note[] = [
+  { id: 'n1', runId: null, body: 'call re: API rate limits', done: false, createdAt: 1, updatedAt: 1 },
+  { id: 'n2', runId: null, body: 'idea: cache the graph layout', done: true, createdAt: 2, updatedAt: 2 },
+]
+
+const scheduleValue: KSchedule = {
+  events: [
+    { id: 'ev1', runId: null, title: 'design sync', startsAt: Date.now() + 3_600_000, endsAt: null, location: null, createdAt: 1, updatedAt: 1 },
+  ],
+  reminders: [
+    { id: 'rm1', runId: null, text: 'renew the domain', remindAt: Date.now() - 60_000, status: 'pending', createdAt: 1, updatedAt: 1 },
+  ],
+}
+
+const workItemsList: WorkItem[] = [
+  { id: 'wi1', runId: null, title: 'triage PR #42', body: null, status: 'open', scope: 'personal', createdAt: 1, updatedAt: 1 },
+  { id: 'wi2', runId: null, title: 'build graph', body: null, status: 'done', scope: 'personal', createdAt: 2, updatedAt: 2 },
+  { id: 'wi3', runId: null, title: 'verify core', body: null, status: 'blocked', scope: 'personal', createdAt: 3, updatedAt: 3 },
+]
+
+const {
+  mockAsk, mockKill, mockList, mockOrg, mockStatus, mockNavigate,
+  mockNotes, mockSchedule, mockWiList, mockWiCreate, mockWiSetStatus, mockClaudeModel,
+} = vi.hoisted(() => ({
   mockAsk: vi.fn(),
   mockKill: vi.fn(async () => ({ killed: true })),
   mockList: vi.fn(),
   mockOrg: vi.fn(),
   mockStatus: vi.fn(),
   mockNavigate: vi.fn(),
+  mockNotes: vi.fn(),
+  mockSchedule: vi.fn(),
+  mockWiList: vi.fn(),
+  mockWiCreate: vi.fn(),
+  mockWiSetStatus: vi.fn(),
+  mockClaudeModel: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
   api: {
-    k: { ask: mockAsk },
+    k: {
+      ask: mockAsk,
+      notes: mockNotes,
+      schedule: mockSchedule,
+      workItems: { list: mockWiList, create: mockWiCreate, setStatus: mockWiSetStatus },
+    },
     runs: { list: mockList, kill: mockKill },
     chief: { org: mockOrg },
+    claudeModel: { get: mockClaudeModel },
     status: mockStatus,
     voice: { transcribe: async () => ({ text: '' }) },
   },
@@ -84,15 +121,31 @@ function renderHome() {
 // DIFFERENT route labels, computed live so assertions track routeForMessage.
 const MSG = 'refactor the auth module'
 const FE_MSG = 'update the react component css'
+// The default power-control opts every plain send carries ('default'/'' sentinels).
+const NO_OPTS = { model: undefined, forceRoute: undefined }
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   mockAsk.mockReset()
   mockKill.mockClear()
   mockNavigate.mockClear()
+  mockWiCreate.mockReset()
+  mockWiSetStatus.mockReset()
   mockList.mockResolvedValue(runsList)
   mockOrg.mockResolvedValue(orgPayload)
   mockStatus.mockResolvedValue(statusValue)
+  mockNotes.mockResolvedValue(notesList)
+  mockSchedule.mockResolvedValue(scheduleValue)
+  mockWiList.mockResolvedValue(workItemsList)
+  mockWiCreate.mockResolvedValue(workItemsList[0])
+  mockWiSetStatus.mockResolvedValue(workItemsList[0])
+  mockClaudeModel.mockResolvedValue({
+    model: 'claude-sonnet-4-6',
+    options: [
+      { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    ],
+  })
   mockAsk.mockImplementation(async (message: string) => ({
     kThreadId: 'kt', agentRunId: 'ar', runId: 'run-123', route: routeForMessage(message), warm: false,
   }))
@@ -128,6 +181,40 @@ describe('KHome', () => {
     expect(preview.textContent).toContain(routeForMessage(MSG).label)
   })
 
+  it('a forced route overrides the preview with routeForTarget\'s label and rides the send', async () => {
+    renderHome()
+    const input = screen.getByTestId('khome-composer') as HTMLInputElement
+    fireEvent.change(input, { target: { value: FE_MSG } })
+
+    // Classifier preview first (frontend for a react/css message)…
+    expect(screen.getByTestId('khome-route-preview').textContent).toContain(routeForMessage(FE_MSG).label)
+
+    // …then FORCE chief: the preview must show the forced label (routeForTarget —
+    // the same mapping the server applies), not the classifier's guess.
+    fireEvent.change(screen.getByTestId('khome-force-route'), { target: { value: 'chief' } })
+    const preview = screen.getByTestId('khome-route-preview')
+    expect(preview.textContent).toContain(routeForTarget('chief').label)
+    expect(preview.textContent).toContain('Forced')
+
+    fireEvent.click(screen.getByTestId('khome-send'))
+    await waitFor(() => expect(mockAsk).toHaveBeenCalledTimes(1))
+    expect(mockAsk).toHaveBeenCalledWith(FE_MSG, { model: undefined, forceRoute: 'chief' })
+  })
+
+  it('the model select lists the registry options and rides the send', async () => {
+    renderHome()
+    const select = (await screen.findByTestId('khome-model-select')) as HTMLSelectElement
+    // 'default' + the two mocked registry options.
+    await waitFor(() => expect(select.options.length).toBe(3))
+
+    fireEvent.change(select, { target: { value: 'claude-opus-4-8' } })
+    fireEvent.change(screen.getByTestId('khome-composer'), { target: { value: MSG } })
+    fireEvent.click(screen.getByTestId('khome-send'))
+
+    await waitFor(() => expect(mockAsk).toHaveBeenCalledTimes(1))
+    expect(mockAsk).toHaveBeenCalledWith(MSG, { model: 'claude-opus-4-8', forceRoute: undefined })
+  })
+
   it('Send asks K once, stays on K-home (no navigation), and Undo kills the run', async () => {
     renderHome()
     const input = screen.getByTestId('khome-composer') as HTMLInputElement
@@ -136,7 +223,7 @@ describe('KHome', () => {
     fireEvent.click(screen.getByTestId('khome-send'))
 
     await waitFor(() => expect(mockAsk).toHaveBeenCalledTimes(1))
-    expect(mockAsk).toHaveBeenCalledWith(MSG)
+    expect(mockAsk).toHaveBeenCalledWith(MSG, NO_OPTS)
 
     // The undo toast raises IN PLACE — K-home must NOT auto-navigate to the run
     // (navigating would unmount the page and kill this very toast).
@@ -227,19 +314,105 @@ describe('KHome', () => {
     const input = screen.getByTestId('khome-composer') as HTMLInputElement
     fireEvent.change(input, { target: { value: MSG } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    await waitFor(() => expect(mockAsk).toHaveBeenCalledWith(MSG))
+    await waitFor(() => expect(mockAsk).toHaveBeenCalledWith(MSG, NO_OPTS))
   })
 
-  it('renders one work-item row per org objective with a lead chip', async () => {
+  // ── Your work (personal work items — C2) ──────────────────────────────────
+
+  it('renders personal work items: checkbox state + a pill only for in-between statuses', async () => {
     renderHome()
     const section = await screen.findByTestId('khome-workitems')
-    // Wait for the chief-org query to populate the objective rows.
-    expect(await within(section).findByText('Ship the auth refactor')).toBeTruthy()
-    expect(within(section).getByText('Harden the API surface')).toBeTruthy()
-    // The lead chip surfaces the assignment's lead.
-    expect(within(section).getByText('Frontend Lead')).toBeTruthy()
-    expect(within(section).getByText('Backend Lead')).toBeTruthy()
+    expect(await within(section).findByText('triage PR #42')).toBeTruthy()
+
+    // open → unchecked, done → checked, blocked → unchecked + a status pill.
+    expect((screen.getByTestId('khome-workitem-toggle-wi1') as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByTestId('khome-workitem-toggle-wi2') as HTMLInputElement).checked).toBe(true)
+    expect(within(screen.getByTestId('khome-workitem-wi3')).getByText('blocked')).toBeTruthy()
+    // No pill for plain open/done rows.
+    expect(within(screen.getByTestId('khome-workitem-wi1')).queryByText('open')).toBeNull()
   })
+
+  it('toggling a work item PATCHes open↔done and refetches', async () => {
+    renderHome()
+    await screen.findByTestId('khome-workitem-wi1')
+
+    fireEvent.click(screen.getByTestId('khome-workitem-toggle-wi1'))
+    await waitFor(() => expect(mockWiSetStatus).toHaveBeenCalledWith('wi1', 'done'))
+
+    fireEvent.click(screen.getByTestId('khome-workitem-toggle-wi2'))
+    await waitFor(() => expect(mockWiSetStatus).toHaveBeenCalledWith('wi2', 'open'))
+    // Invalidation refetched the list (initial load + one per successful toggle).
+    await waitFor(() => expect(mockWiList.mock.calls.length).toBeGreaterThanOrEqual(3))
+  })
+
+  it('the add composer POSTs a new personal item and clears on success only', async () => {
+    renderHome()
+    const input = (await screen.findByTestId('khome-workitem-add-input')) as HTMLInputElement
+
+    fireEvent.change(input, { target: { value: 'water the plants' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(mockWiCreate).toHaveBeenCalledWith('water the plants'))
+    await waitFor(() => expect(input.value).toBe(''))
+
+    // A failed create keeps the typed title and surfaces the error inline.
+    mockWiCreate.mockRejectedValueOnce(new Error('store down'))
+    fireEvent.change(input, { target: { value: 'will fail' } })
+    fireEvent.click(screen.getByTestId('khome-workitem-add'))
+    await screen.findByTestId('khome-workitem-error')
+    expect(screen.getByTestId('khome-workitem-error').textContent).toMatch(/store down/)
+    expect(input.value).toBe('will fail')
+  })
+
+  it('work items: empty and error states', async () => {
+    mockWiList.mockResolvedValue([])
+    renderHome()
+    const section = await screen.findByTestId('khome-workitems')
+    expect(await within(section).findByText('No personal work items yet.')).toBeTruthy()
+    cleanup()
+
+    mockWiList.mockRejectedValue(new Error('down'))
+    renderHome()
+    expect(await screen.findByTestId('khome-workitems-error')).toBeTruthy()
+  })
+
+  // ── Notes + Schedule cards (C2) ───────────────────────────────────────────
+
+  it('renders the notes card (done notes marked) and its empty state', async () => {
+    renderHome()
+    const notes = await screen.findByTestId('khome-notes')
+    expect(await within(notes).findByText(/call re: API rate limits/)).toBeTruthy()
+    // The done note renders with the ✓ marker.
+    expect(within(notes).getByText(/idea: cache the graph layout/).textContent).toContain('✓')
+    cleanup()
+
+    mockNotes.mockResolvedValue([])
+    renderHome()
+    const empty = await screen.findByTestId('khome-notes')
+    expect(await within(empty).findByText('No notes yet — ask K to take one.')).toBeTruthy()
+  })
+
+  it('renders the schedule card (event + overdue reminder) and its empty state', async () => {
+    renderHome()
+    const schedule = await screen.findByTestId('khome-schedule')
+    expect(await within(schedule).findByText('design sync')).toBeTruthy()
+    expect(within(schedule).getByText(/renew the domain/)).toBeTruthy()
+    cleanup()
+
+    mockSchedule.mockResolvedValue({ events: [], reminders: [] })
+    renderHome()
+    const empty = await screen.findByTestId('khome-schedule')
+    expect(await within(empty).findByText('Nothing scheduled.')).toBeTruthy()
+  })
+
+  it('notes/schedule query failures render error states, not empty states', async () => {
+    mockNotes.mockRejectedValue(new Error('down'))
+    mockSchedule.mockRejectedValue(new Error('down'))
+    renderHome()
+    expect(await screen.findByTestId('khome-notes-error')).toBeTruthy()
+    expect(await screen.findByTestId('khome-schedule-error')).toBeTruthy()
+  })
+
+  // ── Recent feed + degrades ────────────────────────────────────────────────
 
   it('renders the recent feed with View-run links that navigate', async () => {
     renderHome()
@@ -252,12 +425,11 @@ describe('KHome', () => {
     expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-1')
   })
 
-  it('a chief-org failure surfaces glance + work-items error states (not fake zeros)', async () => {
+  it('a chief-org failure surfaces the glance error state (not fake zeros)', async () => {
     mockOrg.mockRejectedValue(new Error('org down'))
     renderHome()
 
-    expect(await screen.findByTestId('khome-workitems-error')).toBeTruthy()
-    expect(screen.getByTestId('khome-glance-error')).toBeTruthy()
+    expect(await screen.findByTestId('khome-glance-error')).toBeTruthy()
     // The Chief link keeps working even while the glance is degraded.
     fireEvent.click(screen.getByTestId('khome-glance-link'))
     expect(mockNavigate).toHaveBeenCalledWith('chief')

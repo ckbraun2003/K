@@ -432,6 +432,65 @@ describe('askK — delegation to the Chief', () => {
   })
 })
 
+// ── askK — power controls: forceRoute + model (C2) ────────────────────────────
+
+describe('askK — forceRoute + model power controls', () => {
+  it('forceRoute:chief delegates a message the classifier would keep as logistics', async () => {
+    // routeForMessage classifies this as logistics (no engineering signal) — the
+    // forced route must win and hand it to the Chief anyway.
+    const { routeForMessage } = await import('@k/shared')
+    expect(routeForMessage('remind me to water the plants').escalates).toBe(false)
+
+    const result = await askK('remind me to water the plants', { forceRoute: 'chief' })
+
+    expect(result.route.target).toBe('chief')
+    expect(result.route.escalates).toBe(true)
+    // The Chief was activated (trigger=delegation); no k-secretary run started.
+    const rows = chiefAgentRuns()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].trigger).toBe('delegation')
+    expect(agentRunsDb.listRecentAgentRunsByProfile.all('k-secretary', 500)).toHaveLength(0)
+  })
+
+  it('a forced named lead carries the discipline hint in the delegation goal', async () => {
+    await askK('handle this one', { forceRoute: 'frontend' })
+    const rows = chiefAgentRuns()
+    expect(rows).toHaveLength(1)
+    // buildDelegationGoal's named-lead hint path — the Chief can assign_lead on it.
+    expect(String(rows[0].goal)).toContain('frontend')
+    expect(String(rows[0].goal)).toContain('handle this one')
+  })
+
+  it('an explicit model on a cold logistics ask reaches startRun', async () => {
+    await askK('note the grocery list', { model: 'claude-opus-4-8' })
+    const lastCall = vi.mocked(startRun).mock.calls.at(-1)!
+    expect(lastCall[1]).toMatchObject({ model: 'claude-opus-4-8', interactive: true })
+  })
+
+  it('an explicit model SKIPS the warm continuation and starts fresh (model can\'t change mid-process)', async () => {
+    // Arrange a warm thread exactly like the warm-continuation test above.
+    ensureDefaultKThread()
+    const warmRunId = `mock-k-warm-${uuid().slice(0, 8)}`
+    db.prepare(
+      `INSERT OR IGNORE INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'k', '.', 'awaiting_input', ?)`,
+    ).run(warmRunId, Date.now())
+    db.prepare(`UPDATE k_threads SET active_run_id = ?, updated_at = ? WHERE id = ?`)
+      .run(warmRunId, Date.now(), DEFAULT_K_THREAD_ID)
+    __testHooks.initSeq(warmRunId)
+    __testHooks.setActiveProc(warmRunId, { interactive: true, stdin: { write() {} }, kill() {} } as never)
+    try {
+      const result = await askK('note the follow-ups', { model: 'claude-opus-4-8' })
+      // Fresh dispatch, NOT the warm run — the live process's model can't change,
+      // and silently dropping the operator's explicit choice would be worse.
+      expect(result.warm).toBe(false)
+      expect(result.runId).not.toBe(warmRunId)
+      expect(vi.mocked(startRun).mock.calls.at(-1)![1]).toMatchObject({ model: 'claude-opus-4-8' })
+    } finally {
+      __testHooks.clearActiveProc(warmRunId)
+    }
+  })
+})
+
 // ── Chief→K continuation — the lead outcome completes the up-chain (loop-b2) ───
 
 /** Insert a real runs row + one assistant summary event (an FK-valid lead run). */

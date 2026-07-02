@@ -89,6 +89,28 @@ describe('startAgentRun', () => {
     expect(after.completed_at).not.toBeNull()
   })
 
+  it('an explicit opts.model override wins over a profile defaultModel (C2 power control)', async () => {
+    // A profile WITH an explicit defaultModel — the override must still win over it
+    // (precedence: opts.model → profile.defaultModel → runtime claudeDefaultModel).
+    const modelProfileId = 'p50-ar-model-orch'
+    createProfile({ id: modelProfileId, name: modelProfileId, tier: 'orchestrator', defaultModel: 'claude-sonnet-4-6' })
+    try {
+      await startAgentRun(modelProfileId, {
+        trigger: 'user-message',
+        goal: 'model override',
+        model: 'claude-opus-4-8',
+      })
+      expect(vi.mocked(startRun).mock.calls.at(-1)![1]).toMatchObject({ model: 'claude-opus-4-8' })
+
+      // Without the override the profile default still applies (no regression).
+      await startAgentRun(modelProfileId, { trigger: 'user-message', goal: 'profile default' })
+      expect(vi.mocked(startRun).mock.calls.at(-1)![1]).toMatchObject({ model: 'claude-sonnet-4-6' })
+    } finally {
+      db.prepare(`DELETE FROM agent_runs WHERE profile_id = ?`).run(modelProfileId)
+      db.prepare(`DELETE FROM agent_profiles WHERE id = ?`).run(modelProfileId)
+    }
+  })
+
   it('startRun throws — rolls the tracking row back to failed and re-throws (no leaked running row)', async () => {
     vi.mocked(startRun).mockRejectedValueOnce(new Error('spawn failed'))
 

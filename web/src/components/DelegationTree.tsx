@@ -101,7 +101,16 @@ function TreeNode({
   )
 }
 
-function NodeDetail({ node }: { node: DelegationNode }) {
+function NodeDetail({
+  node,
+  renderActions,
+}: {
+  node: DelegationNode
+  renderActions?: (node: DelegationNode) => React.ReactNode
+}) {
+  // Resolve once: a provided renderer may still return null for nodes with no
+  // applicable actions — then the actions row is omitted entirely.
+  const actions = renderActions?.(node)
   return (
     <div className="space-y-3" data-testid="delegation-node-detail">
       <div>
@@ -111,6 +120,14 @@ function NodeDetail({ node }: { node: DelegationNode }) {
           {node.status}
         </span>
       </div>
+      {actions != null && actions !== false && (
+        <div
+          className="flex flex-wrap items-center gap-2"
+          data-testid="delegation-node-actions"
+        >
+          {actions}
+        </div>
+      )}
       {node.meta && (
         <div>
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">Detail</p>
@@ -140,7 +157,16 @@ function NodeDetail({ node }: { node: DelegationNode }) {
   )
 }
 
-export default function DelegationTree({ root }: { root: DelegationNode }) {
+export default function DelegationTree({
+  root,
+  renderActions,
+}: {
+  root: DelegationNode
+  /** Optional per-node action row for the inspector (e.g. "Open lead" / "View run" /
+   *  "Stop run" on the Chief page). Kept as a render prop so this component stays
+   *  generic + prop-fed (render-testable) — it knows nothing about navigation/APIs. */
+  renderActions?: (node: DelegationNode) => React.ReactNode
+}) {
   // Default to the root so the inspector is never empty. When the tree data changes
   // and the previously-selected node is gone, findNode falls back to the root.
   const [selectedId, setSelectedId] = useState<string>(root.id)
@@ -175,7 +201,7 @@ export default function DelegationTree({ root }: { root: DelegationNode }) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.15 }}
           >
-            <NodeDetail node={selected} />
+            <NodeDetail node={selected} renderActions={renderActions} />
           </motion.div>
         </div>
       </aside>

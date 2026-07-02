@@ -83,6 +83,8 @@ export function leadNode(lead: ChiefOrgLead): DelegationNode {
     kind: 'lead',
     status,
     meta,
+    // The run backing the node — lets the inspector offer "View run"/"Stop run".
+    runId: latestRun?.id,
     children,
   }
 }
@@ -96,15 +98,19 @@ export function orgToDelegationTree(payload: ChiefOrgPayload): DelegationNode {
   const chiefWakes = payload.chiefWakes ?? []
   const children = leads.map(leadNode)
   const chiefRunning = chiefWakes.some(w => w.status === 'running')
-  // "Active" matches the route's health predicate: a lead is active when its latest
-  // run is live — running/awaiting_input map to 'running' and queued to 'queued' —
-  // so this root-meta count agrees with the thin health line's leadsActive.
-  const activeLeads = children.filter(c => c.status === 'running' || c.status === 'queued').length
+  // Active-leads count: SERVER-AUTHORITATIVE (routes/chief.ts computes leadsActive
+  // from the same scan that built `leads`, and surfaces it top-level + in health).
+  // The old client-side re-derivation over `children` statuses is gone — two
+  // computations of the same fact can only drift.
+  const activeLeads = payload.leadsActive ?? payload.health?.leadsActive ?? 0
   return {
     id: 'chief',
     label: payload.chief?.name ?? 'Chief',
     kind: 'chief',
     status: chiefRunning ? 'running' : 'idle',
+    // The newest chiefWake that reached a run (live OR terminal) — "View run" is a
+    // history jump, not a liveness claim.
+    runId: chiefWakes.find(w => w.runId != null)?.runId ?? undefined,
     meta: `${children.length} lead${children.length === 1 ? '' : 's'} · ${activeLeads} active`,
     children,
   }

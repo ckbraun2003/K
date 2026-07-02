@@ -285,8 +285,11 @@ export type GraphDispatchBody = z.infer<typeof GraphDispatchBodySchema>
 // workflow over the selected todos. Validated at the route boundary (400 on
 // invalid) per lessons.md "validate user input at the boundary". Mirrors
 // GraphDispatchBodySchema. Bounded 1..50 so a stray select-all can't fan out.
+// `workflowId` optionally names a NamedWorkflow whose scaffold seeds the prompt
+// (C2 "Run this workflow"); omitted = the built-in code-wave scaffold.
 export const DispatchTasksBodySchema = z.object({
   taskIds: z.array(z.string().uuid()).min(1).max(50),
+  workflowId: z.string().min(1).optional(),
 })
 export type DispatchTasksBody = z.infer<typeof DispatchTasksBodySchema>
 
@@ -547,6 +550,15 @@ export const ReminderSchema = z.object({
 })
 export type Reminder = z.infer<typeof ReminderSchema>
 
+/** Payload of GET /api/k/schedule — the K-home Schedule card's one batched read:
+ *  upcoming calendar events (soonest first) + pending reminders (including overdue —
+ *  an overdue reminder is the most important thing to show, not something to hide). */
+export const KScheduleSchema = z.object({
+  events: z.array(CalendarEventSchema),
+  reminders: z.array(ReminderSchema),
+})
+export type KSchedule = z.infer<typeof KScheduleSchema>
+
 // ─── AgentRun (agent-org activation — P5.0) ─────────────────────────────────
 // One activation of a durable profile into a supervised run (startAgentRun). The
 // wire projection of an `agent_runs` row, mirroring the core interface. `runId` is
@@ -621,6 +633,9 @@ export interface DelegationNode {
   status: DelegationNodeStatus
   /** Optional one-line detail for the inspector (e.g. the latest run's prompt). */
   meta?: string
+  /** The run backing this node when known (a lead's latest run / the Chief's live
+   *  wake run) — lets the inspector offer a "View run" action. */
+  runId?: string
   children: DelegationNode[]
 }
 
@@ -629,6 +644,16 @@ export interface DelegationNode {
 // (core/src/routes/chief.ts) so the page issues a single query with no per-item
 // fan-out. `health` is deliberately THIN (D-026: no full health strip re-computed
 // here) — just the cheap leads-active count.
+/** Health counts over a lead's most-recent activations (routes/org-shared.ts::
+ *  recentHealth): total scanned, terminal successes, terminal failures. A live
+ *  'running' activation counts in `total` only. REAL data derived from agent_runs —
+ *  never an invented score/band (D-026 honesty posture). */
+export interface RecentRunHealth {
+  total: number
+  succeeded: number
+  failed: number
+}
+
 export interface ChiefOrgLead {
   profile: AgentProfile
   /** The lead's most recent agent_run that reached a run (has run_id), else null. */
@@ -640,6 +665,9 @@ export interface ChiefOrgLead {
   /** The model this lead's next dispatch will actually use: the profile's explicit
    *  override when set, else the runtime Claude default. `source` says which. */
   effectiveModel?: { model: string; source: 'override' | 'runtime-default' }
+  /** Success/failure counts over the lead's recent activations. Optional (mirrors
+   *  effectiveModel) so existing fixtures/older payloads keep compiling. */
+  recent?: RecentRunHealth
 }
 
 export interface ChiefOrgHealth {
@@ -660,9 +688,9 @@ export interface ChiefOrgPayload {
    *  without it still builds a tree (fullOrgToDelegationTree defaults to 0). */
   kDelegations?: number
   /** Server-authoritative count of leads with a LIVE latest run (=== health.leadsActive).
-   *  AUTHORITATIVE over any client re-derivation (web/src/lib/delegation.ts currently
-   *  recomputes it from `leads` — consumers should prefer this field). Optional
-   *  (mirrors kDelegations) so older payload fixtures stay valid. */
+   *  The ONE source consumers render (web/src/lib/delegation.ts consumes it — the old
+   *  client-side re-derivation was deleted in C2). Optional (mirrors kDelegations) so
+   *  older payload fixtures stay valid. */
   leadsActive?: number
 }
 
@@ -679,6 +707,9 @@ export interface OrchestratorRosterEntry {
   live: boolean
   /** Count of the lead's recent activations (bounded by the per-lead scan). */
   wakes: number
+  /** Success/failure counts over the lead's recent activations. Optional (mirrors
+   *  ChiefOrgLead.recent) so existing fixtures/older payloads keep compiling. */
+  recent?: RecentRunHealth
 }
 
 export interface OrchestratorRosterPayload {
@@ -1017,8 +1048,39 @@ export function routeForMessage(message: string): KRoute {
   return { target: 'logistics', label: K_ROUTE_LABELS.logistics, escalates: false }
 }
 
-/** Body for POST /api/k/ask — the operator's message to K. */
-export const KAskBodySchema = z.object({ message: z.string().min(1).max(20000) })
+/** The routes an operator may FORCE for an ask (C2 power controls): every escalating
+ *  target — the Chief or a named lead. 'logistics' is deliberately absent: forcing K
+ *  to keep an engineering ask would only defeat the delegation machinery. */
+export const KForceRouteSchema = z.enum([
+  'chief',
+  'frontend',
+  'backend',
+  'systems',
+  'security',
+  'network',
+])
+export type KForceRoute = z.infer<typeof KForceRouteSchema>
+
+/**
+ * The KRoute for a FORCED target — the same discipline as routeForMessage: this ONE
+ * shared mapping is used on BOTH sides of the wire (the composer renders it as the
+ * forced-route preview, the server's askK routes on it), so the preview and the
+ * actual forced routing agree because they are the same computation. Every forced
+ * target escalates by construction (see KForceRouteSchema).
+ */
+export function routeForTarget(target: KForceRoute): KRoute {
+  return { target, label: K_ROUTE_LABELS[target], escalates: true }
+}
+
+/** Body for POST /api/k/ask — the operator's message to K, plus the optional power
+ *  controls: `forceRoute` bypasses the classifier (routeForTarget wins over
+ *  routeForMessage) and `model` is an explicit per-ask model override (validated
+ *  against the known-model registry at the route boundary). */
+export const KAskBodySchema = z.object({
+  message: z.string().min(1).max(20000),
+  forceRoute: KForceRouteSchema.optional(),
+  model: z.string().min(1).max(200).optional(),
+})
 export type KAskBody = z.infer<typeof KAskBodySchema>
 
 // ─── Durable work-items HTTP surface (operator-global) ───────────────────────
