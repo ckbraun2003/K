@@ -284,8 +284,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                 </button>
               </form>
               <p className="text-[11px] text-[var(--muted)]">
-                Suggestions come from the org-default profile's grants; ungranted names are
-                validated server-side.
+                Suggestions come from the org-default profile's grants.
               </p>
             </div>
           )}
