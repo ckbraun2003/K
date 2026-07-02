@@ -70,7 +70,10 @@ export async function orchestratorsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'empty patch' })
     }
     // defaultModel must be a known Claude model id (same gate as PUT /api/claude/model);
-    // null explicitly CLEARS the override back to the runtime default.
+    // null explicitly CLEARS the override back to the runtime default. '' normalizes to
+    // that same clear-sentinel FIRST — it is the storage encoding of "no override"
+    // (db.ts rowToAgentProfile), so it must clear, never 400.
+    if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
     if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
       return reply.status(400).send({ error: 'unknown model' })
     }

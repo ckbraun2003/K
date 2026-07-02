@@ -81,6 +81,19 @@ describe('PATCH /api/orchestrators/:id — defaultModel validation', () => {
     expect(detail.effectiveModel!.model).toBe(claudeDefaultModel())
   })
 
+  it("'' clears the override exactly like null (it is the storage no-override sentinel)", async () => {
+    // Set an override first so the clear is observable.
+    expect((await patchLead({ defaultModel: 'claude-opus-4-8' })).statusCode).toBe(200)
+
+    const res = await patchLead({ defaultModel: '' })
+    expect(res.statusCode).toBe(200) // NOT a 400 — '' normalizes to the clear-sentinel
+    expect((res.json() as AgentProfile).defaultModel).toBeNull()
+
+    const detail = (await getLead()).json() as ChiefOrgLead
+    expect(detail.effectiveModel!.source).toBe('runtime-default')
+    expect(detail.effectiveModel!.model).toBe(claudeDefaultModel())
+  })
+
   it('an above-ceiling allowedTools patch is a 400 (tier ceiling), row unchanged', async () => {
     const before = getProfile('lead-frontend')!.allowedTools
     // Two distinct above-ceiling shapes: the dead `Agent` token (never a valid
@@ -113,5 +126,14 @@ describe('PATCH /api/org-default — defaultModel validation', () => {
     expect(clear.statusCode).toBe(200)
     expect((clear.json() as AgentProfile).defaultModel).toBeNull()
     expect(getProfile('default-orchestrator')!.defaultModel).toBeNull()
+  })
+
+  it("'' clears the override exactly like null (storage no-override sentinel)", async () => {
+    expect((await patchOrgDefault({ defaultModel: 'claude-opus-4-8' })).statusCode).toBe(200)
+
+    const res = await patchOrgDefault({ defaultModel: '' })
+    expect(res.statusCode).toBe(200) // NOT a 400 — '' normalizes to the clear-sentinel
+    expect((res.json() as AgentProfile).defaultModel).toBeNull()
+    expect(getProfile('default-orchestrator')!.defaultModel).toBeNull() // seed-equivalent state restored
   })
 })

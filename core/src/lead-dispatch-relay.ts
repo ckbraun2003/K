@@ -34,7 +34,9 @@
  *    time (resolveDispatchScope) — the FIRST name maps through the projects registry to the
  *    run's projectId + cwd, so the lead works in the scoped repo, not K's own. An
  *    unresolvable name or a missing localPath FAILS the dispatch cleanly (fail-closed:
- *    running a project-scoped objective in K's repo would silently violate operator intent).
+ *    running a project-scoped objective in K's repo would silently violate operator intent),
+ *    and a THROW during the resolution reads (post-claim) degrades through the same
+ *    status-guarded mark-failed — the claimed intent is never stranded.
  *  • Partial-failure window: once startAgentRun succeeds the lead run is LIVE. The follow-up
  *    wiring (record lead_run_id, link the assignment, wire report-back) runs in an INNER
  *    try/catch so a wiring throw can NEVER propagate and lose the live run. If that wiring
@@ -113,20 +115,24 @@ export async function drainLeadDispatches(): Promise<number> {
       // execute this intent. A concurrent/overlapping drain sees changes===0 and skips.
       if (leadDispatchDb.claimLeadDispatch.run({ id, dispatchedAt: Date.now() }).changes === 0) continue
 
-      // Resolve the assignment's project scope (mgmt scope_projects — names → the
-      // projects registry) at EXECUTION time, so the lead's worktree is created in the
-      // scoped repo, not K's own. Unresolvable/missing-path scope fails the dispatch
-      // cleanly (status-guarded mark-failed), never crashes the loop.
-      const assignmentRow = mgmtDb.getAssignment.get(String(row.assignment_id)) as Record<string, unknown> | undefined
-      const scope = resolveDispatchScope(assignmentRow ? rowToAssignment(assignmentRow).projects : [])
-      if (scope.error) {
-        leadDispatchDb.markLeadDispatchFailed.run({ id, dispatchedAt: Date.now() })
-        console.warn(`[lead-relay] dispatch ${id} failed: ${scope.error}`)
-        continue
-      }
-      if (scope.warning) console.warn(`[lead-relay] dispatch ${id}: ${scope.warning}`)
-
       try {
+        // Resolve the assignment's project scope (mgmt scope_projects — names → the
+        // projects registry) at EXECUTION time, so the lead's worktree is created in the
+        // scoped repo, not K's own. Unresolvable/missing-path scope fails the dispatch
+        // cleanly (status-guarded mark-failed), never crashes the loop. This runs INSIDE
+        // the try: the intent is already claimed 'dispatched', so a THROW here (e.g.
+        // SQLITE_BUSY on the assignment/registry reads) must degrade through the same
+        // catch below — never propagate and strand the row 'dispatched' with no run
+        // until the boot-only reconcile.
+        const assignmentRow = mgmtDb.getAssignment.get(String(row.assignment_id)) as Record<string, unknown> | undefined
+        const scope = resolveDispatchScope(assignmentRow ? rowToAssignment(assignmentRow).projects : [])
+        if (scope.error) {
+          leadDispatchDb.markLeadDispatchFailed.run({ id, dispatchedAt: Date.now() })
+          console.warn(`[lead-relay] dispatch ${id} failed: ${scope.error}`)
+          continue
+        }
+        if (scope.warning) console.warn(`[lead-relay] dispatch ${id}: ${scope.warning}`)
+
         // Dispatch under the resolved lead profile in the MAIN process (its tracking-row
         // lifecycle + the report-back subscriber below outlive the mgmt-server child).
         const { runId } = await startAgentRun(String(row.lead_profile_id), {
@@ -176,8 +182,9 @@ export async function drainLeadDispatches(): Promise<number> {
           } catch { /* best-effort — never crash the drain */ }
         }
       } catch (err) {
-        // startAgentRun threw — it already rolled its own agent_runs row back to 'failed'.
-        // Mark the intent 'failed' (assignment link stays NULL → retryable) and degrade.
+        // startAgentRun threw (it already rolled its own agent_runs row back to
+        // 'failed') — or the scope-resolution reads above did. Either way the intent is
+        // claimed: mark it 'failed' (assignment link stays NULL → retryable) and degrade.
         leadDispatchDb.markLeadDispatchFailed.run({ id, dispatchedAt: Date.now() })
         console.warn(`[lead-relay] dispatch ${id} failed:`, err)
       }

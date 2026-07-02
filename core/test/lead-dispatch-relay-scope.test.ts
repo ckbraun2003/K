@@ -249,6 +249,40 @@ describe('drainLeadDispatches: project scope', () => {
 
 // ── throw-path hardening ──────────────────────────────────────────────────────
 
+describe('drainLeadDispatches: scope-resolution throw (post-claim)', () => {
+  it('a throw from the assignment read marks the intent failed — never stranded — and the drain continues', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const a = recordIntent('B1-SCOPE-THROW-A')
+    const b = recordIntent('B1-SCOPE-THROW-B')
+    // Deterministic drain order (listPendingLeadDispatches is created_at ASC with no
+    // tie-break): pin A strictly before B.
+    db.prepare(`UPDATE lead_dispatches SET created_at = 1 WHERE id = ?`).run(a.dispatchId)
+    db.prepare(`UPDATE lead_dispatches SET created_at = 2 WHERE id = ?`).run(b.dispatchId)
+    // The drain's FIRST assignment read (intent A, AFTER its CAS claim) throws — e.g.
+    // SQLITE_BUSY under lock contention.
+    const spy = vi.spyOn(mgmtDb.getAssignment, 'get').mockImplementationOnce(() => {
+      throw new Error('SQLITE_BUSY: database is locked')
+    })
+    try {
+      const before = vi.mocked(startRun).mock.calls.length
+      // The drain NEVER throws (its contract): A degrades, B still dispatches.
+      await expect(drainLeadDispatches()).resolves.toBe(1)
+
+      // A: claimed then rescued to 'failed' (lead_run_id NULL, assignment retryable) —
+      // NOT stranded 'dispatched' until the boot-only reconcile.
+      expect(intent(a.dispatchId).status).toBe('failed')
+      expect(intent(a.dispatchId).lead_run_id).toBeNull()
+      expect(assignmentLeadRun(a.assignmentId)).toBeNull()
+      // B: the loop continued past A's throw and dispatched normally.
+      expect(intent(b.dispatchId).status).toBe('dispatched')
+      expect(startRunCallsSince(before)).toHaveLength(1)
+    } finally {
+      spy.mockRestore()
+      warn.mockRestore()
+    }
+  })
+})
+
 describe('drainLeadDispatches: wiring-throw rescue', () => {
   it('a setLeadDispatchRun throw marks the intent failed instead of stranding it dispatched', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
