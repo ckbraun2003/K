@@ -74,9 +74,12 @@ const reassignTx = db.transaction((assignmentId: string, profile: AgentProfile):
     }
   }
 
-  // Guard 2: a pending/dispatched lead_dispatches intent for this assignment —
-  // the main-process relay would execute that queued intent under the OLD lead,
-  // silently undoing the reassign the operator just confirmed.
+  // Guard 2: an IN-FLIGHT lead_dispatches intent for this assignment — the
+  // main-process relay would execute (or is executing) that intent under the OLD
+  // lead, silently undoing the reassign the operator just confirmed. "In flight" is
+  // liveness-DERIVED (pending, or dispatched with a live/unrecorded run); a COMPLETED
+  // intent is retired-by-derivation and does not block — see
+  // db.ts::getActiveLeadDispatchByAssignment.
   if (leadDispatchDb.getActiveLeadDispatchByAssignment.get(assignmentId)) {
     throw new ReassignError(409, 'assignment has a pending dispatch')
   }
@@ -102,8 +105,9 @@ const reassignTx = db.transaction((assignmentId: string, profile: AgentProfile):
     updatedAt: now,
   })
   // Clear the OLD lead's (terminal — guard 1) run link so lead_run_id keeps meaning
-  // "the CURRENT lead's dispatched run" — and so dispatch_lead's already-dispatched
-  // guard doesn't permanently block dispatching the NEW lead on this assignment.
+  // "the CURRENT lead's dispatched run". Re-dispatchability itself no longer hinges
+  // on this: dispatch_lead's guards derive liveness from the runs row (a terminal
+  // prior run never blocks) — the clear is semantic hygiene, not the unlock.
   mgmtDb.setAssignmentLeadRun.run({ id: assignment.id, leadRunId: null, updatedAt: now })
   // Audit-comment the reassign into the durable mgmt trail (the same store the
   // Chief reads via report_list), so the org's next wake sees WHY the lead moved.

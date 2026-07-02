@@ -173,7 +173,10 @@ export async function drainLeadDispatches(): Promise<number> {
           // the row would sit 'dispatched' with lead_run_id NULL forever — the exact stranded
           // state the boot sweep (reconcileOrphanedLeadDispatches) exists to rescue. Rescue it
           // NOW instead (status-guarded mark-failed; assignment link stays NULL → retryable).
-          // When the run id WAS recorded, the intent is complete — leave it 'dispatched'.
+          // When the run id WAS recorded, the intent is complete — leave it 'dispatched': it
+          // is retired by DERIVATION once that run reaches terminal (db.ts::
+          // getActiveLeadDispatchByAssignment joins the runs row), so a completed intent
+          // stops blocking re-dispatch/reassign without a status write here.
           try {
             const cur = leadDispatchDb.getLeadDispatch.get(id) as Record<string, unknown> | undefined
             if (cur && cur.lead_run_id == null) {
