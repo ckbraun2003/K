@@ -30,14 +30,19 @@ definition is a small declarative record — its role sequence, the prompt scaff
 that `startAgentRun(profileId, { workflowId, … })` seeds into a run:
 
 ```ts
-WorkflowDefinition {            // PLANNED — Phase 5 (generalizes today's single buildDelegationPrompt)
-  id: uuid
-  name: string                 // "implement+review" (the first), "investigate", "refactor", …
-  roles: Role[]                // the role-subagent sequence (e.g. implementer → spec-review → quality-review)
-  promptScaffold: string       // how the goal + roles are rendered into the controller prompt
+NamedWorkflow {                 // BUILT — P5.3b (generalizes today's single buildDelegationPrompt)
+  id: uuid                      // pinned for the seeds: 'code-wave' | 'investigate' | 'refactor'
+  name: string                 // "Code wave" (the first), "Investigate", "Refactor", …
+  roles: WorkflowRole[]        // the role-subagent sequence (e.g. implementer → spec-review → quality-review)
+  promptScaffold: string       // how the goal + roles are rendered into the controller prompt ({{CHECKLIST}} token)
   crossProject: boolean        // may the run touch more than one project? (flag lands; multi-project EXECUTION deferred)
 }
 ```
+
+> **Named `NamedWorkflow`, NOT `WorkflowDefinition` (D-047).** The persisted DB entity is
+> `NamedWorkflow` (table `workflow_definitions`) — deliberately distinct from the existing
+> `@k/shared` `WorkflowDefinition` (roles + edges), which is the read-only **diagram** type and is
+> left untouched.
 
 - **`implement+review` is the first definition** — it is exactly today's loop, lifted verbatim into
   a named record so nothing regresses while the mechanism generalizes.
@@ -46,14 +51,16 @@ WorkflowDefinition {            // PLANNED — Phase 5 (generalizes today's sing
   cross-project run is a later increment, not part of the first cut (same posture as D-012's staged-
   engine growth point).
 
-> **Sequencing (P5.3 split, D-043).** The named-definition mechanism above is the **P5.3b** half and is
-> still planned: a `workflow_definitions` table + repo/CRUD, `buildDelegationPrompt` generalized so
-> `implement+review` is lifted verbatim as the first named def (behaviour-preserving — the existing
-> workflow tests stay green), plus `investigate`/`refactor` seeds and the Workflows list/detail UI.
+> **Sequencing (P5.3 split, D-043 → BUILT P5.3b, D-047).** The named-definition mechanism above
+> has **landed** as **P5.3b**: a `workflow_definitions` table + `NamedWorkflow` repo/CRUD
+> (`core/src/workflow-defs.ts`, `routes/workflows.ts`), with `buildDelegationPrompt` generalized —
+> `renderWorkflowPrompt(scaffold, tasks)` renders a `{{CHECKLIST}}` token, and the exported
+> `CODE_WAVE_SCAFFOLD` is the pre-P5.3b prompt **verbatim**, so `buildDelegationPrompt` is
+> **byte-identical** and the existing workflow/dispatch tests stay green. The `code-wave` seed is that
+> first named def; `investigate` + `refactor` are seeded alongside it. The **Workflows list + detail
+> UI** (`WorkflowsPage` Definitions tab + `WorkflowDetailPage`) reads/edits them, and the **Settings
+> org-default authority panel** surfaces the `default-orchestrator` grant leads inherit (§08).
 > **P5.3a shipped first**: the Orchestrators roster + detail + per-lead authority control plane (§08).
-> Note the runtime record above is the *persisted* `WorkflowDefinition`; the existing `@k/shared`
-> `WorkflowDefinition` (roles + edges) is the read-only **diagram** type and is left untouched — P5.3b
-> introduces the DB entity under a distinct name to avoid colliding with it.
 
 ## The delegation loop
 

@@ -883,6 +883,22 @@ export const DELEGATION_WORKFLOW: WorkflowDefinition = {
   ],
 }
 
+// ─── Named workflow definitions (P5.3b, D-047) ───────────────────────────────
+// DISTINCT from `WorkflowDefinition` above (that is the roles+edges DIAGRAM type for
+// the D-016 viz). `NamedWorkflow` is the DB-backed, operator-editable workflow TEMPLATE:
+// a name, an ordered role list, a prompt scaffold (rendered with the todo checklist at
+// dispatch), and a cross_project flag (execution deferred — D-012/D-026 posture).
+export interface NamedWorkflow {
+  id: string
+  name: string
+  roles: WorkflowRole[]
+  /** The delegation-prompt template; `{{CHECKLIST}}` is replaced with the numbered todo list. */
+  promptScaffold: string
+  /** Reserved: may this workflow reach outside the current project? Execution deferred. */
+  crossProject: boolean
+  createdAt: number
+}
+
 // ─── K front door (P5.1c — "talk to K") ─────────────────────────────────────
 // The route surfaced when composing a message to K. `routeForMessage` is a shared,
 // deterministic PREVIEW so the client and server agree on the likely hand-up before

@@ -22,12 +22,14 @@ import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { type Status, SystemPromptBodySchema } from '@k/shared'
 import { REPO_ROOT } from '../supervisor.js'
 import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 import { probeWhisper } from '../transcription.js'
+import { getProfile, updateProfile } from '../profiles.js'
 
 // ── System-prompt file location ───────────────────────────────────────────────
 
@@ -190,6 +192,31 @@ function liveStatusEnv(): StatusEnv {
   }
 }
 
+// ── Org-default authority ───────────────────────────────────────────────────
+
+// The `default-orchestrator` profile is the ORG-DEFAULT authority: the staff-engineer
+// grant each discipline lead inherits unless its own Orchestrator detail overrides it.
+// Editing it here means skills/tools/mcp/model only (mirrors the per-lead orchestrators
+// PATCH) — tier/charter moves are a separate, guarded concern. `.strict()` so an unknown
+// key is a 400; an empty body is rejected below.
+const OrgDefaultPatchSchema = z
+  .object({
+    skills: z.array(z.string()).optional(),
+    allowedTools: z.array(z.string()).optional(),
+    mcpServers: z.array(z.string()).optional(),
+    defaultModel: z.string().optional(),
+  })
+  .strict()
+
+// The ONLY updateProfile throw that is a client error (a bad MCP mount — "mounting ≠
+// granting"). Anything else is a server fault and must surface as 500. Mirrors
+// routes/orchestrators.ts::GRANT_GUARD_ERROR.
+const ORG_DEFAULT_GRANT_GUARD_ERROR = /does not grant it/
+
+/** The durable id of the org-default orchestrator authority (=== the seed row / the
+ *  DEFAULT_PROFILE fallback in profiles.ts). */
+const ORG_DEFAULT_ID = 'default-orchestrator'
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 export async function settingsRoutes(app: FastifyInstance) {
@@ -277,5 +304,36 @@ export async function settingsRoutes(app: FastifyInstance) {
     }
 
     return reply.send({ savedAt: Date.now() })
+  })
+
+  // GET /api/org-default — the org-default orchestrator authority (default-orchestrator),
+  // the grant each discipline lead inherits. 404 only if the profile is unseeded (shouldn't
+  // happen post-seed).
+  app.get('/api/org-default', async (_req, reply) => {
+    const profile = getProfile(ORG_DEFAULT_ID)
+    if (!profile) return reply.status(404).send({ error: 'not found' })
+    return reply.send(profile)
+  })
+
+  // PATCH /api/org-default — edit the org-default authority (skills/tools/mcp/model). Mirrors
+  // the per-lead orchestrators PATCH grant-guard pattern EXACTLY: validate (400), reject empty
+  // (400), then updateProfile under the grant guard. SEAM: the guard's throw ("mounting ≠
+  // granting") → 400 (never bypassed); any OTHER throw re-throws (→ Fastify 500); a null return
+  // (unseeded) → 404.
+  app.patch('/api/org-default', async (req, reply) => {
+    const parsed = OrgDefaultPatchSchema.safeParse(req.body)
+    if (!parsed.success) return reply.status(400).send({ error: 'invalid patch' })
+    if (Object.keys(parsed.data).length === 0) {
+      return reply.status(400).send({ error: 'empty patch' })
+    }
+    try {
+      const updated = updateProfile(ORG_DEFAULT_ID, parsed.data)
+      if (!updated) return reply.status(404).send({ error: 'not found' })
+      return reply.send(updated)
+    } catch (e) {
+      const msg = (e as Error).message
+      if (ORG_DEFAULT_GRANT_GUARD_ERROR.test(msg)) return reply.status(400).send({ error: msg })
+      throw e
+    }
   })
 }

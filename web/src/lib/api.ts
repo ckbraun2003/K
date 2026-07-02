@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -20,6 +20,12 @@ export type { SkillRun } from './skill-runs'
  *  backend zod schema so the two can't drift. Exported so the page imports one shape. */
 export type OrchestratorPatch = Partial<
   Pick<AgentProfile, 'skills' | 'allowedTools' | 'mcpServers' | 'defaultModel'>
+>
+
+/** The named-workflow patch (PATCH /api/workflows/:id). Mirrors the backend zod schema —
+ *  the fields the WorkflowDetail editor mutates (name/scaffold/cross-project/roles). */
+export type NamedWorkflowPatch = Partial<
+  Pick<NamedWorkflow, 'name' | 'roles' | 'promptScaffold' | 'crossProject'>
 >
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
@@ -240,6 +246,30 @@ export const api = {
     get: (id: string) => req<ChiefOrgLead>(`/orchestrators/${id}`),
     update: (id: string, patch: OrchestratorPatch) =>
       req<AgentProfile>(`/orchestrators/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }),
+  },
+  // Named workflow definitions (P5.3b) — the operator-editable workflow templates
+  // (list · one-detail · edit). `update` is a read-merge-write patch server-side.
+  workflows: {
+    list: () => req<NamedWorkflow[]>('/workflows'),
+    get: (id: string) => req<NamedWorkflow>(`/workflows/${id}`),
+    update: (id: string, patch: NamedWorkflowPatch) =>
+      req<NamedWorkflow>(`/workflows/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }),
+  },
+  // Org-default authority (P5.3b) — the default-orchestrator grant each discipline lead
+  // inherits unless overridden. `update` is grant-guarded server-side (an ungranted MCP
+  // mount answers 400, NOT a silent success), mirroring orchestrators.update.
+  orgDefault: {
+    get: () => req<AgentProfile>('/org-default'),
+    update: (patch: OrchestratorPatch) =>
+      req<AgentProfile>('/org-default', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),

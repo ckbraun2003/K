@@ -17,6 +17,7 @@ import SkillsPage from '../pages/SkillsPage'
 import TerminalPage from '../pages/TerminalPage'
 import SettingsPage from '../pages/SettingsPage'
 import WorkflowsPage from '../pages/WorkflowsPage'
+import WorkflowDetailPage from '../pages/WorkflowDetailPage'
 import ChiefPage from '../pages/ChiefPage'
 import OrchestratorsPage from '../pages/OrchestratorsPage'
 import OrchestratorDetailPage from '../pages/OrchestratorDetailPage'
@@ -131,6 +132,7 @@ export default function Shell() {
             {route.view === 'terminal' && <TerminalPage />}
             {route.view === 'settings' && <SettingsPage />}
             {route.view === 'workflows' && <WorkflowsPage runId={route.param} />}
+            {route.view === 'workflow-detail' && <WorkflowDetailPage id={route.param} />}
             {route.view === 'evals' && <EvalsPage />}
             {route.view === 'memory' && <MemoryPage />}
             {!isKnownView(route.view) && <NotFound route={route.view} />}

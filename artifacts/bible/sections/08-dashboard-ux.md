@@ -173,9 +173,9 @@ carries, as first-class panels:
 > that goes through `profiles.ts::updateProfile` — so the **mcp↔allowlist grant guard stays
 > fail-closed**: mounting an ungranted MCP server is rejected `400` and the row is unchanged (D-043).
 > The route lifts the Chief's per-lead assembly into `routes/org-shared.ts` (`isLead` / `assembleLead`
-> + a slim `rosterVitals`), so both surfaces derive a lead identically. **Deferred to P5.3b:** the
+> + a slim `rosterVitals`), so both surfaces derive a lead identically. **Now built (P5.3b, D-047):** the
 > `workflow_definitions` table + Workflows list/detail UI and the **Settings org-default** authority/MCP
-> panel (per-lead overrides ship now; the org-default they inherit from is the P5.3b half).
+> panel — the org-default the per-lead overrides inherit from.
 
 ### Workflows + workflow detail
 
@@ -183,6 +183,17 @@ carries, as first-class panels:
 prompt scaffold, and cross-project scope flag. The previously-abstract standalone "Workflows
 diagram" is **folded into** orchestrator/workflow detail, where it has real context (a lead actually
 running it) rather than floating on its own.
+
+> **What ships (P5.3b, D-047).** `WorkflowsPage`'s **Defined** tab is now a **Definitions list +
+> preview** (one batched `GET /api/workflows`) — each row shows the name + role chain; the preview
+> renders the role pipeline + cross-project badge with an **Open** into `WorkflowDetailPage`
+> (`GET /api/workflows/:id`). Detail edits the **name**, **prompt scaffold** (`{{CHECKLIST}}`-tokened),
+> and **cross-project** toggle via `PATCH /api/workflows/:id` (read-merge-write; a duplicate name is a
+> `400`, roles are read-only for now). The **Run tree** tab is unchanged. In **Settings**, an
+> **Org-default authority** section reads/edits the `default-orchestrator` grant (skills / tools /
+> MCP) via `GET`/`PATCH /api/org-default` — grant-guarded fail-closed exactly like the per-lead
+> orchestrators PATCH — so the "inherits the org default unless overridden" panel above has a real
+> source to inherit from.
 
 Likewise, the standalone **Skills** destination folds into the orchestrator-detail **skills
 editor** above, where each skill is scoped to the lead that uses it rather than floating in a

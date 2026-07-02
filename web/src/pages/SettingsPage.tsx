@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Status } from '@k/shared'
-import { api } from '../lib/api'
+import type { Status, AgentProfile } from '@k/shared'
+import { api, type OrchestratorPatch } from '../lib/api'
 import {
   claudeVerdict,
   ollamaVerdict,
@@ -142,6 +142,169 @@ function SystemPromptSection() {
   )
 }
 
+/** One removable-list + add-by-name editor for an authority array (skills / tools / mcp).
+ *  Mirrors the OrchestratorDetailPage list panels. `mono` for tool/mcp ids. */
+function AuthorityList({
+  title,
+  items,
+  onChange,
+  busy,
+  mono,
+  testidPrefix,
+  addPlaceholder,
+}: {
+  title: string
+  items: string[]
+  onChange: (next: string[]) => void
+  busy: boolean
+  mono?: boolean
+  testidPrefix: string
+  addPlaceholder: string
+}) {
+  const [input, setInput] = useState('')
+  // The value awaiting its round-trip. The input clears only once the add LANDS (the value
+  // appears in the refetched list) — so a server rejection (e.g. the MCP grant guard's 400)
+  // keeps the typed value instead of forcing a retype. Mirrors OrchestratorDetailPage's
+  // clear-on-success (adapted: this list is stateless, so it watches `items`).
+  const [pending, setPending] = useState<string | null>(null)
+  useEffect(() => {
+    if (pending && items.includes(pending)) {
+      setInput('')
+      setPending(null)
+    }
+  }, [items, pending])
+  return (
+    <div className="space-y-2" data-testid={`${testidPrefix}-panel`}>
+      <h3 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{title}</h3>
+      {items.length === 0 ? (
+        <p className="text-xs italic text-[var(--muted)]">None granted.</p>
+      ) : (
+        <ul className="space-y-1">
+          {items.map(item => (
+            <li
+              key={item}
+              className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs"
+            >
+              <span className={`${mono ? 'mono ' : ''}min-w-0 flex-1 truncate text-[var(--text)]`}>{item}</span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onChange(items.filter(i => i !== item))}
+                data-testid={`${testidPrefix}-remove-${item}`}
+                className="flex-shrink-0 text-[var(--red)] hover:underline disabled:opacity-50"
+              >
+                remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="flex gap-2"
+        onSubmit={e => {
+          e.preventDefault()
+          const name = input.trim()
+          if (name && !items.includes(name)) {
+            setPending(name)
+            onChange([...items, name])
+          }
+        }}
+      >
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          placeholder={addPlaceholder}
+          data-testid={`${testidPrefix}-input`}
+          className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+        />
+        <button
+          type="submit"
+          disabled={busy || input.trim() === ''}
+          className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] disabled:opacity-50"
+        >
+          add
+        </button>
+      </form>
+    </div>
+  )
+}
+
+/** Org-default authority (P5.3b) — the default-orchestrator grant each discipline lead
+ *  inherits unless its own Orchestrator detail overrides it. Edits go through
+ *  api.orgDefault.update, which is grant-guarded server-side (an ungranted MCP mount
+ *  answers 400 — surfaced in the banner, not swallowed). */
+function OrgDefaultSection() {
+  const qc = useQueryClient()
+  const { data, isLoading, error } = useQuery<AgentProfile>({
+    queryKey: ['org-default'],
+    queryFn: () => api.orgDefault.get(),
+  })
+
+  const mutation = useMutation({
+    mutationFn: (patch: OrchestratorPatch) => api.orgDefault.update(patch),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['org-default'] }),
+  })
+
+  const errorMsg = mutation.isError ? (mutation.error as Error).message : null
+
+  return (
+    <div>
+      <div className="mb-2">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+          Org-default authority
+        </h2>
+        <p className="mt-1 text-[11px] text-[var(--muted)]">
+          The org-default orchestrator grant. Each discipline lead inherits this unless its own
+          Orchestrator detail overrides it.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <p className="text-xs text-[var(--muted)]">Loading org default…</p>
+      ) : error || !data ? (
+        <p className="text-xs text-[var(--red)]">Failed to load the org default.</p>
+      ) : (
+        <div className="glass grid gap-4 rounded-xl border border-[var(--border)] p-4 sm:grid-cols-3">
+          <AuthorityList
+            title="Skills"
+            items={data.skills}
+            onChange={skills => mutation.mutate({ skills })}
+            busy={mutation.isPending}
+            testidPrefix="org-default-skills"
+            addPlaceholder="add skill by name"
+          />
+          <AuthorityList
+            title="Tools"
+            items={data.allowedTools}
+            onChange={allowedTools => mutation.mutate({ allowedTools })}
+            busy={mutation.isPending}
+            mono
+            testidPrefix="org-default-tools"
+            addPlaceholder="add tool"
+          />
+          <AuthorityList
+            title="MCP · Authority"
+            items={data.mcpServers}
+            onChange={mcpServers => mutation.mutate({ mcpServers })}
+            busy={mutation.isPending}
+            testidPrefix="org-default-mcp"
+            addPlaceholder="add MCP server"
+          />
+        </div>
+      )}
+
+      {errorMsg && (
+        <p
+          data-testid="org-default-error"
+          className="mt-2 rounded-lg border border-[var(--red)]/40 bg-[var(--raised)] px-3 py-2 text-[11px] text-[var(--red)]"
+        >
+          {errorMsg}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -164,6 +327,11 @@ export default function SettingsPage() {
 
       <section className="mb-8">
         <VoiceSection />
+      </section>
+
+      {/* P5.3b — org-default orchestrator authority (leads inherit unless overridden). */}
+      <section className="mb-8">
+        <OrgDefaultSection />
       </section>
 
       <section>

@@ -20,6 +20,7 @@ import { projectsRoutes } from './routes/projects.js'
 import { skillsRoutes } from './routes/skills.js'
 import { chiefRoutes } from './routes/chief.js'
 import { orchestratorsRoutes } from './routes/orchestrators.js'
+import { workflowsRoutes } from './routes/workflows.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
 import { modelsRoutes } from './routes/models.js'
@@ -29,6 +30,7 @@ import { memoryRoutes } from './routes/memory.js'
 import { kRoutes } from './routes/k.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { seedProfiles } from './profiles.js'
+import { seedWorkflowDefinitions } from './workflow-defs.js'
 import { seedEvalSystems } from './eval/store.js'
 import { compileBible } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
@@ -116,6 +118,7 @@ export async function buildApp() {
   await app.register(skillsRoutes)
   await app.register(chiefRoutes)
   await app.register(orchestratorsRoutes)
+  await app.register(workflowsRoutes)
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
   await app.register(modelsRoutes)
@@ -277,6 +280,7 @@ async function start() {
   await seedUiDemo()  // ensure the Command Deck `ui-demo` artifact is present
   seedBuiltinSkills() // ensure the authored agent-config/skills/* appear in the Skills tab
   seedProfiles()      // ensure the durable agent-org profiles (K, Chief, orchestrator + leads) exist
+  seedWorkflowDefinitions() // ensure the built-in named workflow templates (code-wave, investigate, refactor) exist
   // Seed the eval registry (testing/eval/* → eval_* tables) so the Evals surface has systems to run.
   // Idempotent; guarded so a missing/garbled testing/eval/ dir logs and continues rather than aborting boot.
   try {

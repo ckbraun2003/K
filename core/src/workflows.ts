@@ -24,34 +24,55 @@ export class TaskNotFoundError extends Error {
   }
 }
 
+/** The token a workflow prompt scaffold carries where the numbered todo checklist is
+ *  rendered in at dispatch (renderWorkflowPrompt). */
+export const CHECKLIST_TOKEN = '{{CHECKLIST}}'
+
+/** The built-in code-wave delegation scaffold: the harness delegation-loop prompt with
+ *  a `{{CHECKLIST}}` token where the numbered todo list is rendered. This is the seed
+ *  scaffold for the `code-wave` NamedWorkflow (workflow-defs.ts) and the template
+ *  buildDelegationPrompt renders — kept as an array-join so its content stays
+ *  byte-identical to the pre-P5.3b inline builder. */
+export const CODE_WAVE_SCAFFOLD = [
+  `You are the orchestrator of the harness delegation loop. Address the following`,
+  `selected todos as a single coordinated batch:`,
+  ``,
+  `{{CHECKLIST}}`,
+  ``,
+  `Run the delegation loop: implementer → spec-review → quality-review → you`,
+  `(the orchestrator) apply fixes. Spawn your own subagents for each role — do not`,
+  `do all the work in one context. Run a review agent for every wave, no`,
+  `exceptions.`,
+  ``,
+  `Report progress through the workflow status-write tools as you go: call`,
+  `workflow_step_set for each todo, loop phase, review, and the CI gate (marking`,
+  `it in_progress / done / blocked / failed), and workflow_status_set for the`,
+  `overall run — the operator watches this checklist, not your transcript.`,
+  ``,
+  `Produce ONE reviewable commit / a single PR for the whole batch — do not open`,
+  `a separate PR per todo.`,
+  ``,
+  `Apply changes via PR only — NEVER push to a default branch. Branch off the`,
+  `default branch before committing.`,
+].join('\n')
+
+/** Render a workflow prompt from a scaffold + the selected todos: replace the
+ *  `{{CHECKLIST}}` token with the numbered todo list. Pure + exported for
+ *  unit-testing — deterministic (no Date.now/random). */
+export function renderWorkflowPrompt(scaffold: string, tasks: ProjectTask[]): string {
+  if (tasks.length === 0) throw new Error('a workflow prompt requires at least one task')
+  const checklist = tasks.map((t, i) => `${i + 1}. [ ] ${t.title}`).join('\n')
+  // replaceAll so an operator-edited scaffold with more than one token renders fully; the
+  // function replacer inserts `$`-bearing task titles literally (no $-pattern interpretation).
+  return scaffold.replaceAll(CHECKLIST_TOKEN, () => checklist)
+}
+
 /** Build the delegation prompt: instruct the agent to act as the orchestrator of
  *  the harness delegation loop over the selected todos. Pure + exported for
- *  unit-testing — deterministic (no Date.now/random). */
+ *  unit-testing — deterministic (no Date.now/random). Output is byte-identical to the
+ *  pre-P5.3b inline builder — it renders the built-in CODE_WAVE_SCAFFOLD. */
 export function buildDelegationPrompt(tasks: ProjectTask[]): string {
-  if (tasks.length === 0) throw new Error('buildDelegationPrompt requires at least one task')
-  const checklist = tasks.map((t, i) => `${i + 1}. [ ] ${t.title}`).join('\n')
-  return [
-    `You are the orchestrator of the harness delegation loop. Address the following`,
-    `selected todos as a single coordinated batch:`,
-    ``,
-    checklist,
-    ``,
-    `Run the delegation loop: implementer → spec-review → quality-review → you`,
-    `(the orchestrator) apply fixes. Spawn your own subagents for each role — do not`,
-    `do all the work in one context. Run a review agent for every wave, no`,
-    `exceptions.`,
-    ``,
-    `Report progress through the workflow status-write tools as you go: call`,
-    `workflow_step_set for each todo, loop phase, review, and the CI gate (marking`,
-    `it in_progress / done / blocked / failed), and workflow_status_set for the`,
-    `overall run — the operator watches this checklist, not your transcript.`,
-    ``,
-    `Produce ONE reviewable commit / a single PR for the whole batch — do not open`,
-    `a separate PR per todo.`,
-    ``,
-    `Apply changes via PR only — NEVER push to a default branch. Branch off the`,
-    `default branch before committing.`,
-  ].join('\n')
+  return renderWorkflowPrompt(CODE_WAVE_SCAFFOLD, tasks)
 }
 
 /** Map a terminal run status to a workflow_run status. done → completed; any

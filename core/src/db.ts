@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
-import type { RunStatus, VerificationReport, ProjectTask, AgentProfile } from '@k/shared'
+import type { RunStatus, VerificationReport, ProjectTask, AgentProfile, NamedWorkflow, WorkflowRole } from '@k/shared'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
@@ -118,6 +118,20 @@ db.exec(`
     completed_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_workflow_runs_project ON workflow_runs(project_id, created_at);
+
+  -- Operator-editable named workflow TEMPLATES (P5.3b). name is UNIQUE so the seed is
+  -- idempotent by name. roles is a JSON array of {id,label,description}; prompt_scaffold
+  -- carries the delegation-prompt template (with a {{CHECKLIST}} token); cross_project is
+  -- a reserved flag (execution deferred). This is the DB entity distinct from the @k/shared
+  -- WorkflowDefinition diagram type (D-047).
+  CREATE TABLE IF NOT EXISTS workflow_definitions (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    roles           TEXT NOT NULL DEFAULT '[]',
+    prompt_scaffold TEXT NOT NULL,
+    cross_project   INTEGER NOT NULL DEFAULT 0,
+    created_at      INTEGER NOT NULL
+  );
 
   CREATE TABLE IF NOT EXISTS skills (
     id           TEXT PRIMARY KEY,
@@ -1451,6 +1465,54 @@ export const agentRunsDb = {
   listRecentAgentRunsByProfile,
   getRunningAgentRunByProfile,
   getAgentRunProfileByRunId,
+}
+
+// ─── Named-workflow helpers (P5.3b) ──────────────────────────────────────────
+// The operator-editable workflow-template registry. JSON columns (roles) and the
+// prompt_scaffold are bound already-stringified at the call site (workflow-defs.ts),
+// mirroring the agent_profiles convention. `name` is UNIQUE so the seed is idempotent
+// by name. This is the DB entity distinct from the @k/shared WorkflowDefinition diagram.
+
+const insertWorkflowDef = db.prepare(`
+  INSERT INTO workflow_definitions (id, name, roles, prompt_scaffold, cross_project, created_at)
+  VALUES (@id, @name, @roles, @promptScaffold, @crossProject, @createdAt)
+`)
+const getWorkflowDefRow = db.prepare(`SELECT * FROM workflow_definitions WHERE id = ?`)
+const getWorkflowDefByNameRow = db.prepare(`SELECT * FROM workflow_definitions WHERE name = ?`)
+const listWorkflowDefRows = db.prepare(`SELECT * FROM workflow_definitions ORDER BY created_at ASC`)
+const updateWorkflowDefRow = db.prepare(`
+  UPDATE workflow_definitions
+  SET name = @name, roles = @roles, prompt_scaffold = @promptScaffold, cross_project = @crossProject
+  WHERE id = @id
+`)
+
+export const workflowDefsDb = {
+  insertWorkflowDef,
+  getWorkflowDefRow,
+  getWorkflowDefByNameRow,
+  listWorkflowDefRows,
+  updateWorkflowDefRow,
+}
+
+/** Map a workflow_definitions DB row → the canonical NamedWorkflow shape (@k/shared).
+ *  snake→camel; `roles` parses to WorkflowRole[] (null-safe: garbled/absent JSON degrades
+ *  to [] rather than throwing, mirroring rowToAgentProfile); `cross_project` int→bool. */
+export function rowToNamedWorkflow(r: Record<string, unknown>): NamedWorkflow {
+  let roles: WorkflowRole[] = []
+  try {
+    const p = JSON.parse(String(r.roles ?? '[]'))
+    if (Array.isArray(p)) roles = p as WorkflowRole[]
+  } catch {
+    roles = []
+  }
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    roles,
+    promptScaffold: String(r.prompt_scaffold),
+    crossProject: r.cross_project === 1 || Number(r.cross_project) === 1,
+    createdAt: Number(r.created_at),
+  }
 }
 
 // ─── K front-door threads (P5.1c, D-023) ─────────────────────────────────────
