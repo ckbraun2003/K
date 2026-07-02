@@ -39,7 +39,10 @@ type Row = Record<string, unknown>
 const asNum = (v: unknown): number => Number(v)
 const asStrOrNull = (v: unknown): string | null => (v == null ? null : String(v))
 
-function rowToNote(r: Row): Note {
+// The row→type mappers are exported so the K-home HTTP surface (routes/k.ts
+// notes/schedule reads) reuses this ONE mapping authority — mirroring how
+// routes/k.ts already reuses rowToWorkItem from k-store.ts.
+export function rowToNote(r: Row): Note {
   return {
     id: String(r.id),
     runId: asStrOrNull(r.run_id),
@@ -50,7 +53,7 @@ function rowToNote(r: Row): Note {
   }
 }
 
-function rowToCalendarEvent(r: Row): CalendarEvent {
+export function rowToCalendarEvent(r: Row): CalendarEvent {
   return {
     id: String(r.id),
     runId: asStrOrNull(r.run_id),
@@ -63,7 +66,7 @@ function rowToCalendarEvent(r: Row): CalendarEvent {
   }
 }
 
-function rowToReminder(r: Row): Reminder {
+export function rowToReminder(r: Row): Reminder {
   return {
     id: String(r.id),
     runId: asStrOrNull(r.run_id),

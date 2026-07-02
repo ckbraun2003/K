@@ -12,7 +12,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { db } from '../src/db.js'
+import { v4 as uuid } from 'uuid'
+import { db, agentRunsDb } from '../src/db.js'
 import { seedProfiles, getProfile } from '../src/profiles.js'
 import type { ChiefOrgLead, OrchestratorRosterPayload, AgentProfile } from '@k/shared'
 
@@ -54,13 +55,62 @@ describe('GET /api/orchestrators', () => {
     expect(ids).not.toContain('default-orchestrator')
     expect(ids).not.toContain('chief')
 
-    // Freshly seeded → no activations, so every lead is idle and slim.
+    // Freshly seeded here → idle and slim. recent-health is always attached with
+    // internally-consistent REAL counts (a prior suite on the shared DB may have
+    // left terminal activation rows, so no absolute-zero assertion — mirrors the
+    // kDelegations delta discipline in chief-route.test.ts).
     const fe = body.leads.find(l => l.profile.id === 'lead-frontend')!
     expect(fe.latestRun).toBeNull()
     expect(fe.live).toBe(false)
     expect(typeof fe.wakes).toBe('number')
+    expect(fe.recent).toBeDefined()
+    expect(fe.recent!.succeeded + fe.recent!.failed).toBeLessThanOrEqual(fe.recent!.total)
     expect(typeof body.activeLeads).toBe('number')
     expect(body.activeLeads).toBe(0)
+  })
+
+  it('surfaces recent-health counts on BOTH the roster entry and the detail (one authority)', async () => {
+    // Delta-based against whatever the shared DB already holds for lead-systems
+    // (mirrors the kDelegations honesty test): seed a completed/failed/running mix
+    // (run_id null — the recent counts derive from agent_runs.status alone; see
+    // recentHealth's note) and assert the counts moved by exactly that mix. The
+    // new rows are the newest, so they are inside the 10-row window.
+    const rosterRecent = async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/orchestrators', headers: AUTH })
+      return (res.json() as OrchestratorRosterPayload).leads.find(l => l.profile.id === 'lead-systems')!.recent!
+    }
+    const before = await rosterRecent()
+
+    const seeded: string[] = []
+    const mkActivation = (status: string) => {
+      const id = uuid()
+      seeded.push(id)
+      agentRunsDb.insertAgentRun.run({
+        id, profileId: 'lead-systems', runId: null, trigger: 'delegation',
+        goal: `recent-health ${status}`, projectId: null, workflowId: null,
+        status, createdAt: Date.now(), completedAt: status === 'running' ? null : Date.now(),
+      })
+    }
+    try {
+      mkActivation('completed')
+      mkActivation('completed')
+      mkActivation('failed')
+      mkActivation('running')
+
+      // Roster surface — a live 'running' activation counts in total only.
+      const after = await rosterRecent()
+      expect(after.total).toBe(Math.min(before.total + 4, 10))
+      expect(after.succeeded).toBeGreaterThanOrEqual(2)
+      expect(after.failed).toBeGreaterThanOrEqual(1)
+      // The live row is total-only: succeeded+failed trails total by at least 1.
+      expect(after.succeeded + after.failed).toBeLessThanOrEqual(after.total - 1)
+
+      // Detail surface — assembleLead attaches the SAME counts (shared recentHealth).
+      const detail = await app.inject({ method: 'GET', url: '/api/orchestrators/lead-systems', headers: AUTH })
+      expect((detail.json() as ChiefOrgLead).recent).toEqual(after)
+    } finally {
+      for (const id of seeded) db.prepare('DELETE FROM agent_runs WHERE id = ?').run(id)
+    }
   })
 })
 

@@ -28,6 +28,7 @@ import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
 import type { Assignment, MgmtReport } from '@k/shared'
 import { db, mgmtDb, runsDb, leadDispatchDb } from '../db.js'
+import { isTerminalRunStatus } from '../run-lifecycle.js'
 import { resolveLeadProfileId, resolveLeadWorkflow, buildLeadSeed } from '../chief-dispatch.js'
 
 /** Per-call context the server injects. `runId` is the managed run (K_RUN_ID). */
@@ -214,23 +215,40 @@ const DispatchLeadInput = {
  *  startAgentRun('lead-…', {trigger:'delegation'}), records the Chief→lead link, and wires
  *  the report-back — all in a process that stays up.
  *
- *  Guards double-dispatch two ways: the assignment already carries a lead_run_id (already
- *  executed), OR it already has a pending/dispatched intent in the queue (recorded but not
- *  yet retired). Cross-run ownership is enforced too. Sync (the child await-s the value).
+ *  Guards double-dispatch two ways, both LIVENESS-DERIVED (the queue has no success-
+ *  terminal status — a completed intent stays 'dispatched' forever, so "already recorded"
+ *  alone can never be the test): the assignment's linked lead run is still LIVE (a
+ *  terminal prior run means a follow-up dispatch is legitimate — the relay overwrites the
+ *  link), OR an intent for it is still IN FLIGHT (pending, or dispatched with a live/
+ *  unrecorded run — see db.ts::getActiveLeadDispatchByAssignment's derivation). Cross-run
+ *  ownership is enforced too. Sync (the child await-s the value).
  *  Returns { assignmentId, leadProfileId, workflowId, dispatchId, status }. */
 function dispatchLead(args: unknown, ctx: MgmtContext) {
   const a = z.object(DispatchLeadInput).parse(args ?? {})
   const owner = resolveOwnerRunId(ctx)
   const row = mgmtDb.getAssignmentOwned.get(a.assignmentId, owner) as Row | undefined
   if (!row) throw new MgmtError(`assignment "${a.assignmentId}" not found for this run.`)
-  // Double-dispatch guard, part 1: the lead has already been executed (link recorded).
+  // Double-dispatch guard, part 1: the linked lead run is still LIVE. Liveness is
+  // DERIVED from the runs row, not from the link's existence — the relay records
+  // lead_run_id on success and nothing ever clears it, so a bare "link recorded" test
+  // would permanently wedge the assignment after its first completed run (no follow-up
+  // dispatch ever). A terminal prior run means a NEW dispatch is a legitimate follow-up
+  // wave; the relay overwrites the link when it executes the new intent.
   if (row.lead_run_id != null) {
-    throw new MgmtError(`assignment "${a.assignmentId}" already dispatched (run ${String(row.lead_run_id)}).`)
+    const priorStatus = (runsDb.getRun.get(String(row.lead_run_id)) as { status?: string } | undefined)?.status
+    if (!isTerminalRunStatus(priorStatus)) {
+      throw new MgmtError(
+        `assignment "${a.assignmentId}" already dispatched (run ${String(row.lead_run_id)} is live).`,
+      )
+    }
   }
-  // Double-dispatch guard, part 2: an intent is already queued for this assignment
-  // (pending or dispatched but not yet retired). This is a check-then-act, safe because one
-  // run's mgmt tool calls are SERIALIZED over its single stdio channel (one Chief agent
-  // driving one mgmt-server), so a same-assignment re-record across turns is rejected.
+  // Double-dispatch guard, part 2: an intent for this assignment is still IN FLIGHT —
+  // pending, or dispatched with a live/unrecorded run (the statement DERIVES 'active'
+  // from the linked run's liveness; a completed intent is retired-by-derivation and
+  // does not block — see db.ts::getActiveLeadDispatchByAssignment). Check-then-act is
+  // safe because one run's mgmt tool calls are SERIALIZED over its single stdio channel
+  // (one Chief agent driving one mgmt-server), so a same-assignment re-record across
+  // turns is rejected.
   if (leadDispatchDb.getActiveLeadDispatchByAssignment.get(a.assignmentId)) {
     throw new MgmtError(`assignment "${a.assignmentId}" already has a pending dispatch.`)
   }
@@ -328,7 +346,7 @@ export const mgmtTools: MgmtTool[] = [
   {
     name: 'dispatch_lead',
     description:
-      "Record the intent to dispatch the lead on one of this run's assignments: seeds the lead run prompt from its chosen workflow (default code-wave) and queues a dispatch that the main-process relay then executes as a supervised delegation run (recording the Chief→lead link and wiring the report-back). Guards double-dispatch (an assignment already dispatched or with a pending intent is rejected). Returns { assignmentId, leadProfileId, workflowId, dispatchId, status }.",
+      "Record the intent to dispatch the lead on one of this run's assignments: seeds the lead run prompt from its chosen workflow (default code-wave) and queues a dispatch that the main-process relay then executes as a supervised delegation run (recording the Chief→lead link and wiring the report-back). Guards double-dispatch (an assignment whose lead run is still LIVE, or with an in-flight dispatch intent, is rejected; a completed prior dispatch does not block a follow-up). Returns { assignmentId, leadProfileId, workflowId, dispatchId, status }.",
     inputShape: DispatchLeadInput,
     handler: dispatchLead,
   },

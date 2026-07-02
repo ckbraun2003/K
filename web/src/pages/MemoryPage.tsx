@@ -19,14 +19,38 @@ const STATUS_TABS: { id: LessonStatus; label: string }[] = [
 export default function MemoryPage() {
   const qc = useQueryClient()
   const [status, setStatus] = useState<LessonStatus>('pending')
+  // '' = All profiles; otherwise the server-side ?profileId filter.
+  const [profileId, setProfileId] = useState('')
   const [rejectId, setRejectId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
-  // ONE batched query per status — no per-item fan-out. Refetches when the tab changes.
-  const { data: lessons = [], isLoading } = useQuery<MemoryLesson[]>({
+  // The UNFILTERED per-status list — always fetched: it feeds the profile-filter
+  // OPTIONS (distinct proposing profiles) even while a filter is active, so picking
+  // one profile doesn't collapse the options to just itself.
+  const { data: allLessons = [] } = useQuery<MemoryLesson[]>({
     queryKey: ['memory', 'lessons', status],
     queryFn: () => api.memory.lessons({ status }),
   })
+
+  // The DISPLAYED list. When no filter is active the key collapses to the
+  // unfiltered one above, so react-query dedupes to a single fetch; a filter adds
+  // the profileId key segment and re-queries server-side (?profileId).
+  const { data: lessons = [], isLoading } = useQuery<MemoryLesson[]>({
+    queryKey: profileId ? ['memory', 'lessons', status, profileId] : ['memory', 'lessons', status],
+    queryFn: () => api.memory.lessons(profileId ? { status, profileId } : { status }),
+  })
+
+  // Distinct (profileId, profileName) pairs from the unfiltered list. Pre-A1 rows
+  // with a null profileId are simply omitted (no "unassigned" pseudo-filter).
+  const profileOptions = (() => {
+    const seen = new Map<string, string>()
+    for (const l of allLessons) {
+      if (l.profileId != null && !seen.has(l.profileId)) {
+        seen.set(l.profileId, l.profileName ?? l.profileId)
+      }
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name }))
+  })()
 
   // Thread the lesson id as the mutation VARIABLE (mutate(id)); invalidate every status list so the
   // approved/rejected item leaves the pending tab and appears under its new status.
@@ -66,24 +90,38 @@ export default function MemoryPage() {
         stay pending until you approve them. Memory is a gated tool, not a file (layer A).
       </p>
 
-      {/* Status tabs */}
-      <div className="mt-4 flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] p-1 text-xs">
-        {STATUS_TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setStatus(t.id)}
-            data-testid={`memory-tab-${t.id}`}
-            aria-pressed={status === t.id}
-            className={cn(
-              'flex-1 rounded-md px-3 py-1.5 font-semibold transition-colors',
-              status === t.id
-                ? 'bg-[var(--accent)] text-[var(--bg)]'
-                : 'text-[var(--muted)] hover:text-[var(--text)]',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Status tabs + the proposing-profile filter (server-side ?profileId). */}
+      <div className="mt-4 flex items-center gap-2">
+        <div className="flex flex-1 gap-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] p-1 text-xs">
+          {STATUS_TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setStatus(t.id)}
+              data-testid={`memory-tab-${t.id}`}
+              aria-pressed={status === t.id}
+              className={cn(
+                'flex-1 rounded-md px-3 py-1.5 font-semibold transition-colors',
+                status === t.id
+                  ? 'bg-[var(--accent)] text-[var(--bg)]'
+                  : 'text-[var(--muted)] hover:text-[var(--text)]',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <select
+          data-testid="memory-profile-filter"
+          aria-label="Filter by proposing profile"
+          value={profileId}
+          onChange={e => setProfileId(e.target.value)}
+          className="flex-shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--muted)]"
+        >
+          <option value="">All profiles</option>
+          {profileOptions.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
       </div>
 
       {/* Lessons */}

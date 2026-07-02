@@ -295,9 +295,12 @@ export function reconcileOrphanedActivations(d: import('better-sqlite3').Databas
  * (lead-dispatch-relay.ts) claims a queued intent (pending→dispatched CAS) BEFORE it
  * awaits startAgentRun; if the main process crashes in that window the row is left
  * 'dispatched', lead_run_id NULL. Nothing else recovers it: it is no longer 'pending' (so
- * the drain skips it) yet getActiveLeadDispatchByAssignment counts 'dispatched' as active
- * (so the Chief's re-dispatch is rejected) — the assignment could never get a lead. Mark it
- * 'failed' (the assignment link is still NULL → the Chief can re-dispatch a fresh intent).
+ * the drain skips it), and getActiveLeadDispatchByAssignment derives a 'dispatched' row
+ * with NO lead_run_id as still ACTIVE — it cannot prove the run was never spawned, so it
+ * blocks fail-safe (the Chief's re-dispatch is rejected) — the assignment could never get
+ * a lead. (A 'dispatched' row WITH a run is retired by derivation once that run reaches
+ * terminal — this sweep exists only for the run-less orphan.) Mark it 'failed' (the
+ * assignment link is still NULL → the Chief can re-dispatch a fresh intent).
  * We deliberately do NOT re-'pending' it: a crash AFTER startAgentRun spawned the run but
  * BEFORE setLeadDispatchRun recorded it would then double-execute the lead. Mirrors
  * reconcileStaleRuns (pure DB; takes the handle for unit-testing). Returns rows reconciled.

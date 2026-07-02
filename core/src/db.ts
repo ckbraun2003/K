@@ -1238,12 +1238,19 @@ const listWorkflowRunsByProject = db.prepare(`
   SELECT * FROM workflow_runs WHERE project_id = ? ORDER BY created_at DESC
 `)
 
+// Cross-project newest-first list (bounded) — backs GET /api/workflows/runs, the
+// Workflows run-picker's "which runs were workflow-dispatched?" identity source.
+const listRecentWorkflowRuns = db.prepare(`
+  SELECT * FROM workflow_runs ORDER BY created_at DESC LIMIT ?
+`)
+
 export const workflowRunsDb = {
   insertWorkflowRun,
   patchWorkflowRunId,
   updateWorkflowRunStatus,
   getWorkflowRun,
   listWorkflowRunsByProject,
+  listRecentWorkflowRuns,
 }
 
 // ─── kstore: work-item helpers ───────────────────────────────────────────────
@@ -1568,7 +1575,29 @@ const insertLeadDispatch = db.prepare(`
 `)
 const listPendingLeadDispatches = db.prepare(`SELECT * FROM lead_dispatches WHERE status = 'pending' ORDER BY created_at ASC`)
 const getLeadDispatch = db.prepare(`SELECT * FROM lead_dispatches WHERE id = ?`)
-const getActiveLeadDispatchByAssignment = db.prepare(`SELECT * FROM lead_dispatches WHERE assignment_id = ? AND status IN ('pending','dispatched') ORDER BY created_at DESC LIMIT 1`)
+// "Active" is DERIVED, not stored — lead_dispatches has no success-terminal status (the
+// relay deliberately leaves a completed intent 'dispatched' forever), so the guards that
+// consume this (mgmt dispatch_lead guard 2, the reassign route) must derive liveness:
+//   'pending'    → always active (recorded, not yet claimed);
+//   'dispatched' → active ONLY while genuinely in flight — lead_run_id still NULL (the
+//                  claim-window/crash-orphan case, blocking fail-safe until the boot sweep
+//                  supervisor.ts::reconcileOrphanedLeadDispatches marks it failed) OR its
+//                  lead run is still live (LEFT JOIN runs, non-terminal status).
+// A 'dispatched' intent whose run reached terminal is retired-by-derivation and does NOT
+// block — without this, one successful dispatch would wedge the assignment permanently
+// (no follow-up dispatch, no reassign — ever). Terminal set mirrors
+// run-lifecycle.ts::TERMINAL_RUN_STATUSES (the reconcile sweeps use the same inline idiom).
+const getActiveLeadDispatchByAssignment = db.prepare(`
+  SELECT ld.* FROM lead_dispatches ld
+    LEFT JOIN runs r ON r.id = ld.lead_run_id
+    WHERE ld.assignment_id = ?
+      AND (
+        ld.status = 'pending'
+        OR (ld.status = 'dispatched'
+            AND (ld.lead_run_id IS NULL OR r.status NOT IN ('done','error','killed','interrupted')))
+      )
+    ORDER BY ld.created_at DESC LIMIT 1
+`)
 // Atomically claim a pending intent (pending→dispatched) so an overlapping drain can't double-execute it.
 const claimLeadDispatch = db.prepare(`UPDATE lead_dispatches SET status = 'dispatched', dispatched_at = @dispatchedAt WHERE id = @id AND status = 'pending'`)
 const setLeadDispatchRun = db.prepare(`UPDATE lead_dispatches SET lead_run_id = @leadRunId WHERE id = @id`)

@@ -56,11 +56,23 @@ describe('useAskK', () => {
 
     expect(ok).toBe(true) // resolves true on success so a caller can clear its composer
     expect(mockAsk).toHaveBeenCalledTimes(1)
-    expect(mockAsk).toHaveBeenCalledWith(MSG)
+    // No opts passed → api.k.ask receives an explicit undefined opts arg.
+    expect(mockAsk).toHaveBeenCalledWith(MSG, undefined)
     expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-123')
     expect(result.current.pendingUndo).toEqual({ runId: 'run-123', route: routeForMessage(MSG) })
     expect(result.current.busy).toBe(false)
     expect(result.current.error).toBeNull()
+  })
+
+  it('passes the power-control opts (model / forceRoute) through to api.k.ask untouched', async () => {
+    const { result } = renderHook(() => useAskK({ navigateOnSend: false }))
+
+    await act(async () => {
+      await result.current.send(MSG, { model: 'claude-opus-4-8', forceRoute: 'chief' })
+    })
+
+    expect(mockAsk).toHaveBeenCalledTimes(1)
+    expect(mockAsk).toHaveBeenCalledWith(MSG, { model: 'claude-opus-4-8', forceRoute: 'chief' })
   })
 
   it('a trimmed-empty message is a no-op', async () => {
@@ -83,7 +95,7 @@ describe('useAskK', () => {
 
     expect(ok).toBe(true)
     expect(mockAsk).toHaveBeenCalledTimes(1)
-    expect(mockAsk).toHaveBeenCalledWith(MSG)
+    expect(mockAsk).toHaveBeenCalledWith(MSG, undefined)
     expect(mockNavigate).not.toHaveBeenCalled()
     expect(result.current.pendingUndo).toEqual({ runId: 'run-123', route: routeForMessage(MSG) })
   })

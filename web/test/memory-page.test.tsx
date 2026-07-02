@@ -1,7 +1,21 @@
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
-import { LessonCard } from '../src/pages/MemoryPage'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { MemoryLesson } from '../src/lib/memory'
+
+const { mockLessons } = vi.hoisted(() => ({ mockLessons: vi.fn() }))
+
+vi.mock('../src/lib/api', () => ({
+  api: {
+    memory: {
+      lessons: mockLessons,
+      approve: vi.fn(async () => ({})),
+      reject: vi.fn(async () => ({})),
+    },
+  },
+}))
+
+import MemoryPage, { LessonCard } from '../src/pages/MemoryPage'
 
 // jsdom has no matchMedia; framer-motion may probe it. Provide an inert stub.
 beforeAll(() => {
@@ -75,5 +89,64 @@ describe('LessonCard', () => {
     expect(screen.getByTestId('memory-lesson-les-1')).toBeTruthy()
     expect(screen.queryByTestId('memory-approve-les-1')).toBeNull()
     expect(screen.queryByTestId('memory-reject-les-1')).toBeNull()
+  })
+})
+
+// ── MemoryPage — the proposing-profile filter (C2) ─────────────────────────────
+
+const allPending: MemoryLesson[] = [
+  lesson({ id: 'l1', profileId: 'prof-k', profileName: 'K', lesson: 'lesson from K' }),
+  lesson({ id: 'l2', profileId: 'prof-be', profileName: 'Backend', lesson: 'lesson from Backend' }),
+  // A pre-A1 row with no proposing profile — must NOT become a filter option.
+  lesson({ id: 'l3', profileId: null, profileName: null, lesson: 'orphan lesson' }),
+]
+
+function renderPage() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryPage />
+    </QueryClientProvider>,
+  )
+}
+
+describe('MemoryPage — profile filter', () => {
+  beforeEach(() => {
+    mockLessons.mockReset()
+    mockLessons.mockImplementation(async (opts?: { status?: string; profileId?: string }) =>
+      opts?.profileId != null
+        ? allPending.filter(l => l.profileId === opts.profileId)
+        : allPending,
+    )
+  })
+
+  it('renders the filter with All profiles + one option per distinct proposing profile', async () => {
+    renderPage()
+    const select = (await screen.findByTestId('memory-profile-filter')) as HTMLSelectElement
+    // Wait for the unfiltered list to arrive and feed the options.
+    await waitFor(() => expect(select.options.length).toBe(3))
+    const labels = [...select.options].map(o => o.textContent)
+    expect(labels).toEqual(['All profiles', 'K', 'Backend'])
+  })
+
+  it('selecting a profile re-queries server-side with ?profileId and narrows the list', async () => {
+    renderPage()
+    await screen.findByTestId('memory-lesson-l1')
+    const select = (await screen.findByTestId('memory-profile-filter')) as HTMLSelectElement
+    await waitFor(() => expect(select.options.length).toBe(3))
+
+    fireEvent.change(select, { target: { value: 'prof-be' } })
+
+    // The FILTERED fetch went to the server (not a client-side filter)…
+    await waitFor(() =>
+      expect(mockLessons).toHaveBeenCalledWith({ status: 'pending', profileId: 'prof-be' }),
+    )
+    // …and only the Backend lesson remains rendered.
+    await waitFor(() => expect(screen.queryByTestId('memory-lesson-l1')).toBeNull())
+    expect(screen.getByTestId('memory-lesson-l2')).toBeTruthy()
+
+    // The options stay fed by the UNFILTERED result — picking one profile must not
+    // collapse the select to just itself.
+    expect(select.options.length).toBe(3)
   })
 })

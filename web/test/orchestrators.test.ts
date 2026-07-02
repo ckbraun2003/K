@@ -60,3 +60,6 @@ describe('OrchestratorDetailPage tree contract (leadNode reuse)', () => {
     expect(root.meta).toContain('add focus ring')
   })
 })
+
+// The OrchestratorCard recent-health render tests live in orchestrators-card.test.tsx
+// (component tests need jsdom; this .test.ts file runs in the node environment).

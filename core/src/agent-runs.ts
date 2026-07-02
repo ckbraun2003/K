@@ -51,6 +51,9 @@ export interface StartAgentRunOptions {
    *  stdin). Default false = today's one-shot fire-and-forget. Used by the K front
    *  door (k-thread.ts) so a warm interactive session can continue via sendInput. */
   interactive?: boolean
+  /** Explicit per-ask model override — wins over the profile default AND the
+   *  runtime default (C2 power controls; validated at the route boundary). */
+  model?: string
 }
 
 /** Map a terminal run status to an agent_runs status. done → completed; any other
@@ -93,15 +96,16 @@ export async function startAgentRun(
   })
 
   // 2. Dispatch under the resolved profile. The profile drives config synthesis
-  //    (its tier's charter/allowlist/MCP/skills). Model: the profile's explicit
-  //    override wins; a null defaultModel resolves the operator's runtime Claude
-  //    default AT DISPATCH TIME (P5.5 reconciliation — the org no longer pins a
+  //    (its tier's charter/allowlist/MCP/skills). Model precedence: an explicit
+  //    per-ask override (opts.model — the C2 power control) wins over the profile's
+  //    explicit override, which wins over the operator's runtime Claude default
+  //    resolved AT DISPATCH TIME (P5.5 reconciliation — the org no longer pins a
   //    frozen literal). If startRun throws, the 'running' tracking row would leak —
   //    so roll it back to 'failed', log, and re-throw (mirrors dispatchTaskWorkflow).
   let run
   try {
     run = await startRun(prompt, {
-      model: profile.defaultModel ?? claudeDefaultModel(),
+      model: opts.model ?? profile.defaultModel ?? claudeDefaultModel(),
       projectId: opts.projectId,
       cwd: opts.cwd,
       profile,

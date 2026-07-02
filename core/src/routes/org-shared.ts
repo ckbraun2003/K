@@ -5,6 +5,7 @@ import type {
   AgentProfile,
   ChiefOrgLead,
   OrchestratorRosterEntry,
+  RecentRunHealth,
 } from '@k/shared'
 import { agentRunsDb, runsDb, eventsDb } from '../db.js'
 import { claudeDefaultModel } from '../config-store.js'
@@ -125,13 +126,34 @@ function scanLead(profile: AgentProfile): { runsForLead: Row[]; latestRun: Run |
   return { runsForLead, latestRun }
 }
 
+/** How many of the newest activation rows feed the recent-health counts. */
+export const RECENT_HEALTH_WINDOW = 10
+
+/**
+ * Success/failure counts over the FIRST {@link RECENT_HEALTH_WINDOW} rows of a
+ * (created_at DESC) activation scan: total = window size, succeeded/failed = the
+ * terminal agent_runs statuses; a live 'running' row counts in total only. Pure +
+ * exported for unit-testing. NOTE: no join back to `runs` is needed — agent_runs.status
+ * is already DERIVED from the run's terminal status (agent-runs.ts::deriveAgentRunStatus),
+ * so the activation row alone is the honest source.
+ */
+export function recentHealth(runsForLead: Row[]): RecentRunHealth {
+  const window = runsForLead.slice(0, RECENT_HEALTH_WINDOW)
+  return {
+    total: window.length,
+    succeeded: window.filter(r => r.status === 'completed').length,
+    failed: window.filter(r => r.status === 'failed').length,
+  }
+}
+
 /** The SLIM roster entry for one lead — latest run + live flag + a recent-activation
- *  count (bounded by the scan), WITHOUT the per-lead delegate-events fetch the roster
- *  never renders. Reuses scanLead so `latestRun`/`live` agree with the detail view. */
+ *  count (bounded by the scan) + recent-health counts, WITHOUT the per-lead
+ *  delegate-events fetch the roster never renders. Reuses scanLead so
+ *  `latestRun`/`live` agree with the detail view. */
 export function rosterVitals(profile: AgentProfile): OrchestratorRosterEntry {
   const { runsForLead, latestRun } = scanLead(profile)
   const live = latestRun != null && LIVE_RUN_STATUSES.has(latestRun.status)
-  return { profile, latestRun, live, wakes: runsForLead.length }
+  return { profile, latestRun, live, wakes: runsForLead.length, recent: recentHealth(runsForLead) }
 }
 
 /**
@@ -158,5 +180,8 @@ export function assembleLead(profile: AgentProfile): ChiefOrgLead {
     effectiveModel: profile.defaultModel != null
       ? { model: profile.defaultModel, source: 'override' as const }
       : { model: claudeDefaultModel(), source: 'runtime-default' as const },
+    // Same recent-health counts as the roster (one authority — recentHealth over the
+    // same scan) so the detail header and the roster card can never disagree.
+    recent: recentHealth(runsForLead),
   }
 }

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
-import type { Run, Project, Status, KRoute } from '@k/shared'
-import { routeForMessage } from '@k/shared'
+import type { Run, Project, Status, KRoute, KForceRoute } from '@k/shared'
+import { routeForMessage, routeForTarget } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
@@ -13,6 +13,7 @@ import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
 import { RUNS_LIST_KEY, runsListQueryFn } from '../lib/runs-query'
 import { buildModelOptions, modelChoiceToOpts } from '../lib/run-models'
 import { useAskK } from '../lib/useAskK'
+import { FORCE_ROUTE_OPTIONS } from '../lib/force-route-options'
 import AutoTextarea from '../components/AutoTextarea'
 import MicButton from '../components/MicButton'
 import Toast from '../components/Toast'
@@ -51,6 +52,11 @@ export default function CommandBar({ open, onClose }: Props) {
   // Interactive (multi-turn): keep the agent's stdin open so the operator can
   // answer its questions / send follow-ups. Claude-only; ignored for local runs.
   const [interactive, setInteractive] = useState(false)
+  // Plain-ask power controls (C2): an explicit model override + a forced route for
+  // the ask-k path. 'default' / '' = no override (K's normal resolution/classifier).
+  // Distinct from the @project dispatch card's `model` state above.
+  const [askModel, setAskModel] = useState('default')
+  const [askForceRoute, setAskForceRoute] = useState<'' | KForceRoute>('')
   // K's front door + 5s Undo window — shared with K-home (P5.1f). Holds the just-
   // started run so the Undo toast (rendered outside the bar so it survives close)
   // can kill it; also owns the ask-path busy/error mirrored into the footer below.
@@ -67,9 +73,12 @@ export default function CommandBar({ open, onClose }: Props) {
   // Ollama model in the picker — not a per-option fetch (lessons.md: no fan-out).
   const { data: status } = useQuery<Status>({ queryKey: ['status'], queryFn: () => api.status(), enabled: open })
   const modelOptions = useMemo(() => buildModelOptions(status?.ollama), [status])
+  // The Claude model registry for the ask-k model override (shared cache key with
+  // SettingsModels / K-home). Claude-only by design: a K ask always dispatches claude.
+  const { data: claudeModel } = useQuery({ queryKey: ['claude-model'], queryFn: () => api.claudeModel.get(), enabled: open })
 
   useEffect(() => {
-    if (open) { setQuery(''); setSelected(0); setError(null); ask.setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setPromptDraft(''); setInteractive(false); setTimeout(() => inputRef.current?.focus(), 50) }
+    if (open) { setQuery(''); setSelected(0); setError(null); ask.setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setPromptDraft(''); setInteractive(false); setAskModel('default'); setAskForceRoute(''); setTimeout(() => inputRef.current?.focus(), 50) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -132,9 +141,15 @@ export default function CommandBar({ open, onClose }: Props) {
       .slice(0, 4)
       .map(r => ({ kind: 'nav' as const, label: `▶ ${r.prompt.slice(0, 60)}`, icon: '·', view: 'runs', param: r.id }))
     // A plain query is now K's front door: the primary action asks K (which routes
-    // internally). The route PREVIEW rides on the item so the row + strip render it.
+    // internally). The route PREVIEW rides on the item so the row + strip render it —
+    // a FORCED route (the footer control) previews via routeForTarget, the same
+    // shared mapping the server applies, so the row is honest about the override.
     const askKItems: Item[] = query.trim()
-      ? [{ kind: 'ask-k', label: query.trim(), route: routeForMessage(query.trim()) }]
+      ? [{
+          kind: 'ask-k',
+          label: query.trim(),
+          route: askForceRoute ? routeForTarget(askForceRoute) : routeForMessage(query.trim()),
+        }]
       : []
     // A query matching a destination (e.g. "doc") coincidentally substring-matches
     // a nav label. decideEnterMode picks the default (navigate when matched), but a
@@ -143,7 +158,7 @@ export default function CommandBar({ open, onClose }: Props) {
     const mode = modeOverride ?? decideEnterMode(query, navMatch)
     const ordered = mode === 'navigate' ? [...navs, ...askKItems, ...runItems] : [...askKItems, ...navs, ...runItems]
     return { items: ordered, navMatch }
-  }, [query, runs, projects, modeOverride])
+  }, [query, runs, projects, modeOverride, askForceRoute])
 
   useEffect(() => { setSelected(0) }, [items])
   useEffect(() => { listRef.current?.children[selected]?.scrollIntoView({ block: 'nearest' }) }, [selected])
@@ -157,9 +172,11 @@ export default function CommandBar({ open, onClose }: Props) {
 
   // K's deterministic route preview for the current plain query — shown inline
   // under the input as the operator types (null for empty / @project queries).
+  // A FORCED route (the footer control) overrides the classifier's label with the
+  // same routeForTarget mapping the server applies — honest, not a guess.
   const askKRoute = useMemo<KRoute | null>(
-    () => (plainQuery ? routeForMessage(query.trim()) : null),
-    [plainQuery, query],
+    () => (plainQuery ? (askForceRoute ? routeForTarget(askForceRoute) : routeForMessage(query.trim())) : null),
+    [plainQuery, query, askForceRoute],
   )
 
   // Selecting a dispatch previews it in the confirm card; non-dispatch items act now.
@@ -184,9 +201,13 @@ export default function CommandBar({ open, onClose }: Props) {
       // shared hook trims/guards re-entry, sets the undo window + navigates; the
       // onClose-on-pendingUndo effect closes the bar on success. Clear any lingering
       // dispatch-path error first so the footer's `error ?? ask.error` can't show a
-      // stale @project failure over a fresh ask error.
+      // stale @project failure over a fresh ask error. The footer power controls
+      // ride the send ('default'/'' are the explicit no-override sentinels).
       setError(null)
-      void ask.send(item.label)
+      void ask.send(item.label, {
+        model: askModel === 'default' ? undefined : askModel,
+        forceRoute: askForceRoute === '' ? undefined : askForceRoute,
+      })
       return
     }
     // dispatch-project (@project) → compose-and-confirm card before firing.
@@ -349,6 +370,37 @@ export default function CommandBar({ open, onClose }: Props) {
               ))}
             </ul>
             <div className="flex items-center gap-3 border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted)]">
+              {/* Plain-ask power controls — only when the ask-k path is in play
+                  (a plain query); @project dispatches use the confirm card's picker. */}
+              {plainQuery && (
+                <>
+                  <select
+                    data-testid="cmdk-model-select"
+                    aria-label="Ask-K model override"
+                    title="Model applies to the run K starts (the Chief's own run when routing escalates)"
+                    value={askModel}
+                    onChange={e => setAskModel(e.target.value)}
+                    className="rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[11px] text-[var(--muted)]"
+                  >
+                    <option value="default">model: default</option>
+                    {(claudeModel?.options ?? []).map(o => (
+                      <option key={o.id} value={o.id}>{o.label}</option>
+                    ))}
+                  </select>
+                  <select
+                    data-testid="cmdk-force-route"
+                    aria-label="Ask-K forced route"
+                    value={askForceRoute}
+                    onChange={e => setAskForceRoute(e.target.value as '' | KForceRoute)}
+                    className="rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[11px] text-[var(--muted)]"
+                  >
+                    {/* Shared options module — one list for both composers. */}
+                    {FORCE_ROUTE_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </>
+              )}
               {enterMode && (
                 <button
                   type="button"

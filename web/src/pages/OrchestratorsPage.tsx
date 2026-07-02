@@ -12,9 +12,9 @@ import { navigate } from '../lib/route'
  * OrchestratorDetailPage.
  */
 
-/** One slim roster card. */
-function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
-  const { profile, live, wakes } = entry
+/** One slim roster card. Exported for render-testing (prop-fed, no queries). */
+export function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
+  const { profile, live, wakes, recent } = entry
   return (
     <div
       className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
@@ -25,6 +25,17 @@ function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
           {profile.name}
         </span>
       </div>
+
+      {/* Recent-run health — REAL counts from the lead's activation history, never
+          an invented score/band. Rendered only when there is history to report. */}
+      {recent && recent.total > 0 && (
+        <p
+          data-testid={`orchestrator-recent-${profile.id}`}
+          className={`mt-1.5 text-[11px] ${recent.failed === 0 ? 'text-[var(--green)]' : 'text-[var(--amber)]'}`}
+        >
+          {recent.succeeded}/{recent.total} recent ✓{recent.failed > 0 && ` · ${recent.failed} failed`}
+        </p>
+      )}
 
       <div className="mt-2 flex items-center gap-2 text-[11px] text-[var(--muted)]">
         <span
