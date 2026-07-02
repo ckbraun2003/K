@@ -382,3 +382,126 @@ describe('P5.1d2b: syncIssues syncs the same issue twice into ONE row', () => {
     expect(rows[0].title).toBe('second title') // update path, not a second insert
   })
 })
+
+// ── compound legacy vintage: d2a columns + pre-A1 CHECK + stale frozen dup ─────
+// The #1-risk upgrade path, pinned as a CI tripwire against any reorder of the
+// three migration blocks (d2b backfill+drop → A1 run-scope rebuild → dedupe +
+// unique index). ONE migrate() call must take a d2a-shipped DB (project/issue
+// columns present, scope CHECK still the pre-A1 ('personal','org','project')
+// enum) whose frozen project_tasks copy holds a STALE duplicate of a live
+// (project_id, issue_number) mirror, and land it in the final state: backfill
+// fires (introducing the dup), the rebuild consumes the backfilled data and
+// re-stamps legacy rows, and the dedupe+index runs LAST so the dup is gone and
+// the unique index exists. A reorder (e.g. index before rebuild, or dedupe
+// before backfill) breaks at least one assertion below.
+
+describe('P5.1d2b: compound vintage — pre-A1 CHECK + d2a columns + stale frozen duplicate, one migrate()', () => {
+  const tmpPath = path.join(os.tmpdir(), `k-a2-d2b-compound-${Date.now()}.db`)
+  let tempDb: Database.Database
+
+  afterAll(() => {
+    try { tempDb?.close() } catch { /* ignore */ }
+    try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+  })
+
+  it('drop + flag + personal→run re-stamp + dedupe survivor + partial unique index + clean FKs', () => {
+    tempDb = new Database(tmpPath)
+    tempDb.pragma('foreign_keys = ON')
+    // The d2a-shipped vintage: work_items carries the project/issue columns and
+    // the three non-unique indexes, but still the PRE-A1 scope CHECK (DEFAULT
+    // 'personal', no 'run' — copied from a1-work-items-migration.test.ts); the
+    // frozen project_tasks copy (with issue columns) is still present.
+    tempDb.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY);
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY, prompt TEXT NOT NULL, cwd TEXT NOT NULL,
+        worktree TEXT, status TEXT NOT NULL DEFAULT 'queued',
+        provider TEXT NOT NULL DEFAULT 'claude', model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+        tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, ended_at INTEGER
+      );
+      CREATE TABLE work_items (
+        id          TEXT PRIMARY KEY,
+        run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        title       TEXT NOT NULL,
+        body        TEXT,
+        status      TEXT NOT NULL DEFAULT 'open'
+                      CHECK(status IN ('open','in_progress','blocked','done','cancelled')),
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        scope       TEXT NOT NULL DEFAULT 'personal' CHECK(scope IN ('personal','org','project')),
+        project_id   TEXT REFERENCES projects(id),
+        completed_at INTEGER,
+        issue_number INTEGER,
+        issue_url    TEXT,
+        issue_state  TEXT
+      );
+      CREATE INDEX idx_work_items_run ON work_items(run_id, created_at);
+      CREATE INDEX idx_work_items_project ON work_items(project_id, created_at);
+      CREATE INDEX idx_work_items_issue ON work_items(project_id, issue_number);
+      CREATE TABLE project_tasks (
+        id           TEXT PRIMARY KEY,
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title        TEXT NOT NULL,
+        status       TEXT NOT NULL DEFAULT 'open',
+        created_at   INTEGER NOT NULL,
+        completed_at INTEGER,
+        issue_number INTEGER,
+        issue_url    TEXT,
+        issue_state  TEXT
+      );
+    `)
+
+    const projectId = uuid()
+    const runId = uuid()
+    const legacyPersonalId = uuid()
+    const liveMirrorId = uuid()   // the newer live mirror of issue #7
+    const staleFrozenId = uuid()  // the stale frozen dup of the SAME (project, #7)
+    tempDb.prepare(`INSERT INTO projects (id) VALUES (?)`).run(projectId)
+    tempDb.prepare(`INSERT INTO runs (id, prompt, cwd, created_at) VALUES (?, 'x', '.', 1)`).run(runId)
+    tempDb.prepare(`
+      INSERT INTO work_items (id, run_id, title, status, created_at, updated_at, scope)
+      VALUES (?, ?, 'legacy kstore ticket', 'open', 1, 1, 'personal')
+    `).run(legacyPersonalId, runId)
+    tempDb.prepare(`
+      INSERT INTO work_items (id, run_id, project_id, title, status, scope, created_at, updated_at, issue_number, issue_url, issue_state)
+      VALUES (?, NULL, ?, 'live mirror', 'open', 'project', 2000, 2000, 7, 'https://gh/issues/7', 'OPEN')
+    `).run(liveMirrorId, projectId)
+    tempDb.prepare(`
+      INSERT INTO project_tasks (id, project_id, title, status, created_at, completed_at, issue_number, issue_url, issue_state)
+      VALUES (?, ?, 'stale frozen mirror', 'open', 1000, NULL, 7, 'https://gh/issues/7', 'OPEN')
+    `).run(staleFrozenId, projectId)
+
+    expect(() => migrate(tempDb)).not.toThrow()
+
+    // project_tasks gone + one-shot flag set
+    expect(
+      tempDb.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_tasks'`).get(),
+    ).toBeUndefined()
+    expect(
+      tempDb.prepare(`SELECT value FROM app_config WHERE key = 'mig_project_tasks_drop'`).get(),
+    ).toBeTruthy()
+
+    // A1's rebuild consumed the backfilled data fine: legacy 'personal' → 'run'
+    const legacy = tempDb.prepare(`SELECT scope FROM work_items WHERE id = ?`).get(legacyPersonalId) as { scope: string }
+    expect(legacy.scope).toBe('run')
+
+    // idx_work_items_project_issue exists, UNIQUE and partial
+    const idx = (tempDb.pragma('index_list(work_items)') as Array<{ name: string; unique: number; partial: number }>)
+      .find(i => i.name === 'idx_work_items_project_issue')
+    expect(idx).toBeTruthy()
+    expect(idx!.unique).toBe(1)
+    expect(idx!.partial).toBe(1)
+
+    // only the NEWER duplicate survived (the backfilled stale frozen row was deduped)
+    expect(tempDb.prepare(`SELECT 1 FROM work_items WHERE id = ?`).get(staleFrozenId)).toBeUndefined()
+    expect(tempDb.prepare(`SELECT 1 FROM work_items WHERE id = ?`).get(liveMirrorId)).toBeTruthy()
+    const mirrors = tempDb
+      .prepare(`SELECT COUNT(*) AS n FROM work_items WHERE project_id = ? AND issue_number = 7 AND scope = 'project'`)
+      .get(projectId) as { n: number }
+    expect(mirrors.n).toBe(1)
+
+    // no dangling references anywhere after backfill + rebuild + dedupe + drop
+    expect(tempDb.pragma('foreign_key_check')).toEqual([])
+  })
+})

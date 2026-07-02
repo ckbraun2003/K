@@ -150,7 +150,7 @@ describe('P5.1d char: project_tasks route', () => {
   })
 
   afterAll(async () => {
-    try { db.prepare('DELETE FROM project_tasks WHERE project_id = ?').run(projectId) } catch { /* ignore */ }
+    try { db.prepare('DELETE FROM work_items WHERE project_id = ?').run(projectId) } catch { /* ignore */ }
     try { db.prepare('DELETE FROM projects WHERE id = ?').run(projectId) } catch { /* ignore */ }
     await app.close()
   })
@@ -273,7 +273,7 @@ describe('P5.1d char: syncIssues mapping', () => {
 
   afterAll(() => {
     for (const id of projectIds) {
-      try { db.prepare('DELETE FROM project_tasks WHERE project_id = ?').run(id) } catch { /* ignore */ }
+      try { db.prepare('DELETE FROM work_items WHERE project_id = ?').run(id) } catch { /* ignore */ }
       try { db.prepare('DELETE FROM projects WHERE id = ?').run(id) } catch { /* ignore */ }
     }
   })
