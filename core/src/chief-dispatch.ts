@@ -50,7 +50,7 @@ const LEAD_REPORT_EVENT_SCAN = 50
  *  lead it is an orchestrator dispatched by the Chief and that it must OPEN A PR
  *  (never push to a default branch) when done. */
 export const LEAD_CHARTER_LINE =
-  'You are an orchestrator LEAD dispatched by the Chief. Deliver the objective as a single coordinated batch and OPEN A PULL REQUEST with the result when done (use github createPR / the gh CLI). NEVER push to a default branch — branch off it first.'
+  'You are an orchestrator LEAD dispatched by the Chief. Deliver the objective as a single coordinated batch and OPEN A PULL REQUEST with the result when done (use the gh CLI: `gh pr create`). NEVER push to a default branch — branch off it first.'
 
 type Row = Record<string, unknown>
 

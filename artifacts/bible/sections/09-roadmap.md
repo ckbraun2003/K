@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-06-30
+updated: 2026-07-02
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -182,7 +182,7 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
   (killed the hardcoded `unknown` stub so the 20-pt factor is live); whole-foundation fresh-eyes SEAMS review;
   bible + decision-log close-out; full clean-tree gate. **GATE: substrate solid** — the precondition for Phase 5.
 
-## Phase 5 — Agentic Org *(next — headline program)*
+## Phase 5 — Agentic Org *(✓ 2026-07-02 — the Agentic Org delivered on `feat/k-org`; `--no-ff` merge to `main` at close-out)*
 
 > Re-frame the product from "an operator drives a dashboard" to "the user directs an agent
 > **organization**" (§03, §04): **K** the friendly secretary → the **Chief** manager → staff-engineer
@@ -194,51 +194,88 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
 
 ### 5.1 — Foundation + K
 
-- [ ] `AgentProfile` entity (tier · charter · defaultModel · allowedTools · mcpServers · skills) + storage
-- [ ] `startAgentRun(profileId, { trigger, goal|thread, projectId?, workflowId? })` generalizing `startRun`
-- [ ] Authority gating: `--allowedTools` allowlist per tier (coding tools at lead tier only)
-- [ ] `logistics-mcp` (K) + reuse Google Calendar / Gmail / Drive connectors
-- [ ] Memory layer A: per-profile markdown lessons + gated end-of-run reflection (operator-approved)
-- [ ] K runtime (hybrid): durable thread + warm interactive session + fresh-seeded run on restart/idle/wake
-- [ ] `agent_tasks` (K-owned global checklists) distinct from `project_tasks`
-- [ ] K-home dashboard surface (the friendly landing)
+- [x] `AgentProfile` entity (tier · charter · defaultModel · allowedTools · mcpServers · skills) + storage
+- [x] `startAgentRun(profileId, { trigger, goal|thread, projectId?, workflowId? })` generalizing `startRun`
+- [x] Authority gating: `--allowedTools` allowlist per tier (coding tools at lead tier only)
+- [x] `logistics-mcp` (K) + reuse Google Calendar / Gmail / Drive connectors
+- [x] Memory layer A: per-profile markdown lessons + gated end-of-run reflection (operator-approved)
+- [x] K runtime (hybrid): durable thread + warm interactive session + fresh-seeded run on restart/idle/wake
+- [x] `agent_tasks` (K-owned global checklists) distinct from `project_tasks`
+- [x] K-home dashboard surface (the friendly landing)
 
 ### 5.2 — Chief
 
-- [ ] Chief profile (chief tier) + `mgmt-mcp` (assign-lead / pick-workflow / scope-projects / report)
-- [ ] Reuse GitNexus MCP read-only for the Chief
-- [ ] Autonomous wake via the Phase-3 scheduler + event listener (schedule/event triggers)
-- [ ] K → Chief delegation (engineering work only) + report-back up the chain
-- [ ] Chief dashboard surface (assignments board, wake history, read-only control-plane mirror)
+- [x] Chief profile (chief tier) + `mgmt-mcp` (assign-lead / pick-workflow / scope-projects / report)
+- [x] Reuse GitNexus MCP read-only for the Chief
+- [x] Autonomous wake via the Phase-3 scheduler + event listener (schedule/event triggers)
+- [x] K → Chief delegation (engineering work only) + report-back up the chain
+- [x] Chief dashboard surface (assignments board, wake history, read-only control-plane mirror)
 
 ### 5.3 — Roster + Workflows
 
-- [ ] Orchestrator leads (Frontend · Backend · Systems · Security · Network) as profiles + charters
-- [ ] Status-write MCP for leads; per-lead skills/tools/MCP scoping (the control plane)
-- [ ] `WorkflowDefinition` generalizing `buildDelegationPrompt`; `implement+review` as the first definition
-- [ ] Cross-project scope flag in the schema (multi-project execution deferred)
-- [ ] Orchestrator-detail surface: charter/skills/tools/MCP/memory editors + persistent authority panel + live delegation tree
-- [ ] Settings org / MCP authority-tier panel
+- [x] Orchestrator leads (Frontend · Backend · Systems · Security · Network) as profiles + charters
+- [x] Status-write MCP for leads; per-lead skills/tools/MCP scoping (the control plane)
+- [x] `WorkflowDefinition` generalizing `buildDelegationPrompt`; `implement+review` as the first definition
+- [x] Cross-project scope flag in the schema (multi-project execution deferred)
+- [x] Orchestrator-detail surface: charter/skills/tools/MCP/memory editors + persistent authority panel + live delegation tree
+- [x] Settings org / MCP authority-tier panel
 
 ### 5.4 — Voice
 
 > Talk to your agents instead of typing. v1 is **push-to-talk in** via a new TranscriptionProvider
 > B-seam + a local Whisper service; voice-out (TTS) is a later wave. Decision D-031.
 
-- [ ] **Push-to-talk in (v1).** `TranscriptionProvider` B-seam (`transcribe(audio)→{text}`) + a default local Whisper (faster-whisper) impl; `POST /api/transcribe` (core proxies — browser holds no key); `ENABLE_VOICE` / `WHISPER_BASE_URL` config; graceful degrade to keyboard when unreachable
-- [ ] **Mic in every composer.** `useVoiceRecorder` (`MediaRecorder`) + a `MicButton` wired into the K composer, the ⌘K bar, and the HITL reply box; transcript inserts as ordinary text into the existing dispatch / reply flow
-- [ ] **Voice status card** in Settings (engine reachable · model · enable toggle)
-- [ ] Voice **out** (TTS — K talks back) — deferred to a later wave
+- [x] **Push-to-talk in (v1).** `TranscriptionProvider` B-seam (`transcribe(audio)→{text}`) + a default local Whisper (faster-whisper) impl; `POST /api/transcribe` (core proxies — browser holds no key); `ENABLE_VOICE` / `WHISPER_BASE_URL` config; graceful degrade to keyboard when unreachable
+- [x] **Mic in every composer.** `useVoiceRecorder` (`MediaRecorder`) + a `MicButton` wired into the K composer, the ⌘K bar, and the HITL reply box; transcript inserts as ordinary text into the existing dispatch / reply flow
+- [x] **Voice status card** in Settings (engine reachable · model · enable toggle)
+- [x] Voice **out** (TTS — K talks back) — deferred to a later wave
 
 ### 5.5 — Local model management *(extends the ModelRouter seam — independent of the org tiers)*
 
 > See and shape the local models behind the router from the UI: discover, download, and select —
 > with the selection applied live. Decision D-030.
 
-- [ ] `app_config` store + `route()` getters → the active Ollama model is operator-selectable and **hot-swappable, no restart**
-- [ ] Model surface over the Ollama HTTP API: list installed (`/api/tags`), pull with live progress on the EventBus→WS wire (`/api/pull`), remove (`/api/delete`)
-- [ ] Curated catalog (sizes) + `fs.statfs` disk-fit check; advanced free-form "pull any tag"
-- [ ] Settings → **Local models** surface (installed · catalog · active selector · live download progress); dynamic Ollama models in the dispatch picker
+- [x] `app_config` store + `route()` getters → the active Ollama model is operator-selectable and **hot-swappable, no restart**
+- [x] Model surface over the Ollama HTTP API: list installed (`/api/tags`), pull with live progress on the EventBus→WS wire (`/api/pull`), remove (`/api/delete`)
+- [x] Curated catalog (sizes) + `fs.statfs` disk-fit check; advanced free-form "pull any tag"
+- [x] Settings → **Local models** surface (installed · catalog · active selector · live download progress); dynamic Ollama models in the dispatch picker
+
+### 5.6 — Close-out *(✓ 2026-07-02)*
+
+> Multi-tier org observability, the whole-org SEAMS review, docs + decision-log finalize, and the
+> `--no-ff` merge to `main`.
+
+- [x] **Autonomous execution loop** (D-049 → D-051) — split into `a` (dispatch intent + wake wiring),
+  `b1` (the MAIN-process `lead-dispatch-relay` decoupling: `dispatch_lead` records a `pending` intent
+  in the mgmt-server child, the main process CAS-claims + executes it so the lead's `agent_runs`
+  finalizes and the lead→Chief report-back fires on the main EventBus), and `b2` (Chief→K continuation
+  + the multi-tier org `DelegationTree` render).
+- [x] **Multi-tier org observability** — the per-run sub-agent tree generalized to the whole-org tree
+  (`fullOrgToDelegationTree` over the tagged `AgentEvent` stream + `agent_runs`/`k_thread_turns` links;
+  the K→Chief edge derived from `kDelegations`), §13.
+- [x] **Whole-org fresh-eyes SEAMS review** across the full `feat/k-org` diff — 7 seams PASS,
+  0 blocker/major, 1 minor fixed pre-merge (the lead charter referenced a non-existent `github` MCP
+  tool; corrected to `gh pr create` over the granted Bash path). Verdict: MERGE-WITH-FOLLOWUPS.
+- [x] **Full verification green from a clean tree** — typecheck · core 1317 / web 407 · build; CI green
+  on `feat/k-org`.
+- [x] Bible §03/§04/§08/§13 + this roadmap + decision log (D-020 → D-052) finalized; lessons captured.
+
+**Live smokes passed** (each an operator-approved narrow real dispatch): P5.0 `startAgentRun` reaches
+terminal + finalizes once; "talk to K" routes a request with the route shown inline; the
+autonomous-loop **relay** drains a Chief-recorded intent → a real lead run runs, finalizes
+(`agent_runs`→completed), links the assignment, and reports back up the chain.
+
+**Delivered via splits** (each its own reviewable wave): 5.1 → a–f (K profile · logistics-mcp ·
+memory-A · hybrid runtime · task-model scope + the `work_items` storage collapse · K-home UI);
+5.2 → a/b (Chief + mgmt-mcp + wake · Chief org-status UI + the reusable `DelegationTree`); 5.3 → a/b
+(roster + `WorkflowDefinition` + control plane · Orchestrators/Workflows UI + editors).
+
+**Deferred (post-merge follow-ups, non-breaking):** the P5.1d2b task-store reroute (drop
+`project_tasks`; move `routes/projects.ts` / `syncIssues` / Tasks-UI off the compat shim; the
+`work_item_create` `scope='project'` guard + the `updateProjectTaskFromIssue` project_id bind); the
+full K→Chief→lead→**PR** end-to-end live run (operator-gated token spend — the relay mechanic is
+already smoke-proven); and the low-severity review nits (hardcoded operator name; grant-guard
+substring→typed error class; `concatAssistantText` unbounded read; `kDelegations` counts failed).
 
 ## Phase 6 — Intelligence & Scale *(optional)*
 
