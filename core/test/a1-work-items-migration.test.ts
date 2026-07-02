@@ -3,9 +3,11 @@
  *
  * Temp DBs (better-sqlite3 + os.tmpdir), modeled on p5-1d-work-item-scope.test.ts /
  * p5-1d2-collapse.test.ts. Pins the one-shot table REBUILD (the OLD scope CHECK can't
- * be altered in place), the DEFAULT-'run' backfill, the flag-guarded idempotency (a
- * durable 'personal' row is never clobbered on a re-boot), post-rebuild indexes, and
- * FK integrity (a workflow_steps-style child's link survives the rebuild).
+ * be altered in place), the legacy personal→run AND org→run re-stamp (both were
+ * run-scoped pre-A1), the DEFAULT-'run' backfill, the flag-guarded idempotency (a
+ * durable 'personal'/'org' row is never clobbered on a re-boot), post-rebuild indexes,
+ * FK integrity (a workflow_steps-style child's link survives the rebuild), and the
+ * mid-rebuild ROLLBACK (a poisoned copy leaves the original table fully intact).
  */
 import { describe, it, expect, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
@@ -38,13 +40,14 @@ describe('A1 migration: rebuilds a work_items carrying the OLD scope CHECK', () 
   const tmpPath = path.join(os.tmpdir(), `k-a1-mig-rebuild-${Date.now()}.db`)
   let d: Database.Database
   const wiId = uuid()
+  const wiOrgId = uuid()
 
   afterAll(() => {
     try { d?.close() } catch { /* ignore */ }
     try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
   })
 
-  it('(a) re-stamps legacy personal→run, rebuilds the CHECK, sets the flag, keeps indexes + FK integrity', () => {
+  it('(a) re-stamps legacy personal→run AND org→run, rebuilds the CHECK, sets the flag, keeps indexes + FK integrity', () => {
     d = new Database(tmpPath)
     baseSchema(d)
     // OLD-schema work_items: the pre-A1 scope column (DEFAULT 'personal', CHECK without
@@ -69,13 +72,20 @@ describe('A1 migration: rebuilds a work_items carrying the OLD scope CHECK', () 
     d.prepare(`INSERT INTO runs (id, prompt, cwd, created_at) VALUES (?, 'x', '.', 1)`).run(runId)
     d.prepare(`INSERT INTO work_items (id, run_id, title, status, created_at, updated_at, scope)
                VALUES (?, ?, 'legacy', 'open', 1, 1, 'personal')`).run(wiId, runId)
+    // Legacy 'org' row: pre-A1 'org' was creatable via work_item_create and behaved
+    // identically run-scoped — it must re-stamp to 'run' too, or it would silently
+    // ESCALATE into the durable operator-global view on the upgrade boot.
+    d.prepare(`INSERT INTO work_items (id, run_id, title, status, created_at, updated_at, scope)
+               VALUES (?, ?, 'legacy org', 'open', 1, 1, 'org')`).run(wiOrgId, runId)
     d.prepare(`INSERT INTO wsteps (id, work_item_id) VALUES (?, ?)`).run(uuid(), wiId)
 
     expect(() => migrate(d)).not.toThrow()
 
-    // legacy 'personal' rows re-stamped 'run' (identical ephemeral semantics)
+    // legacy 'personal' AND 'org' rows re-stamped 'run' (identical ephemeral semantics)
     const row = d.prepare(`SELECT scope FROM work_items WHERE id = ?`).get(wiId) as { scope: string }
     expect(row.scope).toBe('run')
+    const orgRow = d.prepare(`SELECT scope FROM work_items WHERE id = ?`).get(wiOrgId) as { scope: string }
+    expect(orgRow.scope).toBe('run')
 
     // the CHECK was rebuilt: a scope='run' INSERT now succeeds (would have failed the old CHECK)
     expect(() =>
@@ -100,16 +110,87 @@ describe('A1 migration: rebuilds a work_items carrying the OLD scope CHECK', () 
     expect(ws.work_item_id).toBe(wiId)
   })
 
-  it('(b) is a flag-guarded one-shot: a durable personal row survives a re-migrate', () => {
+  it('(b) is a flag-guarded one-shot: durable personal AND org rows survive a re-migrate', () => {
     const durableId = uuid()
+    const durableOrgId = uuid()
     d.prepare(`INSERT INTO work_items (id, run_id, title, status, created_at, updated_at, scope)
                VALUES (?, NULL, 'durable personal', 'open', 2, 2, 'personal')`).run(durableId)
+    d.prepare(`INSERT INTO work_items (id, run_id, title, status, created_at, updated_at, scope)
+               VALUES (?, NULL, 'durable org', 'open', 2, 2, 'org')`).run(durableOrgId)
 
     expect(() => migrate(d)).not.toThrow()
 
-    // NOT clobbered back to 'run' — the flag makes the personal→run UPDATE a one-time pass.
+    // NOT clobbered back to 'run' — the flag makes the →run UPDATE a one-time pass.
     const row = d.prepare(`SELECT scope FROM work_items WHERE id = ?`).get(durableId) as { scope: string }
     expect(row.scope).toBe('personal')
+    const orgRow = d.prepare(`SELECT scope FROM work_items WHERE id = ?`).get(durableOrgId) as { scope: string }
+    expect(orgRow.scope).toBe('org')
+  })
+})
+
+// ── (e): forced mid-transaction failure → full ROLLBACK, nothing half-applied ───
+
+describe('A1 migration: a mid-rebuild failure rolls back atomically', () => {
+  const tmpPath = path.join(os.tmpdir(), `k-a1-mig-rollback-${Date.now()}.db`)
+  let d: Database.Database
+  const goodId = uuid()
+  const poisonId = uuid()
+
+  afterAll(() => {
+    try { d?.close() } catch { /* ignore */ }
+    try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+  })
+
+  it('(e) leaves the ORIGINAL table intact, no work_items_new, flag unset, FKs back ON', () => {
+    d = new Database(tmpPath)
+    baseSchema(d)
+    // Legacy table whose scope column has NO CHECK (its DDL lacks 'run' → the rebuild
+    // triggers) seeded with a POISON row whose scope violates the NEW CHECK — the
+    // rebuild's INSERT...SELECT copy throws mid-transaction, exercising the rollback.
+    d.exec(`
+      CREATE TABLE work_items (
+        id          TEXT PRIMARY KEY,
+        run_id      TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        title       TEXT NOT NULL,
+        body        TEXT,
+        status      TEXT NOT NULL DEFAULT 'open',
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        scope       TEXT NOT NULL DEFAULT 'personal'
+      );
+    `)
+    d.prepare(`INSERT INTO work_items (id, run_id, title, status, created_at, updated_at, scope)
+               VALUES (?, NULL, 'good', 'open', 1, 1, 'personal')`).run(goodId)
+    d.prepare(`INSERT INTO work_items (id, run_id, title, status, created_at, updated_at, scope)
+               VALUES (?, NULL, 'poison', 'open', 1, 1, 'bogus')`).run(poisonId)
+
+    // The copy hits the new CHECK on 'bogus' → the whole IMMEDIATE transaction throws…
+    expect(() => migrate(d)).toThrow()
+
+    // …and ROLLS BACK: the ORIGINAL table survives with both rows readable…
+    const rows = d.prepare(`SELECT id, scope FROM work_items ORDER BY id`).all() as
+      Array<{ id: string; scope: string }>
+    expect(rows).toHaveLength(2)
+    expect(rows.find(r => r.id === goodId)?.scope).toBe('personal') // NOT re-stamped
+    expect(rows.find(r => r.id === poisonId)?.scope).toBe('bogus')
+    // …no half-built work_items_new is left behind…
+    expect(
+      d.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='work_items_new'`).get(),
+    ).toBeUndefined()
+    // …the one-shot flag was NOT set (the flag commits in the SAME transaction)…
+    expect(d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(RUN_SCOPE_FLAG)).toBeUndefined()
+    // …FK enforcement was restored by the finally, and integrity is clean.
+    expect(d.pragma('foreign_keys', { simple: true })).toBe(1)
+    expect(d.pragma('foreign_key_check')).toEqual([])
+  })
+
+  it('(e2) recovers: fixing the poison row lets the SAME migration succeed', () => {
+    d.prepare(`UPDATE work_items SET scope = 'personal' WHERE id = ?`).run(poisonId)
+    expect(() => migrate(d)).not.toThrow()
+    // Both legacy rows re-stamped 'run'; flag set; new CHECK accepts 'run'.
+    const scopes = (d.prepare(`SELECT scope FROM work_items`).all() as Array<{ scope: string }>).map(r => r.scope)
+    expect(scopes).toEqual(['run', 'run'])
+    expect(d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(RUN_SCOPE_FLAG)).toBeTruthy()
   })
 })
 

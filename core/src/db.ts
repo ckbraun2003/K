@@ -664,9 +664,10 @@ export function migrate(d: Database.Database): void {
   // work_items run-scope rename (A1, D-026): the durable operator-global store. A DB
   // that already carried the OLD scope column (DEFAULT 'personal', CHECK without 'run')
   // must be REBUILT — SQLite cannot alter a CHECK in place — and its legacy 'personal'
-  // rows re-stamped 'run' (they were all created under run-scoped semantics by lead
-  // runs; there are no DURABLE personal rows yet). Flag-guarded one-shot: WITHOUT the
-  // flag, the plain personal→run UPDATE would clobber every future durable 'personal'
+  // AND 'org' rows re-stamped 'run': BOTH were reachable via work_item_create pre-A1
+  // and behaved identically run-scoped (reads filtered `run_id IS ? AND scope !=
+  // 'project'`), and there are no DURABLE rows yet. Flag-guarded one-shot: WITHOUT the
+  // flag, the plain →run UPDATE would clobber every future durable 'personal'/'org'
   // row on every boot — the flag is exactly what makes this a one-time migration.
   // app_config is created first because old-schema test fixtures lack it (idempotent,
   // matches the main DDL).
@@ -686,6 +687,13 @@ export function migrate(d: Database.Database): void {
     // never leave a half-rebuilt table, a re-stamp without its flag, or a dangling open
     // transaction on this connection.
     const applyRunScopeMigration = d.transaction(() => {
+      // Race re-check INSIDE the lock (multi-process boot: the main server + up to
+      // three per-run stdio MCP children each open k.db and run migrate() on their own
+      // connections). The pre-checks above (flag + needsRebuild) are the fast path but
+      // are computed BEFORE .immediate() acquires the write lock — a process that lost
+      // the race would otherwise redo the full rebuild against the already-rebuilt
+      // table. If the winner already committed the flag, no-op out.
+      if (d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(RUN_SCOPE_FLAG)) return
       if (needsRebuild) {
         // Copy → drop → rename a NEW table with the current schema. Renaming the NEW
         // table (referenced by nothing) avoids RENAME rewriting other tables' FK clauses.
@@ -719,10 +727,12 @@ export function migrate(d: Database.Database): void {
           CREATE INDEX IF NOT EXISTS idx_work_items_issue ON work_items(project_id, issue_number);
         `)
       }
-      // Re-stamp legacy 'personal' rows (all created under run-scoped semantics) to 'run'.
-      // Guarded one-shot: the flag (committed in the SAME transaction) stops this from
-      // ever clobbering a future durable 'personal' row on a later boot.
-      d.exec(`UPDATE work_items SET scope = 'run' WHERE scope = 'personal'`)
+      // Re-stamp legacy 'personal' AND 'org' rows to 'run' — both were creatable via
+      // kstore pre-A1 and behaved identically run-scoped; an untouched legacy 'org' row
+      // would otherwise silently ESCALATE into the durable operator-global view on the
+      // upgrade boot. Guarded one-shot: the flag (committed in the SAME transaction)
+      // stops this from ever clobbering a future durable 'personal'/'org' row.
+      d.exec(`UPDATE work_items SET scope = 'run' WHERE scope IN ('personal','org')`)
       d.prepare(`INSERT INTO app_config (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(RUN_SCOPE_FLAG)
     })
     if (needsRebuild) {
