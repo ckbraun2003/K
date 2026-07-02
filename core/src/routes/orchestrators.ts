@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { isKnownModel, type OrchestratorRosterPayload } from '@k/shared'
+import { GrantError } from '../authority.js'
 import { getProfile, listProfiles, updateProfile } from '../profiles.js'
 import { assembleLead, isLead, rosterVitals } from './org-shared.js'
 
@@ -16,11 +17,11 @@ import { assembleLead, isLead, rosterVitals } from './org-shared.js'
  * the guard (a non-guard fault re-throws → Fastify 500, not a mislabelled 400).
  */
 
-// Signatures the two fail-closed client-error guards raise — assertMcpGrants
-// ("mounting ≠ granting", D-034) and assertTierCeiling (the B1 tier ceiling). These
-// are the ONLY updateProfile throws that are client errors (a bad patch). Anything
-// else (a missing charter asset, a DB fault) is a server fault → re-throw → 500.
-const GRANT_GUARD_ERROR = /does not grant it|exceeds the .* tier ceiling/
+// The two fail-closed client-error guards — assertMcpGrants ("mounting ≠ granting",
+// D-034) and assertTierCeiling (the B1 tier ceiling) — throw the typed GrantError
+// (authority.ts). Those are the ONLY updateProfile throws that are client errors (a
+// bad patch); anything else (a missing charter asset, a DB fault) is a server fault
+// → re-throw → 500. The PATCH handler below maps on `instanceof GrantError`.
 
 // The mutable per-lead patch. All fields optional (partial patch); `.strict()` so an
 // unknown key is a 400 (a typo can't silently no-op). Deliberately EXCLUDES tier/charter:
@@ -86,12 +87,12 @@ export async function orchestratorsRoutes(app: FastifyInstance) {
       if (!updated) return reply.status(404).send({ error: 'not found' })
       return reply.send(updated)
     } catch (e) {
-      const msg = (e as Error).message
-      // ONLY the two fail-closed guards (assertMcpGrants — "mounting ≠ granting" — and
-      // assertTierCeiling — the B1 tier ceiling) are client errors: a 400, with the row
-      // UNCHANGED (updateProfile threw before the UPDATE). Any OTHER throw is a server
-      // fault — re-throw so Fastify answers 500 instead of mislabelling it a 400.
-      if (GRANT_GUARD_ERROR.test(msg)) return reply.status(400).send({ error: msg })
+      // ONLY the typed GrantError (the two fail-closed guards: assertMcpGrants —
+      // "mounting ≠ granting" — and assertTierCeiling — the B1 tier ceiling) is a
+      // client error: a 400, with the row UNCHANGED (updateProfile threw before the
+      // UPDATE). Any OTHER throw is a server fault — re-throw so Fastify answers 500
+      // instead of mislabelling it a 400.
+      if (e instanceof GrantError) return reply.status(400).send({ error: e.message })
       throw e
     }
   })

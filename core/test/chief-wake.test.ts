@@ -13,15 +13,19 @@
  *   b) a synchronous burst debounces to ONE wake (rest 'debounced')
  *   c) an already-running chief run blocks a fresh wake ('already-running')
  *   d) a dispatch failure degrades to {woke:false,reason:'failed'} (NO throw), row 'failed'
- *   e) the event path (onChiefWakeRunUpdate) + the self-wake guard + a working stop fn
+ *   e) the event path (onChiefWakeRunUpdate): the ORG-RELEVANCE filter (only a lead /
+ *      delegation terminal wakes; bare runs and K-chat terminals do not), the
+ *      self-wake guard, the kill switch (chief_wake_events_enabled), the rolling-hour
+ *      rate breaker (chief_wake_max_per_hour, 'rate-capped'), the paid-loop cycle
+ *      bound, and a working stop fn.
  *
  * Isolated DB via vitest.config.ts K_DATA_DIR; the suite leaves the shared core-test
- * DB as it found it (chief agent_runs + mock runs are its own; the chief profile is
- * only removed if this suite created it).
+ * DB as it found it (chief agent_runs + mock runs are its own; the chief/lead-backend/
+ * k-secretary profiles are only removed if this suite created them).
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, agentRunsDb } from '../src/db.js'
+import { db, agentRunsDb, configDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { startRun } from '../src/supervisor.js'
 import { getProfile, createProfile } from '../src/profiles.js'
@@ -76,8 +80,9 @@ function chiefWakesGoalIncludes(sub: string): Array<Record<string, unknown>> {
   return chiefWakes().filter(r => typeof r.goal === 'string' && (r.goal as string).includes(sub))
 }
 
-/** Insert a chief agent_run row directly (for the already-running / self-wake setups). */
-function insertChiefRun(opts: { goal: string; status: string; runId?: string | null }): string {
+/** Insert a chief agent_run row directly (for the already-running / self-wake /
+ *  rate-breaker setups). trigger defaults to 'event' (the rate-breaker's subject). */
+function insertChiefRun(opts: { goal: string; status: string; runId?: string | null; createdAt?: number }): string {
   const id = uuid()
   agentRunsDb.insertAgentRun.run({
     id,
@@ -88,7 +93,7 @@ function insertChiefRun(opts: { goal: string; status: string; runId?: string | n
     projectId: null,
     workflowId: null,
     status: opts.status,
-    createdAt: Date.now(),
+    createdAt: opts.createdAt ?? Date.now(),
     completedAt: null,
   })
   return id
@@ -101,30 +106,73 @@ function insertRunRow(id: string): void {
   ).run(id, Date.now())
 }
 
+/** Insert an agent_runs activation row for an arbitrary profile — the setup that
+ *  makes a terminal run ORG-RELEVANT (a lead run / a delegation) or explicitly NOT
+ *  (a K-chat 'user-message' run) for the event-path filter tests. */
+function insertActivationRow(profileId: string, trigger: string, runId: string, status = 'completed'): void {
+  agentRunsDb.insertAgentRun.run({
+    id: uuid(),
+    profileId,
+    runId,
+    trigger,
+    goal: `activation for ${runId}`,
+    projectId: null,
+    workflowId: null,
+    status,
+    createdAt: Date.now(),
+    completedAt: null,
+  })
+}
+
+/** A fresh ORG-RELEVANT terminal: a runs row + a chief-dispatched lead activation
+ *  (profile 'lead-backend', trigger 'delegation'). Returns the run id. */
+function seedLeadTerminal(): string {
+  const runId = `mock-cw-run-${uuid().slice(0, 8)}`
+  insertRunRow(runId)
+  insertActivationRow('lead-backend', 'delegation', runId)
+  return runId
+}
+
 let createdChiefProfile = false
+let createdLeadProfile = false
+let createdKSecretaryProfile = false
 
 beforeAll(() => {
-  // startAgentRun('chief', …) resolves getProfile('chief'); the shared DB may
-  // already carry a seeded 'chief' from another suite — only create it if absent,
-  // and only remove it in afterAll if we created it.
+  // startAgentRun('chief', …) resolves getProfile('chief'); the org-relevance filter
+  // resolves the terminal run's owning profile ('lead-backend' orchestrator-tier =
+  // relevant, 'k-secretary' = not). The shared DB may already carry seeded rows from
+  // another suite — only create what is absent, and only remove what we created.
   if (!getProfile('chief')) {
     createProfile({ id: 'chief', name: 'Chief', tier: 'chief' })
     createdChiefProfile = true
   }
+  if (!getProfile('lead-backend')) {
+    createProfile({ id: 'lead-backend', name: 'Backend', tier: 'orchestrator' })
+    createdLeadProfile = true
+  }
+  if (!getProfile('k-secretary')) {
+    createProfile({ id: 'k-secretary', name: 'K', tier: 'secretary' })
+    createdKSecretaryProfile = true
+  }
 })
 
-// Clean slate before every case: no chief agent_runs (Guard B is a global
-// per-profile check, so a leaked 'running' row would poison later wakes) + a
-// reset debounce clock. Only chief rows are ours — no other suite creates them.
+// Clean slate before every case: no chief agent_runs (Guard B + the rate breaker are
+// global per-profile checks, so a leaked row would poison later wakes), no leftover
+// activation rows on our mock runs, + a reset debounce clock.
 beforeEach(() => {
   db.prepare(`DELETE FROM agent_runs WHERE profile_id = 'chief'`).run()
+  db.prepare(`DELETE FROM agent_runs WHERE run_id LIKE 'mock-cw-run-%'`).run()
   resetChiefWakeDebounce()
 })
 
 afterAll(() => {
   db.prepare(`DELETE FROM agent_runs WHERE profile_id = 'chief'`).run()
+  db.prepare(`DELETE FROM agent_runs WHERE run_id LIKE 'mock-cw-run-%'`).run()
   db.prepare(`DELETE FROM runs WHERE id LIKE 'mock-cw-run-%'`).run()
+  db.prepare(`DELETE FROM app_config WHERE key IN ('chief_wake_events_enabled', 'chief_wake_max_per_hour')`).run()
   if (createdChiefProfile) db.prepare(`DELETE FROM agent_profiles WHERE id = 'chief'`).run()
+  if (createdLeadProfile) db.prepare(`DELETE FROM agent_profiles WHERE id = 'lead-backend'`).run()
+  if (createdKSecretaryProfile) db.prepare(`DELETE FROM agent_profiles WHERE id = 'k-secretary'`).run()
 })
 
 describe('wakeChief', () => {
@@ -205,16 +253,35 @@ describe('wakeChief', () => {
 })
 
 describe('onChiefWakeRunUpdate (event path) + startChiefWake', () => {
-  it('e1) a non-chief terminal run_update wakes the Chief with trigger=event', async () => {
-    const runId = `mock-cw-run-${uuid().slice(0, 8)}`
-    insertRunRow(runId)
+  it('e1) org-relevance filter: a bare terminal run does NOT wake; a chief-dispatched lead terminal DOES (trigger=event)', async () => {
+    // A bare run (no agent_runs row at all — an eval / skill / manual run) is not
+    // org-relevant: no wake.
+    const bareRunId = `mock-cw-run-${uuid().slice(0, 8)}`
+    insertRunRow(bareRunId)
+    onChiefWakeRunUpdate(terminalRun(bareRunId))
+    await flush()
+    expect(chiefWakesGoalIncludes(bareRunId)).toHaveLength(0)
 
-    onChiefWakeRunUpdate(terminalRun(runId))
+    // An org-relevant terminal — a lead activation (orchestrator tier, dispatched
+    // via delegation) — wakes the Chief with trigger=event.
+    const leadRunId = seedLeadTerminal()
+    onChiefWakeRunUpdate(terminalRun(leadRunId))
     await flush()
 
-    const woke = chiefWakesGoalIncludes(runId)
+    const woke = chiefWakesGoalIncludes(leadRunId)
     expect(woke).toHaveLength(1)
     expect(woke[0].trigger).toBe('event')
+  })
+
+  it('e1b) a K-chat terminal (k-secretary / user-message) does NOT wake', async () => {
+    const kRunId = `mock-cw-run-${uuid().slice(0, 8)}`
+    insertRunRow(kRunId)
+    insertActivationRow('k-secretary', 'user-message', kRunId)
+
+    onChiefWakeRunUpdate(terminalRun(kRunId))
+    await flush()
+
+    expect(chiefWakesGoalIncludes(kRunId)).toHaveLength(0)
   })
 
   it('e2) self-wake guard: a CHIEF run finishing does NOT wake the Chief', async () => {
@@ -243,20 +310,20 @@ describe('onChiefWakeRunUpdate (event path) + startChiefWake', () => {
   })
 
   it('e4) startChiefWake subscribes while live and its stop fn unsubscribes', async () => {
-    // While subscribed: a non-chief terminal run emitted on the bus wakes the chief.
+    // While subscribed: an ORG-RELEVANT terminal run emitted on the bus wakes the
+    // chief (a bare run would now be filtered — see e1).
     const stop = startChiefWake()
-    const liveId = `mock-cw-run-${uuid().slice(0, 8)}`
-    insertRunRow(liveId)
+    const liveId = seedLeadTerminal()
     eventBus.emitRunUpdate(terminalRun(liveId))
     await flush()
     expect(chiefWakesGoalIncludes(liveId)).toHaveLength(1)
 
-    // After stop(): a later emit produces no wake.
+    // After stop(): a later emit produces no wake — even an org-relevant one, so the
+    // unsubscribe (not the relevance filter) is what blocks it.
     stop()
     db.prepare(`DELETE FROM agent_runs WHERE profile_id = 'chief'`).run()
     resetChiefWakeDebounce()
-    const afterStopId = `mock-cw-run-${uuid().slice(0, 8)}`
-    insertRunRow(afterStopId)
+    const afterStopId = seedLeadTerminal()
     eventBus.emitRunUpdate(terminalRun(afterStopId))
     await flush()
     expect(chiefWakesGoalIncludes(afterStopId)).toHaveLength(0)
@@ -276,5 +343,66 @@ describe('onChiefWakeRunUpdate (event path) + startChiefWake', () => {
     const woke = chiefWakesWithGoal(DEFAULT_CHIEF_WAKE_GOAL)
     expect(woke).toHaveLength(1)
     expect(woke[0].trigger).toBe('schedule')
+  })
+
+  it('e7) kill switch: chief_wake_events_enabled=0 gates the event path only (cron wakes still fire)', async () => {
+    try {
+      configDb.set('chief_wake_events_enabled', '0')
+
+      // An org-relevant terminal that would normally wake — the switch blocks it.
+      const leadRunId = seedLeadTerminal()
+      onChiefWakeRunUpdate(terminalRun(leadRunId))
+      await flush()
+      expect(chiefWakesGoalIncludes(leadRunId)).toHaveLength(0)
+
+      // The cron path is unaffected by the event kill switch.
+      scheduledChiefWake()
+      await flush()
+      expect(chiefWakesWithGoal(DEFAULT_CHIEF_WAKE_GOAL)).toHaveLength(1)
+    } finally {
+      db.prepare(`DELETE FROM app_config WHERE key = 'chief_wake_events_enabled'`).run()
+    }
+  })
+
+  it('e8) rate breaker: event wakes beyond chief_wake_max_per_hour are rate-capped (schedule wakes exempt)', async () => {
+    // Default cap = 6. Seed exactly 6 chief 'event' activations inside the rolling
+    // hour, then attempt a 7th event wake with the debounce reset and `now` well past
+    // the debounce window — the BREAKER (not Guard A/B) must be the decider.
+    for (let i = 0; i < 6; i++) insertChiefRun({ goal: `p52b-cap-seed-${i}`, status: 'completed' })
+    resetChiefWakeDebounce()
+
+    const res = await wakeChief('event', { goal: 'p52b-capped', now: Date.now() + 10 * 60_000 })
+    expect(res.woke).toBe(false)
+    if (!res.woke) expect(res.reason).toBe('rate-capped')
+    // A skipped wake creates NO ledger row.
+    expect(chiefWakesWithGoal('p52b-capped')).toHaveLength(0)
+
+    // Cron/schedule wakes are NOT subject to the cap.
+    const sched = await wakeChief('schedule', { goal: 'p52b-cap-sched', now: Date.now() + 20 * 60_000 })
+    expect(sched.woke).toBe(true)
+    expect(chiefWakesWithGoal('p52b-cap-sched')).toHaveLength(1)
+  })
+
+  it('e9) the paid loop is bounded: a wake→dispatch→lead-terminal→wake cycle stops at the cap', async () => {
+    try {
+      configDb.set('chief_wake_max_per_hour', '2')
+
+      // Simulate the live cycle 3×: a chief-dispatched lead reaches terminal, the
+      // event path re-wakes the Chief, the chief run completes (so Guard B passes),
+      // the debounce resets. Only the CAP can stop this loop — and it must, at 2.
+      for (let i = 0; i < 3; i++) {
+        const leadRunId = seedLeadTerminal()
+        onChiefWakeRunUpdate(terminalRun(leadRunId))
+        await flush()
+        // Complete the created chief activation directly so Guard B never interferes.
+        db.prepare(`UPDATE agent_runs SET status = 'completed' WHERE profile_id = 'chief' AND status = 'running'`).run()
+        resetChiefWakeDebounce()
+      }
+
+      const eventWakes = chiefWakes().filter(r => r.trigger === 'event')
+      expect(eventWakes).toHaveLength(2) // the 3rd wake was suppressed by the breaker
+    } finally {
+      db.prepare(`DELETE FROM app_config WHERE key = 'chief_wake_max_per_hour'`).run()
+    }
   })
 })

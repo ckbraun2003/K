@@ -151,19 +151,16 @@ export function captureAnswers(threadId: string, runId: string): void {
     const terminal = isTerminalRunStatus(r.status)
 
     if (r.status === 'awaiting_input' || terminal) {
-      const rows = eventsDb.listEvents.all(runId) as Row[]
-      let maxSeq = lastSeq
+      // Seq-windowed, assistant-only read (no raw column, no full-log scan): the
+      // statement returns ONLY the new assistant rows since the last boundary, seq
+      // ASC, so lastSeq advances to the last row's seq.
+      const rows = eventsDb.listAssistantEventsAfterSeq.all(runId, lastSeq) as Row[]
       const parts: string[] = []
       for (const row of rows) {
-        const seq = Number(row.seq)
-        if (seq <= lastSeq) continue
-        if (seq > maxSeq) maxSeq = seq
-        if (row.type === 'assistant') {
-          const text = row.text == null ? '' : String(row.text)
-          if (text.length > 0) parts.push(text)
-        }
+        const text = row.text == null ? '' : String(row.text)
+        if (text.length > 0) parts.push(text)
       }
-      lastSeq = maxSeq
+      if (rows.length > 0) lastSeq = Number(rows[rows.length - 1].seq)
       const concat = parts.join('\n')
       if (concat.length > 0) appendTurn(threadId, 'k', concat, runId)
     }
@@ -218,20 +215,27 @@ export function buildDelegationGoal(message: string, route: KRoute): string {
   )
 }
 
-/** Max length of the assistant-text report-back FALLBACK, so a verbose Chief run
- *  can't dump a huge raw transcript onto K's thread (the preferred mgmt-report path
- *  is already bounded by its own zod max). */
+/** Max length of BOTH report-back bodies on K's thread — the Chief's mgmt-report
+ *  text AND the assistant-text fallback — so a verbose Chief run can't dump a huge
+ *  transcript (the mgmt `report` zod max is 20k; both hops share this 2000 cap). */
 const REPORT_BACK_TEXT_CAP = 2_000
 
-/** Concatenate a run's `assistant` event texts (oldest→newest), capped — the delegated
- *  run's own final answer, the report-back fallback when the Chief filed no mgmt
- *  report. Capped rather than windowed like captureAnswers: this is a one-shot summary,
- *  not a stateful turn-by-turn capture. */
+/** How many of the run's earliest `assistant` events the fallback scans (seq ASC) —
+ *  enough to fill the 2k cap without materializing a long run's whole event log.
+ *  Mirrors chief-dispatch.ts::LEAD_REPORT_EVENT_SCAN (the lead-side twin). */
+const REPORT_BACK_EVENT_SCAN = 50
+
+/** Concatenate a bounded prefix of a run's `assistant` event texts (oldest→newest,
+ *  up to REPORT_BACK_EVENT_SCAN events), capped — the delegated run's own final
+ *  answer, the report-back fallback when the Chief filed no mgmt report. Capped
+ *  rather than windowed like captureAnswers: this is a one-shot summary, not a
+ *  stateful turn-by-turn capture. NB a run with more than REPORT_BACK_EVENT_SCAN
+ *  assistant events loses the tail (the scan is a prefix, not a suffix) — accepted
+ *  for a summary hop, and it mirrors the lead-side twin exactly. */
 function concatAssistantText(runId: string): string {
-  const rows = eventsDb.listEvents.all(runId) as Row[]
+  const rows = eventsDb.listAssistantEvents.all(runId, REPORT_BACK_EVENT_SCAN) as Row[]
   const parts: string[] = []
   for (const row of rows) {
-    if (row.type !== 'assistant') continue
     const text = row.text == null ? '' : String(row.text)
     if (text.length > 0) parts.push(text)
   }
@@ -249,7 +253,15 @@ export function summarizeDelegatedOutcome(childRunId: string, status: string): s
   const verb = status === 'done' ? 'completed' : status
   const reports = mgmtDb.listReportsByRun.all(childRunId, 1) as Row[]
   const reportBody = reports.length > 0 ? String(reports[0].body) : ''
-  if (reportBody.length > 0) return `Chief (delegation ${verb}) reported: ${reportBody}`
+  if (reportBody.length > 0) {
+    // Same cap as the fallback: the mgmt `report` zod max is 20k — never dump that
+    // raw onto K's thread.
+    const capped =
+      reportBody.length > REPORT_BACK_TEXT_CAP
+        ? `${reportBody.slice(0, REPORT_BACK_TEXT_CAP)}…`
+        : reportBody
+    return `Chief (delegation ${verb}) reported: ${capped}`
+  }
   const answer = concatAssistantText(childRunId)
   if (answer.length > 0) return `Chief (delegation ${verb}): ${answer}`
   return `Chief delegation ${verb} — no report was filed.`

@@ -27,7 +27,7 @@
 import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
 import type { Assignment, MgmtReport } from '@k/shared'
-import { mgmtDb, runsDb, leadDispatchDb } from '../db.js'
+import { db, mgmtDb, runsDb, leadDispatchDb } from '../db.js'
 import { resolveLeadProfileId, resolveLeadWorkflow, buildLeadSeed } from '../chief-dispatch.js'
 
 /** Per-call context the server injects. `runId` is the managed run (K_RUN_ID). */
@@ -118,11 +118,21 @@ const PickWorkflowInput = {
   assignmentId: z.string().min(1).max(100),
   workflow: z.string().min(1).max(200),
 }
-function pickWorkflow(args: unknown, ctx: MgmtContext): Assignment {
-  const a = z.object(PickWorkflowInput).parse(args ?? {})
+// Read-modify-write under ONE transaction: pick_workflow/scope_projects each fetch
+// the owned row, rebuild it, and UPDATE — racy across the multi-PROCESS stdio MCP
+// children (one per concurrent managed run), where an interleaved writer between
+// the read and the write would be silently overwritten. Hoisted module-level
+// db.transaction fns (compiled once, not per call); a MgmtError thrown inside rolls
+// back with nothing written, and propagates to the caller unchanged. Invoked
+// `.immediate()` (the codebase's cross-process write-tx idiom — see db.ts's
+// migration transaction): a DEFERRED tx that reads first can hit
+// SQLITE_BUSY_SNAPSHOT on the read→write upgrade if another process commits in
+// between — an error busy_timeout does NOT wait out — while IMMEDIATE takes the
+// write lock up front and simply queues behind the other writer.
+const pickWorkflowTx = db.transaction((a: { assignmentId: string; workflow: string }, owner: string | null): Assignment => {
   // Ownership-scoped fetch: an assignment owned by another run reads as "not found",
   // so a run can neither confirm its existence nor mutate it.
-  const existing = mgmtDb.getAssignmentOwned.get(a.assignmentId, resolveOwnerRunId(ctx)) as Row | undefined
+  const existing = mgmtDb.getAssignmentOwned.get(a.assignmentId, owner) as Row | undefined
   if (!existing) throw new MgmtError(`assignment "${a.assignmentId}" not found.`)
   const cur = rowToAssignment(existing)
   mgmtDb.updateAssignment.run({
@@ -135,16 +145,20 @@ function pickWorkflow(args: unknown, ctx: MgmtContext): Assignment {
     updatedAt: Date.now(),
   })
   return rowToAssignment(mgmtDb.getAssignment.get(a.assignmentId) as Row)
+})
+function pickWorkflow(args: unknown, ctx: MgmtContext): Assignment {
+  const a = z.object(PickWorkflowInput).parse(args ?? {})
+  return pickWorkflowTx.immediate(a, resolveOwnerRunId(ctx))
 }
 
 const ScopeProjectsInput = {
   assignmentId: z.string().min(1).max(100),
   projects: z.array(z.string().min(1).max(200)).max(100),
 }
-function scopeProjects(args: unknown, ctx: MgmtContext): Assignment {
-  const a = z.object(ScopeProjectsInput).parse(args ?? {})
+// Same one-transaction read-modify-write as pickWorkflowTx (see its comment).
+const scopeProjectsTx = db.transaction((a: { assignmentId: string; projects: string[] }, owner: string | null): Assignment => {
   // Ownership-scoped fetch (see pick_workflow) — a cross-run id reads as not found.
-  const existing = mgmtDb.getAssignmentOwned.get(a.assignmentId, resolveOwnerRunId(ctx)) as Row | undefined
+  const existing = mgmtDb.getAssignmentOwned.get(a.assignmentId, owner) as Row | undefined
   if (!existing) throw new MgmtError(`assignment "${a.assignmentId}" not found.`)
   const cur = rowToAssignment(existing)
   mgmtDb.updateAssignment.run({
@@ -157,6 +171,10 @@ function scopeProjects(args: unknown, ctx: MgmtContext): Assignment {
     updatedAt: Date.now(),
   })
   return rowToAssignment(mgmtDb.getAssignment.get(a.assignmentId) as Row)
+})
+function scopeProjects(args: unknown, ctx: MgmtContext): Assignment {
+  const a = z.object(ScopeProjectsInput).parse(args ?? {})
+  return scopeProjectsTx.immediate(a, resolveOwnerRunId(ctx))
 }
 
 const ReportInput = {

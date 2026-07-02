@@ -170,8 +170,10 @@ describe('migrate — one-shot frozen-literal reset (isolated old-schema DB)', (
     expect(tempDb.prepare(`SELECT value FROM app_config WHERE key = ?`).get(FLAG)).toBeTruthy()
 
     // An operator explicitly RE-PINNING the same literal later must survive the
-    // next boot's migrate() — the one-shot flag prevents the re-wipe.
+    // next boot's migrate() — the one-shot flag prevents the re-wipe. Force the
+    // FULL scan (the user_version fast path would skip it): the FLAG is under test.
     tempDb.prepare(`UPDATE agent_profiles SET default_model = 'claude-sonnet-4-6' WHERE id = ?`).run(MIG_SONNET)
+    tempDb.pragma('user_version = 0')
     migrate(tempDb)
     expect(model(MIG_SONNET)).toBe('claude-sonnet-4-6')
   })

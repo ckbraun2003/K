@@ -651,10 +651,16 @@ export interface ChiefOrgPayload {
   /** Recent assignments across runs — the Objectives panel source. */
   assignments: Assignment[]
   health: ChiefOrgHealth
-  /** Count of K→Chief delegations (chief activations with trigger='delegation') — the
-   *  K-tier edge count the whole-org tree (user → K → Chief → …) renders. Optional so an
-   *  older payload without it still builds a tree (fullOrgToDelegationTree defaults to 0). */
+  /** Count of K→Chief delegations (chief activations with trigger='delegation',
+   *  excluding 'failed' attempts that never reached the Chief) — the K-tier edge count
+   *  the whole-org tree (user → K → Chief → …) renders. Optional so an older payload
+   *  without it still builds a tree (fullOrgToDelegationTree defaults to 0). */
   kDelegations?: number
+  /** Server-authoritative count of leads with a LIVE latest run (=== health.leadsActive).
+   *  AUTHORITATIVE over any client re-derivation (web/src/lib/delegation.ts currently
+   *  recomputes it from `leads` — consumers should prefer this field). Optional
+   *  (mirrors kDelegations) so older payload fixtures stay valid. */
+  leadsActive?: number
 }
 
 // ─── Orchestrators roster (GET /api/orchestrators — P5.3a) ──────────────────
@@ -912,9 +918,11 @@ export interface NamedWorkflow {
 }
 
 // ─── K front door (P5.1c — "talk to K") ─────────────────────────────────────
-// The route surfaced when composing a message to K. `routeForMessage` is a shared,
-// deterministic PREVIEW so the client and server agree on the likely hand-up before
-// send — K's runtime tool/hand-up decision at execution time is AUTHORITATIVE.
+// The route for a message to K. `routeForMessage` is the ONE shared, deterministic
+// classifier used on BOTH sides of the wire: the composer calls it to preview the
+// likely hand-up before send, and the server (core/src/k-thread.ts::askK) calls the
+// SAME function and delegates purely on `route.escalates` — so the preview and the
+// actual routing decision agree because they are the same computation.
 
 export const KRouteTargetSchema = z.enum([
   'logistics',
@@ -945,6 +953,23 @@ const K_ROUTE_LABELS: Record<KRouteTarget, string> = {
   network: 'Chief → Network Lead',
 }
 
+/** Clear personal-logistics intents — evaluated BEFORE the lead rules so a message
+ *  like "remind me to fix the fence" stays with K even though it embeds an
+ *  engineering keyword ("fix"). Deliberate precedence trade-off: these are bare
+ *  keyword markers (like the lead rules), so an engineering ask that merely
+ *  MENTIONS one — "add a note field to the api response", "the schedule page is
+ *  broken" — also stays with K rather than auto-escalating. That direction is
+ *  chosen on cost: K under-escalating is a cheap re-ask, while a false escalation
+ *  spins up the paid Chief delegation machinery for a grocery note. Kept as a
+ *  testable array, mirroring K_ROUTE_RULES. */
+const K_LOGISTICS_RULES: ReadonlyArray<RegExp> = [
+  /\bremind(er)?s?\b/, // "remind me to…", "set a reminder"
+  /\bnote\b/, // "note about…", "take a note"
+  /\b(schedule|calendar|meeting|appointment)s?\b/,
+  /\badd .+ to my (list|notes?|work items?)\b/,
+  /\bwhat'?s on my (list|calendar|schedule)\b/,
+]
+
 /** Ordered lead rules — first match wins. Kept as a testable array (not a switch). */
 const K_ROUTE_RULES: ReadonlyArray<{ target: KRouteTarget; re: RegExp }> = [
   { target: 'frontend', re: /\b(frontend|front-end|ui|react|css|component|styling|tailwind)\b/ },
@@ -958,16 +983,26 @@ const K_ROUTE_RULES: ReadonlyArray<{ target: KRouteTarget; re: RegExp }> = [
 const K_ENGINEERING_RE = /\b(code|refactor|bug|implement|fix|feature|test|merge|\bpr\b|commit|deploy|build)\b/
 
 /**
- * Deterministic route PREVIEW for a message to K. Lowercases the message, then in a
- * fixed priority order (frontend → backend → systems → security → network → generic
- * engineering) returns the first match; anything else K handles directly (logistics).
+ * Deterministic route for a message to K. Lowercases the message, then:
+ *   1. LOGISTICS PRECEDENCE — a clear personal-logistics intent (K_LOGISTICS_RULES:
+ *      reminders, notes, scheduling, list management) routes 'logistics' regardless
+ *      of embedded engineering keywords ("remind me to fix the fence" stays with K);
+ *   2. the lead rules in fixed priority order (frontend → backend → systems →
+ *      security → network), then the generic-engineering fallback → Chief;
+ *   3. anything else K handles directly (logistics).
  *
- * This is ONLY a preview so the composer (and server) can show the likely hand-up
- * before send. K's runtime decision — which tool it reaches for, and whether it
- * actually hands up to the Chief/a lead — is AUTHORITATIVE and may differ.
+ * This classifier is used on BOTH sides: the composer renders it as the route
+ * preview, AND the server (k-thread.ts::askK) delegates on its `escalates` flag —
+ * it IS the delegation decision, not merely a preview. Client and server agree
+ * because both call this same function.
  */
 export function routeForMessage(message: string): KRoute {
   const m = message.toLowerCase()
+  for (const re of K_LOGISTICS_RULES) {
+    if (re.test(m)) {
+      return { target: 'logistics', label: K_ROUTE_LABELS.logistics, escalates: false }
+    }
+  }
   for (const rule of K_ROUTE_RULES) {
     if (rule.re.test(m)) {
       return { target: rule.target, label: K_ROUTE_LABELS[rule.target], escalates: true }

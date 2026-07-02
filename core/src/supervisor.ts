@@ -25,6 +25,7 @@ import { getProvider, parseClaudeLine } from './providers.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
 import { synthesizeConfigDir, pruneOrphanAgentRuns, type SynthesizedConfig } from './agent-config.js'
 import { DEFAULT_PROFILE } from './profiles.js'
+import { TERMINAL_RUN_STATUSES } from './run-lifecycle.js'
 
 const PERMISSION_MODE = resolvePermissionMode(process.env.RUN_PERMISSION_MODE)
 
@@ -309,6 +310,38 @@ export function reconcileOrphanedLeadDispatches(d: import('better-sqlite3').Data
 }
 
 /**
+ * Clear k_threads stranded pointing at a DEAD warm run. Live-observed after a
+ * crash/boot: a thread stuck status='active' with an active_run_id whose run is
+ * already terminal (the captureAnswers subscriber that would have cleared it does
+ * not survive a restart) or whose runs row is missing entirely. The warm-path
+ * check (k-thread.ts::isWarm) would treat such a pointer as cold anyway, but the
+ * stale 'active' status misreports the thread forever — so the boot sweep resets it:
+ * active_run_id → NULL, status → 'idle', updated_at stamped. Runs AFTER
+ * reconcileStaleRuns so runs just flipped 'interrupted' are covered. A thread whose
+ * run is still live is untouched. Terminal set built from run-lifecycle.ts::
+ * TERMINAL_RUN_STATUSES (bound, not interpolated values). Mirrors the sibling
+ * sweeps (pure DB mutation; takes the handle for unit-testing). Returns rows swept.
+ */
+export function reconcileStaleKThreads(d: import('better-sqlite3').Database = db): number {
+  const terminal = [...TERMINAL_RUN_STATUSES]
+  const placeholders = terminal.map(() => '?').join(', ')
+  const res = d
+    .prepare(
+      `UPDATE k_threads SET active_run_id = NULL, status = 'idle', updated_at = ?
+       WHERE active_run_id IS NOT NULL
+         AND (
+           NOT EXISTS (SELECT 1 FROM runs r WHERE r.id = k_threads.active_run_id)
+           OR EXISTS (
+             SELECT 1 FROM runs r
+             WHERE r.id = k_threads.active_run_id AND r.status IN (${placeholders})
+           )
+         )`,
+    )
+    .run(Date.now(), ...terminal)
+  return res.changes
+}
+
+/**
  * Best-effort prune of orphaned git worktrees left by crashed runs. Runs
  * `git worktree prune` then removes leftover `.worktrees/*` directories that no
  * longer map to an active run. Never throws — Windows file locks can make removal
@@ -348,6 +381,13 @@ export function reconcileOnBoot(): void {
     if (n > 0) console.log(`[supervisor] boot sweep: marked ${n} stale run(s) interrupted`)
   } catch (err) {
     console.warn('[supervisor] reconcileStaleRuns failed:', (err as Error).message)
+  }
+  // After reconcileStaleRuns so runs it just flipped 'interrupted' are covered.
+  try {
+    const k = reconcileStaleKThreads()
+    if (k > 0) console.log(`[supervisor] boot sweep: cleared ${k} stale K thread(s) to idle`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileStaleKThreads failed:', (err as Error).message)
   }
   try {
     const o = reconcileOrphanedActivations()

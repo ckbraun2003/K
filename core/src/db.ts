@@ -456,7 +456,7 @@ db.exec(`
                    CHECK(trigger IN ('user-message','schedule','event','delegation')),
     goal         TEXT,
     project_id   TEXT REFERENCES projects(id) ON DELETE SET NULL,
-    workflow_id  TEXT,   -- loose ref (no FK on purpose): a planned WorkflowDefinition id, whose table doesn't exist yet
+    workflow_id  TEXT,   -- loose ref (intentionally no FK): a workflow_definitions id (P5.3b) — kept loose so deleting a definition never cascades into run history
 
     status       TEXT NOT NULL DEFAULT 'running'
                    CHECK(status IN ('running','completed','failed')),
@@ -523,8 +523,32 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
   }
 }
 
-/** Guarded, idempotent schema evolution — runs at every boot; exported for tests. */
+/** The current schema version, stamped into PRAGMA user_version after a successful
+ *  full migration scan. BUMP THIS when adding any new migration to migrateSlow()
+ *  below — a DB stamped with an older version then re-runs the full scan (and is
+ *  re-stamped) on its next open. */
+const SCHEMA_VERSION = 1
+
+/**
+ * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
+ * server boot AND each per-run stdio MCP child (up to 3 per K/Chief turn), which is
+ * why the full scan is version-gated. Fast path: user_version === SCHEMA_VERSION →
+ * return immediately (the pragma lives in the DB file, so once one connection has
+ * migrated + stamped, every later connection skips the scan). Slow path: run the
+ * full guarded-ALTER/backfill scan (migrateSlow) then stamp the version — only on
+ * success, so a failed migration retries on the next open. migrateSlow's per-step
+ * idempotency (hasColumn/hasTable guards, duplicate-column tolerance, one-shot
+ * flags) stays as belt-and-suspenders for the slow path and for concurrent
+ * first-boots racing before the stamp lands. Exported for tests.
+ */
 export function migrate(d: Database.Database): void {
+  if ((d.pragma('user_version', { simple: true }) as number) === SCHEMA_VERSION) return
+  migrateSlow(d)
+  d.pragma(`user_version = ${SCHEMA_VERSION}`)
+}
+
+/** The full guarded-ALTER/backfill scan (the pre-gate migrate() body, unchanged). */
+function migrateSlow(d: Database.Database): void {
   // ADD COLUMN with REFERENCES is legal under foreign_keys=ON because the
   // default is NULL; existing rows stay NULL (unassociated). Routed through the
   // race-tolerant addColumn() so a concurrent first-boot that just added it can't
@@ -868,7 +892,14 @@ const getEventRaw = db.prepare(`SELECT raw FROM events WHERE run_id = ? AND seq 
 // its output cap, so a long lead run never materializes its whole event log.
 const listAssistantEvents = db.prepare(`SELECT * FROM events WHERE run_id = ? AND type = 'assistant' ORDER BY seq ASC LIMIT ?`)
 
-export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listAssistantEvents }
+// Seq-windowed assistant text — the K front-door answer capture (k-thread.ts::
+// captureAnswers) reads only the NEW assistant text per turn boundary (seq > the
+// last captured boundary): no raw column, never a full-log scan of the run.
+const listAssistantEventsAfterSeq = db.prepare(
+  `SELECT seq, text FROM events WHERE run_id = ? AND seq > ? AND type = 'assistant' ORDER BY seq ASC`,
+)
+
+export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listAssistantEvents, listAssistantEventsAfterSeq }
 
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
@@ -1755,16 +1786,27 @@ const listRecentAgentRunsByProfile = db.prepare(
 const getRunningAgentRunByProfile = db.prepare(
   `SELECT id FROM agent_runs WHERE profile_id = ? AND status = 'running' ORDER BY created_at DESC LIMIT 1`,
 )
-// Self-wake guard: which profile owns the activation that produced this run_id?
+// Self-wake guard + org-relevance filter: which profile owns the activation that
+// produced this run_id, and how was it triggered? (chief-wake.ts skips its own runs
+// and wakes only on lead/delegation terminals — a run with NO row never wakes.)
 const getAgentRunProfileByRunId = db.prepare(
-  `SELECT profile_id FROM agent_runs WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`,
+  `SELECT profile_id, trigger FROM agent_runs WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`,
 )
 // Count a profile's activations for a given trigger — the whole-org tree (loop-b2) reads
 // the chief profile's 'delegation' activations as the K→Chief delegation-edge count (every
 // such chief run is one K hand-up: delegateToChief is the only path that activates the Chief
-// with trigger='delegation'; autonomous wakes use schedule/event). Cheap COUNT, no table.
+// with trigger='delegation'; autonomous wakes use schedule/event). 'failed' rows are
+// EXCLUDED — note that status covers BOTH a dispatch that never spawned AND a delegation
+// whose run activated but ended error/killed/interrupted (deriveAgentRunStatus maps every
+// non-done terminal to 'failed') — so this deliberately counts SUCCESSFUL hand-ups
+// (running/completed), a documented undercount of raw attempts. Cheap COUNT, no table.
 const countAgentRunsByProfileAndTrigger = db.prepare(
-  `SELECT COUNT(*) AS n FROM agent_runs WHERE profile_id = ? AND trigger = ?`,
+  `SELECT COUNT(*) AS n FROM agent_runs WHERE profile_id = ? AND trigger = ? AND status != 'failed'`,
+)
+// Rolling-window variant — the chief-wake rate breaker counts the Chief's recent
+// 'event' activations (created_at > now - 1h) against chief_wake_max_per_hour.
+const countRecentAgentRunsByProfileAndTrigger = db.prepare(
+  `SELECT COUNT(*) AS n FROM agent_runs WHERE profile_id = ? AND trigger = ? AND created_at > ?`,
 )
 
 export const agentRunsDb = {
@@ -1777,6 +1819,7 @@ export const agentRunsDb = {
   getRunningAgentRunByProfile,
   getAgentRunProfileByRunId,
   countAgentRunsByProfileAndTrigger,
+  countRecentAgentRunsByProfileAndTrigger,
 }
 
 // ─── Named-workflow helpers (P5.3b) ──────────────────────────────────────────

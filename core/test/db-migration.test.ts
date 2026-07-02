@@ -58,6 +58,9 @@ describe('migrate() on old-schema DB — guarded ALTER branch', () => {
   })
 
   it('migrate() is idempotent — calling it a second time does not throw', () => {
+    // Force the FULL scan — without this the user_version fast path would return
+    // immediately and the slow-path idempotency would go untested.
+    tempDb.pragma('user_version = 0')
     expect(() => migrate(tempDb)).not.toThrow()
   })
 
@@ -186,6 +189,8 @@ describe('migrate() — mgmt_assignments.lead_run_id (guarded ALTER + FK action)
   })
 
   it('migrate() is idempotent for the lead_run_id branch', () => {
+    // Force the FULL scan (see the runs.project_id idempotency case above).
+    tempDb.pragma('user_version = 0')
     expect(() => migrate(tempDb)).not.toThrow()
   })
 })

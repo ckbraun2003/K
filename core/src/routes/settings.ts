@@ -29,6 +29,7 @@ import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 import { probeWhisper } from '../transcription.js'
+import { GrantError } from '../authority.js'
 import { getProfile, updateProfile } from '../profiles.js'
 
 // ── System-prompt file location ───────────────────────────────────────────────
@@ -210,9 +211,9 @@ const OrgDefaultPatchSchema = z
 
 // The two fail-closed client-error guards updateProfile can raise — assertMcpGrants
 // (a bad MCP mount, "mounting ≠ granting") and assertTierCeiling (the B1 tier
-// ceiling). Anything else is a server fault and must surface as 500. Mirrors
-// routes/orchestrators.ts::GRANT_GUARD_ERROR.
-const ORG_DEFAULT_GRANT_GUARD_ERROR = /does not grant it|exceeds the .* tier ceiling/
+// ceiling) — throw the typed GrantError (authority.ts); the PATCH below maps it to a
+// 400. Anything else is a server fault and must surface as 500. Mirrors
+// routes/orchestrators.ts.
 
 /** The durable id of the org-default orchestrator authority (=== the seed row / the
  *  DEFAULT_PROFILE fallback in profiles.ts). */
@@ -340,8 +341,8 @@ export async function settingsRoutes(app: FastifyInstance) {
       if (!updated) return reply.status(404).send({ error: 'not found' })
       return reply.send(updated)
     } catch (e) {
-      const msg = (e as Error).message
-      if (ORG_DEFAULT_GRANT_GUARD_ERROR.test(msg)) return reply.status(400).send({ error: msg })
+      // Typed guard signal → 400 with the message verbatim; anything else → 500.
+      if (e instanceof GrantError) return reply.status(400).send({ error: e.message })
       throw e
     }
   })

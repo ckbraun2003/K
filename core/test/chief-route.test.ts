@@ -183,6 +183,46 @@ describe('GET /api/chief/org', () => {
     // trigger='delegation'. One was seeded above, so it is at least 1.
     expect(typeof body.kDelegations).toBe('number')
     expect(body.kDelegations).toBeGreaterThanOrEqual(1)
+
+    // Top-level leadsActive: the server-authoritative live-leads count, equal by
+    // construction to the thin health line (one source, surfaced twice).
+    expect(typeof body.leadsActive).toBe('number')
+    expect(body.leadsActive).toBe(body.health.leadsActive)
+  })
+
+  it('kDelegations excludes failed delegation attempts but counts completed/running ones', async () => {
+    const before = ((await app.inject({ method: 'GET', url: '/api/chief/org', headers: AUTH }))
+      .json() as ChiefOrgPayload).kDelegations!
+
+    const mkDelegation = (id: string, status: string) =>
+      agentRunsDb.insertAgentRun.run({
+        id,
+        profileId: 'chief',
+        runId: null,
+        trigger: 'delegation',
+        goal: `kDelegations honesty ${status}`,
+        projectId: null,
+        workflowId: null,
+        status,
+        createdAt: Date.now(),
+        completedAt: status === 'running' ? null : Date.now(),
+      })
+
+    const failedId = uuid()
+    const runningId = uuid()
+    try {
+      // A FAILED delegation attempt never reached the Chief — the count must not move.
+      mkDelegation(failedId, 'failed')
+      let body = (await app.inject({ method: 'GET', url: '/api/chief/org', headers: AUTH })).json() as ChiefOrgPayload
+      expect(body.kDelegations).toBe(before)
+
+      // A running one DID reach the Chief — the count moves.
+      mkDelegation(runningId, 'running')
+      body = (await app.inject({ method: 'GET', url: '/api/chief/org', headers: AUTH })).json() as ChiefOrgPayload
+      expect(body.kDelegations).toBe(before + 1)
+    } finally {
+      db.prepare('DELETE FROM agent_runs WHERE id IN (?, ?)').run(failedId, runningId)
+    }
   })
 
   it('populates a lead with its latest run + delegate events (delegate-only, no truncation)', async () => {

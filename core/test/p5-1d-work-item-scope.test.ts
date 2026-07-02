@@ -144,6 +144,9 @@ describe('P5.1d1: migrate() evolves work_items with scope', () => {
     expect(legacy.scope).toBe('run')
 
     // Second call is idempotent — must not throw (addColumn skips an existing col).
+    // Force the FULL scan: the user_version fast path would otherwise return before
+    // the addColumn guard this line exists to exercise.
+    tempDb.pragma('user_version = 0')
     expect(() => migrate(tempDb)).not.toThrow()
   })
 
