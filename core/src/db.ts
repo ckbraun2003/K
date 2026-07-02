@@ -553,6 +553,16 @@ export function migrate(d: Database.Database): void {
     addColumn(d, 'agent_memory', 'profile_id', 'TEXT REFERENCES agent_profiles(id)')
     d.exec(`CREATE INDEX IF NOT EXISTS idx_agent_memory_profile ON agent_memory(profile_id, created_at)`)
   }
+  // work_items.scope (P5.1d1, D-026): the personal|org|project discriminator the
+  // unified-task-store collapse (P5.1d2) keys on. Appended via guarded ALTER (not
+  // in CREATE TABLE) exactly like score_breakdown / project_tasks-issue — migrate()
+  // runs at boot so fresh installs and existing DBs both gain it. DEFAULT 'personal'
+  // backfills every existing ticket (personal == run-scoped, the only scope today;
+  // org/project are reserved for the P5.1d2 collapse). The hasTable guard keeps
+  // migrate() safe against old-schema fixtures predating the table (db-migration.test.ts).
+  if (hasTable(d, 'work_items')) {
+    addColumn(d, 'work_items', 'scope', "TEXT NOT NULL DEFAULT 'personal' CHECK(scope IN ('personal','org','project'))")
+  }
 }
 
 migrate(db)
@@ -876,8 +886,8 @@ export const workflowRunsDb = {
 // project-scoped — work_items↔project_tasks unification is a Phase-5 follow-up.
 
 const insertWorkItem = db.prepare(`
-  INSERT INTO work_items (id, run_id, title, body, status, created_at, updated_at)
-  VALUES (@id, @runId, @title, @body, @status, @createdAt, @updatedAt)
+  INSERT INTO work_items (id, run_id, title, body, status, scope, created_at, updated_at)
+  VALUES (@id, @runId, @title, @body, @status, @scope, @createdAt, @updatedAt)
 `)
 const updateWorkItem = db.prepare(`
   UPDATE work_items SET title = @title, body = @body, status = @status, updated_at = @updatedAt

@@ -38,11 +38,11 @@ describe('S1 — db.transaction rolls back on a mid-batch throw', () => {
     const now = Date.now()
     const tx = db.transaction(() => {
       workItemsDb.insertWorkItem.run({
-        id: a, runId: null, title: 'ok', body: null, status: 'open', createdAt: now, updatedAt: now,
+        id: a, runId: null, title: 'ok', body: null, status: 'open', scope: 'personal', createdAt: now, updatedAt: now,
       })
       // status not in the CHECK enum → throws, aborting the transaction.
       workItemsDb.insertWorkItem.run({
-        id: b, runId: null, title: 'bad', body: null, status: 'NOPE', createdAt: now, updatedAt: now,
+        id: b, runId: null, title: 'bad', body: null, status: 'NOPE', scope: 'personal', createdAt: now, updatedAt: now,
       })
     })
     expect(() => tx()).toThrow(/CHECK constraint/i)

@@ -2,7 +2,7 @@
 title: Workflows & Memory
 icon: "⟲"
 status: active
-updated: 2026-06-28
+updated: 2026-07-01
 ---
 
 > **Status — partially BUILT (Phase 5).** The harness has one hardcoded delegation loop
@@ -153,21 +153,26 @@ WorkItem {                     // PLANNED — Phase 5 (unified; replaces the age
 }
 ```
 
-> **What ships today (run-scoped, kstore).** The built `work_items` table + kstore tools
-> (`work_item_create` / `work_item_list` / `work_item_update`) are the storage-as-tools replacement
-> for the home-dev `tasks/todo.md` — tickets are **run-scoped** (owned by the managed run that
-> created them; a run reads/mutates only its own) rather than carrying the `scope` discriminator
-> above. Unifying this run-scoped store with `project_tasks` under the `personal | org | project`
-> model (D-026) is the deferred next increment; the operator's project Tasks tab still reads
-> `project_tasks` (§05).
+> **What ships today (run-scoped, kstore; `scope` column landed P5.1d1).** The built `work_items`
+> table + kstore tools (`work_item_create` / `work_item_list` / `work_item_update`) are the
+> storage-as-tools replacement for the home-dev `tasks/todo.md` — tickets are **run-scoped** (owned
+> by the managed run that created them; a run reads/mutates only its own). The **`scope` discriminator
+> has landed** as the D-026 down-payment (P5.1d1, **D-045**): every ticket now carries `scope`,
+> additively, defaulting to **`personal`** (== today's run-scoped semantics); `org`/`project` are
+> reserved and `work_item_create` accepts an optional `scope`. What remains **deferred to P5.1d2** is
+> the *collapse* — adding `work_items.project_id`, migrating `project_tasks` rows into `work_items`
+> (`scope: 'project'`), and rewiring the project routes, issue-sync, and Tasks UI onto the one store.
+> Until then the operator's project Tasks tab still reads `project_tasks` (§05), and row **promotion**
+> (`personal → org → project` via update) is P5.1d2, not yet wired.
 >
 > ```ts
-> WorkItem {                   // BUILT — kstore working store
+> WorkItem {                   // BUILT — kstore working store (scope column landed P5.1d1)
 >   id: uuid
 >   runId: string | null       // the managed run that created it (resolved from injected K_RUN_ID)
 >   title: string
 >   body: string | null
 >   status: 'open' | 'in_progress' | 'blocked' | 'done' | 'cancelled'
+>   scope: 'personal' | 'org' | 'project'   // D-026 discriminator; 'personal' today (run-scoped)
 >   createdAt: number; updatedAt: number
 > }
 > ```
