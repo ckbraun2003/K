@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, afterAll, beforeEach } from 'vitest'
 import { v4 as uuid } from 'uuid'
+import os from 'os'
 import type { PrInfo, CiRunInfo } from '@k/shared'
 import { hasChanged, getGithubStatus, __pollOnce } from '../src/github.js'
 import { githubDb, projectsDb, db } from '../src/db.js'
@@ -21,7 +22,10 @@ function insertProject(githubRemote: string | null): string {
   projectsDb.insertProject.run({
     id,
     name: `gh-poller-${id.slice(0, 8)}`,
-    localPath: '/tmp/gh-poller',
+    // A REAL directory: pollOnce now skips projects whose localPath is missing
+    // (pathMissing degrade, P5.1d2b) — '/tmp/gh-poller' exists on neither
+    // Windows nor Linux CI and would silently skip every fixture project.
+    localPath: os.tmpdir(),
     githubRemote,
     workspaceManaged: 0,
     bibleDir: 'docs/bible',

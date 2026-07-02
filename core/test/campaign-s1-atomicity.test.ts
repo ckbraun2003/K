@@ -15,7 +15,7 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import {
-  db, runsDb, eventsDb, projectsDb, verificationDb, projectTasksDb,
+  db, runsDb, eventsDb, projectsDb, verificationDb, projectWorkItemsDb,
   workflowRunsDb, projectGraphsDb, workItemsDb,
 } from '../src/db.js'
 
@@ -76,7 +76,7 @@ describe('S1 — projectsDb.deleteProject removes the project + all dependents a
       id: uuid(), projectId, score: 80, findings: '[]', fixesApplied: '[]',
       startedAt: now, completedAt: now, scoreBreakdown: null, coveragePct: null,
     })
-    projectTasksDb.insertProjectTask.run({
+    projectWorkItemsDb.insertProjectTask.run({
       id: uuid(), projectId, title: 'task', status: 'open', createdAt: now, completedAt: null,
       issueNumber: null, issueUrl: null, issueState: null,
     })
@@ -97,7 +97,8 @@ describe('S1 — projectsDb.deleteProject removes the project + all dependents a
     expect(count('SELECT COUNT(*) AS n FROM runs WHERE project_id = ?', projectId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM events WHERE run_id = ?', runId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM verification_reports WHERE project_id = ?', projectId)).toBe(0)
-    expect(count('SELECT COUNT(*) AS n FROM project_tasks WHERE project_id = ?', projectId)).toBe(0)
+    // project_tasks was dropped in P5.1d2b — the work_items count below pins the
+    // same cascade intent (project tasks live in work_items scope='project' now).
     expect(count('SELECT COUNT(*) AS n FROM work_items WHERE project_id = ?', projectId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM workflow_runs WHERE project_id = ?', projectId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM project_graphs WHERE project_id = ?', projectId)).toBe(0)

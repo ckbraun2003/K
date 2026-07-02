@@ -12,7 +12,7 @@ import { v4 as uuid } from 'uuid'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { db, projectsDb, projectTasksDb } from '../src/db.js'
+import { db, projectsDb, projectWorkItemsDb } from '../src/db.js'
 import { projectsRoutes } from '../src/routes/projects.js'
 import type { Project } from '@k/shared'
 
@@ -60,7 +60,7 @@ function insertProject(): Project {
 
 function insertTask(projectId: string, title = 'todo'): string {
   const id = uuid()
-  projectTasksDb.insertProjectTask.run({
+  projectWorkItemsDb.insertProjectTask.run({
     id,
     projectId,
     title,
@@ -75,7 +75,7 @@ function insertTask(projectId: string, title = 'todo'): string {
 }
 
 function taskStatus(taskId: string, projectId: string): string | undefined {
-  const row = projectTasksDb.getProjectTask.get(taskId, projectId) as { status?: string } | undefined
+  const row = projectWorkItemsDb.getProjectTask.get(taskId, projectId) as { status?: string } | undefined
   return row?.status
 }
 

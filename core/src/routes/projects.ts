@@ -8,7 +8,7 @@ import { onboardProject } from '../onboard.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { dispatchTaskWorkflow, TaskNotFoundError } from '../workflows.js'
-import { verificationDb, rowToReport, projectTasksDb, projectsDb, rowToProjectTask } from '../db.js'
+import { verificationDb, rowToReport, projectWorkItemsDb, projectsDb, rowToProjectTask } from '../db.js'
 import { buildGraph, getGraphMeta, isGraphStale, enrichNodes } from '../graph.js'
 import { CreatePrOptsSchema, GraphDispatchBodySchema, DispatchTasksBodySchema, type ProjectTask, type GithubStatus } from '@k/shared'
 
@@ -141,7 +141,7 @@ export async function projectsRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/api/projects/:id/tasks', async (req, reply) => {
     const project = getProject(req.params.id)
     if (!project) return reply.status(404).send({ error: 'not found' })
-    const rows = projectTasksDb.listProjectTasks.all(project.id) as Array<Record<string, unknown>>
+    const rows = projectWorkItemsDb.listProjectTasks.all(project.id) as Array<Record<string, unknown>>
     return reply.send(rows.map(rowToProjectTask))
   })
 
@@ -159,7 +159,7 @@ export async function projectsRoutes(app: FastifyInstance) {
       createdAt: Date.now(),
       completedAt: null,
     }
-    projectTasksDb.insertProjectTask.run({
+    projectWorkItemsDb.insertProjectTask.run({
       id: task.id,
       projectId: task.projectId,
       title: task.title,
@@ -173,7 +173,7 @@ export async function projectsRoutes(app: FastifyInstance) {
     return reply.status(201).send(task)
   })
 
-  // POST /api/projects/:id/tasks/sync — pull GitHub issues into project_tasks.
+  // POST /api/projects/:id/tasks/sync — pull GitHub issues into project tasks.
   // syncIssues never throws: gh absent/unauth/offline OR a project with no remote
   // all resolve to { synced: 0, degraded: true }, so "sync is always safe to call"
   // — a normal 200 (degraded) outcome, never 400/500. Only a missing project 404s.
@@ -198,10 +198,10 @@ export async function projectsRoutes(app: FastifyInstance) {
       }
       const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
       if (!UUID_RE.test(req.params.taskId)) return reply.status(400).send({ error: 'invalid taskId' })
-      const row = projectTasksDb.getProjectTask.get(req.params.taskId, project.id) as Record<string, unknown> | undefined
+      const row = projectWorkItemsDb.getProjectTask.get(req.params.taskId, project.id) as Record<string, unknown> | undefined
       if (!row) return reply.status(404).send({ error: 'task not found' })
       const completedAt = status === 'done' ? Date.now() : null
-      projectTasksDb.updateProjectTaskStatus.run({
+      projectWorkItemsDb.updateProjectTaskStatus.run({
         id: req.params.taskId,
         projectId: project.id,
         status,
@@ -219,9 +219,9 @@ export async function projectsRoutes(app: FastifyInstance) {
       if (!project) return reply.status(404).send({ error: 'not found' })
       const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
       if (!UUID_RE.test(req.params.taskId)) return reply.status(400).send({ error: 'invalid taskId' })
-      const row = projectTasksDb.getProjectTask.get(req.params.taskId, project.id)
+      const row = projectWorkItemsDb.getProjectTask.get(req.params.taskId, project.id)
       if (!row) return reply.status(404).send({ error: 'task not found' })
-      projectTasksDb.deleteProjectTask.run(req.params.taskId, project.id)
+      projectWorkItemsDb.deleteProjectTask.run(req.params.taskId, project.id)
       return reply.status(204).send()
     },
   )

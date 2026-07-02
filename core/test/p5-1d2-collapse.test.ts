@@ -8,7 +8,7 @@
  * p5-1d-work-item-scope.test.ts:
  *   - old-schema tempDbs (Database from 'better-sqlite3', os.tmpdir) exercise the
  *     migrate() column-add + backfill + hasTable guards in isolation.
- *   - the live `db` singleton + projectTasksDb exercise the re-pointed helpers and
+ *   - the live `db` singleton + projectWorkItemsDb exercise the re-pointed helpers and
  *     the deleteProject cleanup end-to-end. All live rows are cleaned in afterAll.
  */
 import { describe, it, expect, afterAll } from 'vitest'
@@ -17,7 +17,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
-import { db, projectsDb, projectTasksDb, migrate } from '../src/db.js'
+import { db, projectsDb, projectWorkItemsDb, migrate } from '../src/db.js'
 import { kStoreTools, KStoreError, type KStoreContext } from '../src/mcp/k-store.js'
 import type { WorkItem } from '@k/shared'
 
@@ -175,9 +175,9 @@ describe('P5.1d2: backfill guard — migrate() tolerates a missing table', () =>
   })
 })
 
-// ── live db: re-pointed projectTasksDb helpers write to work_items ─────────────
+// ── live db: re-pointed projectWorkItemsDb helpers write to work_items ─────────────
 
-describe('P5.1d2: re-pointed projectTasksDb helpers hit work_items(scope=project)', () => {
+describe('P5.1d2: re-pointed projectWorkItemsDb helpers hit work_items(scope=project)', () => {
   const projectId = uuid()
   const createdTaskIds: string[] = []
 
@@ -199,7 +199,7 @@ describe('P5.1d2: re-pointed projectTasksDb helpers hit work_items(scope=project
 
     const taskId = uuid()
     createdTaskIds.push(taskId)
-    projectTasksDb.insertProjectTask.run({
+    projectWorkItemsDb.insertProjectTask.run({
       id: taskId,
       projectId,
       title: 'helper-routed task',
@@ -211,7 +211,7 @@ describe('P5.1d2: re-pointed projectTasksDb helpers hit work_items(scope=project
       issueState: null,
     })
 
-    const listed = projectTasksDb.listProjectTasks.all(projectId) as Array<Record<string, unknown>>
+    const listed = projectWorkItemsDb.listProjectTasks.all(projectId) as Array<Record<string, unknown>>
     expect(listed.some(t => t.id === taskId)).toBe(true)
 
     // physically stored on the unified store with the project discriminator
@@ -249,7 +249,7 @@ describe('P5.1d2: kstore run-scoped views exclude project-scoped rows', () => {
       githubRemote: null, workspaceManaged: 0, bibleDir: 'docs/bible', createdAt: Date.now(),
     })
     // A project-scoped row (run_id NULL, scope='project') via the re-pointed helper.
-    projectTasksDb.insertProjectTask.run({
+    projectWorkItemsDb.insertProjectTask.run({
       id: projectTaskId, projectId, title: 'project ticket', status: 'open',
       createdAt: Date.now(), completedAt: null, issueNumber: null, issueUrl: null, issueState: null,
     })
@@ -281,7 +281,7 @@ describe('P5.1d2: deleteProject cleans up project-scoped work_items', () => {
       createdAt: Date.now(),
     })
     const taskId = uuid()
-    projectTasksDb.insertProjectTask.run({
+    projectWorkItemsDb.insertProjectTask.run({
       id: taskId,
       projectId,
       title: 'to be deleted with its project',

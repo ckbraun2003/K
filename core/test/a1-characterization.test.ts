@@ -8,7 +8,7 @@
  * Pins four contracts the A1 change must keep:
  *   1. kstore run isolation between two REAL runs (default-scope create): run B
  *      neither lists nor mutates run A's ticket; owner A can.
- *   2. project surface: a projectTasksDb row (scope='project') is invisible to the
+ *   2. project surface: a projectWorkItemsDb row (scope='project') is invisible to the
  *      kstore work_item_list and not mutable via work_item_update.
  *   3. logistics: note/event/reminder CRUD round-trip shapes + run_id provenance
  *      recorded on insert.
@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, runsDb, projectsDb, projectTasksDb } from '../src/db.js'
+import { db, runsDb, projectsDb, projectWorkItemsDb } from '../src/db.js'
 import { kStoreTools, KStoreError, type KStoreContext } from '../src/mcp/k-store.js'
 import { logisticsTools, type LogisticsContext } from '../src/mcp/logistics.js'
 import { mgmtTools, type MgmtContext } from '../src/mcp/mgmt.js'
@@ -59,7 +59,7 @@ beforeAll(() => {
       projectId: PROJECT_ID, createdAt: Date.now(),
     })
   }
-  projectTasksDb.insertProjectTask.run({
+  projectWorkItemsDb.insertProjectTask.run({
     id: projectTaskId, projectId: PROJECT_ID, title: 'a1-char project task', status: 'open',
     createdAt: Date.now(), completedAt: null, issueNumber: null, issueUrl: null, issueState: null,
   })
@@ -101,7 +101,7 @@ describe('A1 char: project surface stays isolated from kstore', () => {
       expect(() => kcall('work_item_update', { id: projectTaskId, status: 'done' }, ctx)).toThrow(KStoreError)
     }
     // the row genuinely exists in the project surface
-    const listed = projectTasksDb.listProjectTasks.all(PROJECT_ID) as Array<{ id: string }>
+    const listed = projectWorkItemsDb.listProjectTasks.all(PROJECT_ID) as Array<{ id: string }>
     expect(listed.some(t => t.id === projectTaskId)).toBe(true)
   })
 })

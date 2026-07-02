@@ -8,7 +8,7 @@ import { execa } from 'execa'
 import { randomUUID } from 'crypto'
 import type { GithubStatus, PrInfo, CiRunInfo, IssueInfo, Project } from '@k/shared'
 import { parsePrList, parseCiRuns, parseIssueList } from './github-parse.js'
-import { githubDb, projectTasksDb } from './db.js'
+import { githubDb, projectWorkItemsDb } from './db.js'
 import { eventBus } from './events.js'
 import { listProjects } from './projects.js'
 
@@ -39,7 +39,8 @@ export async function fetchIssues(remote: string, cwd: string): Promise<IssueInf
 }
 
 /**
- * Sync a project's GitHub issues into its project_tasks. Mirrors the poller's
+ * Sync a project's GitHub issues into its project tasks (work_items
+ * scope='project'). Mirrors the poller's
  * degradation contract: gh absent / unauth / offline never throws — it returns
  * { synced: 0, degraded: true } and keeps existing tasks intact.
  *
@@ -61,7 +62,7 @@ export async function syncIssues(
     let synced = 0
     for (const issue of issues) {
       const closed = issue.state.toUpperCase() === 'CLOSED'
-      const existing = projectTasksDb.getProjectTaskByIssue.get(project.id, issue.number) as
+      const existing = projectWorkItemsDb.getProjectTaskByIssue.get(project.id, issue.number) as
         | Record<string, unknown>
         | undefined
       if (existing) {
@@ -77,8 +78,9 @@ export async function syncIssues(
           completedAt = null
         }
         // else: open issue, task open/in_progress → leave status untouched
-        projectTasksDb.updateProjectTaskFromIssue.run({
+        projectWorkItemsDb.updateProjectTaskFromIssue.run({
           id: String(existing.id),
+          projectId: project.id,
           title: issue.title,
           issueUrl: issue.url,
           issueState: issue.state,
@@ -87,7 +89,7 @@ export async function syncIssues(
         })
       } else {
         const now = Date.now()
-        projectTasksDb.insertProjectTask.run({
+        projectWorkItemsDb.insertProjectTask.run({
           id: randomUUID(),
           projectId: project.id,
           title: issue.title,
@@ -142,6 +144,10 @@ export function hasChanged(prev: unknown, next: unknown): boolean {
 
 let polling = false
 
+// Projects already warned about a missing localPath — warn ONCE per boot per
+// project instead of spamming the log every poll cycle.
+const warnedMissingPath = new Set<string>()
+
 /**
  * One poll cycle over every registered project with a remote. The gh-invoking
  * fetch is injectable (defaults to the real `fetchGithubStatus`) so the
@@ -153,6 +159,17 @@ async function pollOnce(fetch: typeof fetchGithubStatus = fetchGithubStatus): Pr
   try {
   for (const project of listProjects()) {
     if (!project.githubRemote) continue
+    // Degrade on a vanished localPath (pathMissing is computed by rowToProject —
+    // single source of truth): previously a stale project row spammed
+    // `poll failed ... ENOENT` every 60s forever. Warn once per boot, skip the
+    // fetch, and NEVER delete or mutate the project row.
+    if (project.pathMissing) {
+      if (!warnedMissingPath.has(project.id)) {
+        warnedMissingPath.add(project.id)
+        console.warn(`[github] skipping poll for ${project.name}: localPath ${project.localPath} no longer exists`)
+      }
+      continue
+    }
     try {
       const before = getGithubStatus(project.id)
       const { prs, ci } = await fetch(project.githubRemote, project.localPath)

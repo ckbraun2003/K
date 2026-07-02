@@ -54,6 +54,11 @@ export function remoteFromUrl(url: string): string | null {
 }
 
 function rowToProject(r: Record<string, unknown>): Project {
+  // pathMissing is derived at read time (never persisted): true when localPath no
+  // longer exists on disk, so the UI can badge the project and the GitHub poller
+  // skips it. Spread-conditional so the key is INCLUDED only when missing —
+  // payloads for healthy projects stay byte-identical to before.
+  const pathMissing = !fs.existsSync(String(r.local_path))
   return {
     id: String(r.id),
     name: String(r.name),
@@ -63,6 +68,7 @@ function rowToProject(r: Record<string, unknown>): Project {
     bibleDir: String(r.bible_dir),
     healthScore: r.health_score == null ? undefined : Number(r.health_score),
     lastVerifiedAt: r.last_verified_at == null ? undefined : Number(r.last_verified_at),
+    ...(pathMissing ? { pathMissing: true } : {}),
     createdAt: Number(r.created_at),
   }
 }

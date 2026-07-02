@@ -181,7 +181,8 @@ describe('DELETE /api/projects/:id', () => {
 
     const count = (sql: string) => (db.prepare(sql).get(projectId) as { n: number }).n
     expect(projectsDb.getProject.get(projectId)).toBeUndefined()
-    expect(count(`SELECT COUNT(*) AS n FROM project_tasks WHERE project_id = ?`)).toBe(0)
+    // project_tasks was dropped in P5.1d2b — the work_items count below pins the
+    // same cascade intent (project tasks live in work_items scope='project' now).
     expect(count(`SELECT COUNT(*) AS n FROM work_items WHERE project_id = ?`)).toBe(0)
     expect(count(`SELECT COUNT(*) AS n FROM runs WHERE project_id = ?`)).toBe(0)
     expect((db.prepare(`SELECT COUNT(*) AS n FROM events WHERE run_id = ?`).get(runId) as { n: number }).n).toBe(0)
