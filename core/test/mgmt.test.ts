@@ -75,6 +75,7 @@ describe('mgmt: assignments', () => {
     expect(a.note).toBe('high priority')
     expect(a.workflow).toBeNull()
     expect(a.projects).toEqual([])
+    expect(a.leadRunId).toBeNull()
     expect(a.runId).toBe(RUN_A)
     expect(a.createdAt).toBeGreaterThan(0)
   })

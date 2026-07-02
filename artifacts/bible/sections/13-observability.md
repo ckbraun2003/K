@@ -81,13 +81,20 @@ observability extends from a single run's tree to the **whole org**:
   (`created_at`), **run id** (`run_id`, a view-run link), and **outcome** (`status`: running → completed
   | failed). The wake is debounced + already-running- + self-wake-guarded, and a dispatch failure lands
   as a `failed` row via the `startAgentRun` rollback — so the observed history is faithful to what fired.
-  *Still planned (P5.2b):* the K→Chief→lead delegation **dispatch** — the page triggers no new engineering
-  work; it observes the Chief's own activations.
+- **The Chief→lead link is now DERIVABLE (BUILT — loop-a, D-049).** With the autonomous dispatch built
+  (§03), a Chief→lead edge is derivable from the stored data with **no new table**: an assignment's
+  `run_id` is the Chief run (parent), its `lead_run_id` is the dispatched lead run (child), and the
+  lead activation's `agent_runs.trigger='delegation'` marks the hop — the exact mirror of K→Chief's
+  `k_thread_turns.run_id` + trigger. The lead's outcome is filed back as a mgmt `report` on the Chief's
+  run, so it lands in the same store the org page already reads. The **multi-tier tree DERIVATION
+  render** (folding these `lead_run_id` edges into the `DelegationTree` view above) is deferred to
+  **loop-b / P5.6** — the data is now present; the whole-org multi-tier render is the remaining polish.
 - **Memory provenance.** A gated reflection (§04) that proposes a lesson is itself an observable
   event, so you can trace *why* a profile's memory changed back to the run that earned the lesson.
 
-The remaining deferred growth (the K→Chief→lead delegation dispatch) rides the same enrichment
-foundation, pairing helpers, and single-wire EventBus — so it too stays a derivation.
+The remaining deferred growth (the multi-tier org-tree render over the now-derivable Chief→lead
+`lead_run_id` edges — loop-b / P5.6) rides the same enrichment foundation, pairing helpers, and
+single-wire EventBus — so it too stays a derivation.
 
 ## Implementation history (dashboard)
 

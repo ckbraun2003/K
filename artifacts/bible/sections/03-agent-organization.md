@@ -225,7 +225,46 @@ interactive session via `sendInput` or starts a fresh seeded k-secretary run.
   `agent_runs.profile_id === 'chief'`.
 
 **Scope.** This slice is the **K→Chief hop + report-back** only. The Chief→lead `assign_lead` store
-already exists (P5.2a) and the lead actually opening a PR is downstream — both remain follow-ups.
+already exists (P5.2a); the downward **dispatch** hop that activates the lead is built next (below).
+
+### Chief→lead dispatch + report-back (BUILT — loop-a, D-049)
+
+The downward hop is now closed too: the Chief autonomously **dispatches** an orchestrator lead. A new
+mgmt **execution** tool, `dispatch_lead` (`core/src/mcp/mgmt.ts`; the four earlier mgmt tools —
+`assign_lead`/`pick_workflow`/`scope_projects`/`report` — stay **storage-only**), takes one of the
+Chief run's assignments and activates its lead:
+
+- **Resolve + seed from a workflow.** `core/src/chief-dispatch.ts::resolveLeadProfileId` maps the
+  assignment's free-text `lead` (e.g. `Frontend`, `lead-backend`, `Backend lead`) to a lead profile
+  id — by id, then name, then a normalized discipline slug — **gated by `isLeadProfile`** so K, the
+  Chief, or the default orchestrator can never be dispatched as a lead. `resolveLeadWorkflow` resolves
+  the assignment's chosen NamedWorkflow (default `code-wave`), and `buildLeadSeed` renders that
+  workflow's `promptScaffold` via `renderWorkflowPrompt` — the **objective as the single checklist
+  item** — then appends a **lead charter line** instructing the lead to deliver the batch and **open a
+  PR** (never push to a default branch). The lead is activated with
+  `startAgentRun(leadProfileId, { trigger: 'delegation', goal, workflowId })`.
+- **Report-back up the chain.** On the lead run's **terminal**, `reportLeadOutcomeToChief` rides the
+  same **run-lifecycle seam** (`trackSupervisedRun`) — the downward twin of `reportDelegationBack` —
+  and files a mgmt `report` scoped to the **Chief's** run summarizing the lead's assistant text
+  (capped) or a bare status line, so the Chief's next activation reads the outcome in its own store.
+- **Traceability — one nullable column, no new table.** The parent→child link is
+  `mgmt_assignments.lead_run_id` (the dispatched lead's run id; parent = `assignment.run_id`) plus the
+  lead activation's `agent_runs.trigger='delegation'` — the exact mirror of K→Chief's
+  `k_thread_turns.run_id` + trigger. So the whole tree (Chief run → assignment → lead run) is
+  DB-derivable with zero schema drift.
+- **Guards + rollback.** `dispatch_lead` rejects a **double-dispatch** (`lead_run_id` already set) and
+  a **cross-run** assignment (ownership-scoped fetch); a dispatch throw leaves `lead_run_id` NULL
+  (retryable) via `startAgentRun`'s failed-row rollback. The store logic stays SDK-free;
+  `mgmt-server.ts` now `await`s the tool handler (async-tool support).
+
+**Scope.** This is **loop-a** (the Chief→lead dispatch + report-back), landed as **seams verified
+in-process with a mocked supervisor** (no real token-spending dispatch). **loop-b** — the Chief→K
+report continuation / re-wake and the multi-tier org-tree DERIVATION render — is deferred (P5.6).
+One live-path wiring is also deferred to the conductor's gated live smoke: because a Chief run invokes
+`dispatch_lead` through the **stdio mgmt-server child**, today the lead dispatch + its report-back
+subscriber are bound to that child's process/EventBus; moving the dispatch onto the long-lived **main
+process** (so lead supervision, report-back, and WS streaming outlive the Chief's turn) is the
+remaining wiring before the end-to-end autonomous loop runs for real.
 
 ## The pipeline
 

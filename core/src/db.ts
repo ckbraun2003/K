@@ -379,6 +379,7 @@ db.exec(`
     note        TEXT,
     workflow    TEXT,
     projects    TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    lead_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,   -- the dispatched lead's run (dispatch_lead); NULL until dispatched
     created_at  INTEGER NOT NULL,
     updated_at  INTEGER NOT NULL
   );
@@ -566,6 +567,18 @@ export function migrate(d: Database.Database): void {
   if (hasTable(d, 'agent_memory')) {
     addColumn(d, 'agent_memory', 'profile_id', 'TEXT REFERENCES agent_profiles(id)')
     d.exec(`CREATE INDEX IF NOT EXISTS idx_agent_memory_profile ON agent_memory(profile_id, created_at)`)
+  }
+  // mgmt_assignments.lead_run_id (P5.4 autonomous loop): the Chief→lead parent→child
+  // link — the dispatched lead's run id on the Chief's durable assignment (parent =
+  // run_id). Appended via guarded ALTER so existing DBs gain it; fresh installs get it
+  // from the DDL above. The decl MUST match the CREATE-TABLE column EXACTLY, incl.
+  // `ON DELETE SET NULL` — otherwise a migrated DB defaults to NO ACTION and a
+  // `DELETE FROM runs` (e.g. deleteProject) would hit an FK violation on a dispatched
+  // assignment while a fresh install would null the link. ADD COLUMN with a REFERENCES
+  // clause (incl. ON DELETE) is legal under foreign_keys=ON because the default is NULL.
+  // hasTable guard keeps migrate() safe against old-schema fixtures.
+  if (hasTable(d, 'mgmt_assignments')) {
+    addColumn(d, 'mgmt_assignments', 'lead_run_id', 'TEXT REFERENCES runs(id) ON DELETE SET NULL')
   }
   // work_items.scope (P5.1d1, D-026): the personal|org|project discriminator the
   // unified-task-store collapse (P5.1d2) keys on. Appended via guarded ALTER (not
@@ -1194,6 +1207,12 @@ const updateAssignment = db.prepare(`
   UPDATE mgmt_assignments SET lead = @lead, objective = @objective, note = @note,
     workflow = @workflow, projects = @projects, updated_at = @updatedAt WHERE id = @id
 `)
+// Record the Chief→lead parent→child link (dispatch_lead): the dispatched lead's run
+// id on the Chief's durable assignment. Distinct from updateAssignment so a dispatch
+// only touches lead_run_id (+ updated_at), never the stored lead/objective/workflow.
+const setAssignmentLeadRun = db.prepare(
+  `UPDATE mgmt_assignments SET lead_run_id = @leadRunId, updated_at = @updatedAt WHERE id = @id`,
+)
 const getAssignment = db.prepare(`SELECT * FROM mgmt_assignments WHERE id = ?`)
 const getAssignmentOwned = db.prepare(`SELECT * FROM mgmt_assignments WHERE id = ? AND run_id IS ?`)
 // Cross-run operator read (Chief org Objectives panel) — NOT run-scoped by design.
@@ -1218,6 +1237,7 @@ const listReportsByRun = db.prepare(
 export const mgmtDb = {
   insertAssignment,
   updateAssignment,
+  setAssignmentLeadRun,
   getAssignment,
   getAssignmentOwned,
   listRecentAssignments,

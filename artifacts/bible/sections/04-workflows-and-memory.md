@@ -62,6 +62,16 @@ NamedWorkflow {                 // BUILT — P5.3b (generalizes today's single b
 > org-default authority panel** surfaces the `default-orchestrator` grant leads inherit (§08).
 > **P5.3a shipped first**: the Orchestrators roster + detail + per-lead authority control plane (§08).
 
+> **Reused by the Chief→lead dispatch (loop-a, D-049).** `renderWorkflowPrompt` is now also the
+> seed-builder for the autonomous **Chief→lead** hop: when the Chief `dispatch_lead`s an assignment,
+> `core/src/chief-dispatch.ts::buildLeadSeed` renders the chosen NamedWorkflow's `promptScaffold`
+> through the SAME `renderWorkflowPrompt` — passing the **objective as the single checklist item**
+> (`[{ title: objective }]`) — then appends a lead charter line (open a PR, never push to a default
+> branch). To serve both callers the signature was widened to `renderWorkflowPrompt(scaffold,
+> readonly { title }[])` (a `ProjectTask` still satisfies it, so the todo-batch path is unchanged and
+> byte-identical). The chosen workflow defaults to `code-wave` when the assignment named none. See §03
+> *Chief→lead dispatch*.
+
 ## The delegation loop
 
 The first workflow's loop is the harness's core methodology (see also §13 Observability, which

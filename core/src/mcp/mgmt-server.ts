@@ -27,7 +27,7 @@ for (const tool of mgmtTools) {
     { description: tool.description, inputSchema: tool.inputShape },
     async (args: unknown) => {
       try {
-        const result = tool.handler(args, ctx)
+        const result = await tool.handler(args, ctx)
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
       } catch (e) {
         // MgmtError messages are caller-facing by design. Anything else is an

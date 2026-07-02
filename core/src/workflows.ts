@@ -56,10 +56,12 @@ export const CODE_WAVE_SCAFFOLD = [
   `default branch before committing.`,
 ].join('\n')
 
-/** Render a workflow prompt from a scaffold + the selected todos: replace the
- *  `{{CHECKLIST}}` token with the numbered todo list. Pure + exported for
+/** Render a workflow prompt from a scaffold + the selected checklist items: replace
+ *  the `{{CHECKLIST}}` token with the numbered list. `tasks` is any readonly list of
+ *  `{ title }` (a full `ProjectTask` satisfies it; a Chief→lead dispatch passes a
+ *  single synthetic `{ title: objective }` — chief-dispatch.ts). Pure + exported for
  *  unit-testing — deterministic (no Date.now/random). */
-export function renderWorkflowPrompt(scaffold: string, tasks: ProjectTask[]): string {
+export function renderWorkflowPrompt(scaffold: string, tasks: readonly { title: string }[]): string {
   if (tasks.length === 0) throw new Error('a workflow prompt requires at least one task')
   const checklist = tasks.map((t, i) => `${i + 1}. [ ] ${t.title}`).join('\n')
   // replaceAll so an operator-edited scaffold with more than one token renders fully; the

@@ -580,6 +580,7 @@ export const AssignmentSchema = z.object({
   note: z.string().nullable(),
   workflow: z.string().nullable(), // the workflow choice for this assignment (pick_workflow)
   projects: z.array(z.string()), // project scope (scope_projects); [] until scoped
+  leadRunId: z.string().nullable(), // the dispatched lead's run id (dispatch_lead); null until dispatched — the Chief→lead parent→child link (parent = runId)
   createdAt: z.number(),
   updatedAt: z.number(),
 })
