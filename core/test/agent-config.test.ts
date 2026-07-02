@@ -206,12 +206,16 @@ describe('synthesizeConfigDir', () => {
 })
 
 describe('bundle-driven mounting + kstore wiring (Wave 6)', () => {
-  /** Synthesize as a given charter tier (DEFAULT_PROFILE is orchestrator). */
+  /** Synthesize as a given charter tier (DEFAULT_PROFILE is orchestrator).
+   *  B1 fixture note: DEFAULT_PROFILE carries the ORCHESTRATOR authority arrays;
+   *  spreading them into another charter now trips the fail-closed profile-override
+   *  ceiling. Empty arrays = "no override → tier assets" — the tier-driven path
+   *  these tests have always asserted. */
   function synthAs(charterTier: CharterName) {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-agcfg-'))
     tmpDirs.push(dataDir)
     const runId = 'run-' + Math.random().toString(36).slice(2)
-    const profile = { ...DEFAULT_PROFILE, tier: charterTier, charter: charterTier }
+    const profile = { ...DEFAULT_PROFILE, tier: charterTier, charter: charterTier, allowedTools: [], mcpServers: [], skills: [] }
     const cfg = synthesizeConfigDir(profile, { runId, dataDir, assetsDir: ASSET_DIR })
     return { cfg, dataDir, runId }
   }

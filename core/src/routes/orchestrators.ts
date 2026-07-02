@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import type { OrchestratorRosterPayload } from '@k/shared'
+import { isKnownModel, type OrchestratorRosterPayload } from '@k/shared'
 import { getProfile, listProfiles, updateProfile } from '../profiles.js'
 import { assembleLead, isLead, rosterVitals } from './org-shared.js'
 
@@ -16,10 +16,11 @@ import { assembleLead, isLead, rosterVitals } from './org-shared.js'
  * the guard (a non-guard fault re-throws → Fastify 500, not a mislabelled 400).
  */
 
-// Signature the fail-closed grant guard (authority.ts::assertMcpGrants) raises — the
-// ONLY updateProfile throw that is a client error (a bad mount). Anything else
-// (a missing charter asset, a DB fault) is a server fault and must surface as 500.
-const GRANT_GUARD_ERROR = /does not grant it/
+// Signatures the two fail-closed client-error guards raise — assertMcpGrants
+// ("mounting ≠ granting", D-034) and assertTierCeiling (the B1 tier ceiling). These
+// are the ONLY updateProfile throws that are client errors (a bad patch). Anything
+// else (a missing charter asset, a DB fault) is a server fault → re-throw → 500.
+const GRANT_GUARD_ERROR = /does not grant it|exceeds the .* tier ceiling/
 
 // The mutable per-lead patch. All fields optional (partial patch); `.strict()` so an
 // unknown key is a 400 (a typo can't silently no-op). Deliberately EXCLUDES tier/charter:
@@ -33,7 +34,7 @@ const OrchestratorPatchSchema = z
     skills: z.array(z.string()).optional(),
     allowedTools: z.array(z.string()).optional(),
     mcpServers: z.array(z.string()).optional(),
-    defaultModel: z.string().optional(),
+    defaultModel: z.string().nullable().optional(), // null = clear to runtime default
   })
   .strict()
 
@@ -68,6 +69,11 @@ export async function orchestratorsRoutes(app: FastifyInstance) {
     if (Object.keys(parsed.data).length === 0) {
       return reply.status(400).send({ error: 'empty patch' })
     }
+    // defaultModel must be a known Claude model id (same gate as PUT /api/claude/model);
+    // null explicitly CLEARS the override back to the runtime default.
+    if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
+      return reply.status(400).send({ error: 'unknown model' })
+    }
 
     const existing = getProfile(req.params.id)
     if (!existing || !isLead(existing)) return reply.status(404).send({ error: 'not found' })
@@ -78,10 +84,10 @@ export async function orchestratorsRoutes(app: FastifyInstance) {
       return reply.send(updated)
     } catch (e) {
       const msg = (e as Error).message
-      // ONLY the fail-closed grant guard (assertMcpGrants — "mounting ≠ granting") is a
-      // client error: a 400, with the row UNCHANGED (updateProfile threw before the
-      // UPDATE). Any OTHER throw is a server fault — re-throw so Fastify answers 500
-      // instead of mislabelling it a 400.
+      // ONLY the two fail-closed guards (assertMcpGrants — "mounting ≠ granting" — and
+      // assertTierCeiling — the B1 tier ceiling) are client errors: a 400, with the row
+      // UNCHANGED (updateProfile threw before the UPDATE). Any OTHER throw is a server
+      // fault — re-throw so Fastify answers 500 instead of mislabelling it a 400.
       if (GRANT_GUARD_ERROR.test(msg)) return reply.status(400).send({ error: msg })
       throw e
     }

@@ -25,12 +25,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ASSET_DIR = path.join(__dirname, '../../agent-config')
 const tmpDirs: string[] = []
 
-/** Synthesize as a given charter tier into a fresh temp dataDir. */
+/** Synthesize as a given charter tier into a fresh temp dataDir.
+ *  B1 fixture note: DEFAULT_PROFILE carries the ORCHESTRATOR authority arrays;
+ *  spreading them into another charter now trips the fail-closed profile-override
+ *  ceiling. Empty arrays = "no override → tier assets" — the tier-driven synthesis
+ *  these LOCK tests pin. */
 function synthAs(charterTier: CharterName) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-s4-allow-'))
   tmpDirs.push(dataDir)
   const runId = 'run-' + Math.random().toString(36).slice(2)
-  const profile = { ...DEFAULT_PROFILE, tier: charterTier, charter: charterTier }
+  const profile = { ...DEFAULT_PROFILE, tier: charterTier, charter: charterTier, allowedTools: [], mcpServers: [], skills: [] }
   return synthesizeConfigDir(profile, { runId, dataDir, assetsDir: ASSET_DIR })
 }
 

@@ -418,7 +418,9 @@ export const AgentProfileSchema = z.object({
   name: z.string(),
   tier: AgentTierSchema,
   charter: AgentTierSchema, // charter-asset basename (=== tier for durable tiers)
-  defaultModel: z.string(), // KNOWN_MODELS id
+  // null = "use the runtime Claude default (config-store claudeDefaultModel) at
+  // dispatch time"; a string = an explicit per-profile override (a KNOWN_MODELS id).
+  defaultModel: z.string().nullable(),
   allowedTools: z.array(z.string()), // claude --allowedTools allowlist (tier-gated)
   mcpServers: z.array(z.string()), // tier-scoped MCP servers this profile mounts
   skills: z.array(z.string()), // skill dir names this profile mounts
@@ -630,6 +632,9 @@ export interface ChiefOrgLead {
   events: AgentEvent[]
   /** The lead's recent activations (bounded). */
   wakes: AgentRun[]
+  /** The model this lead's next dispatch will actually use: the profile's explicit
+   *  override when set, else the runtime Claude default. `source` says which. */
+  effectiveModel?: { model: string; source: 'override' | 'runtime-default' }
 }
 
 export interface ChiefOrgHealth {
