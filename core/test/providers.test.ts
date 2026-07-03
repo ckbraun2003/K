@@ -40,6 +40,7 @@ describe('claudeProvider — preserves existing behavior', () => {
   it('buildArgs forwards claudeConfig through to the isolation flags', () => {
     const claudeConfig = {
       allowedTools: ['Bash', 'Read'],
+      disallowedTools: [],
       mcpConfigPath: '/c/mcp.json',
       settingsPath: '/c/settings.json',
       appendSystemPromptFile: '/c/system-prompt.md',
@@ -66,7 +67,7 @@ describe('ollamaProvider — local model dispatch', () => {
 
   it('buildArgs ignores claudeConfig (local runs get no isolation flags)', () => {
     const claudeConfig = {
-      allowedTools: ['Bash'], mcpConfigPath: 'm', settingsPath: 's', appendSystemPromptFile: 'a',
+      allowedTools: ['Bash'], disallowedTools: [], mcpConfigPath: 'm', settingsPath: 's', appendSystemPromptFile: 'a',
     }
     const args = ollamaProvider.buildArgs('do a thing', { inWorktree: true, permissionMode: 'acceptEdits', model: 'llama3.1', claudeConfig })
     expect(args).toEqual(['run', 'llama3.1', 'do a thing'])

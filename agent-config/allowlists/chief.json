@@ -1,5 +1,5 @@
 {
-  "_note": "chief tier (PLANNED — Phase 5) — the right-hand manager. Delegates only; NO code authority. Coding tools (Bash, Write, Edit, Task) are deliberately ABSENT so the tier cannot edit a file or spawn a coding subagent even if a prompt asks. Read-only intelligence + web research + the kstore working store (work-items/lessons; status-write self-gates to workflow runs) + the mgmt working store (assignments/reports — the Chief's management STORAGE). Mounting an MCP server ≠ granting it (D-034): `mcp__kstore` and `mcp__mgmt` must be granted here or the servers mounted in mcp/chief.json are denied in headless `-p`.",
+  "_note": "chief tier — the right-hand manager. Delegates only; NO code authority. Coding tools (Bash, Write, Edit, Task) are deliberately ABSENT so the tier cannot edit a file or spawn a coding subagent even if a prompt asks. Read-only intelligence + web research + the kstore working store (work-items/lessons; status-write self-gates to workflow runs) + the mgmt working store (assignments/reports — the Chief's management STORAGE). Mounting an MCP server ≠ granting it (D-034): `mcp__kstore` and `mcp__mgmt` must be granted here or the servers mounted in mcp/chief.json are denied in headless `-p`.",
   "allowedTools": [
     "Read",
     "Grep",

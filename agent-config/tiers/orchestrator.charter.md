@@ -1,9 +1,8 @@
 <!--
   L1 charter — orchestrator tier. K-OWNED.
   Layered ON TOP of the L0 base operating prompt (../base-operating-prompt.md) by the
-  synthesizer. This is the single active profile today (pre-Phase-5); the secretary/chief
-  charters in this directory are PLANNED stubs. Edit the durable role here, not in a project's
-  files.
+  synthesizer. All three durable tiers are live; the five discipline leads run this charter.
+  Edit the durable role here, not in a project's files.
 -->
 
 # Orchestrator Charter

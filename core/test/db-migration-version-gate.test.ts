@@ -7,17 +7,18 @@
  * otherwise run the full scan (migrateSlow) and stamp the version. The pragma lives
  * in the DB FILE, so every later connection fast-paths.
  *
- * Proof strategy (observable, not timing): a DB manually stamped user_version=1 but
- * MISSING a migrate-added column stays missing after migrate() — only the fast path
- * can explain that. A user_version=0 DB gets the full scan (column appears) and is
- * stamped. Old-schema fixture patterns follow db-migration.test.ts.
+ * Proof strategy (observable, not timing): a DB manually stamped at the CURRENT
+ * SCHEMA_VERSION but MISSING a migrate-added column stays missing after migrate() —
+ * only the fast path can explain that. A user_version=0 DB — or one stamped at an
+ * OLDER version — gets the full scan (column appears) and is re-stamped. Old-schema
+ * fixture patterns follow db-migration.test.ts.
  */
 import { describe, it, expect, afterAll } from 'vitest'
 import Database from 'better-sqlite3'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
-import { migrate } from '../src/db.js'
+import { migrate, SCHEMA_VERSION } from '../src/db.js'
 
 const OLD_SCHEMA_DDL = `
   CREATE TABLE projects (id TEXT PRIMARY KEY);
@@ -53,14 +54,14 @@ describe('migrate() — user_version fast path', () => {
     migrate(d)
 
     expect(cols(d, 'runs')).toContain('project_id') // the full scan ran
-    expect(version(d)).toBe(1) // …and stamped the schema version
+    expect(version(d)).toBe(SCHEMA_VERSION) // …and stamped the schema version
     d.close()
   })
 
-  it('a DB pre-stamped user_version=1 but MISSING a migrate-added column fast-paths (column stays missing)', () => {
+  it('a DB pre-stamped at the CURRENT version but MISSING a migrate-added column fast-paths (column stays missing)', () => {
     const d = tmpDb()
     d.exec(OLD_SCHEMA_DDL)
-    d.pragma('user_version = 1')
+    d.pragma(`user_version = ${SCHEMA_VERSION}`)
 
     migrate(d)
 
@@ -74,14 +75,27 @@ describe('migrate() — user_version fast path', () => {
     const d = tmpDb()
     d.exec(OLD_SCHEMA_DDL)
     migrate(d)
-    expect(version(d)).toBe(1)
+    expect(version(d)).toBe(SCHEMA_VERSION)
 
     // Simulate an operator/tool resetting the stamp: the full (idempotent) scan
     // re-runs without throwing and re-stamps.
     d.pragma('user_version = 0')
     migrate(d)
-    expect(version(d)).toBe(1)
+    expect(version(d)).toBe(SCHEMA_VERSION)
     expect(cols(d, 'runs')).toContain('project_id')
+    d.close()
+  })
+
+  it('a DB stamped at an OLDER version (literal 1) re-enters the full scan and is re-stamped to the CURRENT version', () => {
+    const d = tmpDb()
+    d.exec(OLD_SCHEMA_DDL)
+    // The literal OLD version — that is the point: version bumps must re-open the gate.
+    d.pragma('user_version = 1')
+
+    migrate(d)
+
+    expect(cols(d, 'runs')).toContain('project_id') // the full scan ran
+    expect(version(d)).toBe(SCHEMA_VERSION)
     d.close()
   })
 

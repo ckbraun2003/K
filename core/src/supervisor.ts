@@ -459,6 +459,7 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
         claudeConfig: synth
           ? {
               allowedTools: synth.allowedTools,
+              disallowedTools: synth.disallowedTools,
               mcpConfigPath: synth.mcpConfigPath,
               settingsPath: synth.settingsPath,
               appendSystemPromptFile: synth.appendSystemPromptFile,

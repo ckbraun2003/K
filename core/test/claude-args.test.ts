@@ -91,6 +91,7 @@ describe('buildClaudeArgs', () => {
   // flags are appended AFTER the base + permission + model flags, in a fixed order.
   const CLAUDE_CONFIG = {
     allowedTools: ['Bash', 'Read', 'Task'],
+    disallowedTools: [],
     mcpConfigPath: '/run/cfg/mcp.json',
     settingsPath: '/run/cfg/settings.json',
     appendSystemPromptFile: '/run/cfg/system-prompt.md',
