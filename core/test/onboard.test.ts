@@ -184,14 +184,14 @@ describe('onboardProject — partial onboarding', () => {
   })
 })
 
-// ── gitignore (hides K-system artifacts/ + tasks/) ───────────────────────────────
+// ── gitignore (ignores only tasks/; keeps ALL of artifacts/ tracked) ─────────────
 
 function readLines(p: string): string[] {
   return fs.readFileSync(p, 'utf8').split('\n').map(l => l.trim())
 }
 
 describe('onboardProject — gitignore', () => {
-  it('ensures .gitignore ignores compiled artifacts/*.html and tasks/ (but NOT the bible sources), and is idempotent', () => {
+  it('ignores tasks/ only — keeps the bible sources AND the composed project-bible.html tracked, idempotent', () => {
     const tmp = makeTmp()
     const p = makeProject(tmp, 'owner/repo')
 
@@ -200,59 +200,58 @@ describe('onboardProject — gitignore', () => {
 
     const gi = path.join(tmp, '.gitignore')
     const lines = readLines(gi)
-    expect(lines).toContain('artifacts/*.html')
     expect(lines).toContain('tasks/')
-    // the bible SOURCES must stay tracked — a blanket `artifacts/` would ignore them
+    // everything under artifacts/ stays tracked — neither a blanket ignore nor the
+    // intermediate compiled-html ignore may be present.
     expect(lines).not.toContain('artifacts/')
+    expect(lines).not.toContain('artifacts/*.html')
 
     // second call: gitignore already satisfied — no .gitignore in created, no dup lines
     const second = onboardProject(p)
     expect(second.created).not.toContain('.gitignore')
-    expect(readLines(gi).filter(l => l === 'artifacts/*.html')).toHaveLength(1)
     expect(readLines(gi).filter(l => l === 'tasks/')).toHaveLength(1)
   })
 })
 
 describe('ensureGitignore', () => {
-  it('absent: creates .gitignore with both entries and returns [.gitignore]', () => {
+  it('absent: creates .gitignore with tasks/ and returns [.gitignore]', () => {
     const tmp = makeTmp()
     const out = ensureGitignore(tmp)
     expect(out).toEqual(['.gitignore'])
     const lines = readLines(path.join(tmp, '.gitignore'))
-    expect(lines).toContain('artifacts/*.html')
     expect(lines).toContain('tasks/')
+    expect(lines).not.toContain('artifacts/*.html')
   })
 
-  it('present with one entry: appends only the missing one, no duplicates', () => {
+  it('present without tasks/: appends it, preserving unrelated entries', () => {
     const tmp = makeTmp()
     const gi = path.join(tmp, '.gitignore')
-    fs.writeFileSync(gi, 'node_modules/\nartifacts/*.html\n', 'utf8')
+    fs.writeFileSync(gi, 'node_modules/\n', 'utf8')
 
     const out = ensureGitignore(tmp)
     expect(out).toEqual(['.gitignore'])
 
     const lines = readLines(gi)
-    expect(lines.filter(l => l === 'artifacts/*.html')).toHaveLength(1)
     expect(lines.filter(l => l === 'tasks/')).toHaveLength(1)
     // pre-existing unrelated entry is preserved
     expect(lines).toContain('node_modules/')
   })
 
-  it('appends a trailing newline before missing entry when file lacks one', () => {
+  it('appends a trailing newline before tasks/ when file lacks one', () => {
     const tmp = makeTmp()
     const gi = path.join(tmp, '.gitignore')
-    fs.writeFileSync(gi, 'artifacts/*.html', 'utf8') // no trailing newline
+    fs.writeFileSync(gi, 'node_modules/', 'utf8') // no trailing newline
 
     ensureGitignore(tmp)
     const lines = readLines(gi)
-    expect(lines.filter(l => l === 'artifacts/*.html')).toHaveLength(1)
-    expect(lines).toContain('tasks/')
+    expect(lines.filter(l => l === 'tasks/')).toHaveLength(1)
+    expect(lines).toContain('node_modules/')
   })
 
-  it('present with both entries: no change, returns []', () => {
+  it('present with tasks/: no change, returns []', () => {
     const tmp = makeTmp()
     const gi = path.join(tmp, '.gitignore')
-    const original = 'artifacts/*.html\ntasks/\n'
+    const original = 'node_modules/\ntasks/\n'
     fs.writeFileSync(gi, original, 'utf8')
 
     const out = ensureGitignore(tmp)
@@ -260,19 +259,37 @@ describe('ensureGitignore', () => {
     expect(fs.readFileSync(gi, 'utf8')).toBe(original)
   })
 
-  it('migrates a legacy blanket `artifacts/` (old K policy) to `artifacts/*.html`, self-healing', () => {
+  it('self-heals a legacy blanket `artifacts/` (oldest K policy) — prunes it so artifacts/ is tracked', () => {
     const tmp = makeTmp()
     const gi = path.join(tmp, '.gitignore')
-    // A project onboarded by an OLDER K: the blanket `artifacts/` ignores the bible sources.
+    // A project onboarded by the OLDEST K: the blanket `artifacts/` ignores everything.
     fs.writeFileSync(gi, 'node_modules/\nartifacts/\ntasks/\n', 'utf8')
 
     const out = ensureGitignore(tmp)
     expect(out).toEqual(['.gitignore'])
 
     const lines = readLines(gi)
-    // the blanket line is gone; the finer-grained one replaces it; tasks/ kept; unrelated kept
+    // the blanket line is pruned; nothing under artifacts/ is ignored; tasks/ + unrelated kept
     expect(lines).not.toContain('artifacts/')
-    expect(lines.filter(l => l === 'artifacts/*.html')).toHaveLength(1)
+    expect(lines).not.toContain('artifacts/*.html')
+    expect(lines.filter(l => l === 'tasks/')).toHaveLength(1)
+    expect(lines).toContain('node_modules/')
+
+    // idempotent after migration: a second call is a no-op
+    expect(ensureGitignore(tmp)).toEqual([])
+  })
+
+  it('self-heals an intermediate `artifacts/*.html` ignore — prunes it so the composed bible is tracked', () => {
+    const tmp = makeTmp()
+    const gi = path.join(tmp, '.gitignore')
+    // A project onboarded by the INTERMEDIATE K: artifacts/*.html hid the composed bible.
+    fs.writeFileSync(gi, 'node_modules/\nartifacts/*.html\ntasks/\n', 'utf8')
+
+    const out = ensureGitignore(tmp)
+    expect(out).toEqual(['.gitignore'])
+
+    const lines = readLines(gi)
+    expect(lines).not.toContain('artifacts/*.html')
     expect(lines.filter(l => l === 'tasks/')).toHaveLength(1)
     expect(lines).toContain('node_modules/')
 

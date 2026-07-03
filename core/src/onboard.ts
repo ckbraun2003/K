@@ -2,8 +2,9 @@
  * Project onboarding — bible §3 invariant enforcement.
  * Checks whether a registered project has a GitHub remote, artifacts/bible/, and
  * .github/workflows/. Scaffolds whatever is missing and reports the result.
- * Also ensures the project's .gitignore ignores the COMPILED artifacts (artifacts/*.html)
- * + the K-system tasks/ dir — while keeping the bible SOURCES (artifacts/bible/**) tracked.
+ * Also ensures the project's .gitignore ignores only the K-system tasks/ dir —
+ * keeping ALL of artifacts/ tracked (bible sources AND the composed project-bible.html,
+ * the project's own deliverables).
  *
  * No DB calls here: callers fetch the project and pass it in.
  *
@@ -39,27 +40,28 @@ function exists(localPath: string, rel: string): boolean {
 // registration path can set one.
 const BIBLE_SENTINEL = 'artifacts/bible/manifest.json'
 
-// K-system gitignore entries every managed project gets — mirroring K's OWN
-// .gitignore policy exactly:
-//   - `artifacts/*.html`  → the COMPILED bible/ui-demo output is generated +
-//     overwritten on boot, so it stays out of the repo…
-//   - …but the bible SOURCES (`artifacts/bible/**` — manifest.json + sections/)
-//     are the living spec and MUST stay git-TRACKED (a blanket `artifacts/`
-//     would ignore them, making an authored project bible uncommittable).
-//   - `tasks/`            → per-run K working dir (todo.md/lessons.md), never committed.
-const GITIGNORE_ENTRIES = ['artifacts/*.html', 'tasks/']
+// K-system gitignore entries every managed project gets:
+//   - `tasks/` → per-run K working dir (todo.md/lessons.md), never committed.
+// Everything under `artifacts/` stays git-TRACKED — both the bible SOURCES
+// (`artifacts/bible/**` — manifest.json + sections/, the living spec) AND the
+// composed `artifacts/project-bible.html`. A registered project's bible is
+// recompiled ON REQUEST / on merge (not on every harness boot), so the tracked
+// composition doesn't churn, and it's the project's own deliverable — K never
+// copies it into its own artifacts/ dir.
+const GITIGNORE_ENTRIES = ['tasks/']
 
-// K-managed entries SUPERSEDED by GITIGNORE_ENTRIES. A project onboarded by an
-// OLDER K got a blanket `artifacts/` line, which ignores the now-tracked bible
-// sources — and because ensure only *appends* missing entries, re-onboarding would
-// leave that stale line in place and silently defeat the fix. We prune it on ensure
-// (exact trimmed match only) so an existing project self-heals to the finer policy.
-const SUPERSEDED_ENTRIES = new Set(['artifacts/'])
+// K-managed entries SUPERSEDED by GITIGNORE_ENTRIES — pruned on ensure (exact
+// trimmed match) so a project onboarded by an OLDER K self-heals to the current
+// policy. Because ensure only *appends* missing entries, a stale ignore line would
+// otherwise persist and silently keep the wrong files ignored:
+//   - `artifacts/`      → a blanket ignore from the earliest K; hid the bible sources.
+//   - `artifacts/*.html`→ an intermediate K; hid the now-tracked composed bible.
+const SUPERSEDED_ENTRIES = new Set(['artifacts/', 'artifacts/*.html'])
 
 /**
- * Ensure <localPath>/.gitignore contains `artifacts/*.html` and `tasks/`, and that
+ * Ensure <localPath>/.gitignore contains `tasks/`, and that
  * any SUPERSEDED legacy K entry (blanket `artifacts/`) is pruned. Idempotent:
- * creates the file with both lines if absent; otherwise appends only the missing
+ * creates the file with the entry if absent; otherwise appends only the missing
  * entries (a line equals an entry when trimmed) and removes superseded lines. Never
  * duplicates. Returns ['.gitignore'] if it created or modified the file, else [].
  * Path-guarded: the write target stays strictly under localPath.
@@ -117,8 +119,8 @@ export function onboardProject(project: Project): OnboardResult {
   if (!hasWorkflowFile(root)) {
     created.push(...scaffoldCi(root))
   }
-  // Ignore compiled artifacts (artifacts/*.html) + the tasks/ dir in this project's
-  // .gitignore — while keeping the bible sources (artifacts/bible/**) tracked.
+  // Ignore only the tasks/ dir — keep everything under artifacts/ tracked (bible
+  // sources + the composed project-bible.html, the project's own deliverable).
   created.push(...ensureGitignore(root))
 
   return {

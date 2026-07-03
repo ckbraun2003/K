@@ -334,7 +334,7 @@ describe('enrichNodes', () => {
     artifactsDb.upsertArtifact.run({
       slug: 'project-bible', title: 'Bible', phase: null, status: 'active',
       tags: JSON.stringify([]), linkedRunId: null, updatedAt: Date.now(),
-      md: 'The widget lives at src/widget.ts and is core.',
+      md: 'The widget lives at src/widget.ts and is core.', htmlPath: null,
     })
 
     const [node] = enrichNodes(p, [{ id: 'n1', label: 'widget', file: 'src/widget.ts' }])
@@ -353,7 +353,7 @@ describe('enrichNodes', () => {
     artifactsDb.upsertArtifact.run({
       slug: 'project-bible', title: 'Bible', phase: null, status: 'active',
       tags: JSON.stringify([]), linkedRunId: null, updatedAt: Date.now(),
-      md: 'The widget lives at src/widget.ts and is core.',
+      md: 'The widget lives at src/widget.ts and is core.', htmlPath: null,
     })
 
     const [node] = enrichNodes(p, [{ id: 'n1', label: 'widget', file: 'src/widget.ts' }])

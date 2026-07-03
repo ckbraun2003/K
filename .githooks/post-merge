@@ -1,0 +1,11 @@
+#!/bin/sh
+# post-merge: refresh the git-tracked bibles from their sources after a merge or
+# pull (including a merge to main), so project-bible.html reflects merged content.
+# Best-effort — it MUST NOT block or fail the merge.
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$root" || exit 0
+if command -v pnpm >/dev/null 2>&1; then
+  echo "[post-merge] refreshing bibles (pnpm bible)…"
+  pnpm bible >/dev/null 2>&1 || echo "[post-merge] bible refresh skipped (non-fatal)"
+fi
+exit 0

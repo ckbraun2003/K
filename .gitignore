@@ -9,10 +9,6 @@ data/
 *.db-wal
 # persisted harness bearer token (first-run generated secret) — never commit
 auth-token
-# artifacts: track the bible sources (artifacts/bible/**) — the living spec.
-# the compiled *.html (project-bible.html, ui-demo.html, mobile-ui-demo.html) is
-# generated/overwritten on boot, so keep build output out of the repo.
-artifacts/*.html
 tasks/
 .superpowers/
 workspace/

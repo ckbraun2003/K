@@ -1,0 +1,8 @@
+# Keep shell hooks/scripts LF so their shebang stays valid on POSIX regardless of a
+# contributor's core.autocrlf (a CRLF `#!/bin/sh\r` is an invalid interpreter).
+.githooks/** text eol=lf
+*.sh text eol=lf
+
+# Generated artifacts are emitted with LF by the compiler — pin LF so a Windows
+# checkout doesn't rewrite them to CRLF and churn the tracked files.
+artifacts/*.html text eol=lf

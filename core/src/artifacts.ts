@@ -142,6 +142,16 @@ function artifactPath(slug: string, ext: 'md' | 'html'): string {
   return abs
 }
 
+/** True when `p` exists and is a regular file (not a dir/symlink target that's a
+ *  dir). Used to gate serving an artifact's external `html_path` source. */
+function isReadableFile(p: string): boolean {
+  try {
+    return fs.statSync(p).isFile()
+  } catch {
+    return false
+  }
+}
+
 // ── Core functions ────────────────────────────────────────────────────────────
 
 export async function renderMdToHtml(md: string, title: string): Promise<string> {
@@ -183,6 +193,9 @@ export async function saveArtifact(slug: string, md: string, meta: Partial<Artif
     linkedRunId: artifact.linkedRunId ?? null,
     updatedAt: artifact.updatedAt,
     md: artifact.md,
+    // md-backed artifacts are served from ARTIFACTS_DIR/<slug>.html (written just
+    // above) — no external source path.
+    htmlPath: null,
   })
 
   return artifact
@@ -192,12 +205,22 @@ export async function getArtifact(slug: string): Promise<Artifact | null> {
   const row = artifactsDb.getArtifact.get(slug) as Record<string, unknown> | undefined
   if (!row) return null
   const md = String(row.md ?? '')
-  // Prefer the on-disk html (kept in sync by saveArtifact/compileBible) — for the
-  // bible this is the rich compiled view, which a generic re-render would discard.
-  const htmlPath = artifactPath(slug, 'html')
-  const html = fs.existsSync(htmlPath)
-    ? fs.readFileSync(htmlPath, 'utf8')
-    : await renderMdToHtml(md, String(row.title ?? slug))
+  // Resolve the compiled HTML to serve, in preference order:
+  //  1. row.html_path — a pre-composed .html we wrote to a location OUTSIDE
+  //     ARTIFACTS_DIR (a REGISTERED project's own artifacts/project-bible.html),
+  //     so a project's artifacts stay in the project dir, never copied into K's.
+  //  2. ARTIFACTS_DIR/<slug>.html — the harness's own on-disk view (bible/ui-demo).
+  //  3. a generic md re-render — fallback when neither file is present.
+  // The path is harness-written (trusted, same trust boundary as the SQLite file);
+  // we still require it to exist as a readable file before serving it.
+  const sourcePath = typeof row.html_path === 'string' && row.html_path ? row.html_path : null
+  const ownPath = artifactPath(slug, 'html')
+  const html =
+    sourcePath && isReadableFile(sourcePath)
+      ? fs.readFileSync(sourcePath, 'utf8')
+      : fs.existsSync(ownPath)
+        ? fs.readFileSync(ownPath, 'utf8')
+        : await renderMdToHtml(md, String(row.title ?? slug))
   return {
     slug: String(row.slug),
     title: String(row.title),

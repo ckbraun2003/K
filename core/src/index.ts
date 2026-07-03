@@ -32,7 +32,7 @@ import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.
 import { seedProfiles } from './profiles.js'
 import { seedWorkflowDefinitions } from './workflow-defs.js'
 import { seedEvalSystems } from './eval/store.js'
-import { compileBible } from './bible.js'
+import { ensureHarnessBibleRegistered } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
@@ -306,8 +306,10 @@ async function start() {
   reconcileOnBoot()
 
   const app = await buildApp()
-  await compileBible()
-  await seedUiDemo()  // ensure the Command Deck `ui-demo` artifact is present
+  // Bible is recompiled on request + on merge/push (see ensureHarnessBibleRegistered);
+  // boot only registers a missing row (no HTML rewrite → no per-boot churn).
+  await ensureHarnessBibleRegistered()
+  await seedUiDemo()  // rebuilt every boot — deterministic HTML, git-tracked
   seedBuiltinSkills() // ensure the authored agent-config/skills/* appear in the Skills tab
   seedProfiles()      // ensure the durable agent-org profiles (K, Chief, orchestrator + leads) exist
   seedWorkflowDefinitions() // ensure the built-in named workflow templates (code-wave, investigate, refactor) exist

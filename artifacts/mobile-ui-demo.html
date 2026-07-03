@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>K — Mobile Companion · UI Demo</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    /* warmed vivid-midnight-glass tokens — identical source to ui-demo.html / bible §08 */
+    --bg: #1b1030; --bg-deep: #1a0f2e; --surface: #241640; --raised: #33205c;
+    --surface-warm: #2a1a47; --border: #3a2a5c; --border-warm: rgba(255,176,210,.14);
+    --text: #f4f0ff; --muted: #b3a6cd;
+    --accent: #ff8fc0; --accent-soft: #ffb0d2; --accent-hover: #38bdf8; --warm-glow: #ffd9a8;
+    --ink: #1a0f2e; --green: #34d399; --amber: #fbbf24; --red: #f87171;
+    --lead-fe: #38bdf8; --lead-be: #a855f7; --lead-sys: #34d399; --lead-sec: #f87171; --lead-net: #fbbf24;
+    --mono: 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+    --radius-lg: 18px; --radius: 14px; --radius-sm: 10px; --radius-pill: 999px;
+    --glass-bg: rgba(46,27,82,.55); --glass-border: rgba(255,176,210,.16);
+    --glass-highlight: rgba(255,255,255,.08); --glass-tint: rgba(255,176,210,.12);
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0; color: var(--text);
+    font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-size: 15px; line-height: 1.5;
+    background:
+      radial-gradient(900px 460px at 80% -10%, rgba(255,176,210,.16), transparent 60%),
+      radial-gradient(700px 380px at -6% 6%, rgba(56,189,248,.10), transparent 55%),
+      linear-gradient(var(--bg), var(--bg-deep));
+    display: flex; flex-direction: column; align-items: center; min-height: 100dvh;
+  }
+  .mono { font-family: var(--mono); }
+  .muted { color: var(--muted); }
+  .gi { width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round; vertical-align: -.17em; flex-shrink: 0; }
+
+  /* ── meta demo strip (not part of the app; lets you reach every screen) ── */
+  .demobar { width: 100%; max-width: 430px; display: flex; align-items: center; gap: .5rem;
+    padding: .5rem .7rem; font-size: .68rem; color: var(--muted); flex-wrap: wrap; }
+  .demobar .tag { font-family: var(--mono); letter-spacing: .14em; color: var(--accent-soft);
+    border: 1px solid var(--border); border-radius: 999px; padding: .1rem .5rem; }
+  .demobar .grow { flex: 1; }
+  .demobtn { font: inherit; font-size: .68rem; color: var(--muted); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 999px; padding: .2rem .55rem; cursor: pointer;
+    display: inline-flex; align-items: center; gap: .3rem; }
+  .demobtn:hover { color: var(--text); border-color: var(--accent-hover); }
+
+  /* ── the device column (page == phone viewport, full-bleed) ── */
+  .device { position: relative; width: 100%; max-width: 430px; flex: 1; min-height: 0;
+    display: flex; flex-direction: column; overflow: hidden;
+    background: linear-gradient(var(--bg), var(--bg-deep));
+    border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+    box-shadow: 0 30px 80px -40px rgba(0,0,0,.8); }
+
+  /* ── faux status bar ── */
+  .statusbar { display: flex; align-items: center; padding: max(.4rem, env(safe-area-inset-top)) 1.1rem .35rem;
+    font-size: .76rem; font-weight: 600; color: var(--text); }
+  .statusbar .time { font-variant-numeric: tabular-nums; }
+  .statusbar .sysicons { margin-left: auto; display: flex; align-items: center; gap: .35rem; opacity: .9; }
+  .statusbar .sysicons .gi { width: 1em; height: 1em; }
+
+  /* ── screen / view machinery ── */
+  [data-screen] { display: none; }
+  [data-screen].on { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .appwrap { display: none; }
+  .appwrap.on { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .appbody { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: .4rem 1rem 1.2rem; }
+  .view { display: none; animation: rise .22s ease-out; }
+  .view.on { display: block; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  h1.page { margin: .2rem 0 .1rem; font-size: 1.3rem; font-weight: 700; letter-spacing: -.01em; }
+  .sub { color: var(--muted); margin: 0 0 1rem; font-size: .82rem; }
+  .secthead { display: flex; align-items: center; gap: .5rem; margin: 1.1rem 0 .55rem;
+    color: var(--muted); font-size: .64rem; letter-spacing: .12em; text-transform: uppercase; }
+  .secthead .right { margin-left: auto; text-transform: none; letter-spacing: 0; }
+
+  /* ── surfaces ── */
+  .glass { background: var(--glass-bg); border: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%);
+    box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 14px 44px -24px rgba(0,0,0,.7); }
+  .glass-tint-warm { border: 1px solid var(--border-warm);
+    background: linear-gradient(135deg, rgba(255,176,210,.12), rgba(255,217,168,.06)), var(--glass-bg);
+    -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%);
+    box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 18px 50px -26px rgba(0,0,0,.75); }
+  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .glass, .glass-tint-warm { background: var(--raised); border-color: var(--border); }
+  }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: .85rem .95rem; }
+  .card + .card { margin-top: .7rem; }
+  .card.warm { background: var(--surface-warm); border-color: var(--border-warm); }
+  .stack > * + * { margin-top: .55rem; }
+
+  /* ── hero / greeting ── */
+  .hero { border-radius: var(--radius-lg); padding: 1.1rem 1.1rem 1.2rem; margin: .5rem 0 1rem; }
+  .greeting { font-size: 1.45rem; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+  .greeting .glow { background: linear-gradient(90deg, var(--warm-glow), var(--accent-soft));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: sparkle 3s ease-in-out infinite; }
+  @keyframes sparkle { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.16); } }
+  .hero .lead { color: var(--muted); margin: .35rem 0 .9rem; font-size: .85rem; }
+
+  /* ── composer (the one front door, scoped to phone) ── */
+  .composer { display: flex; align-items: center; gap: .55rem; background: var(--raised);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: .6rem .7rem; }
+  .composer:focus-within { border-color: var(--accent-hover); box-shadow: 0 0 0 3px rgba(56,189,248,.22); }
+  .composer .gi { color: var(--accent-soft); }
+  .composer input { flex: 1; background: none; border: none; outline: none; color: var(--text);
+    font: inherit; font-size: .9rem; min-width: 0; }
+  .routeline { display: flex; align-items: center; gap: .35rem; font-family: var(--mono); font-size: .72rem;
+    color: var(--accent-soft); margin-top: .6rem; flex-wrap: wrap; }
+  .routeline .sep { color: var(--muted); }
+  .composer-actions { display: flex; align-items: center; gap: .55rem; margin-top: .7rem; }
+
+  /* ── buttons ── */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; font: inherit;
+    font-size: .85rem; font-weight: 600; padding: .55rem .9rem; border-radius: 12px; cursor: pointer;
+    border: 1px solid transparent; transition: background .15s, border-color .15s, color .15s, opacity .15s; }
+  .btn.primary { background: var(--accent); color: var(--ink); }
+  .btn.primary:active { background: var(--accent-hover); }
+  .btn.secondary { background: var(--raised); color: var(--text); border-color: var(--border); }
+  .btn.ghost { background: none; color: var(--muted); }
+  .btn.ghost:active { color: var(--text); background: var(--raised); }
+  .btn.sky { background: none; color: var(--accent-hover); border-color: rgba(56,189,248,.5); }
+  .btn.danger { background: none; color: var(--red); border-color: rgba(248,113,113,.5); }
+  .btn.block { width: 100%; }
+  .btn.sm { padding: .35rem .6rem; font-size: .76rem; border-radius: 10px; }
+  .btn:disabled { opacity: .4; }
+
+  /* ── pills / dots / bars ── */
+  .pill { display: inline-flex; align-items: center; gap: .35rem; font-size: .66rem; font-weight: 600;
+    padding: .14rem .5rem; border-radius: var(--radius-pill); border: 1px solid currentColor; white-space: nowrap; }
+  .pill .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.running { color: var(--accent); } .pill.running .d { animation: live 2.2s ease-out infinite; }
+  .pill.done { color: var(--green); } .pill.queued { color: var(--amber); }
+  .pill.error { color: var(--red); } .pill.idle { color: var(--muted); }
+  @keyframes live { 0% { box-shadow: 0 0 0 0 rgba(255,143,192,.5); } 70% { box-shadow: 0 0 0 5px rgba(255,143,192,0); } 100% { box-shadow: 0 0 0 0 rgba(255,143,192,0); } }
+  .ldot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .ldot.fe { background: var(--lead-fe); } .ldot.be { background: var(--lead-be); }
+  .ldot.sys { background: var(--lead-sys); } .ldot.sec { background: var(--lead-sec); } .ldot.net { background: var(--lead-net); }
+  .bar { height: 7px; border-radius: 999px; background: var(--raised); overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-hover)); }
+  .bar.warn > span { background: var(--amber); } .bar.hot > span { background: var(--red); }
+  .tier-chip { font-size: .62rem; font-family: var(--mono); padding: .08rem .45rem; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); }
+  .kv { display: flex; align-items: center; gap: .5rem; }
+  .kv .v { font-family: var(--mono); font-weight: 600; }
+
+  /* ── work-item / list rows ── */
+  .row { display: flex; align-items: center; gap: .6rem; padding: .55rem .1rem;
+    border-bottom: 1px solid var(--border); font-size: .85rem; }
+  .row:last-child { border-bottom: none; }
+  .row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { color: var(--muted); font-size: .72rem; font-family: var(--mono); }
+  .tap { cursor: pointer; border-radius: 10px; }
+  .tap:active { background: var(--raised); }
+  .check { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+    border-radius: 6px; border: 1px solid var(--muted); cursor: pointer; flex-shrink: 0; color: transparent; }
+  .check.on { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--ink); }
+
+  /* ── activity list ── */
+  .arow { display: flex; gap: .7rem; padding: .7rem .15rem; border-bottom: 1px solid var(--border);
+    cursor: pointer; }
+  .arow:active { background: var(--raised); }
+  .arow .body { flex: 1; min-width: 0; }
+  .arow .t1 { display: flex; align-items: center; gap: .45rem; font-size: .88rem; font-weight: 600; }
+  .arow .t2 { color: var(--muted); font-size: .76rem; margin-top: .15rem; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .arow .ctxmini { display: flex; align-items: center; gap: .35rem; margin-top: .4rem; font-size: .66rem;
+    color: var(--muted); font-family: var(--mono); }
+  .arow .ctxmini .bar { flex: 1; max-width: 120px; height: 5px; }
+
+  /* pull-to-refresh hint */
+  .ptr { text-align: center; color: var(--muted); font-size: .72rem; padding: .2rem 0 .5rem;
+    display: flex; align-items: center; justify-content: center; gap: .4rem; }
+  .ptr.spinning .gi { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── approvals (swipe rows) ── */
+  .swipe { position: relative; border-radius: 12px; overflow: hidden; margin-bottom: .55rem;
+    border: 1px solid var(--border); background: var(--surface); }
+  .swipe-actions { position: absolute; inset: 0; display: flex; }
+  .swipe-actions button { border: none; font: inherit; font-weight: 700; font-size: .8rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: .3rem; flex: 1; color: var(--ink); }
+  .swipe-actions .ok { background: var(--green); } .swipe-actions .no { background: var(--red); }
+  .swipe-content { position: relative; background: var(--surface); padding: .75rem .85rem;
+    transition: transform .22s cubic-bezier(.4,0,.2,1); touch-action: pan-y; }
+  .swipe-content .top { display: flex; align-items: center; gap: .5rem; }
+  .swipe-content .kind { font-size: .6rem; font-family: var(--mono); letter-spacing: .08em;
+    text-transform: uppercase; padding: .1rem .4rem; border-radius: 999px; border: 1px solid currentColor; }
+  .k-hitl { color: var(--accent-hover); } .k-pr { color: var(--lead-be); } .k-esc { color: var(--red); }
+  .k-block { color: var(--amber); } .k-lesson { color: var(--green); }
+  .swipe-content .ttl { font-weight: 600; font-size: .9rem; margin: .35rem 0 .15rem; }
+  .swipe-content .desc { color: var(--muted); font-size: .78rem; }
+  .swipe-content .mini-actions { display: flex; gap: .5rem; margin-top: .6rem; }
+  .swipe-hint { color: var(--muted); font-size: .62rem; display: flex; align-items: center; gap: .3rem;
+    margin: .1rem 0 .7rem; }
+
+  /* ── run console ── */
+  .topnav { display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem .6rem; }
+  .iconbtn { background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; cursor: pointer; }
+  .iconbtn:active { background: var(--raised); }
+  .ctx { display: flex; align-items: center; gap: .45rem; font-size: .68rem; color: var(--muted);
+    font-family: var(--mono); padding: 0 .2rem .5rem; }
+  .ctx .bar { flex: 1; }
+  .event { padding: .55rem .2rem; border-bottom: 1px solid var(--border); font-size: .82rem; }
+  .event .cmdline { font-family: var(--mono); display: flex; align-items: center; gap: .4rem; }
+  .event .cmdline .gi { color: var(--accent-soft); }
+  .diff { font-family: var(--mono); font-size: .72rem; background: var(--bg-deep); border-radius: 8px;
+    margin-top: .4rem; padding: .45rem .6rem; border: 1px solid var(--border); overflow-x: auto; }
+  .diff .add { color: var(--green); } .diff .del { color: var(--red); }
+  .delegate { display: flex; align-items: center; gap: .45rem; font-size: .8rem; }
+  .answerbox { border-top: 1px solid var(--border); padding: .7rem .8rem max(.7rem, env(safe-area-inset-bottom));
+    background: var(--surface); }
+  .answerbox .field { display: flex; gap: .5rem; align-items: center; background: var(--raised);
+    border: 1px solid var(--border); border-radius: 12px; padding: .5rem .6rem; }
+  .answerbox input { flex: 1; background: none; border: none; outline: none; color: var(--text); font: inherit; min-width: 0; }
+  .answerbox .meta-actions { display: flex; gap: .5rem; margin-top: .55rem; }
+
+  /* ── toggles ── */
+  .toggle { display: inline-flex; width: 42px; height: 25px; border-radius: 999px; background: var(--raised);
+    border: 1px solid var(--border); position: relative; cursor: pointer; flex-shrink: 0; }
+  .toggle::after { content: ''; position: absolute; top: 1px; left: 1px; width: 21px; height: 21px;
+    border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+  .toggle.on { background: rgba(56,189,248,.25); border-color: var(--accent-hover); }
+  .toggle.on::after { transform: translateX(17px); background: var(--accent-hover); }
+  .setrow { display: flex; align-items: center; gap: .7rem; padding: .65rem .15rem; border-bottom: 1px solid var(--border); }
+  .setrow:last-child { border-bottom: none; }
+  .setrow .grow { flex: 1; min-width: 0; }
+  .setrow .t { font-size: .88rem; } .setrow .d { color: var(--muted); font-size: .74rem; }
+
+  /* ── connection / trust banner ── */
+  .trust { display: flex; align-items: center; gap: .6rem; padding: .7rem .85rem; border-radius: 12px;
+    font-size: .82rem; border: 1px solid rgba(52,211,153,.4); background: rgba(52,211,153,.08); color: var(--green); }
+  .trust.warn { border-color: rgba(251,191,36,.4); background: rgba(251,191,36,.08); color: var(--amber); }
+  .trust.off { border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.08); color: var(--red); }
+  .trust .grow { flex: 1; }
+
+  /* ── bottom tab bar ── */
+  .tabbar { display: flex; align-items: stretch; border-top: 1px solid var(--glass-border);
+    background: var(--glass-bg); -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    padding-bottom: env(safe-area-inset-bottom); }
+  .tabbar button { flex: 1; background: none; border: none; color: var(--muted); font: inherit;
+    font-size: .6rem; cursor: pointer; padding: .5rem 0 .45rem; display: flex; flex-direction: column;
+    align-items: center; gap: .2rem; position: relative; }
+  .tabbar button .gi { width: 1.4em; height: 1.4em; }
+  .tabbar button.active { color: var(--accent-soft); }
+  .tabbar button.active .gi { color: var(--accent); }
+  .tabbar .nbadge { position: absolute; top: .3rem; left: 50%; margin-left: .2rem; min-width: 16px; height: 16px;
+    padding: 0 4px; border-radius: 999px; background: var(--accent); color: var(--ink);
+    font-family: var(--mono); font-size: .58rem; font-weight: 700; display: grid; place-items: center; }
+
+  /* ── pairing screen ── */
+  .pair { padding: 1.2rem 1.3rem max(1.2rem, env(safe-area-inset-bottom)); justify-content: flex-start; }
+  .pair .logo { width: 52px; height: 52px; border-radius: 15px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--ink); margin: .5rem 0 .8rem; }
+  .pair h2 { margin: 0 0 .25rem; font-size: 1.3rem; }
+  .pair .lead { color: var(--muted); font-size: .85rem; margin: 0 0 1.1rem; }
+  .pairstep { display: none; } .pairstep.on { display: block; animation: rise .22s ease-out; }
+  .qrwrap { display: grid; place-items: center; padding: 1rem; }
+  .qrframe { background: #fff; border-radius: 16px; padding: 14px; box-shadow: 0 18px 50px -20px rgba(0,0,0,.7); }
+  .qrframe svg { display: block; }
+  .scanline { position: relative; }
+  .scanline::after { content: ''; position: absolute; left: 8%; right: 8%; height: 2px; top: 0;
+    background: linear-gradient(90deg, transparent, var(--accent-hover), transparent);
+    animation: scan 2.2s ease-in-out infinite; }
+  @keyframes scan { 0%,100% { top: 12%; opacity: .2; } 50% { top: 86%; opacity: 1; } }
+  .pairfields label { display: block; color: var(--muted); font-size: .7rem; margin: .7rem 0 .2rem; }
+  .pairfields input { width: 100%; background: var(--raised); border: 1px solid var(--border);
+    border-radius: 10px; color: var(--text); font: inherit; font-size: .85rem; padding: .55rem .6rem; outline: none; }
+  .pairfields input:focus { border-color: var(--accent-hover); }
+  .conntest { display: flex; align-items: center; gap: .55rem; font-size: .85rem; padding: .7rem .85rem;
+    border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin: .8rem 0; }
+  .biom { display: grid; place-items: center; gap: .6rem; padding: 1.4rem 0 1rem; text-align: center; }
+  .biom .ring { width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center;
+    border: 2px solid var(--accent); color: var(--accent-soft); box-shadow: 0 0 0 6px rgba(255,143,192,.12); }
+  .biom .ring .gi { width: 2.4em; height: 2.4em; }
+
+  /* ── push banner ── */
+  .pushbanner { position: absolute; top: max(.5rem, env(safe-area-inset-top)); left: .7rem; right: .7rem;
+    z-index: 40; display: flex; gap: .6rem; align-items: flex-start; padding: .7rem .8rem; border-radius: 16px;
+    transform: translateY(-160%); transition: transform .35s cubic-bezier(.2,.8,.2,1); cursor: pointer; }
+  .pushbanner.show { transform: translateY(0); }
+  .pushbanner .pi { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--ink); flex-shrink: 0; }
+  .pushbanner .body { flex: 1; min-width: 0; }
+  .pushbanner .ttl { font-weight: 700; font-size: .82rem; display: flex; align-items: center; gap: .4rem; }
+  .pushbanner .msg { color: var(--text); font-size: .78rem; margin-top: .1rem; }
+  .pushbanner .ago { color: var(--muted); font-size: .64rem; margin-left: auto; }
+  .pushbanner .actions { display: flex; gap: .5rem; margin-top: .55rem; }
+  .pushbanner .actions button { flex: 1; font: inherit; font-size: .72rem; font-weight: 600; cursor: pointer;
+    padding: .35rem; border-radius: 9px; border: 1px solid var(--glass-border); background: rgba(255,255,255,.06); color: var(--text); }
+
+  /* ── bottom sheet (confirm / biometric) ── */
+  .sheet-scrim { position: absolute; inset: 0; background: rgba(8,4,18,.55); z-index: 49; opacity: 0;
+    pointer-events: none; transition: opacity .2s; }
+  .sheet-scrim.show { opacity: 1; pointer-events: auto; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 50; border-radius: 22px 22px 0 0;
+    padding: .6rem 1.2rem max(1.2rem, env(safe-area-inset-bottom)); transform: translateY(110%);
+    transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+  .sheet.show { transform: translateY(0); }
+  .sheet .grip { width: 38px; height: 4px; border-radius: 999px; background: var(--border); margin: .2rem auto .8rem; }
+  .sheet h3 { margin: 0 0 .4rem; font-size: 1.05rem; display: flex; align-items: center; gap: .5rem; }
+  .sheet .fields { background: var(--bg-deep); border: 1px solid var(--border); border-radius: 12px;
+    padding: .7rem .85rem; margin: .7rem 0; font-size: .82rem; }
+  .sheet .fields .frow { display: flex; gap: .6rem; padding: .25rem 0; }
+  .sheet .fields .frow .lbl { color: var(--muted); width: 5.5rem; flex-shrink: 0; }
+  .sheet .actions { display: flex; gap: .6rem; margin-top: .6rem; }
+  .sheet .actions .btn { flex: 1; }
+
+  /* ── toasts ── */
+  .toasts { position: absolute; left: .7rem; right: .7rem; bottom: calc(64px + env(safe-area-inset-bottom));
+    z-index: 60; display: flex; flex-direction: column; gap: .5rem; align-items: stretch; }
+  .toast { display: flex; align-items: center; gap: .55rem; padding: .65rem .8rem; border-radius: 14px;
+    font-size: .82rem; animation: rise .22s ease-out; }
+  .toast.out { opacity: 0; transform: translateY(8px); transition: .3s; }
+  .toast.success { color: var(--green); } .toast.error { color: var(--red); } .toast.info { color: var(--accent-hover); }
+  .toast .msg { color: var(--text); flex: 1; min-width: 0; }
+  .toast button { background: none; border: none; color: var(--accent-hover); font: inherit; font-weight: 700; cursor: pointer; }
+
+  a, .link { color: var(--accent-hover); text-decoration: none; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; border-radius: 6px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .greeting .glow, .pill.running .d, .scanline::after, .ptr.spinning .gi { animation: none !important; }
+    * { transition-duration: .01ms !important; }
+    .view { animation: none; }
+  }
+  /* on a real phone the demo strip is harmless chrome; on desktop it frames the column */
+  @media (min-width: 460px) {
+    body { justify-content: center; }
+    .device { border-radius: 26px; margin-bottom: .8rem; height: min(900px, 92dvh); flex: 0 1 auto; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13h6l-1 8 8-11h-6z"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5 10v9h14v-9"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 5h14l2 8v6H3v-6z"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></symbol>
+  <symbol id="i-qr" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path d="M14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 10a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="i-finger" viewBox="0 0 24 24"><path d="M12 6a5 5 0 0 0-5 5v3"/><path d="M12 9a2 2 0 0 0-2 2v5"/><path d="M16 11a4 4 0 0 0-1-2.6"/><path d="M14 16v-5a2 2 0 0 0-1-1.7"/><path d="M8.5 19c.6-1 .8-2 .8-3"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5l2 2"/><path d="M20 5v4h-4"/><path d="M20 12a8 8 0 0 1-14 5l-2-2"/><path d="M4 19v-4h4"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8.5a16 16 0 0 1 20 0"/><path d="M5 12a11 11 0 0 1 14 0"/><path d="M8.5 15.5a6 6 0 0 1 7 0"/><path d="M12 19h.01"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2" y="8" width="17" height="9" rx="2"/><path d="M22 11v3"/><rect x="4" y="10" width="11" height="5" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><path d="M4 18v-2M9 18v-5M14 18v-8M19 18V6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-11"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-pr" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M6 8.4v7.2"/><path d="M18 15.6V11a3 3 0 0 0-3-3h-2"/><path d="M15 5l-2 3 3 2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 22 19H2z"/><path d="M12 10v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-idea" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.3 1 2.5h6c0-1.2.3-1.8 1-2.5A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3"/><path d="M13 15h4"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-3-6z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M9 15 15 9"/><path d="M10 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M14 18l-1 1a4 4 0 0 1-6-6l1-1"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+</svg>
+
+<!-- ── meta demo controls (frame the column; not part of the product UI) ── -->
+<div class="demobar">
+  <span class="tag">DEMO</span>
+  <span class="grow muted">K mobile · companion</span>
+  <button class="demobtn" data-action="replay-pair"><svg class="gi"><use href="#i-qr"></use></svg> Pairing</button>
+  <button class="demobtn" data-action="sim-push"><svg class="gi"><use href="#i-bell"></use></svg> Push</button>
+  <button class="demobtn" data-action="conn-cycle"><svg class="gi"><use href="#i-wifi"></use></svg> <span id="connWord">live</span></button>
+</div>
+
+<div class="device" id="device">
+  <div class="statusbar">
+    <span class="time">9:41</span>
+    <span class="sysicons">
+      <svg class="gi"><use href="#i-signal"></use></svg>
+      <svg class="gi"><use href="#i-wifi"></use></svg>
+      <svg class="gi"><use href="#i-battery"></use></svg>
+    </span>
+  </div>
+
+  <!-- ════════════ PAIR / ONBOARDING ════════════ -->
+  <section class="screen pair" data-screen="pair">
+    <div class="logo"><svg class="gi" style="stroke-width:2;width:1.5em;height:1.5em"><use href="#i-bolt"></use></svg></div>
+
+    <!-- step 1: scan -->
+    <div class="pairstep on" data-step="scan">
+      <h2>Connect to K</h2>
+      <p class="lead">Open <b>K → Settings → Pair a device</b> on your computer and scan the QR it shows. Your phone connects over your Tailscale or reverse-proxy URL — nothing is exposed publicly.</p>
+      <div class="qrwrap">
+        <div class="qrframe scanline"><div id="qr"></div></div>
+      </div>
+      <button class="btn primary block" data-action="pair-scan"><svg class="gi"><use href="#i-qr"></use></svg> Simulate scan</button>
+      <button class="btn ghost block" style="margin-top:.5rem" data-action="pair-manual">Enter URL &amp; token manually</button>
+    </div>
+
+    <!-- step 1b: manual -->
+    <div class="pairstep" data-step="manual">
+      <h2>Manual pairing</h2>
+      <p class="lead">Mirrors the dashboard's remote login. Paste your base URL and the device token from Settings.</p>
+      <div class="pairfields">
+        <label>Base URL</label>
+        <input value="https://k.tail9f2c.ts.net" spellcheck="false" />
+        <label>Device token</label>
+        <input value="••••••••••••••••••••••••" type="password" />
+      </div>
+      <button class="btn primary block" style="margin-top:.9rem" data-action="pair-scan"><svg class="gi"><use href="#i-link"></use></svg> Connect</button>
+      <button class="btn ghost block" style="margin-top:.5rem" data-action="pair-back-scan">Back to QR</button>
+    </div>
+
+    <!-- step 2: testing -->
+    <div class="pairstep" data-step="testing">
+      <h2>Connecting…</h2>
+      <p class="lead">Verifying the endpoint and your device token.</p>
+      <div class="conntest"><svg class="gi" style="color:var(--green)"><use href="#i-check"></use></svg> Endpoint reachable · <span class="mono">/health</span> ok</div>
+      <div class="conntest"><svg class="gi" style="color:var(--green)"><use href="#i-shield"></use></svg> Token accepted · transport encrypted (Tailscale)</div>
+      <div class="conntest"><svg class="gi" style="color:var(--green)"><use href="#i-check"></use></svg> Live event stream subscribed</div>
+      <button class="btn primary block" style="margin-top:.9rem" data-action="pair-biom">Continue</button>
+    </div>
+
+    <!-- step 3: biometric -->
+    <div class="pairstep" data-step="biom">
+      <div class="biom">
+        <div class="ring"><svg class="gi"><use href="#i-finger"></use></svg></div>
+        <h2 style="margin:.4rem 0 0">Lock the app</h2>
+        <p class="lead" style="margin:.2rem 0 0">Require Face ID / fingerprint to open K and before approving destructive actions. The device token stays in the secure enclave.</p>
+      </div>
+      <button class="btn primary block" data-action="pair-finish"><svg class="gi"><use href="#i-finger"></use></svg> Enable &amp; enter</button>
+      <button class="btn ghost block" style="margin-top:.5rem" data-action="pair-finish">Skip for now</button>
+    </div>
+  </section>
+
+  <!-- ════════════ APP SHELL ════════════ -->
+  <div class="appwrap" data-screen="app">
+    <div class="appbody" id="appbody">
+
+      <!-- ───── K HOME ───── -->
+      <section class="view on" data-view="k-home">
+        <div class="hero glass-tint-warm">
+          <h2 class="greeting"><span class="glow">Good evening, Cameron.</span></h2>
+          <p class="lead">3 agents working · <span class="link" data-action="goto-activity">Backend on the auth refactor →</span></p>
+          <div class="composer">
+            <svg class="gi"><use href="#i-bolt"></use></svg>
+            <input id="homeQ" placeholder="Ask K…  e.g. refactor the auth module" aria-label="Ask K" />
+          </div>
+          <div class="routeline"><span class="muted">K routes</span> → Chief <span class="sep">→</span> Backend Lead <span class="muted">· sonnet · ~small</span></div>
+          <div class="composer-actions">
+            <button class="btn primary grow" style="flex:1" data-action="send"><svg class="gi"><use href="#i-send"></use></svg> Send</button>
+            <span class="check" data-action="toggle" title="Interactive"></span><span class="muted" style="font-size:.78rem">Interactive</span>
+          </div>
+        </div>
+
+        <div class="secthead"><svg class="gi"><use href="#i-check"></use></svg> Your work <span class="right muted">personal · org</span></div>
+        <div class="card warm stack" style="padding:.7rem .85rem">
+          <div class="row" style="border:none;padding:.35rem .1rem"><span class="check" data-action="toggle"></span><span class="grow">triage PR #42</span><span class="tier-chip">Chief</span></div>
+          <div class="row" style="border:none;padding:.35rem .1rem"><span class="check on" data-action="toggle"><svg class="gi" style="width:.9em;height:.9em"><use href="#i-check"></use></svg></span><span class="grow muted" style="text-decoration:line-through">build fleet graph</span><span class="pill done"><span class="d"></span>done</span></div>
+          <div class="row" style="border:none;padding:.35rem .1rem"><span class="check" data-action="toggle"></span><span class="grow">verify core before release</span><span class="pill queued"><span class="d"></span>queued</span></div>
+        </div>
+
+        <div class="secthead"><svg class="gi"><use href="#i-clock"></use></svg> Recent from your org</div>
+        <div class="card tap" data-action="open-run"><div class="kv"><span class="ldot fe"></span><b>Frontend</b><span class="pill done" style="margin-left:auto"><span class="d"></span>done</span></div><p class="muted" style="margin:.3rem 0 0;font-size:.8rem">added focus ring to the cmd bar · +12 −3</p></div>
+        <div class="card tap" data-action="open-run"><div class="kv"><span class="ldot be"></span><b>Backend</b><span class="pill running" style="margin-left:auto"><span class="d"></span>running</span></div><p class="muted" style="margin:.3rem 0 0;font-size:.8rem">auth refactor · +120 −44</p></div>
+        <div class="card tap" data-action="goto-approvals"><div class="kv"><span class="ldot sec"></span><b>Security</b><span class="pill error" style="margin-left:auto"><span class="d"></span>needs you</span></div><p class="muted" style="margin:.3rem 0 0;font-size:.8rem">API surface audit blocked — escalation in Approvals</p></div>
+      </section>
+
+      <!-- ───── ACTIVITY ───── -->
+      <section class="view" data-view="activity">
+        <h1 class="page">Activity</h1>
+        <p class="sub">Live — what your org is running right now.</p>
+        <div class="ptr" id="ptr" data-action="pull-refresh"><svg class="gi"><use href="#i-refresh"></use></svg> pull to refresh</div>
+
+        <div class="arow" data-action="open-run">
+          <span class="ldot be" style="margin-top:.3rem"></span>
+          <div class="body">
+            <div class="t1">Backend Lead <span class="pill running" style="margin-left:auto"><span class="d"></span>running</span></div>
+            <div class="t2">auth refactor · editing <span class="mono">core/src/auth.ts</span></div>
+            <div class="ctxmini">ctx 124k / 200k <span class="bar warn" style="width:90px"><span style="width:62%"></span></span> 62%</div>
+          </div>
+        </div>
+        <div class="arow" data-action="open-run">
+          <span class="ldot fe" style="margin-top:.3rem"></span>
+          <div class="body">
+            <div class="t1">Frontend Lead <span class="pill running" style="margin-left:auto"><span class="d"></span>running</span></div>
+            <div class="t2">focus ring · spec-review wave 2/3</div>
+            <div class="ctxmini">ctx 38k / 200k <span class="bar" style="width:90px"><span style="width:19%"></span></span> 19%</div>
+          </div>
+        </div>
+        <div class="arow" data-action="goto-approvals">
+          <span class="ldot sec" style="margin-top:.3rem"></span>
+          <div class="body">
+            <div class="t1">Security Lead <span class="pill error" style="margin-left:auto"><span class="d"></span>needs you</span></div>
+            <div class="t2">API surface audit · blocked on T3 authority</div>
+          </div>
+        </div>
+        <div class="arow" data-action="open-run">
+          <span class="ldot sys" style="margin-top:.3rem"></span>
+          <div class="body">
+            <div class="t1">Systems Lead <span class="pill queued" style="margin-left:auto"><span class="d"></span>queued</span></div>
+            <div class="t2">waiting on a worktree slot</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───── APPROVALS ───── -->
+      <section class="view" data-view="approvals">
+        <h1 class="page">Approvals</h1>
+        <p class="sub">Everything that needs a human. Swipe ▸ approve · ◂ reject, or tap to open.</p>
+        <div class="swipe-hint"><svg class="gi"><use href="#i-arrow"></use></svg> swipe a card, or use the buttons</div>
+        <div id="approvals"></div>
+        <div class="card" id="approvalsEmpty" style="display:none;text-align:center;color:var(--muted);padding:2rem 1rem">
+          <svg class="gi" style="width:1.8em;height:1.8em;opacity:.7"><use href="#i-check"></use></svg>
+          <p style="margin:.4rem 0 0">All clear — nothing needs you.</p>
+        </div>
+      </section>
+
+      <!-- ───── SETTINGS ───── -->
+      <section class="view" data-view="settings">
+        <h1 class="page">Settings</h1>
+        <p class="sub">Connection, notifications, and security.</p>
+
+        <div class="secthead">Connection</div>
+        <div class="trust" id="trust"><svg class="gi"><use href="#i-shield"></use></svg><span class="grow"><b id="trustText">Connected · Tailscale (encrypted)</b><br><span class="muted mono" style="font-size:.72rem">k.tail9f2c.ts.net</span></span></div>
+        <div style="display:flex;gap:.5rem;margin-top:.6rem"><button class="btn secondary grow" style="flex:1" data-action="replay-pair">Re-pair</button><button class="btn ghost" data-action="toast" data-msg="Connection test passed" data-variant="success">Test</button></div>
+
+        <div class="secthead" style="margin-top:1.2rem">Paired devices</div>
+        <div class="setrow"><svg class="gi" style="color:var(--accent-soft)"><use href="#i-home"></use></svg><div class="grow"><div class="t">iPhone 16 Pro <span class="tier-chip" style="color:var(--green);border-color:currentColor">this device</span></div><div class="d mono">paired 2026-06-27 · last seen now</div></div></div>
+        <div class="setrow"><svg class="gi"><use href="#i-home"></use></svg><div class="grow"><div class="t">Cameron's iPad</div><div class="d mono">paired 2026-06-12 · last seen 3d ago</div></div><button class="btn danger sm" data-action="confirm-revoke">Revoke</button></div>
+
+        <div class="secthead" style="margin-top:1.2rem">Notify me about</div>
+        <div class="setrow"><div class="grow"><div class="t">HITL — a run needs my answer</div><div class="d">interactive runs parked awaiting input</div></div><span class="toggle on" data-action="toggle"></span></div>
+        <div class="setrow"><div class="grow"><div class="t">PR ready for review</div><div class="d">an agent opened a PR</div></div><span class="toggle on" data-action="toggle"></span></div>
+        <div class="setrow"><div class="grow"><div class="t">Escalations</div><div class="d">T3 authority · destructive · cross-project</div></div><span class="toggle on" data-action="toggle"></span></div>
+        <div class="setrow"><div class="grow"><div class="t">Blocked / failed runs</div><div class="d">a run stalled or errored</div></div><span class="toggle on" data-action="toggle"></span></div>
+        <div class="setrow"><div class="grow"><div class="t">Pending memory lessons</div><div class="d">a gated reflection wants approval</div></div><span class="toggle" data-action="toggle"></span></div>
+
+        <div class="secthead" style="margin-top:1.2rem">Security</div>
+        <div class="setrow"><svg class="gi" style="color:var(--accent-soft)"><use href="#i-finger"></use></svg><div class="grow"><div class="t">Require biometric unlock</div><div class="d">Face ID to open · always before destructive actions</div></div><span class="toggle on" data-action="toggle"></span></div>
+
+        <p class="muted" style="font-size:.7rem;text-align:center;margin:1.4rem 0 .4rem">K mobile companion · demo build · v0.1<br>monitors the harness running on your computer</p>
+      </section>
+
+    </div><!-- /appbody -->
+
+    <nav class="tabbar">
+      <button class="active" data-action="nav" data-view="k-home"><svg class="gi"><use href="#i-home"></use></svg> K</button>
+      <button data-action="nav" data-view="activity"><svg class="gi"><use href="#i-pulse"></use></svg> Activity</button>
+      <button data-action="nav" data-view="approvals"><svg class="gi"><use href="#i-inbox"></use></svg> Approvals<span class="nbadge" id="apvBadge">4</span></button>
+      <button data-action="nav" data-view="settings"><svg class="gi"><use href="#i-settings"></use></svg> Settings</button>
+    </nav>
+  </div><!-- /appwrap -->
+
+  <!-- ════════════ RUN CONSOLE (drill-in) ════════════ -->
+  <section class="screen" data-screen="run">
+    <div class="topnav">
+      <button class="iconbtn" data-action="back-app"><svg class="gi"><use href="#i-back"></use></svg></button>
+      <div><div style="font-weight:700;font-size:.95rem"><span class="ldot be" style="margin-right:.4rem"></span>Backend Lead</div><div class="muted" style="font-size:.74rem">auth refactor · controller run</div></div>
+      <span class="pill running" style="margin-left:auto"><span class="d"></span>running</span>
+    </div>
+    <div class="ctx">ctx 124k / 200k <span class="bar warn"><span style="width:62%"></span></span> 62% · warn</div>
+    <div class="appbody" style="padding-top:.2rem">
+      <div class="event"><div class="cmdline"><svg class="gi"><use href="#i-term"></use></svg> $ pnpm -r test</div><div class="muted" style="font-size:.74rem;margin-top:.2rem">› 142 passed · 0 failed</div></div>
+      <div class="event"><div class="cmdline"><svg class="gi"><use href="#i-edit"></use></svg> Edit <span class="mono">core/src/auth.ts</span></div>
+        <div class="diff"><div class="del">- resolveToken(req.headers)</div><div class="add">+ resolveToken(req.headers, { perDevice: true })</div></div></div>
+      <div class="event"><div class="delegate"><svg class="gi" style="color:var(--accent-soft)"><use href="#i-idea"></use></svg> delegate → <b>spec-review</b><span class="pill done" style="margin-left:auto"><span class="d"></span>done</span></div></div>
+      <div class="event"><div class="delegate"><svg class="gi" style="color:var(--accent-soft)"><use href="#i-idea"></use></svg> delegate → <b>quality-review</b><span class="pill running" style="margin-left:auto"><span class="d"></span>running</span></div></div>
+      <div class="event" style="border:none"><div class="muted" style="font-size:.78rem"><b style="color:var(--accent-hover)">Backend Lead asks:</b> Use an additive migration for <span class="mono">device_tokens</span>, or a new table? I recommend additive to preserve the single-token path.</div></div>
+    </div>
+    <div class="answerbox">
+      <div class="field"><svg class="gi" style="color:var(--accent-soft)"><use href="#i-bolt"></use></svg><input placeholder="Answer the run…" /><button class="btn primary sm" data-action="toast" data-msg="Answer sent — run continuing" data-variant="success">Send</button></div>
+      <div class="meta-actions"><button class="btn ghost sm" data-action="toast" data-msg="/compact sent" data-variant="info">Compact context</button><button class="btn ghost sm" data-action="toast" data-msg="Session ended" data-variant="info">End session</button></div>
+    </div>
+  </section>
+
+  <!-- push banner -->
+  <div class="pushbanner glass" id="pushbanner" data-action="push-open">
+    <div class="pi"><svg class="gi" style="stroke-width:2"><use href="#i-bolt"></use></svg></div>
+    <div class="body">
+      <div class="ttl">K <span class="ago">now</span></div>
+      <div class="msg" id="pushMsg">Security Lead needs T3 authority to proceed with the API surface audit.</div>
+      <div class="actions">
+        <button data-action="push-open">Review</button>
+        <button data-action="push-dismiss">Later</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- bottom sheet -->
+  <div class="sheet-scrim" id="sheetScrim" data-action="close-sheet"></div>
+  <div class="sheet glass-tint-warm" id="sheet"></div>
+
+  <!-- toasts -->
+  <div class="toasts" id="toasts"></div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  const $ = (s, r) => (r||document).querySelector(s);
+  const $$ = (s, r) => Array.prototype.slice.call((r||document).querySelectorAll(s));
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ── faux QR (decorative, deterministic) ──
+  (function renderQR(){
+    const n = 25, cell = 6, pad = 0, size = n*cell;
+    let seed = 1337;
+    const rnd = () => (seed = (seed*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    let rects = '';
+    const finder = (ox, oy) => {
+      rects += `<rect x="${ox*cell}" y="${oy*cell}" width="${7*cell}" height="${7*cell}" rx="3" fill="#1a0f2e"/>`;
+      rects += `<rect x="${(ox+1)*cell}" y="${(oy+1)*cell}" width="${5*cell}" height="${5*cell}" rx="2" fill="#fff"/>`;
+      rects += `<rect x="${(ox+2)*cell}" y="${(oy+2)*cell}" width="${3*cell}" height="${3*cell}" rx="1.5" fill="#1a0f2e"/>`;
+    };
+    const inFinder = (x,y) => (x<8&&y<8) || (x>n-9&&y<8) || (x<8&&y>n-9);
+    for (let y=0;y<n;y++) for (let x=0;x<n;x++){
+      if (inFinder(x,y)) continue;
+      if (rnd() > 0.55) rects += `<rect x="${x*cell}" y="${y*cell}" width="${cell}" height="${cell}" fill="#1a0f2e"/>`;
+    }
+    finder(0,0); finder(n-7,0); finder(0,n-7);
+    $('#qr').innerHTML = `<svg width="170" height="170" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges" aria-label="pairing QR code">${rects}</svg>`;
+  })();
+
+  // ── screen / view switching ──
+  function showScreen(name){ $$('[data-screen]').forEach(el => el.classList.toggle('on', el.getAttribute('data-screen')===name)); }
+  function showView(name){
+    $$('.view').forEach(el => el.classList.toggle('on', el.getAttribute('data-view')===name));
+    $$('.tabbar button').forEach(b => b.classList.toggle('active', b.getAttribute('data-view')===name));
+    const body = $('#appbody'); if (body) body.scrollTop = 0;
+  }
+  function showStep(name){ $$('.pairstep').forEach(el => el.classList.toggle('on', el.getAttribute('data-step')===name)); }
+
+  // ── toasts (with 5s undo) ──
+  function toast(msg, variant, opts){
+    opts = opts || {};
+    const box = $('#toasts');
+    const t = document.createElement('div');
+    t.className = 'toast glass ' + (variant||'info');
+    const icon = variant==='success' ? 'i-check' : variant==='error' ? 'i-alert' : 'i-bolt';
+    t.innerHTML = `<svg class="gi"><use href="#${icon}"></use></svg><span class="msg">${msg}</span>`;
+    if (opts.undo){ const b=document.createElement('button'); b.textContent='Undo'; b.onclick=()=>{ remove(); toast('Reverted','info'); }; t.appendChild(b); }
+    else if (opts.link){ const b=document.createElement('button'); b.textContent=opts.link; b.onclick=opts.onLink||(()=>{}); t.appendChild(b); }
+    box.appendChild(t);
+    const remove = () => { t.classList.add('out'); setTimeout(()=>t.remove(), 320); };
+    setTimeout(remove, opts.undo ? 5000 : 3200);
+  }
+
+  // ── bottom sheet ──
+  function openSheet(html){ $('#sheet').innerHTML = '<div class="grip"></div>' + html; $('#sheet').classList.add('show'); $('#sheetScrim').classList.add('show'); }
+  function closeSheet(){ $('#sheet').classList.remove('show'); $('#sheetScrim').classList.remove('show'); }
+
+  // ── push banner ──
+  let pushTimer = null;
+  function simPush(){
+    const b = $('#pushbanner'); b.classList.add('show');
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(()=>b.classList.remove('show'), 6000);
+  }
+  function dismissPush(){ $('#pushbanner').classList.remove('show'); }
+
+  // ── connection state ──
+  const connStates = ['live','connecting','offline'];
+  const connLabel = { live:'Connected · Tailscale (encrypted)', connecting:'Reconnecting…', offline:"Can't reach K" };
+  let connIdx = 0;
+  function cycleConn(){
+    connIdx = (connIdx+1) % connStates.length;
+    const s = connStates[connIdx];
+    $('#connWord').textContent = s;
+    const trust = $('#trust'); if (trust){ trust.className = 'trust ' + (s==='live'?'':s==='connecting'?'warn':'off'); $('#trustText').textContent = connLabel[s]; }
+    toast(s==='live'?'Live event stream connected':s==='connecting'?'Reconnecting to K…':'Offline — showing last-known state', s==='live'?'success':s==='connecting'?'info':'error');
+  }
+
+  // ── approvals data ──
+  const approvals = [
+    { id:'a1', cls:'k-hitl', kind:'needs answer', icon:'i-bolt', title:'Backend Lead asks a question', desc:'Additive migration for device_tokens, or a new table?', action:'answer' },
+    { id:'a2', cls:'k-pr', kind:'PR ready', icon:'i-pr', title:'PR #42 · auth refactor', desc:'+120 −44 · CI green · 1 review', action:'pr' },
+    { id:'a3', cls:'k-esc', kind:'escalation', icon:'i-alert', title:'Security: API surface audit', desc:'T3 authority needed to modify auth middleware', action:'escalate' },
+    { id:'a4', cls:'k-lesson', kind:'pending lesson', icon:'i-idea', title:'Approve memory lesson', desc:'“Always import the react-force-graph -3d subpackage.”', action:'lesson' }
+  ];
+  function renderApprovals(){
+    const wrap = $('#approvals'); wrap.innerHTML = '';
+    approvals.forEach(a => {
+      const el = document.createElement('div');
+      el.className = 'swipe'; el.dataset.id = a.id;
+      el.innerHTML =
+        `<div class="swipe-actions"><button class="no" data-act="reject"><svg class="gi"><use href="#i-x"></use></svg> Reject</button><button class="ok" data-act="approve"><svg class="gi"><use href="#i-check"></use></svg> Approve</button></div>`+
+        `<div class="swipe-content">`+
+          `<div class="top"><span class="kind ${a.cls}">${a.kind}</span></div>`+
+          `<div class="ttl">${a.title}</div><div class="desc">${a.desc}</div>`+
+          `<div class="mini-actions">`+
+            `<button class="btn sky sm" data-open="${a.action}">${a.action==='answer'?'Open run':a.action==='pr'?'View PR':a.action==='escalate'?'Review':'Details'}</button>`+
+            `<button class="btn ghost sm" data-resolve="reject">Reject</button>`+
+            `<button class="btn primary sm" data-resolve="approve">${a.action==='escalate'?'Grant':'Approve'}</button>`+
+          `</div>`+
+        `</div>`;
+      wrap.appendChild(el);
+      wireSwipe(el, a);
+    });
+    $('#apvBadge').textContent = approvals.length;
+    $('#apvBadge').style.display = approvals.length ? '' : 'none';
+    $('#approvalsEmpty').style.display = approvals.length ? 'none' : 'block';
+  }
+  function resolveApproval(id, kind){
+    const i = approvals.findIndex(a=>a.id===id); if (i<0) return;
+    const a = approvals[i];
+    if (a.action==='escalate' && kind==='approve'){ confirmEscalation(a); return; }
+    approvals.splice(i,1); renderApprovals();
+    toast(kind==='approve'?'Approved · '+a.title:'Rejected · '+a.title, kind==='approve'?'success':'info', { link:'View', onLink:()=>{} });
+  }
+  function confirmEscalation(a){
+    openSheet(
+      `<h3><svg class="gi" style="color:var(--red)"><use href="#i-alert"></use></svg> Confirm escalation</h3>`+
+      `<p class="muted" style="font-size:.82rem;margin:.2rem 0 0">This is a T3-authority action and needs explicit confirmation.</p>`+
+      `<div class="fields">`+
+        `<div class="frow"><span class="lbl">Target</span><span>Security Lead</span></div>`+
+        `<div class="frow"><span class="lbl">Action</span><span>Grant T3 — modify auth middleware</span></div>`+
+        `<div class="frow"><span class="lbl">Scope</span><span>project: k-core</span></div>`+
+        `<div class="frow"><span class="lbl">Model</span><span class="mono">claude-opus-4-8</span></div>`+
+      `</div>`+
+      `<div class="actions"><button class="btn ghost" data-action="close-sheet">Cancel</button><button class="btn primary" data-action="biom-confirm" data-id="${a.id}"><svg class="gi"><use href="#i-finger"></use></svg> Face ID &amp; grant</button></div>`
+    );
+  }
+  function biomConfirm(id){
+    closeSheet();
+    setTimeout(()=>{
+      const i = approvals.findIndex(a=>a.id===id);
+      if (i>=0){ const a=approvals[i]; approvals.splice(i,1); renderApprovals(); toast('Granted T3 · '+a.title, 'success', { link:'View run', onLink:()=>openRun() }); }
+    }, reduce?0:260);
+  }
+
+  // ── swipe behaviour ──
+  function wireSwipe(el, a){
+    const content = $('.swipe-content', el);
+    let startX=0, dx=0, dragging=false, open=false;
+    const OPEN = 140;
+    const set = (x, anim) => { content.style.transition = anim?'':'none'; content.style.transform = `translateX(${x}px)`; };
+    content.addEventListener('pointerdown', e => { dragging=true; startX=e.clientX; content.setPointerCapture(e.pointerId); content.style.transition='none'; });
+    content.addEventListener('pointermove', e => { if(!dragging) return; dx = e.clientX-startX + (open?OPEN:0); dx=Math.max(-OPEN, Math.min(OPEN, dx)); set(dx,false); });
+    content.addEventListener('pointerup', e => {
+      if(!dragging) return; dragging=false; content.style.transition='';
+      if (dx > 70){ resolveApproval(a.id,'approve'); }
+      else if (dx < -70){ resolveApproval(a.id,'reject'); }
+      else { open=false; set(0,true); }
+    });
+    content.addEventListener('pointercancel', () => { dragging=false; set(0,true); });
+    // button paths inside the card
+    $$('[data-resolve]', el).forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); resolveApproval(a.id, b.getAttribute('data-resolve')); }));
+    $$('[data-open]', el).forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); openApprovalDetail(a); }));
+    $$('.swipe-actions [data-act]', el).forEach(b => b.addEventListener('click', () => resolveApproval(a.id, b.getAttribute('data-act'))));
+  }
+  function openApprovalDetail(a){
+    if (a.action==='escalate'){ confirmEscalation(a); return; }
+    if (a.action==='answer'){ openRun(); return; }
+    openSheet(
+      `<h3><svg class="gi"><use href="#${a.icon}"></use></svg> ${a.title}</h3>`+
+      `<p class="muted" style="font-size:.84rem;margin:.3rem 0 .2rem">${a.desc}</p>`+
+      `<div class="actions"><button class="btn ghost" data-resolve-sheet="reject" data-id="${a.id}">Reject</button><button class="btn primary" data-resolve-sheet="approve" data-id="${a.id}">Approve</button></div>`
+    );
+  }
+
+  // ── run console ──
+  function openRun(){ showScreen('run'); }
+
+  // ── pull to refresh ──
+  function pullRefresh(){
+    const p = $('#ptr'); p.classList.add('spinning'); p.lastChild.textContent = ' refreshing…';
+    setTimeout(()=>{ p.classList.remove('spinning'); p.lastChild.textContent = ' pull to refresh'; toast('Activity up to date','success'); }, reduce?0:900);
+  }
+
+  // ── pairing flow ──
+  function pairScan(){ showStep('testing'); }
+
+  // ── global click handler ──
+  document.addEventListener('click', e => {
+    // sheet resolve buttons carry data-resolve-sheet (no data-action) — handle first
+    const rs = e.target.closest('[data-resolve-sheet]');
+    if (rs){ closeSheet(); resolveApproval(rs.getAttribute('data-id'), rs.getAttribute('data-resolve-sheet')); return; }
+    const t = e.target.closest('[data-action]'); if (!t) return;
+    const act = t.getAttribute('data-action');
+    switch(act){
+      case 'nav': showView(t.getAttribute('data-view')); break;
+      case 'goto-activity': showView('activity'); break;
+      case 'goto-approvals': showView('approvals'); break;
+      case 'open-run': openRun(); break;
+      case 'back-app': showScreen('app'); break;
+      case 'replay-pair': showScreen('pair'); showStep('scan'); break;
+      case 'pair-manual': showStep('manual'); break;
+      case 'pair-back-scan': showStep('scan'); break;
+      case 'pair-scan': pairScan(); break;
+      case 'pair-biom': showStep('biom'); break;
+      case 'pair-finish': showScreen('app'); showView('k-home'); toast('Paired — welcome back, Cameron','success'); break;
+      case 'send': { const q=$('#homeQ'); const msg=(q&&q.value.trim())||'refactor the auth module'; if(q)q.value=''; toast('Sent → Chief → Backend Lead', 'info', { undo:true }); setTimeout(()=>!reduce&&toast('Backend Lead picked it up','success',{link:'View run',onLink:openRun}), 2600); break; }
+      case 'toggle': t.classList.toggle('on'); break;
+      case 'toast': toast(t.getAttribute('data-msg')||'Done', t.getAttribute('data-variant')||'info'); break;
+      case 'pull-refresh': pullRefresh(); break;
+      case 'sim-push': simPush(); break;
+      case 'push-open': dismissPush(); showScreen('app'); showView('approvals'); break;
+      case 'push-dismiss': e.stopPropagation(); dismissPush(); break;
+      case 'conn-cycle': cycleConn(); break;
+      case 'close-sheet': closeSheet(); break;
+      case 'biom-confirm': biomConfirm(t.getAttribute('data-id')); break;
+      case 'confirm-revoke': openSheet(`<h3><svg class="gi" style="color:var(--red)"><use href="#i-trash"></use></svg> Revoke device?</h3><p class="muted" style="font-size:.84rem">“Cameron's iPad” will be signed out immediately and its token invalidated.</p><div class="actions"><button class="btn ghost" data-action="close-sheet">Cancel</button><button class="btn danger" data-action="close-sheet" data-after="revoke">Revoke</button></div>`); break;
+    }
+    if (t.getAttribute('data-after')==='revoke'){ toast("Cameron's iPad revoked", 'info'); }
+  });
+
+  // keyboard: Enter sends from composer
+  const hq = $('#homeQ');
+  if (hq) hq.addEventListener('keydown', e => { if (e.key==='Enter'){ e.preventDefault(); document.querySelector('[data-action="send"]').click(); } });
+
+  // ── init ──
+  renderApprovals();
+  showScreen('app');   // open straight into the app; use the DEMO · Pairing button to replay onboarding
+  showView('k-home');
+})();
+</script>
+</body>
+</html>

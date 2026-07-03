@@ -11,6 +11,8 @@
     "dev": "concurrently -n core,web -c blue,magenta \"pnpm --filter @k/core dev\" \"pnpm --filter @k/web dev\"",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
+    "prepare": "node scripts/setup-hooks.mjs",
+    "bible": "pnpm --filter @k/core bible",
     "test:regressions": "pnpm -r --if-present test:regressions",
     "e2e:install": "playwright install chromium",
     "e2e": "playwright test --config e2e/playwright.config.ts",

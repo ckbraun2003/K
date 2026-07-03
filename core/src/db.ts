@@ -67,7 +67,12 @@ db.exec(`
     tags        TEXT NOT NULL DEFAULT '[]',
     linked_run_id TEXT,
     updated_at  INTEGER NOT NULL,
-    md          TEXT NOT NULL
+    md          TEXT NOT NULL,
+    -- Optional absolute path to a pre-composed on-disk .html to serve verbatim
+    -- (e.g. a REGISTERED project's own <localPath>/artifacts/project-bible.html).
+    -- When NULL, getArtifact falls back to ARTIFACTS_DIR/<slug>.html then md-render.
+    -- Keeps a project's artifacts in the PROJECT dir, never copied into K's.
+    html_path   TEXT
   );
 
   CREATE TABLE IF NOT EXISTS projects (
@@ -524,7 +529,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -600,6 +605,15 @@ function migrateSlow(d: Database.Database): void {
     // cache_creation + cache_read) powering the context-pressure indicator, so a
     // reloaded historical run shows the pressure it actually reached.
     addColumn(d, 'events', 'context_tokens', 'INTEGER')
+  }
+  // artifacts.html_path (SCHEMA_VERSION 3): nullable absolute path to a
+  // pre-composed on-disk .html served verbatim — used to serve a REGISTERED
+  // project's bible from its OWN <localPath>/artifacts/project-bible.html instead
+  // of copying it into K's ARTIFACTS_DIR. Appended via guarded ALTER so existing
+  // DBs gain it; fresh installs get it from the DDL above. hasTable guard keeps
+  // migrate() safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'artifacts')) {
+    addColumn(d, 'artifacts', 'html_path', 'TEXT')
   }
   // project_tasks issue columns — LEGACY-UPGRADE path ONLY (P5.1d2b). The table is
   // no longer created anywhere (dropped by the one-shot mig_project_tasks_drop
@@ -1041,8 +1055,8 @@ export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventR
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
 const upsertArtifact = db.prepare(`
-  INSERT INTO artifacts (slug, title, phase, status, tags, linked_run_id, updated_at, md)
-  VALUES (@slug, @title, @phase, @status, @tags, @linkedRunId, @updatedAt, @md)
+  INSERT INTO artifacts (slug, title, phase, status, tags, linked_run_id, updated_at, md, html_path)
+  VALUES (@slug, @title, @phase, @status, @tags, @linkedRunId, @updatedAt, @md, @htmlPath)
   ON CONFLICT(slug) DO UPDATE SET
     title = excluded.title,
     phase = excluded.phase,
@@ -1050,7 +1064,8 @@ const upsertArtifact = db.prepare(`
     tags = excluded.tags,
     linked_run_id = excluded.linked_run_id,
     updated_at = excluded.updated_at,
-    md = excluded.md
+    md = excluded.md,
+    html_path = excluded.html_path
 `)
 
 const getArtifact = db.prepare(`SELECT * FROM artifacts WHERE slug = ?`)

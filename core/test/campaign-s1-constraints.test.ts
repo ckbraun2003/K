@@ -120,7 +120,7 @@ describe('S1 — ON CONFLICT upserts replace cleanly by primary key', () => {
     slugs.push(slug)
     const base = {
       slug, title: 't1', phase: null, status: null, tags: '[]',
-      linkedRunId: null, updatedAt: 1, md: 'one',
+      linkedRunId: null, updatedAt: 1, md: 'one', htmlPath: null,
     }
     artifactsDb.upsertArtifact.run(base)
     artifactsDb.upsertArtifact.run({ ...base, title: 't2', md: 'two', updatedAt: 2 })

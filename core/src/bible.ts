@@ -9,9 +9,11 @@
  * at compile time:  <!-- @live:stats -->  <!-- @live:recent-runs -->
  *                   <!-- @live:roadmap-progress -->  <!-- @live:health -->
  *
- * Agents edit sections, never the compiled HTML. A project's bible sources
- * (manifest.json + sections/) are git-tracked; only the compiled artifacts/*.html
- * is gitignored.
+ * Agents edit sections, never the compiled HTML. BOTH the bible sources
+ * (manifest.json + sections/) AND the composed artifacts/project-bible.html are
+ * git-tracked deliverables. The composition is recompiled on request
+ * (POST /api/bible/compile, `pnpm bible`) and on merge (the .githooks/post-merge
+ * hook) — NOT on every boot — so the tracked HTML stays stable between refreshes.
  */
 
 import fs from 'fs'
@@ -343,11 +345,17 @@ export interface CompileBibleOptions {
   /** Artifact slug to upsert the compiled bible under. Default 'project-bible' (the
    *  harness's OWN bible). A registered project uses `project-<id>-bible`. */
   slug?: string
-  /** An OPTIONAL second on-disk copy of the composed HTML — e.g. a registered
-   *  project's own `<localPath>/artifacts/project-bible.html` composition, so the
-   *  bible is viewable in-repo (git-ignored) as well as served by the artifacts API.
-   *  Skipped when it resolves to the same path as `outPath`. */
-  alsoWriteTo?: string
+  /** Absolute path recorded as the artifact's `html_path`, so getArtifact serves
+   *  THIS exact composed file (e.g. a registered project's own
+   *  `<localPath>/artifacts/project-bible.html`) rather than `ARTIFACTS_DIR/<slug>.html`.
+   *  Keeps a project's artifacts in the PROJECT dir. Default null (served from
+   *  ARTIFACTS_DIR — the harness's own bible). */
+  htmlPath?: string | null
+  /** When false, skip writing the composed HTML to disk — only (re)register the
+   *  artifact row from sources. Used at boot to seed a missing row WITHOUT
+   *  regenerating the tracked HTML (which embeds live data + a compile timestamp
+   *  and would churn the working tree on every boot). Default true. */
+  writeHtml?: boolean
   /** Artifact tags. Default ['bible','goal','roadmap']. */
   tags?: string[]
 }
@@ -390,16 +398,15 @@ export async function compileBible(
 
   const html = bibleTemplate(manifest, sections)
   const htmlPath = outPath
-  fs.writeFileSync(htmlPath, html, 'utf8')
-
-  // Optional second copy — a registered project's own in-repo
-  // artifacts/project-bible.html composition (skip if it's the same path).
-  if (opts.alsoWriteTo && path.resolve(opts.alsoWriteTo) !== path.resolve(htmlPath)) {
-    fs.mkdirSync(path.dirname(opts.alsoWriteTo), { recursive: true })
-    fs.writeFileSync(opts.alsoWriteTo, html, 'utf8')
+  const writeHtml = opts.writeHtml ?? true
+  if (writeHtml) {
+    fs.mkdirSync(path.dirname(htmlPath), { recursive: true })
+    fs.writeFileSync(htmlPath, html, 'utf8')
   }
 
-  // Keep the artifacts API/DocViewer working: store concatenated md under the same slug.
+  // Keep the artifacts API/DocViewer working: store concatenated md under the same
+  // slug. html_path (when set) points getArtifact at the composed file above so a
+  // project's bible is served from its OWN dir, never copied into ARTIFACTS_DIR.
   const combinedMd = sections.map(s => `# ${s.title}\n\n${s.md}`).join('\n\n---\n\n')
   artifactsDb.upsertArtifact.run({
     slug: opts.slug ?? 'project-bible',
@@ -410,26 +417,40 @@ export async function compileBible(
     linkedRunId: null,
     updatedAt: Date.now(),
     md: combinedMd,
+    htmlPath: opts.htmlPath ?? null,
   })
 
-  console.log(`[bible] compiled ${sections.length} sections → ${htmlPath} ✓`)
+  console.log(`[bible] ${writeHtml ? 'compiled' : 'registered'} ${sections.length} sections → ${htmlPath} ✓`)
   return { htmlPath, sections: sections.map(s => s.slug), compiledAt: Date.now() }
 }
 
 /**
- * Compile a REGISTERED project's bible (from `<localPath>/artifacts/bible/`) into a
- * project-scoped artifact `project-<id>-bible` — served by the artifacts API/DocViewer
- * (on-disk HTML under ARTIFACTS_DIR) and ALSO dropped into the project's own
- * `artifacts/project-bible.html` (git-ignored) so the composition is viewable in-repo.
- * Returns null when the project has no bible manifest yet (never onboarded/authored).
+ * Compile a REGISTERED project's bible (from `<localPath>/artifacts/bible/`) straight
+ * into the project's OWN `<localPath>/artifacts/project-bible.html`. That single
+ * composed file is BOTH the in-repo artifact (git-tracked, the deliverable) AND the
+ * exact HTML served by the artifacts API — getArtifact reads it via the artifact's
+ * `html_path`. Nothing is copied into K's ARTIFACTS_DIR: a project's work stays in
+ * the project dir. Slug is `project-<id>-bible`. Returns null when the project has no
+ * bible manifest yet (never onboarded/authored).
  */
 export async function compileProjectBible(
   project: { id: string; localPath: string },
-  outDir = ARTIFACTS_DIR,
 ): Promise<CompileResult | null> {
   const bibleDir = path.join(project.localPath, 'artifacts', 'bible')
   const slug = projectBibleSlug(project.id)
-  const servedHtmlPath = path.join(outDir, `${slug}.html`)
-  const inRepoHtmlPath = path.join(project.localPath, 'artifacts', 'project-bible.html')
-  return compileBible(bibleDir, servedHtmlPath, { slug, alsoWriteTo: inRepoHtmlPath })
+  const htmlPath = path.join(project.localPath, 'artifacts', 'project-bible.html')
+  return compileBible(bibleDir, htmlPath, { slug, htmlPath })
+}
+
+/**
+ * Boot helper: ensure the harness's OWN `project-bible` artifact row exists so the
+ * Docs surface resolves it, WITHOUT rewriting the git-tracked HTML. The bible is
+ * recompiled only on request (`POST /api/bible/compile`) and on merge/push (the
+ * `.githooks/post-merge` hook / `pnpm bible`), never per boot — its HTML embeds
+ * live data + a compile timestamp, so a boot rewrite would churn the working tree.
+ * No-op once the row exists (every boot after the first / a persisted DB).
+ */
+export async function ensureHarnessBibleRegistered(): Promise<void> {
+  if (artifactsDb.getArtifact.get('project-bible')) return
+  await compileBible(undefined, undefined, { writeHtml: false })
 }
