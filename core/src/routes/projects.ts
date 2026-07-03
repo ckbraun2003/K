@@ -5,6 +5,7 @@ import path from 'path'
 import { validateRegistration, registerProject, listProjects, getProject, ClientError, type RegistrationBody } from '../projects.js'
 import { getGithubStatus, createPR, syncIssues } from '../github.js'
 import { onboardProject } from '../onboard.js'
+import { compileProjectBible } from '../bible.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { dispatchTaskWorkflow, TaskNotFoundError } from '../workflows.js'
@@ -86,6 +87,25 @@ export async function projectsRoutes(app: FastifyInstance) {
       // fs writes can throw (EACCES/ENOSPC/stale localPath); surface { error } like register
       req.log.error(e)
       return reply.status(500).send({ error: 'onboarding failed' })
+    }
+  })
+
+  // POST /api/projects/:id/bible/compile — compile THIS project's bible (from its
+  // own artifacts/bible/ sources) into the project-scoped artifact `project-<id>-bible`,
+  // and drop the composed HTML into the project's artifacts/project-bible.html. Returns
+  // the CompileResult, or 404 when the project has no bible manifest yet (never
+  // onboarded/authored) so the UI can prompt to onboard first.
+  app.post<{ Params: { id: string } }>('/api/projects/:id/bible/compile', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    try {
+      const result = await compileProjectBible(project)
+      if (!result) return reply.status(404).send({ error: 'no bible manifest — onboard the project first' })
+      return reply.send(result)
+    } catch (e) {
+      // fs writes can throw (EACCES/ENOSPC/stale localPath); surface { error } like onboard.
+      req.log.error(e)
+      return reply.status(500).send({ error: 'bible compile failed' })
     }
   })
 

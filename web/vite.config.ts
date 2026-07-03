@@ -7,6 +7,14 @@ import path from 'path'
 // worker so they never collide on the SQLite-WAL DB or a shared port.
 const CORE_PORT = process.env.CORE_PORT ?? '3001'
 const WEB_PORT = Number(process.env.WEB_PORT ?? 5173)
+// Bind IPv4 loopback by default so http://127.0.0.1:<port> is reachable and the dev
+// server is CONSISTENT with core (which binds 127.0.0.1). Vite's default 'localhost'
+// resolved to IPv6 [::1] only on Windows here, making 127.0.0.1 unreachable (H4).
+// Clients that connect via the NAME `localhost` still work: Node 20's dual-stack
+// autoSelectFamily (and the browser's Happy-Eyeballs) retries 127.0.0.1 when ::1
+// fails — this is what the e2e swarm (which targets `localhost:<WEB_PORT>`) relies on.
+// Overridable via WEB_HOST (e.g. 0.0.0.0 for LAN exposure).
+const WEB_HOST = process.env.WEB_HOST ?? '127.0.0.1'
 
 // The dev convenience harness token — the ONLY value we ever bake into the
 // bundle. If HARNESS_TOKEN is set to a real (non-dev) value during `vite build`
@@ -46,6 +54,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: WEB_HOST,
     port: WEB_PORT,
     proxy: {
       '/api': {

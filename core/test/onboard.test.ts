@@ -191,7 +191,7 @@ function readLines(p: string): string[] {
 }
 
 describe('onboardProject — gitignore', () => {
-  it('ensures .gitignore hides artifacts/ and tasks/, and is idempotent', () => {
+  it('ensures .gitignore ignores compiled artifacts/*.html and tasks/ (but NOT the bible sources), and is idempotent', () => {
     const tmp = makeTmp()
     const p = makeProject(tmp, 'owner/repo')
 
@@ -200,13 +200,15 @@ describe('onboardProject — gitignore', () => {
 
     const gi = path.join(tmp, '.gitignore')
     const lines = readLines(gi)
-    expect(lines).toContain('artifacts/')
+    expect(lines).toContain('artifacts/*.html')
     expect(lines).toContain('tasks/')
+    // the bible SOURCES must stay tracked — a blanket `artifacts/` would ignore them
+    expect(lines).not.toContain('artifacts/')
 
     // second call: gitignore already satisfied — no .gitignore in created, no dup lines
     const second = onboardProject(p)
     expect(second.created).not.toContain('.gitignore')
-    expect(readLines(gi).filter(l => l === 'artifacts/')).toHaveLength(1)
+    expect(readLines(gi).filter(l => l === 'artifacts/*.html')).toHaveLength(1)
     expect(readLines(gi).filter(l => l === 'tasks/')).toHaveLength(1)
   })
 })
@@ -217,20 +219,20 @@ describe('ensureGitignore', () => {
     const out = ensureGitignore(tmp)
     expect(out).toEqual(['.gitignore'])
     const lines = readLines(path.join(tmp, '.gitignore'))
-    expect(lines).toContain('artifacts/')
+    expect(lines).toContain('artifacts/*.html')
     expect(lines).toContain('tasks/')
   })
 
   it('present with one entry: appends only the missing one, no duplicates', () => {
     const tmp = makeTmp()
     const gi = path.join(tmp, '.gitignore')
-    fs.writeFileSync(gi, 'node_modules/\nartifacts/\n', 'utf8')
+    fs.writeFileSync(gi, 'node_modules/\nartifacts/*.html\n', 'utf8')
 
     const out = ensureGitignore(tmp)
     expect(out).toEqual(['.gitignore'])
 
     const lines = readLines(gi)
-    expect(lines.filter(l => l === 'artifacts/')).toHaveLength(1)
+    expect(lines.filter(l => l === 'artifacts/*.html')).toHaveLength(1)
     expect(lines.filter(l => l === 'tasks/')).toHaveLength(1)
     // pre-existing unrelated entry is preserved
     expect(lines).toContain('node_modules/')
@@ -239,22 +241,42 @@ describe('ensureGitignore', () => {
   it('appends a trailing newline before missing entry when file lacks one', () => {
     const tmp = makeTmp()
     const gi = path.join(tmp, '.gitignore')
-    fs.writeFileSync(gi, 'artifacts/', 'utf8') // no trailing newline
+    fs.writeFileSync(gi, 'artifacts/*.html', 'utf8') // no trailing newline
 
     ensureGitignore(tmp)
     const lines = readLines(gi)
-    expect(lines.filter(l => l === 'artifacts/')).toHaveLength(1)
+    expect(lines.filter(l => l === 'artifacts/*.html')).toHaveLength(1)
     expect(lines).toContain('tasks/')
   })
 
   it('present with both entries: no change, returns []', () => {
     const tmp = makeTmp()
     const gi = path.join(tmp, '.gitignore')
-    const original = 'artifacts/\ntasks/\n'
+    const original = 'artifacts/*.html\ntasks/\n'
     fs.writeFileSync(gi, original, 'utf8')
 
     const out = ensureGitignore(tmp)
     expect(out).toEqual([])
     expect(fs.readFileSync(gi, 'utf8')).toBe(original)
+  })
+
+  it('migrates a legacy blanket `artifacts/` (old K policy) to `artifacts/*.html`, self-healing', () => {
+    const tmp = makeTmp()
+    const gi = path.join(tmp, '.gitignore')
+    // A project onboarded by an OLDER K: the blanket `artifacts/` ignores the bible sources.
+    fs.writeFileSync(gi, 'node_modules/\nartifacts/\ntasks/\n', 'utf8')
+
+    const out = ensureGitignore(tmp)
+    expect(out).toEqual(['.gitignore'])
+
+    const lines = readLines(gi)
+    // the blanket line is gone; the finer-grained one replaces it; tasks/ kept; unrelated kept
+    expect(lines).not.toContain('artifacts/')
+    expect(lines.filter(l => l === 'artifacts/*.html')).toHaveLength(1)
+    expect(lines.filter(l => l === 'tasks/')).toHaveLength(1)
+    expect(lines).toContain('node_modules/')
+
+    // idempotent after migration: a second call is a no-op
+    expect(ensureGitignore(tmp)).toEqual([])
   })
 })

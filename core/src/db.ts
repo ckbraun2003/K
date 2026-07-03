@@ -7,7 +7,9 @@ import type { RunStatus, VerificationReport, ProjectTask, AgentProfile, NamedWor
 import { resolveAuthority } from './authority.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
+// Exported so boot code (index.ts single-instance lock) resolves the SAME data dir
+// as the DB + auth token, from one source of truth.
+export const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
 
 fs.mkdirSync(DATA_DIR, { recursive: true })
 

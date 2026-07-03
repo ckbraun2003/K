@@ -2,7 +2,8 @@
  * Project onboarding — bible §3 invariant enforcement.
  * Checks whether a registered project has a GitHub remote, artifacts/bible/, and
  * .github/workflows/. Scaffolds whatever is missing and reports the result.
- * Also ensures the project's .gitignore hides the K-system artifacts/ + tasks/ dirs.
+ * Also ensures the project's .gitignore ignores the COMPILED artifacts (artifacts/*.html)
+ * + the K-system tasks/ dir — while keeping the bible SOURCES (artifacts/bible/**) tracked.
  *
  * No DB calls here: callers fetch the project and pass it in.
  *
@@ -38,14 +39,29 @@ function exists(localPath: string, rel: string): boolean {
 // registration path can set one.
 const BIBLE_SENTINEL = 'artifacts/bible/manifest.json'
 
-// K-system dirs that every project hides + never commits (same name everywhere).
-const GITIGNORE_ENTRIES = ['artifacts/', 'tasks/']
+// K-system gitignore entries every managed project gets — mirroring K's OWN
+// .gitignore policy exactly:
+//   - `artifacts/*.html`  → the COMPILED bible/ui-demo output is generated +
+//     overwritten on boot, so it stays out of the repo…
+//   - …but the bible SOURCES (`artifacts/bible/**` — manifest.json + sections/)
+//     are the living spec and MUST stay git-TRACKED (a blanket `artifacts/`
+//     would ignore them, making an authored project bible uncommittable).
+//   - `tasks/`            → per-run K working dir (todo.md/lessons.md), never committed.
+const GITIGNORE_ENTRIES = ['artifacts/*.html', 'tasks/']
+
+// K-managed entries SUPERSEDED by GITIGNORE_ENTRIES. A project onboarded by an
+// OLDER K got a blanket `artifacts/` line, which ignores the now-tracked bible
+// sources — and because ensure only *appends* missing entries, re-onboarding would
+// leave that stale line in place and silently defeat the fix. We prune it on ensure
+// (exact trimmed match only) so an existing project self-heals to the finer policy.
+const SUPERSEDED_ENTRIES = new Set(['artifacts/'])
 
 /**
- * Ensure <localPath>/.gitignore contains both `artifacts/` and `tasks/`.
- * Idempotent: creates the file with both lines if absent; otherwise appends only
- * the missing entries (a line equals an entry when trimmed). Never duplicates.
- * Returns ['.gitignore'] if it created or modified the file, else [].
+ * Ensure <localPath>/.gitignore contains `artifacts/*.html` and `tasks/`, and that
+ * any SUPERSEDED legacy K entry (blanket `artifacts/`) is pruned. Idempotent:
+ * creates the file with both lines if absent; otherwise appends only the missing
+ * entries (a line equals an entry when trimmed) and removes superseded lines. Never
+ * duplicates. Returns ['.gitignore'] if it created or modified the file, else [].
  * Path-guarded: the write target stays strictly under localPath.
  */
 export function ensureGitignore(localPath: string): string[] {
@@ -62,12 +78,25 @@ export function ensureGitignore(localPath: string): string[] {
   }
 
   const existing = fs.readFileSync(abs, 'utf8')
-  const present = new Set(existing.split('\n').map(l => l.trim()))
-  const missing = GITIGNORE_ENTRIES.filter(e => !present.has(e))
-  if (missing.length === 0) return []
+  const lines = existing.split('\n')
+  // Prune superseded legacy entries (exact trimmed match).
+  const kept = lines.filter(l => !SUPERSEDED_ENTRIES.has(l.trim()))
+  const pruned = kept.length !== lines.length
 
-  const prefix = existing.length === 0 || existing.endsWith('\n') ? '' : '\n'
-  fs.writeFileSync(abs, existing + prefix + missing.join('\n') + '\n', 'utf8')
+  const present = new Set(kept.map(l => l.trim()))
+  const missing = GITIGNORE_ENTRIES.filter(e => !present.has(e))
+
+  // Nothing to prune and nothing missing → already satisfied.
+  if (!pruned && missing.length === 0) return []
+
+  let body = kept.join('\n')
+  if (missing.length > 0) {
+    const prefix = body.length === 0 || body.endsWith('\n') ? '' : '\n'
+    body = body + prefix + missing.join('\n') + '\n'
+  } else if (body.length > 0 && !body.endsWith('\n')) {
+    body = body + '\n'
+  }
+  fs.writeFileSync(abs, body, 'utf8')
   return ['.gitignore']
 }
 
@@ -88,7 +117,8 @@ export function onboardProject(project: Project): OnboardResult {
   if (!hasWorkflowFile(root)) {
     created.push(...scaffoldCi(root))
   }
-  // Hide the K-system artifacts/ + tasks/ dirs in this project's .gitignore.
+  // Ignore compiled artifacts (artifacts/*.html) + the tasks/ dir in this project's
+  // .gitignore — while keeping the bible sources (artifacts/bible/**) tracked.
   created.push(...ensureGitignore(root))
 
   return {

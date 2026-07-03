@@ -40,6 +40,8 @@ import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
 import { getProject } from './projects.js'
 import { reconcileOnBoot } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
+import { acquireInstanceLock } from './instance-lock.js'
+import { DATA_DIR } from './db.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
 import { startGithubPoller, stopGithubPoller } from './github.js'
 import {
@@ -74,6 +76,8 @@ let stopGraphAutoReindex: (() => void) | undefined
 let stopChiefWake: (() => void) | undefined
 // Same, for the MAIN-process lead-dispatch relay (drains the child-recorded intent queue).
 let stopLeadDispatchRelay: (() => void) | undefined
+// Releases the single-instance lock file (set in start(); undefined in tests).
+let releaseInstanceLock: (() => void) | undefined
 
 /**
  * Build the Fastify app: CORS, WS plugin, auth hook, health, REST routes, and
@@ -249,6 +253,7 @@ export async function buildApp() {
     stopGraphAutoReindex?.()
     stopChiefWake?.()
     stopLeadDispatchRelay?.()
+    releaseInstanceLock?.()
   })
   return app
 }
@@ -274,6 +279,27 @@ async function start() {
     console.error(`\n✖ ${unsafeTerminal}\n`)
     process.exit(1)
   }
+
+  // Single-instance lock (H1/H3): refuse a SECOND core on the same DATA_DIR before
+  // any side effects. Two cores share one k.db, and reconcileOnBoot() below would
+  // then cross-kill the live process's in-flight runs + steal its port. Scoped per
+  // DATA_DIR, so an isolated stack (own K_DATA_DIR) is unaffected.
+  const lock = acquireInstanceLock(DATA_DIR, PORT)
+  if (!lock.ok) {
+    const h = lock.holder
+    console.error(
+      `\n✖ Another K core is already running on this data dir` +
+        (h ? ` (pid ${h.pid}, port ${h.port})` : '') +
+        `.\n  Lock: ${lock.file}\n  Stop the other process, or use a separate K_DATA_DIR + PORT for a second stack.\n`,
+    )
+    process.exit(1)
+  }
+  releaseInstanceLock = lock.release
+  // Release on process exit too (Fastify onClose covers a graceful close; these
+  // cover Ctrl-C / kill / node --watch restart). 'exit' must be synchronous.
+  process.once('exit', () => releaseInstanceLock?.())
+  process.once('SIGINT', () => { releaseInstanceLock?.(); process.exit(0) })
+  process.once('SIGTERM', () => { releaseInstanceLock?.(); process.exit(0) })
 
   // Crash recovery: mark runs left `running`/`queued` by a prior crash as
   // interrupted and prune orphaned worktrees, before serving traffic.

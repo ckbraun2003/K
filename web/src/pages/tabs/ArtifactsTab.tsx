@@ -6,10 +6,11 @@ import { cn } from '../../lib/cn'
 import DocViewer from '../../components/DocViewer'
 
 /**
- * Project Artifacts tab (formerly "Bible"). Presents this project's artifacts as a
- * gallery — the compiled bible, the project's UI demo, and the harness ui-demo — each
- * rendered through the shared DocViewer (md/html toggle, sandboxed iframe). Keeps the
- * per-artifact markdown editor and the bible recompile action.
+ * Project Artifacts tab (formerly "Bible"). Presents THIS project's artifacts as a
+ * gallery — the project's OWN compiled bible (`project-<id>-bible`), its UI demo, plus
+ * the harness `ui-demo` as a platform reference — each rendered through the shared
+ * DocViewer (md/html toggle, sandboxed iframe). Keeps the per-artifact markdown editor
+ * and a bible recompile action scoped to this project (never the harness's own bible).
  */
 export default function ArtifactsTab({ projectId }: { projectId?: string }) {
   const qc = useQueryClient()
@@ -19,23 +20,30 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
     queryFn: api.artifacts.list,
   })
 
-  // This project's artifacts: anything namespaced to it (project-<id>-*), plus the
-  // shared harness artifacts (the compiled bible + the ui-demo) which document the
-  // platform every project runs on. Honest about scope without a backend change.
+  // The bible slug for THIS surface: a registered project shows its OWN
+  // `project-<id>-bible` (compiled from its artifacts/bible/ sources), never the
+  // harness's `project-bible`. With no projectId (harness context) it falls back to
+  // the harness bible.
+  const bibleSlug = projectId ? `project-${projectId}-bible` : 'project-bible'
+
+  // This project's artifacts: its own bible + anything else namespaced to it
+  // (project-<id>-*), plus the harness `ui-demo` as a platform reference (clearly
+  // titled "K — Agentic Org · UI Demo"). The harness `project-bible` is deliberately
+  // EXCLUDED from a project surface so K's bible never masquerades as the project's.
   const mine = useMemo(() => {
     const isMine = (slug: string) =>
-      slug === 'project-bible' ||
+      slug === bibleSlug ||
       slug === 'ui-demo' ||
       (projectId ? slug.startsWith(`project-${projectId}-`) : false)
     return artifacts.filter(a => isMine(a.slug))
-  }, [artifacts, projectId])
+  }, [artifacts, projectId, bibleSlug])
 
   const [selected, setSelected] = useState<string | null>(null)
-  // Default selection: prefer the bible, else the first available artifact.
+  // Default selection: prefer this surface's bible, else the first available artifact.
   const activeSlug =
     selected && mine.some(a => a.slug === selected)
       ? selected
-      : mine.find(a => a.slug === 'project-bible')?.slug ?? mine[0]?.slug ?? null
+      : mine.find(a => a.slug === bibleSlug)?.slug ?? mine[0]?.slug ?? null
 
   // ── Per-artifact markdown editor (null = untouched; '' = user cleared it) ──
   const [editingSlug, setEditingSlug] = useState<string | null>(null)
@@ -57,11 +65,13 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
     onError: (e: Error) => setEditError(e.message),
   })
 
+  // Recompile scoped to THIS surface: a registered project recompiles its own bible
+  // (project route → `project-<id>-bible`); the harness context recompiles the global one.
   const compile = useMutation({
-    mutationFn: api.artifacts.compileBible,
+    mutationFn: () => (projectId ? api.projects.compileBible(projectId) : api.artifacts.compileBible()),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['artifacts', 'project-bible'] })
-      qc.invalidateQueries({ queryKey: ['artifact', 'project-bible'] })
+      qc.invalidateQueries({ queryKey: ['artifacts', bibleSlug] })
+      qc.invalidateQueries({ queryKey: ['artifact', bibleSlug] })
       qc.invalidateQueries({ queryKey: ['artifacts'] })
     },
   })

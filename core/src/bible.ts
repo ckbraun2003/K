@@ -332,9 +332,30 @@ ${body}
 
 export interface CompileResult { htmlPath: string; sections: string[]; compiledAt: number }
 
+/** Slug of a REGISTERED project's compiled bible artifact — scoped by project id so
+ *  it never collides with the harness's own `project-bible`. SLUG_RE-safe (a project
+ *  id is a UUID: hex + hyphens). */
+export function projectBibleSlug(projectId: string): string {
+  return `project-${projectId}-bible`
+}
+
+export interface CompileBibleOptions {
+  /** Artifact slug to upsert the compiled bible under. Default 'project-bible' (the
+   *  harness's OWN bible). A registered project uses `project-<id>-bible`. */
+  slug?: string
+  /** An OPTIONAL second on-disk copy of the composed HTML — e.g. a registered
+   *  project's own `<localPath>/artifacts/project-bible.html` composition, so the
+   *  bible is viewable in-repo (git-ignored) as well as served by the artifacts API.
+   *  Skipped when it resolves to the same path as `outPath`. */
+  alsoWriteTo?: string
+  /** Artifact tags. Default ['bible','goal','roadmap']. */
+  tags?: string[]
+}
+
 export async function compileBible(
   bibleDir = path.join(ARTIFACTS_DIR, 'bible'),
   outPath = path.join(ARTIFACTS_DIR, 'project-bible.html'),
+  opts: CompileBibleOptions = {},
 ): Promise<CompileResult | null> {
   const manifestPath = path.join(bibleDir, 'manifest.json')
   if (!fs.existsSync(manifestPath)) {
@@ -371,14 +392,21 @@ export async function compileBible(
   const htmlPath = outPath
   fs.writeFileSync(htmlPath, html, 'utf8')
 
+  // Optional second copy — a registered project's own in-repo
+  // artifacts/project-bible.html composition (skip if it's the same path).
+  if (opts.alsoWriteTo && path.resolve(opts.alsoWriteTo) !== path.resolve(htmlPath)) {
+    fs.mkdirSync(path.dirname(opts.alsoWriteTo), { recursive: true })
+    fs.writeFileSync(opts.alsoWriteTo, html, 'utf8')
+  }
+
   // Keep the artifacts API/DocViewer working: store concatenated md under the same slug.
   const combinedMd = sections.map(s => `# ${s.title}\n\n${s.md}`).join('\n\n---\n\n')
   artifactsDb.upsertArtifact.run({
-    slug: 'project-bible',
+    slug: opts.slug ?? 'project-bible',
     title: manifest.title,
     phase: null,
     status: 'active',
-    tags: JSON.stringify(['bible', 'goal', 'roadmap']),
+    tags: JSON.stringify(opts.tags ?? ['bible', 'goal', 'roadmap']),
     linkedRunId: null,
     updatedAt: Date.now(),
     md: combinedMd,
@@ -386,4 +414,22 @@ export async function compileBible(
 
   console.log(`[bible] compiled ${sections.length} sections → ${htmlPath} ✓`)
   return { htmlPath, sections: sections.map(s => s.slug), compiledAt: Date.now() }
+}
+
+/**
+ * Compile a REGISTERED project's bible (from `<localPath>/artifacts/bible/`) into a
+ * project-scoped artifact `project-<id>-bible` — served by the artifacts API/DocViewer
+ * (on-disk HTML under ARTIFACTS_DIR) and ALSO dropped into the project's own
+ * `artifacts/project-bible.html` (git-ignored) so the composition is viewable in-repo.
+ * Returns null when the project has no bible manifest yet (never onboarded/authored).
+ */
+export async function compileProjectBible(
+  project: { id: string; localPath: string },
+  outDir = ARTIFACTS_DIR,
+): Promise<CompileResult | null> {
+  const bibleDir = path.join(project.localPath, 'artifacts', 'bible')
+  const slug = projectBibleSlug(project.id)
+  const servedHtmlPath = path.join(outDir, `${slug}.html`)
+  const inRepoHtmlPath = path.join(project.localPath, 'artifacts', 'project-bible.html')
+  return compileBible(bibleDir, servedHtmlPath, { slug, alsoWriteTo: inRepoHtmlPath })
 }

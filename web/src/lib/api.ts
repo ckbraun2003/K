@@ -151,6 +151,13 @@ export const api = {
     githubFleet: () => req<Record<string, GithubStatus>>('/projects/github'),
     onboard: (id: string) =>
       req<OnboardResult>(`/projects/${id}/onboard`, { method: 'POST' }),
+    // Compile THIS project's bible (from its own artifacts/bible/ sources) into the
+    // project-scoped `project-<id>-bible` artifact — distinct from artifacts.compileBible,
+    // which recompiles the harness's OWN bible.
+    compileBible: (id: string) =>
+      req<{ htmlPath: string; sections: string[]; compiledAt: number }>(`/projects/${id}/bible/compile`, {
+        method: 'POST',
+      }),
     verify: (id: string, opts?: { deep?: boolean }) =>
       req<VerificationReport>(`/projects/${id}/verify`, {
         method: 'POST',
