@@ -140,6 +140,37 @@ describe('agent-config assets', () => {
   })
 })
 
+describe('tier charters are as-built (no stale PLANNED banners; chief carries the dispatch procedure)', () => {
+  const TIERS_DIR = path.join(ASSET_DIR, 'tiers')
+  const charter = (tier: string) => fs.readFileSync(path.join(TIERS_DIR, `${tier}.charter.md`), 'utf8')
+
+  it('chief.charter.md names every mgmt tool of the operating procedure, backticked', () => {
+    const body = charter('chief')
+    // Backticks included, so `report` cannot be satisfied by `report_list`.
+    for (const tool of [
+      '`assign_lead`',
+      '`scope_projects`',
+      '`pick_workflow`',
+      '`dispatch_lead`',
+      '`report`',
+      '`assignment_list`',
+      '`report_list`',
+    ]) {
+      expect(body, `chief charter must carry ${tool}`).toContain(tool)
+    }
+  })
+
+  it('no tier charter still carries a PLANNED banner (all three tiers are live)', () => {
+    for (const tier of ['chief', 'orchestrator', 'secretary']) {
+      expect(charter(tier).includes('PLANNED'), `${tier} charter must not contain "PLANNED"`).toBe(false)
+    }
+  })
+
+  it('chief.charter.md keeps the stable L1 marker heading', () => {
+    expect(charter('chief')).toContain('# Chief Charter')
+  })
+})
+
 describe('vendored practice skills', () => {
   // The curated methodology skills mounted into every managed run, plus K's own
   // memory-practice skill. Each is an adapted copy — de-coupled from any host or

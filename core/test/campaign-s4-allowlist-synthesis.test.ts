@@ -62,7 +62,7 @@ afterAll(() => {
 // The exact allowedTools each tier MUST yield (order included — the synthesizer
 // returns the asset array verbatim). These are the authority boundary in code.
 const EXACT: Record<CharterName, string[]> = {
-  orchestrator: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore'],
+  orchestrator: ['Bash', 'PowerShell', 'Read', 'Write', 'Edit', 'NotebookEdit', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore'],
   chief: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore', 'mcp__mgmt'],
   secretary: ['Read', 'WebFetch', 'WebSearch', 'mcp__kstore', 'mcp__logistics'],
 }

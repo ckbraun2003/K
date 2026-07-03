@@ -42,6 +42,40 @@ const DEFAULT_ASSETS_DIR = path.join(__dirname, '../../agent-config')
  *  The subagent-spawn tool-id is `Task` (the CLI's literal token), never `Agent`. */
 export const CODING_TOOLS = ['Bash', 'Write', 'Edit', 'Task'] as const
 
+/** The authority-bearing BUILT-IN tools the CLI exposes. `--allowedTools` is only an
+ *  auto-approval list — under `--permission-mode acceptEdits` (the supervisor default)
+ *  Write/Edit are auto-approved for EVERY tier and other built-ins stay invocable subject
+ *  to prompts. The denylist (UNIVERSE minus the run's granted tools) is what makes the
+ *  tier allowlist a real CEILING for built-ins (`--strict-mcp-config` already does this
+ *  for MCP). `Task` and `Agent` are ONE capability (subagent spawn) under two CLI names —
+ *  D-032 verified `Task`; the live Chief proof showed the CLI exposing `Agent` — so the
+ *  pair is granted/denied together (see computeDisallowedTools). */
+export const CAPABILITY_TOOL_UNIVERSE = ['Bash', 'PowerShell', 'Write', 'Edit', 'NotebookEdit', 'Task', 'Agent', 'WebFetch', 'WebSearch'] as const
+
+/**
+ * Derive the run's `--disallowedTools` denylist: CAPABILITY_TOOL_UNIVERSE minus the
+ * granted tools, in universe order. A universe tool counts as granted when
+ * `allowedTools` carries it exactly OR as a specifier-narrowed form (`Bash(git:*)`
+ * grants Bash — mirroring toolWithinCeiling's paren logic; no mcp__ handling here,
+ * the universe has none). Task/Agent alias rule: if EITHER is granted NEITHER is
+ * denied; if neither, BOTH are — denying `Agent` while `Task` is granted could kill
+ * the spawn tool under its other name, and assets never grant `Agent`
+ * (assertCodingToolsGating forbids it), so without the alias rule every orchestrator
+ * run would carry a bogus denylist.
+ */
+export function computeDisallowedTools(allowedTools: string[]): string[] {
+  const granted = (universeTool: string): boolean =>
+    allowedTools.some(t => {
+      if (t === universeTool) return true
+      const parenIdx = t.indexOf('(')
+      return parenIdx > 0 && t.slice(0, parenIdx) === universeTool
+    })
+  const spawnGranted = granted('Task') || granted('Agent')
+  return CAPABILITY_TOOL_UNIVERSE.filter(u =>
+    u === 'Task' || u === 'Agent' ? !spawnGranted : !granted(u),
+  )
+}
+
 /** The fail-closed CLIENT-ERROR signal from the two grant guards — assertMcpGrants
  *  ("mounting ≠ granting", D-034) and assertTierCeiling (the B1 tier ceiling). The
  *  PATCH routes (orchestrators / org-default) map an `instanceof GrantError` to a

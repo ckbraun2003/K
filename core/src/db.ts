@@ -3,6 +3,8 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
 import type { RunStatus, VerificationReport, ProjectTask, AgentProfile, NamedWorkflow, WorkflowRole } from '@k/shared'
+// authority.ts reads only fs + @k/shared types — no import cycle back into db.ts.
+import { resolveAuthority } from './authority.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
@@ -518,8 +520,9 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
 /** The current schema version, stamped into PRAGMA user_version after a successful
  *  full migration scan. BUMP THIS when adding any new migration to migrateSlow()
  *  below — a DB stamped with an older version then re-runs the full scan (and is
- *  re-stamped) on its next open. */
-const SCHEMA_VERSION = 1
+ *  re-stamped) on its next open. Exported so tests derive the CURRENT version
+ *  instead of hardcoding it. */
+export const SCHEMA_VERSION = 2
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -880,6 +883,71 @@ function migrateSlow(d: Database.Database): void {
       WHERE profile_id IS NULL AND run_id IS NOT NULL
     `)
     d.prepare(`INSERT INTO app_config (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(MEM_BACKFILL_FLAG)
+  }
+
+  // Seed-profile authority resync (SCHEMA_VERSION 2) — flag-guarded one-shot.
+  //
+  // THE STORY: DBs seeded BEFORE B1 carry authority arrays FROZEN at seed time.
+  // Verified live: an upgraded DB's `chief` row lacked mcp__mgmt/mgmt, so B1
+  // row-enforcement (the synthesizer honoring profile rows) stripped the Chief's
+  // management server on exactly the DBs that upgraded — fresh DBs are correct.
+  // Pre-B1 the profile editors were cosmetic, so no seed row was ever
+  // operator-authored → re-syncing the SEED ids from resolveAuthority(row.charter)
+  // is safe. OVERWRITE WINDOW (documented honestly): an operator narrowing made to
+  // a SEED row after B1 but before this upgrade boot is overwritten ONCE here;
+  // operator-CREATED profiles (uuid ids) are never touched, and the one-shot flag
+  // means later narrowings survive every subsequent boot.
+  //
+  // D2B transaction idiom: flag pre-check fast path, .immediate() transaction,
+  // flag re-check INSIDE the lock (multi-process boot race), flag written in the
+  // same transaction. hasTable/hasColumn guards keep migrate() safe against
+  // old-schema fixtures whose agent_profiles predates the authority columns.
+  //
+  // resolveAuthority reads the agent-config/ assets and is DELIBERATELY uncaught:
+  // a broken asset fails the migration loudly, the version stamp never lands, and
+  // the next boot retries (this file's stated contract). Swallowing the throw and
+  // committing the flag would instead strand stale rows forever — silently
+  // defeating this migration. The main server already fail-closes on the same
+  // assets at module init (profiles.ts resolveAuthority), and per-run MCP children
+  // share an already-migrated k.db (the server stamps before it can spawn runs),
+  // so they fast-path the version gate and never reach this read in practice.
+  const RESYNC_FLAG = 'mig_seed_profile_authority_resync'
+  const resyncDone = d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(RESYNC_FLAG)
+  if (
+    !resyncDone &&
+    hasTable(d, 'agent_profiles') &&
+    hasColumn(d, 'agent_profiles', 'charter') &&
+    hasColumn(d, 'agent_profiles', 'allowed_tools') &&
+    hasColumn(d, 'agent_profiles', 'mcp_servers') &&
+    hasColumn(d, 'agent_profiles', 'skills')
+  ) {
+    // Exactly profiles.ts SEED_PROFILES ids (cross-checked) — the durable rows the
+    // boot seed stands up. Operator-created rows get uuid ids and never match.
+    const SEED_PROFILE_IDS = ['k-secretary', 'chief', 'default-orchestrator', 'lead-frontend', 'lead-backend', 'lead-systems', 'lead-security', 'lead-network']
+    const applySeedProfileResync = d.transaction(() => {
+      if (d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(RESYNC_FLAG)) return
+      const selectCharter = d.prepare(`SELECT charter FROM agent_profiles WHERE id = ?`)
+      const updateAuthority = d.prepare(
+        `UPDATE agent_profiles SET allowed_tools = ?, mcp_servers = ?, skills = ? WHERE id = ?`,
+      )
+      for (const id of SEED_PROFILE_IDS) {
+        const row = selectCharter.get(id) as { charter?: string } | undefined
+        if (!row) continue
+        const charter = row.charter
+        // Defensive: never brick boot on an exotic row — only the three durable
+        // charters have assets to resolve from.
+        if (charter !== 'secretary' && charter !== 'chief' && charter !== 'orchestrator') continue
+        const auth = resolveAuthority(charter)
+        updateAuthority.run(
+          JSON.stringify(auth.allowedTools),
+          JSON.stringify(auth.mcpServers),
+          JSON.stringify(auth.skills),
+          id,
+        )
+      }
+      d.prepare(`INSERT INTO app_config (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(RESYNC_FLAG)
+    })
+    applySeedProfileResync.immediate()
   }
 }
 

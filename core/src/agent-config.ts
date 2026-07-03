@@ -33,7 +33,7 @@ import path from 'path'
 import { createRequire } from 'module'
 import { fileURLToPath, pathToFileURL } from 'url'
 import type { AgentProfile } from './profiles.js'
-import { assertMcpGrants, toolWithinCeiling } from './authority.js'
+import { assertMcpGrants, computeDisallowedTools, toolWithinCeiling } from './authority.js'
 import { isPathWithin } from './paths.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -48,6 +48,7 @@ const KNOWN_CHARTERS = new Set(['orchestrator', 'chief', 'secretary'])
 export interface SynthesizedConfig {
   configDir: string                 // → CLAUDE_CONFIG_DIR for the spawn
   allowedTools: string[]            // → claude --allowedTools
+  disallowedTools: string[]         // → claude --disallowedTools (UNIVERSE minus the run's grant — the hard ceiling)
   mcpConfigPath: string             // → claude --mcp-config (+ --strict-mcp-config)
   settingsPath: string              // → claude --settings
   appendSystemPromptFile: string    // → claude --append-system-prompt-file (L0 + L1)
@@ -217,6 +218,12 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   // Mounting ≠ granting (D-034) holds at synth time too: every mounted server must
   // be granted by the FINAL (possibly profile-narrowed) allowlist.
   assertMcpGrants(profile.tier, allowedTools, serversToMount)
+  // The hard tool ceiling: --allowedTools is only an AUTO-APPROVAL list (under
+  // acceptEdits, Write/Edit are auto-approved for every tier and other built-ins
+  // stay invocable subject to prompts). The denylist — UNIVERSE minus the run's
+  // (possibly profile-narrowed) grant — is what makes the allowlist a real ceiling
+  // for built-ins at the CLI.
+  const disallowedTools = computeDisallowedTools(allowedTools)
 
   // 1. run config dir (path-guarded root for every write below)
   const runDir = path.join(dataDir, 'agent-runs', opts.runId)
@@ -324,6 +331,7 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   return {
     configDir,
     allowedTools,
+    disallowedTools,
     mcpConfigPath,
     settingsPath,
     appendSystemPromptFile,

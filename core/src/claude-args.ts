@@ -15,6 +15,7 @@ export function resolvePermissionMode(env: string | undefined): PermissionMode {
  */
 export interface ClaudeConfigArgs {
   allowedTools: string[]
+  disallowedTools: string[]
   mcpConfigPath: string
   settingsPath: string
   appendSystemPromptFile: string
@@ -34,9 +35,10 @@ export interface ClaudeConfigArgs {
  * When `opts.claudeConfig` is supplied (every managed claude run synthesizes one),
  * the per-run isolation flags are appended AFTER the base/permission/model flags:
  * `--settings`, `--mcp-config`, `--strict-mcp-config`, `--allowedTools <tool…>`
- * (each tool a separate argv element), `--append-system-prompt-file`. With no
- * `claudeConfig` the argv is byte-identical to before (host config still bypassed
- * via CLAUDE_CONFIG_DIR, but no extra flags).
+ * (each tool a separate argv element), `--disallowedTools <tool…>` (the hard tool
+ * ceiling — UNIVERSE minus the run's grant; same one-element-per-tool shape),
+ * `--append-system-prompt-file`. With no `claudeConfig` the argv is byte-identical
+ * to before (host config still bypassed via CLAUDE_CONFIG_DIR, but no extra flags).
  */
 export function buildClaudeArgs(
   prompt: string,
@@ -65,6 +67,9 @@ export function buildClaudeArgs(
     // would leave a dangling flag that swallows the next flag (the
     // --append-system-prompt-file injection) as its value.
     if (cc.allowedTools.length > 0) args.push('--allowedTools', ...cc.allowedTools)
+    // Same dangling-flag hazard as --allowedTools above: an empty list would make
+    // --disallowedTools swallow the next flag as its value — emit only when non-empty.
+    if (cc.disallowedTools.length > 0) args.push('--disallowedTools', ...cc.disallowedTools)
     args.push('--append-system-prompt-file', cc.appendSystemPromptFile)
   }
   return args
