@@ -169,6 +169,28 @@ describe('tier charters are as-built (no stale PLANNED banners; chief carries th
   it('chief.charter.md keeps the stable L1 marker heading', () => {
     expect(charter('chief')).toContain('# Chief Charter')
   })
+
+  // Conductor pin (L-fix review MINOR): names alone are not the procedure. Pin the
+  // dispatch ORDER, the intent-not-execution clause, and the honesty rule — the three
+  // things whose loss re-creates the live-incident failure mode (a Chief improvising
+  // engineering instead of dispatching).
+  it('chief.charter.md pins the dispatch procedure order, the intent clause, and the honesty rule', () => {
+    const body = charter('chief')
+    const order = ['`assign_lead`', '`scope_projects`', '`pick_workflow`', '`dispatch_lead`']
+    const idx = order.map(t => body.indexOf(t))
+    for (let i = 0; i < order.length; i++) {
+      expect(idx[i], `${order[i]} must appear in the procedure`).toBeGreaterThan(-1)
+      if (i > 0) expect(idx[i], `${order[i]} must come after ${order[i - 1]}`).toBeGreaterThan(idx[i - 1])
+    }
+    // Clause pins run against a whitespace-normalized body (markdown wraps lines).
+    const flat = body.replace(/\s+/g, ' ')
+    // dispatch_lead records an intent; the MAIN process executes it — the Chief must
+    // not expect (or attempt) the lead's work inside its own session.
+    expect(/records? an intent/i.test(flat), 'intent-recording clause').toBe(true)
+    expect(/main process executes/i.test(flat), 'main-process-executes clause').toBe(true)
+    // The honesty rule: missing/failing tool → report + stop, never engineer.
+    expect(/never attempt the engineering yourself/i.test(flat), 'honesty rule').toBe(true)
+  })
 })
 
 describe('vendored practice skills', () => {

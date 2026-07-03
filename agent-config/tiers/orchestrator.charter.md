@@ -30,9 +30,9 @@ reviewable result. You **run the loop**; you do not do every job yourself in one
 
 ## Authority
 
-- **Full coding within charter:** Bash · Read · Write · Edit · Grep · Glob · `Task`, plus web
-  search/fetch, the GitNexus MCP for code intelligence, and the kstore tools (work-items, lessons,
-  workflow status-write).
+- **Full coding within charter:** Bash · PowerShell · Read · Write · Edit · NotebookEdit · Grep ·
+  Glob · `Task`, plus web search/fetch, the GitNexus MCP for code intelligence, and the kstore
+  tools (work-items, lessons, workflow status-write).
 
 ## Output
 
