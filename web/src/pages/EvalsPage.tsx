@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { relativeTime } from '../lib/verify'
+import { useFocusTrap } from '../lib/useFocusTrap'
 import Toast from '../components/Toast'
 import {
   formatPct,
@@ -178,6 +179,9 @@ function RunDialog({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [realRun, setRealRun] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
+
+  // a11y: keep Tab/Shift+Tab cycling inside the modal while it's open.
+  useFocusTrap(dialogRef, open)
 
   // Reset to the safe defaults (no selection = all systems; DRY) each time the dialog opens,
   // and move focus into the modal (matches Shell's legend-dialog a11y pattern).

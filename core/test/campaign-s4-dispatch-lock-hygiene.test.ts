@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, projectsDb, projectTasksDb, workflowRunsDb } from '../src/db.js'
+import { db, projectsDb, projectWorkItemsDb, workflowRunsDb } from '../src/db.js'
 import { startRun } from '../src/supervisor.js'
 import type { Project } from '@k/shared'
 
@@ -49,7 +49,7 @@ beforeAll(() => {
     id: PROJECT_ID, name: project.name, localPath: project.localPath,
     githubRemote: null, workspaceManaged: 0, bibleDir: project.bibleDir, createdAt: project.createdAt,
   })
-  projectTasksDb.insertProjectTask.run({
+  projectWorkItemsDb.insertProjectTask.run({
     id: OPEN_TASK, projectId: PROJECT_ID, title: 'ready to ship', status: 'open',
     createdAt: Date.now(), completedAt: null, issueNumber: null, issueUrl: null, issueState: null,
   })

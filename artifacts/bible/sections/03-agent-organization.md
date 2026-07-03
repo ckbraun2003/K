@@ -2,7 +2,7 @@
 title: Agent Organization
 icon: "❖"
 status: active
-updated: 2026-07-01
+updated: 2026-07-02
 ---
 
 > **Status — PARTIALLY BUILT (Phase 5).** This section is the design of record for the agent
@@ -17,8 +17,11 @@ updated: 2026-07-01
 > **`startAgentRun(profileId, …)`** activation primitive (tracked in `agent_runs`, riding the shared
 > run-lifecycle seam). **The Chief now wakes autonomously** (P5.2b, D-044): a scheduler tick or a
 > subscribed run-completion event fires `startAgentRun('chief', …)`, debounced + already-running- +
-> self-wake-guarded (see *Autonomous wake* below). **Still planned:** K as an autonomously-woken tier,
-> the K→Chief→lead delegation **dispatch**, named workflow definitions, and memory layers B/C. Where a
+> self-wake-guarded — and, since P5.7, **governed** (org-relevant terminals only, a rolling-hour rate
+> cap, and a kill switch — D-057; see *Autonomous wake* below). The K→Chief→lead delegation
+> **dispatch** and named workflow definitions are **built** (D-046 → D-051, D-047), and the
+> per-profile authority rows are **enforced at synthesis** (P5.7, D-054). **Still planned:** K as an
+> autonomously-woken tier, wiring the real Google connectors, and memory layers B/C. Where a
 > capability already existed in the harness it is called out as **reused**.
 
 K is re-framed from *an operator driving a dashboard* to **a user directing an agent organization**.
@@ -54,7 +57,9 @@ AgentProfile {                 // BUILT (P5.0) — @k/shared AgentProfileSchema 
   charter: 'secretary' | 'chief' | 'orchestrator'  // charter-asset BASENAME (=== tier for the
                                // durable tiers); the charter PROMPT lives in
                                // agent-config/tiers/<charter>.charter.md, loaded by the synthesizer
-  defaultModel: string         // KNOWN_MODELS id (env fallback preserved for the seed)
+  defaultModel: string | null  // explicit per-profile override (KNOWN_MODELS id), or null =
+                               // "use the runtime claudeDefaultModel()" resolved at dispatch time
+                               // (stored as the '' sentinel; seeds write no override — P5.7, D-056)
   allowedTools: string[]       // claude --allowedTools allowlist (tier-gated, resolved by authority.ts)
   mcpServers: string[]         // tier-scoped MCP servers this profile mounts
   skills: string[]             // skills this profile mounts
@@ -86,35 +91,54 @@ AgentProfile {                 // BUILT (P5.0) — @k/shared AgentProfileSchema 
 
 ## The control plane — authority is enforced, not advisory
 
-Authority is enforced at two layers that compose, so a tier **cannot** reach a capability above its
+Authority is enforced at layers that compose, so a tier **cannot** reach a capability above its
 station even if a prompt asks it to:
 
 1. **Tier-scoped MCP servers.** Each tier mounts only the MCP servers its job needs.
    - the **kstore** server (**all tiers, BUILT**) — K's working store: work-item CRUD, lesson
      propose/list (gated reflection — memory layer A), and **workflow status-write**
-     (`workflow_step_set` / `workflow_status_set`). Tools are run-scoped (a run only sees its own
-     tickets/lessons); the status-write tools self-gate to delegation-workflow runs.
-   - the **logistics** server (**K, BUILT — P5.1a**) — K's logistics working store: notes,
-     calendar events, and reminders (calendar/notes/scheduling), **STORAGE not execution** and
-     **run-scoped** exactly like kstore (`note_*` / `event_*` / `reminder_*`; a run reads/mutates
-     only its own rows). No code, no project mutation, and no real-calendar side-effect — storing an
-     event does not schedule it anywhere. (K's *tasks* stay the run-scoped kstore `work_item_*`
-     tools — logistics adds only the non-ticket logistics data, not a second task store.) Reusing
-     the Google Calendar/Gmail/Drive connectors for real-world logistics remains Phase 5.
+     (`workflow_step_set` / `workflow_status_set`). Work-item visibility is **scope-dependent
+     (P5.7, D-053)**: `scope='run'` (the default) keeps the original run-isolation — a run only
+     sees its own tickets — while `'personal'` / `'org'` items are **durable operator-global**
+     (they persist across sessions and runs; `run_id` is kept as provenance only). `scope='project'`
+     is **REJECTED at the tool boundary** — project tickets are created via the projects API only
+     (§04). Lessons stay run-scoped; the status-write tools self-gate to delegation-workflow runs.
+   - the **logistics** server (**K, BUILT — P5.1a; de-run-scoped P5.7, D-053**) — K's logistics
+     working store: notes, calendar events, and reminders (calendar/notes/scheduling), **STORAGE
+     not execution** (`note_*` / `event_*` / `reminder_*`). Since P5.7 the store is
+     **operator-durable** — reads and updates are no longer filtered by run (a note K took last
+     week is still K's note today); `run_id` is recorded on insert as provenance only. No code, no
+     project mutation, and no real-calendar side-effect — storing an event does not schedule it
+     anywhere. (K's *tasks* stay the kstore `work_item_*` tools — logistics adds only the
+     non-ticket logistics data, not a second task store.) The Google Calendar/Gmail/Drive
+     connectors are **NOT wired** — see *Reused connectors* below.
    - the **mgmt** server (**Chief, BUILT — P5.2a**) — the Chief's management working store:
      `assign_lead` (hand a lead an objective), `pick_workflow`, `scope_projects`, and `report` (a
-     status write up the chain). Same shape as kstore/logistics — an **SDK-free** store layer
-     (`core/src/mcp/mgmt.ts`, unit-tested) under a thin stdio glue (`mgmt-server.ts`), **run-scoped**
-     (a run reads/mutates only its own assignments), mounted on the chief tier and granted via
-     `mcp__mgmt`. It is **STORAGE, not execution** — assigning a lead here does **not** dispatch that
-     lead. The Chief's **autonomous scheduler/event wake is BUILT (P5.2b)** (see *Autonomous wake*
-     below); autonomous K→Chief→lead delegation **dispatch** is still **planned** (it touches K's
-     routing — a later slice).
+     status write up the chain), plus the execution tool `dispatch_lead` (below) and — **P5.7,
+     D-053 — two chief-READABLE tools, `assignment_list` / `report_list`**, durable **across Chief
+     activations** (the enriched assignment list carries the dispatched lead run's live status), so
+     a freshly-woken Chief can actually read the org state its charter tells it to review; writes
+     keep run-scoped ownership. Same shape as kstore/logistics — an **SDK-free** store layer
+     (`core/src/mcp/mgmt.ts`, unit-tested) under a thin stdio glue (`mgmt-server.ts`), mounted on
+     the chief tier and granted via `mcp__mgmt`. The four storage tools stay **STORAGE, not
+     execution** — assigning a lead does **not** dispatch it; the autonomous K→Chief→lead
+     **dispatch** is BUILT (D-046 → D-051, below).
 2. **The claude `--allowedTools` allowlist.** Coding tools — **Bash · Write · Edit · `Task`** — are
    present **only at the orchestrator (lead) tier**. K and the Chief simply do not have them on
    their allowlist, so neither can edit a file or spawn a coding subagent. (A mounted MCP server is
    also denied unless `mcp__<server>` is on the allowlist — so kstore is granted at every tier that
    mounts it.)
+
+3. **The per-profile authority rows — ENFORCED since P5.7 (D-054).** `synthesizeConfigDir` now
+   honors a profile's `allowed_tools` / `mcp_servers` / `skills` columns: a non-empty row is the
+   operator's **narrowed** grant, mounted instead of the tier asset; an empty row falls back to the
+   tier asset unchanged. The **tier is the CEILING** — a row can only narrow within its tier's
+   allowlist/MCP template/bundle, never exceed it: an above-ceiling PATCH is rejected `400`
+   (`authority.ts::assertTierCeiling`, typed `GrantError`), an unknown MCP server fails closed, and
+   synthesis is **validate-before-mutate** — every check runs before any write, so a rejected
+   profile leaves no partial config dir. Before P5.7 the editors were cosmetic (the row was stored
+   but the synthesizer read tier assets only); now the stored grant and the run's actual mount are
+   the same fact.
 
 > **"agent" (the concept) vs `Task` (the tool-id).** We keep **"agent"** as the org vocabulary
 > everywhere — orchestrators, worker agents, subagents. The only thing that must read `Task` is the
@@ -122,15 +146,19 @@ station even if a prompt asks it to:
 > tool in the Claude Code CLI (verified against the binary), and the allowlist matches by exact
 > string — `"Agent"` there would grant nothing, so an orchestrator could spawn no one.
 
-**Reused connectors (not rebuilt).** K mounts the existing Google **Calendar / Gmail / Drive**
-connectors for real logistics. The Chief mounts **GitNexus MCP read-only** for code intelligence
-without write authority. The harness's existing seams stay the substrate underneath: the **EventBus**
-carries every tier's events, the **ModelRouter** picks each run's provider/model, and the
-**GitHubProvider** remains the only path code reaches GitHub (leads open PRs; nothing merges outside CI).
+**Reused connectors — the honest as-built.** K **does NOT mount the Google Calendar / Gmail /
+Drive connectors** — its tier mounts **kstore + logistics only** (`agent-config/mcp/secretary.json`),
+so K's "calendar" is the local logistics store, storage-not-execution. The Google connectors remain
+**operator-side only** (the developer's own tooling, outside the managed-run boundary); wiring them
+into K's tier is a planned follow-up, not a shipped capability. The Chief mounts **GitNexus MCP
+read-only** for code intelligence without write authority. The harness's existing seams stay the
+substrate underneath: the **EventBus** carries every tier's events, the **ModelRouter** picks each
+run's provider/model, and the **GitHubProvider** remains the only path code reaches GitHub (leads
+open PRs; nothing merges outside CI).
 
 | Tier | MCP servers | Coding tools | Reused connectors | Default posture |
 |------|-------------|--------------|-------------------|-----------------|
-| **K** (secretary) | kstore · logistics(BUILT) | — none — | Google Calendar / Gmail / Drive | answer + schedule + trigger Chief |
+| **K** (secretary) | kstore · logistics(BUILT) | — none — | *none yet* — Google Calendar / Gmail / Drive **not wired** (planned) | answer + schedule + trigger Chief |
 | **Chief** (chief) | kstore · GitNexus(read) · mgmt(BUILT) | — none — | GitNexus MCP (read-only) | assign + report; wakes on schedule/event |
 | **Leads** (orchestrator) | kstore · GitNexus (+ charter-scoped MCPs) | Bash · Write · Edit · `Task` | GitNexus MCP, project tooling | run workflows; PR-only, CI gates merges |
 
@@ -185,6 +213,20 @@ The wake is bounded by **two guards + a self-wake guard**, and a **failure-degra
 - **Failure-degrade** — a dispatch failure is recorded `failed` via the `startAgentRun` **rollback
   contract** and then *swallowed*, so a cron/event callback never crashes the loop.
 
+**The wake governor (P5.7, D-057)** bounds the event path by CODE, not prompt — every wake is a
+paid Chief activation that can itself dispatch a lead, so the wake → dispatch → lead-terminal →
+wake cycle needed a hard cost bound:
+
+- **Org-relevance filter** — only a terminal run that is org-relevant wakes the Chief: one owned by
+  a **lead (orchestrator-tier) profile** or a **`trigger='delegation'`** activation. Plain runs,
+  evals, skills, and K-chat terminals never do (and the self-wake guard still excludes the Chief's
+  own runs).
+- **Rolling-hour rate cap** — at most `chief_wake_max_per_hour` (`app_config`, default **6**) event
+  wakes per rolling hour; a **suppressed wake creates no ledger row** (one warn per suppression
+  streak), so the wake history stays the history of what actually fired.
+- **Kill switch** — `chief_wake_events_enabled` (`'1'` default, read lazily per event so the
+  operator can flip it at runtime) gates the event path only; the cron heartbeat is unaffected.
+
 Per **D-044**, a "Chief wake" is not a new table — it **reuses `agent_runs`**: a row with
 `profile_id='chief'` and `trigger ∈ {schedule,event}`, whose columns already carry the four wake
 facts (kind=`trigger`, time=`created_at`, resulting run=`run_id`, outcome=`status`). The Chief org
@@ -202,6 +244,23 @@ named discipline lead), K **delegates instead of running the message itself** �
 for a named-lead route, the discipline hint so the Chief can `assign_lead` the right lead. K's pure
 logistics/Q&A path (`route.escalates === false`) is **unchanged** — it still continues a warm
 interactive session via `sendInput` or starts a fresh seeded k-secretary run.
+
+Three P5.7 refinements on the front door:
+
+- **Logistics precedence (D-057).** `routeForMessage` evaluates the personal-logistics rules
+  (reminders, notes, scheduling, list management) **before** the lead/engineering keyword rules, so
+  "remind me to fix the fence" stays with K instead of auto-escalating on "fix". The trade-off is
+  deliberate: a mixed-intent message **under-escalates by design** (a cheap re-ask) rather than
+  spinning up the paid Chief machinery for a grocery note. And this classifier **is** the server's
+  delegation decision — `askK` delegates on its `escalates` flag — not merely a preview; client and
+  server agree because both call the same shared function.
+- **Forced route.** `KAskBody.forceRoute` bypasses the classifier for an explicit target (the Chief
+  or a named lead — every forceable target escalates by construction; forcing `logistics` is
+  deliberately impossible). `routeForTarget` is the one shared mapping, so the composer's forced
+  preview and the server's actual routing are the same computation.
+- **Per-ask model override.** `KAskBody.model` (validated against the known-model registry at the
+  route boundary) wins over the profile override, which wins over the runtime default (D-056);
+  `askK` skips the warm session on an explicit model so an override is never silently ignored.
 
 - **Report-back up the chain.** When the delegated Chief run reaches a **terminal** status, its
   outcome lands back on K's thread as a `k` turn — via `reportDelegationBack`, which rides the shared
@@ -293,6 +352,23 @@ EventBus can't cross the process boundary; a shared SQLite file can).
 - **The Chief→lead link derivation is unchanged** — still `assignment.run_id` (parent) +
   `assignment.lead_run_id` (child) + the lead activation's `trigger='delegation'`, no new edge table;
   the `lead_dispatches` row is a transient execution queue, not the parent→child record.
+- **Project-scoped dispatch (P5.7, D-055).** The relay resolves the assignment's `scope_projects`
+  names through the **projects registry at EXECUTION time** and passes `projectId` + `cwd` into
+  `startAgentRun`, so a scoped lead's worktree is created **in the scoped repo**, not K's own. Zero
+  names keeps the K-repo default; the first name is authoritative (extras log a warning); an
+  unresolvable name or a vanished `localPath` fails the dispatch cleanly via the **status-guarded**
+  `markLeadDispatchFailed` (assignment link stays NULL → retryable). Any **post-claim throw
+  mark-fails the intent immediately** — a claimed dispatch is never stranded `'dispatched'` waiting
+  for the boot sweep.
+- **Intents retire by LIVENESS DERIVATION (P5.7, D-060).** The queue has no success-terminal status
+  — a completed intent stays `'dispatched'` forever — so "active" is **derived**, not stored:
+  `getActiveLeadDispatchByAssignment` counts a `'dispatched'` row active only while it is genuinely
+  in flight (the claim window, `lead_run_id` NULL, blocking fail-safe until the boot sweep — or its
+  lead run still non-terminal). A completed intent therefore stops blocking, which **unwedges Chief
+  re-dispatch of a completed assignment** and the operator **reassign** —
+  `PATCH /api/chief/assignments/:id` moves an objective to another lead (`409` while the current
+  lead run is live or a dispatch intent is in flight; `400` same-lead; clears the stale
+  `lead_run_id` so the new lead stays dispatchable; files a durable mgmt audit report).
 
 ### Chief→K report continuation + whole-org tree (BUILT — loop-b b2, D-051)
 
@@ -348,5 +424,7 @@ chosen route is **shown before dispatch** (one front door, see §08). It handles
 non-engineering itself and escalates only real engineering work down the chain; the Chief chooses how
 to staff it; a lead does the work through a workflow; and the outcome (a PR, a report, a verified
 result) flows back up to the user through the same chain. K may also create **`work_items`** — the
-unified, scoped task model (§04): `personal` items it owns for you, or `project`-scoped tickets it
-adds to a project's list (so "**K can add to project tasks**" is preserved, without a second table).
+unified, scoped task model (§04): **durable `personal` items** it owns for you (or org-wide `org`
+items), persisting across sessions (D-053). K does **not** create `project`-scoped tickets — kstore
+**rejects `scope='project'`** at the tool boundary; project tasks are created via the projects API
+only (§04).

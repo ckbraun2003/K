@@ -10,9 +10,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { v4 as uuid } from 'uuid'
-import { db, mgmtDb, runsDb, agentRunsDb, eventsDb } from '../src/db.js'
+import { db, mgmtDb, runsDb, agentRunsDb, eventsDb, leadDispatchDb } from '../src/db.js'
 import { seedProfiles } from '../src/profiles.js'
-import type { ChiefOrgPayload } from '@k/shared'
+import type { Assignment, ChiefOrgPayload } from '@k/shared'
 
 const TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
 const AUTH = { authorization: `Bearer ${TOKEN}` }
@@ -183,6 +183,46 @@ describe('GET /api/chief/org', () => {
     // trigger='delegation'. One was seeded above, so it is at least 1.
     expect(typeof body.kDelegations).toBe('number')
     expect(body.kDelegations).toBeGreaterThanOrEqual(1)
+
+    // Top-level leadsActive: the server-authoritative live-leads count, equal by
+    // construction to the thin health line (one source, surfaced twice).
+    expect(typeof body.leadsActive).toBe('number')
+    expect(body.leadsActive).toBe(body.health.leadsActive)
+  })
+
+  it('kDelegations excludes failed delegation attempts but counts completed/running ones', async () => {
+    const before = ((await app.inject({ method: 'GET', url: '/api/chief/org', headers: AUTH }))
+      .json() as ChiefOrgPayload).kDelegations!
+
+    const mkDelegation = (id: string, status: string) =>
+      agentRunsDb.insertAgentRun.run({
+        id,
+        profileId: 'chief',
+        runId: null,
+        trigger: 'delegation',
+        goal: `kDelegations honesty ${status}`,
+        projectId: null,
+        workflowId: null,
+        status,
+        createdAt: Date.now(),
+        completedAt: status === 'running' ? null : Date.now(),
+      })
+
+    const failedId = uuid()
+    const runningId = uuid()
+    try {
+      // A FAILED delegation attempt never reached the Chief — the count must not move.
+      mkDelegation(failedId, 'failed')
+      let body = (await app.inject({ method: 'GET', url: '/api/chief/org', headers: AUTH })).json() as ChiefOrgPayload
+      expect(body.kDelegations).toBe(before)
+
+      // A running one DID reach the Chief — the count moves.
+      mkDelegation(runningId, 'running')
+      body = (await app.inject({ method: 'GET', url: '/api/chief/org', headers: AUTH })).json() as ChiefOrgPayload
+      expect(body.kDelegations).toBe(before + 1)
+    } finally {
+      db.prepare('DELETE FROM agent_runs WHERE id IN (?, ?)').run(failedId, runningId)
+    }
   })
 
   it('populates a lead with its latest run + delegate events (delegate-only, no truncation)', async () => {
@@ -211,5 +251,198 @@ describe('GET /api/chief/org', () => {
     expect(evs.some(e => e.text === 'thinking…')).toBe(false)
     // Backend's latest run is live → it counts toward the thin health line.
     expect(body.health.leadsActive).toBeGreaterThanOrEqual(1)
+  })
+
+  it('attaches recent-health counts per lead (completed/failed/running mix — C2)', async () => {
+    // Delta-based against whatever the shared DB already holds for lead-backend
+    // (the beforeAll seeded one RUNNING activation; prior suites may have left
+    // terminal rows — same discipline as the kDelegations honesty test): add a
+    // completed + a failed activation (run_id null — the counts derive from
+    // agent_runs.status alone) and assert the counts moved.
+    const backendRecent = async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/chief/org', headers: AUTH })
+      return (res.json() as ChiefOrgPayload).leads.find(l => l.profile.id === 'lead-backend')!.recent!
+    }
+    const before = await backendRecent()
+
+    const seeded: string[] = []
+    const mkActivation = (status: string) => {
+      const id = uuid()
+      seeded.push(id)
+      agentRunsDb.insertAgentRun.run({
+        id, profileId: 'lead-backend', runId: null, trigger: 'delegation',
+        goal: `recent-health ${status}`, projectId: null, workflowId: null,
+        status, createdAt: Date.now(), completedAt: status === 'running' ? null : Date.now(),
+      })
+    }
+    try {
+      mkActivation('completed')
+      mkActivation('failed')
+
+      const after = await backendRecent()
+      expect(after.total).toBe(Math.min(before.total + 2, 10))
+      expect(after.succeeded).toBeGreaterThanOrEqual(1)
+      expect(after.failed).toBeGreaterThanOrEqual(1)
+      // The beforeAll RUNNING activation is in-window and counts in total only.
+      expect(after.succeeded + after.failed).toBeLessThanOrEqual(after.total - 1)
+    } finally {
+      for (const id of seeded) db.prepare('DELETE FROM agent_runs WHERE id = ?').run(id)
+    }
+  })
+})
+
+// ── PATCH /api/chief/assignments/:id — operator reassign (C2) ─────────────────
+
+describe('PATCH /api/chief/assignments/:id', () => {
+  /** Insert a cross-run assignment; returns its id (cleaned per-test). */
+  function insertAssignment(over: { lead?: string; leadRunId?: string | null } = {}): string {
+    const id = uuid()
+    const now = Date.now()
+    mgmtDb.insertAssignment.run({
+      id, runId: null, lead: over.lead ?? 'Backend', objective: 'reassign-test objective',
+      note: 'keep me', workflow: 'code-wave', projects: JSON.stringify(['k']),
+      createdAt: now, updatedAt: now,
+    })
+    if (over.leadRunId !== undefined && over.leadRunId !== null) {
+      mgmtDb.setAssignmentLeadRun.run({ id, leadRunId: over.leadRunId, updatedAt: now })
+    }
+    return id
+  }
+
+  it('404 for an unknown assignment', async () => {
+    const res = await app.inject({
+      method: 'PATCH', url: `/api/chief/assignments/${uuid()}`, headers: AUTH,
+      payload: { leadProfileId: 'lead-systems' },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('400 on an invalid body (empty / unknown key — .strict)', async () => {
+    const id = insertAssignment()
+    try {
+      for (const payload of [{}, { leadProfileId: '' }, { leadProfileId: 'lead-systems', bogus: 1 }]) {
+        const res = await app.inject({
+          method: 'PATCH', url: `/api/chief/assignments/${id}`, headers: AUTH, payload,
+        })
+        expect(res.statusCode).toBe(400)
+      }
+    } finally {
+      db.prepare('DELETE FROM mgmt_assignments WHERE id = ?').run(id)
+    }
+  })
+
+  it('400 for a non-lead target (chief / default-orchestrator / unknown)', async () => {
+    const id = insertAssignment()
+    try {
+      for (const leadProfileId of ['chief', 'default-orchestrator', 'no-such-profile']) {
+        const res = await app.inject({
+          method: 'PATCH', url: `/api/chief/assignments/${id}`, headers: AUTH,
+          payload: { leadProfileId },
+        })
+        expect(res.statusCode).toBe(400)
+        expect((res.json() as { error: string }).error).toBe('unknown lead')
+      }
+    } finally {
+      db.prepare('DELETE FROM mgmt_assignments WHERE id = ?').run(id)
+    }
+  })
+
+  it('409 while the dispatched lead run is live', async () => {
+    const liveRunId = uuid()
+    runsDb.insertRun.run({
+      id: liveRunId, prompt: 'live lead run', cwd: '/tmp/k-reassign-test', worktree: null,
+      status: 'running', provider: 'claude', model: 'claude-sonnet-4-6',
+      tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: null, createdAt: Date.now(),
+    })
+    const id = insertAssignment({ leadRunId: liveRunId })
+    try {
+      const res = await app.inject({
+        method: 'PATCH', url: `/api/chief/assignments/${id}`, headers: AUTH,
+        payload: { leadProfileId: 'lead-systems' },
+      })
+      expect(res.statusCode).toBe(409)
+      expect((res.json() as { error: string }).error).toBe('lead run is live')
+    } finally {
+      db.prepare('DELETE FROM mgmt_assignments WHERE id = ?').run(id)
+      db.prepare('DELETE FROM runs WHERE id = ?').run(liveRunId)
+    }
+  })
+
+  it('409 while a pending dispatch intent is queued (it would execute under the OLD lead)', async () => {
+    const id = insertAssignment()
+    const dispatchId = uuid()
+    leadDispatchDb.insertLeadDispatch.run({
+      id: dispatchId, assignmentId: id, chiefRunId: null, leadProfileId: 'lead-backend',
+      lead: 'Backend', workflowId: 'code-wave', goal: 'queued goal', createdAt: Date.now(),
+    })
+    try {
+      const res = await app.inject({
+        method: 'PATCH', url: `/api/chief/assignments/${id}`, headers: AUTH,
+        payload: { leadProfileId: 'lead-systems' },
+      })
+      expect(res.statusCode).toBe(409)
+      expect((res.json() as { error: string }).error).toBe('assignment has a pending dispatch')
+    } finally {
+      db.prepare('DELETE FROM lead_dispatches WHERE id = ?').run(dispatchId)
+      db.prepare('DELETE FROM mgmt_assignments WHERE id = ?').run(id)
+    }
+  })
+
+  it('400 when the target lead is the current lead (no-op reassign, no "X → X" audit row)', async () => {
+    // 'lead-systems' resolves to the profile NAME 'Systems' — seed the assignment
+    // already carrying that name so the reassign is a same-lead no-op.
+    const id = insertAssignment({ lead: 'Systems' })
+    try {
+      const res = await app.inject({
+        method: 'PATCH', url: `/api/chief/assignments/${id}`, headers: AUTH,
+        payload: { leadProfileId: 'lead-systems' },
+      })
+      expect(res.statusCode).toBe(400)
+      expect((res.json() as { error: string }).error).toBe('lead unchanged')
+      // The guard threw inside the tx — nothing was written, incl. no audit report.
+      expect(db.prepare('SELECT * FROM mgmt_reports WHERE assignment_id = ?').all(id)).toHaveLength(0)
+    } finally {
+      db.prepare('DELETE FROM mgmt_assignments WHERE id = ?').run(id)
+    }
+  })
+
+  it('200 — reassigns to the profile NAME, keeps the rest, and files the audit report', async () => {
+    // Seed a TERMINAL prior lead run on the assignment: guard 1 lets it through, and
+    // the reassign must CLEAR the stale link (lead_run_id means "the CURRENT lead's
+    // dispatched run"; leaving it would also make dispatch_lead's already-dispatched
+    // guard permanently block dispatching the NEW lead).
+    const doneRunId = uuid()
+    runsDb.insertRun.run({
+      id: doneRunId, prompt: 'terminal lead run', cwd: '/tmp/k-reassign-test', worktree: null,
+      status: 'done', provider: 'claude', model: 'claude-sonnet-4-6',
+      tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: null, createdAt: Date.now(),
+    })
+    const id = insertAssignment({ lead: 'Backend', leadRunId: doneRunId })
+    try {
+      const res = await app.inject({
+        method: 'PATCH', url: `/api/chief/assignments/${id}`, headers: AUTH,
+        payload: { leadProfileId: 'lead-systems' },
+      })
+      expect(res.statusCode).toBe(200)
+      const updated = res.json() as Assignment
+      // The stored lead is the profile NAME (resolveLeadProfileId resolves names,
+      // and the UI chip renders it) — objective/note/workflow/projects untouched.
+      expect(updated.lead).toBe('Systems')
+      expect(updated.objective).toBe('reassign-test objective')
+      expect(updated.note).toBe('keep me')
+      expect(updated.workflow).toBe('code-wave')
+      expect(updated.projects).toEqual(['k'])
+      // The old lead's terminal run link is cleared with the reassign.
+      expect(updated.leadRunId).toBeNull()
+
+      // The durable mgmt audit trail carries the old→new hop.
+      const reports = db.prepare('SELECT * FROM mgmt_reports WHERE assignment_id = ?').all(id) as Array<{ body: string }>
+      expect(reports).toHaveLength(1)
+      expect(reports[0].body).toBe('Operator reassigned lead: "Backend" → "Systems"')
+    } finally {
+      db.prepare('DELETE FROM mgmt_reports WHERE assignment_id = ?').run(id)
+      db.prepare('DELETE FROM mgmt_assignments WHERE id = ?').run(id)
+      db.prepare('DELETE FROM runs WHERE id = ?').run(doneRunId)
+    }
   })
 })

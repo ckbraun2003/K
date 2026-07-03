@@ -197,10 +197,17 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
 - [x] `AgentProfile` entity (tier · charter · defaultModel · allowedTools · mcpServers · skills) + storage
 - [x] `startAgentRun(profileId, { trigger, goal|thread, projectId?, workflowId? })` generalizing `startRun`
 - [x] Authority gating: `--allowedTools` allowlist per tier (coding tools at lead tier only)
-- [x] `logistics-mcp` (K) + reuse Google Calendar / Gmail / Drive connectors
+- [x] `logistics-mcp` (K) — shipped (D-039). **Honesty note (2026-07-02):** the second half of this
+  box over-claimed — the **Google Calendar / Gmail / Drive connectors are NOT wired into K** (they
+  remain operator-side only; K's tier mounts kstore + logistics and nothing else — §03). Wiring the
+  real connectors stays an open follow-up
 - [x] Memory layer A: per-profile markdown lessons + gated end-of-run reflection (operator-approved)
 - [x] K runtime (hybrid): durable thread + warm interactive session + fresh-seeded run on restart/idle/wake
-- [x] `agent_tasks` (K-owned global checklists) distinct from `project_tasks`
+- [x] `agent_tasks` (K-owned global checklists) distinct from `project_tasks` — **delivered as the
+  OPPOSITE design (2026-07-02 annotation):** there is no `agent_tasks` table and no split — the
+  as-built model is the **unified `work_items` store with scopes** (`run`/`personal`/`org`/`project`,
+  D-026 → D-048 → D-053); `project_tasks` itself was later dropped (D-058). The *capability* the box
+  wanted (K-owned durable checklists) ships as the `personal`/`org` scopes
 - [x] K-home dashboard surface (the friendly landing)
 
 ### 5.2 — Chief
@@ -228,7 +235,8 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
 - [x] **Push-to-talk in (v1).** `TranscriptionProvider` B-seam (`transcribe(audio)→{text}`) + a default local Whisper (faster-whisper) impl; `POST /api/transcribe` (core proxies — browser holds no key); `ENABLE_VOICE` / `WHISPER_BASE_URL` config; graceful degrade to keyboard when unreachable
 - [x] **Mic in every composer.** `useVoiceRecorder` (`MediaRecorder`) + a `MicButton` wired into the K composer, the ⌘K bar, and the HITL reply box; transcript inserts as ordinary text into the existing dispatch / reply flow
 - [x] **Voice status card** in Settings (engine reachable · model · enable toggle)
-- [x] Voice **out** (TTS — K talks back) — deferred to a later wave
+- [ ] Voice **out** (TTS — K talks back) — **deferred** to a later wave *(un-checked 2026-07-02:
+  this line was marked done while saying "deferred"; nothing TTS has shipped)*
 
 ### 5.5 — Local model management *(extends the ModelRouter seam — independent of the org tiers)*
 
@@ -276,6 +284,69 @@ memory-A · hybrid runtime · task-model scope + the `work_items` storage collap
 full K→Chief→lead→**PR** end-to-end live run (operator-gated token spend — the relay mechanic is
 already smoke-proven); and the low-severity review nits (hardcoded operator name; grant-guard
 substring→typed error class; `concatAssistantText` unbounded read; `kDelegations` counts failed).
+*(The d2b reroute and every listed nit were delivered in 5.7 below; the live PR run stays
+token-gated.)*
+
+### 5.7 — Post-merge fix delivery *(✓ 2026-07-02)*
+
+> A deep whole-system review of the merged Phase-5 org surfaced honesty gaps (cosmetic authority
+> editors, ignored project scoping, frozen model seeds, run-scoped stores that should be durable,
+> the d2b debt, unguarded wake spend, and UI drift from the approved demo). Six waves on
+> `feat/k-fixes` closed them — every wave conductor-reviewed, all integrated CI-green.
+
+- [x] **C1 — web bug fixes.** K-home no longer auto-navigates on send (the 5 s undo toast stays in
+  place with a *View run →* link; a second send restarts the countdown); dialog focus traps + ⌘K
+  a11y; live `run_update` WS invalidation of chief-org / orchestrators queries (throttled 250 ms);
+  real TopBar breadcrumbs (Orchestrators › name, Workflows › name, Projects › name); shared
+  runs-query key module; visible error states on K-home; `--on-accent` token; `.worktrees/`
+  gitignored.
+- [x] **B1 — authority enforcement + project-scoped dispatch + runtime model (D-054/D-055/D-056).**
+  `synthesizeConfigDir` honors the per-profile authority rows within the tier CEILING, fail-closed
+  validate-before-mutate; the relay resolves `scope_projects` → the projects registry and passes
+  `projectId`+`cwd` so leads run in the scoped repo; `default_model` un-frozen to the `''`
+  "runtime default" sentinel + one-shot migration; per-ask model override wins over profile over
+  runtime.
+- [x] **A1 — durable operator-global stores (D-053).** `work_items` scope `'run'|'personal'|'org'|
+  'project'` (new `'run'` = the old run-isolated semantics, kstore default); durable personal/org +
+  the `GET/POST/PATCH /api/k/work-items` surface; one-shot table rebuild re-stamping legacy
+  personal AND org rows to `'run'`; logistics de-run-scoped; mgmt `assignment_list`/`report_list`
+  read tools; `agent_memory.profile_id` populated + backfilled.
+- [x] **A2 — d2b completion (D-058).** `project_tasks` DROPPED after a final one-shot backfill
+  (kills the boot-resurrection of deleted tasks); `projectTasksDb`→`projectWorkItemsDb` as the
+  first-class project surface (zero HTTP shape change); partial UNIQUE `(project_id, issue_number)`
+  index + dedupe; `updateProjectTaskFromIssue` binds `project_id`; poller `pathMissing` degrade.
+- [x] **B2 — hygiene + wake governor (D-057/D-059).** Org-relevance filter + rolling-hour cap
+  (`chief_wake_max_per_hour`, default 6; suppressed wakes create no rows) + `chief_wake_events_enabled`
+  kill switch on event wakes; K routing logistics-precedence; bounded assistant-text reads +
+  report caps; `isPathWithin` resolves both sides (fixes the mixed-separator dispatch brick); typed
+  `GrantError`; `migrate()` `user_version` fast path; stranded-thread boot sweep.
+- [x] **C2 — UI pragmatic parity (+ D-060).** K-home real durable personal work items + Notes +
+  Schedule cards (`GET /api/k/notes`/`/api/k/schedule`) + composer power controls (model override +
+  forced route); Chief actuation (hand-work composer, operator reassign `PATCH
+  /api/chief/assignments/:id`, tree inspector Open-lead / View-run / Stop-run); per-lead recent-health
+  lines + `effectiveModel` chip + authority add-affordances; the "Run this workflow" launcher
+  (dispatch accepts `workflowId`, scaffold swap) + workflow-filtered run-tree picker; plus the
+  dispatch-retirement liveness fix (D-060) unwedging re-dispatch/reassign.
+
+**Gates.** Full fresh-tree verification after every wave; final: typecheck · **core 1317 → 1463**
+passed (1 skipped) · **web 407 → 457** passed · build, CI green on `feat/k-fixes`.
+
+**Conductor-review catches** (each fixed in-wave, none shipped broken): the relay's post-claim
+**strand window** (a scope-read throw left a claimed intent `'dispatched'` forever → degrade-to-failed
+inside the try); the **legacy-org escalation** (the A1 re-stamp originally covered only `personal` —
+an untouched legacy `org` row would have silently entered the durable operator view); the
+**version-gate ordering hazard** (stamp only after a successful scan; second-migrate tests reset
+`user_version` so slow-path idempotency stays under test); and the **dispatch-retirement wedge**
+(one successful dispatch permanently blocked re-dispatch and reassign — D-060).
+
+**Deferred / consciously not built:** `isPathWithin` Windows **case-insensitivity** (two casings of
+one path can still compare unequal — fail-safe: it rejects, never escapes); the **MemoryPage
+double-fetch** (filter options derive from a second lessons read); **mixed-intent messages
+under-escalate by design** (a logistics keyword keeps an engineering ask with K — the cheap failure
+direction, D-057); the demo's **Interactive checkbox for K sends dropped** (it maps to nothing — the
+K path is already interactive by design); and the demo's **health scores/bands, tier radios, and
+per-lead hues** consciously not built (pragmatic parity: real derived health lines shipped instead
+of invented numbers).
 
 ## Phase 6 — Intelligence & Scale *(optional)*
 

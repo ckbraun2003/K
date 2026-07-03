@@ -2,8 +2,11 @@
  * mgmt — the Chief's management working store behind the mgmt stdio MCP server.
  *
  * This module is the AUTHORITATIVE store logic for the mgmt tools (assign a lead an
- * objective, pick a workflow for it, scope its projects, and write a status report
- * up the chain). Like logistics.ts / k-store.ts it is deliberately FREE of any
+ * objective, pick a workflow for it, scope its projects, write a status report up the
+ * chain, and — assignment_list / report_list — READ the store back). WRITES stay
+ * run-scoped (a run mutates only its own rows); READS are DURABLE across Chief
+ * activations (the Chief's next wake reviews active leads + open objectives + reports
+ * filed back by dispatched leads). Like logistics.ts / k-store.ts it is deliberately FREE of any
  * MCP-SDK or transport import so it can be:
  *   - unit-tested directly against the DB (see core/test/mgmt.test.ts), and
  *   - reused by the stdio MCP server (mgmt-server.ts).
@@ -24,7 +27,8 @@
 import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
 import type { Assignment, MgmtReport } from '@k/shared'
-import { mgmtDb, runsDb, leadDispatchDb } from '../db.js'
+import { db, mgmtDb, runsDb, leadDispatchDb } from '../db.js'
+import { isTerminalRunStatus } from '../run-lifecycle.js'
 import { resolveLeadProfileId, resolveLeadWorkflow, buildLeadSeed } from '../chief-dispatch.js'
 
 /** Per-call context the server injects. `runId` is the managed run (K_RUN_ID). */
@@ -115,11 +119,21 @@ const PickWorkflowInput = {
   assignmentId: z.string().min(1).max(100),
   workflow: z.string().min(1).max(200),
 }
-function pickWorkflow(args: unknown, ctx: MgmtContext): Assignment {
-  const a = z.object(PickWorkflowInput).parse(args ?? {})
+// Read-modify-write under ONE transaction: pick_workflow/scope_projects each fetch
+// the owned row, rebuild it, and UPDATE — racy across the multi-PROCESS stdio MCP
+// children (one per concurrent managed run), where an interleaved writer between
+// the read and the write would be silently overwritten. Hoisted module-level
+// db.transaction fns (compiled once, not per call); a MgmtError thrown inside rolls
+// back with nothing written, and propagates to the caller unchanged. Invoked
+// `.immediate()` (the codebase's cross-process write-tx idiom — see db.ts's
+// migration transaction): a DEFERRED tx that reads first can hit
+// SQLITE_BUSY_SNAPSHOT on the read→write upgrade if another process commits in
+// between — an error busy_timeout does NOT wait out — while IMMEDIATE takes the
+// write lock up front and simply queues behind the other writer.
+const pickWorkflowTx = db.transaction((a: { assignmentId: string; workflow: string }, owner: string | null): Assignment => {
   // Ownership-scoped fetch: an assignment owned by another run reads as "not found",
   // so a run can neither confirm its existence nor mutate it.
-  const existing = mgmtDb.getAssignmentOwned.get(a.assignmentId, resolveOwnerRunId(ctx)) as Row | undefined
+  const existing = mgmtDb.getAssignmentOwned.get(a.assignmentId, owner) as Row | undefined
   if (!existing) throw new MgmtError(`assignment "${a.assignmentId}" not found.`)
   const cur = rowToAssignment(existing)
   mgmtDb.updateAssignment.run({
@@ -132,16 +146,20 @@ function pickWorkflow(args: unknown, ctx: MgmtContext): Assignment {
     updatedAt: Date.now(),
   })
   return rowToAssignment(mgmtDb.getAssignment.get(a.assignmentId) as Row)
+})
+function pickWorkflow(args: unknown, ctx: MgmtContext): Assignment {
+  const a = z.object(PickWorkflowInput).parse(args ?? {})
+  return pickWorkflowTx.immediate(a, resolveOwnerRunId(ctx))
 }
 
 const ScopeProjectsInput = {
   assignmentId: z.string().min(1).max(100),
   projects: z.array(z.string().min(1).max(200)).max(100),
 }
-function scopeProjects(args: unknown, ctx: MgmtContext): Assignment {
-  const a = z.object(ScopeProjectsInput).parse(args ?? {})
+// Same one-transaction read-modify-write as pickWorkflowTx (see its comment).
+const scopeProjectsTx = db.transaction((a: { assignmentId: string; projects: string[] }, owner: string | null): Assignment => {
   // Ownership-scoped fetch (see pick_workflow) — a cross-run id reads as not found.
-  const existing = mgmtDb.getAssignmentOwned.get(a.assignmentId, resolveOwnerRunId(ctx)) as Row | undefined
+  const existing = mgmtDb.getAssignmentOwned.get(a.assignmentId, owner) as Row | undefined
   if (!existing) throw new MgmtError(`assignment "${a.assignmentId}" not found.`)
   const cur = rowToAssignment(existing)
   mgmtDb.updateAssignment.run({
@@ -154,6 +172,10 @@ function scopeProjects(args: unknown, ctx: MgmtContext): Assignment {
     updatedAt: Date.now(),
   })
   return rowToAssignment(mgmtDb.getAssignment.get(a.assignmentId) as Row)
+})
+function scopeProjects(args: unknown, ctx: MgmtContext): Assignment {
+  const a = z.object(ScopeProjectsInput).parse(args ?? {})
+  return scopeProjectsTx.immediate(a, resolveOwnerRunId(ctx))
 }
 
 const ReportInput = {
@@ -193,23 +215,40 @@ const DispatchLeadInput = {
  *  startAgentRun('lead-…', {trigger:'delegation'}), records the Chief→lead link, and wires
  *  the report-back — all in a process that stays up.
  *
- *  Guards double-dispatch two ways: the assignment already carries a lead_run_id (already
- *  executed), OR it already has a pending/dispatched intent in the queue (recorded but not
- *  yet retired). Cross-run ownership is enforced too. Sync (the child await-s the value).
+ *  Guards double-dispatch two ways, both LIVENESS-DERIVED (the queue has no success-
+ *  terminal status — a completed intent stays 'dispatched' forever, so "already recorded"
+ *  alone can never be the test): the assignment's linked lead run is still LIVE (a
+ *  terminal prior run means a follow-up dispatch is legitimate — the relay overwrites the
+ *  link), OR an intent for it is still IN FLIGHT (pending, or dispatched with a live/
+ *  unrecorded run — see db.ts::getActiveLeadDispatchByAssignment's derivation). Cross-run
+ *  ownership is enforced too. Sync (the child await-s the value).
  *  Returns { assignmentId, leadProfileId, workflowId, dispatchId, status }. */
 function dispatchLead(args: unknown, ctx: MgmtContext) {
   const a = z.object(DispatchLeadInput).parse(args ?? {})
   const owner = resolveOwnerRunId(ctx)
   const row = mgmtDb.getAssignmentOwned.get(a.assignmentId, owner) as Row | undefined
   if (!row) throw new MgmtError(`assignment "${a.assignmentId}" not found for this run.`)
-  // Double-dispatch guard, part 1: the lead has already been executed (link recorded).
+  // Double-dispatch guard, part 1: the linked lead run is still LIVE. Liveness is
+  // DERIVED from the runs row, not from the link's existence — the relay records
+  // lead_run_id on success and nothing ever clears it, so a bare "link recorded" test
+  // would permanently wedge the assignment after its first completed run (no follow-up
+  // dispatch ever). A terminal prior run means a NEW dispatch is a legitimate follow-up
+  // wave; the relay overwrites the link when it executes the new intent.
   if (row.lead_run_id != null) {
-    throw new MgmtError(`assignment "${a.assignmentId}" already dispatched (run ${String(row.lead_run_id)}).`)
+    const priorStatus = (runsDb.getRun.get(String(row.lead_run_id)) as { status?: string } | undefined)?.status
+    if (!isTerminalRunStatus(priorStatus)) {
+      throw new MgmtError(
+        `assignment "${a.assignmentId}" already dispatched (run ${String(row.lead_run_id)} is live).`,
+      )
+    }
   }
-  // Double-dispatch guard, part 2: an intent is already queued for this assignment
-  // (pending or dispatched but not yet retired). This is a check-then-act, safe because one
-  // run's mgmt tool calls are SERIALIZED over its single stdio channel (one Chief agent
-  // driving one mgmt-server), so a same-assignment re-record across turns is rejected.
+  // Double-dispatch guard, part 2: an intent for this assignment is still IN FLIGHT —
+  // pending, or dispatched with a live/unrecorded run (the statement DERIVES 'active'
+  // from the linked run's liveness; a completed intent is retired-by-derivation and
+  // does not block — see db.ts::getActiveLeadDispatchByAssignment). Check-then-act is
+  // safe because one run's mgmt tool calls are SERIALIZED over its single stdio channel
+  // (one Chief agent driving one mgmt-server), so a same-assignment re-record across
+  // turns is rejected.
   if (leadDispatchDb.getActiveLeadDispatchByAssignment.get(a.assignmentId)) {
     throw new MgmtError(`assignment "${a.assignmentId}" already has a pending dispatch.`)
   }
@@ -230,6 +269,36 @@ function dispatchLead(args: unknown, ctx: MgmtContext) {
     createdAt: Date.now(),
   })
   return { assignmentId: a.assignmentId, leadProfileId, workflowId, dispatchId, status: 'pending' as const }
+}
+
+// ── read tools (durable across Chief activations) ─────────────────────────────
+
+const AssignmentListInput = { limit: z.number().int().min(1).max(100).optional() }
+/** List recent assignments across Chief activations (durable read — NOT run-scoped),
+ *  each enriched with the dispatched lead run's CURRENT status (null when undispatched).
+ *  Lets the Chief's next activation review active leads + open objectives. */
+function assignmentList(args: unknown): Array<Assignment & { leadRunStatus: string | null }> {
+  const a = z.object(AssignmentListInput).parse(args ?? {})
+  const limit = a.limit ?? 20
+  const rows = mgmtDb.listRecentAssignments.all(limit) as Row[]
+  return rows.map(row => {
+    const leadRunId = row.lead_run_id
+    const leadRunStatus =
+      leadRunId != null
+        ? ((runsDb.getRun.get(String(leadRunId)) as { status?: string } | undefined)?.status ?? null)
+        : null
+    return { ...rowToAssignment(row), leadRunStatus }
+  })
+}
+
+const ReportListInput = { limit: z.number().int().min(1).max(100).optional() }
+/** List recent status reports across Chief activations (durable read — NOT run-scoped),
+ *  newest first, incl. reports filed back by dispatched leads. */
+function reportList(args: unknown): MgmtReport[] {
+  const a = z.object(ReportListInput).parse(args ?? {})
+  const limit = a.limit ?? 20
+  const rows = mgmtDb.listRecentReports.all(limit) as Row[]
+  return rows.map(rowToReport)
 }
 
 // ── registry ────────────────────────────────────────────────────────────────
@@ -277,8 +346,22 @@ export const mgmtTools: MgmtTool[] = [
   {
     name: 'dispatch_lead',
     description:
-      "Record the intent to dispatch the lead on one of this run's assignments: seeds the lead run prompt from its chosen workflow (default code-wave) and queues a dispatch that the main-process relay then executes as a supervised delegation run (recording the Chief→lead link and wiring the report-back). Guards double-dispatch (an assignment already dispatched or with a pending intent is rejected). Returns { assignmentId, leadProfileId, workflowId, dispatchId, status }.",
+      "Record the intent to dispatch the lead on one of this run's assignments: seeds the lead run prompt from its chosen workflow (default code-wave) and queues a dispatch that the main-process relay then executes as a supervised delegation run (recording the Chief→lead link and wiring the report-back). Guards double-dispatch (an assignment whose lead run is still LIVE, or with an in-flight dispatch intent, is rejected; a completed prior dispatch does not block a follow-up). Returns { assignmentId, leadProfileId, workflowId, dispatchId, status }.",
     inputShape: DispatchLeadInput,
     handler: dispatchLead,
+  },
+  {
+    name: 'assignment_list',
+    description:
+      'List recent assignments across Chief activations (the durable management store): lead, objective, workflow, projects, and the dispatched lead run + its current status. Readable across activations — use this to review active leads and open objectives.',
+    inputShape: AssignmentListInput,
+    handler: assignmentList,
+  },
+  {
+    name: 'report_list',
+    description:
+      'List recent status reports across Chief activations (newest first), including reports filed back by dispatched leads. Readable across activations.',
+    inputShape: ReportListInput,
+    handler: reportList,
   },
 ]

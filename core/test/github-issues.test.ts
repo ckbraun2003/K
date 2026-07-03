@@ -9,7 +9,7 @@ import { describe, it, expect, afterAll, beforeEach } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import type { IssueInfo, Project } from '@k/shared'
 import { syncIssues } from '../src/github.js'
-import { projectsDb, projectTasksDb, db } from '../src/db.js'
+import { projectsDb, projectWorkItemsDb, db } from '../src/db.js'
 
 const projectIds: string[] = []
 
@@ -37,14 +37,14 @@ function makeProject(githubRemote: string | null = 'owner/repo'): Project {
 }
 
 function tasksFor(projectId: string): Array<Record<string, unknown>> {
-  return projectTasksDb.listProjectTasks.all(projectId) as Array<Record<string, unknown>>
+  return projectWorkItemsDb.listProjectTasks.all(projectId) as Array<Record<string, unknown>>
 }
 
 const fetcher = (issues: IssueInfo[]) => async () => issues
 
 afterAll(() => {
   for (const id of projectIds) {
-    try { db.prepare('DELETE FROM project_tasks WHERE project_id = ?').run(id) } catch { /* ignore */ }
+    try { db.prepare('DELETE FROM work_items WHERE project_id = ?').run(id) } catch { /* ignore */ }
     try { db.prepare('DELETE FROM projects WHERE id = ?').run(id) } catch { /* ignore */ }
   }
 })
@@ -80,7 +80,7 @@ describe('syncIssues', () => {
   it('update / no-clobber: open issue does not overwrite in_progress', async () => {
     // pre-seed a task linked to issue #10 with status in_progress
     const taskId = uuid()
-    projectTasksDb.insertProjectTask.run({
+    projectWorkItemsDb.insertProjectTask.run({
       id: taskId,
       projectId: project.id,
       title: 'old title',
@@ -105,7 +105,7 @@ describe('syncIssues', () => {
 
   it('reopen: done task with a now-open issue returns to open', async () => {
     const taskId = uuid()
-    projectTasksDb.insertProjectTask.run({
+    projectWorkItemsDb.insertProjectTask.run({
       id: taskId,
       projectId: project.id,
       title: 't',
@@ -124,7 +124,7 @@ describe('syncIssues', () => {
 
   it('close: open task with a now-closed issue becomes done', async () => {
     const taskId = uuid()
-    projectTasksDb.insertProjectTask.run({
+    projectWorkItemsDb.insertProjectTask.run({
       id: taskId,
       projectId: project.id,
       title: 't',

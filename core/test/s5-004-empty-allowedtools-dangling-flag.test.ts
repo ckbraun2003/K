@@ -37,6 +37,7 @@ describe('S5-004 — empty allowedTools must not emit a dangling --allowedTools 
     permissionMode: 'default',
     claudeConfig: {
       allowedTools: [], // type-valid empty list
+      disallowedTools: [],
       mcpConfigPath: '/run/cfg/mcp.json',
       settingsPath: '/run/cfg/settings.json',
       appendSystemPromptFile: '/run/cfg/system-prompt.md',

@@ -25,6 +25,7 @@ import { getProvider, parseClaudeLine } from './providers.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
 import { synthesizeConfigDir, pruneOrphanAgentRuns, type SynthesizedConfig } from './agent-config.js'
 import { DEFAULT_PROFILE } from './profiles.js'
+import { TERMINAL_RUN_STATUSES } from './run-lifecycle.js'
 
 const PERMISSION_MODE = resolvePermissionMode(process.env.RUN_PERMISSION_MODE)
 
@@ -294,9 +295,12 @@ export function reconcileOrphanedActivations(d: import('better-sqlite3').Databas
  * (lead-dispatch-relay.ts) claims a queued intent (pending→dispatched CAS) BEFORE it
  * awaits startAgentRun; if the main process crashes in that window the row is left
  * 'dispatched', lead_run_id NULL. Nothing else recovers it: it is no longer 'pending' (so
- * the drain skips it) yet getActiveLeadDispatchByAssignment counts 'dispatched' as active
- * (so the Chief's re-dispatch is rejected) — the assignment could never get a lead. Mark it
- * 'failed' (the assignment link is still NULL → the Chief can re-dispatch a fresh intent).
+ * the drain skips it), and getActiveLeadDispatchByAssignment derives a 'dispatched' row
+ * with NO lead_run_id as still ACTIVE — it cannot prove the run was never spawned, so it
+ * blocks fail-safe (the Chief's re-dispatch is rejected) — the assignment could never get
+ * a lead. (A 'dispatched' row WITH a run is retired by derivation once that run reaches
+ * terminal — this sweep exists only for the run-less orphan.) Mark it 'failed' (the
+ * assignment link is still NULL → the Chief can re-dispatch a fresh intent).
  * We deliberately do NOT re-'pending' it: a crash AFTER startAgentRun spawned the run but
  * BEFORE setLeadDispatchRun recorded it would then double-execute the lead. Mirrors
  * reconcileStaleRuns (pure DB; takes the handle for unit-testing). Returns rows reconciled.
@@ -305,6 +309,38 @@ export function reconcileOrphanedLeadDispatches(d: import('better-sqlite3').Data
   const res = d
     .prepare(`UPDATE lead_dispatches SET status = 'failed', dispatched_at = ? WHERE status = 'dispatched' AND lead_run_id IS NULL`)
     .run(Date.now())
+  return res.changes
+}
+
+/**
+ * Clear k_threads stranded pointing at a DEAD warm run. Live-observed after a
+ * crash/boot: a thread stuck status='active' with an active_run_id whose run is
+ * already terminal (the captureAnswers subscriber that would have cleared it does
+ * not survive a restart) or whose runs row is missing entirely. The warm-path
+ * check (k-thread.ts::isWarm) would treat such a pointer as cold anyway, but the
+ * stale 'active' status misreports the thread forever — so the boot sweep resets it:
+ * active_run_id → NULL, status → 'idle', updated_at stamped. Runs AFTER
+ * reconcileStaleRuns so runs just flipped 'interrupted' are covered. A thread whose
+ * run is still live is untouched. Terminal set built from run-lifecycle.ts::
+ * TERMINAL_RUN_STATUSES (bound, not interpolated values). Mirrors the sibling
+ * sweeps (pure DB mutation; takes the handle for unit-testing). Returns rows swept.
+ */
+export function reconcileStaleKThreads(d: import('better-sqlite3').Database = db): number {
+  const terminal = [...TERMINAL_RUN_STATUSES]
+  const placeholders = terminal.map(() => '?').join(', ')
+  const res = d
+    .prepare(
+      `UPDATE k_threads SET active_run_id = NULL, status = 'idle', updated_at = ?
+       WHERE active_run_id IS NOT NULL
+         AND (
+           NOT EXISTS (SELECT 1 FROM runs r WHERE r.id = k_threads.active_run_id)
+           OR EXISTS (
+             SELECT 1 FROM runs r
+             WHERE r.id = k_threads.active_run_id AND r.status IN (${placeholders})
+           )
+         )`,
+    )
+    .run(Date.now(), ...terminal)
   return res.changes
 }
 
@@ -348,6 +384,13 @@ export function reconcileOnBoot(): void {
     if (n > 0) console.log(`[supervisor] boot sweep: marked ${n} stale run(s) interrupted`)
   } catch (err) {
     console.warn('[supervisor] reconcileStaleRuns failed:', (err as Error).message)
+  }
+  // After reconcileStaleRuns so runs it just flipped 'interrupted' are covered.
+  try {
+    const k = reconcileStaleKThreads()
+    if (k > 0) console.log(`[supervisor] boot sweep: cleared ${k} stale K thread(s) to idle`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileStaleKThreads failed:', (err as Error).message)
   }
   try {
     const o = reconcileOrphanedActivations()
@@ -416,6 +459,7 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
         claudeConfig: synth
           ? {
               allowedTools: synth.allowedTools,
+              disallowedTools: synth.disallowedTools,
               mcpConfigPath: synth.mcpConfigPath,
               settingsPath: synth.settingsPath,
               appendSystemPromptFile: synth.appendSystemPromptFile,

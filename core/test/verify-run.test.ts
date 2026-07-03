@@ -366,6 +366,9 @@ describe('migrate() — verification_reports.score_breakdown', () => {
   })
 
   it('is idempotent — a second migrate() does not throw', () => {
+    // Force the FULL scan — the user_version fast path would otherwise skip the
+    // guarded-ALTER branch this case re-runs.
+    tempDb.pragma('user_version = 0')
     expect(() => migrate(tempDb)).not.toThrow()
   })
 
@@ -416,6 +419,8 @@ describe('migrate() — verification_reports.coverage_pct', () => {
   })
 
   it('is idempotent — a second migrate() does not throw', () => {
+    // Force the FULL scan (see the score_breakdown twin above).
+    tempDb.pragma('user_version = 0')
     expect(() => migrate(tempDb)).not.toThrow()
   })
 

@@ -23,12 +23,13 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { type Status, SystemPromptBodySchema } from '@k/shared'
+import { type Status, SystemPromptBodySchema, isKnownModel } from '@k/shared'
 import { REPO_ROOT } from '../supervisor.js'
 import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 import { probeWhisper } from '../transcription.js'
+import { GrantError } from '../authority.js'
 import { getProfile, updateProfile } from '../profiles.js'
 
 // ── System-prompt file location ───────────────────────────────────────────────
@@ -204,14 +205,15 @@ const OrgDefaultPatchSchema = z
     skills: z.array(z.string()).optional(),
     allowedTools: z.array(z.string()).optional(),
     mcpServers: z.array(z.string()).optional(),
-    defaultModel: z.string().optional(),
+    defaultModel: z.string().nullable().optional(), // null = clear to runtime default
   })
   .strict()
 
-// The ONLY updateProfile throw that is a client error (a bad MCP mount — "mounting ≠
-// granting"). Anything else is a server fault and must surface as 500. Mirrors
-// routes/orchestrators.ts::GRANT_GUARD_ERROR.
-const ORG_DEFAULT_GRANT_GUARD_ERROR = /does not grant it/
+// The two fail-closed client-error guards updateProfile can raise — assertMcpGrants
+// (a bad MCP mount, "mounting ≠ granting") and assertTierCeiling (the B1 tier
+// ceiling) — throw the typed GrantError (authority.ts); the PATCH below maps it to a
+// 400. Anything else is a server fault and must surface as 500. Mirrors
+// routes/orchestrators.ts.
 
 /** The durable id of the org-default orchestrator authority (=== the seed row / the
  *  DEFAULT_PROFILE fallback in profiles.ts). */
@@ -326,13 +328,21 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (Object.keys(parsed.data).length === 0) {
       return reply.status(400).send({ error: 'empty patch' })
     }
+    // defaultModel must be a known Claude model id (same gate as PUT /api/claude/model);
+    // null explicitly CLEARS the override back to the runtime default. '' normalizes to
+    // that same clear-sentinel FIRST — it is the storage encoding of "no override"
+    // (db.ts rowToAgentProfile), so it must clear, never 400.
+    if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
+    if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
+      return reply.status(400).send({ error: 'unknown model' })
+    }
     try {
       const updated = updateProfile(ORG_DEFAULT_ID, parsed.data)
       if (!updated) return reply.status(404).send({ error: 'not found' })
       return reply.send(updated)
     } catch (e) {
-      const msg = (e as Error).message
-      if (ORG_DEFAULT_GRANT_GUARD_ERROR.test(msg)) return reply.status(400).send({ error: msg })
+      // Typed guard signal → 400 with the message verbatim; anything else → 500.
+      if (e instanceof GrantError) return reply.status(400).send({ error: e.message })
       throw e
     }
   })

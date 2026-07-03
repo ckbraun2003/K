@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Run, AgentEvent, WsMessage, NamedWorkflow } from '@k/shared'
+import type { Run, AgentEvent, WsMessage, NamedWorkflow, WorkflowRun } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
@@ -29,26 +29,62 @@ function runOptionLabel(run: Run): string {
   return `${head}  ·  ${run.status}`
 }
 
+/**
+ * Picker identity filter (C2): the Workflows run-picker defaults to runs that were
+ * actually WORKFLOW-DISPATCHED (their id appears as a workflow_runs.run_id), not
+ * every run in the fleet — `showAll` widens back to everything. Pure + exported
+ * for unit-testing.
+ */
+export function filterPickerRuns(
+  runs: Run[],
+  workflowRunIds: Set<string>,
+  showAll: boolean,
+): Run[] {
+  return showAll ? runs : runs.filter(r => workflowRunIds.has(r.id))
+}
+
 /** The live runtime tree section: pick a run, build + live-update its tree. */
 function RunTreeSection({ initialRunId }: { initialRunId?: string }) {
   const qc = useQueryClient()
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(initialRunId)
   const [events, setEvents] = useState<AgentEvent[]>([])
+  // Default WORKFLOW-ONLY — except deep-linked: the deep-linked run may not be a
+  // workflow dispatch, and filtering it out of its own deep link would be absurd.
+  const [showAll, setShowAll] = useState(!!initialRunId)
 
   const { data: runs } = useQuery<Run[]>({
     queryKey: ['runs', 'workflows-picker'],
     queryFn: () => api.runs.list({ limit: 50 }),
   })
+  // Which runs were workflow-dispatched — the workflow_runs table is the identity
+  // source (run_id is null until the dispatch reached a run, hence the filter).
+  const { data: workflowRuns = [] } = useQuery<WorkflowRun[]>({
+    queryKey: ['workflow-runs'],
+    queryFn: () => api.workflows.runs(),
+  })
+  const workflowRunIds = useMemo(
+    () => new Set(workflowRuns.map(r => r.runId).filter((id): id is string => id != null)),
+    [workflowRuns],
+  )
+  const pickerRuns = useMemo(
+    () => filterPickerRuns(runs ?? [], workflowRunIds, showAll),
+    [runs, workflowRunIds, showAll],
+  )
 
-  // Honour back/forward deep-links (#/workflows/:runId).
+  // Honour back/forward deep-links (#/workflows/:runId) — widen to All runs so the
+  // deep-linked run is always present in its own picker.
   useEffect(() => {
-    if (initialRunId) setSelectedRunId(initialRunId)
+    if (initialRunId) {
+      setSelectedRunId(initialRunId)
+      setShowAll(true)
+    }
   }, [initialRunId])
 
-  // Default to the most recent run once the list arrives (only if none chosen).
+  // Default to the most recent FILTERED run once the list arrives (only if none
+  // chosen) — the workflow-only default must not select a filtered-out run.
   useEffect(() => {
-    if (!selectedRunId && runs && runs.length > 0) setSelectedRunId(runs[0].id)
-  }, [runs, selectedRunId])
+    if (!selectedRunId && pickerRuns.length > 0) setSelectedRunId(pickerRuns[0].id)
+  }, [pickerRuns, selectedRunId])
 
   const { data: run } = useQuery<Run>({
     queryKey: ['run', selectedRunId],
@@ -108,13 +144,34 @@ function RunTreeSection({ initialRunId }: { initialRunId?: string }) {
           className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.45)]"
         >
           {!selectedRunId && <option value="">Select a run…</option>}
-          {(runs ?? []).map(r => (
+          {pickerRuns.map(r => (
             <option key={r.id} value={r.id}>
               {runOptionLabel(r)}
             </option>
           ))}
         </select>
+        {/* Widen the picker from workflow-dispatched runs to every run. */}
+        <button
+          type="button"
+          data-testid="wf-picker-all"
+          aria-pressed={showAll}
+          onClick={() => setShowAll(s => !s)}
+          className={cn(
+            'flex-shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors',
+            showAll
+              ? 'border-[color:rgba(56,189,248,0.45)] text-[var(--accent-hover)]'
+              : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]',
+          )}
+        >
+          All runs
+        </button>
       </div>
+
+      {pickerRuns.length === 0 && !showAll && (runs?.length ?? 0) > 0 && (
+        <p className="text-xs italic text-[var(--muted)]" data-testid="wf-picker-empty">
+          No workflow-dispatched runs yet — toggle All runs.
+        </p>
+      )}
 
       {selectedRunId ? (
         <div className="space-y-4">
@@ -199,7 +256,7 @@ function DefinitionsSection() {
         <div className="mb-3 flex items-center gap-2">
           <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text)]">{selected.name}</h2>
           {selected.crossProject && (
-            <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#241640]">
+            <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--on-accent)]">
               cross-project
             </span>
           )}

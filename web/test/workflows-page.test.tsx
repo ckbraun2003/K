@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { DELEGATION_WORKFLOW } from '@k/shared'
+import { DELEGATION_WORKFLOW, type Run } from '@k/shared'
 import WorkflowDiagram from '../src/components/WorkflowDiagram'
 import RunTree from '../src/components/RunTree'
+import { filterPickerRuns } from '../src/pages/WorkflowsPage'
 import type { WorkflowTree } from '../src/lib/workflow'
 
 // jsdom has no matchMedia; framer-motion may probe it. Provide an inert stub.
@@ -45,6 +46,33 @@ describe('WorkflowDiagram', () => {
 
     await user.click(screen.getByTestId('role-implementer'))
     expect(screen.getByTestId('role-detail').textContent).toContain(implementer.description)
+  })
+})
+
+// ─── Run-picker identity filter (C2) ─────────────────────────────────────────
+
+function pickerRun(id: string): Run {
+  return {
+    id, prompt: `run ${id}`, cwd: '/repo', status: 'done', provider: 'claude',
+    model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, createdAt: 0,
+  }
+}
+
+describe('filterPickerRuns', () => {
+  const runs = [pickerRun('r1'), pickerRun('r2'), pickerRun('r3')]
+  const workflowIds = new Set(['r2'])
+
+  it('workflow-only mode keeps only runs backed by a workflow_runs row', () => {
+    expect(filterPickerRuns(runs, workflowIds, false).map(r => r.id)).toEqual(['r2'])
+  })
+
+  it('showAll returns every run unchanged (order preserved)', () => {
+    expect(filterPickerRuns(runs, workflowIds, true)).toEqual(runs)
+  })
+
+  it('empty identity set → empty filtered list (the "toggle All runs" hint case)', () => {
+    expect(filterPickerRuns(runs, new Set(), false)).toEqual([])
+    expect(filterPickerRuns([], workflowIds, false)).toEqual([])
   })
 })
 

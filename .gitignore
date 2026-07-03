@@ -29,3 +29,4 @@ AGENTS.md
 # local harness working dirs — kept on disk, out of version control
 .claude/
 docs/
+.worktrees/

@@ -85,6 +85,29 @@ describe('DelegationTree', () => {
     expect(detail.textContent).toContain('spec-review')
   })
 
+  it('renders renderActions output in the inspector for the selected node (and omits the row when null)', async () => {
+    const user = userEvent.setup()
+    render(
+      <DelegationTree
+        root={root()}
+        renderActions={node =>
+          node.kind === 'lead' ? (
+            <button type="button" data-testid="test-action">act on {node.label}</button>
+          ) : null
+        }
+      />,
+    )
+
+    // Default selection is the chief root — the renderer returned null, so the
+    // actions row is omitted entirely.
+    expect(screen.queryByTestId('delegation-node-actions')).toBeNull()
+
+    // Selecting the lead surfaces its action row inside the inspector.
+    await user.click(screen.getByTestId('delegation-tree-node-lead-backend'))
+    expect(screen.getByTestId('delegation-node-actions')).toBeTruthy()
+    expect(screen.getByTestId('test-action').textContent).toBe('act on Backend')
+  })
+
   it('renders the whole-org chain — user → K → Chief → lead → sub-agent — all visible', () => {
     // The multi-tier root (loop-b2): the two ancestor tiers wrap the Chief subtree.
     const whole: DelegationNode = {

@@ -1,14 +1,21 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getWorkflowDef, listWorkflowDefs, updateWorkflowDef } from '../workflow-defs.js'
+import { workflowRunsDb } from '../db.js'
+import { dbRowToWorkflowRun } from './runs.js'
 
 /**
  * Named-workflow definitions route (P5.3b, D-047) — the list + detail + editor for the
- * operator-editable workflow TEMPLATES (workflow_definitions). This is the DB entity
- * distinct from the @k/shared WorkflowDefinition diagram type. Every mutation is delegated
- * to workflow-defs.ts::updateWorkflowDef (read-merge-write). Mirrors routes/orchestrators.ts:
- * zod `.strict()` so an unknown key is a 400, empty patch is a 400, unknown id is a 404.
+ * operator-editable workflow TEMPLATES (workflow_definitions), plus the recent
+ * workflow-RUNS list (C2 — the run-picker's identity source). The definitions are the
+ * DB entity distinct from the @k/shared WorkflowDefinition diagram type. Every mutation
+ * is delegated to workflow-defs.ts::updateWorkflowDef (read-merge-write). Mirrors
+ * routes/orchestrators.ts: zod `.strict()` so an unknown key is a 400, empty patch is a
+ * 400, unknown id is a 404.
  */
+
+/** Cap on the recent workflow-runs list — the picker needs identity, not history. */
+const WORKFLOW_RUNS_LIMIT = 100
 
 // The mutable patch. All fields optional (partial patch); `.strict()` so an unknown key is
 // a 400 (a typo can't silently no-op). An empty body is rejected below — a PATCH must
@@ -28,6 +35,15 @@ export async function workflowsRoutes(app: FastifyInstance) {
   // GET /api/workflows — all named workflow templates (seed order).
   app.get('/api/workflows', async (_req, reply) => {
     return reply.send(listWorkflowDefs())
+  })
+
+  // GET /api/workflows/runs — the most recent workflow_runs (bounded), mapped to the
+  // shared WorkflowRun shape via runs.ts's mapper. Registered BEFORE '/api/workflows/:id'
+  // for readability (Fastify's router prefers the static segment over the param
+  // regardless, but keeping the static route first makes that visibly true).
+  app.get('/api/workflows/runs', async (_req, reply) => {
+    const rows = workflowRunsDb.listRecentWorkflowRuns.all(WORKFLOW_RUNS_LIMIT) as Array<Record<string, unknown>>
+    return reply.send(rows.map(dbRowToWorkflowRun))
   })
 
   // GET /api/workflows/:id — one template; 404 for an unknown id.

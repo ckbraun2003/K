@@ -6,14 +6,15 @@ import { navigate } from '../lib/route'
 /**
  * Orchestrators roster (P5.3a) — the five discipline leads as slim cards. ONE batched
  * query (api.orchestrators.list) drives the whole page: no per-lead useQuery fan-out.
- * Each card shows the lead's name, its charter/tier chip, a live/idle status pill, a
- * wakes count, and an Open button into the param-routed detail view. Read-only here;
- * authority edits live in OrchestratorDetailPage.
+ * Each card shows the lead's name, a live/idle status pill, a wakes count, and an Open
+ * button into the param-routed detail view. (The charter chip was dropped — every card
+ * read "ORCHESTRATOR", carrying zero signal.) Read-only here; authority edits live in
+ * OrchestratorDetailPage.
  */
 
-/** One slim roster card. Light accents use dark-on-light text for WCAG. */
-function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
-  const { profile, live, wakes } = entry
+/** One slim roster card. Exported for render-testing (prop-fed, no queries). */
+export function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
+  const { profile, live, wakes, recent } = entry
   return (
     <div
       className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
@@ -23,10 +24,18 @@ function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text)]">
           {profile.name}
         </span>
-        <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#241640]">
-          {profile.charter}
-        </span>
       </div>
+
+      {/* Recent-run health — REAL counts from the lead's activation history, never
+          an invented score/band. Rendered only when there is history to report. */}
+      {recent && recent.total > 0 && (
+        <p
+          data-testid={`orchestrator-recent-${profile.id}`}
+          className={`mt-1.5 text-[11px] ${recent.failed === 0 ? 'text-[var(--green)]' : 'text-[var(--amber)]'}`}
+        >
+          {recent.succeeded}/{recent.total} recent ✓{recent.failed > 0 && ` · ${recent.failed} failed`}
+        </p>
+      )}
 
       <div className="mt-2 flex items-center gap-2 text-[11px] text-[var(--muted)]">
         <span

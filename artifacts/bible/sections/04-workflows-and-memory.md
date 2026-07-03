@@ -2,18 +2,18 @@
 title: Workflows & Memory
 icon: "⟲"
 status: active
-updated: 2026-07-01
+updated: 2026-07-02
 ---
 
-> **Status — partially BUILT (Phase 5).** The harness has one hardcoded delegation loop
-> (`core/src/workflows.ts`), now extended so the orchestrator **reports progress** through the kstore
-> status-write tools. **Memory layer A is built as a TOOL, not a file**: managed agents propose
-> lessons through kstore `lesson_propose` (gated, held pending) into the `agent_memory` table —
+> **Status — BUILT (Phase 5, finalized P5.7).** The single hardcoded delegation loop
+> (`core/src/workflows.ts`) generalized into **named workflow definitions** (P5.3b, D-047), with the
+> orchestrator **reporting progress** through the kstore status-write tools. **Memory layer A is
+> built as a TOOL, not a file**: managed agents propose lessons through kstore `lesson_propose`
+> (gated, held pending) into the `agent_memory` table — now **profile-linked** (D-053) —
 > `tasks/lessons.md` is a **home-development-only** tracker, never written by a managed run. Work
-> items are likewise a **tool + table** (kstore `work_item_*`, the `work_items` table). **Still
-> planned:** named **workflow definitions** beyond the single loop, memory layers B/C (retrieval/
-> weighting), and the unified `scope`-discriminated work-item model (decisions D-022/D-026; the
-> shipped `work_items` is run-scoped — see below).
+> items are the **unified, `scope`-discriminated `work_items` store, fully collapsed**
+> (D-045 → D-048 → D-053 → D-058: `project_tasks` is dropped). **Still planned:** memory layers B/C
+> (retrieval/weighting) and scope **promotion** along a row.
 
 A lead does work by **running a workflow** and gets smarter over time through **memory**. Both are
 configuration, not new engines — the substrate is the supervisor/EventBus already in place.
@@ -71,6 +71,16 @@ NamedWorkflow {                 // BUILT — P5.3b (generalizes today's single b
 > readonly { title }[])` (a `ProjectTask` still satisfies it, so the todo-batch path is unchanged and
 > byte-identical). The chosen workflow defaults to `code-wave` when the assignment named none. See §03
 > *Chief→lead dispatch*.
+
+> **Operator launcher — "Run this workflow" (P5.7 C2).** A named definition is now directly
+> launchable from its own detail page: `WorkflowDetailPage`'s **Run this workflow** dialog picks a
+> project → its open tasks → dispatches, and the existing task-dispatch route
+> (`POST /api/projects/:id/tasks/dispatch`) accepts an optional **`workflowId`** that seeds the
+> prompt from THAT definition's `promptScaffold` through the same `renderWorkflowPrompt` seam
+> (unknown id → a clean `400`, validate-before-mutate: no `workflow_run` row inserted, no task
+> locked; omitted → the `code-wave` default, byte-identical to before). A new
+> `GET /api/workflows/runs` feeds the Run-tree picker's **workflow-only default filter** (with an
+> all-runs toggle; deep links default to all).
 
 ## The delegation loop
 
@@ -139,6 +149,14 @@ without a human gate. The store is keyed by profile id so each tier accumulates 
 and the approval gate + outcome metadata are exactly the hooks layer B's retrieval/weighting and
 layer C's auto-derivation plug into later.
 
+**The profile key is now REAL (P5.7, D-053).** `agent_memory.profile_id` — added at P5.0 but left
+NULL by the producer — is now **populated**: `lesson_propose` resolves the calling run's profile via
+its `agent_runs` activation and binds it on insert, and a one-shot best-effort backfill
+(`mig_agent_memory_profile_backfill`) resolved pre-existing lessons the same way (a lesson whose run
+has no activation row stays NULL). So per-profile lesson retrieval — the layer-B hook, and the
+Memory-review page's per-profile filter (P5.7 C2, over the route's pre-existing `profileId` param)
+— reads a real column, not a hope.
+
 **The gate is now operator-usable (P5.1b).** The pending queue is no longer approvable only out of
 band — a **Memory review** surface (sidebar → Memory) lists the proposed lessons as cards showing the
 proposing profile and source run, with **Approve** / **Reject** actions, plus a lighter accepted/
@@ -152,70 +170,71 @@ run) is still layer B.
 ## Work items — one unified, scoped model
 
 There is **one `work_items` table**, not a split between K-owned and project-owned tasks (decision
-**D-026** unifies the earlier `agent_tasks` / `project_tasks` model). A single **`scope`**
-discriminator says where an item lives:
+**D-026** unifies the earlier `agent_tasks` / `project_tasks` model; **D-053** finalized the scope
+enum; **D-058** dropped `project_tasks` itself). A single **`scope`** discriminator says where an
+item lives and how long it lives:
 
-| `scope` | What | Owner |
-|---------|------|-------|
-| **`personal`** | K's own global checklists — org-level reminders, cross-cutting to-dos (K-owned) | K |
-| **`org`** | a Chief **objective** — an org-level engineering goal the Chief is staffing | Chief |
-| **`project`** | a project-scoped ticket that lives in a project workspace and feeds delegation workflows (§05) | the project |
+| `scope` | What | Lifetime |
+|---------|------|----------|
+| **`run`** | a managed run's own working tickets (the kstore **default** — a lead's checklist for one wave) | **ephemeral** — visible only to the run that created it |
+| **`personal`** | the operator's own list — reminders, cross-cutting to-dos K keeps for you | **durable operator-global** (persists across sessions and runs) |
+| **`org`** | an org-wide item — an org-level goal being tracked | **durable operator-global** |
+| **`project`** | a project-scoped ticket that lives in a project workspace and feeds delegation workflows (§05) | owned by the project |
 
-**K may create `personal` OR `project` items** — a loose end for the org, or a ticket scoped to a
-specific project — so "**K can add to project tasks**" is preserved without a second table. Items are
-**promotable** along the same row: a `personal` note can be promoted to an `org` objective, and an
-`org` objective scoped down to a `project` ticket, as work firms up. One table keeps a project's task
-list a clean unit of engineering work while still giving K and the Chief somewhere to track looser
-items — and lets every task surface (K-home work-items, Chief objectives, a project's Tasks tab) read
-from one store.
+**Who creates what (as-built, D-053).** K creates **`personal`** (or `org`) items — durable, so
+"K's list survives the run that wrote it"; a managed run's working tickets default to **`run`**
+(the original run-isolated semantics, unchanged for leads); and **`project`** tickets are created
+via the **projects API only** — kstore **REJECTS `scope='project'`** at the tool boundary with an
+explicit error. Durable scopes filter by **scope only** (`run_id` is kept on insert as provenance,
+never as an access filter); `run` scope keeps the ownership guard. Scope **promotion** along the
+same row (`personal → org → project` via `work_item_update`) is **not wired** — the update tool
+edits status/title/body only; promotion remains a later increment. One table still buys the D-026
+point: every task surface (K-home work items, a project's Tasks tab) reads from one store.
 
 ```ts
-WorkItem {                     // PLANNED — Phase 5 (unified; replaces the agent_tasks/project_tasks split)
+WorkItem {                     // BUILT — @k/shared (unified store; scope enum final per D-053)
   id: uuid
-  scope: 'personal' | 'org' | 'project'   // personal = K-owned · org = a Chief objective · project = project-scoped
-  text: string
-  status: 'open' | 'in_progress' | 'done'
+  runId: string | null         // provenance: the run that created it (access filter for 'run' scope only)
+  title: string
+  body: string | null
+  status: 'open' | 'in_progress' | 'blocked' | 'done' | 'cancelled'
+  scope: 'run' | 'personal' | 'org' | 'project'
   projectId?: uuid             // set iff scope === 'project' (the §05 project it belongs to)
-  createdAt: number
+  // + completed_at / issue_number / issue_url / issue_state (the GitHub issue-sync metadata)
+  createdAt: number; updatedAt: number
 }
 ```
 
-> **What ships today (unified storage; `scope` P5.1d1, storage collapse P5.1d2a).** The built
-> `work_items` table + kstore tools (`work_item_create` / `work_item_list` / `work_item_update`) are the
-> storage-as-tools replacement for the home-dev `tasks/todo.md`; run-scoped (`scope='personal'`)
-> tickets are owned by the managed run that created them (a run reads/mutates only its own). The
-> **`scope` discriminator landed** as the D-026 down-payment (P5.1d1, **D-045**), defaulting to
-> **`personal`**. The **storage collapse then landed** (P5.1d2a, **D-048**): `work_items` gained
-> `project_id` + the issue-sync columns (`completed_at` / `issue_number` / `issue_url` / `issue_state`),
-> a guarded, idempotent `migrate()` **backfills** every `project_tasks` row into `work_items`
-> (`scope='project'`, `project_id` set, issue-linkage preserved), and the `projectTasksDb` helpers are
-> **re-pointed onto the one `work_items` store** — so the project Tasks route, GitHub issue-sync, and
-> the delegation-dispatch path already read/write the unified table **behind their unchanged public
-> APIs** (the P5.1d characterization tests stay green through the collapse). The old `project_tasks`
-> table is **deprecated + frozen** (its rows copied, not deleted; nothing writes to it) pending a drop.
-> What remains **deferred to P5.1d2b** is the surface reroute — having `routes/projects.ts` /
-> `github.ts::syncIssues` / `workflows.ts` call the work-item store *directly* (retiring the
-> compatibility helpers), collapsing the two Tasks UI surfaces into one **scope-aware** view, wiring
-> row **promotion** (`personal → org → project` via `work_item_update`), and dropping `project_tasks`.
->
-> ```ts
-> WorkItem {                   // BUILT — kstore working store (scope column landed P5.1d1)
->   id: uuid
->   runId: string | null       // the managed run that created it (resolved from injected K_RUN_ID)
->   title: string
->   body: string | null
->   status: 'open' | 'in_progress' | 'blocked' | 'done' | 'cancelled'
->   scope: 'personal' | 'org' | 'project'   // D-026 discriminator; 'personal' today (run-scoped)
->   createdAt: number; updatedAt: number
-> }
-> ```
+The durable scopes also have an operator HTTP surface — **`GET/POST/PATCH /api/k/work-items`**
+(bearer-authed, `personal`+`org` only; `run` and `project` rows are unreachable there by design) —
+which is what K-home's *Your work* card reads and writes (§08).
+
+> **How it got here (the collapse, completed).** The `scope` discriminator landed as the D-026
+> down-payment (P5.1d1, **D-045**); the **storage collapse** followed (P5.1d2a, **D-048**):
+> `work_items` gained `project_id` + the issue-sync columns and a guarded backfill copied every
+> `project_tasks` row in (`scope='project'`), with the helpers re-pointed behind unchanged public
+> APIs. **P5.7 A2 (D-058) then COMPLETED d2b**: a final one-shot backfill ran and **`project_tasks`
+> was DROPPED** — fixing the boot-resurrection bug where a task deleted via the API re-appeared
+> from the frozen copy on every boot. The helper layer was renamed **`projectTasksDb` →
+> `projectWorkItemsDb`** and is now the *first-class* project-scoped surface of the one store (not
+> a compat shim): `routes/projects.ts` and `github.ts::syncIssues` ride first-class `work_items`
+> statements with **zero HTTP shape change**. A **partial UNIQUE `(project_id, issue_number)`
+> index** (after a dedupe) makes GitHub issue-mirroring idempotent by construction, and
+> `updateProjectTaskFromIssue` binds `project_id` in its WHERE as a cross-project defense. Finally,
+> **P5.7 A1 (D-053)** finalized the scope enum — the NEW **`'run'`** value took over the old
+> run-isolated semantics as the kstore default, and a **one-shot flag-guarded table rebuild**
+> re-stamped legacy `personal` AND `org` rows to `'run'` (both had behaved run-scoped pre-A1, so an
+> untouched legacy `org` row would have silently escalated into the durable operator view).
 
 ### K's logistics store — a sibling, not a second task table
 
-K's **logistics** working store (P5.1a, bible §03) ships alongside kstore as its OWN run-scoped
-MCP server over three tables — `logistics_notes`, `logistics_events`, `logistics_reminders` —
-exposing `note_* / event_* / reminder_*`. It is deliberately **not** a task store: K's *tasks* stay
-the kstore `work_item_*` tools (and unify with `project_tasks` under D-026 later), while logistics
-holds only the non-ticket logistics data K shows on K-home (notes, calendar events, reminders).
-Same run-scoping and null-owner degrade as kstore; **storage, not execution** — an event stored
-here is never scheduled on a real calendar (the Google connectors remain the Phase-5 path for that).
+K's **logistics** working store (P5.1a, bible §03) ships alongside kstore as its OWN MCP server
+over three tables — `logistics_notes`, `logistics_events`, `logistics_reminders` — exposing
+`note_* / event_* / reminder_*`. It is deliberately **not** a task store: K's *tasks* stay the
+kstore `work_item_*` tools (unified under D-026/D-053), while logistics holds only the non-ticket
+logistics data K shows on K-home (notes, calendar events, reminders). Since P5.7 (D-053) the store
+is **operator-durable, not run-scoped** — reads/updates drop the run filter (K's notes and schedule
+survive across sessions; `run_id` stays as insert provenance), which is what feeds K-home's Notes +
+Schedule cards (`GET /api/k/notes` / `GET /api/k/schedule`, §08). Still **storage, not execution** —
+an event stored here is never scheduled on a real calendar (the Google connectors remain **unwired**;
+see §03 *Reused connectors*).

@@ -102,21 +102,39 @@ function extractPattern(toolName, toolInput) {
 }
 
 /**
- * Resolve the gitnexus CLI path.
- * 1. Relative path (works when script is inside npm package)
- * 2. require.resolve (works when gitnexus is globally installed)
- * 3. Fall back to npx (returns empty string)
+ * Resolve the gitnexus CLI path at RUNTIME — this hook is vendored into every
+ * synthesized per-run config dir, so it must work on any machine (never a
+ * hardcoded per-user path). First existing candidate wins:
+ * 1. GITNEXUS_CLI env override
+ * 2. require.resolve from this script's own module paths
+ * 3. require.resolve from the current working directory (a project-local install)
+ * 4. The platform's npm global dir (win32: %APPDATA%\npm; else /usr/local/lib)
+ * 5. '' — the npx fallback in runGitNexusCli handles it
  */
 function resolveCliPath() {
-  let cliPath = "C:/Users/ckbra/AppData/Roaming/npm/node_modules/gitnexus/dist/cli/index.js";
-  if (!fs.existsSync(cliPath)) {
-    try {
-      cliPath = require.resolve('gitnexus/dist/cli/index.js');
-    } catch {
-      cliPath = '';
-    }
+  const candidates = [];
+  if (process.env.GITNEXUS_CLI) candidates.push(process.env.GITNEXUS_CLI);
+  try {
+    candidates.push(require.resolve('gitnexus/dist/cli/index.js'));
+  } catch {
+    /* not resolvable from here */
   }
-  return cliPath;
+  try {
+    candidates.push(require.resolve('gitnexus/dist/cli/index.js', { paths: [process.cwd()] }));
+  } catch {
+    /* not resolvable from cwd */
+  }
+  if (process.platform === 'win32') {
+    if (process.env.APPDATA) {
+      candidates.push(path.join(process.env.APPDATA, 'npm', 'node_modules', 'gitnexus', 'dist', 'cli', 'index.js'));
+    }
+  } else {
+    candidates.push('/usr/local/lib/node_modules/gitnexus/dist/cli/index.js');
+  }
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+  return '';
 }
 
 /**

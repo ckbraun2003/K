@@ -1,28 +1,33 @@
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Run, MetricsSummary, WsMessage } from '@k/shared'
+import type { Run, MetricsSummary } from '@k/shared'
 import { api } from '../lib/api'
 import { onWsMessage } from '../lib/ws'
 import { navigate } from '../lib/route'
+import { makeRunUpdateInvalidator } from '../lib/live-invalidate'
+import { RUNS_LIST_KEY, runsListQueryFn } from '../lib/runs-query'
 
 export default function ActivityStrip() {
   const qc = useQueryClient()
-  // ['runs'] is the shared default-list cache key (see RunList). The queryFn must
-  // match RunList's limit:100 so the two consumers don't disagree under one key.
-  const { data: runs = [] } = useQuery<Run[]>({ queryKey: ['runs'], queryFn: () => api.runs.list({ limit: 100 }), refetchInterval: 10_000 })
+  // The shared default-runs-list query — ONE key + fn for every consumer (see
+  // runs-query.ts), so the cache entry can't be fed by drifting queryFns.
+  const { data: runs = [] } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn, refetchInterval: 10_000 })
   const { data: metrics } = useQuery<MetricsSummary>({
     queryKey: ['metrics'],
     queryFn: api.metrics.summary,
     refetchInterval: 30_000,
   })
 
+  // run_update → invalidate runs/metrics per message + the org keys throttled
+  // (policy + tests live in live-invalidate.ts). dispose() cancels any pending
+  // trailing invalidation on unmount.
   useEffect(() => {
-    return onWsMessage((msg: WsMessage) => {
-      if (msg.type === 'run_update') {
-        qc.invalidateQueries({ queryKey: ['runs'] })
-        qc.invalidateQueries({ queryKey: ['metrics'] })
-      }
-    })
+    const invalidator = makeRunUpdateInvalidator(qc)
+    const unsubscribe = onWsMessage(invalidator.handler)
+    return () => {
+      unsubscribe()
+      invalidator.dispose()
+    }
   }, [qc])
 
   const active = runs.filter(r => r.status === 'running' || r.status === 'queued')

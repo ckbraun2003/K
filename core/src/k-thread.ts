@@ -9,8 +9,8 @@
  * thin adapter over askK / ensureDefaultKThread / listKThreadTurns.
  */
 import { randomUUID } from 'crypto'
-import type { KThread, KThreadTurn, KAskResult, KRoute } from '@k/shared'
-import { routeForMessage } from '@k/shared'
+import type { KThread, KThreadTurn, KAskResult, KRoute, KForceRoute } from '@k/shared'
+import { routeForMessage, routeForTarget } from '@k/shared'
 import { kThreadsDb, runsDb, eventsDb, mgmtDb } from './db.js'
 import { eventBus } from './events.js'
 import { startAgentRun } from './agent-runs.js'
@@ -26,7 +26,8 @@ const SEED_TURN_WINDOW = 12
 /** The routing/behavior instruction appended to a cold reseed. */
 const K_SEED_INSTRUCTION =
   '(You are K, the secretary front door. Handle logistics/Q&A/scheduling/notes/tasks yourself; ' +
-  'otherwise route engineering to the Chief or a named lead, stating the route first.)'
+  'otherwise route engineering to the Chief or a named lead, stating the route first. Keep the ' +
+  "operator's task list in kstore scope='personal' (org items scope='org') — those persist across sessions.)"
 
 // ── row → type mappers (snake_case → camelCase) ──────────────────────────────
 
@@ -150,19 +151,16 @@ export function captureAnswers(threadId: string, runId: string): void {
     const terminal = isTerminalRunStatus(r.status)
 
     if (r.status === 'awaiting_input' || terminal) {
-      const rows = eventsDb.listEvents.all(runId) as Row[]
-      let maxSeq = lastSeq
+      // Seq-windowed, assistant-only read (no raw column, no full-log scan): the
+      // statement returns ONLY the new assistant rows since the last boundary, seq
+      // ASC, so lastSeq advances to the last row's seq.
+      const rows = eventsDb.listAssistantEventsAfterSeq.all(runId, lastSeq) as Row[]
       const parts: string[] = []
       for (const row of rows) {
-        const seq = Number(row.seq)
-        if (seq <= lastSeq) continue
-        if (seq > maxSeq) maxSeq = seq
-        if (row.type === 'assistant') {
-          const text = row.text == null ? '' : String(row.text)
-          if (text.length > 0) parts.push(text)
-        }
+        const text = row.text == null ? '' : String(row.text)
+        if (text.length > 0) parts.push(text)
       }
-      lastSeq = maxSeq
+      if (rows.length > 0) lastSeq = Number(rows[rows.length - 1].seq)
       const concat = parts.join('\n')
       if (concat.length > 0) appendTurn(threadId, 'k', concat, runId)
     }
@@ -217,20 +215,27 @@ export function buildDelegationGoal(message: string, route: KRoute): string {
   )
 }
 
-/** Max length of the assistant-text report-back FALLBACK, so a verbose Chief run
- *  can't dump a huge raw transcript onto K's thread (the preferred mgmt-report path
- *  is already bounded by its own zod max). */
+/** Max length of BOTH report-back bodies on K's thread — the Chief's mgmt-report
+ *  text AND the assistant-text fallback — so a verbose Chief run can't dump a huge
+ *  transcript (the mgmt `report` zod max is 20k; both hops share this 2000 cap). */
 const REPORT_BACK_TEXT_CAP = 2_000
 
-/** Concatenate a run's `assistant` event texts (oldest→newest), capped — the delegated
- *  run's own final answer, the report-back fallback when the Chief filed no mgmt
- *  report. Capped rather than windowed like captureAnswers: this is a one-shot summary,
- *  not a stateful turn-by-turn capture. */
+/** How many of the run's earliest `assistant` events the fallback scans (seq ASC) —
+ *  enough to fill the 2k cap without materializing a long run's whole event log.
+ *  Mirrors chief-dispatch.ts::LEAD_REPORT_EVENT_SCAN (the lead-side twin). */
+const REPORT_BACK_EVENT_SCAN = 50
+
+/** Concatenate a bounded prefix of a run's `assistant` event texts (oldest→newest,
+ *  up to REPORT_BACK_EVENT_SCAN events), capped — the delegated run's own final
+ *  answer, the report-back fallback when the Chief filed no mgmt report. Capped
+ *  rather than windowed like captureAnswers: this is a one-shot summary, not a
+ *  stateful turn-by-turn capture. NB a run with more than REPORT_BACK_EVENT_SCAN
+ *  assistant events loses the tail (the scan is a prefix, not a suffix) — accepted
+ *  for a summary hop, and it mirrors the lead-side twin exactly. */
 function concatAssistantText(runId: string): string {
-  const rows = eventsDb.listEvents.all(runId) as Row[]
+  const rows = eventsDb.listAssistantEvents.all(runId, REPORT_BACK_EVENT_SCAN) as Row[]
   const parts: string[] = []
   for (const row of rows) {
-    if (row.type !== 'assistant') continue
     const text = row.text == null ? '' : String(row.text)
     if (text.length > 0) parts.push(text)
   }
@@ -248,7 +253,15 @@ export function summarizeDelegatedOutcome(childRunId: string, status: string): s
   const verb = status === 'done' ? 'completed' : status
   const reports = mgmtDb.listReportsByRun.all(childRunId, 1) as Row[]
   const reportBody = reports.length > 0 ? String(reports[0].body) : ''
-  if (reportBody.length > 0) return `Chief (delegation ${verb}) reported: ${reportBody}`
+  if (reportBody.length > 0) {
+    // Same cap as the fallback: the mgmt `report` zod max is 20k — never dump that
+    // raw onto K's thread.
+    const capped =
+      reportBody.length > REPORT_BACK_TEXT_CAP
+        ? `${reportBody.slice(0, REPORT_BACK_TEXT_CAP)}…`
+        : reportBody
+    return `Chief (delegation ${verb}) reported: ${capped}`
+  }
   const answer = concatAssistantText(childRunId)
   if (answer.length > 0) return `Chief (delegation ${verb}): ${answer}`
   return `Chief delegation ${verb} — no report was filed.`
@@ -343,6 +356,7 @@ async function delegateToChief(
   message: string,
   route: KRoute,
   userTurn: KThreadTurn,
+  model?: string,
 ): Promise<KAskResult> {
   const goal = buildDelegationGoal(message, route)
   // Deliberate: an operator-initiated delegation dispatches the Chief DIRECTLY, NOT via
@@ -352,7 +366,7 @@ async function delegateToChief(
   // human ask would be worse. mgmt rows are per-run_id scoped, so a concurrent chief run
   // can't corrupt another's store; the self-wake guard still stops this run's terminal from
   // re-waking the Chief (its agent_runs.profile_id === 'chief').
-  const { agentRunId, runId } = await startAgentRun('chief', { trigger: 'delegation', goal })
+  const { agentRunId, runId } = await startAgentRun('chief', { trigger: 'delegation', goal, model })
   // Link the ask to the Chief run (the durable parent→child delegation record) and
   // acknowledge the hand-up on the thread so the operator sees the route was taken.
   kThreadsDb.patchTurnRunId.run(runId, userTurn.id)
@@ -371,10 +385,19 @@ async function delegateToChief(
  * otherwise K handles it itself — CONTINUING the warm interactive run (feed the turn
  * via sendInput) or starting a FRESH interactive run seeded from the thread. Returns
  * the thread id, the run id, the deterministic route PREVIEW, and whether it was warm.
+ *
+ * Power controls (C2): `opts.forceRoute` bypasses the classifier — the route is
+ * routeForTarget(forceRoute), always escalating (so a forced ask always delegates);
+ * `opts.model` is an explicit per-ask model override threaded to startAgentRun.
  */
-export async function askK(message: string): Promise<KAskResult> {
+export async function askK(
+  message: string,
+  opts: { forceRoute?: KForceRoute; model?: string } = {},
+): Promise<KAskResult> {
   const thread = ensureDefaultKThread()
-  const route = routeForMessage(message)
+  // A forced route wins over the classifier — routeForTarget is the SAME shared
+  // mapping the composer previews, so the forced preview and this decision agree.
+  const route = opts.forceRoute ? routeForTarget(opts.forceRoute) : routeForMessage(message)
 
   // The durable ask — recorded up front so it survives even if the dispatch below
   // throws (startAgentRun rolls back only its own agent_runs row; the ask stays,
@@ -386,11 +409,15 @@ export async function askK(message: string): Promise<KAskResult> {
   // independent of K's own conversational state — so logistics/Q&A keeps the exact
   // warm/fresh K path below, unchanged.
   if (route.escalates) {
-    return delegateToChief(thread, message, route, turn)
+    return delegateToChief(thread, message, route, turn, opts.model)
   }
 
-  // Warm path: continue the live interactive run.
-  if (isWarm(thread)) {
+  // Warm path: continue the live interactive run — but ONLY when no explicit model
+  // override was given. A live process's model can't change mid-session, and silently
+  // ignoring an explicit operator choice is worse than losing warmth — so an
+  // override skips the warm continuation and starts fresh below (the durable thread
+  // reseeds, so no conversation is lost).
+  if (isWarm(thread) && opts.model === undefined) {
     const activeRunId = thread.activeRunId!
     if (sendInput(activeRunId, message)) {
       kThreadsDb.patchTurnRunId.run(activeRunId, turn.id)
@@ -404,6 +431,7 @@ export async function askK(message: string): Promise<KAskResult> {
     trigger: 'user-message',
     thread: renderSeed(thread.id, message),
     interactive: true,
+    model: opts.model,
   })
   kThreadsDb.updateThreadActiveRun.run(runId, Date.now(), thread.id)
   kThreadsDb.patchTurnRunId.run(runId, turn.id)

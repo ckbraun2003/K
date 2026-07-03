@@ -54,6 +54,11 @@ export function remoteFromUrl(url: string): string | null {
 }
 
 function rowToProject(r: Record<string, unknown>): Project {
+  // pathMissing is derived at read time (never persisted): true when localPath no
+  // longer exists on disk, so the UI can badge the project and the GitHub poller
+  // skips it. Spread-conditional so the key is INCLUDED only when missing —
+  // payloads for healthy projects stay byte-identical to before.
+  const pathMissing = !fs.existsSync(String(r.local_path))
   return {
     id: String(r.id),
     name: String(r.name),
@@ -63,6 +68,7 @@ function rowToProject(r: Record<string, unknown>): Project {
     bibleDir: String(r.bible_dir),
     healthScore: r.health_score == null ? undefined : Number(r.health_score),
     lastVerifiedAt: r.last_verified_at == null ? undefined : Number(r.last_verified_at),
+    ...(pathMissing ? { pathMissing: true } : {}),
     createdAt: Number(r.created_at),
   }
 }
@@ -74,6 +80,17 @@ export function listProjects(): Project[] {
 export function getProject(id: string): Project | null {
   const row = projectsDb.getProject.get(id) as Record<string, unknown> | undefined
   return row ? rowToProject(row) : null
+}
+
+/** Look up a project by its (UNIQUE) name. Exact match first; falls back to a
+ *  case-insensitive match only when it is unambiguous (the Chief's scope_projects
+ *  names are free text). Null when nothing (or more than one) matches. */
+export function getProjectByName(name: string): Project | null {
+  const all = listProjects()
+  const exact = all.find(p => p.name === name)
+  if (exact) return exact
+  const ci = all.filter(p => p.name.toLowerCase() === name.toLowerCase())
+  return ci.length === 1 ? ci[0] : null
 }
 
 async function detectRemote(repoPath: string): Promise<string | undefined> {

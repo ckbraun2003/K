@@ -17,6 +17,7 @@
  */
 import { describe, it, expect, vi, afterAll, beforeEach } from 'vitest'
 import { v4 as uuid } from 'uuid'
+import os from 'os'
 import { parsePrList, parseCiRuns, parseIssueList } from '../src/github-parse.js'
 
 const mockExeca = vi.fn()
@@ -144,7 +145,10 @@ describe('__pollOnce — degrades gracefully when the fetch throws (gh absent)',
 
     const id = uuid()
     projectsDb.insertProject.run({
-      id, name: `s7-poll-${id.slice(0, 8)}`, localPath: '/tmp/s7-poll',
+      // A REAL directory: pollOnce now skips projects whose localPath is missing
+      // (pathMissing degrade, P5.1d2b) — '/tmp/s7-poll' exists on neither Windows
+      // nor Linux CI and would skip this fixture, voiding the degrade assertions.
+      id, name: `s7-poll-${id.slice(0, 8)}`, localPath: os.tmpdir(),
       githubRemote: 'owner/repo', workspaceManaged: 0, bibleDir: 'docs/bible', createdAt: Date.now(),
     })
     projectIds.push(id)

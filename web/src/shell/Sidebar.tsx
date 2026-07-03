@@ -1,5 +1,8 @@
+import { useQuery } from '@tanstack/react-query'
+import type { Run } from '@k/shared'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
+import { RUNS_LIST_KEY, runsListQueryFn } from '../lib/runs-query'
 
 export interface Destination {
   id: string
@@ -64,6 +67,12 @@ export default function Sidebar({
   const observe = primary.filter(d => d.group === 'observe')
   const footer = DESTINATIONS.filter(d => d.section === 'footer')
 
+  // Active-runs count for the Runs badge — the SAME shared default-list key/fn
+  // ActivityStrip's live query uses (runs-query.ts), so this adds zero fetches;
+  // the predicate matches ActivityStrip's "active" definition.
+  const { data: runs = [] } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn })
+  const activeRuns = runs.filter(r => r.status === 'running' || r.status === 'queued').length
+
   // Uppercase tracked group label — only rendered when the rail is expanded.
   const groupLabel = (text: string) => (
     <div className="mb-0.5 mt-1 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
@@ -101,6 +110,14 @@ export default function Sidebar({
           {d.icon}
         </span>
         {!collapsed && <span className="truncate">{d.label}</span>}
+        {!collapsed && d.id === 'runs' && activeRuns > 0 && (
+          <span
+            data-testid="sidebar-runs-badge"
+            className="ml-auto rounded bg-[var(--raised)] px-1.5 text-[10px] font-semibold text-[var(--accent-hover)]"
+          >
+            {activeRuns}
+          </span>
+        )}
       </button>
     )
   }
@@ -120,7 +137,12 @@ export default function Sidebar({
       >
         <div className="flex items-center gap-2">
           <span className="text-lg font-bold text-[var(--accent)]" title="K">⚡</span>
-          {!collapsed && <span className="text-sm font-semibold tracking-[0.18em] text-[var(--text)]">K</span>}
+          {!collapsed && (
+            <div className="flex flex-col">
+              <span className="text-sm font-semibold tracking-[0.18em] text-[var(--text)]">K</span>
+              <span className="text-[10px] tracking-wide text-[var(--muted)]">agentic org</span>
+            </div>
+          )}
         </div>
         {!collapsed && (
           <button

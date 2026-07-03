@@ -105,6 +105,9 @@ export const ProjectSchema = z.object({
   bibleDir: z.string().default('docs/bible'),
   healthScore: z.number().min(0).max(100).optional(),
   lastVerifiedAt: z.number().optional(), // unix ms
+  // derived at read time (never persisted) — true when localPath no longer exists
+  // on disk, so the UI can badge the project and the GitHub poller skips it.
+  pathMissing: z.boolean().optional(),
   createdAt: z.number(),
 })
 export type Project = z.infer<typeof ProjectSchema>
@@ -282,8 +285,11 @@ export type GraphDispatchBody = z.infer<typeof GraphDispatchBodySchema>
 // workflow over the selected todos. Validated at the route boundary (400 on
 // invalid) per lessons.md "validate user input at the boundary". Mirrors
 // GraphDispatchBodySchema. Bounded 1..50 so a stray select-all can't fan out.
+// `workflowId` optionally names a NamedWorkflow whose scaffold seeds the prompt
+// (C2 "Run this workflow"); omitted = the built-in code-wave scaffold.
 export const DispatchTasksBodySchema = z.object({
   taskIds: z.array(z.string().uuid()).min(1).max(50),
+  workflowId: z.string().min(1).optional(),
 })
 export type DispatchTasksBody = z.infer<typeof DispatchTasksBodySchema>
 
@@ -418,7 +424,9 @@ export const AgentProfileSchema = z.object({
   name: z.string(),
   tier: AgentTierSchema,
   charter: AgentTierSchema, // charter-asset basename (=== tier for durable tiers)
-  defaultModel: z.string(), // KNOWN_MODELS id
+  // null = "use the runtime Claude default (config-store claudeDefaultModel) at
+  // dispatch time"; a string = an explicit per-profile override (a KNOWN_MODELS id).
+  defaultModel: z.string().nullable(),
   allowedTools: z.array(z.string()), // claude --allowedTools allowlist (tier-gated)
   mcpServers: z.array(z.string()), // tier-scoped MCP servers this profile mounts
   skills: z.array(z.string()), // skill dir names this profile mounts
@@ -433,10 +441,12 @@ export type AgentProfile = z.infer<typeof AgentProfileSchema>
 export const WorkItemStatusSchema = z.enum(['open', 'in_progress', 'blocked', 'done', 'cancelled'])
 export type WorkItemStatus = z.infer<typeof WorkItemStatusSchema>
 
-// D-026 unified-task-store discriminator (P5.1d1 down-payment). `personal` is the
-// run-scoped ticket the kstore tools create today (the only scope currently used);
-// `org`/`project` are reserved for the P5.1d2 collapse that folds project_tasks in.
-export const WorkItemScopeSchema = z.enum(['personal', 'org', 'project'])
+// D-026 unified-task-store discriminator. `run` = the ephemeral run-scoped default
+// (a ticket visible only to the run that created it — the kstore working default);
+// `personal`/`org` = the DURABLE operator-global store (persists across sessions and
+// runs — `personal` is the operator's own list, `org` is org-wide); `project` = the
+// project task surface (folded in via P5.1d2).
+export const WorkItemScopeSchema = z.enum(['run', 'personal', 'org', 'project'])
 export type WorkItemScope = z.infer<typeof WorkItemScopeSchema>
 
 export const WorkItemSchema = z.object({
@@ -540,6 +550,15 @@ export const ReminderSchema = z.object({
 })
 export type Reminder = z.infer<typeof ReminderSchema>
 
+/** Payload of GET /api/k/schedule — the K-home Schedule card's one batched read:
+ *  upcoming calendar events (soonest first) + pending reminders (including overdue —
+ *  an overdue reminder is the most important thing to show, not something to hide). */
+export const KScheduleSchema = z.object({
+  events: z.array(CalendarEventSchema),
+  reminders: z.array(ReminderSchema),
+})
+export type KSchedule = z.infer<typeof KScheduleSchema>
+
 // ─── AgentRun (agent-org activation — P5.0) ─────────────────────────────────
 // One activation of a durable profile into a supervised run (startAgentRun). The
 // wire projection of an `agent_runs` row, mirroring the core interface. `runId` is
@@ -614,6 +633,9 @@ export interface DelegationNode {
   status: DelegationNodeStatus
   /** Optional one-line detail for the inspector (e.g. the latest run's prompt). */
   meta?: string
+  /** The run backing this node when known (a lead's latest run / the Chief's live
+   *  wake run) — lets the inspector offer a "View run" action. */
+  runId?: string
   children: DelegationNode[]
 }
 
@@ -622,6 +644,16 @@ export interface DelegationNode {
 // (core/src/routes/chief.ts) so the page issues a single query with no per-item
 // fan-out. `health` is deliberately THIN (D-026: no full health strip re-computed
 // here) — just the cheap leads-active count.
+/** Health counts over a lead's most-recent activations (routes/org-shared.ts::
+ *  recentHealth): total scanned, terminal successes, terminal failures. A live
+ *  'running' activation counts in `total` only. REAL data derived from agent_runs —
+ *  never an invented score/band (D-026 honesty posture). */
+export interface RecentRunHealth {
+  total: number
+  succeeded: number
+  failed: number
+}
+
 export interface ChiefOrgLead {
   profile: AgentProfile
   /** The lead's most recent agent_run that reached a run (has run_id), else null. */
@@ -630,6 +662,12 @@ export interface ChiefOrgLead {
   events: AgentEvent[]
   /** The lead's recent activations (bounded). */
   wakes: AgentRun[]
+  /** The model this lead's next dispatch will actually use: the profile's explicit
+   *  override when set, else the runtime Claude default. `source` says which. */
+  effectiveModel?: { model: string; source: 'override' | 'runtime-default' }
+  /** Success/failure counts over the lead's recent activations. Optional (mirrors
+   *  effectiveModel) so existing fixtures/older payloads keep compiling. */
+  recent?: RecentRunHealth
 }
 
 export interface ChiefOrgHealth {
@@ -644,10 +682,16 @@ export interface ChiefOrgPayload {
   /** Recent assignments across runs — the Objectives panel source. */
   assignments: Assignment[]
   health: ChiefOrgHealth
-  /** Count of K→Chief delegations (chief activations with trigger='delegation') — the
-   *  K-tier edge count the whole-org tree (user → K → Chief → …) renders. Optional so an
-   *  older payload without it still builds a tree (fullOrgToDelegationTree defaults to 0). */
+  /** Count of K→Chief delegations (chief activations with trigger='delegation',
+   *  excluding 'failed' attempts that never reached the Chief) — the K-tier edge count
+   *  the whole-org tree (user → K → Chief → …) renders. Optional so an older payload
+   *  without it still builds a tree (fullOrgToDelegationTree defaults to 0). */
   kDelegations?: number
+  /** Server-authoritative count of leads with a LIVE latest run (=== health.leadsActive).
+   *  The ONE source consumers render (web/src/lib/delegation.ts consumes it — the old
+   *  client-side re-derivation was deleted in C2). Optional (mirrors kDelegations) so
+   *  older payload fixtures stay valid. */
+  leadsActive?: number
 }
 
 // ─── Orchestrators roster (GET /api/orchestrators — P5.3a) ──────────────────
@@ -663,6 +707,9 @@ export interface OrchestratorRosterEntry {
   live: boolean
   /** Count of the lead's recent activations (bounded by the per-lead scan). */
   wakes: number
+  /** Success/failure counts over the lead's recent activations. Optional (mirrors
+   *  ChiefOrgLead.recent) so existing fixtures/older payloads keep compiling. */
+  recent?: RecentRunHealth
 }
 
 export interface OrchestratorRosterPayload {
@@ -905,9 +952,11 @@ export interface NamedWorkflow {
 }
 
 // ─── K front door (P5.1c — "talk to K") ─────────────────────────────────────
-// The route surfaced when composing a message to K. `routeForMessage` is a shared,
-// deterministic PREVIEW so the client and server agree on the likely hand-up before
-// send — K's runtime tool/hand-up decision at execution time is AUTHORITATIVE.
+// The route for a message to K. `routeForMessage` is the ONE shared, deterministic
+// classifier used on BOTH sides of the wire: the composer calls it to preview the
+// likely hand-up before send, and the server (core/src/k-thread.ts::askK) calls the
+// SAME function and delegates purely on `route.escalates` — so the preview and the
+// actual routing decision agree because they are the same computation.
 
 export const KRouteTargetSchema = z.enum([
   'logistics',
@@ -938,6 +987,23 @@ const K_ROUTE_LABELS: Record<KRouteTarget, string> = {
   network: 'Chief → Network Lead',
 }
 
+/** Clear personal-logistics intents — evaluated BEFORE the lead rules so a message
+ *  like "remind me to fix the fence" stays with K even though it embeds an
+ *  engineering keyword ("fix"). Deliberate precedence trade-off: these are bare
+ *  keyword markers (like the lead rules), so an engineering ask that merely
+ *  MENTIONS one — "add a note field to the api response", "the schedule page is
+ *  broken" — also stays with K rather than auto-escalating. That direction is
+ *  chosen on cost: K under-escalating is a cheap re-ask, while a false escalation
+ *  spins up the paid Chief delegation machinery for a grocery note. Kept as a
+ *  testable array, mirroring K_ROUTE_RULES. */
+const K_LOGISTICS_RULES: ReadonlyArray<RegExp> = [
+  /\bremind(er)?s?\b/, // "remind me to…", "set a reminder"
+  /\bnote\b/, // "note about…", "take a note"
+  /\b(schedule|calendar|meeting|appointment)s?\b/,
+  /\badd .+ to my (list|notes?|work items?)\b/,
+  /\bwhat'?s on my (list|calendar|schedule)\b/,
+]
+
 /** Ordered lead rules — first match wins. Kept as a testable array (not a switch). */
 const K_ROUTE_RULES: ReadonlyArray<{ target: KRouteTarget; re: RegExp }> = [
   { target: 'frontend', re: /\b(frontend|front-end|ui|react|css|component|styling|tailwind)\b/ },
@@ -951,16 +1017,26 @@ const K_ROUTE_RULES: ReadonlyArray<{ target: KRouteTarget; re: RegExp }> = [
 const K_ENGINEERING_RE = /\b(code|refactor|bug|implement|fix|feature|test|merge|\bpr\b|commit|deploy|build)\b/
 
 /**
- * Deterministic route PREVIEW for a message to K. Lowercases the message, then in a
- * fixed priority order (frontend → backend → systems → security → network → generic
- * engineering) returns the first match; anything else K handles directly (logistics).
+ * Deterministic route for a message to K. Lowercases the message, then:
+ *   1. LOGISTICS PRECEDENCE — a clear personal-logistics intent (K_LOGISTICS_RULES:
+ *      reminders, notes, scheduling, list management) routes 'logistics' regardless
+ *      of embedded engineering keywords ("remind me to fix the fence" stays with K);
+ *   2. the lead rules in fixed priority order (frontend → backend → systems →
+ *      security → network), then the generic-engineering fallback → Chief;
+ *   3. anything else K handles directly (logistics).
  *
- * This is ONLY a preview so the composer (and server) can show the likely hand-up
- * before send. K's runtime decision — which tool it reaches for, and whether it
- * actually hands up to the Chief/a lead — is AUTHORITATIVE and may differ.
+ * This classifier is used on BOTH sides: the composer renders it as the route
+ * preview, AND the server (k-thread.ts::askK) delegates on its `escalates` flag —
+ * it IS the delegation decision, not merely a preview. Client and server agree
+ * because both call this same function.
  */
 export function routeForMessage(message: string): KRoute {
   const m = message.toLowerCase()
+  for (const re of K_LOGISTICS_RULES) {
+    if (re.test(m)) {
+      return { target: 'logistics', label: K_ROUTE_LABELS.logistics, escalates: false }
+    }
+  }
   for (const rule of K_ROUTE_RULES) {
     if (rule.re.test(m)) {
       return { target: rule.target, label: K_ROUTE_LABELS[rule.target], escalates: true }
@@ -972,9 +1048,60 @@ export function routeForMessage(message: string): KRoute {
   return { target: 'logistics', label: K_ROUTE_LABELS.logistics, escalates: false }
 }
 
-/** Body for POST /api/k/ask — the operator's message to K. */
-export const KAskBodySchema = z.object({ message: z.string().min(1).max(20000) })
+/** The routes an operator may FORCE for an ask (C2 power controls): every escalating
+ *  target — the Chief or a named lead. 'logistics' is deliberately absent: forcing K
+ *  to keep an engineering ask would only defeat the delegation machinery. */
+export const KForceRouteSchema = z.enum([
+  'chief',
+  'frontend',
+  'backend',
+  'systems',
+  'security',
+  'network',
+])
+export type KForceRoute = z.infer<typeof KForceRouteSchema>
+
+/**
+ * The KRoute for a FORCED target — the same discipline as routeForMessage: this ONE
+ * shared mapping is used on BOTH sides of the wire (the composer renders it as the
+ * forced-route preview, the server's askK routes on it), so the preview and the
+ * actual forced routing agree because they are the same computation. Every forced
+ * target escalates by construction (see KForceRouteSchema).
+ */
+export function routeForTarget(target: KForceRoute): KRoute {
+  return { target, label: K_ROUTE_LABELS[target], escalates: true }
+}
+
+/** Body for POST /api/k/ask — the operator's message to K, plus the optional power
+ *  controls: `forceRoute` bypasses the classifier (routeForTarget wins over
+ *  routeForMessage) and `model` is an explicit per-ask model override (validated
+ *  against the known-model registry at the route boundary). */
+export const KAskBodySchema = z.object({
+  message: z.string().min(1).max(20000),
+  forceRoute: KForceRouteSchema.optional(),
+  model: z.string().min(1).max(200).optional(),
+})
 export type KAskBody = z.infer<typeof KAskBodySchema>
+
+// ─── Durable work-items HTTP surface (operator-global) ───────────────────────
+// The two DURABLE scopes an operator creates/reads over the /api/k/work-items API:
+// `personal` (the operator's own list) and `org` (org-wide). The ephemeral `run`
+// scope and the `project` surface are NOT creatable/listable here by design.
+export const DurableWorkItemScopeSchema = z.enum(['personal', 'org'])
+export type DurableWorkItemScope = z.infer<typeof DurableWorkItemScopeSchema>
+
+/** Body for POST /api/k/work-items — create a durable operator-global work item.
+ *  scope defaults to 'personal'; run/project scopes are not creatable here. */
+export const KWorkItemCreateBodySchema = z.object({
+  title: z.string().min(1).max(500),
+  body: z.string().max(20000).optional(),
+  scope: DurableWorkItemScopeSchema.default('personal'),
+})
+export type KWorkItemCreateBody = z.infer<typeof KWorkItemCreateBodySchema>
+
+/** Body for PATCH /api/k/work-items/:id — set a durable work item's status. */
+export const KWorkItemPatchBodySchema = z.object({ status: WorkItemStatusSchema })
+export type KWorkItemPatchBody = z.infer<typeof KWorkItemPatchBodySchema>
 
 /** One turn in the durable K thread (D-023: persistent identity). `runId` is the
  *  run that produced/received the turn (null until known). */

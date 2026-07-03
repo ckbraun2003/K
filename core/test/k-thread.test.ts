@@ -125,6 +125,38 @@ describe('routeForMessage', () => {
       expect(r.escalates).toBe(true)
     }
   })
+
+  it('logistics precedence — a clear personal-logistics intent wins over embedded engineering keywords', async () => {
+    const { routeForMessage } = await import('@k/shared')
+    // [message, expected target, expected escalates] — the logistics markers
+    // (remind/note/schedule/add-to-my-list/what's-on-my) take precedence over any
+    // engineering keyword inside the message; a message WITHOUT a logistics marker
+    // still routes through the lead rules / engineering fallback unchanged.
+    const cases: Array<[string, string, boolean]> = [
+      ['remind me to fix the fence', 'logistics', false],
+      ['set a reminder for the dentist', 'logistics', false],
+      ['fix the login bug', 'chief', true],
+      ['the api endpoint is broken', 'backend', true],
+      ['note about my server bill', 'logistics', false],
+      ['take a note: renew the domain', 'logistics', false],
+      ['schedule a meeting about the deploy', 'logistics', false],
+      ['add a calendar appointment for friday', 'logistics', false],
+      ['add fix the auth bug to my work items', 'logistics', false],
+      ["what's on my list", 'logistics', false],
+      ["what's on my calendar today", 'logistics', false],
+      // One per lead rule: no logistics marker → the lead rules still win.
+      ['restyle the css grid', 'frontend', true],
+      ['the database migration failed', 'backend', true],
+      ['the deploy pipeline is red', 'systems', true],
+      ['patch the cve in the parser', 'security', true],
+      ['tls handshake latency spiked', 'network', true],
+    ]
+    for (const [msg, target, escalates] of cases) {
+      const r = routeForMessage(msg)
+      expect(r.target, `route for "${msg}"`).toBe(target)
+      expect(r.escalates, `escalates for "${msg}"`).toBe(escalates)
+    }
+  })
 })
 
 // ── askK — fresh (cold) dispatch ──────────────────────────────────────────────
@@ -166,6 +198,43 @@ describe('askK — fresh dispatch + answer capture', () => {
     const thread = getKThread(DEFAULT_K_THREAD_ID)!
     expect(thread.activeRunId).toBeNull()
     expect(thread.status).toBe('idle')
+
+    // The fresh (non-escalating) path activated the 'k-secretary' profile — NOT the
+    // Chief. Pins the front-door identity: a regression that dispatches 'chief' on the
+    // fresh path fails here.
+    const kRows = agentRunsDb.listRecentAgentRunsByProfile.all('k-secretary', 10) as Array<Record<string, unknown>>
+    expect(kRows).toHaveLength(1)
+    expect(kRows[0].trigger).toBe('user-message')
+    expect(kRows[0].run_id).toBe(result.runId)
+  })
+
+  it('captures ONLY the new assistant text at each boundary (seq-windowed, two boundaries)', async () => {
+    const result = await askK('note the grocery list')
+
+    // Boundary 1: two assistant events → one folded 'k' turn.
+    eventBus.emitEvent({ id: uuid(), runId: result.runId, seq: 1, type: 'assistant', ts: Date.now(), text: 'turn one a' })
+    eventBus.emitEvent({ id: uuid(), runId: result.runId, seq: 2, type: 'assistant', ts: Date.now(), text: 'turn one b' })
+    eventBus.emitRunUpdate({ id: result.runId, status: 'awaiting_input', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+
+    let kTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'k')
+    expect(kTurns).toHaveLength(1)
+    expect(kTurns[0].text).toBe('turn one a\nturn one b')
+
+    // Boundary 2 (terminal): only the NEW assistant event (seq 3) is captured — the
+    // seq window advanced past 1-2, so turn two must not re-include turn one's text.
+    eventBus.emitEvent({ id: uuid(), runId: result.runId, seq: 3, type: 'assistant', ts: Date.now(), text: 'turn two only' })
+    eventBus.emitRunUpdate({ id: result.runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+
+    kTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'k')
+    expect(kTurns).toHaveLength(2)
+    // Content assertions, not positional: both turns can share a created_at ms and
+    // listTurns tie-breaks on random uuid — order within the ms is not deterministic.
+    // The pin still holds: a re-capture regression would fold turn one's text into
+    // the second turn ('turn one a\nturn one b\nturn two only'), so the exact
+    // 'turn two only' member would vanish.
+    const texts = kTurns.map(t => t.text)
+    expect(texts).toContain('turn one a\nturn one b')
+    expect(texts).toContain('turn two only')
   })
 })
 
@@ -292,6 +361,46 @@ describe('askK — delegation to the Chief', () => {
     expect(chiefRow.status).toBe('completed')
   })
 
+  it('caps an oversize mgmt-report body on the report-back turn (~2000 chars + ellipsis)', async () => {
+    const result = await askK('implement the giant feature')
+    const runId = result.runId
+
+    // A verbose Chief report (zod allows up to 20k) must not dump onto K's thread
+    // uncapped — the report-back path shares the 2000-char REPORT_BACK_TEXT_CAP.
+    fileChiefReport(runId, 'r'.repeat(2_500))
+    eventBus.emitRunUpdate({ id: runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+
+    const reportBack = listKThreadTurns(DEFAULT_K_THREAD_ID)
+      .filter(t => t.role === 'k')
+      .find(t => t.text.includes('reported:'))
+    expect(reportBack).toBeTruthy()
+    expect(reportBack!.text.endsWith('…')).toBe(true)
+    // prefix + capped body + ellipsis — never the raw 2500-char body.
+    const prefix = 'Chief (delegation completed) reported: '
+    expect(reportBack!.text.length).toBe(prefix.length + 2_000 + 1)
+  })
+
+  it('caps the assistant-text fallback (bounded event scan + ~2000-char cap)', async () => {
+    const result = await askK('refactor the giant module')
+    const runId = result.runId
+
+    // No mgmt report; 60 assistant events × 100 chars — more events than the 50-event
+    // scan window and far more text than the 2000-char cap.
+    const ins = db.prepare(
+      `INSERT INTO events (id, run_id, seq, type, ts, text) VALUES (?, ?, ?, 'assistant', ?, ?)`,
+    )
+    for (let i = 1; i <= 60; i++) ins.run(uuid(), runId, i, Date.now(), 'a'.repeat(100))
+    eventBus.emitRunUpdate({ id: runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+
+    const reportBack = listKThreadTurns(DEFAULT_K_THREAD_ID)
+      .filter(t => t.role === 'k')
+      .find(t => t.text.includes('Chief (delegation completed):'))
+    expect(reportBack).toBeTruthy()
+    expect(reportBack!.text.endsWith('…')).toBe(true)
+    const prefix = 'Chief (delegation completed): '
+    expect(reportBack!.text.length).toBe(prefix.length + 2_000 + 1)
+  })
+
   it('falls back to a bare status line when the Chief filed no report', async () => {
     const result = await askK('refactor the module')
     const runId = result.runId
@@ -320,6 +429,65 @@ describe('askK — delegation to the Chief', () => {
     const turns = listKThreadTurns(DEFAULT_K_THREAD_ID)
     expect(turns.filter(t => t.role === 'user')).toHaveLength(1)
     expect(turns.filter(t => t.role === 'k')).toHaveLength(0)
+  })
+})
+
+// ── askK — power controls: forceRoute + model (C2) ────────────────────────────
+
+describe('askK — forceRoute + model power controls', () => {
+  it('forceRoute:chief delegates a message the classifier would keep as logistics', async () => {
+    // routeForMessage classifies this as logistics (no engineering signal) — the
+    // forced route must win and hand it to the Chief anyway.
+    const { routeForMessage } = await import('@k/shared')
+    expect(routeForMessage('remind me to water the plants').escalates).toBe(false)
+
+    const result = await askK('remind me to water the plants', { forceRoute: 'chief' })
+
+    expect(result.route.target).toBe('chief')
+    expect(result.route.escalates).toBe(true)
+    // The Chief was activated (trigger=delegation); no k-secretary run started.
+    const rows = chiefAgentRuns()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].trigger).toBe('delegation')
+    expect(agentRunsDb.listRecentAgentRunsByProfile.all('k-secretary', 500)).toHaveLength(0)
+  })
+
+  it('a forced named lead carries the discipline hint in the delegation goal', async () => {
+    await askK('handle this one', { forceRoute: 'frontend' })
+    const rows = chiefAgentRuns()
+    expect(rows).toHaveLength(1)
+    // buildDelegationGoal's named-lead hint path — the Chief can assign_lead on it.
+    expect(String(rows[0].goal)).toContain('frontend')
+    expect(String(rows[0].goal)).toContain('handle this one')
+  })
+
+  it('an explicit model on a cold logistics ask reaches startRun', async () => {
+    await askK('note the grocery list', { model: 'claude-opus-4-8' })
+    const lastCall = vi.mocked(startRun).mock.calls.at(-1)!
+    expect(lastCall[1]).toMatchObject({ model: 'claude-opus-4-8', interactive: true })
+  })
+
+  it('an explicit model SKIPS the warm continuation and starts fresh (model can\'t change mid-process)', async () => {
+    // Arrange a warm thread exactly like the warm-continuation test above.
+    ensureDefaultKThread()
+    const warmRunId = `mock-k-warm-${uuid().slice(0, 8)}`
+    db.prepare(
+      `INSERT OR IGNORE INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'k', '.', 'awaiting_input', ?)`,
+    ).run(warmRunId, Date.now())
+    db.prepare(`UPDATE k_threads SET active_run_id = ?, updated_at = ? WHERE id = ?`)
+      .run(warmRunId, Date.now(), DEFAULT_K_THREAD_ID)
+    __testHooks.initSeq(warmRunId)
+    __testHooks.setActiveProc(warmRunId, { interactive: true, stdin: { write() {} }, kill() {} } as never)
+    try {
+      const result = await askK('note the follow-ups', { model: 'claude-opus-4-8' })
+      // Fresh dispatch, NOT the warm run — the live process's model can't change,
+      // and silently dropping the operator's explicit choice would be worse.
+      expect(result.warm).toBe(false)
+      expect(result.runId).not.toBe(warmRunId)
+      expect(vi.mocked(startRun).mock.calls.at(-1)![1]).toMatchObject({ model: 'claude-opus-4-8' })
+    } finally {
+      __testHooks.clearActiveProc(warmRunId)
+    }
   })
 })
 

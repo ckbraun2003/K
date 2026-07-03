@@ -20,7 +20,7 @@
  * WakeRow already renders trigger/goal/run-link/status/time — so the UI slot is wired;
  * this module only makes the wakes EXIST.
  *
- * ── Two guards + a self-wake guard + failure-degrade ─────────────────────────────
+ * ── The guard set (every wake is a REAL PAID Claude activation) ──────────────────
  *  • Guard A (min-interval debounce): a burst of ticks/events collapses to one wake —
  *    `lastWakeAt` is set SYNCHRONOUSLY before the await so a synchronous burst is
  *    debounced deterministically.
@@ -28,6 +28,19 @@
  *    a new wake is skipped — one Chief activation at a time.
  *  • Self-wake guard (`onChiefWakeRunUpdate`): the Chief's OWN run finishing must NOT
  *    wake the Chief again, or a wake→run→complete→wake loop forms.
+ *  • Org-relevance filter (`onChiefWakeRunUpdate`, event path only): a terminal run
+ *    wakes the Chief ONLY if its agent_runs row is orchestrator-tier (a lead) or was
+ *    triggered by a delegation. Plain runs (no agent_runs row: evals, skills, manual
+ *    runs) and K-chat terminals ('k-secretary' / 'user-message') never wake — the
+ *    Chief reacts to ORG events, not to every run in the system.
+ *  • Rate breaker (`wakeChief`, event trigger only): at most `chief_wake_max_per_hour`
+ *    (app_config, default 6) event wakes per rolling hour — {reason:'rate-capped'},
+ *    NO ledger row. A chief-dispatched lead's terminal legitimately re-wakes the Chief
+ *    (that IS the autonomous loop), so this breaker is the hard cost bound on the
+ *    wake→dispatch_lead→lead-terminal→wake cycle. Cron/schedule wakes are exempt.
+ *  • Kill switch (`onChiefWakeRunUpdate`): app_config `chief_wake_events_enabled`
+ *    (default '1'); '0' disables the EVENT path entirely, cron wakes unaffected.
+ *    Read lazily per event so the operator can flip it at runtime.
  *  • Failure-degrade: `startAgentRun` records the row 'failed' + re-throws on a dispatch
  *    failure; `wakeChief` SWALLOWS that (returns {woke:false,reason:'failed'}) so the
  *    cron/event callback never crashes the loop — while the ledger still shows 'failed'.
@@ -37,13 +50,15 @@ import { schedule as cronSchedule, validate as cronValidate } from 'node-cron'
 import type { Run } from '@k/shared'
 import { eventBus } from './events.js'
 import { startAgentRun } from './agent-runs.js'
-import { agentRunsDb } from './db.js'
+import { agentRunsDb, configDb } from './db.js'
+import { getProfile } from './profiles.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
 
 /** The Chief's default schedule-wake instruction (the `-p` seed for a cron wake). */
 export const DEFAULT_CHIEF_WAKE_GOAL =
-  'Autonomous org check-in: review active leads, in-flight workflows, and open objectives; ' +
-  'surface blockers, and note any unstaffed work. Report a concise status; do not dispatch new work yet.'
+  'Autonomous org check-in: review active leads and open objectives with the mgmt read tools ' +
+  '(assignment_list, report_list); surface blockers and note any unstaffed work. Report a concise ' +
+  'status; do not dispatch new work yet.'
 
 /** Default cron for the Chief's scheduled wake (every 15 minutes). A literal default;
  *  the `CHIEF_WAKE_CRON` env override is read lazily inside startChiefWake() so it can
@@ -54,12 +69,34 @@ export const DEFAULT_CHIEF_WAKE_CRON = '*/15 * * * *'
  *  a skip/failure carries a machine-readable reason. */
 export type WakeOutcome =
   | { woke: true; agentRunId: string; runId: string }
-  | { woke: false; reason: 'debounced' | 'already-running' | 'disabled' | 'failed' }
+  | { woke: false; reason: 'debounced' | 'already-running' | 'disabled' | 'rate-capped' | 'failed' }
 
 // Opt-out via env (default ON). Read lazily so tests/settings can toggle per-call.
 function chiefWakeEnabled(): boolean {
   return process.env.CHIEF_WAKE !== '0'
 }
+
+// ── Rate breaker (event wakes only) ─────────────────────────────────────────
+
+/** Fallback cap when `chief_wake_max_per_hour` is unset or garbled. */
+const DEFAULT_WAKE_MAX_PER_HOUR = 6
+
+const HOUR_MS = 3_600_000
+
+/** Max event-trigger wakes per rolling hour — app_config `chief_wake_max_per_hour`,
+ *  read lazily per wake so the operator can tune it at runtime. Invalid/negative
+ *  values fall back to the default; 0 is a VALID "block all event wakes". */
+function wakeMaxPerHour(): number {
+  const raw = configDb.get('chief_wake_max_per_hour')
+  if (raw == null) return DEFAULT_WAKE_MAX_PER_HOUR
+  const n = Number.parseInt(raw, 10)
+  return Number.isInteger(n) && n >= 0 ? n : DEFAULT_WAKE_MAX_PER_HOUR
+}
+
+// warn-once-per-suppression-streak latch: the breaker can suppress many wakes in a
+// busy hour — log the FIRST suppression of a streak, then stay quiet until an event
+// wake passes the breaker again (which resets the latch).
+let rateCapWarned = false
 
 // Min-interval debounce window. A module-level `let` so startChiefWake() can override
 // it (per-instance timing) while wakeChief() reads the current value.
@@ -95,6 +132,23 @@ export async function wakeChief(
   // Guard B — already-running / idempotent. One Chief activation at a time.
   if (agentRunsDb.getRunningAgentRunByProfile.get('chief')) return { woke: false, reason: 'already-running' }
 
+  // Rate breaker — EVENT wakes only (cron/schedule wakes are exempt): count the
+  // Chief's event activations in the rolling hour against the operator cap. A capped
+  // wake skips BEFORE startAgentRun, so no agent_runs row is ever created for it,
+  // and BEFORE lastWakeAt commits, so it never consumes the debounce window either.
+  if (trigger === 'event') {
+    const cap = wakeMaxPerHour()
+    const { n } = agentRunsDb.countRecentAgentRunsByProfileAndTrigger.get('chief', 'event', now - HOUR_MS) as { n: number }
+    if (n >= cap) {
+      if (!rateCapWarned) {
+        rateCapWarned = true
+        console.warn(`[chief-wake] event wakes rate-capped: ${n} in the last hour >= cap ${cap} (chief_wake_max_per_hour)`)
+      }
+      return { woke: false, reason: 'rate-capped' }
+    }
+    rateCapWarned = false // an event wake passed the breaker — end the suppression streak
+  }
+
   // PASS. Commit the debounce clock synchronously so a same-tick burst is debounced.
   lastWakeAt = now
   const goal = opts.goal ?? opts.thread ?? DEFAULT_CHIEF_WAKE_GOAL
@@ -112,16 +166,32 @@ export async function wakeChief(
 
 /**
  * The EventBus run-update handler body, exported so it is unit-testable directly
- * (no cron/async flakiness). On a TERMINAL run that is NOT the Chief's own run,
- * fire-and-forget an 'event'-trigger wake.
+ * (no cron/async flakiness). On a TERMINAL run that is ORG-RELEVANT — a lead
+ * (orchestrator-tier) activation or a delegation-triggered one, and never the
+ * Chief's own run — fire-and-forget an 'event'-trigger wake. Gated by the
+ * `chief_wake_events_enabled` kill switch (event path only; cron unaffected).
  */
 export function onChiefWakeRunUpdate(run: Run): void {
   if (!chiefWakeEnabled()) return
   if (!isTerminalRunStatus(run.status)) return
 
-  // Self-wake guard: the Chief's OWN run finishing must not wake the Chief again.
-  const owner = agentRunsDb.getAgentRunProfileByRunId.get(run.id) as { profile_id?: string } | undefined
-  if (owner?.profile_id === 'chief') return
+  // Kill switch — read lazily per event so the operator can flip it at runtime.
+  if ((configDb.get('chief_wake_events_enabled') ?? '1') === '0') return
+
+  // Org-relevance filter. A run with NO agent_runs row (evals, skills, manual runs)
+  // is not an org event — no wake.
+  const owner = agentRunsDb.getAgentRunProfileByRunId.get(run.id) as
+    | { profile_id?: string; trigger?: string }
+    | undefined
+  if (!owner?.profile_id) return
+  // Self-wake guard (before the relevance arms): the Chief's OWN run finishing must
+  // not wake the Chief again, or a wake→run→complete→wake loop forms.
+  if (owner.profile_id === 'chief') return
+  // Org-relevant = a delegation-triggered run OR a lead (orchestrator-tier profile).
+  // K-chat terminals ('k-secretary' / 'user-message') fail both arms and never wake.
+  const orgRelevant =
+    owner.trigger === 'delegation' || getProfile(owner.profile_id)?.tier === 'orchestrator'
+  if (!orgRelevant) return
 
   void wakeChief('event', { thread: `run ${run.id} → ${run.status}` }).catch(() => {})
 }

@@ -31,7 +31,8 @@ const PROFILE_ID = `prof-${uuid()}`
 const PROFILE_NAME = 'K'
 
 /** Seed a pending lesson via the PRODUCER statement (run_id null — FK is ON DELETE SET NULL, so a
- *  null owner keeps the seed simple). Returns its id. */
+ *  null owner keeps the seed simple). profileId is null here; the profile_name-join test stamps
+ *  profile_id with a raw UPDATE below. Returns its id. */
 function seedPendingLesson(lesson: string): string {
   const id = uuid()
   agentMemoryDb.insertLesson.run({
@@ -41,14 +42,15 @@ function seedPendingLesson(lesson: string): string {
     status: 'pending',
     createdAt: Date.now(),
     reviewedAt: null,
+    profileId: null,
   })
   return id
 }
 
 beforeAll(async () => {
   db.exec('DELETE FROM agent_memory')
-  // A profile to assert the join surfaces profile_name. insertLesson doesn't set profile_id, so we
-  // stamp it with a raw UPDATE on the seeded lesson below.
+  // A profile to assert the join surfaces profile_name. seedPendingLesson inserts profile_id null,
+  // so the join test stamps profile_id with a raw UPDATE on the seeded lesson below.
   db.prepare(
     `INSERT INTO agent_profiles (id, name, tier, charter, default_model, allowed_tools, mcp_servers, skills, created_at)
      VALUES (?, ?, 'chief', 'chief', 'sonnet', '[]', '[]', '[]', ?)`,

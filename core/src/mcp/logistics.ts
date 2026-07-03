@@ -12,8 +12,10 @@
  * storing a calendar event here does NOT schedule it on any real calendar.
  *
  * Each tool carries its own zod input shape (authoritative validation lives in the
- * handler) plus a `ctx` with the injected K_RUN_ID. Every row is scoped to that
- * run, so one run can never read or mutate another run's logistics rows.
+ * handler) plus a `ctx` with the injected K_RUN_ID. The store is OPERATOR-DURABLE
+ * (single operator): rows persist across sessions and runs, so any session may list
+ * or update them; run_id is recorded on INSERT as PROVENANCE only, never as an access
+ * filter.
  */
 import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
@@ -37,7 +39,10 @@ type Row = Record<string, unknown>
 const asNum = (v: unknown): number => Number(v)
 const asStrOrNull = (v: unknown): string | null => (v == null ? null : String(v))
 
-function rowToNote(r: Row): Note {
+// The row→type mappers are exported so the K-home HTTP surface (routes/k.ts
+// notes/schedule reads) reuses this ONE mapping authority — mirroring how
+// routes/k.ts already reuses rowToWorkItem from k-store.ts.
+export function rowToNote(r: Row): Note {
   return {
     id: String(r.id),
     runId: asStrOrNull(r.run_id),
@@ -48,7 +53,7 @@ function rowToNote(r: Row): Note {
   }
 }
 
-function rowToCalendarEvent(r: Row): CalendarEvent {
+export function rowToCalendarEvent(r: Row): CalendarEvent {
   return {
     id: String(r.id),
     runId: asStrOrNull(r.run_id),
@@ -61,7 +66,7 @@ function rowToCalendarEvent(r: Row): CalendarEvent {
   }
 }
 
-function rowToReminder(r: Row): Reminder {
+export function rowToReminder(r: Row): Reminder {
   return {
     id: String(r.id),
     runId: asStrOrNull(r.run_id),
@@ -102,15 +107,14 @@ const NoteListInput = {
   done: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).optional(),
 }
-function noteList(args: unknown, ctx: LogisticsContext): Note[] {
+function noteList(args: unknown): Note[] {
   const a = z.object(NoteListInput).parse(args ?? {})
-  const owner = resolveOwnerRunId(ctx)
   const limit = a.limit ?? 50
-  // Scoped to the caller's run — a run never lists another run's notes.
+  // Operator-global — notes are durable across sessions/runs (single operator).
   const rows = (
     a.done !== undefined
-      ? logisticsDb.listNotesByRunDone.all(owner, a.done ? 1 : 0, limit)
-      : logisticsDb.listNotesByRun.all(owner, limit)
+      ? logisticsDb.listNotesByDone.all(a.done ? 1 : 0, limit)
+      : logisticsDb.listNotes.all(limit)
   ) as Row[]
   return rows.map(rowToNote)
 }
@@ -120,13 +124,13 @@ const NoteUpdateInput = {
   body: z.string().min(1).max(20_000).optional(),
   done: z.boolean().optional(),
 }
-function noteUpdate(args: unknown, ctx: LogisticsContext): Note {
+function noteUpdate(args: unknown): Note {
   const a = z.object(NoteUpdateInput).parse(args ?? {})
   if (a.body === undefined && a.done === undefined) {
     throw new LogisticsError('note_update needs at least one of: body, done.')
   }
-  // Ownership-scoped fetch: a note owned by another run reads as "not found".
-  const existing = logisticsDb.getNoteOwned.get(a.id, resolveOwnerRunId(ctx)) as Row | undefined
+  // Durable: any session may update the operator's note. Fetch by plain id.
+  const existing = logisticsDb.getNote.get(a.id) as Row | undefined
   if (!existing) throw new LogisticsError(`note "${a.id}" not found.`)
   const cur = rowToNote(existing)
   logisticsDb.updateNote.run({
@@ -168,15 +172,14 @@ const EventListInput = {
   to: z.number().int().optional(),
   limit: z.number().int().min(1).max(200).optional(),
 }
-function eventList(args: unknown, ctx: LogisticsContext): CalendarEvent[] {
+function eventList(args: unknown): CalendarEvent[] {
   const a = z.object(EventListInput).parse(args ?? {})
-  const owner = resolveOwnerRunId(ctx)
   const limit = a.limit ?? 50
-  // Run-scoped, soonest-first, with the optional from/to window pushed INTO SQL so
+  // Operator-global, soonest-first, with the optional from/to window pushed INTO SQL so
   // the LIMIT caps the WINDOWED set — an omitted bound widens to the int extremes.
   const from = a.from ?? Number.MIN_SAFE_INTEGER
   const to = a.to ?? Number.MAX_SAFE_INTEGER
-  const rows = logisticsDb.listEventsByRun.all(owner, from, to, limit) as Row[]
+  const rows = logisticsDb.listEvents.all(from, to, limit) as Row[]
   return rows.map(rowToCalendarEvent)
 }
 
@@ -187,7 +190,7 @@ const EventUpdateInput = {
   endsAt: z.number().int().optional(),
   location: z.string().max(500).optional(),
 }
-function eventUpdate(args: unknown, ctx: LogisticsContext): CalendarEvent {
+function eventUpdate(args: unknown): CalendarEvent {
   const a = z.object(EventUpdateInput).parse(args ?? {})
   if (
     a.title === undefined &&
@@ -197,8 +200,8 @@ function eventUpdate(args: unknown, ctx: LogisticsContext): CalendarEvent {
   ) {
     throw new LogisticsError('event_update needs at least one of: title, startsAt, endsAt, location.')
   }
-  // Ownership-scoped fetch: an event owned by another run reads as "not found".
-  const existing = logisticsDb.getEventOwned.get(a.id, resolveOwnerRunId(ctx)) as Row | undefined
+  // Durable: any session may update the operator's event. Fetch by plain id.
+  const existing = logisticsDb.getEvent.get(a.id) as Row | undefined
   if (!existing) throw new LogisticsError(`event "${a.id}" not found.`)
   const cur = rowToCalendarEvent(existing)
   logisticsDb.updateEvent.run({
@@ -235,24 +238,23 @@ const ReminderListInput = {
   status: ReminderStatusSchema.optional(),
   limit: z.number().int().min(1).max(200).optional(),
 }
-function reminderList(args: unknown, ctx: LogisticsContext): Reminder[] {
+function reminderList(args: unknown): Reminder[] {
   const a = z.object(ReminderListInput).parse(args ?? {})
-  const owner = resolveOwnerRunId(ctx)
   const limit = a.limit ?? 50
-  // Scoped to the caller's run — a run only sees its own reminders.
+  // Operator-global — reminders are durable across sessions/runs (single operator).
   const rows = (
     a.status
-      ? logisticsDb.listRemindersByRunStatus.all(owner, a.status, limit)
-      : logisticsDb.listRemindersByRun.all(owner, limit)
+      ? logisticsDb.listRemindersByStatus.all(a.status, limit)
+      : logisticsDb.listReminders.all(limit)
   ) as Row[]
   return rows.map(rowToReminder)
 }
 
 const ReminderUpdateInput = { id: z.string().min(1).max(100), status: ReminderStatusSchema }
-function reminderUpdate(args: unknown, ctx: LogisticsContext): Reminder {
+function reminderUpdate(args: unknown): Reminder {
   const a = z.object(ReminderUpdateInput).parse(args ?? {})
-  // Ownership-scoped fetch: a reminder owned by another run reads as "not found".
-  const existing = logisticsDb.getReminderOwned.get(a.id, resolveOwnerRunId(ctx)) as Row | undefined
+  // Durable: any session may update the operator's reminder. Fetch by plain id.
+  const existing = logisticsDb.getReminder.get(a.id) as Row | undefined
   if (!existing) throw new LogisticsError(`reminder "${a.id}" not found.`)
   logisticsDb.updateReminder.run({ id: a.id, status: a.status, updatedAt: Date.now() })
   return rowToReminder(logisticsDb.getReminder.get(a.id) as Row)
@@ -280,14 +282,14 @@ export const logisticsTools: LogisticsTool[] = [
   {
     name: 'note_list',
     description:
-      'List this run\'s recent logistics notes, optionally filtered by done state. Returns an array of notes.',
+      "List recent logistics notes (durable — the operator's notes persist across sessions and runs), optionally filtered by done state. Returns an array of notes.",
     inputShape: NoteListInput,
     handler: noteList,
   },
   {
     name: 'note_update',
     description:
-      'Update one of this run\'s notes by id — edit its body and/or flip done. Returns the updated note.',
+      'Update a note by id — edit its body and/or flip done. Notes are durable (updatable from any session). Returns the updated note.',
     inputShape: NoteUpdateInput,
     handler: noteUpdate,
   },
@@ -301,14 +303,14 @@ export const logisticsTools: LogisticsTool[] = [
   {
     name: 'event_list',
     description:
-      'List this run\'s calendar events (soonest first), optionally within a from/to startsAt window. Returns an array of events.',
+      "List the operator's calendar events (durable — persist across sessions and runs; soonest first), optionally within a from/to startsAt window. Returns an array of events.",
     inputShape: EventListInput,
     handler: eventList,
   },
   {
     name: 'event_update',
     description:
-      'Update one of this run\'s calendar events by id — set title/startsAt/endsAt/location. Returns the updated event.',
+      'Update a calendar event by id — set title/startsAt/endsAt/location. Events are durable (updatable from any session). Returns the updated event.',
     inputShape: EventUpdateInput,
     handler: eventUpdate,
   },
@@ -322,14 +324,14 @@ export const logisticsTools: LogisticsTool[] = [
   {
     name: 'reminder_list',
     description:
-      'List this run\'s reminders, optionally filtered by status (pending | done | cancelled). Returns an array.',
+      "List the operator's reminders (durable — persist across sessions and runs), optionally filtered by status (pending | done | cancelled). Returns an array.",
     inputShape: ReminderListInput,
     handler: reminderList,
   },
   {
     name: 'reminder_update',
     description:
-      'Update the status of one of this run\'s reminders by id (pending | done | cancelled). Returns the updated reminder.',
+      'Update the status of a reminder by id (pending | done | cancelled). Reminders are durable (updatable from any session). Returns the updated reminder.',
     inputShape: ReminderUpdateInput,
     handler: reminderUpdate,
   },

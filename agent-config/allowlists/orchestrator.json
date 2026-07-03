@@ -1,10 +1,12 @@
 {
-  "_note": "orchestrator tier — full coding authority within charter. Passed to `claude --allowedTools`. Coding tools (Bash, Write, Edit, Task) are present at this tier. The subagent-spawn tool is `Task` (verified against the claude CLI binary) — agents are the concept, `Task` is the tool id the CLI keys on. `mcp__<server>` grants every tool on that MCP server: gitnexus (code intelligence) + kstore (work-items, lessons, workflow status-write — must be granted or the mounted server's tools are denied in headless `-p`).",
+  "_note": "orchestrator tier — full coding authority within charter. Passed to `claude --allowedTools`. Coding tools (Bash, Write, Edit, Task) are present at this tier. The subagent-spawn tool is `Task` (verified against the claude CLI binary) — agents are the concept, `Task` is the tool id the CLI keys on. PowerShell + NotebookEdit are coding-tier tools the leads need (the CLI exposes PowerShell on Windows); without them the --disallowedTools denylist (UNIVERSE minus this grant) would deny them. `mcp__<server>` grants every tool on that MCP server: gitnexus (code intelligence) + kstore (work-items, lessons, workflow status-write — must be granted or the mounted server's tools are denied in headless `-p`).",
   "allowedTools": [
     "Bash",
+    "PowerShell",
     "Read",
     "Write",
     "Edit",
+    "NotebookEdit",
     "Grep",
     "Glob",
     "Task",

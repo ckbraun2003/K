@@ -112,4 +112,22 @@ describe('PATCH /api/org-default', () => {
       await app.close()
     }
   })
+
+  it('SEAM: an above-ceiling allowedTools patch is rejected 400 (tier ceiling) and the profile is UNCHANGED', async () => {
+    const app = await makeApp()
+    try {
+      const before = getProfile('default-orchestrator')!.allowedTools
+      // The dead `Agent` token is above the ceiling at every tier (D-032).
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/org-default',
+        payload: { allowedTools: ['Agent'] },
+      })
+      expect(res.statusCode).toBe(400)
+      expect((res.json() as { error: string }).error).toMatch(/tier ceiling/)
+      expect(getProfile('default-orchestrator')!.allowedTools).toEqual(before)
+    } finally {
+      await app.close()
+    }
+  })
 })

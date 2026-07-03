@@ -12,6 +12,7 @@
   --muted: #a99bc4;
   --accent: #ff8fc0;        /* blush pink — accent fills, active pills, badges, links */
   --accent-hover: #38bdf8;  /* sky blue — hover/active transition colour */
+  --on-accent: #241640;     /* dark text on accent-filled chips (WCAG dark-on-light) */
   --green: #34d399;
   --amber: #fbbf24;
   --red: #f87171;

@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'crypto'
 import type { Project, ProjectTask } from '@k/shared'
-import { projectTasksDb, workflowRunsDb, rowToProjectTask } from './db.js'
+import { projectWorkItemsDb, workflowRunsDb, rowToProjectTask } from './db.js'
 import { startRun } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
 
@@ -108,15 +108,21 @@ export function finalizeWorkflowRun(workflowRunId: string, terminalRunStatus: st
  *  Throws if any taskId is missing or not in this project (the route translates
  *  the Error to a 400). Selected todos flip to 'in_progress' but are NOT
  *  auto-marked 'done' — the agent's PR decides completion.
+ *
+ *  `opts.scaffold` is an alternate NamedWorkflow prompt scaffold (C2 "Run this
+ *  workflow") rendered through the same renderWorkflowPrompt seam; omitted = the
+ *  built-in CODE_WAVE_SCAFFOLD, byte-identical to the pre-C2 buildDelegationPrompt
+ *  path (which stays exported for its own tests/callers).
  */
 export async function dispatchTaskWorkflow(
   project: Project,
   taskIds: string[],
+  opts: { scaffold?: string } = {},
 ): Promise<{ workflowRunId: string; runId: string }> {
   // 0. Reject an empty dispatch up-front — validate-before-mutate, mirroring the
   //    step-1 TaskNotFound guard. Without this, steps 1+2 no-op over the empty
   //    list, step 3 inserts the workflow_run row ('running'), then step 4's
-  //    buildDelegationPrompt([]) throws inside the try and the catch finalizes
+  //    renderWorkflowPrompt(…, []) throws inside the try and the catch finalizes
   //    that row to 'failed' instead of deleting it — leaving an orphaned row from
   //    what should be a pure input rejection.
   if (taskIds.length === 0) {
@@ -126,7 +132,7 @@ export async function dispatchTaskWorkflow(
   // 1. Load every task, scoped to this project. Any miss → throw (route → 400).
   const tasks: ProjectTask[] = []
   for (const taskId of taskIds) {
-    const row = projectTasksDb.getProjectTask.get(taskId, project.id) as
+    const row = projectWorkItemsDb.getProjectTask.get(taskId, project.id) as
       | Record<string, unknown>
       | undefined
     if (!row) throw new TaskNotFoundError(taskId)
@@ -135,7 +141,7 @@ export async function dispatchTaskWorkflow(
 
   // 2. Lock the selected tasks as in_progress.
   for (const task of tasks) {
-    projectTasksDb.updateProjectTaskStatus.run({
+    projectWorkItemsDb.updateProjectTaskStatus.run({
       id: task.id,
       projectId: project.id,
       status: 'in_progress',
@@ -166,14 +172,14 @@ export async function dispatchTaskWorkflow(
   //    (the route surfaces a 500). Mirrors runSkillTest's degrade.
   let run
   try {
-    run = await startRun(buildDelegationPrompt(tasks), {
+    run = await startRun(renderWorkflowPrompt(opts.scaffold ?? CODE_WAVE_SCAFFOLD, tasks), {
       cwd: project.localPath,
       projectId: project.id,
     })
   } catch (e) {
     workflowRunsDb.updateWorkflowRunStatus.run('failed', Date.now(), workflowRunId)
     for (const task of tasks) {
-      projectTasksDb.updateProjectTaskStatus.run({
+      projectWorkItemsDb.updateProjectTaskStatus.run({
         id: task.id,
         projectId: project.id,
         status: task.status,

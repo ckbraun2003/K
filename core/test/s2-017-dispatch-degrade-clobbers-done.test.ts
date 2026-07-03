@@ -26,7 +26,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, projectsDb, projectTasksDb } from '../src/db.js'
+import { db, projectsDb, projectWorkItemsDb } from '../src/db.js'
 import { startRun } from '../src/supervisor.js'
 import type { Project } from '@k/shared'
 
@@ -62,7 +62,7 @@ beforeAll(() => {
     githubRemote: null, workspaceManaged: 0, bibleDir: project.bibleDir, createdAt: project.createdAt,
   })
   // A task that is already DONE before any workflow touches it.
-  projectTasksDb.insertProjectTask.run({
+  projectWorkItemsDb.insertProjectTask.run({
     id: DONE_TASK, projectId: PROJECT_ID, title: 'already shipped', status: 'done',
     createdAt: Date.now(), completedAt: COMPLETED_AT, issueNumber: null, issueUrl: null, issueState: null,
   })
