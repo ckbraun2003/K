@@ -123,8 +123,8 @@ describe('aggregateRouting', () => {
 describe('routingRecommendation', () => {
   function group(over: Partial<Parameters<typeof routingRecommendation>[0][number]>) {
     return {
-      provider: 'claude', model: 'sonnet', runs: 20,
-      successRate: 0.9, avgCostUsd: 0.01, totalCostUsd: 0.2, avgLatencyMs: 1000,
+      provider: 'claude', model: 'sonnet', runs: 20, terminalRuns: 20,
+      successRate: 0.9, avgCostUsd: 0.01, totalCostUsd: 0.2, avgLatencyMs: 1000, latencyCount: 20,
       ...over,
     }
   }

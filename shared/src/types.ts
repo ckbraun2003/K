@@ -807,10 +807,12 @@ export const RoutingModelStatSchema = z.object({
   provider: z.string(),
   model: z.string(),
   runs: z.number().int(),
+  terminalRuns: z.number().int(), // count of runs in a terminal status (successRate's denominator)
   successRate: z.number(),   // done / terminal-count, 0..1 (0 if no terminal runs)
   avgCostUsd: z.number(),    // mean over runs with cost_usd > 0 (0 if none)
   totalCostUsd: z.number(),
   avgLatencyMs: z.number(),  // mean ended_at - created_at over completed runs (0 if none)
+  latencyCount: z.number().int(), // count of runs with a usable latency (avgLatencyMs's denominator)
 })
 export type RoutingModelStat = z.infer<typeof RoutingModelStatSchema>
 

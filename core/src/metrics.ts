@@ -261,10 +261,12 @@ export function aggregateRouting(rows: RoutingRunRow[], now: number): RoutingSta
     provider: a.provider,
     model: a.model,
     runs: a.runs,
+    terminalRuns: a.terminal,
     successRate: a.terminal > 0 ? a.done / a.terminal : 0,
     avgCostUsd: a.costPosCount > 0 ? a.costPosSum / a.costPosCount : 0,
     totalCostUsd: a.costSum,
     avgLatencyMs: a.latencyCount > 0 ? a.latencySum / a.latencyCount : 0,
+    latencyCount: a.latencyCount,
   }))
 
   groups.sort((a, b) => {
