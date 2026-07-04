@@ -271,7 +271,7 @@ export function auditBible(freshnessDays: number | null, hasBibleDir: boolean): 
 /** Pure "is the bible fresh?" helper: bible exists AND last bible commit is within
  *  the freshness window; null freshness (no commits / git failed) counts as NOT
  *  fresh. NOTE: since F-032 the HEALTH SCORE's bible component is existence-based
- *  (computeHealthScore takes `bibleExists`), so this no longer feeds the score — it
+ *  (computeHealthScore takes `bibleAuthored`), so this no longer feeds the score — it
  *  remains a standalone freshness predicate other callers/tests may use. */
 export function bibleFreshFromDays(freshnessDays: number | null, hasBibleDir: boolean): boolean {
   if (!hasBibleDir) return false

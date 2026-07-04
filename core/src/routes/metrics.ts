@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { FastifyInstance } from 'fastify'
 import { TimeseriesGroupBySchema } from '@k/shared'
 import { db } from '../db.js'
+import { sendZodError } from './http-errors.js'
 import { summarizeRuns, buildTimeseries, buildQualityTimeseries, windowStartMs, aggregateRouting, type RunRow, type TimeseriesRunRow, type RoutingRunRow } from '../metrics.js'
 
 const TimeseriesQuerySchema = z.object({
@@ -80,7 +81,7 @@ export async function metricsRoutes(app: FastifyInstance) {
   // GET /api/metrics/timeseries?days=30&groupBy=project|model
   app.get('/api/metrics/timeseries', async (req, reply) => {
     const parsed = TimeseriesQuerySchema.safeParse(req.query)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return sendZodError(reply, parsed.error)
     // capture now once so the SQL bound and bucket window share one instant
     const now = Date.now()
     const rows = timeseriesWindowStmt.all(windowStartMs(now, parsed.data.days)) as TimeseriesRunRow[]
@@ -90,7 +91,7 @@ export async function metricsRoutes(app: FastifyInstance) {
   // GET /api/metrics/routing?days=30 — per-(provider,model) outcome aggregates
   app.get('/api/metrics/routing', async (req, reply) => {
     const parsed = RoutingQuerySchema.safeParse(req.query)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return sendZodError(reply, parsed.error)
     const now = Date.now()
     const rows = routingWindowStmt.all(windowStartMs(now, parsed.data.days)) as RoutingRunRow[]
     return reply.send(aggregateRouting(rows, now))
@@ -101,7 +102,7 @@ export async function metricsRoutes(app: FastifyInstance) {
   // routing KPIs share one killed-excluded/parked-excluded definition (W9a → W9b F-087).
   app.get('/api/metrics/quality', async (req, reply) => {
     const parsed = RoutingQuerySchema.safeParse(req.query)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return sendZodError(reply, parsed.error)
     const now = Date.now()
     const rows = routingWindowStmt.all(windowStartMs(now, parsed.data.days)) as RoutingRunRow[]
     return reply.send(buildQualityTimeseries(rows, now, parsed.data.days))

@@ -348,9 +348,13 @@ describe('GET /api/metrics/routing', () => {
     }
   })
 
-  it('GET /api/metrics/quality 400 on an out-of-range days query', async () => {
+  it('GET /api/metrics/quality 400 on an out-of-range days query — string error envelope (SEAMS)', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/metrics/quality?days=999', headers: AUTH })
     expect(res.statusCode).toBe(400)
+    // shared http-errors envelope: `error` MUST be a string (else the web client renders
+    // "[object Object]"); the zod field detail rides on `details`.
+    const body = res.json()
+    expect(typeof body.error).toBe('string')
   })
 
   it('GET /api/metrics/timeseries?groupBy=lead lands a lead-dispatched run under its lead (W9b F-084)', async () => {
