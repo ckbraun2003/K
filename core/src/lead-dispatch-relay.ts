@@ -54,6 +54,9 @@ import { startAgentRun } from './agent-runs.js'
 import { reportLeadOutcomeToChief, seedLeadWorkflowRun } from './chief-dispatch.js'
 import { continueLeadOutcomeToK } from './k-thread.js'
 import { getProjectByName } from './projects.js'
+import { getProfile } from './profiles.js'
+import { claudeDefaultModel } from './config-store.js'
+import { warnIfOrgRoleModelNotToolCapable } from './agent-config.js'
 import { rowToAssignment } from './mcp/mgmt.js'
 
 /** Default poll interval for the relay (ms). Overridable via env; read lazily inside
@@ -132,6 +135,17 @@ export async function drainLeadDispatches(): Promise<number> {
           continue
         }
         if (scope.warning) console.warn(`[lead-relay] dispatch ${id}: ${scope.warning}`)
+
+        // WARN-ONLY (org-role model capability): mirror the Chief warning for a lead run —
+        // a lead resolved to a haiku-tier model can't reliably drive the DEFERRED management
+        // tools, so the autonomous chain stalls. One warning per dispatch at this lead choke-
+        // point; the configured model still runs unchanged (same tokens/tool grants). Model
+        // resolution mirrors startAgentRun's precedence (a lead dispatch passes no per-run
+        // model → the lead profile default → the runtime Claude default).
+        warnIfOrgRoleModelNotToolCapable(
+          `Lead ${String(row.lead)} (${String(row.lead_profile_id)})`,
+          getProfile(String(row.lead_profile_id))?.defaultModel ?? claudeDefaultModel(),
+        )
 
         // Dispatch under the resolved lead profile in the MAIN process (its tracking-row
         // lifecycle + the report-back subscriber below outlive the mgmt-server child).

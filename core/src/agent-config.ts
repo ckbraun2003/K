@@ -211,6 +211,43 @@ export function credentialPosture(env: NodeJS.ProcessEnv = process.env): Credent
   return hostCredentialFallbackDisabled(env) ? 'disabled' : 'host-fallback'
 }
 
+// ── org-role model capability (warn-only) ────────────────────────────────────
+
+/**
+ * Whether `modelId` can reliably drive the DEFERRED / dynamic MCP MANAGEMENT tools
+ * (lead_list, assign_lead, dispatch_lead, report_list, …) the autonomous org chain
+ * depends on. The haiku tier does NOT reliably invoke the deferred-tool protocol, so a
+ * Chief or lead run resolved to a haiku model silently stalls the K→Chief→lead chain
+ * (live-observed). opus / sonnet / fable are treated as capable; ANY haiku-tier id
+ * (`claude-haiku-*`, dated snapshots included) is not. Pure + id-family based so a future
+ * haiku snapshot needs no edit here. WARN-ONLY: this predicate only decides whether to
+ * surface the warning — callers still dispatch exactly as configured. An absent/empty id
+ * → treated as capable (the router resolves a default at dispatch; nothing to warn about).
+ */
+export function isOrgToolCapableModel(modelId: string | null | undefined): boolean {
+  if (!modelId) return true
+  return !/haiku/i.test(modelId)
+}
+
+/**
+ * WARN-ONLY guard for an org-management dispatch (Chief / lead): if `modelId` can't
+ * reliably drive the deferred management tools (isOrgToolCapableModel → false), emit ONE
+ * clear warning naming the role, the model id, and the consequence, then return true
+ * (warned). It does NOT change the model, tokens, tool grants, or dispatch — the operator's
+ * configured model still runs (the org may just stall, which the warning explains). Returns
+ * false (no warning) for a capable model. Uses the same console.warn sink as the other
+ * boot/dispatch warnings so the signal lands in the core log next to the wake/dispatch lines.
+ */
+export function warnIfOrgRoleModelNotToolCapable(role: string, modelId: string | null | undefined): boolean {
+  if (isOrgToolCapableModel(modelId)) return false
+  console.warn(
+    `[org] ${role} dispatched with model ${modelId}, which may be unable to invoke the ` +
+      `deferred management tools; the autonomous chain can stall. Use a sonnet/opus-class ` +
+      `model for org roles.`,
+  )
+  return true
+}
+
 // ── public API ───────────────────────────────────────────────────────────────
 
 export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts): SynthesizedConfig {

@@ -433,3 +433,44 @@ describe('onChiefWakeRunUpdate (event path) + startChiefWake', () => {
     }
   })
 })
+
+// ── org-role model capability warn-only (fix-a, Chief choke-point) ────────────
+
+describe('wakeChief: warns (only) when the Chief resolves to a haiku model (fix-a)', () => {
+  it('a Chief dispatched with a haiku-tier model triggers the warn-only org warning; still dispatches', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Clear any lingering running chief run (Guard B) + reset debounce so this wake PASSES.
+    db.prepare(`DELETE FROM agent_runs WHERE profile_id = 'chief' AND status = 'running'`).run()
+    resetChiefWakeDebounce()
+    db.prepare(`UPDATE agent_profiles SET default_model = ? WHERE id = 'chief'`).run('claude-haiku-4-5-20251001')
+    try {
+      const res = await wakeChief('schedule', { goal: 'fixa-chief-haiku', now: Date.now() + 3 * 60 * 60_000 })
+      expect(res.woke).toBe(true) // warn-only: the dispatch still happens
+      const orgWarn = warn.mock.calls.map(c => String(c[0])).find(m => m.includes('[org]') && m.includes('Chief'))
+      expect(orgWarn).toBeDefined()
+      expect(orgWarn!).toContain('claude-haiku-4-5-20251001')
+      expect(orgWarn!).toMatch(/deferred management tools/i)
+      if (res.woke) eventBus.emitRunUpdate(terminalRun(res.runId)) // finalize so no running row leaks
+    } finally {
+      db.prepare(`UPDATE agent_profiles SET default_model = '' WHERE id = 'chief'`).run()
+      warn.mockRestore()
+    }
+  })
+
+  it('a Chief dispatched with a sonnet model triggers NO org warning', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    db.prepare(`DELETE FROM agent_runs WHERE profile_id = 'chief' AND status = 'running'`).run()
+    resetChiefWakeDebounce()
+    db.prepare(`UPDATE agent_profiles SET default_model = ? WHERE id = 'chief'`).run('claude-sonnet-4-6')
+    try {
+      const res = await wakeChief('schedule', { goal: 'fixa-chief-sonnet', now: Date.now() + 6 * 60 * 60_000 })
+      expect(res.woke).toBe(true)
+      const orgWarn = warn.mock.calls.map(c => String(c[0])).find(m => m.includes('[org]'))
+      expect(orgWarn).toBeUndefined()
+      if (res.woke) eventBus.emitRunUpdate(terminalRun(res.runId))
+    } finally {
+      db.prepare(`UPDATE agent_profiles SET default_model = '' WHERE id = 'chief'`).run()
+      warn.mockRestore()
+    }
+  })
+})

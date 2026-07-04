@@ -52,6 +52,8 @@ import { eventBus } from './events.js'
 import { startAgentRun } from './agent-runs.js'
 import { agentRunsDb, configDb } from './db.js'
 import { getProfile } from './profiles.js'
+import { claudeDefaultModel } from './config-store.js'
+import { warnIfOrgRoleModelNotToolCapable } from './agent-config.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
 
 /** The Chief's default schedule-wake instruction (the `-p` seed for a cron wake). Names the
@@ -165,6 +167,15 @@ export async function wakeChief(
   // PASS. Commit the debounce clock synchronously so a same-tick burst is debounced.
   lastWakeAt = now
   const goal = opts.goal ?? opts.thread ?? DEFAULT_CHIEF_WAKE_GOAL
+
+  // WARN-ONLY (org-role model capability): a Chief resolved to a haiku-tier model can't
+  // reliably drive the DEFERRED management tools (assign_lead/dispatch_lead/…), so the
+  // autonomous chain silently stalls (live-observed). Surface it once per wake at the
+  // Chief-dispatch choke-point; do NOT change the dispatch — the configured model still
+  // runs with the same tokens/tool grants. Model resolution MIRRORS startAgentRun's
+  // precedence (no per-wake override → the chief profile default → the runtime Claude
+  // default resolved at dispatch time).
+  warnIfOrgRoleModelNotToolCapable('Chief', getProfile('chief')?.defaultModel ?? claudeDefaultModel())
 
   try {
     const { agentRunId, runId } = await startAgentRun('chief', { trigger, goal })
