@@ -11,7 +11,10 @@ import {
   errorShort,
 } from '../lib/terminal'
 
-const TOKEN = import.meta.env.VITE_TERMINAL_TOKEN ?? 'dev-terminal-token'
+// The dev fallback is DEV-only: in a prod build VITE_TERMINAL_TOKEN is `undefined`
+// (vite emits no token — see vite-token-defines.ts) and this resolves to '' so no
+// dev literal is ever usable in prod; the real token must be injected at runtime.
+const TOKEN = import.meta.env.VITE_TERMINAL_TOKEN ?? (import.meta.env.DEV ? 'dev-terminal-token' : '')
 
 /**
  * Web terminal: an xterm.js view bridged to a node-pty shell over /ws/terminal.

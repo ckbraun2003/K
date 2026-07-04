@@ -21,7 +21,11 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { synthesizeConfigDir } from '../src/agent-config.js'
+import {
+  synthesizeConfigDir,
+  credentialPosture,
+  hostCredentialFallbackDisabled,
+} from '../src/agent-config.js'
 import { DEFAULT_PROFILE } from '../src/profiles.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -50,16 +54,20 @@ const copiedCredPath = (configDir: string) => path.join(configDir, '.credentials
 
 const ORIG_API = process.env.ANTHROPIC_API_KEY
 const ORIG_OAUTH = process.env.CLAUDE_CODE_OAUTH_TOKEN
+const ORIG_DISABLE = process.env.K_DISABLE_HOST_CREDENTIAL_FALLBACK
 
 beforeEach(() => {
   delete process.env.ANTHROPIC_API_KEY
   delete process.env.CLAUDE_CODE_OAUTH_TOKEN
+  delete process.env.K_DISABLE_HOST_CREDENTIAL_FALLBACK
 })
 afterEach(() => {
   if (ORIG_API === undefined) delete process.env.ANTHROPIC_API_KEY
   else process.env.ANTHROPIC_API_KEY = ORIG_API
   if (ORIG_OAUTH === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN
   else process.env.CLAUDE_CODE_OAUTH_TOKEN = ORIG_OAUTH
+  if (ORIG_DISABLE === undefined) delete process.env.K_DISABLE_HOST_CREDENTIAL_FALLBACK
+  else process.env.K_DISABLE_HOST_CREDENTIAL_FALLBACK = ORIG_DISABLE
   vi.restoreAllMocks()
 })
 afterAll(() => {
@@ -121,5 +129,73 @@ describe('S4 auth precedence: no-leak + unauthenticated', () => {
     expect(warn).toHaveBeenCalled()
     const msg = warn.mock.calls.map(c => String(c[0])).join('\n')
     expect(msg).toMatch(/unauthenticated/i)
+  })
+})
+
+// ── F-064/F-090: host-credential fallback opt-out + posture ──────────────────────
+describe('host-credential fallback opt-out (K_DISABLE_HOST_CREDENTIAL_FALLBACK)', () => {
+  it('DEFAULT (flag unset): fallback still copies host creds — OOTB behaviour unchanged', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const host = hostCredFixture()
+    const cfg = synth({ hostCredentialsPath: host })
+    expect(cfg.usedHostCredentialFallback).toBe(true)
+    expect(fs.existsSync(copiedCredPath(cfg.configDir))).toBe(true)
+  })
+
+  it('flag SET: refuses to copy host creds, fails closed to unauthenticated, warns actionably', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    process.env.K_DISABLE_HOST_CREDENTIAL_FALLBACK = 'true'
+    const host = hostCredFixture()
+    const cfg = synth({ hostCredentialsPath: host })
+    expect(cfg.usedHostCredentialFallback).toBe(false)
+    expect(cfg.authEnv).toEqual({})
+    // the host credentials file (which EXISTS) is NOT copied
+    expect(fs.existsSync(copiedCredPath(cfg.configDir))).toBe(false)
+    const msg = warn.mock.calls.map(c => String(c[0])).join('\n')
+    expect(msg).toMatch(/K_DISABLE_HOST_CREDENTIAL_FALLBACK/)
+    expect(msg).toMatch(/UNAUTHENTICATED/)
+  })
+
+  it('flag SET but a managed token present → managed path wins (no copy, no opt-out warn)', () => {
+    process.env.K_DISABLE_HOST_CREDENTIAL_FALLBACK = 'true'
+    process.env.ANTHROPIC_API_KEY = 'managed-wins'
+    const host = hostCredFixture()
+    const cfg = synth({ hostCredentialsPath: host })
+    expect(cfg.authEnv).toEqual({ ANTHROPIC_API_KEY: 'managed-wins' })
+    expect(cfg.usedHostCredentialFallback).toBe(false)
+    expect(fs.existsSync(copiedCredPath(cfg.configDir))).toBe(false)
+  })
+})
+
+describe('hostCredentialFallbackDisabled (pure)', () => {
+  it('default (unset/empty) → false; truthy values → true; other strings → false', () => {
+    expect(hostCredentialFallbackDisabled({})).toBe(false)
+    expect(hostCredentialFallbackDisabled({ K_DISABLE_HOST_CREDENTIAL_FALLBACK: '' })).toBe(false)
+    for (const v of ['true', 'TRUE', '1', 'yes', 'on', ' On ']) {
+      expect(hostCredentialFallbackDisabled({ K_DISABLE_HOST_CREDENTIAL_FALLBACK: v }), v).toBe(true)
+    }
+    expect(hostCredentialFallbackDisabled({ K_DISABLE_HOST_CREDENTIAL_FALLBACK: 'false' })).toBe(false)
+    expect(hostCredentialFallbackDisabled({ K_DISABLE_HOST_CREDENTIAL_FALLBACK: 'nope' })).toBe(false)
+  })
+})
+
+describe('credentialPosture (pure, no secret)', () => {
+  it('managed when a managed token is set (either kind)', () => {
+    expect(credentialPosture({ ANTHROPIC_API_KEY: 'x' })).toBe('managed')
+    expect(credentialPosture({ CLAUDE_CODE_OAUTH_TOKEN: 'x' })).toBe('managed')
+    // managed wins even if the opt-out flag is also set
+    expect(credentialPosture({ ANTHROPIC_API_KEY: 'x', K_DISABLE_HOST_CREDENTIAL_FALLBACK: 'true' })).toBe('managed')
+  })
+  it('host-fallback by default when no managed token', () => {
+    expect(credentialPosture({})).toBe('host-fallback')
+    expect(credentialPosture({ ANTHROPIC_API_KEY: '' })).toBe('host-fallback')
+  })
+  it('disabled when no managed token and the fallback is opted out', () => {
+    expect(credentialPosture({ K_DISABLE_HOST_CREDENTIAL_FALLBACK: 'true' })).toBe('disabled')
+  })
+  it('never returns a credential value', () => {
+    const p = credentialPosture({ ANTHROPIC_API_KEY: 'super-secret' })
+    expect(p).toBe('managed')
+    expect(p).not.toContain('secret')
   })
 })

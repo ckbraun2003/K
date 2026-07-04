@@ -17,7 +17,7 @@ const statusValue: Status = {
   claude: { available: true },
   ollama: { enabled: false, reachable: false, baseUrl: '', model: '' },
   github: { authenticated: false },
-  auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false },
+  auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'managed' },
   voice: { enabled: false, reachable: false, baseUrl: '', model: '' },
 }
 

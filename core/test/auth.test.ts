@@ -160,8 +160,22 @@ describe('unsafeTerminalBootReason (terminal safety gate)', () => {
   it('enabled + non-loopback + empty token → refuses', () => {
     expect(unsafeTerminalBootReason('192.168.1.5', true, '')).toBeTruthy()
   })
-  it('enabled + non-loopback + strong token → safe (null)', () => {
-    expect(unsafeTerminalBootReason('0.0.0.0', true, generateToken())).toBeNull()
+  it('enabled + non-loopback + strong token but NO opt-in → refuses (even with a strong token)', () => {
+    const reason = unsafeTerminalBootReason('0.0.0.0', true, generateToken())
+    expect(reason).toBeTruthy()
+    expect(reason).toContain('TERMINAL_ALLOW_REMOTE')
+  })
+  it('enabled + non-loopback + strong token + explicit opt-in → safe (null)', () => {
+    expect(unsafeTerminalBootReason('0.0.0.0', true, generateToken(), true)).toBeNull()
+  })
+  it('opt-in does NOT rescue a weak token on a non-loopback host', () => {
+    const reason = unsafeTerminalBootReason('0.0.0.0', true, LEGACY_WEAK_TERMINAL_TOKEN, true)
+    expect(reason).toBeTruthy()
+    expect(reason).toContain('TERMINAL_TOKEN')
+  })
+  it('loopback + strong token is unaffected by the opt-in (null with or without it)', () => {
+    expect(unsafeTerminalBootReason('127.0.0.1', true, generateToken())).toBeNull()
+    expect(unsafeTerminalBootReason('127.0.0.1', true, generateToken(), false)).toBeNull()
   })
 })
 

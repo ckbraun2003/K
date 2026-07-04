@@ -922,6 +922,11 @@ export const StatusSchema = z.object({
     host: z.string(),
     loopbackOnly: z.boolean(),
     terminalEnabled: z.boolean(),
+    // Credential posture (F-064/F-090), never the credential itself:
+    //   'managed'       → a managed token (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN) is set;
+    //   'host-fallback' → no managed token → runs COPY host ~/.claude credentials (default);
+    //   'disabled'      → no managed token + fallback opted out → runs are unauthenticated.
+    credentialPosture: z.enum(['managed', 'host-fallback', 'disabled']),
   }),
   voice: z.object({
     enabled: z.boolean(),

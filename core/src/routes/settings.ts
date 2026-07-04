@@ -28,6 +28,7 @@ import { REPO_ROOT } from '../supervisor.js'
 import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
+import { credentialPosture, type CredentialPosture } from '../agent-config.js'
 import { probeWhisper } from '../transcription.js'
 import { GrantError, resolveAuthority } from '../authority.js'
 import { getProfile, updateProfile } from '../profiles.js'
@@ -105,6 +106,7 @@ export interface StatusEnv {
   tokenSource: 'env' | 'generated'
   host: string
   terminalEnabled: boolean
+  credentialPosture: CredentialPosture
 }
 
 /** Pure shaping of the /status response from already-resolved probe + env state.
@@ -124,6 +126,7 @@ export function buildStatus(probes: StatusProbes, env: StatusEnv): Status {
       host: env.host,
       loopbackOnly: isLoopbackHost(env.host),
       terminalEnabled: env.terminalEnabled,
+      credentialPosture: env.credentialPosture,
     },
     voice: {
       enabled: env.voiceEnabled,
@@ -191,6 +194,7 @@ function liveStatusEnv(): StatusEnv {
     tokenSource: harnessTokenSource(),
     host: process.env.HOST ?? '127.0.0.1',
     terminalEnabled: process.env.ENABLE_TERMINAL === 'true',
+    credentialPosture: credentialPosture(),
   }
 }
 

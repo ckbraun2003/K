@@ -178,6 +178,39 @@ function resolveTsxLoader(): string {
   }
 }
 
+// ── credential posture (F-064/F-090) ────────────────────────────────────────────
+
+/**
+ * Opt-OUT for the host-credential dogfooding fallback (D-027). Default FALSE — the
+ * fallback stays on so K authenticates out-of-the-box when no managed token is set.
+ * When `K_DISABLE_HOST_CREDENTIAL_FALLBACK` is set truthy, a run with no managed
+ * token FAILS CLOSED (unauthenticated) instead of copying host ~/.claude
+ * credentials into the run dir — for security-conscious deployments that must never
+ * let a host credential leave ~/.claude. Pure; reads only the env. Truthy = one of
+ * true/1/yes/on (case-insensitive) so a misspelt value can't silently re-enable it.
+ */
+export function hostCredentialFallbackDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return /^(1|true|yes|on)$/i.test((env.K_DISABLE_HOST_CREDENTIAL_FALLBACK ?? '').trim())
+}
+
+export type CredentialPosture = 'managed' | 'host-fallback' | 'disabled'
+
+/**
+ * The harness's credential posture, WITHOUT ever exposing a secret — for the boot
+ * summary and /api/status. Mirrors the auth-resolution ladder in synthesizeConfigDir:
+ *   - 'managed'       → a managed token is set (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN).
+ *   - 'disabled'      → no managed token AND the host-credential fallback is opted out
+ *                       (K_DISABLE_HOST_CREDENTIAL_FALLBACK) → runs are unauthenticated.
+ *   - 'host-fallback' → no managed token, fallback ON (default) → runs copy host creds.
+ * Pure: reads only the env, returns no credential value.
+ */
+export function credentialPosture(env: NodeJS.ProcessEnv = process.env): CredentialPosture {
+  if ((env.ANTHROPIC_API_KEY ?? '').length > 0 || (env.CLAUDE_CODE_OAUTH_TOKEN ?? '').length > 0) {
+    return 'managed'
+  }
+  return hostCredentialFallbackDisabled(env) ? 'disabled' : 'host-fallback'
+}
+
 // ── public API ───────────────────────────────────────────────────────────────
 
 export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts): SynthesizedConfig {
@@ -368,8 +401,12 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   //    block above (before any write).
 
   // 8. auth resolution (Wave-0 finding: credentials are isolated too).
-  //    Prefer a K-supplied token; else copy host credentials as a dogfooding
-  //    fallback; else run unauthenticated (warn).
+  //    MANAGED-FIRST: prefer a K-supplied token (ANTHROPIC_API_KEY / OAUTH); else,
+  //    unless the operator opted OUT (K_DISABLE_HOST_CREDENTIAL_FALLBACK), copy host
+  //    credentials as the dogfooding fallback (D-027 — how K authenticates OOTB);
+  //    else run unauthenticated (warn). The managed-token path NEVER copies, so
+  //    setting a managed token is also how a persistent K-secretary session avoids
+  //    a lingering credential file.
   let authEnv: Record<string, string> = {}
   let usedHostCredentialFallback = false
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -378,9 +415,23 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     authEnv = { ANTHROPIC_API_KEY: apiKey }
   } else if (oauth) {
     authEnv = { CLAUDE_CODE_OAUTH_TOKEN: oauth }
+  } else if (hostCredentialFallbackDisabled()) {
+    // Opt-out (security-conscious): fail closed rather than let a host credential
+    // leave ~/.claude. The run is unauthenticated until a managed token is set.
+    console.warn(
+      '[agent-config] no managed token (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN) and ' +
+        'K_DISABLE_HOST_CREDENTIAL_FALLBACK is set — refusing to copy host credentials; this run ' +
+        'is UNAUTHENTICATED. Set a managed token to authenticate.',
+    )
   } else if (fs.existsSync(hostCredentialsPath)) {
     const credDest = path.join(configDir, '.credentials.json')
     guardedCopy(configDir, hostCredentialsPath, credDest)
+    // Chmod 0600 (best-effort; honoured on POSIX, advisory on Windows/NTFS ACLs). For a
+    // PERSISTED K-secretary session (opts.persist) this file LINGERS across asks under the
+    // protected data dir (kSecretaryConfigPaths → <dataDir>/k-secretary/<key>/…). The
+    // exposure is bounded by the 0600 perms + the gitignored data dir; a deployment that
+    // must avoid a resting credential file should set a managed token (skips this copy
+    // entirely) or K_DISABLE_HOST_CREDENTIAL_FALLBACK (opts out above).
     try { fs.chmodSync(credDest, 0o600) } catch { /* best-effort on FSes that honour it */ }
     usedHostCredentialFallback = true
     console.warn(

@@ -54,7 +54,8 @@ import {
   unsafeTerminalBootReason,
   type ResolvedToken,
 } from './auth.js'
-import { terminalGate, createTerminalSession, type SpawnPty } from './terminal.js'
+import { terminalGate, createTerminalSession, scrubSensitiveEnv, type SpawnPty } from './terminal.js'
+import { credentialPosture } from './agent-config.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
 // loopback by default — Phase 0's security posture assumes localhost-only;
@@ -228,7 +229,10 @@ export async function buildApp() {
           cols,
           rows,
           cwd: process.env.HOME ?? process.cwd(),
-          env: process.env,
+          // SCRUBBED env: the browser shell must never inherit the core's own
+          // credentials (ANTHROPIC_API_KEY / HARNESS_TOKEN / TERMINAL_TOKEN /
+          // cloud keys, …), or `echo $ANTHROPIC_API_KEY` would leak them.
+          env: scrubSensitiveEnv(process.env),
         })
     } catch {
       if (socket.readyState === socket.OPEN) {
@@ -271,15 +275,35 @@ async function start() {
     process.exit(1)
   }
   // Same gate for the web terminal: a host shell must never be reachable on a
-  // non-loopback HOST with a weak/default TERMINAL_TOKEN.
+  // non-loopback HOST with a weak/default TERMINAL_TOKEN — AND, even with a STRONG
+  // token, exposing the shell beyond loopback requires an explicit
+  // TERMINAL_ALLOW_REMOTE opt-in so an accidental LAN bind can't expose it.
   const unsafeTerminal = unsafeTerminalBootReason(
     HOST,
     process.env.ENABLE_TERMINAL === 'true',
     TERMINAL_TOKEN,
+    process.env.TERMINAL_ALLOW_REMOTE === 'true',
   )
   if (unsafeTerminal) {
     console.error(`\n✖ ${unsafeTerminal}\n`)
     process.exit(1)
+  }
+
+  // Credential posture (F-064/F-090): make it VISIBLE once at boot whether K is
+  // authenticating with a managed token or falling back to copying host
+  // ~/.claude credentials into every run (never prints the credential itself).
+  const posture = credentialPosture()
+  if (posture === 'host-fallback') {
+    console.warn(
+      '⚠ K auth: no managed token set — runs will COPY host ~/.claude/.credentials.json ' +
+        '(dogfooding fallback). Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN for a managed ' +
+        'token, or set K_DISABLE_HOST_CREDENTIAL_FALLBACK=true to fail closed instead.',
+    )
+  } else if (posture === 'disabled') {
+    console.warn(
+      '⚠ K auth: no managed token and K_DISABLE_HOST_CREDENTIAL_FALLBACK is set — the host-credential ' +
+        'fallback is OFF, so runs will be UNAUTHENTICATED until a managed token is set.',
+    )
   }
 
   // Single-instance lock (H1/H3): refuse a SECOND core on the same DATA_DIR before

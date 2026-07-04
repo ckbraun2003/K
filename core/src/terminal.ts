@@ -56,6 +56,89 @@ export function resolveShell(): string {
 }
 
 /**
+ * Env-var names the browser terminal MUST NOT inherit. The core process is
+ * launched with its own credentials in its environment (ANTHROPIC_API_KEY,
+ * HARNESS_TOKEN, TERMINAL_TOKEN, CLAUDE_*, cloud keys, npm auth, …). A naive
+ * `env: process.env` handed to the pty would let anyone with terminal access
+ * `echo $ANTHROPIC_API_KEY` (or any other secret) straight out of the shell.
+ *
+ * We DENYLIST by name pattern (case-insensitive) rather than allowlist so the
+ * shell keeps a fully functional environment — PATH, HOME, SystemRoot, windir,
+ * PATHEXT, TEMP/TMP, locale, TERM, ComSpec, etc. all survive — while every
+ * credential-shaped variable is stripped. Over-stripping a benign config var
+ * (e.g. AWS_REGION) is SAFE (the shell just loses a default); UNDER-stripping a
+ * secret is the real risk, so the patterns are deliberately broad. Env names are
+ * case-insensitive on Windows and case-sensitive on POSIX — matching
+ * case-insensitively is correct (and strictly safer) on both.
+ */
+const SENSITIVE_ENV_PATTERNS: readonly RegExp[] = [
+  // Generic credential keywords, matched anywhere in the name.
+  /TOKEN/i,
+  /SECRET/i,
+  /PASSWORD/i,
+  /PASSWD/i,
+  /PASSPHRASE/i,
+  /CREDENTIAL/i,
+  /API_?KEY/i,
+  /ACCESS_?KEY/i,
+  /PRIVATE_?KEY/i,
+  /SESSION_?KEY/i,
+  /_KEY$/i,
+  // Connection strings / DSNs / shorthand passwords that embed `user:pass@host`
+  // or a bare secret (DATABASE_URL, REDIS_URL, MONGODB_URI, *_DSN, DB_PASS, DB_PWD).
+  // Tradeoff: `_URL`/`_URI` is a broad catch-all that also drops a benign endpoint
+  // URL from the shell — accepted, because this is defense-in-depth (a token-holding
+  // attacker already has host access) and losing a URL var degrades the shell far
+  // less than leaking an embedded credential. `_PWD$` (not bare `PWD`) preserves the
+  // POSIX current-directory var.
+  /CONNECTION/i,
+  /_URL$/i,
+  /_URI$/i,
+  /_DSN$/i,
+  /_PASS$/i,
+  /_PWD$/i,
+  // Vendor / tooling prefixes whose vars are credentials or credential-adjacent.
+  /^ANTHROPIC_/i,
+  /^CLAUDE_/i,
+  /^OPENAI_/i,
+  /^AWS_/i,
+  /^AZURE_/i,
+  /^GOOGLE_/i,
+  /^GCP_/i,
+  /^GH_/i,
+  /^GITHUB_/i,
+  /^GITLAB_/i,
+  /^NPM_/i,
+  /^PNPM_/i,
+  /^YARN_/i,
+  /^NODE_AUTH/i,
+  /^HF_/i,
+  /^HUGGING/i,
+  /^HARNESS_/i,
+  /^TERMINAL_/i,
+]
+
+/** True when `name` looks like a credential-bearing env var (see the denylist). Pure. */
+export function isSensitiveEnvName(name: string): boolean {
+  return SENSITIVE_ENV_PATTERNS.some((re) => re.test(name))
+}
+
+/**
+ * Return a COPY of `env` with every credential-shaped variable removed and every
+ * `undefined` value dropped. Pure — used to build the pty's environment so the
+ * browser shell never inherits the core's secrets. See SENSITIVE_ENV_PATTERNS.
+ */
+export function scrubSensitiveEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {}
+  for (const [k, v] of Object.entries(env)) {
+    if (v === undefined) continue
+    if (isSensitiveEnvName(k)) continue
+    out[k] = v
+  }
+  return out
+}
+
+/**
  * Bridge a pty to the client frame protocol. The caller supplies `io.send` (one
  * JSON frame per call) and `io.spawn` (the injected real or fake pty factory).
  *
