@@ -136,18 +136,32 @@ export function registerSkill(opts: CreateSkill): Skill {
  * exfiltrated via a PR). So we read a file ONLY when the resolved absolute path stays STRICTLY
  * INSIDE `SKILLS_ROOT` (isPathWithin — rejects absolute paths and `..` traversal); anything
  * else falls back to treating `source` as RAW inline text, never a file read. A
- * non-existent/unreadable in-root file also degrades to raw. Pure + exported for unit-testing.
+ * non-existent/unreadable in-root file also degrades to raw. As a second gate, the REAL
+ * (symlink-resolved) path must ALSO stay inside the real skills root — a symlink planted
+ * in-root that points outside the repo is refused (realpathSync confinement); a throw
+ * (nonexistent) or an out-of-root real path degrades to raw, exactly like any other
+ * non-confined source. Pure + exported for unit-testing.
  */
 export function readSkillSource(skill: Skill): string {
   const abs = path.isAbsolute(skill.source) ? skill.source : path.join(REPO_ROOT, skill.source)
   if (isPathWithin(SKILLS_ROOT, abs)) {
     try {
       if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
-        const contents = fs.readFileSync(abs, 'utf8')
-        if (contents.trim().length > 0) return contents
+        // Symlink hardening (F-069): the STRING path is in-root, but a symlink planted
+        // inside SKILLS_ROOT could resolve OUTSIDE the repo. Require the REAL (symlink-
+        // resolved) path to STILL be within the real skills root before reading.
+        // realpathSync THROWS on a nonexistent path — this is fail-safe: any throw, or a
+        // real path outside the root, falls through to the raw source (NO file read),
+        // exactly as an out-of-root source already does.
+        const realRoot = fs.realpathSync(SKILLS_ROOT)
+        const real = fs.realpathSync(abs)
+        if (isPathWithin(realRoot, real)) {
+          const contents = fs.readFileSync(real, 'utf8')
+          if (contents.trim().length > 0) return contents
+        }
       }
     } catch {
-      /* unreadable — fall through to the raw source */
+      /* unreadable / unresolvable — fall through to the raw source */
     }
   }
   return skill.source

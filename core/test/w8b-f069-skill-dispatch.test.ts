@@ -21,10 +21,12 @@ import { v4 as uuid } from 'uuid'
 import type { FastifyInstance } from 'fastify'
 import type { Skill } from '@k/shared'
 import { db, projectsDb } from '../src/db.js'
+import { isPathWithin } from '../src/paths.js'
 
 // The K repo root + a LEGIT built-in skill under agent-config/skills/ — the ONLY place
 // readSkillSource will read a file from (F-069 security confinement).
 const TEST_REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../')
+const SKILLS_ROOT_ABS = path.join(TEST_REPO_ROOT, 'agent-config', 'skills')
 const LEGIT_REL = 'agent-config/skills/onboarding/SKILL.md'
 const LEGIT_ABS = path.join(TEST_REPO_ROOT, LEGIT_REL)
 const LEGIT_CONTENTS = fs.readFileSync(LEGIT_ABS, 'utf8')
@@ -139,6 +141,31 @@ describe('readSkillSource — in-root path → CONTENTS, confined (F-069 securit
     const resolved = readSkillSource(skill)
     expect(resolved).toBe(traversal) // raw — the escape is refused
     expect(resolved).not.toContain('"dependencies"')
+  })
+
+  it('does NOT read through a SYMLINK planted IN-root that points OUTSIDE the repo (realpath guard)', () => {
+    // The bypass the string check misses: a symlink whose STRING path is in-root
+    // (agent-config/skills/…) but whose REAL target is an outside secret. The
+    // realpathSync confinement must refuse it and fall back to the raw source.
+    const secretPath = writeSkillFile('SUPER-SECRET-SYMLINK-TARGET=xyz789')
+    const linkRel = `agent-config/skills/f069-evil-${uuid().slice(0, 8)}.md`
+    const linkAbs = path.join(TEST_REPO_ROOT, linkRel)
+    try {
+      fs.symlinkSync(secretPath, linkAbs)
+    } catch {
+      // Windows may require privileges/dev-mode for symlink creation (EPERM). Skip
+      // ONLY this realpath sub-assertion where symlinks are unavailable — the
+      // non-symlink confinement cases above still run everywhere.
+      return
+    }
+    tmpFiles.push(linkAbs)
+    // Sanity: the string-level guard alone would PASS this (it resolves in-root),
+    // so this genuinely exercises the realpath gate.
+    expect(isPathWithin(SKILLS_ROOT_ABS, linkAbs)).toBe(true)
+    const skill = makeSkill(linkRel)
+    const resolved = readSkillSource(skill)
+    expect(resolved).toBe(linkRel) // raw — the symlink escape is refused
+    expect(resolved).not.toContain('SUPER-SECRET-SYMLINK-TARGET') // secret never read off disk
   })
 })
 
