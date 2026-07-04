@@ -13,7 +13,11 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { v4 as uuid } from 'uuid'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import { db, projectsDb } from '../src/db.js'
+import { WORKSPACE_DIR } from '../src/projects.js'
 
 vi.mock('../src/supervisor.js', async () => {
   const actual = await vi.importActual<typeof import('../src/supervisor.js')>('../src/supervisor.js')
@@ -38,6 +42,28 @@ function makeProject(name: string): string {
   })
   return id
 }
+
+/** Insert a project row with an explicit localPath + workspaceManaged flag (F-039). */
+function makeProjectAt(name: string, localPath: string, managed: boolean): string {
+  const id = uuid()
+  projectsDb.insertProject.run({
+    id,
+    name: `${name}-${id.slice(0, 8)}`,
+    localPath,
+    githubRemote: null,
+    workspaceManaged: managed ? 1 : 0,
+    bibleDir: 'docs/bible',
+    createdAt: Date.now(),
+  })
+  return id
+}
+
+const f039TmpDirs: string[] = []
+afterAll(() => {
+  for (const d of f039TmpDirs) {
+    try { fs.rmSync(d, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+})
 
 function insertRun(projectId: string, status: string): string {
   const id = uuid()
@@ -147,6 +173,31 @@ describe('DELETE /api/projects/:id', () => {
     const blocked = await app.inject({ method: 'DELETE', url: `/api/projects/${projectId}`, headers: AUTH })
     expect(blocked.statusCode).toBe(409)
     expect(blocked.json().error).toMatch(/active run/i)
+  })
+
+  it('F-039: deleting a workspaceManaged project removes its on-disk clone dir', async () => {
+    fs.mkdirSync(WORKSPACE_DIR, { recursive: true })
+    const clone = fs.mkdtempSync(path.join(WORKSPACE_DIR, 'k-del-clone-'))
+    f039TmpDirs.push(clone)
+    fs.writeFileSync(path.join(clone, 'file.txt'), 'clone')
+    const projectId = makeProjectAt('proj-del-managed', clone, true)
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/projects/${projectId}`, headers: AUTH })
+    expect(del.statusCode).toBe(204)
+    expect(projectsDb.getProject.get(projectId)).toBeUndefined()
+    expect(fs.existsSync(clone)).toBe(false) // clone dir removed
+  })
+
+  it('F-039: deleting an in-place project does NOT touch its localPath (safety)', async () => {
+    const own = fs.mkdtempSync(path.join(os.tmpdir(), 'k-del-inplace-'))
+    f039TmpDirs.push(own)
+    fs.writeFileSync(path.join(own, 'file.txt'), 'user repo')
+    const projectId = makeProjectAt('proj-del-inplace', own, false)
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/projects/${projectId}`, headers: AUTH })
+    expect(del.statusCode).toBe(204)
+    expect(projectsDb.getProject.get(projectId)).toBeUndefined()
+    expect(fs.existsSync(own)).toBe(true) // the user's own repo survives untouched
   })
 
   it('204 + cascades every dependent (tasks, runs, events, reports, graph, github cache)', async () => {

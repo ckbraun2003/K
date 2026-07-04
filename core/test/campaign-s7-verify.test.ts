@@ -84,7 +84,7 @@ describe('computeHealthScore — integer & clamped across every factor combinati
   it('score is always an integer in [0,100] for the full cartesian product of inputs', () => {
     const cis: CiState[] = ['passing', 'failing', 'flaky', 'none']
     const covs: CoverageTrend[] = ['improving', 'stable', 'declining', 'unknown']
-    const bibles = [true, false]
+    const bibleAuthoredVals = [true, false]
     const findingSets: Finding[][] = [
       [],
       warns(1),
@@ -93,20 +93,25 @@ describe('computeHealthScore — integer & clamped across every factor combinati
       Array.from({ length: 20 }, () => ({ severity: 'critical' as const, area: 'x', message: 'c' })),
       [{ severity: 'info', area: 'x', message: 'i' }],            // info = no penalty
     ]
-    for (const ci of cis) for (const coverageTrend of covs) for (const bibleFresh of bibles) for (const findings of findingSets) {
-      const { score, breakdown } = computeHealthScore({ ci, coverageTrend, bibleFresh, findings })
-      expect(Number.isInteger(score)).toBe(true)
-      expect(score).toBeGreaterThanOrEqual(0)
-      expect(score).toBeLessThanOrEqual(100)
-      // breakdown.findings is itself floored at 0 — never a negative contribution.
-      expect(breakdown.findings).toBeGreaterThanOrEqual(0)
+    for (const ci of cis) for (const coverageTrend of covs) for (const bibleAuthored of bibleAuthoredVals) for (const findings of findingSets) {
+      const { score, breakdown } = computeHealthScore({ ci, coverageTrend, bibleAuthored, findings })
+      if (score === null) {
+        // Insufficient signal (no dimension measured) → every breakdown cell is null.
+        expect(breakdown).toEqual({ ci: null, coverage: null, bible: null, findings: null })
+      } else {
+        expect(Number.isInteger(score)).toBe(true)
+        expect(score).toBeGreaterThanOrEqual(0)
+        expect(score).toBeLessThanOrEqual(100)
+        // A MEASURED findings component is floored at 0 — never a negative contribution.
+        if (breakdown.findings !== null) expect(breakdown.findings).toBeGreaterThanOrEqual(0)
+      }
     }
   })
 
   it('findings component floors at 0 — a big warn pile cannot drive it negative', () => {
     // 11 warns = 20 − 22 = −2 → floored to 0; everything else all-green → 80.
     const { score, breakdown } = computeHealthScore({
-      ci: 'passing', coverageTrend: 'stable', bibleFresh: true, findings: warns(11),
+      ci: 'passing', coverageTrend: 'stable', bibleAuthored: true, findings: warns(11),
     })
     expect(breakdown.findings).toBe(0)
     expect(score).toBe(80)
@@ -115,7 +120,7 @@ describe('computeHealthScore — integer & clamped across every factor combinati
   it('mixed criticals + warns also floor at 0 (no double-debit underflow)', () => {
     // 2 crit (−20) + 4 warn (−8) = −28 → floor 0.
     const { breakdown } = computeHealthScore({
-      ci: 'passing', coverageTrend: 'stable', bibleFresh: true,
+      ci: 'passing', coverageTrend: 'stable', bibleAuthored: true,
       findings: [
         { severity: 'critical', area: 'a', message: 'c' },
         { severity: 'critical', area: 'b', message: 'c' },
@@ -187,9 +192,11 @@ describe('runVerification — scaffolded CI workflow is left UNCOMMITTED in the 
     expect(tracked).toBe('')
 
     // the SCORE for THIS run still reflects CI-missing — the scaffold does not
-    // retroactively fix it (ci component 0; bare project ⇒ score 20).
-    expect(report.breakdown.ci).toBe(0)
-    expect(report.score).toBe(20)
+    // retroactively fix it. Under the prorate model a bare project (no decisive CI
+    // run, no coverage, no authored bible) has NO measured dimension → ci excluded
+    // (null) and the overall score is null (insufficient signal), NOT an inflated number.
+    expect(report.breakdown.ci).toBeNull()
+    expect(report.score).toBeNull()
   })
 })
 

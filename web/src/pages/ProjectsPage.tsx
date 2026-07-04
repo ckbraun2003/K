@@ -174,7 +174,19 @@ export default function ProjectsPage() {
         message={
           <>
             Permanently delete <span className="font-semibold text-[var(--text)]">{deleting?.name}</span> and
-            all its runs, tasks, verification history & knowledge graph? This cannot be undone.
+            all its runs, tasks, verification history & knowledge graph?
+            {deleting?.workspaceManaged ? (
+              <>
+                {' '}Because this project was cloned into <span className="mono">workspace/</span>, its
+                on-disk clone at <span className="mono">{deleting?.localPath}</span> is also removed.
+              </>
+            ) : (
+              <>
+                {' '}Your local repo at <span className="mono">{deleting?.localPath}</span> is left untouched —
+                only the registry entry is removed.
+              </>
+            )}
+            {' '}This cannot be undone.
           </>
         }
         confirmLabel="Delete project"

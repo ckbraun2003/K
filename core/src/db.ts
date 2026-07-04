@@ -82,6 +82,9 @@ db.exec(`
     github_remote     TEXT,
     workspace_managed INTEGER NOT NULL DEFAULT 0,
     bible_dir         TEXT NOT NULL DEFAULT 'artifacts/bible',
+    -- The repo's real default branch (detected at register/clone). Nullable: pre-
+    -- migration rows stay NULL and callers fall back to a heuristic (W4 follow-up).
+    default_branch    TEXT,
     health_score      INTEGER,
     last_verified_at  INTEGER,
     created_at        INTEGER NOT NULL
@@ -90,7 +93,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS verification_reports (
     id            TEXT PRIMARY KEY,
     project_id    TEXT NOT NULL REFERENCES projects(id),
-    score         INTEGER NOT NULL,
+    -- nullable: NULL = insufficient signal (no dimension measured — the health score
+    -- prorates over measured dimensions only; F-032 rework). Existing NOT-NULL DBs are
+    -- rebuilt to nullable in migrateSlow.
+    score         INTEGER,
     findings      TEXT NOT NULL DEFAULT '[]',
     fixes_applied TEXT NOT NULL DEFAULT '[]',
     started_at    INTEGER NOT NULL,
@@ -530,7 +536,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -575,6 +581,46 @@ function migrateSlow(d: Database.Database): void {
     // CREATE TABLE) exactly like score_breakdown — migrate() runs at boot so fresh
     // installs and existing DBs both gain it.
     addColumn(d, 'verification_reports', 'coverage_pct', 'REAL')
+    // score NOT NULL → nullable (F-032 rework): the health score is now null when NO
+    // dimension could be measured (insufficient signal). SQLite can't drop a column
+    // constraint in place, so rebuild the table. Guarded on the column still being
+    // NOT NULL (notnull===1) → idempotent (after the rebuild it's nullable → skip);
+    // no one-shot flag needed. Runs AFTER the score_breakdown/coverage_pct ALTERs
+    // above so the copied column list is complete. Nothing FKs INTO verification_reports,
+    // so the rebuild is local. FKs OFF during the drop/rename (mirrors the work_items
+    // rebuild idiom); the finally restores the pragma on success AND on failure.
+    const scoreCol = (d.pragma('table_info(verification_reports)') as Array<{ name: string; notnull: number }>)
+      .find(c => c.name === 'score')
+    if (scoreCol && scoreCol.notnull === 1) {
+      d.pragma('foreign_keys = OFF')
+      try {
+        const rebuild = d.transaction(() => {
+          d.exec(`
+            CREATE TABLE verification_reports_new (
+              id            TEXT PRIMARY KEY,
+              project_id    TEXT NOT NULL REFERENCES projects(id),
+              score         INTEGER,
+              findings      TEXT NOT NULL DEFAULT '[]',
+              fixes_applied TEXT NOT NULL DEFAULT '[]',
+              started_at    INTEGER NOT NULL,
+              completed_at  INTEGER,
+              score_breakdown TEXT,
+              coverage_pct  REAL
+            );
+            INSERT INTO verification_reports_new
+              (id, project_id, score, findings, fixes_applied, started_at, completed_at, score_breakdown, coverage_pct)
+            SELECT id, project_id, score, findings, fixes_applied, started_at, completed_at, score_breakdown, coverage_pct
+            FROM verification_reports;
+            DROP TABLE verification_reports;
+            ALTER TABLE verification_reports_new RENAME TO verification_reports;
+            CREATE INDEX IF NOT EXISTS idx_verification_project ON verification_reports(project_id, started_at);
+          `)
+        })
+        rebuild.immediate()
+      } finally {
+        d.pragma('foreign_keys = ON')
+      }
+    }
   }
   // events(run_id, seq) must be unique — the lazy raw endpoint does a .get() by
   // (run_id, seq) assuming a single row. SQLite can't ALTER ADD CONSTRAINT, so a
@@ -623,6 +669,15 @@ function migrateSlow(d: Database.Database): void {
   // above. hasTable guard keeps migrate() safe against old-schema fixtures predating the table.
   if (hasTable(d, 'workflow_runs')) {
     addColumn(d, 'workflow_runs', 'workflow_id', 'TEXT')
+  }
+  // projects.default_branch (SCHEMA_VERSION 5): the repo's real default branch,
+  // detected + persisted at register/clone (W4 follow-up) so the PR-base default no
+  // longer relies on a fragile CI-branch heuristic. Appended via guarded ALTER so
+  // existing DBs gain it; fresh installs get it from the DDL above. Pre-migration rows
+  // read back NULL and callers fall back to the heuristic. hasTable guard keeps
+  // migrate() safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'projects')) {
+    addColumn(d, 'projects', 'default_branch', 'TEXT')
   }
   // project_tasks issue columns — LEGACY-UPGRADE path ONLY (P5.1d2b). The table is
   // no longer created anywhere (dropped by the one-shot mig_project_tasks_drop
@@ -1089,6 +1144,21 @@ const insertProject = db.prepare(`
   VALUES (@id, @name, @localPath, @githubRemote, @workspaceManaged, @bibleDir, @createdAt)
 `)
 
+// default_branch is set via a dedicated statement right after insert (keeps the
+// widely-used insertProject param shape unchanged across ~40 call sites). NULL until
+// set — callers then fall back to a heuristic (W4 follow-up).
+const setProjectDefaultBranch = db.prepare(`UPDATE projects SET default_branch = ? WHERE id = ?`)
+
+// Atomic registration (MEDIUM-1): the row insert + its detected default_branch write
+// land together or not at all, so a crash between them can't strand a row with the
+// branch lost. Mirrors persistReport's both-or-neither transaction.
+const insertProjectWithDefaultBranch = db.transaction(
+  (params: Record<string, unknown>, defaultBranch: string | null) => {
+    insertProject.run(params)
+    if (defaultBranch != null) setProjectDefaultBranch.run(defaultBranch, params.id as string)
+  },
+)
+
 const updateProjectHealth = db.prepare(`
   UPDATE projects SET health_score = @healthScore, last_verified_at = @lastVerifiedAt WHERE id = @id
 `)
@@ -1143,6 +1213,8 @@ const deleteProject = db.transaction((id: string) => {
 
 export const projectsDb = {
   insertProject,
+  setProjectDefaultBranch,
+  insertProjectWithDefaultBranch,
   updateProjectHealth,
   getProject,
   listProjects,
@@ -1203,7 +1275,8 @@ export function rowToReport(r: Record<string, unknown>): VerificationReport {
   const report: VerificationReport = {
     id: String(r.id),
     projectId: String(r.project_id),
-    score: Number(r.score),
+    // null = insufficient signal (F-032 rework); older rows are always numeric.
+    score: r.score == null ? null : Number(r.score),
     findings: parseArr(r.findings) as VerificationReport['findings'],
     fixesApplied: parseArr(r.fixes_applied) as string[],
     startedAt: Number(r.started_at),

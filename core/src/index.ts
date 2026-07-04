@@ -38,7 +38,7 @@ import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
-import { getProject } from './projects.js'
+import { getProject, warnStaleProjectPaths } from './projects.js'
 import { reconcileOnBoot } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
 import { acquireInstanceLock } from './instance-lock.js'
@@ -306,6 +306,10 @@ async function start() {
   // Crash recovery: mark runs left `running`/`queued` by a prior crash as
   // interrupted and prune orphaned worktrees, before serving traffic.
   reconcileOnBoot()
+  // F-033: warn once per registered project whose localPath has vanished on disk, so
+  // a silently-broken project surfaces in the boot log (its workspace actions are
+  // disabled in the UI). CLAIM-11-9: one warn/boot.
+  warnStaleProjectPaths()
 
   const app = await buildApp()
   // Bible is recompiled on request + on merge/push (see ensureHarnessBibleRegistered);

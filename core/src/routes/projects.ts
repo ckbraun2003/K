@@ -2,7 +2,7 @@
 import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
 import path from 'path'
-import { validateRegistration, registerProject, listProjects, getProject, ClientError, type RegistrationBody } from '../projects.js'
+import { validateRegistration, registerProject, listProjects, getProject, removeManagedCloneDir, ClientError, ConflictError, type RegistrationBody } from '../projects.js'
 import { getGithubStatus, createPR, syncIssues } from '../github.js'
 import { onboardProject } from '../onboard.js'
 import { compileProjectBible } from '../bible.js'
@@ -33,6 +33,8 @@ export async function projectsRoutes(app: FastifyInstance) {
       return reply.status(201).send(project)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
+      // A duplicate-path (F-031) conflict is a 409 like the duplicate-name case.
+      if (e instanceof ConflictError) return reply.status(409).send({ error: msg })
       if (e instanceof ClientError) return reply.status(400).send({ error: msg })
       if (msg.includes('UNIQUE constraint')) return reply.status(409).send({ error: `a project named ${req.body.name} already exists` })
       req.log.error(e)
@@ -54,6 +56,16 @@ export async function projectsRoutes(app: FastifyInstance) {
         .send({ error: `project has ${active} active run${active === 1 ? '' : 's'} — stop them first` })
     }
     projectsDb.deleteProject(project.id)
+    // F-039: for a K-MANAGED clone (cloned into the workspace root), also remove the
+    // on-disk clone dir so a ~77MB working tree isn't silently orphaned. Guarded to
+    // the workspace root inside removeManagedCloneDir — a registered-in-place project's
+    // own localPath is NEVER touched. Best-effort after the (already-committed) row
+    // delete: a failed rmdir is logged, not fatal.
+    if (removeManagedCloneDir(project)) {
+      req.log.info({ projectId: project.id, path: project.localPath }, 'removed managed clone dir')
+    } else if (project.workspaceManaged) {
+      req.log.warn({ projectId: project.id, path: project.localPath }, 'managed clone dir not removed (guard or rmdir failure) — may be orphaned')
+    }
     return reply.status(204).send()
   })
 
@@ -81,6 +93,11 @@ export async function projectsRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>('/api/projects/:id/onboard', async (req, reply) => {
     const project = getProject(req.params.id)
     if (!project) return reply.status(404).send({ error: 'not found' })
+    // F-033 (server guard): refuse to act on a project whose localPath has vanished —
+    // onboard would otherwise mkdir-recreate the gone directory via scaffold writes.
+    if (project.pathMissing) {
+      return reply.status(409).send({ error: `project localPath is missing on disk (${project.localPath}) — restore it or remove the project` })
+    }
     try {
       return reply.send(onboardProject(project))
     } catch (e) {
@@ -118,6 +135,11 @@ export async function projectsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const project = getProject(req.params.id)
       if (!project) return reply.status(404).send({ error: 'not found' })
+      // F-033 (server guard): a verify against a vanished localPath would run its
+      // fs/git gatherers over a missing tree — refuse before doing any work.
+      if (project.pathMissing) {
+        return reply.status(409).send({ error: `project localPath is missing on disk (${project.localPath}) — restore it or remove the project` })
+      }
 
       // Light validation: deep is an optional boolean. A missing/empty body is
       // a plain deterministic verify; a malformed `deep` is rejected.

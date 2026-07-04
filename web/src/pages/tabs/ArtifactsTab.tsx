@@ -144,10 +144,13 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
   // (project route → `project-<id>-bible`); the harness context recompiles the global one.
   const compile = useMutation({
     mutationFn: () => (projectId ? api.projects.compileBible(projectId) : api.artifacts.compileBible()),
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['artifacts', bibleSlug] })
       qc.invalidateQueries({ queryKey: ['artifact', bibleSlug] })
       qc.invalidateQueries({ queryKey: ['artifacts'] })
+      // F-034: the recompile regenerated a git-TRACKED deliverable — surface WHICH
+      // file it wrote so a resulting dirty working tree isn't a surprise.
+      setSavedMsg(`Bible recompiled · updated tracked file ${result.htmlPath}`)
     },
   })
 

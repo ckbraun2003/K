@@ -41,7 +41,10 @@ export default function ProjectCard({
   const ci = ciState(gh)
   const openPrs = gh?.prs.filter(p => p.state === 'OPEN').length ?? 0
   const lowHealth = project.healthScore != null && project.healthScore < LOW_HEALTH_THRESHOLD
-  const attention = ci === 'failing' || lowHealth
+  // F-033: localPath vanished on disk (derived server-side). The workspace actions
+  // would act against a missing path, so the card badges it and disables them.
+  const pathMissing = project.pathMissing === true
+  const attention = ci === 'failing' || lowHealth || pathMissing
   const goWorkspace = () => navigate('project', project.id)
   const goVerify = () => navigate('verify', project.id)
 
@@ -94,6 +97,14 @@ export default function ProjectCard({
         )}
       </p>
       <p className="mono mt-2 truncate text-[10px] text-[var(--muted)] opacity-60">{project.localPath}</p>
+      {pathMissing && (
+        <p
+          data-testid={`project-card-pathmissing-${project.id}`}
+          className="mt-2 rounded-control border border-[var(--red)]/40 bg-[var(--red)]/10 px-2 py-1 text-[10px] font-medium text-[var(--red)]"
+        >
+          ⚠ path missing — the repo folder is gone; workspace actions are disabled
+        </p>
+      )}
       {lastRun && (
         <p
           data-testid={`project-card-lastrun-${project.id}`}
@@ -109,8 +120,10 @@ export default function ProjectCard({
         </span>
         <button
           data-testid={`project-verify-btn-${project.id}`}
-          onClick={e => { e.stopPropagation(); goVerify() }}
-          className="text-[11px] font-medium text-[var(--accent-hover)] transition-opacity duration-150 hover:opacity-80"
+          onClick={e => { e.stopPropagation(); if (!pathMissing) goVerify() }}
+          disabled={pathMissing}
+          title={pathMissing ? 'Path missing — restore the repo folder to verify' : undefined}
+          className="text-[11px] font-medium text-[var(--accent-hover)] transition-opacity duration-150 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
         >
           ▶ Run verification
         </button>

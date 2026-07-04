@@ -98,9 +98,11 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
               <div className="flex items-baseline gap-3">
                 <span className={cn('mono text-3xl font-semibold', scoreColor(latest.score))}>
-                  {latest.score}
+                  {latest.score ?? '—'}
                 </span>
-                <span className="text-xs text-[var(--muted)]">/ 100 health</span>
+                <span className="text-xs text-[var(--muted)]">
+                  {latest.score == null ? 'insufficient signal' : '/ 100 health'}
+                </span>
                 <span className="ml-auto text-[11px] text-[var(--muted)]">
                   {formatTimeAgo(latest.completedAt ?? latest.startedAt)}
                 </span>
@@ -118,7 +120,9 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
                         <div key={key} data-testid={`bar-${key}`}>
                           <div className="flex items-center justify-between text-[11px]">
                             <span className="text-[var(--muted)]">{label}</span>
-                            <span className="mono text-[var(--muted)]">{value}/{max}</span>
+                            <span className="mono text-[var(--muted)]">
+                              {value == null ? 'not measured' : `${value}/${max}`}
+                            </span>
                           </div>
                           <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--raised)]">
                             <motion.div
@@ -210,7 +214,7 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
                       : 'text-[var(--muted)]'
                   return (
                     <li key={r.id} className="flex items-center gap-2 text-xs">
-                      <span className={cn('mono font-semibold', scoreColor(r.score))}>{r.score}</span>
+                      <span className={cn('mono font-semibold', scoreColor(r.score))}>{r.score ?? '—'}</span>
                       <span className={cn('mono text-[10px]', trendColor)}>{trend}</span>
                       <span className="text-[var(--muted)]">{formatTimeAgo(r.startedAt)}</span>
                       {r.id === latest.id && (

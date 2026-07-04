@@ -17,14 +17,22 @@ describe('PrsCiTab helpers', () => {
     expect(ciRunUrl('owner/repo', 42)).toBe('https://github.com/owner/repo/actions/runs/42')
     expect(ciRunUrl(undefined, 42)).toBeNull()
   })
-  it('defaultBaseBranch prefers a conventional default branch seen in CI (master)', () => {
+  it('defaultBaseBranch prefers the PERSISTED project.defaultBranch over the CI heuristic (W4 follow-up)', () => {
+    // Even when CI shows 'master', a persisted 'develop' wins — it's the exact truth.
     const gh = { prs: [], ci: [{ id: 1, workflow: 'ci', branch: 'master', status: 'completed', conclusion: 'success', createdAt: '' }], fetchedAt: 1 } as GithubStatus
-    expect(defaultBaseBranch(gh)).toBe('master')
+    const project = { id: 'p1', name: 'P', localPath: '/p', workspaceManaged: false, bibleDir: 'docs/bible', defaultBranch: 'develop', createdAt: 0 } as Project
+    expect(defaultBaseBranch(project, gh)).toBe('develop')
   })
-  it('defaultBaseBranch falls back to main when no default-looking branch is present', () => {
+  it('defaultBaseBranch falls back to the CI heuristic when no branch is persisted (master)', () => {
+    const gh = { prs: [], ci: [{ id: 1, workflow: 'ci', branch: 'master', status: 'completed', conclusion: 'success', createdAt: '' }], fetchedAt: 1 } as GithubStatus
+    const project = { id: 'p1', name: 'P', localPath: '/p', workspaceManaged: false, bibleDir: 'docs/bible', createdAt: 0 } as Project
+    expect(defaultBaseBranch(project, gh)).toBe('master')
+    expect(defaultBaseBranch(undefined, gh)).toBe('master')
+  })
+  it('defaultBaseBranch falls back to main when neither persisted nor a default-looking CI branch is present', () => {
     const gh = { prs: [], ci: [{ id: 1, workflow: 'ci', branch: 'feature/x', status: 'completed', conclusion: 'success', createdAt: '' }], fetchedAt: 1 } as GithubStatus
-    expect(defaultBaseBranch(gh)).toBe('main')
-    expect(defaultBaseBranch(undefined)).toBe('main')
+    expect(defaultBaseBranch(undefined, gh)).toBe('main')
+    expect(defaultBaseBranch(undefined, undefined)).toBe('main')
   })
 })
 

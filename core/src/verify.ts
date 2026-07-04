@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import type { Finding, Project, GithubStatus, CiRunInfo, VerificationReport } from '@k/shared'
 import { getGithubStatus } from './github.js'
-import { scaffoldCi } from './scaffold.js'
+import { scaffoldCi, BIBLE_SCAFFOLD_MARKER } from './scaffold.js'
 import { db, verificationDb, projectsDb } from './db.js'
 import { eventBus } from './events.js'
 
@@ -27,27 +27,37 @@ export type CiState = 'passing' | 'failing' | 'flaky' | 'none'
 export type CoverageTrend = 'improving' | 'stable' | 'declining' | 'unknown'
 
 export interface HealthScoreInputs {
+  /** Observed CI state. MEASURED ⟺ ci !== 'none' (≥1 decisive pass/fail run). Both
+   *  "no workflow" and "workflow present but never run" collapse to 'none' — neither
+   *  is a real CI-health measurement, so both are EXCLUDED from the score. */
   ci: CiState
+  /** MEASURED ⟺ coverageTrend !== 'unknown' (a coverage summary was present). */
   coverageTrend: CoverageTrend
-  bibleFresh: boolean
+  /** Whether the bible holds AUTHORED content (not just an onboarding scaffold). A
+   *  bare scaffold is UNMEASURED/excluded; an authored bible — even uncommitted
+   *  (D-028) — is measured (F-032b: existence, not commit history). */
+  bibleAuthored: boolean
   findings: Finding[]
 }
 
-/** Per-factor point values, each already multiplied by its weight.
- *  ci ∈ {0,20,40}; coverage/bible ∈ {0,10,20}; findings ∈ [0,20] integer. */
+/** Per-dimension earned points (already weighted), or **null when that dimension was
+ *  UNMEASURED** (excluded from the score — neither credit nor demerit; the UI renders
+ *  it as "not measured", never a 0/40 bar). */
 export interface HealthBreakdown {
-  ci: number
-  coverage: number
-  bible: number
-  findings: number
+  ci: number | null
+  coverage: number | null
+  bible: number | null
+  findings: number | null
 }
 
 export interface HealthScore {
-  score: number          // rounded integer, clamped [0,100]
+  /** Rounded integer in [0,100], or **null when NO dimension was measured**
+   *  (insufficient signal — e.g. a brand-new onboarded project). */
+  score: number | null
   breakdown: HealthBreakdown
 }
 
-// Bible §5 weights.
+// Per-dimension weights (bible §5).
 const W_CI = 40
 const W_COVERAGE = 20
 const W_BIBLE = 20
@@ -57,26 +67,40 @@ const W_FINDINGS = 20
 const PENALTY_CRITICAL = 10
 const PENALTY_WARN = 2
 
-/** CI factor multiplier (0..1). `none` scores 0 — a project with no CI workflow
- *  gets no CI credit, same as failing. `flaky` gets half. */
-function ciFactor(ci: CiState): number {
+// ─── Scoring policy (F-032 / CLAIM-07-3): PRORATE over MEASURED dimensions ─────
+// The health score is the honest reading of "neutral for unknown": an UNMEASURED
+// dimension is EXCLUDED from BOTH numerator and denominator — it neither helps nor
+// hurts (NOT credited full, NOT zeroed). The score is the earned fraction over the
+// total weight of the dimensions we could actually measure:
+//     score = round( Σ earned(measured) / Σ weight(measured) · 100 )
+// If NOTHING is measured → score is NULL ("insufficient signal"): a brand-new
+// onboarded project (scaffold CI that never ran, no coverage, an unedited scaffold
+// bible) is null, NOT 100. A MEASURED problem still demerits its dimension exactly as
+// before (failing CI → 0/40, flaky → 20/40, declining coverage → 10/20).
+//   MEASURED ⟺  ci: a decisive CI run was observed (ci !== 'none')
+//               coverage: a coverage summary was present (trend !== 'unknown')
+//               bible: AUTHORED content exists (not a bare scaffold)
+//               findings: at least one of ci/coverage/bible is measured — the
+//                 open-findings QUALITY only contextualizes a project with real
+//                 signal, so a zero-signal scaffold has no findings dimension either.
+
+/** Earned CI points for a MEASURED ci state (caller guards ci !== 'none'). */
+function ciEarned(ci: CiState): number {
   switch (ci) {
-    case 'passing': return 1
-    case 'flaky': return 0.5
-    case 'failing': return 0
-    case 'none': return 0
+    case 'passing': return W_CI          // 40
+    case 'flaky': return W_CI * 0.5      // 20 — MEASURED partial
+    case 'failing': return 0             // MEASURED problem
+    case 'none': return 0                // unmeasured — never counted (guarded)
   }
 }
 
-/** Coverage factor multiplier (0..1). `unknown` is the neutral default (1) — we
- *  do NOT penalize until a real coverage signal exists (plan risk #1). `stable`
- *  (≥ baseline) is full; `declining` gets partial credit (0.5). */
-function coverageFactor(trend: CoverageTrend): number {
+/** Earned coverage points for a MEASURED trend (caller guards trend !== 'unknown'). */
+function coverageEarned(trend: CoverageTrend): number {
   switch (trend) {
-    case 'improving': return 1
-    case 'stable': return 1
-    case 'unknown': return 1
-    case 'declining': return 0.5
+    case 'improving':
+    case 'stable': return W_COVERAGE     // 20
+    case 'declining': return W_COVERAGE * 0.5 // 10 — MEASURED regression
+    case 'unknown': return 0             // unmeasured — never counted (guarded)
   }
 }
 
@@ -116,22 +140,35 @@ function findingsPoints(findings: Finding[]): number {
 }
 
 /**
- * Pure bible §5 health score:
- *   score = 40·CI + 20·coverageTrend + 20·bibleFreshness + 20·findings
- * where each factor is a 0..1 multiplier of its weight (findings is computed
- * directly in points). Returns the rounded clamped score plus the per-factor
- * breakdown (exact, unrounded multiples of the weights) for the UI bars.
+ * Pure health score: PRORATE earned points over the total weight of the MEASURED
+ * dimensions (see the policy note above). Unmeasured dimensions → null in the
+ * breakdown and excluded from the ratio; if none is measured, score is null.
  */
 export function computeHealthScore(inputs: HealthScoreInputs): HealthScore {
-  const ci = W_CI * ciFactor(inputs.ci)
-  const coverage = W_COVERAGE * coverageFactor(inputs.coverageTrend)
-  const bible = inputs.bibleFresh ? W_BIBLE : 0
-  const findings = findingsPoints(inputs.findings)
+  const ciMeasured = inputs.ci !== 'none'
+  const coverageMeasured = inputs.coverageTrend !== 'unknown'
+  const bibleMeasured = inputs.bibleAuthored
+  // Open-findings quality is only meaningful once the project has SOME real signal —
+  // otherwise (a zero-signal scaffold) there is nothing to contextualize, so findings
+  // is unmeasured too and the whole score is null.
+  const findingsMeasured = ciMeasured || coverageMeasured || bibleMeasured
 
-  const raw = ci + coverage + bible + findings
-  const score = Math.min(100, Math.max(0, Math.round(raw)))
+  const breakdown: HealthBreakdown = {
+    ci: ciMeasured ? ciEarned(inputs.ci) : null,
+    coverage: coverageMeasured ? coverageEarned(inputs.coverageTrend) : null,
+    bible: bibleMeasured ? W_BIBLE : null, // authored bible → full; quality can't be measured
+    findings: findingsMeasured ? findingsPoints(inputs.findings) : null,
+  }
 
-  return { score, breakdown: { ci, coverage, bible, findings } }
+  let earned = 0
+  let weight = 0
+  if (ciMeasured) { earned += breakdown.ci!; weight += W_CI }
+  if (coverageMeasured) { earned += breakdown.coverage!; weight += W_COVERAGE }
+  if (bibleMeasured) { earned += breakdown.bible!; weight += W_BIBLE }
+  if (findingsMeasured) { earned += breakdown.findings!; weight += W_FINDINGS }
+
+  const score = weight === 0 ? null : Math.min(100, Math.max(0, Math.round((earned / weight) * 100)))
+  return { score, breakdown }
 }
 
 // ─── CI classification + auditor (pure) ───────────────────────────────────────
@@ -211,9 +248,11 @@ export function auditCi(ghStatus: GithubStatus, hasWorkflow: boolean): Finding[]
 
 /**
  * Bible freshness auditor.
- *  - no bible dir → critical
- *  - freshnessDays null (no commits touch the bible / unknown) → warn
- *  - freshnessDays > 30 → warn (stale)
+ *  - no bible dir → critical (invariant absent)
+ *  - freshnessDays null (no commits touch the bible / unknown) → info (UNMEASURABLE,
+ *    no penalty — onboarding deliberately leaves the bible scaffold uncommitted
+ *    (D-028), so "no commits touch the bible" is expected, not a defect; F-032)
+ *  - freshnessDays > 30 → warn (MEASURED staleness — commits exist but are old)
  *  - <= 30 → no finding
  */
 export function auditBible(freshnessDays: number | null, hasBibleDir: boolean): Finding[] {
@@ -221,7 +260,7 @@ export function auditBible(freshnessDays: number | null, hasBibleDir: boolean): 
     return [{ severity: 'critical', area: 'bible', message: 'no project bible at artifacts/bible' }]
   }
   if (freshnessDays == null) {
-    return [{ severity: 'warn', area: 'bible', message: 'bible freshness unknown: no commits touch the bible' }]
+    return [{ severity: 'info', area: 'bible', message: 'bible freshness unknown: no commits touch the bible yet' }]
   }
   if (freshnessDays > BIBLE_STALE_DAYS) {
     return [{ severity: 'warn', area: 'bible', message: `bible stale: ${freshnessDays} days since last bible commit` }]
@@ -229,9 +268,11 @@ export function auditBible(freshnessDays: number | null, hasBibleDir: boolean): 
   return []
 }
 
-/** Derive the `bibleFresh` boolean for computeHealthScore from gathered facts.
- *  Fresh = bible exists AND last bible commit is within the freshness window.
- *  Null freshness (no commits / git failed) counts as NOT fresh. */
+/** Pure "is the bible fresh?" helper: bible exists AND last bible commit is within
+ *  the freshness window; null freshness (no commits / git failed) counts as NOT
+ *  fresh. NOTE: since F-032 the HEALTH SCORE's bible component is existence-based
+ *  (computeHealthScore takes `bibleExists`), so this no longer feeds the score — it
+ *  remains a standalone freshness predicate other callers/tests may use. */
 export function bibleFreshFromDays(freshnessDays: number | null, hasBibleDir: boolean): boolean {
   if (!hasBibleDir) return false
   if (freshnessDays == null) return false
@@ -308,6 +349,33 @@ export function hasWorkflowFile(localPath: string): boolean {
  *  an empty dir (mirrors the onboard.ts sentinel convention). */
 export function hasBibleDir(localPath: string, bibleDir: string): boolean {
   return fs.existsSync(path.join(localPath, ...bibleDir.split(/[\\/]/), BIBLE_MANIFEST))
+}
+
+/**
+ * True if the bible holds AUTHORED content, not just an onboarding scaffold — the
+ * signal the health score's bible dimension is MEASURED on (F-032 rework). Concrete,
+ * commit-independent heuristic: the bible has a manifest AND ≥1 section whose body no
+ * longer carries the scaffold sentinel (`BIBLE_SCAFFOLD_MARKER`) that every onboarding
+ * placeholder embeds — i.e. at least one section has been authored (its placeholder
+ * replaced). A pure scaffold (every section still the marker) is NOT authored, so a
+ * brand-new onboarded project's bible is UNMEASURED — never credited full. Preserves
+ * F-032b intent: an authored-but-UNCOMMITTED bible still counts (no git dependency).
+ * Never throws (missing/unreadable sections → not authored), matching the other
+ * gatherers' defensive posture.
+ */
+export function hasAuthoredBible(localPath: string, bibleDir: string): boolean {
+  if (!hasBibleDir(localPath, bibleDir)) return false
+  const sectionsDir = path.join(localPath, ...bibleDir.split(/[\\/]/), 'sections')
+  try {
+    const files = fs.readdirSync(sectionsDir).filter(f => /\.md$/i.test(f))
+    for (const f of files) {
+      const body = fs.readFileSync(path.join(sectionsDir, f), 'utf8')
+      if (!body.includes(BIBLE_SCAFFOLD_MARKER)) return true // an authored (de-scaffolded) section
+    }
+    return false // manifest present but every section is still an unedited scaffold
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -424,7 +492,11 @@ export function runVerification(project: Project): VerificationReport {
   const freshnessDays = bibleFreshnessDays(project.localPath, project.bibleDir)
   const gh = getGithubStatus(project.id)
   const ci = classifyCi(gh, hasWorkflow)
-  const bibleFresh = bibleFreshFromDays(freshnessDays, hasBible)
+  // Bible dimension is MEASURED on AUTHORED content (F-032), not commit-freshness, so
+  // a freshly-authored-but-uncommitted bible (D-028) counts while a bare scaffold does
+  // NOT inflate the score. freshnessDays still feeds auditBible's soft staleness signal
+  // (a warn finding) via composeFindings below.
+  const bibleAuthored = hasAuthoredBible(project.localPath, project.bibleDir)
   // Live coverage trend: read this project's measured line-coverage % from its
   // coverage/coverage-summary.json and compare it against the coverage_pct
   // persisted on the project's previous report (read BEFORE we persist this run's).
@@ -439,7 +511,7 @@ export function runVerification(project: Project): VerificationReport {
 
   // ── compose + score (pure) ──────────────────────────────────────────────────
   const findings = composeFindings(project, gh, { hasBible, hasWorkflow, freshnessDays })
-  const { score, breakdown } = computeHealthScore({ ci, coverageTrend, bibleFresh, findings })
+  const { score, breakdown } = computeHealthScore({ ci, coverageTrend, bibleAuthored, findings })
 
   // ── build the in-memory report (camelCase, real arrays/objects) ─────────────
   const report: VerificationReport = {

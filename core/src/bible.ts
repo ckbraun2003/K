@@ -441,6 +441,20 @@ export async function compileProjectBible(
   const bibleDir = path.join(project.localPath, 'artifacts', 'bible')
   const slug = projectBibleSlug(project.id)
   const htmlPath = path.join(project.localPath, 'artifacts', 'project-bible.html')
+
+  // H2 write-scoping policy (F-034). The three project-write surfaces stay scoped:
+  //   - dispatched agent runs are worktree-isolated (supervisor.ts);
+  //   - onboard scaffolds are uncommitted-by-design (D-028);
+  //   - a bible recompile touches ONLY this one designated, git-TRACKED deliverable
+  //     — `<localPath>/artifacts/project-bible.html` (tracked since e903f5c so a
+  //     fresh clone serves a real bible). It legitimately dirties the tree, which is
+  //     why callers surface the written path (a NOTICED action, not a surprise).
+  // Assert the target stays under the project's artifacts dir — a defence-in-depth
+  // guard so a recompile can never escape to some other tracked file.
+  const artifactsDir = path.join(project.localPath, 'artifacts')
+  if (!isPathWithin(artifactsDir, htmlPath)) {
+    throw new Error(`compileProjectBible: html target escapes artifacts dir — htmlPath="${htmlPath}"`)
+  }
   return compileBible(bibleDir, htmlPath, { slug, htmlPath })
 }
 

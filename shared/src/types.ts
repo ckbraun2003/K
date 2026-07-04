@@ -103,6 +103,10 @@ export const ProjectSchema = z.object({
   githubRemote: z.string().optional(), // "owner/repo"
   workspaceManaged: z.boolean().default(false), // true if harness cloned it
   bibleDir: z.string().default('docs/bible'),
+  // The repo's real default branch (e.g. 'main'/'master'), detected + persisted at
+  // registration/clone. Optional: pre-migration rows read back undefined and callers
+  // fall back to a heuristic. Powers the PR-base default (W4 follow-up).
+  defaultBranch: z.string().optional(),
   healthScore: z.number().min(0).max(100).optional(),
   lastVerifiedAt: z.number().optional(), // unix ms
   // derived at read time (never persisted) — true when localPath no longer exists
@@ -125,15 +129,24 @@ export type Finding = z.infer<typeof FindingSchema>
 export const VerificationReportSchema = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
-  score: z.number().min(0).max(100),
+  // null = INSUFFICIENT SIGNAL: no dimension could be measured (e.g. a brand-new
+  // onboarded project — scaffold CI never ran, no coverage, bible still a scaffold).
+  // The health score prorates over MEASURED dimensions only (verify.ts).
+  score: z.number().min(0).max(100).nullable(),
   findings: z.array(FindingSchema).default([]),
   fixesApplied: z.array(z.string()).default([]),
   startedAt: z.number(),
   completedAt: z.number().optional(),
-  // Per-factor weighted score components (mirrors verify.ts HealthBreakdown).
+  // Per-factor weighted score components (mirrors verify.ts HealthBreakdown). A null
+  // component = that dimension was UNMEASURED (excluded from the score), not a demerit.
   // Optional so reports persisted before this field still validate.
   breakdown: z
-    .object({ ci: z.number(), coverage: z.number(), bible: z.number(), findings: z.number() })
+    .object({
+      ci: z.number().nullable(),
+      coverage: z.number().nullable(),
+      bible: z.number().nullable(),
+      findings: z.number().nullable(),
+    })
     .optional(),
   // Measured overall line-coverage % at verify time; null when the project emits no
   // coverage-summary. Optional so reports persisted before this field still validate.

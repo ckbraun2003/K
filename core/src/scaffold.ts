@@ -35,6 +35,14 @@ function writeIfAbsent(root: string, rel: string, content: string): string | nul
 
 // ── section templates ─────────────────────────────────────────────────────────
 
+/** Sentinel embedded in EVERY scaffolded section body. Authoring a section means
+ *  replacing the placeholder (removing this line), so its presence marks a section
+ *  as an UNEDITED scaffold. verify.ts keys the "authored bible" signal off it: a
+ *  bible whose every section still carries this marker is a pure scaffold (not real
+ *  authored content) and is EXCLUDED from the health score. Every SECTIONS body
+ *  below MUST contain this exact substring. */
+export const BIBLE_SCAFFOLD_MARKER = 'Starter section scaffolded by K onboarding'
+
 /** Local YYYY-MM-DD — computed at call time so scaffolded `updated:` is never stale. */
 function isoToday(): string {
   const d = new Date()

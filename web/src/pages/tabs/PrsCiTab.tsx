@@ -14,13 +14,14 @@ export function ciRunUrl(remote: string | undefined, runId: number): string | nu
   return remote ? `https://github.com/${remote}/actions/runs/${runId}` : null
 }
 
-/** Best-effort default base branch for a new PR (fix F-047). The Project record
- *  doesn't persist the repo's default branch, so infer it from the GitHub status:
- *  a repo's CI runs on its default branch, so the most recent CI run whose branch
- *  is a conventional default ('main' or 'master') names it — distinguishing a
- *  master-default repo from a main-default one. Falls back to 'main' when no such
+/** Best-effort default base branch for a new PR (F-047 + W4 follow-up). Prefers the
+ *  repo's PERSISTED default branch (detected at register/clone), which is exact.
+ *  Pre-migration rows have no persisted branch, so it falls back to the old heuristic:
+ *  a repo's CI runs on its default branch, so the most recent CI run whose branch is a
+ *  conventional default ('main' or 'master') names it. Falls back to 'main' when no
  *  signal exists. (ci[] is newest-first, so the first match is the freshest.) */
-export function defaultBaseBranch(github: GithubStatus | undefined): string {
+export function defaultBaseBranch(project: Project | undefined, github: GithubStatus | undefined): string {
+  if (project?.defaultBranch) return project.defaultBranch
   const hit = github?.ci?.find(r => r.branch === 'main' || r.branch === 'master')
   return hit?.branch ?? 'main'
 }
@@ -145,7 +146,8 @@ export default function PrsCiTab({ projectId }: Props) {
     queryKey: ['projects'],
     queryFn: api.projects.list,
   })
-  const remote = projects.find(p => p.id === projectId)?.githubRemote
+  const project = projects.find(p => p.id === projectId)
+  const remote = project?.githubRemote
   const hasRemote = !!remote
 
   const createPrMutation = useMutation({
@@ -175,7 +177,7 @@ export default function PrsCiTab({ projectId }: Props) {
   // Open the Create-PR modal with the base pre-filled to the repo's real default
   // branch (F-047) rather than a hardcoded 'main'.
   function openCreatePr() {
-    setPrForm({ ...DEFAULT_FORM, base: defaultBaseBranch(github) })
+    setPrForm({ ...DEFAULT_FORM, base: defaultBaseBranch(project, github) })
     createPrMutation.reset()
     setShowModal(true)
   }

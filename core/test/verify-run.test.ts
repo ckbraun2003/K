@@ -18,9 +18,10 @@ import { v4 as uuid } from 'uuid'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { db, projectsDb, verificationDb, rowToReport, migrate } from '../src/db.js'
+import { db, projectsDb, verificationDb, rowToReport, migrate, SCHEMA_VERSION } from '../src/db.js'
 import { runVerification } from '../src/verify.js'
 import { getProject } from '../src/projects.js'
+import { scaffoldCi, BIBLE_SCAFFOLD_MARKER } from '../src/scaffold.js'
 import { projectsRoutes } from '../src/routes/projects.js'
 import { eventBus } from '../src/events.js'
 import type { Project, WsMessage } from '@k/shared'
@@ -97,20 +98,21 @@ describe('runVerification — persistence round-trip', () => {
     expect(persisted.fixesApplied).toEqual(report.fixesApplied)
     // the file was actually written into the project's working tree
     expect(fs.existsSync(path.join(project.localPath, '.github', 'workflows', 'ci.yml'))).toBe(true)
-    // the SCORE still reflects CI-MISSING this run — the scaffold does not
-    // retroactively fix it (ci component 0, score 20).
-    expect(report.breakdown.ci).toBe(0)
-    expect(report.score).toBe(20)
+    // A bare project (no decisive CI run, no coverage, no authored bible) has NO
+    // measured dimension → the score is NULL (insufficient signal), NOT an inflated
+    // number, and the scaffold does not retroactively supply a real CI signal.
+    expect(report.breakdown.ci).toBeNull()
+    expect(report.score).toBeNull()
 
-    // project health + last_verified_at were updated
+    // project health null (undefined once read back — health_score NULL) + last_verified_at set
     const updated = getProject(project.id)
-    expect(updated?.healthScore).toBe(report.score)
+    expect(updated?.healthScore).toBeUndefined()
+    expect(persisted.score).toBeNull() // null round-trips through the nullable column
     expect(updated?.lastVerifiedAt).toBe(report.completedAt)
 
-    // breakdown round-trips through the DB AND has the concrete expected values
-    // for a bare project (no workflow/bible/remote, coverage unknown): ci 0,
-    // coverage 20 (neutral), bible 0, findings 20−3·10 floored to 0.
-    expect(report.breakdown).toEqual({ ci: 0, coverage: 20, bible: 0, findings: 0 })
+    // breakdown round-trips through the DB — every dimension unmeasured (null) for a
+    // bare project (no CI runs, coverage unknown, no authored bible).
+    expect(report.breakdown).toEqual({ ci: null, coverage: null, bible: null, findings: null })
     expect(persisted.breakdown).toEqual(report.breakdown)
   })
 })
@@ -133,6 +135,9 @@ describe('runVerification — live coverage trend', () => {
 
   it('reads coverage-summary.json, persists coveragePct, and a real decline lowers the score', () => {
     const project = insertBareProject()
+    // With a MEASURED coverage signal present (below), the score is non-null and the
+    // coverage decline is the varying factor: CI stays unmeasured (no decisive run) and
+    // bible unmeasured (no bible) across both runs, so only coverage moves the score.
 
     // First reading: 90%. No prior report → 'stable' → coverage component full (20).
     writeCoverage(project.localPath, 90)
@@ -175,13 +180,62 @@ describe('runVerification — deduped findings', () => {
     expect(invariantFindings).toHaveLength(1)
     expect(invariantFindings[0].message).toMatch(/GitHub remote/)
 
-    // three criticals (no-workflow, no-bible, no-remote), no warns/info →
-    // findings component = 20 − 3·10 floored at 0. coverage neutral (unknown=20),
-    // ci none = 0, bible not fresh = 0 ⇒ score = 0 + 20 + 0 + 0 = 20.
+    // three criticals (no-workflow, no-bible, no-remote), no warns/info. The FINDINGS
+    // dedupe contract above is unchanged; the SCORE is null because a bare project has
+    // no measured dimension (CI never ran, no coverage, bible not authored) — the
+    // criticals are surfaced as the actionable list, not folded into an inflated number.
     const criticals = report.findings.filter(f => f.severity === 'critical')
     expect(criticals).toHaveLength(3)
-    expect(report.breakdown).toEqual({ ci: 0, coverage: 20, bible: 0, findings: 0 })
-    expect(report.score).toBe(20)
+    expect(report.breakdown).toEqual({ ci: null, coverage: null, bible: null, findings: null })
+    expect(report.score).toBeNull()
+  })
+})
+
+// ── F-032 rework: no scaffold inflation; authored bible is measured ──────────────
+
+describe('runVerification — prorate over MEASURED dims (no scaffold inflation)', () => {
+  // Write a bible under the project's actual bibleDir. `authored:false` keeps the
+  // onboarding scaffold marker in every section (a bare scaffold); `authored:true`
+  // drops it (real content).
+  function writeBible(project: Project, authored: boolean): void {
+    const parts = project.bibleDir.split(/[\\/]/)
+    const root = path.join(project.localPath, ...parts)
+    fs.mkdirSync(path.join(root, 'sections'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({ sections: ['01-vision'] }))
+    const body = authored
+      ? 'Our genuine, hand-authored vision.'
+      : `> ${BIBLE_SCAFFOLD_MARKER}. Replace with your project's real content.`
+    fs.writeFileSync(path.join(root, 'sections', '01-vision.md'), `---\ntitle: "Vision"\n---\n\n${body}\n`)
+  }
+
+  it('a scaffold-only project verifies to NULL both times — a never-run CI scaffold earns no credit', () => {
+    const project = insertBareProject()
+    // Onboard-equivalent: a CI workflow FILE (never run) + a bare SCAFFOLD bible.
+    scaffoldCi(project.localPath)
+    writeBible(project, false)
+
+    const first = runVerification(project)
+    // The workflow exists but has NEVER produced a decisive run → ci UNMEASURED
+    // (excluded), NOT credited. The scaffold bible is not authored → unmeasured. No
+    // coverage. ⇒ nothing measured ⇒ score null.
+    expect(first.breakdown.ci).toBeNull()
+    expect(first.breakdown.bible).toBeNull()
+    expect(first.score).toBeNull()
+
+    // Second verify: still no CI runs, still a scaffold bible ⇒ still null. The
+    // never-run scaffold never turns into CI credit.
+    const second = runVerification(project)
+    expect(second.breakdown.ci).toBeNull()
+    expect(second.score).toBeNull()
+  })
+
+  it('AUTHORING a bible section makes the bible dimension MEASURED → a non-null score', () => {
+    const project = insertBareProject()
+    writeBible(project, true) // real content (no scaffold marker)
+
+    const report = runVerification(project)
+    expect(report.breakdown.bible).toBe(20) // authored → measured full
+    expect(report.score).not.toBeNull()     // at least one dimension measured
   })
 })
 
@@ -273,7 +327,8 @@ describe('POST /api/projects/:id/verify — deep dispatch', () => {
       expect(res.statusCode).toBe(200)
       const report = res.json()
       expect(report.projectId).toBe(project.id)
-      expect(typeof report.score).toBe('number')
+      // score is a number OR null (insufficient signal for a bare project — F-032 rework)
+      expect(report.score === null || typeof report.score === 'number').toBe(true)
       expect(startRunMock).toHaveBeenCalledTimes(1)
       const [, opts] = startRunMock.mock.calls[0]
       expect(opts).toMatchObject({ cwd: project.localPath, projectId: project.id })
@@ -331,6 +386,142 @@ describe('POST /api/projects/:id/verify — deep dispatch', () => {
     } finally {
       await app.close()
     }
+  })
+})
+
+// ── F-033 server guard: onboard/verify refuse a missing localPath ─────────────────
+
+describe('onboard/verify routes — 409 when the project localPath is missing on disk', () => {
+  /** Insert a project pointing at a path that does NOT exist. */
+  function insertMissingPathProject(): string {
+    const id = uuid()
+    projectsDb.insertProject.run({
+      id,
+      name: `verify-missing-${id.slice(0, 8)}`,
+      localPath: path.join(os.tmpdir(), `k-gone-${id}`), // never created
+      githubRemote: null,
+      workspaceManaged: 0,
+      bibleDir: 'artifacts/bible',
+      createdAt: Date.now(),
+    })
+    projectIds.push(id)
+    return id
+  }
+
+  it('POST /onboard 409s for a missing path and does NOT recreate the directory', async () => {
+    const id = insertMissingPathProject()
+    const missingPath = getProject(id)!.localPath
+    const app = Fastify()
+    await app.register(projectsRoutes)
+    try {
+      const res = await app.inject({ method: 'POST', url: `/api/projects/${id}/onboard` })
+      expect(res.statusCode).toBe(409)
+      expect(res.json().error).toMatch(/missing on disk/i)
+      // the guard fired BEFORE any scaffold write — the dir was not mkdir-recreated.
+      expect(fs.existsSync(missingPath)).toBe(false)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('POST /verify 409s for a missing path (no work done)', async () => {
+    const id = insertMissingPathProject()
+    const app = Fastify()
+    await app.register(projectsRoutes)
+    try {
+      const res = await app.inject({ method: 'POST', url: `/api/projects/${id}/verify` })
+      expect(res.statusCode).toBe(409)
+      expect(res.json().error).toMatch(/missing on disk/i)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('both routes still work when the path EXISTS', async () => {
+    const project = insertBareProject() // real temp dir
+    const app = Fastify()
+    await app.register(projectsRoutes)
+    try {
+      const onboard = await app.inject({ method: 'POST', url: `/api/projects/${project.id}/onboard` })
+      expect(onboard.statusCode).toBe(200)
+      const verify = await app.inject({ method: 'POST', url: `/api/projects/${project.id}/verify` })
+      expect(verify.statusCode).toBe(200)
+    } finally {
+      await app.close()
+    }
+  })
+})
+
+// ── migration: verification_reports.score NOT NULL → nullable (F-032 rework) ───────
+
+describe('migrate() — verification_reports.score becomes nullable', () => {
+  const tmpPath = path.join(os.tmpdir(), `k-verify-scorenull-${Date.now()}.db`)
+  let tempDb: Database.Database
+
+  afterAll(() => {
+    try { tempDb?.close() } catch { /* ignore */ }
+    try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+  })
+
+  it('rebuilds an old NOT-NULL score column to nullable; a null score can then be inserted; rows preserved', () => {
+    tempDb = new Database(tmpPath)
+    tempDb.pragma('foreign_keys = ON')
+    // Old schema: score INTEGER NOT NULL (+ the columns migrate() adds before the rebuild).
+    tempDb.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY);
+      CREATE TABLE runs (id TEXT PRIMARY KEY, prompt TEXT, cwd TEXT, status TEXT, created_at INTEGER);
+      CREATE TABLE verification_reports (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        score INTEGER NOT NULL,
+        findings TEXT NOT NULL DEFAULT '[]',
+        fixes_applied TEXT NOT NULL DEFAULT '[]',
+        started_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+    `)
+    tempDb.prepare(`INSERT INTO projects (id) VALUES ('p1')`).run()
+    tempDb.prepare(
+      `INSERT INTO verification_reports (id, project_id, score, started_at) VALUES ('r-old', 'p1', 88, 1000)`,
+    ).run()
+
+    migrate(tempDb)
+
+    // (a) the score column is now nullable
+    const scoreCol = (tempDb.pragma('table_info(verification_reports)') as Array<{ name: string; notnull: number }>)
+      .find(c => c.name === 'score')
+    expect(scoreCol?.notnull).toBe(0)
+
+    // (b) the pre-existing row survived intact
+    const old = tempDb.prepare(`SELECT score FROM verification_reports WHERE id = 'r-old'`).get() as { score: number }
+    expect(old.score).toBe(88)
+
+    // (c) a NULL score now inserts (insufficient-signal report)
+    expect(() =>
+      tempDb.prepare(
+        `INSERT INTO verification_reports (id, project_id, score, started_at) VALUES ('r-null', 'p1', NULL, 2000)`,
+      ).run(),
+    ).not.toThrow()
+    const nul = tempDb.prepare(`SELECT score FROM verification_reports WHERE id = 'r-null'`).get() as { score: number | null }
+    expect(nul.score).toBeNull()
+
+    expect(tempDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+  })
+
+  it('is idempotent — a second full scan does not rebuild again or throw', () => {
+    tempDb.pragma('user_version = 0')
+    expect(() => migrate(tempDb)).not.toThrow()
+    const scoreCol = (tempDb.pragma('table_info(verification_reports)') as Array<{ name: string; notnull: number }>)
+      .find(c => c.name === 'score')
+    expect(scoreCol?.notnull).toBe(0)
+  })
+})
+
+describe('db migration — verification_reports.score nullable (boot)', () => {
+  it('the live db score column is nullable after boot migrate()', () => {
+    const scoreCol = (db.pragma('table_info(verification_reports)') as Array<{ name: string; notnull: number }>)
+      .find(c => c.name === 'score')
+    expect(scoreCol?.notnull).toBe(0)
   })
 })
 

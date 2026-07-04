@@ -267,3 +267,78 @@ describe('migrate() — workflow_runs.workflow_id (guarded ALTER + old-schema ro
     expect(tempDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
   })
 })
+
+// W4 follow-up: the projects.default_branch column (SCHEMA_VERSION 5) — the repo's real
+// default branch, detected + persisted at register/clone. Guarded ALTER on a pre-column
+// projects table; a pre-existing row must read back default_branch = null.
+describe('migrate() — projects.default_branch (guarded ALTER + old-schema row)', () => {
+  const tmpPath = path.join(os.tmpdir(), `k-migration-defbranch-${Date.now()}.db`)
+  let tempDb: Database.Database
+
+  afterAll(() => {
+    try { tempDb?.close() } catch { /* ignore */ }
+    try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+  })
+
+  it('adds default_branch on an old-schema projects table; a pre-existing row reads back null; stamps SCHEMA_VERSION', () => {
+    tempDb = new Database(tmpPath)
+    tempDb.pragma('foreign_keys = ON')
+
+    // Old-schema (pre-W4): projects WITHOUT default_branch + the runs table migrate() ALTERs.
+    tempDb.exec(`
+      CREATE TABLE projects (
+        id                TEXT PRIMARY KEY,
+        name              TEXT NOT NULL UNIQUE,
+        local_path        TEXT NOT NULL,
+        github_remote     TEXT,
+        workspace_managed INTEGER NOT NULL DEFAULT 0,
+        bible_dir         TEXT NOT NULL DEFAULT 'artifacts/bible',
+        health_score      INTEGER,
+        last_verified_at  INTEGER,
+        created_at        INTEGER NOT NULL
+      );
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY, prompt TEXT NOT NULL, cwd TEXT NOT NULL, worktree TEXT,
+        status TEXT NOT NULL DEFAULT 'queued', provider TEXT NOT NULL DEFAULT 'claude',
+        model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6', tokens_in INTEGER NOT NULL DEFAULT 0,
+        tokens_out INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL, ended_at INTEGER
+      );
+    `)
+
+    // A pre-existing project from before the column existed.
+    tempDb.prepare(
+      `INSERT INTO projects (id, name, local_path, created_at) VALUES ('db-old', 'legacy', '/x', ?)`,
+    ).run(Date.now())
+
+    migrate(tempDb)
+
+    // (a) the column now exists
+    const cols = (tempDb.pragma('table_info(projects)') as Array<{ name: string }>).map(c => c.name)
+    expect(cols).toContain('default_branch')
+
+    // (b) the pre-existing row reads back default_branch = null (backfilled NULL)
+    const row = tempDb.prepare(`SELECT default_branch FROM projects WHERE id = 'db-old'`).get() as
+      { default_branch: string | null }
+    expect(row.default_branch).toBeNull()
+
+    // (c) the schema version stamps to the current SCHEMA_VERSION
+    expect(tempDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+  })
+
+  it('migrate() is idempotent for the default_branch branch — second run does not double-add', () => {
+    tempDb.pragma('user_version = 0')
+    expect(() => migrate(tempDb)).not.toThrow()
+    const dbCols = (tempDb.pragma('table_info(projects)') as Array<{ name: string }>)
+      .filter(c => c.name === 'default_branch')
+    expect(dbCols.length).toBe(1)
+    expect(tempDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+  })
+})
+
+describe('db migration — projects.default_branch (boot)', () => {
+  it('default_branch column exists on the live db after boot migrate()', () => {
+    const cols = db.pragma('table_info(projects)') as Array<{ name: string }>
+    expect(cols.map(c => c.name)).toContain('default_branch')
+  })
+})

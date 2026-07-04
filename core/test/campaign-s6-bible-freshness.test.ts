@@ -56,10 +56,12 @@ describe('S6 bible freshness — auditBible (matching boundary + finding shapes)
     expect(f[0].message).toContain('bible stale: 31 days')
   })
 
-  it('null freshness → a single "freshness unknown" warn finding', () => {
+  it('null freshness → a single "freshness unknown" INFO finding (unmeasurable, no penalty — F-032)', () => {
+    // Present bible + no commit-based freshness signal = UNKNOWN, not stale. Info
+    // carries no findings penalty (onboarding leaves the scaffold uncommitted, D-028).
     const f = auditBible(null, true)
     expect(f).toHaveLength(1)
-    expect(f[0].severity).toBe('warn')
+    expect(f[0].severity).toBe('info')
     expect(f[0].message).toContain('freshness unknown')
   })
 
