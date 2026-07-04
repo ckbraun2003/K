@@ -41,6 +41,7 @@ const {
   ensureDefaultKThread,
   getKThread,
   listKThreadTurns,
+  renderSeed,
   DEFAULT_K_THREAD_ID,
   continueLeadOutcomeToK,
   resolveKDelegationThread,
@@ -169,6 +170,30 @@ describe('routeForMessage', () => {
       expect(r.target, `route for "${msg}"`).toBe(target)
       expect(r.escalates, `escalates for "${msg}"`).toBe(escalates)
     }
+  })
+})
+
+// ── K_SEED_INSTRUCTION — store disambiguation (F-058) ─────────────────────────
+
+describe('renderSeed store disambiguation (F-058)', () => {
+  it('the reseed instruction maps each capture intent to its OWN store tool', () => {
+    ensureDefaultKThread()
+    // The trailing K_SEED_INSTRUCTION rides on every cold reseed. It must steer K to
+    // pick the right store by intent instead of defaulting everything to a work item:
+    //   note / FYI / "jot this down" → note_add (Notes)
+    //   schedule / remind me / a time → event_add or reminder_add (Schedule)
+    //   task / to-do / "track this"  → work_item_create scope='personal' (Your work)
+    const seed = renderSeed(DEFAULT_K_THREAD_ID, 'add a note')
+    expect(seed).toContain('note_add')
+    expect(seed).toContain('event_add')
+    expect(seed).toContain('reminder_add')
+    expect(seed).toContain('work_item_create')
+    expect(seed).toContain("scope='personal'")
+    // The three surfaces are named so the intent→tool mapping is explicit, and the
+    // ambiguous-note case is called out (a NOTE, not a task).
+    expect(seed).toMatch(/Notes/)
+    expect(seed).toMatch(/Schedule/)
+    expect(seed).toMatch(/not a task/i)
   })
 })
 

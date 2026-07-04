@@ -31,8 +31,10 @@ const SEED_TURN_WINDOW = 12
 /** The routing/behavior instruction appended to a cold reseed. */
 const K_SEED_INSTRUCTION =
   '(You are K, the secretary front door. Handle logistics/Q&A/scheduling/notes/tasks yourself; ' +
-  'otherwise route engineering to the Chief or a named lead, stating the route first. Keep the ' +
-  "operator's task list in kstore scope='personal' (org items scope='org') — those persist across sessions.)"
+  'otherwise route engineering to the Chief or a named lead, stating the route first. Pick the right ' +
+  'store by intent: a note/FYI/"jot this down" → note_add (Notes); a "schedule …"/"remind me …"/a time ' +
+  "→ event_add or reminder_add (Schedule); a task/to-do/\"track this\" → work_item_create scope='personal' " +
+  "(org items scope='org', persisting across sessions). An ambiguous \"add a note\" is a NOTE, not a task.)"
 
 // ── row → type mappers (snake_case → camelCase) ──────────────────────────────
 

@@ -1,5 +1,10 @@
 import type { QueryClient } from '@tanstack/react-query'
-import type { WsMessage } from '@k/shared'
+import type { RunStatus, WsMessage } from '@k/shared'
+
+/** The terminal run statuses (mirrors core's run-lifecycle) — a run in one of these
+ *  will produce no further updates, so it is the settle point at which K-authored
+ *  surfaces are refreshed (F-059). awaiting_input / running / queued are NON-terminal. */
+const TERMINAL_RUN_STATUSES = new Set<RunStatus>(['done', 'error', 'killed', 'interrupted'])
 
 /**
  * Live run_update → react-query invalidation policy (wave C1), extracted from
@@ -9,6 +14,12 @@ import type { WsMessage } from '@k/shared'
  *  - ['runs'] and ['metrics'] are invalidated IMMEDIATELY, per message — preserving
  *    the pre-existing behavior. ['runs'] is a PREFIX, so it also matches the scoped
  *    default-list key (see runs-query.ts) and any future scoped siblings.
+ *  - the K-home surface keys — ['k-thread'] (durable conversation), ['k-notes'],
+ *    ['k-schedule'], ['k-work-items'] — are invalidated when the run reaches a TERMINAL
+ *    status. A completed K/agent run both writes items (a note / work-item) and appends
+ *    a k-turn (its reply / a Chief report-back), so K-authored changes surface live on
+ *    K-home instead of only on the next reload (F-059). Gated on terminal (not every
+ *    streaming tick) so a chatty run doesn't re-fetch these on each event.
  *  - the org keys — ['chief-org'] (Chief tree), ['orchestrators'] (roster), and the
  *    ['orchestrator'] prefix (every ['orchestrator', id] detail) — are invalidated
  *    THROTTLED: the leading edge fires immediately; further messages inside the
@@ -36,6 +47,15 @@ export function makeRunUpdateInvalidator(
     if (msg.type !== 'run_update') return
     void qc.invalidateQueries({ queryKey: ['runs'] })
     void qc.invalidateQueries({ queryKey: ['metrics'] })
+    // A run reaching TERMINAL may have written K-home surfaces (a completed K ask adds
+    // a k-turn and can create notes / schedule entries / work-items). Refresh those
+    // reads so K-authored items + replies appear live, not only on reload (F-059).
+    if (TERMINAL_RUN_STATUSES.has(msg.run.status)) {
+      void qc.invalidateQueries({ queryKey: ['k-thread'] })
+      void qc.invalidateQueries({ queryKey: ['k-notes'] })
+      void qc.invalidateQueries({ queryKey: ['k-schedule'] })
+      void qc.invalidateQueries({ queryKey: ['k-work-items'] })
+    }
     if (timer === null) {
       // Leading edge — invalidate now, then open the coalescing window.
       invalidateOrg()

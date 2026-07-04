@@ -13,8 +13,11 @@ import { makeRunUpdateInvalidator, makeProjectListInvalidator } from '../src/lib
 const runUpdate = { type: 'run_update', run: {} as never } as WsMessage
 const otherMsg = { type: 'pong' } as WsMessage
 const githubUpdate = { type: 'github_update', projectId: 'p1', kind: 'pr', payload: [] } as WsMessage
+const terminalRunUpdate = { type: 'run_update', run: { status: 'done' } as never } as WsMessage
+const runningRunUpdate = { type: 'run_update', run: { status: 'running' } as never } as WsMessage
 
 const ORG_KEYS = ['chief-org', 'orchestrators', 'orchestrator'] as const
+const K_KEYS = ['k-thread', 'k-notes', 'k-schedule', 'k-work-items'] as const
 
 function keyCounts(spy: ReturnType<typeof vi.fn>) {
   const counts: Record<string, number> = {}
@@ -86,6 +89,35 @@ describe('makeRunUpdateInvalidator', () => {
 
     vi.advanceTimersByTime(1000)
     for (const key of ORG_KEYS) expect(keyCounts(invalidateQueries)[key]).toBe(1)
+  })
+
+  // ── F-059: a TERMINAL run refreshes the K-home surfaces ──
+  it('a terminal run_update invalidates the K-home surface keys (F-059)', () => {
+    const invalidateQueries = vi.fn()
+    const { handler, dispose } = makeRunUpdateInvalidator({ invalidateQueries })
+
+    handler(terminalRunUpdate)
+
+    const counts = keyCounts(invalidateQueries)
+    // A completed run writes items + a k-turn — the K-home reads refresh live.
+    for (const key of K_KEYS) expect(counts[key]).toBe(1)
+    // The pre-existing per-message invalidations still fire.
+    expect(counts.runs).toBe(1)
+    expect(counts.metrics).toBe(1)
+    dispose()
+  })
+
+  it('a NON-terminal run_update does NOT invalidate the K-home keys (only on settle)', () => {
+    const invalidateQueries = vi.fn()
+    const { handler, dispose } = makeRunUpdateInvalidator({ invalidateQueries })
+
+    handler(runningRunUpdate)
+
+    const counts = keyCounts(invalidateQueries)
+    for (const key of K_KEYS) expect(counts[key]).toBeUndefined()
+    // runs/metrics still invalidate per message regardless of status.
+    expect(counts.runs).toBe(1)
+    dispose()
   })
 })
 

@@ -10,7 +10,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor, fireEvent, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MotionGlobalConfig } from 'framer-motion'
 import { routeForMessage, routeForTarget, type Status } from '@k/shared'
+
+// framer-motion's rAF frameloop stalls after a fake-timers test, which would leave the
+// optimistic undo toast's AnimatePresence exit hanging on a failed send (F-066). Make
+// animations instant so mount/exit is synchronous and deterministic.
+MotionGlobalConfig.skipAnimations = true
 
 const statusValue: Status = {
   claude: { available: true },
@@ -58,11 +64,11 @@ vi.mock('../src/lib/route', () => ({
 
 import CommandBar from '../src/shell/CommandBar'
 
-function renderBar() {
+function renderBar(onClose: () => void = () => {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <CommandBar open onClose={() => {}} />
+      <CommandBar open onClose={onClose} />
     </QueryClientProvider>,
   )
 }
@@ -162,10 +168,11 @@ describe('CommandBar → K front door', () => {
 
     fireEvent.click(await screen.findByTestId('cmdk-row-ask-k'))
 
-    // The error shows in the footer; no run was started so there is no undo toast
-    // and nothing to undo.
+    // The error shows in the footer; the send-anchored window is raised optimistically
+    // (F-066) then torn down on the failure — waitFor lets the toast's exit settle so no
+    // undo affordance lingers, and nothing was undone.
     await screen.findByText(/kaboom/)
-    expect(screen.queryByTestId('ask-k-undo-toast')).toBeNull()
+    await waitFor(() => expect(screen.queryByTestId('ask-k-undo-toast')).toBeNull())
     expect(mockUndo).not.toHaveBeenCalled()
   })
 
@@ -185,5 +192,45 @@ describe('CommandBar → K front door', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // The bar closes on a COMMITTED send (runId resolved), NOT on the optimistic raise —
+  // gate is `ask.pendingUndo?.runId`, not the mere pending entry (F-066). Spy on onClose
+  // so a regression to bare `pendingUndo` (which would close the bar prematurely at the
+  // optimistic raise, hiding an in-flight/failed send's footer error) is caught.
+  it('does NOT close the bar on the optimistic raise, then closes once the ask resolves a runId', async () => {
+    const onClose = vi.fn()
+    // Deferred ask: stays pending until we resolve it, so we can observe the in-flight
+    // window (optimistic undo raised, runId still null).
+    let resolveAsk!: (v: unknown) => void
+    mockAsk.mockImplementationOnce(() => new Promise(r => { resolveAsk = r }))
+    renderBar(onClose)
+
+    fireEvent.change(screen.getByTestId('cmdk-input') as HTMLInputElement, { target: { value: MSG } })
+    fireEvent.click(await screen.findByTestId('cmdk-row-ask-k'))
+
+    // In flight: the optimistic undo toast is up (runId null) but the bar must stay OPEN.
+    await screen.findByTestId('ask-k-undo-toast')
+    expect(onClose).not.toHaveBeenCalled()
+
+    // Resolve → runId patched in → the bar closes exactly once.
+    await act(async () => {
+      resolveAsk({ kThreadId: 'kt', agentRunId: 'ar', runId: 'run-123', route: routeForMessage(MSG), warm: false })
+    })
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+  })
+
+  it('does NOT close the bar on a failed send (the footer error stays visible)', async () => {
+    const onClose = vi.fn()
+    mockAsk.mockRejectedValueOnce(new Error('kaboom'))
+    renderBar(onClose)
+
+    fireEvent.change(screen.getByTestId('cmdk-input') as HTMLInputElement, { target: { value: MSG } })
+    fireEvent.click(await screen.findByTestId('cmdk-row-ask-k'))
+
+    // The optimistic window was raised then torn down; the bar never closed, so the
+    // error remains readable in the footer.
+    await screen.findByText(/kaboom/)
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

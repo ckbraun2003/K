@@ -83,12 +83,13 @@ export default function CommandBar({ open, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // A successful send is the only thing that sets a pending-undo entry — treat that
-  // transition as the "sent" signal and close the bar (the Undo toast lives outside
-  // the open gate, so it survives). A failed send leaves pendingUndo null → bar stays
-  // open showing the footer error.
+  // A COMMITTED send (the dispatch resolved a runId) is the "sent" signal — close the
+  // bar then (the Undo toast lives outside the open gate, so it survives). Gate on
+  // `runId`, not the mere presence of pendingUndo: the window is now raised optimistically
+  // at send (F-066), so a still-in-flight or FAILED send must not close the bar — a failure
+  // clears pendingUndo again and the footer error stays visible.
   useEffect(() => {
-    if (ask.pendingUndo) onClose()
+    if (ask.pendingUndo?.runId) onClose()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ask.pendingUndo])
 
@@ -553,7 +554,7 @@ export default function CommandBar({ open, onClose }: Props) {
       open={ask.pendingUndo !== null}
       testid="ask-k-undo-toast"
       durationMs={5000}
-      resetKey={ask.pendingUndo?.runId}
+      resetKey={ask.pendingUndo?.key}
       message={<>Sent to K · <span className="text-[var(--text)]">{ask.pendingUndo?.route.label}</span></>}
       action={{ label: 'Undo', testid: 'ask-k-undo', onClick: () => void ask.undo() }}
       onDismiss={ask.clearUndo}

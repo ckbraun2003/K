@@ -414,14 +414,14 @@ export default function ChiefPage() {
         open={hand.pendingUndo !== null}
         testid="chief-hand-toast"
         durationMs={5000}
-        resetKey={hand.pendingUndo?.runId}
+        resetKey={hand.pendingUndo?.key}
         message={
           <>
             Handed to <span className="text-[var(--text)]">Chief</span>{' '}
             <button
               type="button"
               data-testid="chief-hand-view-run"
-              onClick={() => { if (hand.pendingUndo) navigate('runs', hand.pendingUndo.runId) }}
+              onClick={() => { if (hand.pendingUndo?.runId) navigate('runs', hand.pendingUndo.runId) }}
               className="text-[var(--accent-hover)] transition-colors hover:underline"
             >
               View run →
