@@ -237,6 +237,33 @@ describe('wakeChief', () => {
     expect(chiefWakes().some(r => r.status === 'running')).toBe(false)
   })
 
+  it('f) F-089: a successful wake logs ONE observability line; a debounced tick does not', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const T = Date.now()
+      const first = await wakeChief('schedule', { goal: 'p89-log', now: T })
+      expect(first.woke).toBe(true)
+      if (!first.woke) throw new Error('expected woke')
+
+      // The success PASS logged exactly one `[chief-wake] woke chief` line naming the
+      // trigger + resulting run id.
+      const wokeLines = logSpy.mock.calls
+        .map(c => String(c[0]))
+        .filter(l => l.includes('[chief-wake] woke chief'))
+      expect(wokeLines).toHaveLength(1)
+      expect(wokeLines[0]).toContain('trigger=schedule')
+      expect(wokeLines[0]).toContain(first.runId)
+
+      // A debounced tick inside the same window logs NO "woke" line.
+      logSpy.mockClear()
+      const second = await wakeChief('schedule', { goal: 'p89-log-2', now: T })
+      expect(second.woke).toBe(false)
+      expect(logSpy.mock.calls.map(c => String(c[0])).filter(l => l.includes('woke chief'))).toHaveLength(0)
+    } finally {
+      logSpy.mockRestore()
+    }
+  })
+
   it('returns {reason:disabled} when CHIEF_WAKE=0', async () => {
     const prev = process.env.CHIEF_WAKE
     process.env.CHIEF_WAKE = '0'

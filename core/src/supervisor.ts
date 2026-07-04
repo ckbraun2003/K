@@ -116,6 +116,13 @@ export type StartRunOptions = {
    *  it (`--resume`). Absent for every regular dispatch run → fresh worktree, fresh
    *  synthesized config, no session flags — byte-for-byte the prior behavior. */
   persistentSession?: { key: string; sessionId: string; resume: boolean }
+  /** H8 (OPT-IN): after adding the run's detached worktree, replay the SOURCE repo's
+   *  UNCOMMITTED tracked+staged changes into it so the agent starts from the operator's
+   *  dirty state (see applyWorkingTreeInto for the exact semantics — untracked/ignored
+   *  files are NOT carried). Default false/undefined → the worktree stays at clean
+   *  committed HEAD, BYTE-IDENTICAL to the prior behavior. Ignored for a persistent
+   *  session (no worktree) and for a non-git cwd (falls back to running in cwd). */
+  carryWorkingTree?: boolean
 }
 
 /**
@@ -211,6 +218,12 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
       await execa('git', ['-C', cwd, 'rev-parse', '--git-dir'], { reject: true })
       await execa('git', ['-C', cwd, 'worktree', 'add', '--detach', worktreePath], { reject: true })
       effectiveCwd = worktreePath
+      // H8 (opt-in): replay the source's uncommitted tracked+staged WIP into the fresh
+      // worktree so the run sees the dirty state. Guarded by the flag, so when it is
+      // absent this branch is never entered and the worktree stays at clean committed
+      // HEAD — byte-identical to before. applyWorkingTreeInto never throws (a carry
+      // failure degrades to a clean-HEAD run), so it can't disturb the worktree fallback.
+      if (opts.carryWorkingTree) await applyWorkingTreeInto(cwd, worktreePath)
     } catch {
       // Not a git repo or worktree failed — run in cwd directly
       effectiveCwd = cwd
@@ -265,13 +278,86 @@ function clearRunTracking(runId: string) {
   endingRuns.delete(runId)
 }
 
+/**
+ * H8 (opt-in carryWorkingTree): copy the SOURCE repo's UNCOMMITTED tracked+staged
+ * changes INTO a freshly-added detached worktree so a dispatched run can start from
+ * the operator's dirty state instead of clean committed HEAD.
+ *
+ * Mechanism: `git -C <src> stash create` snapshots the tracked+staged WIP as a
+ * stash-format commit-ish WITHOUT touching the source working tree or the stash list
+ * (it is a pure, non-destructive capture — the operator's tree is left exactly as it
+ * was). A clean tree prints nothing → no-op (returns false). Otherwise we
+ * `git -C <wt> stash apply <sha>` to replay that WIP into the worktree; because the
+ * worktree is detached at the same HEAD the stash was based on, it applies cleanly and
+ * restores both modified tracked files and staged (index) changes, including deletions.
+ *
+ * SEMANTICS — what is / isn't carried:
+ *   • CARRIED: modified tracked files + staged (index) changes.
+ *   • NOT carried: UNTRACKED files and ignored files. `git stash create` omits them by
+ *     design, and the only way to include them (`git stash push -u`) MUTATES the source
+ *     working tree — unacceptable for a read-only capture — so untracked work is
+ *     deliberately left behind. A run that needs an untracked file should `git add` it
+ *     first (staged files ARE carried).
+ * The run commits to its own branch as usual; the --force worktree removal only discards
+ * still-uncommitted residue, exactly like any run — so there is no write-back to do.
+ *
+ * Best-effort + NEVER throws: a carry failure must not abort the dispatch — the run
+ * simply starts from clean committed HEAD (today's behavior). Returns true iff WIP was
+ * applied, false if the source was clean or the carry was skipped/failed.
+ */
+export async function applyWorkingTreeInto(sourceCwd: string, worktreePath: string): Promise<boolean> {
+  try {
+    // `stash create` writes the commit-ish to stdout (empty string when the tree is
+    // clean). It does NOT alter the working tree or push onto the stash list.
+    const { stdout } = await execa('git', ['-C', sourceCwd, 'stash', 'create'], { reject: true })
+    const sha = stdout.trim()
+    if (!sha) return false // clean source tree → nothing to carry
+    await execa('git', ['-C', worktreePath, 'stash', 'apply', sha], { reject: true })
+    return true
+  } catch (err) {
+    console.warn('[supervisor] carryWorkingTree failed — run starts from clean HEAD:', (err as Error).message)
+    return false
+  }
+}
+
 // ── Private ──────────────────────────────────────────────────────────────────
+
+/**
+ * H7: run a worktree-removal `attempt` with a small retry-with-backoff. On Windows a
+ * lingering child handle can make `git worktree remove --force` fail EBUSY transiently;
+ * retrying a few times with a short linear backoff lets the handle release so a
+ * transient failure doesn't leak the worktree to the next-boot prune. The FINAL
+ * attempt's failure is not rethrown — cleanup must NEVER throw. Exported + parameterized
+ * (attempt fn, attempts, delay, injectable sleep) so the retry logic is unit-testable
+ * without a real worktree or real timers. Returns true on eventual success, false if
+ * every attempt failed. The happy path (first attempt succeeds) adds ZERO delay.
+ */
+export async function removeWorktreeWithRetry(
+  attempt: () => Promise<void>,
+  opts: { attempts?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<boolean> {
+  const attempts = opts.attempts ?? 3
+  const delayMs = opts.delayMs ?? 150
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await attempt()
+      return true
+    } catch {
+      // Back off before the next try; no sleep after the last (failed) attempt.
+      if (i < attempts - 1) await sleep(delayMs * (i + 1))
+    }
+  }
+  return false
+}
 
 async function removeWorktree(run: Run) {
   if (run.worktree && fs.existsSync(run.worktree)) {
-    try {
-      await execa('git', ['-C', run.cwd, 'worktree', 'remove', '--force', run.worktree])
-    } catch { /* best-effort cleanup */ }
+    // Retry a transient Windows EBUSY (lingering child handle) before the final
+    // best-effort swallow; removeWorktreeWithRetry never throws.
+    await removeWorktreeWithRetry(() =>
+      execa('git', ['-C', run.cwd, 'worktree', 'remove', '--force', run.worktree!]).then(() => undefined),
+    )
   }
 }
 
@@ -391,26 +477,45 @@ export function reconcileStaleKThreads(d: import('better-sqlite3').Database = db
  * fail, so every step is guarded and logged. Call after reconcileStaleRuns().
  */
 export function pruneOrphanWorktrees(): void {
+  sweepOrphanWorktrees(REPO_ROOT, WORKTREES_DIR, new Set(activeProcesses.keys()))
+}
+
+/**
+ * Testable core of the orphan-worktree boot sweep (F-091). Removes leftover
+ * `<worktreesDir>/*` directories NOT held by an active run, THEN runs
+ * `git worktree prune`.
+ *
+ * F-091 fix: prune runs AFTER the removal loop (previously it ran BEFORE). Pruning
+ * first meant a dir removed THIS boot still had its git metadata registered
+ * ("prunable") until the NEXT boot; pruning after the removals reclaims that metadata
+ * the SAME boot. Never throws — Windows file locks can make removal fail, so every step
+ * is guarded and logged. Parameterized (repoRoot, worktreesDir, activeIds) so it is
+ * unit-testable against a real temp git repo.
+ */
+export function sweepOrphanWorktrees(repoRoot: string, worktreesDir: string, activeIds: Set<string>): void {
   try {
-    execFileSync('git', ['worktree', 'prune'], { cwd: REPO_ROOT, stdio: 'ignore' })
-  } catch (err) {
-    console.warn('[supervisor] git worktree prune failed:', (err as Error).message)
-  }
-  try {
-    if (!fs.existsSync(WORKTREES_DIR)) return
-    for (const entry of fs.readdirSync(WORKTREES_DIR)) {
-      // Active runs hold their worktree dir; reconcileStaleRuns nulled the rest,
-      // so anything on disk here is orphaned. Remove best-effort.
-      if (activeProcesses.has(entry)) continue
-      const dir = path.join(WORKTREES_DIR, entry)
-      try {
-        fs.rmSync(dir, { recursive: true, force: true })
-      } catch (err) {
-        console.warn(`[supervisor] could not remove orphan worktree ${dir}:`, (err as Error).message)
+    if (fs.existsSync(worktreesDir)) {
+      for (const entry of fs.readdirSync(worktreesDir)) {
+        // Active runs hold their worktree dir; reconcileStaleRuns nulled the rest,
+        // so anything on disk here is orphaned. Remove best-effort.
+        if (activeIds.has(entry)) continue
+        const dir = path.join(worktreesDir, entry)
+        try {
+          fs.rmSync(dir, { recursive: true, force: true })
+        } catch (err) {
+          console.warn(`[supervisor] could not remove orphan worktree ${dir}:`, (err as Error).message)
+        }
       }
     }
   } catch (err) {
     console.warn('[supervisor] worktree dir sweep failed:', (err as Error).message)
+  }
+  // Prune AFTER the removal loop so git metadata for a dir removed THIS boot is
+  // reclaimed now, not left registered as 'prunable' until the next boot (F-091).
+  try {
+    execFileSync('git', ['worktree', 'prune'], { cwd: repoRoot, stdio: 'ignore' })
+  } catch (err) {
+    console.warn('[supervisor] git worktree prune failed:', (err as Error).message)
   }
 }
 

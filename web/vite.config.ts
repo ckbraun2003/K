@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
-import { terminalTokenDefine, harnessTokenDefine } from './src/lib/vite-token-defines'
+import { terminalTokenDefine, harnessTokenDefine, devAutoAuthEnabled, devProxyAuthHeader } from './src/lib/vite-token-defines'
 
 // Isolation knobs (default to the production-equivalent single-stack values).
 // The e2e swarm boots N stacks in parallel by overriding CORE_PORT/WEB_PORT per
@@ -60,8 +60,16 @@ export default defineConfig(({ command }) => ({
         target: `http://localhost:${CORE_PORT}`,
         changeOrigin: true,
         configure: (proxy) => {
+          // F-086: auto-inject a Bearer so loopback `pnpm dev` needs no login — UNLESS
+          // VITE_DEV_AUTOAUTH=0, which suppresses the injection so a dev can exercise the
+          // real 401 login gate. Default (flag unset) = today's behavior. (The /ws gateway
+          // is separately auto-authed via VITE_HARNESS_TOKEN and is not affected here.)
+          const authHeader = devProxyAuthHeader({
+            autoAuth: devAutoAuthEnabled(process.env),
+            token: process.env.HARNESS_TOKEN,
+          })
           proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('Authorization', `Bearer ${process.env.HARNESS_TOKEN ?? 'dev-token-change-me'}`)
+            if (authHeader) proxyReq.setHeader('Authorization', authHeader)
           })
           // Core can still be booting (node --watch) while Vite is already serving.
           // Degrade gracefully: return 503 instead of an opaque 500, and throttle

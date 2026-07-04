@@ -54,7 +54,7 @@ import {
   unsafeTerminalBootReason,
   type ResolvedToken,
 } from './auth.js'
-import { terminalGate, createTerminalSession, scrubSensitiveEnv, type SpawnPty } from './terminal.js'
+import { terminalGate, createTerminalSession, scrubSensitiveEnv, installConptyStderrFilter, type SpawnPty } from './terminal.js'
 import { credentialPosture } from './agent-config.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
@@ -223,6 +223,10 @@ export async function buildApp() {
     let spawnPty: SpawnPty
     try {
       const pty = await import('node-pty')
+      // F-088: node-pty's ConPTY teardown can print a benign `AttachConsole failed`
+      // stack to stderr. Install the narrow filter now that a pty is actually in use
+      // (idempotent — only the first terminal session installs it).
+      installConptyStderrFilter()
       spawnPty = (shell, cols, rows) =>
         pty.spawn(shell, [], {
           name: 'xterm-color',
@@ -262,6 +266,35 @@ export async function buildApp() {
     releaseInstanceLock?.()
   })
   return app
+}
+
+/**
+ * Signals on which the single-instance lock is released before exit (F-092). SIGINT
+ * (Ctrl-C) and SIGTERM (kill / `node --watch` restart) apply everywhere; SIGBREAK
+ * (Windows Ctrl-Break) is added ONLY on win32 — POSIX has no such signal name and
+ * registering it there throws. A HARD kill (Windows `Stop-Process` / POSIX SIGKILL) is
+ * UNCATCHABLE by design and cannot release the lock here; the next boot's dead-pid
+ * reclaim in acquireInstanceLock() detects and takes over the stale lock — correct and
+ * self-healing. Pure + parameterized so the signal set is unit-testable on any platform.
+ */
+export function lockReleaseSignals(platform: NodeJS.Platform = process.platform): NodeJS.Signals[] {
+  const sigs: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+  if (platform === 'win32') sigs.push('SIGBREAK')
+  return sigs
+}
+
+/**
+ * Wire `release` to run on process 'exit' and on each termination signal
+ * (lockReleaseSignals) so the instance lock is freed on Ctrl-C / kill / Windows
+ * Ctrl-Break as well as the Fastify onClose graceful path. The 'exit' handler must be
+ * synchronous. Exported so the signal wiring — including the Windows SIGBREAK handler
+ * (F-092) — is unit-testable without booting the server.
+ */
+export function installLockReleaseHandlers(release: () => void): void {
+  process.once('exit', () => release())
+  for (const sig of lockReleaseSignals()) {
+    process.once(sig, () => { release(); process.exit(0) })
+  }
 }
 
 // ── Bootstrap + Listen ────────────────────────────────────────────────────────
@@ -321,11 +354,11 @@ async function start() {
     process.exit(1)
   }
   releaseInstanceLock = lock.release
-  // Release on process exit too (Fastify onClose covers a graceful close; these
-  // cover Ctrl-C / kill / node --watch restart). 'exit' must be synchronous.
-  process.once('exit', () => releaseInstanceLock?.())
-  process.once('SIGINT', () => { releaseInstanceLock?.(); process.exit(0) })
-  process.once('SIGTERM', () => { releaseInstanceLock?.(); process.exit(0) })
+  // Release the lock on exit + termination signals (Fastify onClose covers a graceful
+  // close; these cover Ctrl-C / kill / node --watch restart / Windows Ctrl-Break). A
+  // HARD Stop-Process / SIGKILL is uncatchable and cannot release the lock here — the
+  // next boot's dead-pid reclaim in acquireInstanceLock() self-heals the stale lock.
+  installLockReleaseHandlers(() => releaseInstanceLock?.())
 
   // Crash recovery: mark runs left `running`/`queued` by a prior crash as
   // interrupted and prune orphaned worktrees, before serving traffic.

@@ -50,3 +50,33 @@ export function terminalTokenDefine(opts: { isDev: boolean; token?: string }): s
   if (realToken || !isDev) return 'undefined'
   return JSON.stringify(token ?? DEV_TERMINAL_TOKEN)
 }
+
+/**
+ * F-086: is the dev-server `/api` auto-auth ON? Under `pnpm dev` the Vite proxy injects
+ * a Bearer into every proxied `/api` request so loopback dev needs no login. Setting
+ * `VITE_DEV_AUTOAUTH=0` suppresses that injection so a dev can exercise the REAL 401
+ * login gate. Default (unset / any value ≠ '0') = today's zero-friction auto-auth, so a
+ * normal `pnpm dev` is unchanged.
+ *
+ * SCOPE (documented, not changed here): this flag gates only the REST `/api` proxy Bearer
+ * (below). The authenticated `/ws` gateway is separately auto-authed via the baked
+ * `VITE_HARNESS_TOKEN` define (owned by the harness-token define wiring), which this flag
+ * does NOT touch — so with `VITE_DEV_AUTOAUTH=0` the REST login gate becomes reachable
+ * while the WS gateway keeps its dev auto-auth. Pure so the flag logic is unit-testable
+ * even though the proxy hook itself is not.
+ */
+export function devAutoAuthEnabled(env: { VITE_DEV_AUTOAUTH?: string }): boolean {
+  return env.VITE_DEV_AUTOAUTH !== '0'
+}
+
+/**
+ * F-086: the `Authorization` header the `/api` dev proxy should inject, or `undefined`
+ * to inject NOTHING (so the real 401 login gate is reachable under `pnpm dev`). Returns
+ * undefined when auto-auth is disabled; otherwise `Bearer <token>` using the real
+ * `HARNESS_TOKEN` when set, else the dev literal. Pure + exported so the flag/header
+ * logic is unit-testable (the proxy `configure` hook itself is not).
+ */
+export function devProxyAuthHeader(opts: { autoAuth: boolean; token?: string }): string | undefined {
+  if (!opts.autoAuth) return undefined
+  return `Bearer ${opts.token ?? DEV_HARNESS_TOKEN}`
+}

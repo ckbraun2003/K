@@ -11,6 +11,8 @@ import {
   DEV_TERMINAL_TOKEN,
   harnessTokenDefine,
   DEV_HARNESS_TOKEN,
+  devAutoAuthEnabled,
+  devProxyAuthHeader,
 } from '../src/lib/vite-token-defines'
 
 describe('terminalTokenDefine (vite define guard)', () => {
@@ -62,5 +64,35 @@ describe('harnessTokenDefine (vite define guard)', () => {
 
   it('PROD build + a REAL token → undefined (inject at runtime via login, never baked)', () => {
     expect(harnessTokenDefine({ isDev: false, token: 'real-strong-harness-token' })).toBe('undefined')
+  })
+})
+
+describe('devAutoAuthEnabled (F-086 dev /api auto-auth flag)', () => {
+  it('defaults ON when the flag is unset (zero-friction pnpm dev)', () => {
+    expect(devAutoAuthEnabled({})).toBe(true)
+  })
+
+  it('stays ON for any value other than "0"', () => {
+    expect(devAutoAuthEnabled({ VITE_DEV_AUTOAUTH: '1' })).toBe(true)
+    expect(devAutoAuthEnabled({ VITE_DEV_AUTOAUTH: 'true' })).toBe(true)
+  })
+
+  it('turns OFF only when explicitly "0" (so the real 401 login gate is reachable)', () => {
+    expect(devAutoAuthEnabled({ VITE_DEV_AUTOAUTH: '0' })).toBe(false)
+  })
+})
+
+describe('devProxyAuthHeader (F-086 /api proxy Bearer injection)', () => {
+  it('auto-auth ON + a real HARNESS_TOKEN → Bearer <realtoken>', () => {
+    expect(devProxyAuthHeader({ autoAuth: true, token: 'real-harness' })).toBe('Bearer real-harness')
+  })
+
+  it('auto-auth ON + no token → Bearer <dev literal> (loopback convenience)', () => {
+    expect(devProxyAuthHeader({ autoAuth: true })).toBe(`Bearer ${DEV_HARNESS_TOKEN}`)
+  })
+
+  it('auto-auth OFF → undefined (inject nothing; the login gate becomes reachable in dev)', () => {
+    expect(devProxyAuthHeader({ autoAuth: false, token: 'real-harness' })).toBeUndefined()
+    expect(devProxyAuthHeader({ autoAuth: false })).toBeUndefined()
   })
 })

@@ -20,6 +20,8 @@ e2e/.data/
 e2e/.fixtures/
 test-results/
 playwright-report/
+# Playwright MCP screenshot/output dir written into the repo root — never commit
+.playwright-mcp/
 CLAUDE.md
 AGENTS.md
 # local harness working dirs — kept on disk, out of version control

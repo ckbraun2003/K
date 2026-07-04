@@ -117,6 +117,13 @@ export function resetChiefWakeDebounce(): void {
   lastWakeAt = 0
 }
 
+/** Single-line preview of a wake goal for the observability log (F-089): collapse
+ *  whitespace and cap length so a long default instruction stays one readable line. */
+function goalPreview(goal: string, max = 80): string {
+  const oneLine = goal.replace(/\s+/g, ' ').trim()
+  return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine
+}
+
 /**
  * Wake the Chief: activate `startAgentRun('chief', { trigger, goal })` unless a guard
  * blocks it. Never throws — a dispatch failure degrades to {woke:false,reason:'failed'}
@@ -161,6 +168,12 @@ export async function wakeChief(
 
   try {
     const { agentRunId, runId } = await startAgentRun('chief', { trigger, goal })
+    // F-089: a wake previously left only DB rows as evidence. Emit ONE routine line at
+    // the successful PASS so an operator can see, in the core log, that the Chief woke —
+    // the trigger, the seeding goal (truncated), and the resulting run + ledger ids.
+    console.log(
+      `[chief-wake] woke chief (trigger=${trigger}, run=${runId}, agentRun=${agentRunId}) goal="${goalPreview(goal)}"`,
+    )
     return { woke: true, agentRunId, runId }
   } catch (e) {
     // startAgentRun already recorded the row 'failed' + re-threw (its rollback

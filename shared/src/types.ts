@@ -383,6 +383,10 @@ export const StartRunBodySchema = z.object({
   projectId: z.string().uuid().optional(), // explicit project association (overrides cwd inference)
   preferLocal: z.boolean().optional(), // route local-model preference; UI "Ollama (local)" sets this
   interactive: z.boolean().optional(), // keep stdin open for multi-turn HITL (claude only)
+  // H8 (opt-in): start the run's worktree from the source repo's UNCOMMITTED
+  // tracked+staged changes instead of clean committed HEAD. Default false/absent →
+  // byte-identical clean-HEAD checkout. Untracked/ignored files are NOT carried.
+  carryWorkingTree: z.boolean().optional(),
 })
 export type StartRunBody = z.infer<typeof StartRunBodySchema>
 

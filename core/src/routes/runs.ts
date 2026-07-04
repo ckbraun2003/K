@@ -25,7 +25,7 @@ export async function runsRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return sendZodError(reply, parsed.error)
     }
-    const { prompt, cwd, model, projectId, preferLocal, interactive } = parsed.data
+    const { prompt, cwd, model, projectId, preferLocal, interactive, carryWorkingTree } = parsed.data
     // Validate the model at the boundary (lessons.md): reject anything not in the
     // known registry so a typo can't silently fall through to the CLI/router.
     if (model !== undefined && !isKnownModel(model)) {
@@ -42,7 +42,7 @@ export async function runsRoutes(app: FastifyInstance) {
       return sendError(reply, 400, 'cwd not under a registered project')
     }
     try {
-      const run = await startRun(prompt, { cwd, model, projectId, preferLocal, interactive })
+      const run = await startRun(prompt, { cwd, model, projectId, preferLocal, interactive, carryWorkingTree })
       return reply.status(201).send(run)
     } catch (e) {
       // The only FK on the runs INSERT is project_id → projects(id), so a SQLite

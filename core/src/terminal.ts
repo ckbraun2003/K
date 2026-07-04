@@ -49,6 +49,71 @@ export function terminalGate(opts: {
   return { ok: true }
 }
 
+/**
+ * F-088: recognise the ONE benign noise line node-pty's Windows ConPTY teardown emits.
+ *
+ * On pty teardown node-pty `child_process.fork()`s a `conpty_console_list_agent` helper
+ * to enumerate the console's process ids. In a kill-vs-AttachConsole race the helper's
+ * native call fails and the child throws `Error: AttachConsole failed`, printing an
+ * uncaught stack to core's stderr. It is harmless — node-pty's own 5s setTimeout fallback
+ * resolves with the shell pid — but the stack reads as alarming in the log.
+ *
+ * This predicate matches ONLY that helper's output: the exact `AttachConsole failed`
+ * Win32 error string, or a stack frame naming the `conpty_console_list_agent` helper file
+ * (a single write can split the message from its stack). Both tokens are node-pty
+ * internals that NO legitimate K error carries, so any real error returns false and
+ * passes through untouched. Pure + exported so the exact match is unit-locked.
+ */
+export function isBenignConptyNoise(text: string): boolean {
+  return text.includes('AttachConsole failed') || text.includes('conpty_console_list_agent')
+}
+
+/**
+ * F-088: wrap a `process.stderr.write`-shaped function so it DROPS only the benign
+ * node-pty ConPTY noise (see isBenignConptyNoise) and forwards everything else to
+ * `original` with identical args + return value — we never broadly swallow stderr. Pure
+ * (no global state) so the filtering behavior is unit-testable without touching the real
+ * stderr. A dropped write still invokes any supplied completion callback so a caller
+ * awaiting the write never hangs.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function makeFilteredStderrWrite(original: (chunk: any, ...rest: any[]) => boolean) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (chunk: any, ...rest: any[]): boolean => {
+    const text = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : ''
+    if (text && isBenignConptyNoise(text)) {
+      const cb = rest.find((a) => typeof a === 'function') as ((err?: Error | null) => void) | undefined
+      cb?.()
+      return true // pretend the write succeeded; the noise is discarded
+    }
+    return original(chunk, ...rest)
+  }
+}
+
+let conptyStderrFilterInstalled = false
+
+/**
+ * F-088: idempotently install the narrow ConPTY-noise filter on `process.stderr.write`.
+ * Called when the web terminal spawns a pty (the only path that can produce the noise).
+ *
+ * REACH LIMITATION (documented honestly): node-pty forks the console-list helper with
+ * INHERITED stdio, so the child's uncaught stack is written to the process's fd 2
+ * directly and can bypass this JS-level wrapper (verified: a forked child's stderr does
+ * not pass through the parent's `process.stderr.write`). This filter reliably suppresses
+ * any occurrence routed through `process.stderr`; a pure-JS wrapper cannot intercept a
+ * raw inherited-fd write from another process. We deliberately do NOT hijack fd 2 for a
+ * benign, self-limiting cosmetic race — the predicate is the unit-locked contract, and a
+ * complete suppression would require an fd-level shim (candidate for a later wave) or a
+ * node-pty upstream fix.
+ */
+export function installConptyStderrFilter(): void {
+  if (conptyStderrFilterInstalled) return
+  conptyStderrFilterInstalled = true
+  const original = process.stderr.write.bind(process.stderr)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ;(process.stderr as any).write = makeFilteredStderrWrite(original as any)
+}
+
 /** Resolve the login shell for the current platform. */
 export function resolveShell(): string {
   if (process.platform === 'win32') return process.env.COMSPEC ?? 'cmd.exe'
