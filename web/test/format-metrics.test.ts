@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   formatCompact,
   formatUsd,
+  tileValue,
   weightedSuccessRate,
   weightedAvgLatencyMs,
 } from '../src/lib/format-metrics'
@@ -37,6 +38,20 @@ describe('formatUsd', () => {
   it('guards non-finite input', () => {
     expect(formatUsd(NaN)).toBe('$0.00')
     expect(formatUsd(Infinity)).toBe('$0.00')
+  })
+})
+
+describe('tileValue', () => {
+  it("shows an em-dash while loading so a cold load doesn't read as a real zero", () => {
+    // The whole point: a genuine-looking "$0.00" / "0" must NOT show before data arrives.
+    expect(tileValue(true, '$0.00')).toBe('—')
+    expect(tileValue(true, '0')).toBe('—')
+    expect(tileValue(true, '12')).toBe('—')
+  })
+  it('passes the formatted value through once loaded — including a genuine zero', () => {
+    expect(tileValue(false, '$0.00')).toBe('$0.00')
+    expect(tileValue(false, '0')).toBe('0')
+    expect(tileValue(false, '$12.50')).toBe('$12.50')
   })
 })
 

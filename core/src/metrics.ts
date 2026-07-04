@@ -172,6 +172,11 @@ export interface RoutingRunRow {
   cost_usd: number
   created_at: number
   ended_at: number | null
+  /** Total ms this run sat PARKED at awaiting_input (summed awaiting_input→next-status
+   *  intervals — computed in SQL, see routes/metrics.ts). Subtracted from wall-clock so
+   *  avgLatencyMs reflects active processing time, not operator think-time (F-082).
+   *  Optional/absent → treated as 0 (a run that never parked). */
+  parked_ms?: number
 }
 
 // Minimum total run history before we'll suggest a routing change.
@@ -245,14 +250,23 @@ export function aggregateRouting(rows: RoutingRunRow[], now: number): RoutingSta
       accs.set(key, a)
     }
     a.runs++
-    if (TERMINAL_RUN_STATUSES.has(r.status)) {
+    // successRate denominator EXCLUDES operator-killed runs (F-082): a kill is an
+    // operator decision, not a task failure, so a killed run counts as NEITHER
+    // success nor failure. done/error/interrupted remain the terminal population —
+    // consistent with weightedSuccessRate weighting by this same terminal count.
+    if (TERMINAL_RUN_STATUSES.has(r.status) && r.status !== 'killed') {
       a.terminal++
       if (r.status === 'done') a.done++
     }
     a.costSum += r.cost_usd
     if (r.cost_usd > 0) { a.costPosSum += r.cost_usd; a.costPosCount++ }
+    // Latency = ACTIVE processing time = wall-clock (ended_at - created_at) minus the
+    // time the run sat parked at awaiting_input (parked_ms). Excludes operator
+    // think-time so an interactive/HITL run's latency reflects work, not waiting
+    // (F-082). Clamp to 0 against clock skew / parked > wall; still counted (it ended).
     if (r.ended_at != null && r.ended_at >= r.created_at) {
-      a.latencySum += r.ended_at - r.created_at
+      const parked = r.parked_ms != null && r.parked_ms > 0 ? r.parked_ms : 0
+      a.latencySum += Math.max(0, (r.ended_at - r.created_at) - parked)
       a.latencyCount++
     }
   }

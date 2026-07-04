@@ -16,6 +16,13 @@ export function formatUsd(n: number): string {
   return `$${n.toFixed(2)}`
 }
 
+/** KPI-tile value gate: render an em-dash while the feed is still loading so a cold
+ *  load never reads as a REAL zero ("$0.00 today" / "0 runs"). Once loaded the
+ *  formatted value shows through — including a genuine zero (F-083). */
+export function tileValue(isLoading: boolean, value: string): string {
+  return isLoading ? '—' : value
+}
+
 /**
  * Org-wide success rate (0..1) from per-model routing stats: Σdone/Σterminal,
  * computed as Σ(terminalRuns·successRate)/Σ(terminalRuns). Weighted by the SAME

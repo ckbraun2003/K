@@ -62,6 +62,19 @@ export function ObjectiveRow({
           {assignment.lead}
         </span>
       </div>
+      {/* Status + created-at — an objective is 'dispatched' once its lead run exists,
+          else still 'pending' (F-083). */}
+      <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--muted)]">
+        <span
+          data-testid={`chief-objective-status-${assignment.id}`}
+          className="rounded bg-[var(--surface)] px-1.5 py-0.5 font-semibold uppercase tracking-wide"
+        >
+          {assignment.leadRunId ? 'dispatched' : 'pending'}
+        </span>
+        <span data-testid={`chief-objective-created-${assignment.id}`}>
+          created {relativeTime(assignment.createdAt)}
+        </span>
+      </div>
       {(assignment.workflow || assignment.projects.length > 0 || assignment.note) && (
         <p className="mt-1 truncate text-[11px] text-[var(--muted)]">
           {assignment.workflow && <span>workflow: {assignment.workflow}</span>}

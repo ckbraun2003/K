@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatLatency, formatSuccessRate, formatCost } from '../src/pages/RoutingPage'
+import { formatLatency, formatSuccessRate, formatCost, formatCostTotal } from '../src/pages/RoutingPage'
 
 describe('formatLatency', () => {
   it('formats sub-second as ms (rounded)', () => {
@@ -51,5 +51,20 @@ describe('formatCost', () => {
 
   it('renders em-dash for non-finite', () => {
     expect(formatCost(Infinity)).toBe('—')
+  })
+})
+
+describe('formatCostTotal', () => {
+  it('always uses 2dp so a Total-$ column aligns (no mixed 4dp/2dp/$0)', () => {
+    // The bug: $0.2649 (formatCost 4dp) sitting next to $2.55 (2dp) down one column.
+    expect(formatCostTotal(0.2649)).toBe('$0.26')
+    expect(formatCostTotal(2.55)).toBe('$2.55')
+    expect(formatCostTotal(0)).toBe('$0.00')
+    expect(formatCostTotal(10)).toBe('$10.00')
+  })
+
+  it('renders em-dash for non-finite', () => {
+    expect(formatCostTotal(NaN)).toBe('—')
+    expect(formatCostTotal(Infinity)).toBe('—')
   })
 })

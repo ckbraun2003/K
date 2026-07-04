@@ -3,7 +3,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import type { MetricsSummary, MetricsTimeseries, RoutingStats, TimeseriesGroupBy } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
-import { formatCompact, formatUsd, weightedSuccessRate, weightedAvgLatencyMs } from '../lib/format-metrics'
+import { formatCompact, formatUsd, tileValue, weightedSuccessRate, weightedAvgLatencyMs } from '../lib/format-metrics'
 import TimeseriesChart from '../components/TimeseriesChart'
 import MetricCard from '../components/MetricCard'
 import type { Metric } from '../lib/chart'
@@ -113,7 +113,9 @@ function CostBreakdown({
 
 export default function MetricsPage() {
   const [groupBy, setGroupBy] = useState<TimeseriesGroupBy>('project')
-  const [days, setDays] = useState<Days>(30)
+  // Default 14d so the chart window matches the pinned "14d · Cost" KPI + the 14-day
+  // summary rollup — one consistent default period across the page (F-083).
+  const [days, setDays] = useState<Days>(14)
   const [metric, setMetric] = useState<Metric>('tokens')
 
   const { data, isLoading, error } = useQuery<MetricsTimeseries>({
@@ -155,6 +157,9 @@ export default function MetricsPage() {
   })
 
   // Summary-derived tile values (guarded — data is undefined while loading).
+  // `summaryLoading` distinguishes a COLD LOAD from a real zero so a tile shows "—"
+  // instead of a convincing "$0.00 today" before the feed arrives (F-083).
+  const summaryLoading = summary === undefined
   const daily = summary?.daily ?? []
   const todayCost = summary?.today.costUsd ?? 0
   const todayRuns = summary?.today.runs ?? 0
@@ -166,6 +171,7 @@ export default function MetricsPage() {
   // Routing-derived tiles. Each is weighted by the SAME denominator the per-group
   // stat uses — terminal count for success, latency-sample count for latency — NOT
   // total runs, so many non-terminal (active/queued) runs can't drag them down.
+  const routingLoading = routing === undefined
   const groups = routing?.groups ?? []
   const terminalRuns = groups.reduce((sum, g) => sum + g.terminalRuns, 0)
   const successRate = weightedSuccessRate(groups)
@@ -180,19 +186,19 @@ export default function MetricsPage() {
 
       {/* KPI tile row — summary rollups + weighted routing aggregates */}
       <div className="mb-4 flex flex-wrap gap-3">
-        <MetricCard label="Today · Cost" value={formatUsd(todayCost)} spark={daily.map(d => d.costUsd)} />
-        <MetricCard label="Today · Runs" value={String(todayRuns)} spark={daily.map(d => d.runs)} />
-        <MetricCard label="Today · Tokens" value={formatCompact(todayTokens)} spark={daily.map(d => d.tokens)} />
-        <MetricCard label="Active runs" value={String(activeRuns)} accent={activeRuns > 0} />
-        <MetricCard label="Total runs" value={String(totalRuns)} />
-        <MetricCard label="14d · Cost" value={formatUsd(cost14d)} spark={daily.map(d => d.costUsd)} />
+        <MetricCard label="Today · Cost" value={tileValue(summaryLoading, formatUsd(todayCost))} spark={daily.map(d => d.costUsd)} />
+        <MetricCard label="Today · Runs" value={tileValue(summaryLoading, String(todayRuns))} spark={daily.map(d => d.runs)} />
+        <MetricCard label="Today · Tokens" value={tileValue(summaryLoading, formatCompact(todayTokens))} spark={daily.map(d => d.tokens)} />
+        <MetricCard label="Active runs" value={tileValue(summaryLoading, String(activeRuns))} accent={activeRuns > 0} />
+        <MetricCard label="Total runs" value={tileValue(summaryLoading, String(totalRuns))} />
+        <MetricCard label="14d · Cost" value={tileValue(summaryLoading, formatUsd(cost14d))} spark={daily.map(d => d.costUsd)} />
         <MetricCard
           label="Success rate"
-          value={`${(successRate * 100).toFixed(1)}%`}
+          value={tileValue(routingLoading, `${(successRate * 100).toFixed(1)}%`)}
           accent={terminalRuns > 0 && successRate >= 0.9}
           tone="positive"
         />
-        <MetricCard label="Avg latency" value={`${(avgLatencyMs / 1000).toFixed(1)}s`} />
+        <MetricCard label="Avg latency" value={tileValue(routingLoading, `${(avgLatencyMs / 1000).toFixed(1)}s`)} />
       </div>
 
       {/* controls row */}

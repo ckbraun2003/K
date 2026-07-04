@@ -60,6 +60,15 @@ export function axisTickIndices(n: number): number[] {
   return ticks
 }
 
+/** Human-readable label for a metric — for chart titles, a11y aria-labels, etc.
+ *  Keeps the raw field name ('costUsd') out of user-facing / screen-reader text
+ *  (F-083: "costUsd per day" → "Cost per day"). */
+export function metricLabel(metric: Metric): string {
+  if (metric === 'costUsd') return 'Cost'
+  if (metric === 'runs') return 'Runs'
+  return 'Tokens'
+}
+
 /** Format a metric value for display. */
 export function formatMetricValue(metric: Metric, v: number): string {
   if (!Number.isFinite(v)) return '—'

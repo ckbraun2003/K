@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stackDays, formatMetricValue, axisTickIndices } from '../src/lib/chart'
+import { stackDays, formatMetricValue, metricLabel, axisTickIndices } from '../src/lib/chart'
 import type { MetricsTimeseries } from '@k/shared'
 
 function makeData(seriesPoints: { key: string; vals: { runs: number; tokens: number; costUsd: number }[] }[]): MetricsTimeseries {
@@ -123,6 +123,14 @@ describe('formatMetricValue', () => {
     expect(formatMetricValue('tokens', NaN)).toBe('—')
     expect(formatMetricValue('costUsd', Infinity)).toBe('—')
     expect(formatMetricValue('runs', -Infinity)).toBe('—')
+  })
+})
+
+describe('metricLabel', () => {
+  it('maps raw metric fields to human-readable labels (no "costUsd" leaking to a11y)', () => {
+    expect(metricLabel('tokens')).toBe('Tokens')
+    expect(metricLabel('costUsd')).toBe('Cost')
+    expect(metricLabel('runs')).toBe('Runs')
   })
 })
 

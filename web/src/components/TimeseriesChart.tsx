@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { MetricsTimeseries } from '@k/shared'
-import { stackDays, formatMetricValue, axisTickIndices, type Metric } from '../lib/chart'
+import { stackDays, formatMetricValue, metricLabel, axisTickIndices, type Metric } from '../lib/chart'
 
 interface Props {
   data: MetricsTimeseries
@@ -66,7 +66,7 @@ export default function TimeseriesChart({ data, metric, height = 180 }: Props) {
             preserveAspectRatio="none"
             onMouseLeave={() => setHoverIndex(null)}
             role="img"
-            aria-label={`${metric} per day, stacked by ${data.groupBy}`}
+            aria-label={`${metricLabel(metric)} per day, stacked by ${data.groupBy}`}
             className="block"
           >
             {/* stacked bars */}

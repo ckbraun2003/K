@@ -25,9 +25,29 @@ const timeseriesWindowStmt = db.prepare(`
   FROM runs r LEFT JOIN projects p ON p.id = r.project_id
   WHERE r.created_at >= ?
 `)
-const routingWindowStmt = db.prepare(
-  `SELECT created_at, ended_at, status, provider, model, cost_usd FROM runs WHERE created_at >= ?`
-)
+// Per-run parked_ms = Σ(awaiting_input → next-status) intervals, from the run's
+// `status` events: each awaiting_input event opens a parked interval that the next
+// status event (a `running` on resume, or a terminal status if killed/ended while
+// parked) closes. LEAD walks the seq-ordered status events per run; we sum only the
+// intervals that START at awaiting_input. Subtracting this in aggregateRouting makes
+// avgLatencyMs active processing time, not wall-clock-with-operator-think-time (F-082).
+const routingWindowStmt = db.prepare(`
+  SELECT r.created_at, r.ended_at, r.status, r.provider, r.model, r.cost_usd,
+         COALESCE(p.parked_ms, 0) AS parked_ms
+  FROM runs r
+  LEFT JOIN (
+    SELECT run_id, SUM(next_ts - ts) AS parked_ms
+    FROM (
+      SELECT run_id, text, ts,
+             LEAD(ts) OVER (PARTITION BY run_id ORDER BY seq) AS next_ts
+      FROM events
+      WHERE type = 'status'
+    )
+    WHERE text = 'awaiting_input' AND next_ts IS NOT NULL
+    GROUP BY run_id
+  ) p ON p.run_id = r.id
+  WHERE r.created_at >= ?
+`)
 
 export async function metricsRoutes(app: FastifyInstance) {
   // GET /api/metrics/summary — today + active + 14-day series

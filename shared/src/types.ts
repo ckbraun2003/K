@@ -842,11 +842,11 @@ export const RoutingModelStatSchema = z.object({
   provider: z.string(),
   model: z.string(),
   runs: z.number().int(),
-  terminalRuns: z.number().int(), // count of runs in a terminal status (successRate's denominator)
-  successRate: z.number(),   // done / terminal-count, 0..1 (0 if no terminal runs)
+  terminalRuns: z.number().int(), // terminal-status runs EXCLUDING operator-killed (successRate's denominator)
+  successRate: z.number(),   // done / terminal-count, 0..1; operator-killed runs count as neither success nor failure (0 if no terminal runs)
   avgCostUsd: z.number(),    // mean over runs with cost_usd > 0 (0 if none)
   totalCostUsd: z.number(),
-  avgLatencyMs: z.number(),  // mean ended_at - created_at over completed runs (0 if none)
+  avgLatencyMs: z.number(),  // mean ACTIVE latency: wall-clock minus awaiting_input parked time, over completed runs (0 if none)
   latencyCount: z.number().int(), // count of runs with a usable latency (avgLatencyMs's denominator)
 })
 export type RoutingModelStat = z.infer<typeof RoutingModelStatSchema>
@@ -1041,7 +1041,14 @@ const K_LOGISTICS_RULES: ReadonlyArray<RegExp> = [
   /\bwhat'?s on my (list|calendar|schedule)\b/,
 ]
 
-/** Ordered lead rules — first match wins. Kept as a testable array (not a switch). */
+/** Ordered lead rules — first match wins. Kept as a testable array (not a switch).
+ *  Keyword collisions across leads are EXPECTED heuristic behavior, not bugs: e.g.
+ *  "fix the flaky auth test" matches 'auth'→security here even though a human might
+ *  read it as a Backend test task (F-010). The classifier is a deterministic first-
+ *  match keyword preview, not an intent model; when it guesses wrong the operator
+ *  forces the lead via forceRoute (KForceRouteSchema / routeForTarget). Refining the
+ *  ordering to disambiguate one collision would just shift the ambiguity elsewhere,
+ *  so the bias is left explicit and force-route is the escape hatch. */
 const K_ROUTE_RULES: ReadonlyArray<{ target: KRouteTarget; re: RegExp }> = [
   { target: 'frontend', re: /\b(frontend|front-end|ui|react|css|component|styling|tailwind)\b/ },
   { target: 'backend', re: /\b(backend|back-end|api|endpoint|server|database|\bdb\b|sql)\b/ },

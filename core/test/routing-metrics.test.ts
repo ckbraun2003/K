@@ -7,8 +7,10 @@
  * just assert 200 + payload shape, tolerant of whatever rows the test DB holds.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { v4 as uuid } from 'uuid'
 import type { FastifyInstance } from 'fastify'
 import { aggregateRouting, routingRecommendation, type RoutingRunRow } from '../src/metrics.js'
+import { db } from '../src/db.js'
 
 const TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
 const AUTH = { authorization: `Bearer ${TOKEN}` }
@@ -43,24 +45,46 @@ describe('aggregateRouting', () => {
     expect(stats.generatedAt).toBe(NOW)
   })
 
-  it('computes successRate as done / terminal-count', () => {
+  it('computes successRate as done / terminal-count, killed excluded (F-082)', () => {
     const stats = aggregateRouting(
       [
         row({ status: 'done' }),
         row({ status: 'error' }),
-        row({ status: 'killed' }),
-        row({ status: 'running' }), // non-terminal: excluded from rate denominator
+        row({ status: 'killed' }),    // operator kill: NEITHER success nor failure — excluded
+        row({ status: 'running' }),   // non-terminal: excluded from rate denominator
       ],
       NOW,
     )
     const g = stats.groups[0]
     expect(g.runs).toBe(4)
-    expect(g.successRate).toBeCloseTo(1 / 3, 5) // 1 done / 3 terminal
+    expect(g.terminalRuns).toBe(2)             // done + error (killed & running excluded)
+    expect(g.successRate).toBeCloseTo(1 / 2, 5) // 1 done / 2 terminal
+  })
+
+  it('an operator-killed run does NOT lower the success rate (F-082)', () => {
+    // Nothing actually FAILED here — two done + one operator kill. The kill must not
+    // drag success below 100%.
+    const stats = aggregateRouting(
+      [row({ status: 'done' }), row({ status: 'done' }), row({ status: 'killed' })],
+      NOW,
+    )
+    const g = stats.groups[0]
+    expect(g.runs).toBe(3)
+    expect(g.terminalRuns).toBe(2) // killed excluded from the terminal denominator
+    expect(g.successRate).toBe(1)  // 2 done / 2 terminal
   })
 
   it('successRate is 0 when there are no terminal runs', () => {
     const stats = aggregateRouting([row({ status: 'running' }), row({ status: 'queued' })], NOW)
     expect(stats.groups[0].successRate).toBe(0)
+  })
+
+  it('a killed-only group has no terminal runs → successRate 0, terminalRuns 0', () => {
+    const stats = aggregateRouting([row({ status: 'killed' }), row({ status: 'killed' })], NOW)
+    const g = stats.groups[0]
+    expect(g.runs).toBe(2)
+    expect(g.terminalRuns).toBe(0)
+    expect(g.successRate).toBe(0)
   })
 
   it('avgCostUsd ignores zero-cost runs; totalCostUsd sums all', () => {
@@ -98,6 +122,29 @@ describe('aggregateRouting', () => {
   it('avgLatencyMs is 0 when no run has a usable ended_at', () => {
     const stats = aggregateRouting([row({ ended_at: null })], NOW)
     expect(stats.groups[0].avgLatencyMs).toBe(0)
+  })
+
+  it('excludes awaiting_input parked time from latency — active processing time (F-082)', () => {
+    const stats = aggregateRouting(
+      [
+        // wall = 10s, but 6s parked at awaiting_input → active latency = 4s
+        row({ created_at: NOW, ended_at: NOW + 10_000, parked_ms: 6_000 }),
+        // wall = 4s, never parked (parked_ms omitted → 0) → 4s
+        row({ created_at: NOW, ended_at: NOW + 4_000 }),
+      ],
+      NOW,
+    )
+    expect(stats.groups[0].avgLatencyMs).toBe(4_000) // (4000 + 4000) / 2
+    expect(stats.groups[0].latencyCount).toBe(2)
+  })
+
+  it('clamps latency to 0 when parked time exceeds wall-clock, still counted (F-082)', () => {
+    const stats = aggregateRouting(
+      [row({ created_at: NOW, ended_at: NOW + 1_000, parked_ms: 5_000 })],
+      NOW,
+    )
+    expect(stats.groups[0].avgLatencyMs).toBe(0)
+    expect(stats.groups[0].latencyCount).toBe(1)
   })
 
   it('sorts by runs desc, then provider+model asc', () => {
@@ -201,5 +248,36 @@ describe('GET /api/metrics/routing', () => {
   it('400 on an out-of-range days query', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/metrics/routing?days=999', headers: AUTH })
     expect(res.statusCode).toBe(400)
+  })
+
+  it('latency excludes awaiting_input parked time end-to-end (SQL LEAD) (F-082)', async () => {
+    // Seed one run that parked at awaiting_input for 6s inside a 10s wall-clock life,
+    // then assert the route (via the LEAD parked_ms SQL) reports 4s ACTIVE latency.
+    const runId = uuid()
+    const model = `park-e2e-${runId.slice(0, 8)}` // unique → find our group deterministically
+    const t0 = Date.now()
+    const insertEvt = db.prepare(
+      `INSERT INTO events (id, run_id, seq, type, ts, text) VALUES (?, ?, ?, 'status', ?, ?)`,
+    )
+    try {
+      db.prepare(
+        `INSERT INTO runs (id, prompt, cwd, status, provider, model, cost_usd, created_at, ended_at)
+         VALUES (?, 'p', '/tmp', 'done', 'claude', ?, 0, ?, ?)`,
+      ).run(runId, model, t0, t0 + 10_000)
+      insertEvt.run(uuid(), runId, 1, t0 + 2_000, 'awaiting_input')
+      insertEvt.run(uuid(), runId, 2, t0 + 8_000, 'running') // parked 6s (t0+2s → t0+8s)
+      insertEvt.run(uuid(), runId, 3, t0 + 10_000, 'done')
+
+      const res = await app.inject({ method: 'GET', url: '/api/metrics/routing?days=30', headers: AUTH })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { groups: Array<{ model: string; runs: number; avgLatencyMs: number }> }
+      const g = body.groups.find(x => x.model === model)
+      expect(g).toBeDefined()
+      expect(g!.runs).toBe(1)
+      expect(g!.avgLatencyMs).toBe(4_000) // wall 10s − parked 6s = active 4s
+    } finally {
+      db.prepare(`DELETE FROM events WHERE run_id = ?`).run(runId)
+      db.prepare(`DELETE FROM runs WHERE id = ?`).run(runId)
+    }
   })
 })
