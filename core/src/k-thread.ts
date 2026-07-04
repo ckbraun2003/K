@@ -20,6 +20,7 @@ import { kThreadsDb, runsDb, eventsDb, mgmtDb } from './db.js'
 import { eventBus } from './events.js'
 import { startAgentRun } from './agent-runs.js'
 import { kill } from './supervisor.js'
+import { leadRosterHint } from './chief-dispatch.js'
 import { isTerminalRunStatus, trackSupervisedRun } from './run-lifecycle.js'
 
 /** The singleton default K thread — the one front-door conversation for now. */
@@ -243,9 +244,12 @@ export function captureAnswers(threadId: string, runId: string, sessionIdToPersi
  * the ask verbatim.
  */
 export function buildDelegationGoal(message: string, route: KRoute): string {
+  // F-067: a bare `chief` route names no discipline, so inject the full lead roster — the
+  // Chief always knows the valid lead identifiers to assign_lead against (never an invented
+  // "engineering"). A named-lead route already points at a discipline, so it keeps its hint.
   const hint =
     route.target === 'chief'
-      ? ''
+      ? ` ${leadRosterHint()}`
       : ` The operator's request points at the ${route.target} discipline` +
         ` (route preview: ${route.label}); assign the appropriate lead if it fits.`
   return (

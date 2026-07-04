@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'crypto'
 import type { Project, ProjectTask } from '@k/shared'
-import { projectWorkItemsDb, workflowRunsDb, rowToProjectTask } from './db.js'
+import { projectWorkItemsDb, workflowRunsDb, workflowStepsDb, rowToProjectTask } from './db.js'
 import { startRun } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
 
@@ -92,13 +92,19 @@ export function deriveWorkflowStatus(terminalRunStatus: string): 'completed' | '
  *  status from the actual run outcome (done→completed, else→failed) and wins
  *  (campaign-s2 S2-013). It is last-writer-wins with NO terminal lock of its own
  *  (S2-015), so a duplicate terminal event re-finalizing is harmless — the
- *  run-lifecycle seam's finalize-once latch makes that a non-issue in practice. */
+ *  run-lifecycle seam's finalize-once latch makes that a non-issue in practice.
+ *
+ *  F-072: after writing the row's terminal status, RECONCILE any lingering non-terminal
+ *  child step (still 'pending'/'in_progress') to 'blocked', so the checklist can never
+ *  contradict the finalized row (a step stuck 'in_progress' under a 'completed' run). An
+ *  unfinished step becomes 'blocked' — honest "not resolved", never a false 'done'. */
 export function finalizeWorkflowRun(workflowRunId: string, terminalRunStatus: string): void {
   workflowRunsDb.updateWorkflowRunStatus.run(
     deriveWorkflowStatus(terminalRunStatus),
     Date.now(),
     workflowRunId,
   )
+  workflowStepsDb.reconcileNonTerminalSteps.run({ workflowRunId, updatedAt: Date.now() })
 }
 
 /** Dispatch ONE supervised agent run that addresses the selected todos via the

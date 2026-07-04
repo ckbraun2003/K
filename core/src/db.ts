@@ -1579,6 +1579,15 @@ const upsertWorkflowStepRow = db.prepare(`
     updated_at   = excluded.updated_at
 `)
 
+// F-072: on finalize, reconcile any lingering NON-terminal step (still 'pending' or
+// 'in_progress') to 'blocked' so the checklist can't contradict the finalized
+// (completed/failed) workflow_run — an unfinished step is marked blocked, never falsely
+// 'done'. Scoped to one workflow_run; only touches the two non-terminal statuses.
+const reconcileNonTerminalSteps = db.prepare(
+  `UPDATE workflow_steps SET status = 'blocked', updated_at = @updatedAt
+     WHERE workflow_run_id = @workflowRunId AND status IN ('pending','in_progress')`,
+)
+
 // Upsert a step by (workflow_run_id, label) in one transaction: a new label gets
 // the next seq; an existing label keeps its seq (only kind/status/detail/link
 // refresh). Returns the resulting row.
@@ -1609,6 +1618,7 @@ export const workflowStepsDb = {
   getWorkflowStepByLabel,
   listWorkflowSteps,
   setWorkflowStep,
+  reconcileNonTerminalSteps,
 }
 
 // ─── logistics working store helpers (P5.1a; operator-durable, A1) ────────────

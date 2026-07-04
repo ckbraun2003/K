@@ -260,10 +260,30 @@ const WorkflowStepSetInput = {
   detail: z.string().max(2_000).optional(),
   workItemId: z.string().min(1).max(100).optional(),
 }
+/** F-071: does `detail` carry PR/CI evidence — a URL or a PR reference (#123 / pull/123)?
+ *  A CI/PR gate step can only be marked done when it names the artifact it gated on, so a
+ *  remoteless "done with no PR" can't pass the gate at face value. SOFT GATE: this checks the
+ *  PRESENCE/format of a reference, not that the PR exists or CI is actually green — it stops
+ *  the blatant "done with nothing" case, not a fabricated reference (deeper verification is out
+ *  of scope for a status-write tool). */
+function hasPrEvidence(detail: string | undefined): boolean {
+  if (detail == null) return false
+  return /https?:\/\/\S+/i.test(detail) || /#\d+/.test(detail) || /\bpull\/\d+/i.test(detail)
+}
+
 function workflowStepSet(args: unknown, ctx: KStoreContext): WorkflowStep | NotInWorkflow {
   const a = z.object(WorkflowStepSetInput).parse(args ?? {})
   const wf = resolveWorkflowRun(ctx)
   if (!wf) return notInWorkflow()
+  // F-071: a CI/PR gate step (kind 'ci') cannot be marked 'done' without evidence — a PR
+  // reference or url in `detail`. Reject fail-fast (the agent must supply the artifact) so
+  // a gate is never taken at face value with no PR behind it. Other kinds are unaffected.
+  if (a.kind === 'ci' && a.status === 'done' && !hasPrEvidence(a.detail)) {
+    throw new KStoreError(
+      'a CI/PR gate step cannot be marked done without evidence: put the PR reference or url ' +
+        '(e.g. the PR url, #number, or pull/<n>) in `detail`, or set the step blocked instead.',
+    )
+  }
   // A linked ticket must be one this run owns — reject a cross-run/bogus id up
   // front (clean error, and never a raw FK-constraint message from the insert).
   if (a.workItemId !== undefined && !workItemsDb.getWorkItemOwned.get(a.workItemId, resolveOwnerRunId(ctx))) {

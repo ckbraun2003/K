@@ -20,6 +20,7 @@ import { db, runsDb, projectsDb, projectWorkItemsDb } from '../src/db.js'
 import { kStoreTools, KStoreError, type KStoreContext } from '../src/mcp/k-store.js'
 import { logisticsTools, type LogisticsContext } from '../src/mcp/logistics.js'
 import { mgmtTools, type MgmtContext } from '../src/mcp/mgmt.js'
+import { seedProfiles } from '../src/profiles.js'
 import type { WorkItem, Note, CalendarEvent, Reminder, Assignment, MgmtReport } from '@k/shared'
 
 const PROJECT_ID = uuid()
@@ -48,6 +49,9 @@ const ctxA: KStoreContext = { runId: RUN_A }
 const ctxB: KStoreContext = { runId: RUN_B }
 
 beforeAll(() => {
+  // assign_lead resolves the lead against the durable roster now (F-067) — seed it
+  // (idempotent) so 'Backend' resolves in the mgmt round-trip test regardless of file order.
+  seedProfiles()
   projectsDb.insertProject.run({
     id: PROJECT_ID, name: `a1-char-${PROJECT_ID.slice(0, 8)}`, localPath: '/tmp/a1-char',
     githubRemote: null, workspaceManaged: 0, bibleDir: 'docs/bible', createdAt: Date.now(),

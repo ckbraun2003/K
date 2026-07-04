@@ -18,11 +18,12 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { v4 as uuid } from 'uuid'
-import { db, mgmtDb, leadDispatchDb } from '../src/db.js'
+import { db, mgmtDb, leadDispatchDb, workflowRunsDb, workflowStepsDb } from '../src/db.js'
+import { eventBus } from '../src/events.js'
 import { startRun } from '../src/supervisor.js'
 import { seedProfiles } from '../src/profiles.js'
 import { seedWorkflowDefinitions } from '../src/workflow-defs.js'
-import type { Assignment } from '@k/shared'
+import type { Assignment, Run } from '@k/shared'
 
 // startRun mocked so no real agent spawns, but it MUST insert a real runs row:
 // agent_runs.run_id / lead_dispatches.lead_run_id / mgmt_assignments.lead_run_id all FK → runs(id).
@@ -86,6 +87,12 @@ const assignmentLeadRun = (assignmentId: string) =>
 
 /** The startRun mock's calls made AFTER `from` (index into mock.calls). */
 const startRunCallsSince = (from: number) => vi.mocked(startRun).mock.calls.slice(from)
+
+/** Let a fire-and-forget lifecycle settle (the report-back rides the async seam). */
+const flush = () => new Promise(r => setTimeout(r, 30))
+/** A terminal Run event for `id` (minimal shape the run-lifecycle seam reads). */
+const terminalRun = (id: string, status: Run['status'] = 'done'): Run =>
+  ({ id, status, tokensIn: 0, tokensOut: 0, costUsd: 0 }) as Run
 
 beforeAll(() => {
   seedProfiles()
@@ -302,6 +309,43 @@ describe('drainLeadDispatches: wiring-throw rescue', () => {
       // 'dispatched' until a reboot sweep — the Chief can re-dispatch.
       expect(intent(dispatchId).status).toBe('failed')
       expect(intent(dispatchId).lead_run_id).toBeNull()
+    } finally {
+      spy.mockRestore()
+      warn.mockRestore()
+    }
+  })
+
+  it('a workflow-run SEED throw degrades to no-checklist but STILL fires the report-back (F-070 guard)', async () => {
+    // REGRESSION: seedLeadWorkflowRun runs in the SAME wiring try, BETWEEN the bookkeeping
+    // writes and the report-back hops. Unguarded, a seed throw (e.g. SQLITE_BUSY) fell through
+    // to the outer catch and SKIPPED reportLeadOutcomeToChief / continueLeadOutcomeToK — silently
+    // dropping the LIVE lead run's outcome with no recovery (lead_run_id is already set, so the
+    // boot sweep can't rescue it). The seed is now isolated: it degrades to "no checklist" and the
+    // report-back must still be wired. This FAILS against the pre-guard code.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Make the seed throw AFTER setAssignmentLeadRun succeeds: its first write is insertWorkflowRun.
+    const spy = vi.spyOn(workflowRunsDb.insertWorkflowRun, 'run').mockImplementationOnce(() => {
+      throw new Error('SQLITE_BUSY: database is locked')
+    })
+    try {
+      const { assignmentId, dispatchId } = recordIntent('B1-SEED-THROW', [GOOD_PROJECT_NAME])
+
+      // The drain never throws and still counts the successful dispatch.
+      await expect(drainLeadDispatches()).resolves.toBe(1)
+
+      const runId = String(assignmentLeadRun(assignmentId))
+      expect(runId).toMatch(/^mock-scope-run-/)
+      // The seed failed → no checklist bound to the run (accepted degrade)…
+      expect(workflowStepsDb.getWorkflowRunByRunId.get(runId)).toBeUndefined()
+      // …but the intent is intact (dispatched, run recorded) — NOT stranded/failed.
+      expect(intent(dispatchId).status).toBe('dispatched')
+      expect(intent(dispatchId).lead_run_id).toBe(runId)
+
+      // The report-back was STILL wired: the lead terminal files a report UP to the Chief.
+      eventBus.emitRunUpdate(terminalRun(runId, 'done'))
+      await flush()
+      const reports = mgmtDb.listReportsByRun.all(CHIEF_RUN, 50) as Array<Record<string, unknown>>
+      expect(reports.some(r => String(r.body).includes('Lead') && String(r.body).includes('completed'))).toBe(true)
     } finally {
       spy.mockRestore()
       warn.mockRestore()

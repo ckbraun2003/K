@@ -28,8 +28,15 @@ import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
 import type { Assignment, MgmtReport } from '@k/shared'
 import { db, mgmtDb, runsDb, leadDispatchDb } from '../db.js'
+import { getProfile } from '../profiles.js'
 import { isTerminalRunStatus } from '../run-lifecycle.js'
-import { resolveLeadProfileId, resolveLeadWorkflow, buildLeadSeed } from '../chief-dispatch.js'
+import {
+  resolveLeadProfileId,
+  resolveLeadWorkflow,
+  buildLeadSeed,
+  listDispatchableLeads,
+  leadRosterHint,
+} from '../chief-dispatch.js'
 
 /** Per-call context the server injects. `runId` is the managed run (K_RUN_ID). */
 export interface MgmtContext {
@@ -97,6 +104,16 @@ const AssignLeadInput = {
 }
 function assignLead(args: unknown, ctx: MgmtContext): Assignment {
   const a = z.object(AssignLeadInput).parse(args ?? {})
+  // F-067: resolve + reject the lead at ASSIGN time, the SAME way dispatch_lead does
+  // (resolveLeadProfileId), so the two can never disagree — an unknown lead like
+  // "engineering" fails fast here with a message naming the valid leads, instead of being
+  // stored as a dangling assignment that only dispatch_lead later rejects. The canonical
+  // profile NAME is stored (not the raw free-text), so display + re-resolution stay stable.
+  const leadProfileId = resolveLeadProfileId(a.lead)
+  if (!leadProfileId) {
+    throw new MgmtError(`no lead profile matches "${a.lead}". ${leadRosterHint()}`.trim())
+  }
+  const leadName = getProfile(leadProfileId)?.name ?? a.lead
   const now = Date.now()
   const id = uuid()
   // A fresh assignment has no workflow choice and an empty project scope yet —
@@ -104,7 +121,7 @@ function assignLead(args: unknown, ctx: MgmtContext): Assignment {
   mgmtDb.insertAssignment.run({
     id,
     runId: resolveOwnerRunId(ctx),
-    lead: a.lead,
+    lead: leadName,
     objective: a.objective,
     note: a.note ?? null,
     workflow: null,
@@ -273,6 +290,22 @@ function dispatchLead(args: unknown, ctx: MgmtContext) {
 
 // ── read tools (durable across Chief activations) ─────────────────────────────
 
+const LeadListInput = {}
+/** F-067: the dispatchable lead ROSTER — the valid identifiers assign_lead / dispatch_lead
+ *  accept. Read-only; derived from listProfiles().filter(isLeadProfile) via chief-dispatch,
+ *  so it, the assign-time validation, and the AUTO-path seed hint can never name different
+ *  sets. Each row carries the lead's id, name, discipline slug, and a one-line role note the
+ *  Chief can quote when assigning. This is the tool a Chief calls to STOP inventing a
+ *  discipline (e.g. "engineering") that no lead answers to. */
+function leadList(): Array<{ id: string; name: string; discipline: string; role: string }> {
+  return listDispatchableLeads().map(l => ({
+    id: l.id,
+    name: l.name,
+    discipline: l.discipline,
+    role: `${l.name} discipline lead (orchestrator tier). Assign with "${l.name}", "${l.id}", or "${l.discipline}".`,
+  }))
+}
+
 const AssignmentListInput = { limit: z.number().int().min(1).max(100).optional() }
 /** List recent assignments across Chief activations (durable read — NOT run-scoped),
  *  each enriched with the dispatched lead run's CURRENT status (null when undispatched).
@@ -316,9 +349,16 @@ export interface MgmtTool {
 
 export const mgmtTools: MgmtTool[] = [
   {
+    name: 'lead_list',
+    description:
+      'List the dispatchable leads (the valid identifiers assign_lead/dispatch_lead accept): id, name, discipline, and a one-line role. Read-only. Call this BEFORE assign_lead so you reference a real lead by name/id — never an invented discipline (e.g. "engineering") that no lead answers to.',
+    inputShape: LeadListInput,
+    handler: leadList,
+  },
+  {
     name: 'assign_lead',
     description:
-      'Assign an objective to a lead in the Chief\'s management store (STORAGE, not execution — this does NOT dispatch the lead). Returns the created assignment.',
+      'Assign an objective to a lead in the Chief\'s management store (STORAGE, not execution — this does NOT dispatch the lead). The lead must be a real one from lead_list (a name, id, or discipline); an unknown lead is rejected. Returns the created assignment.',
     inputShape: AssignLeadInput,
     handler: assignLead,
   },

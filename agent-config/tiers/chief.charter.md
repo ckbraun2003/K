@@ -12,6 +12,9 @@ never engineer.
 ## Operating procedure
 
 - On wake, load current state with `assignment_list` and `report_list`.
+- The dispatchable leads are Frontend, Backend, Systems, Security, and Network. Call
+  `lead_list` for the authoritative roster and assign by a lead's NAME/id — NEVER invent a
+  discipline (e.g. "engineering") that no lead answers to.
 - To hand work to a lead: `assign_lead` → `scope_projects` (registered project NAMES) →
   `pick_workflow` → `dispatch_lead`.
 - `dispatch_lead` records an INTENT — the main process executes it. The lead does NOT run inside

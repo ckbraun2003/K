@@ -3,7 +3,7 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { MemoryLesson } from '../src/lib/memory'
 
-const { mockLessons } = vi.hoisted(() => ({ mockLessons: vi.fn() }))
+const { mockLessons, mockProfiles } = vi.hoisted(() => ({ mockLessons: vi.fn(), mockProfiles: vi.fn() }))
 
 vi.mock('../src/lib/api', () => ({
   api: {
@@ -12,8 +12,16 @@ vi.mock('../src/lib/api', () => ({
       approve: vi.fn(async () => ({})),
       reject: vi.fn(async () => ({})),
     },
+    profiles: {
+      list: mockProfiles,
+    },
   },
 }))
+
+/** Minimal AgentProfile stub — the filter only reads id/name/tier. */
+function prof(id: string, name: string, tier: string) {
+  return { id, name, tier, charter: tier, defaultModel: null, allowedTools: [], mcpServers: [], skills: [] }
+}
 
 import MemoryPage, { LessonCard } from '../src/pages/MemoryPage'
 
@@ -118,6 +126,9 @@ describe('MemoryPage — profile filter', () => {
         ? allPending.filter(l => l.profileId === opts.profileId)
         : allPending,
     )
+    // Default: empty roster — options come only from the proposing profiles below.
+    mockProfiles.mockReset()
+    mockProfiles.mockResolvedValue([])
   })
 
   it('renders the filter with All profiles + one option per distinct proposing profile', async () => {
@@ -127,6 +138,36 @@ describe('MemoryPage — profile filter', () => {
     await waitFor(() => expect(select.options.length).toBe(3))
     const labels = [...select.options].map(o => o.textContent)
     expect(labels).toEqual(['All profiles', 'K', 'Backend'])
+  })
+
+  it('F-081: sources options from the LEAD ROSTER — every lead appears even with zero lessons', async () => {
+    // The roster carries all five leads (+ non-lead K/Chief/org-default). Only Backend has a
+    // lesson, yet ALL five leads must be selectable; non-leads with no lesson are excluded.
+    mockProfiles.mockResolvedValue([
+      prof('k-secretary', 'K', 'secretary'),
+      prof('chief', 'Chief', 'chief'),
+      prof('default-orchestrator', 'orchestrator', 'orchestrator'),
+      prof('lead-frontend', 'Frontend', 'orchestrator'),
+      prof('lead-backend', 'Backend', 'orchestrator'),
+      prof('lead-systems', 'Systems', 'orchestrator'),
+      prof('lead-security', 'Security', 'orchestrator'),
+      prof('lead-network', 'Network', 'orchestrator'),
+    ])
+    // A lesson bound to a lead (lead runs get an agent_runs row → profile_id resolves).
+    mockLessons.mockImplementation(async (opts?: { status?: string; profileId?: string }) =>
+      opts?.profileId != null ? [] : [lesson({ id: 'lb', profileId: 'lead-backend', profileName: 'Backend' })],
+    )
+
+    renderPage()
+    const select = (await screen.findByTestId('memory-profile-filter')) as HTMLSelectElement
+    await waitFor(() => expect(select.options.length).toBe(6)) // All + 5 leads
+    const labels = [...select.options].map(o => o.textContent)
+    for (const name of ['Frontend', 'Backend', 'Systems', 'Security', 'Network']) {
+      expect(labels).toContain(name)
+    }
+    // The generic default-orchestrator and non-lead K/Chief (no lesson) are NOT options.
+    expect(labels).not.toContain('orchestrator')
+    expect(labels).not.toContain('Chief')
   })
 
   it('selecting a profile re-queries server-side with ?profileId and narrows the list', async () => {

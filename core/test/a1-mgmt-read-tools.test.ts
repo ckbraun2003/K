@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import { db, runsDb, projectsDb, mgmtDb } from '../src/db.js'
 import { mgmtTools, MgmtError, type MgmtContext } from '../src/mcp/mgmt.js'
+import { seedProfiles } from '../src/profiles.js'
 import type { Assignment, MgmtReport } from '@k/shared'
 
 const PROJECT_ID = uuid()
@@ -28,6 +29,9 @@ const ctxA: MgmtContext = { runId: RUN_A }
 const ctxB: MgmtContext = { runId: RUN_B }
 
 beforeAll(() => {
+  // assign_lead resolves the lead against the durable roster now (F-067) — seed it
+  // (idempotent) so Backend/Frontend/Systems/Security/Network resolve regardless of order.
+  seedProfiles()
   projectsDb.insertProject.run({
     id: PROJECT_ID, name: `a1-mgmt-${PROJECT_ID.slice(0, 8)}`, localPath: '/tmp/a1-mgmt',
     githubRemote: null, workspaceManaged: 0, bibleDir: 'docs/bible', createdAt: Date.now(),

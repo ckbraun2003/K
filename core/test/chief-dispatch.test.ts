@@ -210,13 +210,21 @@ describe('mgmt: dispatch_lead', () => {
     expect(() => call('dispatch_lead', { assignmentId: assigned.id }, ctxB)).toThrow(MgmtError)
   })
 
-  it('rejects when no lead profile matches the assignment lead (no intent recorded)', () => {
-    const assigned = call('assign_lead', { lead: 'nobody', objective: 'no lead' }, ctxChief) as Assignment
-    expect(() => call('dispatch_lead', { assignmentId: assigned.id }, ctxChief)).toThrow(MgmtError)
-    // never recorded — no pending intent, and the link stays null.
-    expect(leadDispatchDb.getActiveLeadDispatchByAssignment.get(assigned.id)).toBeUndefined()
-    const aRow = mgmtDb.getAssignment.get(assigned.id) as Record<string, unknown>
-    expect(aRow.lead_run_id).toBeNull()
+  it('rejects an unknown lead at ASSIGN time (F-067 — assign + dispatch agree), naming valid leads', () => {
+    // F-067: assign_lead now resolves the lead the SAME way dispatch_lead does, so a bogus
+    // lead like "engineering" fails FAST at assign time (no dangling assignment) with a
+    // message that names the valid leads — instead of being accepted then rejected only later.
+    let msg = ''
+    try {
+      call('assign_lead', { lead: 'engineering', objective: 'no lead' }, ctxChief)
+    } catch (e) {
+      msg = (e as Error).message
+    }
+    expect(msg).toContain('no lead profile matches')
+    expect(msg).toContain('Frontend')
+    expect(msg).toContain('lead-backend')
+    // Nothing was persisted — no assignment row to dispatch.
+    expect(() => call('assign_lead', { lead: 'engineering', objective: 'x' }, ctxChief)).toThrow(MgmtError)
   })
 
   it('records an intent seeded from an explicitly chosen workflow (Investigate)', () => {

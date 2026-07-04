@@ -54,11 +54,17 @@ import { agentRunsDb, configDb } from './db.js'
 import { getProfile } from './profiles.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
 
-/** The Chief's default schedule-wake instruction (the `-p` seed for a cron wake). */
+/** The Chief's default schedule-wake instruction (the `-p` seed for a cron wake). Names the
+ *  dispatchable leads inline (F-067) so an autonomously-woken Chief always knows the VALID
+ *  lead identifiers and never invents a discipline like "engineering"; `lead_list` remains the
+ *  authoritative runtime roster. The lead set is fixed by the durable seed (profiles.ts), so a
+ *  static enumeration is safe and keeps this a plain constant. */
 export const DEFAULT_CHIEF_WAKE_GOAL =
   'Autonomous org check-in: review active leads and open objectives with the mgmt read tools ' +
   '(assignment_list, report_list); surface blockers and note any unstaffed work. Report a concise ' +
-  'status; do not dispatch new work yet.'
+  'status; do not dispatch new work yet. The dispatchable leads are Frontend (lead-frontend), ' +
+  'Backend (lead-backend), Systems (lead-systems), Security (lead-security), and Network ' +
+  '(lead-network) — call lead_list for the authoritative roster before assign_lead / dispatch_lead.'
 
 /** Default cron for the Chief's scheduled wake (every 15 minutes). A literal default;
  *  the `CHIEF_WAKE_CRON` env override is read lazily inside startChiefWake() so it can

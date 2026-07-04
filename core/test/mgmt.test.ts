@@ -13,6 +13,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import { db, runsDb, projectsDb } from '../src/db.js'
 import { mgmtTools, MgmtError, type MgmtContext } from '../src/mcp/mgmt.js'
+import { seedProfiles } from '../src/profiles.js'
 import type { Assignment, MgmtReport } from '@k/shared'
 
 // ── fixtures: a project + two runs (owner + a second run) ─────────────────────
@@ -33,6 +34,9 @@ const bogusCtx: MgmtContext = { runId: uuid() } // K_RUN_ID with no matching run
 const noneCtx: MgmtContext = { runId: null }
 
 beforeAll(() => {
+  // assign_lead now resolves the lead against the durable roster (F-067), so the seed
+  // leads (Backend/Frontend/…) must exist regardless of which file runs first (idempotent).
+  seedProfiles()
   projectsDb.insertProject.run({
     id: PROJECT_ID,
     name: `mgmt-test-${PROJECT_ID.slice(0, 8)}`,

@@ -28,7 +28,10 @@ interface LessonBody {
 
 let app: FastifyInstance
 const PROFILE_ID = `prof-${uuid()}`
-const PROFILE_NAME = 'K'
+// A UNIQUE profile name — agent_profiles.name is UNIQUE, and the durable seed already owns
+// 'K'/'Chief'/etc. Using a seed name would collide once any earlier-running suite has seeded
+// the roster (order-independent suite requirement). The join test only needs SOME profile.
+const PROFILE_NAME = `MemRoute-${uuid().slice(0, 8)}`
 
 /** Seed a pending lesson via the PRODUCER statement (run_id null — FK is ON DELETE SET NULL, so a
  *  null owner keeps the seed simple). profileId is null here; the profile_name-join test stamps

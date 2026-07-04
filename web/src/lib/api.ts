@@ -292,6 +292,12 @@ export const api = {
         body: JSON.stringify(patch),
       }),
   },
+  // Durable agent profiles (read-only) — GET /api/profiles returns every seeded profile
+  // (K, Chief, the org-default, and the five discipline leads). The Memory filter sources
+  // its lead-roster options from this so every lead appears even with zero lessons (F-081).
+  profiles: {
+    list: () => req<AgentProfile[]>('/profiles'),
+  },
   // Named workflow definitions (P5.3b) — the operator-editable workflow templates
   // (list · one-detail · edit). `update` is a read-merge-write patch server-side.
   // `runs` lists the recent workflow_runs (bounded) — the run-picker's identity
