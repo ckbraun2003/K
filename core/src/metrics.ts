@@ -2,7 +2,7 @@
 
 import type {
   MetricsSummary, DailyMetric, MetricsTimeseries, TimeseriesGroupBy,
-  RoutingStats, RoutingModelStat,
+  RoutingStats, RoutingModelStat, MetricsQualityTimeseries, MetricsQualityPoint,
 } from '@k/shared'
 import { TERMINAL_RUN_STATUSES } from './run-lifecycle.js'
 
@@ -59,6 +59,12 @@ export interface TimeseriesRunRow extends RunRow {
   project_name: string | null
   provider: string
   model: string
+  // The orchestrator (discipline-lead) profile that ran this run, resolved in SQL from
+  // the run's latest tier='orchestrator' agent_runs activation (routes/metrics.ts). Both
+  // NULL for a run with no orchestrator activation → grouped as 'unassigned'. Optional so
+  // callers/fixtures that don't group by lead need not supply them (W9b F-084).
+  lead_id?: string | null
+  lead_name?: string | null
 }
 
 /** Epoch ms of local midnight `days - 1` days before `now` — the oldest instant
@@ -96,6 +102,11 @@ export function buildTimeseries(
     if (groupBy === 'project') {
       key = r.project_id ?? 'unassigned'
       label = r.project_name ?? (r.project_id ?? 'Unassigned')
+    } else if (groupBy === 'lead') {
+      // A run's lead is its resolved orchestrator profile; none → 'unassigned' so cost
+      // is conserved (the run still lands in a bucket) rather than dropped (W9b F-084).
+      key = r.lead_id ?? 'unassigned'
+      label = r.lead_name ?? (r.lead_id ?? 'Unassigned')
     } else {
       key = r.model
       label = r.provider === 'claude' ? r.model : `${r.provider}/${r.model}`
@@ -179,6 +190,33 @@ export interface RoutingRunRow {
   parked_ms?: number
 }
 
+/** A run's ACTIVE latency in ms — wall-clock (ended_at − created_at) minus the time it
+ *  sat PARKED at awaiting_input (parked_ms) — or null when the run has no usable end
+ *  (still running, or clock skew makes ended_at < created_at). Clamped to ≥0 so a
+ *  parked > wall run counts as 0, not negative. The single source of the parked-excluded
+ *  latency rule (W9a F-082), shared by aggregateRouting + buildQualityTimeseries so the
+ *  KPI, the percentiles, and the trend can never drift apart. */
+export function activeLatencyMs(r: { created_at: number; ended_at: number | null; parked_ms?: number }): number | null {
+  if (r.ended_at == null || r.ended_at < r.created_at) return null
+  const parked = r.parked_ms != null && r.parked_ms > 0 ? r.parked_ms : 0
+  return Math.max(0, (r.ended_at - r.created_at) - parked)
+}
+
+/** Percentile of a numeric sample using LINEAR INTERPOLATION between closest ranks
+ *  (the R-7 / numpy-default / Excel PERCENTILE.INC method). `sorted` MUST be ascending.
+ *  `p` in [0,1]. Degrades sanely at the edges: n=0 → 0 (no data), n=1 → the sole value.
+ *  Example: sorted=[1..10], p=0.5 → 5.5; p=0.95 → 9.55. */
+export function percentile(sorted: number[], p: number): number {
+  const n = sorted.length
+  if (n === 0) return 0
+  if (n === 1) return sorted[0]
+  const rank = p * (n - 1)
+  const lo = Math.floor(rank)
+  const hi = Math.ceil(rank)
+  if (lo === hi) return sorted[lo]
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo)
+}
+
 // Minimum total run history before we'll suggest a routing change.
 const RECOMMEND_MIN_RUNS = 10
 
@@ -238,6 +276,9 @@ export function aggregateRouting(rows: RoutingRunRow[], now: number): RoutingSta
     latencyCount: number
   }
   const accs = new Map<string, Acc>()
+  // Every run's active latency sample, ACROSS groups — org-wide percentiles can't be
+  // reconstructed from per-group means, so they need the full sample set (W9b F-086).
+  const allLatencies: number[] = []
 
   for (const r of rows) {
     const key = `${r.provider} ${r.model}`
@@ -260,14 +301,14 @@ export function aggregateRouting(rows: RoutingRunRow[], now: number): RoutingSta
     }
     a.costSum += r.cost_usd
     if (r.cost_usd > 0) { a.costPosSum += r.cost_usd; a.costPosCount++ }
-    // Latency = ACTIVE processing time = wall-clock (ended_at - created_at) minus the
-    // time the run sat parked at awaiting_input (parked_ms). Excludes operator
-    // think-time so an interactive/HITL run's latency reflects work, not waiting
-    // (F-082). Clamp to 0 against clock skew / parked > wall; still counted (it ended).
-    if (r.ended_at != null && r.ended_at >= r.created_at) {
-      const parked = r.parked_ms != null && r.parked_ms > 0 ? r.parked_ms : 0
-      a.latencySum += Math.max(0, (r.ended_at - r.created_at) - parked)
+    // Latency = ACTIVE processing time (wall-clock minus awaiting_input parked time),
+    // via the shared activeLatencyMs rule (W9a F-082). null → no usable end (ignored);
+    // a real sample feeds both the per-group mean and the org-wide percentile pool.
+    const latency = activeLatencyMs(r)
+    if (latency != null) {
+      a.latencySum += latency
       a.latencyCount++
+      allLatencies.push(latency)
     }
   }
 
@@ -277,6 +318,9 @@ export function aggregateRouting(rows: RoutingRunRow[], now: number): RoutingSta
     runs: a.runs,
     terminalRuns: a.terminal,
     successRate: a.terminal > 0 ? a.done / a.terminal : 0,
+    // errorRate = non-done terminal / terminal — the complement of successRate over the
+    // SAME killed-excluded population (W9a). 0 when no terminal runs (W9b F-085).
+    errorRate: a.terminal > 0 ? (a.terminal - a.done) / a.terminal : 0,
     avgCostUsd: a.costPosCount > 0 ? a.costPosSum / a.costPosCount : 0,
     totalCostUsd: a.costSum,
     avgLatencyMs: a.latencyCount > 0 ? a.latencySum / a.latencyCount : 0,
@@ -290,10 +334,69 @@ export function aggregateRouting(rows: RoutingRunRow[], now: number): RoutingSta
     return ka < kb ? -1 : ka > kb ? 1 : 0
   })
 
+  // Org-wide active-latency percentiles from the full sample pool (sorted once).
+  const sortedLatencies = allLatencies.slice().sort((a, b) => a - b)
+
   return {
     generatedAt: now,
     totalRuns: rows.length,
     groups,
     recommendation: routingRecommendation(groups),
+    latencyP50Ms: percentile(sortedLatencies, 0.5),
+    latencyP95Ms: percentile(sortedLatencies, 0.95),
+    latencySamples: sortedLatencies.length,
   }
+}
+
+// ─── Quality time series (success-rate + latency trend) ──────────────────────
+
+/** Per-day success-rate + active-latency trend (W9b F-087) — the time-series companion
+ *  to the single Success/Avg-latency KPIs. Reuses the EXACT W9a definitions:
+ *  killed-excluded terminal population (successRate) and parked-excluded active latency
+ *  (activeLatencyMs). A day with no terminal runs / no latency samples yields null (a
+ *  genuine gap the chart renders as empty), never NaN or a misleading 0.
+ *  Consumes RoutingRunRow (same SQL as the routing aggregate). */
+export function buildQualityTimeseries(
+  rows: RoutingRunRow[],
+  now: number,
+  days: number,
+): MetricsQualityTimeseries {
+  // Same calendar-day window arithmetic as summarizeRuns / buildTimeseries.
+  const t = new Date(now)
+  const dates: string[] = []
+  for (let i = days - 1; i >= 0; i--) {
+    dates.push(localDateKey(new Date(t.getFullYear(), t.getMonth(), t.getDate() - i).getTime()))
+  }
+  const dateIndex = new Map<string, number>(dates.map((d, i) => [d, i]))
+
+  const acc = dates.map(() => ({ terminal: 0, done: 0, latencySum: 0, latencyCount: 0 }))
+
+  for (const r of rows) {
+    const idx = dateIndex.get(localDateKey(r.created_at))
+    if (idx === undefined) continue // outside window
+    const a = acc[idx]
+    // Killed-excluded terminal population (mirrors aggregateRouting, W9a F-082).
+    if (TERMINAL_RUN_STATUSES.has(r.status) && r.status !== 'killed') {
+      a.terminal++
+      if (r.status === 'done') a.done++
+    }
+    const latency = activeLatencyMs(r)
+    if (latency != null) {
+      a.latencySum += latency
+      a.latencyCount++
+    }
+  }
+
+  const points: MetricsQualityPoint[] = dates.map((date, i) => {
+    const a = acc[i]
+    return {
+      date,
+      terminalRuns: a.terminal,
+      successRate: a.terminal > 0 ? a.done / a.terminal : null,
+      avgLatencyMs: a.latencyCount > 0 ? a.latencySum / a.latencyCount : null,
+      latencyCount: a.latencyCount,
+    }
+  })
+
+  return { days, dates, points }
 }

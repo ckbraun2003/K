@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stackDays, formatMetricValue, metricLabel, axisTickIndices } from '../src/lib/chart'
+import { stackDays, formatMetricValue, metricLabel, axisTickIndices, qualityBars, qualityBarRenderHeight } from '../src/lib/chart'
 import type { MetricsTimeseries } from '@k/shared'
 
 function makeData(seriesPoints: { key: string; vals: { runs: number; tokens: number; costUsd: number }[] }[]): MetricsTimeseries {
@@ -169,5 +169,81 @@ describe('axisTickIndices', () => {
       // strictly increasing
       for (let i = 1; i < t.length; i++) expect(t[i]).toBeGreaterThan(t[i - 1])
     }
+  })
+})
+
+describe('qualityBars (W9b)', () => {
+  it('fixedMax pins the y-scale (0..1 rate → % of axis)', () => {
+    const { bars, max } = qualityBars([0.5, 0.9, 1], 1)
+    expect(max).toBe(1)
+    expect(bars[0].heightPct).toBeCloseTo(50, 6)
+    expect(bars[1].heightPct).toBeCloseTo(90, 6)
+    expect(bars[2].heightPct).toBeCloseTo(100, 6)
+  })
+
+  it('a null day is a GAP → no bar (heightPct 0), value preserved as null', () => {
+    const { bars } = qualityBars([0.5, null, 1], 1)
+    expect(bars[1].value).toBeNull()
+    expect(bars[1].heightPct).toBe(0)
+  })
+
+  it('auto-scales to the largest finite value when fixedMax is omitted (latency)', () => {
+    const { bars, max } = qualityBars([1000, 4000, null, 2000])
+    expect(max).toBe(4000)
+    expect(bars[0].heightPct).toBeCloseTo(25, 6)  // 1000/4000
+    expect(bars[1].heightPct).toBeCloseTo(100, 6) // the max
+    expect(bars[2].heightPct).toBe(0)             // null gap
+    expect(bars[3].heightPct).toBeCloseTo(50, 6)  // 2000/4000
+  })
+
+  it('all-null / empty input → max 1, no divide-by-zero, no bars drawn', () => {
+    const allNull = qualityBars([null, null], 1)
+    expect(allNull.max).toBe(1)
+    expect(allNull.bars.every(b => b.heightPct === 0)).toBe(true)
+
+    const empty = qualityBars([])
+    expect(empty.max).toBe(1)
+    expect(empty.bars).toHaveLength(0)
+  })
+
+  it('clamps a value above the fixed max to 100% (never overflows the axis)', () => {
+    const { bars } = qualityBars([1.5], 1)
+    expect(bars[0].heightPct).toBe(100)
+  })
+
+  it('index aligns with input position', () => {
+    const { bars } = qualityBars([0.1, 0.2, 0.3], 1)
+    expect(bars.map(b => b.index)).toEqual([0, 1, 2])
+  })
+})
+
+describe('qualityBarRenderHeight (W9b: real-0 distinguishable from a no-data gap)', () => {
+  it('a null-value day is a GAP → no bar', () => {
+    expect(qualityBarRenderHeight({ value: null, heightPct: 0 })).toBeNull()
+  })
+
+  it('a genuine 0 (real data: total-failure day / 0ms) renders a min-height sliver, NOT a gap', () => {
+    // The whole point: value 0 with heightPct 0 must still draw (≥1), so it is visibly
+    // distinct from a null gap — the mirror image of the null-vs-0 bug this feature prevents.
+    const h = qualityBarRenderHeight({ value: 0, heightPct: 0 })
+    expect(h).not.toBeNull()
+    expect(h).toBe(1)
+  })
+
+  it('a null and a real-0 are distinguishable (null → no bar, 0 → a bar)', () => {
+    expect(qualityBarRenderHeight({ value: null, heightPct: 0 })).toBeNull()
+    expect(qualityBarRenderHeight({ value: 0, heightPct: 0 })).not.toBeNull()
+  })
+
+  it('a normal value renders at its true height', () => {
+    expect(qualityBarRenderHeight({ value: 0.9, heightPct: 90 })).toBe(90)
+  })
+
+  it('a tiny non-zero value still gets at least a 1-unit sliver', () => {
+    expect(qualityBarRenderHeight({ value: 0.001, heightPct: 0.1 })).toBe(1)
+  })
+
+  it('a non-finite value is treated as a gap (no bar)', () => {
+    expect(qualityBarRenderHeight({ value: NaN, heightPct: 0 })).toBeNull()
   })
 })

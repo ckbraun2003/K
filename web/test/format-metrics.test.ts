@@ -4,6 +4,7 @@ import {
   formatUsd,
   tileValue,
   weightedSuccessRate,
+  weightedErrorRate,
   weightedAvgLatencyMs,
 } from '../src/lib/format-metrics'
 
@@ -78,6 +79,38 @@ describe('weightedSuccessRate', () => {
   })
   it('is 0 when no group has terminal runs', () => {
     expect(weightedSuccessRate([{ terminalRuns: 0, successRate: 0 }])).toBe(0)
+  })
+})
+
+describe('weightedErrorRate', () => {
+  it('is 0 for an empty list and when no group has terminal runs (no divide-by-zero)', () => {
+    expect(weightedErrorRate([])).toBe(0)
+    expect(weightedErrorRate([{ terminalRuns: 0, errorRate: 0 }])).toBe(0)
+  })
+  it('weights by TERMINAL runs — non-terminal groups cannot drag it', () => {
+    // Group A: 0 terminal (all active) → contributes nothing. Group B: 10 terminal @ 0.2.
+    expect(
+      weightedErrorRate([
+        { terminalRuns: 0, errorRate: 0 },
+        { terminalRuns: 10, errorRate: 0.2 },
+      ]),
+    ).toBeCloseTo(0.2, 9)
+  })
+  it('computes Σerrored/Σterminal across groups', () => {
+    // A: 10 terminal @ 0.1 = 1 errored; B: 30 terminal @ 0.5 = 15 → 16/40 = 0.4
+    expect(
+      weightedErrorRate([
+        { terminalRuns: 10, errorRate: 0.1 },
+        { terminalRuns: 30, errorRate: 0.5 },
+      ]),
+    ).toBeCloseTo(0.4, 9)
+  })
+  it('is the exact complement of weightedSuccessRate over the same terminal population', () => {
+    const groups = [
+      { terminalRuns: 10, successRate: 0.9, errorRate: 0.1 },
+      { terminalRuns: 30, successRate: 0.5, errorRate: 0.5 },
+    ]
+    expect(weightedSuccessRate(groups) + weightedErrorRate(groups)).toBeCloseTo(1, 9)
   })
 })
 

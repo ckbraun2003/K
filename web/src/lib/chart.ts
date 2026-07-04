@@ -69,6 +69,47 @@ export function metricLabel(metric: Metric): string {
   return 'Tokens'
 }
 
+// ─── Quality trend (success-rate / latency over time — W9b) ──────────────────
+
+export interface QualityBar {
+  index: number          // day index (aligns with dates[])
+  value: number | null   // null = a gap day (no terminal runs / no latency samples)
+  heightPct: number      // 0..100 (% of the y-scale max); 0 for a null/non-finite day
+}
+
+/**
+ * Per-day bar geometry for a single quality series (success-rate or latency). A null
+ * `values[i]` is a genuine GAP (no data that day) → no bar (heightPct 0), never a
+ * misleading zero-height-that-looks-like-0%. `fixedMax` pins the y-scale (pass 1 for a
+ * 0..1 rate so 90% always reads as 90% of the axis); omit it for latency to auto-scale
+ * to the largest sample. Returns the resolved `max` (≥1, never 0 → no divide-by-zero).
+ */
+export function qualityBars(values: (number | null)[], fixedMax?: number): { bars: QualityBar[]; max: number } {
+  let max = fixedMax ?? 0
+  if (fixedMax === undefined) {
+    for (const v of values) if (v != null && Number.isFinite(v) && v > max) max = v
+  }
+  const safeMax = max > 0 ? max : 1
+  const bars = values.map((v, index) => ({
+    index,
+    value: v,
+    heightPct: v != null && Number.isFinite(v) ? Math.min(100, Math.max(0, (v / safeMax) * 100)) : 0,
+  }))
+  return { bars, max: safeMax }
+}
+
+/**
+ * Render height (SVG units, 0..100) for one quality bar, or null when the day is a GAP
+ * (value null → draw nothing). Any REAL value — including a genuine 0% / 0ms day (e.g.
+ * 3/3 errored) — gets a minimum-visible sliver (≥1) so a total-failure day is
+ * DISTINGUISHABLE from a no-data gap. Without this floor a real 0 and a gap both render
+ * height 0 → the mirror image of the null-vs-0 bug this feature exists to prevent (W9b).
+ */
+export function qualityBarRenderHeight(bar: { value: number | null; heightPct: number }): number | null {
+  if (bar.value == null || !Number.isFinite(bar.value)) return null // a gap — no bar
+  return Math.max(1, bar.heightPct)
+}
+
 /** Format a metric value for display. */
 export function formatMetricValue(metric: Metric, v: number): string {
   if (!Number.isFinite(v)) return '—'

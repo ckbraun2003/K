@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { summarizeRuns, buildTimeseries, windowStartMs, type RunRow, type TimeseriesRunRow } from '../src/metrics.js'
+import { summarizeRuns, buildTimeseries, buildQualityTimeseries, windowStartMs, type RunRow, type TimeseriesRunRow, type RoutingRunRow } from '../src/metrics.js'
 import { db } from '../src/db.js'
 
 const DAY = 86_400_000
@@ -273,6 +273,129 @@ describe('activeRuns status set', () => {
       `SELECT COUNT(*) AS n FROM runs WHERE id IN (${placeholders}) AND status IN ('running','queued','awaiting_input')`,
     ).get(...ids) as { n: number }
     expect(n).toBe(3) // running + queued + awaiting_input only
+  })
+})
+
+// ─── buildTimeseries lead grouping (W9b F-084) ────────────────────────────────
+
+describe('buildTimeseries lead grouping', () => {
+  it('groups a run under its orchestrator lead; a lead-dispatched run cost lands there', () => {
+    const rows = [
+      tsRow({ lead_id: 'lead-a', lead_name: 'Backend Lead', cost_usd: 0.05 }),
+      tsRow({ lead_id: 'lead-a', lead_name: 'Backend Lead', cost_usd: 0.05 }),
+      tsRow({ lead_id: 'lead-b', lead_name: 'Frontend Lead', cost_usd: 0.20 }),
+    ]
+    const ts = buildTimeseries(rows, now, 7, 'lead')
+    expect(ts.groupBy).toBe('lead')
+    const byKey = new Map(ts.series.map(s => [s.key, s]))
+    expect(byKey.get('lead-a')!.label).toBe('Backend Lead')
+    expect(byKey.get('lead-a')!.total.runs).toBe(2)
+    expect(byKey.get('lead-a')!.total.costUsd).toBeCloseTo(0.10, 9)
+    expect(byKey.get('lead-b')!.total.costUsd).toBeCloseTo(0.20, 9)
+  })
+
+  it('a run with no lead activation groups as Unassigned (cost conserved, not dropped)', () => {
+    const rows = [
+      tsRow({ lead_id: 'lead-a', lead_name: 'A', cost_usd: 0.10 }),
+      tsRow({ lead_id: null, lead_name: null, cost_usd: 0.03 }),
+    ]
+    const ts = buildTimeseries(rows, now, 7, 'lead')
+    const un = ts.series.find(s => s.key === 'unassigned')!
+    expect(un).toBeDefined()
+    expect(un.label).toBe('Unassigned')
+    expect(un.total.costUsd).toBeCloseTo(0.03, 9)
+    // total window cost conserved across all lead buckets
+    const totalCost = ts.series.reduce((a, s) => a + s.total.costUsd, 0)
+    expect(totalCost).toBeCloseTo(0.13, 9)
+  })
+
+  it('absent lead_id/lead_name fields (optional) → Unassigned', () => {
+    const ts = buildTimeseries([tsRow({})], now, 7, 'lead') // tsRow default has no lead fields
+    expect(ts.series).toHaveLength(1)
+    expect(ts.series[0].key).toBe('unassigned')
+    expect(ts.series[0].label).toBe('Unassigned')
+  })
+
+  it('leads rank by window cost (cost-ranking consumer orders highest-cost first)', () => {
+    const rows = [
+      tsRow({ lead_id: 'lead-a', lead_name: 'A', cost_usd: 0.10, tokens_in: 10, tokens_out: 0 }),
+      tsRow({ lead_id: 'lead-b', lead_name: 'B', cost_usd: 0.30, tokens_in: 5, tokens_out: 0 }),
+      tsRow({ lead_id: 'lead-c', lead_name: 'C', cost_usd: 0.20, tokens_in: 1, tokens_out: 0 }),
+    ]
+    const ts = buildTimeseries(rows, now, 7, 'lead')
+    const ranked = [...ts.series].sort((x, y) => y.total.costUsd - x.total.costUsd)
+    expect(ranked.map(s => s.key)).toEqual(['lead-b', 'lead-c', 'lead-a'])
+  })
+})
+
+// ─── buildQualityTimeseries (W9b F-087) ───────────────────────────────────────
+
+function qRow(p: Partial<RoutingRunRow>): RoutingRunRow {
+  return {
+    provider: 'claude',
+    model: 'sonnet',
+    status: 'done',
+    cost_usd: 0,
+    created_at: now,
+    ended_at: null,
+    ...p,
+  }
+}
+
+describe('buildQualityTimeseries', () => {
+  it('emits `days` points oldest→newest, aligned 1:1 with dates', () => {
+    const q = buildQualityTimeseries([], now, 7)
+    expect(q.days).toBe(7)
+    expect(q.dates).toHaveLength(7)
+    expect(q.points).toHaveLength(7)
+    expect(q.dates[6]).toBe('2026-06-10')
+    expect(q.points[6].date).toBe('2026-06-10')
+  })
+
+  it('per-day success rate = done / killed-excluded terminal (consistent with W9a)', () => {
+    const rows = [
+      qRow({ status: 'done', created_at: now }),
+      qRow({ status: 'error', created_at: now }),
+      qRow({ status: 'killed', created_at: now }),   // killed excluded from denominator
+      qRow({ status: 'running', created_at: now }),  // non-terminal, excluded
+    ]
+    const today = buildQualityTimeseries(rows, now, 7).points[6]
+    expect(today.terminalRuns).toBe(2)             // done + error
+    expect(today.successRate).toBeCloseTo(0.5, 9)  // 1 done / 2 terminal
+  })
+
+  it('a day with no terminal runs → successRate null (a gap, never NaN)', () => {
+    const q = buildQualityTimeseries([qRow({ status: 'running', created_at: now })], now, 7)
+    expect(q.points[6].terminalRuns).toBe(0)
+    expect(q.points[6].successRate).toBeNull()
+    for (const pt of q.points) {
+      expect(pt.successRate === null || Number.isFinite(pt.successRate)).toBe(true)
+      expect(pt.avgLatencyMs === null || Number.isFinite(pt.avgLatencyMs)).toBe(true)
+    }
+  })
+
+  it('per-day avg latency = active (parked-excluded) mean; null when no samples', () => {
+    const rows = [
+      qRow({ created_at: now, ended_at: now + 10_000, parked_ms: 6_000 }), // active 4s
+      qRow({ created_at: now, ended_at: now + 4_000 }),                    // active 4s
+    ]
+    const q = buildQualityTimeseries(rows, now, 7)
+    expect(q.points[6].avgLatencyMs).toBe(4_000)
+    expect(q.points[6].latencyCount).toBe(2)
+    // an earlier day with no runs has no latency samples → null
+    expect(q.points[0].avgLatencyMs).toBeNull()
+    expect(q.points[0].latencyCount).toBe(0)
+  })
+
+  it('buckets runs by their local calendar day', () => {
+    const rows = [
+      qRow({ status: 'done', created_at: now }),
+      qRow({ status: 'done', created_at: now - 2 * DAY }),
+    ]
+    const q = buildQualityTimeseries(rows, now, 7)
+    expect(q.points[6].terminalRuns).toBe(1) // today
+    expect(q.points[6].successRate).toBe(1)
+    expect(q.points[4].terminalRuns).toBe(1) // 2 days back
   })
 })
 

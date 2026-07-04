@@ -36,6 +36,19 @@ export function weightedSuccessRate(groups: ReadonlyArray<{ terminalRuns: number
 }
 
 /**
+ * Org-wide error rate (0..1) from per-model routing stats: Σ(errored)/Σterminal,
+ * computed as Σ(terminalRuns·errorRate)/Σ(terminalRuns). Weighted by the SAME
+ * killed-excluded terminal denominator as weightedSuccessRate — so the two are exact
+ * complements (successRate + errorRate === 1 over the terminal population). 0 when no
+ * terminal runs (W9b F-085).
+ */
+export function weightedErrorRate(groups: ReadonlyArray<{ terminalRuns: number; errorRate: number }>): number {
+  const denom = groups.reduce((s, g) => s + g.terminalRuns, 0)
+  if (denom <= 0) return 0
+  return groups.reduce((s, g) => s + g.terminalRuns * g.errorRate, 0) / denom
+}
+
+/**
  * Org-wide mean latency (ms): Σ(latencyCount·avgLatencyMs)/Σ(latencyCount) —
  * weighted by the count of runs that actually carry a latency sample (the same
  * denominator the per-group mean uses). 0 when no run has a usable latency.
