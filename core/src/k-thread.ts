@@ -16,7 +16,7 @@
 import { randomUUID } from 'crypto'
 import type { KThread, KThreadTurn, KAskResult, KRoute, KForceRoute } from '@k/shared'
 import { routeForMessage, routeForTarget } from '@k/shared'
-import { kThreadsDb, runsDb, eventsDb, mgmtDb } from './db.js'
+import { kThreadsDb, runsDb, eventsDb, mgmtDb, db } from './db.js'
 import { eventBus } from './events.js'
 import { startAgentRun } from './agent-runs.js'
 import { kill } from './supervisor.js'
@@ -506,15 +506,45 @@ export async function askK(
 }
 
 /**
+ * Null a thread's stable CLI session id on undo (F-054/F-060). No such statement lives in
+ * kThreadsDb (setThreadCliSessionId only WRITES onto a NULL, it never clears), so it is
+ * prepared here. Keyed on the thread's PK `id`, NOT `active_run_id`: captureAnswers nulls
+ * active_run_id on ANY terminal (done/killed/error), and a fast one-shot resume-ask commonly
+ * reaches terminal INSIDE the 5s undo toast window — so by undo time active_run_id is already
+ * gone and an active_run_id-keyed clear would match ZERO rows and LEAK the taint. Thread-keyed
+ * errs SAFE: over-clearing at worst forces the next ask to re-seed from the already-cleaned
+ * durable thread (a cheap resume becomes a full seed); it never leaks an undone message.
+ */
+const clearThreadCliSessionByThreadId = db.prepare(
+  `UPDATE k_threads SET cli_session_id = NULL, updated_at = ? WHERE id = ?`,
+)
+
+/**
  * Undo a just-started K ask (F-060): kill the run AND remove the turns it appended,
  * so an undone message is never replayed into a later seed/resume. askK appends the
  * user turn BEFORE dispatch (the thread is the source of truth), so an undo that only
  * killed the run would leave that `user` turn (plus any partial `k` reply) dangling on
  * the thread — replayed into the next fresh reseed and shown forever in the UI. This
- * deletes every k_thread_turns row linked to the run and clears a thread stranded
- * pointing at it. Because the session id is persisted only on a SUCCESSFUL first ask
- * (captureAnswers), an undone FIRST ask never recorded one — so the next ask starts a
- * genuinely fresh session whose seed (renderSeed) no longer contains the undone turn.
+ * deletes every k_thread_turns row linked to the run, clears a thread stranded pointing
+ * at it, AND nulls the OWNING thread's stable CLI session id (`cli_session_id`).
+ *
+ * The session-id clear closes the RESUME-ask taint (F-054/F-060): a LATER ask is dispatched
+ * INTO the live CLI session via `claude -p <msg> --resume <sessionId>`, so removing only the
+ * durable turns would leave the undone message alive in K's CLI context — resumable on the
+ * next ask even though the transcript no longer shows it. (An undone FIRST ask that never
+ * reached a successful terminal never persisted a session, so that case was already safe; a
+ * first ask that DID reach 'done', or ANY resume ask, had one persisted, and this clears it.)
+ * We resolve the owning thread from the run's turns BEFORE deleting them (the run→thread link
+ * is unrecoverable once the rows are gone) and key the clear on the thread PK — NOT
+ * active_run_id, which captureAnswers nulls on ANY terminal, so a fast one-shot that finished
+ * inside the undo window would otherwise leave an active_run_id-keyed clear matching zero rows
+ * and leak the taint. With the session gone the next ask reads `cli_session_id = NULL` →
+ * resume=false → a full renderSeed re-seed from the ALREADY-cleaned durable thread, so the
+ * undone turn can return through NEITHER the transcript NOR the resumed session. Over-clearing
+ * errs safe (a cheap resume becomes a full seed); under-clearing would leak. (One benign
+ * over-clear: undoing a Chief-DELEGATION ack — whose turn also links to the K thread — likewise
+ * nulls that thread's session, so K's next self-ask re-seeds instead of resuming; harmless, and
+ * a delegation was never part of K's own CLI session anyway.)
  * Best-effort + idempotent: a second undo of the same run simply finds nothing to remove.
  *
  * The kill is fire-and-forget (SIGTERM→SIGKILL, no await), so the dying process may flush
@@ -525,6 +555,15 @@ export async function askK(
 export function undoK(runId: string): void {
   undoneRuns.add(runId) // gate late flushes BEFORE the kill can produce them
   kill(runId) // best-effort: no live process (already exited) → no-op
+  const now = Date.now()
+  // Resolve the owning thread from the run's turns BEFORE the delete removes them; no turns
+  // ⇒ nothing to clean (no-op). Same run→thread derivation resolveKDelegationThread uses.
+  const owning = kThreadsDb.getThreadIdByTurnRunId.get(runId) as Row | undefined
   kThreadsDb.deleteTurnsByRunId.run(runId)
-  kThreadsDb.clearThreadActiveRunByRunId.run(Date.now(), runId)
+  // Null the (possibly tainted) CLI session on the OWNING thread, keyed on its PK — not
+  // active_run_id, which captureAnswers has already nulled if the run reached terminal (the
+  // common fast-one-shot-then-undo path). So the next ask re-seeds fresh from the cleaned
+  // durable thread instead of `--resume`-ing the undone message.
+  if (owning) clearThreadCliSessionByThreadId.run(now, String(owning.thread_id))
+  kThreadsDb.clearThreadActiveRunByRunId.run(now, runId)
 }

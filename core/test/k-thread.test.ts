@@ -569,6 +569,78 @@ describe('undoK — an undone ask is not replayed (F-060)', () => {
     expect(listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'user')).toHaveLength(0)
   })
 
+  it('IN-FLIGHT: nulls the tainted CLI session so a RESUME-ask undo cannot `--resume` the undone message', async () => {
+    // Establish a session: a first ask that reaches a SUCCESSFUL terminal persists cli_session_id.
+    const first = await askK('what is on my calendar')
+    eventBus.emitRunUpdate({ id: first.runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+    const sid = threadSessionId()
+    expect(sid).toBeTruthy()
+
+    // A RESUME ask is dispatched INTO that live session (`--resume <sid>`), so the message is
+    // already in K's CLI context before it even lands durably. Undo BEFORE it terminates —
+    // active_run_id still points at the run.
+    const resume = await askK('add a dentist appointment on Tuesday')
+    expect(lastPersistentSession()).toMatchObject({ sessionId: sid, resume: true })
+    expect(getKThread(DEFAULT_K_THREAD_ID)!.activeRunId).toBe(resume.runId)
+
+    undoK(resume.runId)
+
+    // DB row: the resume turn is gone AND the tainted session id is nulled (not merely the turn
+    // deleted). Without the session clear the undone message would survive in K's CLI context.
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.runId === resume.runId)).toHaveLength(0)
+    expect(threadSessionId()).toBeNull()
+
+    // Next-ask dispatch: with cli_session_id NULL the ask re-seeds FRESH — resume=false, a full
+    // renderSeed transcript, a NEW session id — instead of `--resume`-ing the tainted one. So the
+    // undone message is carried by NEITHER the transcript NOR the resumed session.
+    const next = await askK('what else is on my calendar')
+    expect(next.runId).not.toBe(resume.runId)
+    const ps = lastPersistentSession()!
+    expect(ps.resume).toBe(false)
+    expect(ps.sessionId).not.toBe(sid)
+    const prompt = String(vi.mocked(startRun).mock.calls.at(-1)![0])
+    expect(prompt).toContain('You:') // full renderSeed, not a bare `--resume` message body
+    expect(prompt).not.toContain('dentist appointment') // the undone message is not re-seeded
+  })
+
+  it('AFTER TERMINAL: nulls the tainted CLI session even when the resume run already finished (active_run_id gone)', async () => {
+    // The primary real-world path: undo is a 5s toast tied to SEND time, and a fast one-shot
+    // resume-ask ANSWERS-AND-EXITS inside that window — so captureAnswers has ALREADY nulled
+    // active_run_id by the time the operator reads the bad reply and clicks Undo. An
+    // active_run_id-keyed clear would match zero rows here and LEAK the taint; the thread-keyed
+    // clear must still fire. (Regression the reviewer flagged; the original patch failed it.)
+    const first = await askK('what is on my calendar')
+    eventBus.emitRunUpdate({ id: first.runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+    const sid = threadSessionId()
+    expect(sid).toBeTruthy()
+
+    const resume = await askK('add a dentist appointment on Tuesday')
+    expect(lastPersistentSession()).toMatchObject({ sessionId: sid, resume: true })
+
+    // The resume run streams a reply then reaches terminal — captureAnswers nulls active_run_id
+    // but (a RESUME ask carries no sessionIdToPersist) leaves cli_session_id = sid intact.
+    eventBus.emitEvent({ id: uuid(), runId: resume.runId, seq: 1, type: 'assistant', ts: Date.now(), text: 'Added the dentist appointment.' })
+    eventBus.emitRunUpdate({ id: resume.runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+    // Bug precondition: active_run_id is already gone, yet the tainted session persists.
+    expect(getKThread(DEFAULT_K_THREAD_ID)!.activeRunId).toBeNull()
+    expect(threadSessionId()).toBe(sid)
+
+    undoK(resume.runId)
+
+    // Thread-keyed clear still fires — the session is nulled and both undone turns are gone.
+    expect(threadSessionId()).toBeNull()
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.runId === resume.runId)).toHaveLength(0)
+
+    // Next ask re-seeds fresh (resume=false, a NEW session, full seed WITHOUT the undone message).
+    await askK('what else is on my calendar')
+    const ps = lastPersistentSession()!
+    expect(ps.resume).toBe(false)
+    expect(ps.sessionId).not.toBe(sid)
+    const prompt = String(vi.mocked(startRun).mock.calls.at(-1)![0])
+    expect(prompt).toContain('You:')
+    expect(prompt).not.toContain('dentist appointment')
+  })
+
   it('RACE: a LATE assistant/terminal flush after undoK does NOT resurrect an orphaned k reply', async () => {
     // The kill is fire-and-forget, so a still-streaming run can flush events AFTER undo.
     const { runId } = await askK('remind me to cancel the order')
