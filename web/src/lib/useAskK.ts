@@ -59,12 +59,14 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
   }, [navigateOnSend])
 
   // Capture the pending run id into a local BEFORE clearing so the caller's
-  // onDismiss (which also nulls pendingUndo) can't race the read.
+  // onDismiss (which also nulls pendingUndo) can't race the read. Uses the K undo
+  // endpoint (not a bare runs.kill): it kills the run AND removes the dangling turns
+  // the ask appended, so the undone message is never replayed into a later seed (F-060).
   const undo = useCallback(async () => {
     if (!pendingUndo) return
     const runId = pendingUndo.runId
     setPendingUndo(null)
-    try { await api.runs.kill(runId) } catch { /* best-effort */ }
+    try { await api.k.undo(runId) } catch { /* best-effort */ }
   }, [pendingUndo])
 
   const clearUndo = useCallback(() => setPendingUndo(null), [])

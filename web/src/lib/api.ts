@@ -429,6 +429,14 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, ...opts }),
       }),
+    // Undo a just-started ask (F-060): kills the run AND removes the dangling turns it
+    // appended, so the undone message is never replayed. Replaces a bare runs.kill.
+    undo: (runId: string) =>
+      req<{ undone: boolean }>('/k/undo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId }),
+      }),
     thread: () => req<{ thread: KThread; turns: KThreadTurn[] }>('/k/thread'),
     notes: () => req<Note[]>('/k/notes'),
     schedule: () => req<KSchedule>('/k/schedule'),

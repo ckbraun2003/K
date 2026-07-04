@@ -54,6 +54,10 @@ export interface StartAgentRunOptions {
   /** Explicit per-ask model override — wins over the profile default AND the
    *  runtime default (C2 power controls; validated at the route boundary). */
   model?: string
+  /** W7a (K-secretary front door ONLY): make the run a RESUMABLE one-shot against a
+   *  STABLE, persisted per-thread config dir + cwd (not a fresh worktree + ephemeral
+   *  config). Threaded verbatim to startRun. Absent for every other activation. */
+  persistentSession?: { key: string; sessionId: string; resume: boolean }
 }
 
 /** Map a terminal run status to an agent_runs status. done → completed; any other
@@ -110,6 +114,7 @@ export async function startAgentRun(
       cwd: opts.cwd,
       profile,
       interactive: opts.interactive,
+      persistentSession: opts.persistentSession,
     })
   } catch (e) {
     agentRunsDb.updateAgentRunStatus.run('failed', Date.now(), agentRunId)

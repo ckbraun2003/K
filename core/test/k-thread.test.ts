@@ -3,16 +3,16 @@
  *
  * Same supervisor-mock pattern as agent-runs.test.ts: startRun is mocked so no real
  * process spawns, but it INSERTS a real runs row (k_threads.active_run_id,
- * k_thread_turns.run_id and agent_runs.run_id all FK → runs(id)). sendInput and
- * __testHooks are kept REAL so the warm path exercises the true persistent-stdin
- * loop against a fake interactive proc. Isolated DB via vitest.config.ts.
+ * k_thread_turns.run_id and agent_runs.run_id all FK → runs(id)). The mock captures
+ * its call args so a test can assert the W7a persistentSession opt (gating). `kill` is
+ * mocked (undoK best-effort). Isolated DB via vitest.config.ts.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import type { Run } from '@k/shared'
-import { db, runsDb, agentRunsDb } from '../src/db.js'
+import { db, agentRunsDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
-import { startRun, sendInput, __testHooks } from '../src/supervisor.js'
+import { startRun, __testHooks } from '../src/supervisor.js'
 import { createProfile, getProfile } from '../src/profiles.js'
 import { mgmtTools } from '../src/mcp/mgmt.js'
 
@@ -37,6 +37,7 @@ vi.mock('../src/supervisor.js', async () => {
 
 const {
   askK,
+  undoK,
   ensureDefaultKThread,
   getKThread,
   listKThreadTurns,
@@ -45,6 +46,18 @@ const {
   resolveKDelegationThread,
   summarizeChiefLeadContinuation,
 } = await import('../src/k-thread.js')
+
+/** Read the thread's persisted CLI session id (NULL until the first ask succeeds). */
+function threadSessionId(threadId = DEFAULT_K_THREAD_ID): string | null {
+  return (db.prepare('SELECT cli_session_id FROM k_threads WHERE id = ?').get(threadId) as
+    { cli_session_id: string | null } | undefined)?.cli_session_id ?? null
+}
+
+/** The persistentSession opt startRun was last called with (W7a gating). */
+function lastPersistentSession(): { key: string; sessionId: string; resume: boolean } | undefined {
+  const call = vi.mocked(startRun).mock.calls.at(-1)!
+  return (call[1] as { persistentSession?: { key: string; sessionId: string; resume: boolean } }).persistentSession
+}
 
 function resetKState() {
   db.prepare('DELETE FROM k_thread_turns').run()
@@ -161,10 +174,10 @@ describe('routeForMessage', () => {
 
 // ── askK — fresh (cold) dispatch ──────────────────────────────────────────────
 
-describe('askK — fresh dispatch + answer capture', () => {
-  it('starts a fresh interactive run, records the ask, captures K answers, clears on terminal', async () => {
-    // A LOGISTICS message (no engineering signal) so K handles it itself on the fresh
-    // path — an engineering ask now delegates to the Chief (see the delegation suite).
+describe('askK — resumable one-shot dispatch + answer capture (W7a)', () => {
+  it('starts a resumable ONE-SHOT run, records the ask, captures K answers + persists the session id, clears on terminal', async () => {
+    // A LOGISTICS message (no engineering signal) so K handles it itself — an
+    // engineering ask now delegates to the Chief (see the delegation suite).
     const result = await askK('remind me to prep the meeting notes')
 
     expect(result.warm).toBe(false)
@@ -172,40 +185,59 @@ describe('askK — fresh dispatch + answer capture', () => {
     expect(result.kThreadId).toBe(DEFAULT_K_THREAD_ID)
     expect(typeof result.agentRunId).toBe('string')
 
+    // FIRST ask: a per-thread persistentSession, resume=false (establish the session),
+    // a NON-interactive one-shot (no interactive flag), seeded with the full renderSeed
+    // transcript (a "You:" line) — NOT a bare message.
+    const call = vi.mocked(startRun).mock.calls.at(-1)!
+    expect(String(call[0])).toContain('You: remind me to prep the meeting notes')
+    expect((call[1] as { interactive?: boolean }).interactive).toBeFalsy()
+    const ps = lastPersistentSession()!
+    expect(ps).toMatchObject({ key: DEFAULT_K_THREAD_ID, resume: false })
+    expect(ps.sessionId).toMatch(/[0-9a-f-]{36}/)
+
     // A 'user' turn is recorded on the default thread, linked to the run.
     const userTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'user')
     expect(userTurns).toHaveLength(1)
     expect(userTurns[0].text).toBe('remind me to prep the meeting notes')
     expect(userTurns[0].runId).toBe(result.runId)
 
-    // The thread now points at the warm run.
+    // The thread points at the in-flight run until it terminates.
     expect(getKThread(DEFAULT_K_THREAD_ID)!.activeRunId).toBe(result.runId)
 
-    // Two assistant events land, then a turn boundary (awaiting_input) — captureAnswers
-    // should fold them into one 'k' turn.
+    // Two assistant events land, then the one-shot's terminal 'done' (no awaiting_input
+    // park) — captureAnswers folds them into one 'k' turn AND persists the session id.
     eventBus.emitEvent({ id: uuid(), runId: result.runId, seq: 1, type: 'assistant', ts: Date.now(), text: 'Hello' })
     eventBus.emitEvent({ id: uuid(), runId: result.runId, seq: 2, type: 'assistant', ts: Date.now(), text: 'from K' })
-    eventBus.emitRunUpdate({ id: result.runId, status: 'awaiting_input', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+    eventBus.emitRunUpdate({ id: result.runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
 
     const kTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'k')
     expect(kTurns).toHaveLength(1)
     expect(kTurns[0].text).toBe('Hello\nfrom K')
     expect(kTurns[0].runId).toBe(result.runId)
 
-    // A terminal run_update clears the thread's active run (status → idle).
-    eventBus.emitRunUpdate({ id: result.runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
-
+    // The thread is cleared (idle) and now carries the persisted CLI session id.
     const thread = getKThread(DEFAULT_K_THREAD_ID)!
     expect(thread.activeRunId).toBeNull()
     expect(thread.status).toBe('idle')
+    expect(threadSessionId()).toBe(ps.sessionId)
 
-    // The fresh (non-escalating) path activated the 'k-secretary' profile — NOT the
-    // Chief. Pins the front-door identity: a regression that dispatches 'chief' on the
-    // fresh path fails here.
+    // The non-escalating path activated the 'k-secretary' profile — NOT the Chief.
     const kRows = agentRunsDb.listRecentAgentRunsByProfile.all('k-secretary', 10) as Array<Record<string, unknown>>
     expect(kRows).toHaveLength(1)
     expect(kRows[0].trigger).toBe('user-message')
     expect(kRows[0].run_id).toBe(result.runId)
+  })
+
+  it('does NOT persist the session id when the first ask fails (non-done terminal) — next ask starts fresh', async () => {
+    const result = await askK('note the errands')
+    // The run errors (killed/crashed) BEFORE answering → captureAnswers must not stamp
+    // a session id that --resume would then miss.
+    eventBus.emitRunUpdate({ id: result.runId, status: 'error', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+    expect(threadSessionId()).toBeNull()
+
+    // So the NEXT ask is treated as a fresh first ask (resume=false) again.
+    await askK('note the errands again')
+    expect(lastPersistentSession()!.resume).toBe(false)
   })
 
   it('captures ONLY the new assistant text at each boundary (seq-windowed, two boundaries)', async () => {
@@ -238,45 +270,42 @@ describe('askK — fresh dispatch + answer capture', () => {
   })
 })
 
-// ── askK — warm (continue live run) ───────────────────────────────────────────
+// ── askK — resumable session (one-shot, W7a) ──────────────────────────────────
 
-describe('askK — warm continuation', () => {
-  it('feeds the turn into the live interactive run without starting a new one', async () => {
-    // Arrange: a default thread whose active run is parked at awaiting_input, with a
-    // fake interactive proc registered so sendInput can write the turn.
-    ensureDefaultKThread()
-    const warmRunId = `mock-k-warm-${uuid().slice(0, 8)}`
-    db.prepare(
-      `INSERT OR IGNORE INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'k', '.', 'awaiting_input', ?)`,
-    ).run(warmRunId, Date.now())
-    db.prepare(`UPDATE k_threads SET active_run_id = ?, updated_at = ? WHERE id = ?`)
-      .run(warmRunId, Date.now(), DEFAULT_K_THREAD_ID)
-    __testHooks.initSeq(warmRunId)
-    __testHooks.setActiveProc(warmRunId, { interactive: true, stdin: { write() {} }, kill() {} } as never)
+describe('askK — resumable session (one-shot, W7a)', () => {
+  /** Run a first ask to completion so the thread carries a persisted session id. */
+  async function establishSession(msg = 'what is on my calendar'): Promise<string> {
+    const first = await askK(msg)
+    eventBus.emitRunUpdate({ id: first.runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+    const sid = threadSessionId()
+    expect(sid).toBeTruthy()
+    return sid!
+  }
 
-    const startCallsBefore = vi.mocked(startRun).mock.calls.length
+  it('a SECOND ask RESUMES the persisted session and sends ONLY the new message (no 12-turn transcript replay)', async () => {
+    const sessionId = await establishSession()
 
-    const result = await askK('another message')
+    const second = await askK('add lunch with Sam at noon')
+    expect(second.warm).toBe(false)
+    expect(second.runId).not.toBe(undefined)
 
-    expect(result.warm).toBe(true)
-    expect(result.runId).toBe(warmRunId)
-    expect(result.agentRunId).toBeNull()
+    // startRun got resume=true + the SAME session id; the prompt is ONLY the new message
+    // — the renderSeed transcript (a "You:" replay of prior turns) is NOT re-sent.
+    const call = vi.mocked(startRun).mock.calls.at(-1)!
+    expect(String(call[0])).toBe('add lunch with Sam at noon')
+    expect(String(call[0])).not.toContain('You:')
+    expect(String(call[0])).not.toContain('what is on my calendar')
+    expect(lastPersistentSession()).toMatchObject({ key: DEFAULT_K_THREAD_ID, sessionId, resume: true })
+  })
 
-    // No new run was started — the warm path never touches startRun.
-    expect(vi.mocked(startRun).mock.calls.length).toBe(startCallsBefore)
-    // sendInput actually claimed the parked turn (awaiting_input → running).
-    expect(runsDb.getRun.get(warmRunId)).toMatchObject({ status: 'running' })
-
-    // The user turn is recorded, linked to the warm run.
-    const userTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'user')
-    expect(userTurns).toHaveLength(1)
-    expect(userTurns[0].text).toBe('another message')
-    expect(userTurns[0].runId).toBe(warmRunId)
-
-    // Silence unused-import lint for sendInput (kept REAL and exercised via askK).
-    expect(typeof sendInput).toBe('function')
-
-    __testHooks.clearActiveProc(warmRunId)
+  it('a FIRST ask (no session yet) establishes the session with the full renderSeed transcript', async () => {
+    const r = await askK('note the milk')
+    expect(r.warm).toBe(false)
+    expect(lastPersistentSession()!.resume).toBe(false)
+    // Full seed (renderSeed) on a fresh session — the fallback replay path.
+    expect(String(vi.mocked(startRun).mock.calls.at(-1)![0])).toContain('You: note the milk')
+    // __testHooks stays imported/exercised elsewhere; keep the reference honest.
+    expect(typeof __testHooks.initSeq).toBe('function')
   })
 })
 
@@ -461,33 +490,99 @@ describe('askK — forceRoute + model power controls', () => {
     expect(String(rows[0].goal)).toContain('handle this one')
   })
 
-  it('an explicit model on a cold logistics ask reaches startRun', async () => {
+  it('an explicit model on a FIRST logistics ask reaches startRun (one-shot, resume=false)', async () => {
     await askK('note the grocery list', { model: 'claude-opus-4-8' })
     const lastCall = vi.mocked(startRun).mock.calls.at(-1)!
-    expect(lastCall[1]).toMatchObject({ model: 'claude-opus-4-8', interactive: true })
+    // One-shot resumable (NOT interactive), first ask establishes the session.
+    expect(lastCall[1]).toMatchObject({ model: 'claude-opus-4-8', persistentSession: { resume: false } })
+    expect((lastCall[1] as { interactive?: boolean }).interactive).toBeFalsy()
   })
 
-  it('an explicit model SKIPS the warm continuation and starts fresh (model can\'t change mid-process)', async () => {
-    // Arrange a warm thread exactly like the warm-continuation test above.
-    ensureDefaultKThread()
-    const warmRunId = `mock-k-warm-${uuid().slice(0, 8)}`
-    db.prepare(
-      `INSERT OR IGNORE INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'k', '.', 'awaiting_input', ?)`,
-    ).run(warmRunId, Date.now())
-    db.prepare(`UPDATE k_threads SET active_run_id = ?, updated_at = ? WHERE id = ?`)
-      .run(warmRunId, Date.now(), DEFAULT_K_THREAD_ID)
-    __testHooks.initSeq(warmRunId)
-    __testHooks.setActiveProc(warmRunId, { interactive: true, stdin: { write() {} }, kill() {} } as never)
-    try {
-      const result = await askK('note the follow-ups', { model: 'claude-opus-4-8' })
-      // Fresh dispatch, NOT the warm run — the live process's model can't change,
-      // and silently dropping the operator's explicit choice would be worse.
-      expect(result.warm).toBe(false)
-      expect(result.runId).not.toBe(warmRunId)
-      expect(vi.mocked(startRun).mock.calls.at(-1)![1]).toMatchObject({ model: 'claude-opus-4-8' })
-    } finally {
-      __testHooks.clearActiveProc(warmRunId)
-    }
+  it('an explicit model on a RESUME ask still resumes the SAME session under that model (no continuity lost)', async () => {
+    // First ask establishes + persists the session (design A: a model override no longer
+    // forfeits continuity — there is no live process to keep).
+    const first = await askK('note the follow-ups')
+    eventBus.emitRunUpdate({ id: first.runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+    const sessionId = threadSessionId()!
+
+    // A LOGISTICS follow-up (no engineering keyword) so K keeps handling it itself.
+    const second = await askK('what else is on my calendar', { model: 'claude-opus-4-8' })
+    expect(second.warm).toBe(false)
+    expect(second.runId).not.toBe(first.runId)
+    const lastCall = vi.mocked(startRun).mock.calls.at(-1)!
+    expect(lastCall[1]).toMatchObject({ model: 'claude-opus-4-8', persistentSession: { sessionId, resume: true } })
+  })
+})
+
+// ── askK — undo (F-060) + regular-dispatch gating ─────────────────────────────
+
+describe('undoK — an undone ask is not replayed (F-060)', () => {
+  it('removes the dangling user turn a killed ask left behind; a later reseed excludes it', async () => {
+    const { runId } = await askK('remind me to cancel the order')
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'user')).toHaveLength(1)
+
+    undoK(runId)
+
+    // The dangling user turn is GONE (not merely the run killed) — nothing to replay.
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(0)
+    const thread = getKThread(DEFAULT_K_THREAD_ID)!
+    expect(thread.activeRunId).toBeNull()
+    expect(thread.status).toBe('idle')
+
+    // An undone FIRST ask never persisted a session id → the next ask is fresh AND its
+    // renderSeed seed does NOT contain the undone message.
+    expect(threadSessionId()).toBeNull()
+    await askK('what is the weather')
+    expect(String(vi.mocked(startRun).mock.calls.at(-1)![0])).not.toContain('cancel the order')
+    expect(lastPersistentSession()!.resume).toBe(false)
+  })
+
+  it('is idempotent — a second undo of the same run is a no-op', async () => {
+    const { runId } = await askK('note idempotent')
+    undoK(runId)
+    expect(() => undoK(runId)).not.toThrow()
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'user')).toHaveLength(0)
+  })
+
+  it('RACE: a LATE assistant/terminal flush after undoK does NOT resurrect an orphaned k reply', async () => {
+    // The kill is fire-and-forget, so a still-streaming run can flush events AFTER undo.
+    const { runId } = await askK('remind me to cancel the order')
+    undoK(runId)
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(0)
+
+    // The dying process flushes a late assistant event, then its terminal — captureAnswers'
+    // subscriber is still LIVE (undo does not tear it down). Without the undo gate this
+    // appended an orphaned 'k' reply for a run whose 'user' ask is already gone.
+    eventBus.emitEvent({ id: uuid(), runId, seq: 1, type: 'assistant', ts: Date.now(), text: 'late partial reply' })
+    eventBus.emitRunUpdate({ id: runId, status: 'killed', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+
+    // No orphaned reply — the thread has NO turns for the undone run (nothing to reseed).
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.runId === runId)).toHaveLength(0)
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(0)
+  })
+
+  it('RACE: a Chief delegation terminal after undoK does NOT resurrect an orphaned report-back', async () => {
+    // The SAME "no unsubscribe on kill" gap in reportDelegationBack's finalize path.
+    const { runId } = await askK('fix the failing test suite') // escalates → chief + report-back wired
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'user')).toHaveLength(1)
+
+    undoK(runId)
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(0)
+
+    // The Chief run files a report then terminates AFTER the undo — its subscriber is still
+    // live. Without the gate this appended an orphaned report-back turn.
+    fileChiefReport(runId, 'PR opened after undo')
+    eventBus.emitRunUpdate({ id: runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(0)
+  })
+})
+
+describe('REGULAR-DISPATCH gating — the persistent session is K-only', () => {
+  it('a delegated (escalating) ask does NOT thread a persistentSession — the Chief run stays a fresh-worktree dispatch', async () => {
+    await askK('fix the failing test suite') // escalates → delegateToChief → startAgentRun('chief')
+    const call = vi.mocked(startRun).mock.calls.at(-1)!
+    expect((call[1] as { persistentSession?: unknown }).persistentSession).toBeUndefined()
   })
 })
 

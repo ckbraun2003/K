@@ -336,9 +336,90 @@ describe('migrate() — projects.default_branch (guarded ALTER + old-schema row)
   })
 })
 
+// W7a / F-054: the k_threads.cli_session_id column (SCHEMA_VERSION 6) — the stable Claude
+// CLI session id a K thread's asks resume. Guarded ALTER on a pre-column k_threads table;
+// a pre-existing row must read back cli_session_id = null (the "no session yet" sentinel).
+describe('migrate() — k_threads.cli_session_id (guarded ALTER + old-schema row)', () => {
+  const tmpPath = path.join(os.tmpdir(), `k-migration-clisession-${Date.now()}.db`)
+  let tempDb: Database.Database
+
+  afterAll(() => {
+    try { tempDb?.close() } catch { /* ignore */ }
+    try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+  })
+
+  it('adds cli_session_id on an old-schema k_threads; a pre-existing row reads back null; stamps SCHEMA_VERSION', () => {
+    tempDb = new Database(tmpPath)
+    tempDb.pragma('foreign_keys = ON')
+
+    // Old-schema (pre-W7a): k_threads WITHOUT cli_session_id + the runs table it FKs.
+    tempDb.exec(`
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY, prompt TEXT NOT NULL, cwd TEXT NOT NULL, worktree TEXT,
+        status TEXT NOT NULL DEFAULT 'queued', provider TEXT NOT NULL DEFAULT 'claude',
+        model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6', tokens_in INTEGER NOT NULL DEFAULT 0,
+        tokens_out INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL, ended_at INTEGER
+      );
+      CREATE TABLE k_threads (
+        id            TEXT PRIMARY KEY,
+        title         TEXT,
+        status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','idle')),
+        active_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        created_at    INTEGER NOT NULL,
+        updated_at    INTEGER NOT NULL
+      );
+    `)
+
+    // A pre-existing thread from before the column existed.
+    const now = Date.now()
+    tempDb.prepare(
+      `INSERT INTO k_threads (id, title, status, active_run_id, created_at, updated_at)
+       VALUES ('k-default', NULL, 'active', NULL, ?, ?)`,
+    ).run(now, now)
+
+    migrate(tempDb)
+
+    // (a) the column now exists
+    const cols = (tempDb.pragma('table_info(k_threads)') as Array<{ name: string }>).map(c => c.name)
+    expect(cols).toContain('cli_session_id')
+
+    // (b) the pre-existing row reads back cli_session_id = null (backfilled NULL)
+    const row = tempDb.prepare(`SELECT cli_session_id FROM k_threads WHERE id = 'k-default'`).get() as
+      { cli_session_id: string | null }
+    expect(row.cli_session_id).toBeNull()
+
+    // (c) it is writable + reads back what was stamped (the resume plumbing)
+    tempDb.prepare(`UPDATE k_threads SET cli_session_id = 'sess-xyz' WHERE id = 'k-default'`).run()
+    expect(
+      (tempDb.prepare(`SELECT cli_session_id FROM k_threads WHERE id = 'k-default'`).get() as { cli_session_id: string })
+        .cli_session_id,
+    ).toBe('sess-xyz')
+
+    // (d) the schema version stamps to the current SCHEMA_VERSION
+    expect(tempDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+  })
+
+  it('migrate() is idempotent for the cli_session_id branch — second run does not double-add', () => {
+    tempDb.pragma('user_version = 0')
+    expect(() => migrate(tempDb)).not.toThrow()
+    const c = (tempDb.pragma('table_info(k_threads)') as Array<{ name: string }>)
+      .filter(col => col.name === 'cli_session_id')
+    expect(c.length).toBe(1)
+    expect(tempDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+  })
+})
+
 describe('db migration — projects.default_branch (boot)', () => {
   it('default_branch column exists on the live db after boot migrate()', () => {
     const cols = db.pragma('table_info(projects)') as Array<{ name: string }>
     expect(cols.map(c => c.name)).toContain('default_branch')
+  })
+})
+
+describe('db migration — k_threads.cli_session_id (boot)', () => {
+  it('cli_session_id column exists on the live db after boot migrate()', () => {
+    const cols = db.pragma('table_info(k_threads)') as Array<{ name: string }>
+    expect(cols.map(c => c.name)).toContain('cli_session_id')
   })
 })

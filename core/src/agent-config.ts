@@ -62,6 +62,16 @@ export interface SynthesizeOpts {
   assetsDir?: string            // default: repo-root agent-config/
   dataDir?: string              // default: process.env.K_DATA_DIR ?? <repo>/data
   hostCredentialsPath?: string  // default: <home>/.claude/.credentials.json — INJECTABLE for tests
+  // W7a: a STABLE run dir (absolute) to build the config under instead of the default
+  // per-run `<dataDir>/agent-runs/<runId>`. K-secretary asks pass a per-THREAD stable
+  // dir so the CLI's session files (stored under CLAUDE_CONFIG_DIR keyed by cwd) survive
+  // across asks and `--resume` can find them. MUST stay under dataDir (guard-checked).
+  // Absent for every regular dispatch run → the default per-run dir, byte-for-byte as before.
+  runDirOverride?: string
+  // W7a: when true, cleanup() is a NO-OP so the (stable) run dir — and the CLI session
+  // state under it — persists across asks. Absent/false for regular runs → cleanup()
+  // removes the ephemeral per-run dir on terminal exactly as before.
+  persist?: boolean
 }
 
 // ── path guard ─────────────────────────────────────────────────────────────────
@@ -225,8 +235,10 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   // for built-ins at the CLI.
   const disallowedTools = computeDisallowedTools(allowedTools)
 
-  // 1. run config dir (path-guarded root for every write below)
-  const runDir = path.join(dataDir, 'agent-runs', opts.runId)
+  // 1. run config dir (path-guarded root for every write below). A K-secretary ask
+  //    passes a STABLE per-thread runDirOverride so its config + CLI session state
+  //    persist across asks; every regular run gets the ephemeral per-run default.
+  const runDir = opts.runDirOverride ?? path.join(dataDir, 'agent-runs', opts.runId)
   guardUnder(dataDir, runDir) // defense-in-depth: runDir (and thus cleanup) stays under dataDir
   const configDir = path.join(runDir, 'config')
   fs.mkdirSync(configDir, { recursive: true })
@@ -323,10 +335,12 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     )
   }
 
-  // 9. cleanup removes the whole run dir (config + any siblings).
-  const cleanup = (): void => {
-    fs.rmSync(runDir, { recursive: true, force: true })
-  }
+  // 9. cleanup removes the whole run dir (config + any siblings). For a PERSISTED
+  //    (K-secretary) config this is a NO-OP so the stable dir — and the CLI session
+  //    files under it that `--resume` needs — survive across asks.
+  const cleanup = opts.persist
+    ? (): void => { /* persisted: keep the stable dir + its CLI session state */ }
+    : (): void => { fs.rmSync(runDir, { recursive: true, force: true }) }
 
   return {
     configDir,
@@ -339,6 +353,22 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     usedHostCredentialFallback,
     cleanup,
   }
+}
+
+/**
+ * Resolve the STABLE per-K-thread paths a K-secretary ask reuses across invocations
+ * (W7a, design A). Both live under a dedicated `<dataDir>/k-secretary/<key>` namespace
+ * — deliberately NOT under `agent-runs/` — so the boot orphan-sweep
+ * (pruneOrphanAgentRuns), which reaps every `agent-runs/<id>` not held by a live run,
+ * never deletes K's persistent session state. `runDir` is fed to synthesizeConfigDir's
+ * runDirOverride (its config lands at `<runDir>/config`); `cwd` is the stable working
+ * directory the CLI keys its session files under, so `--resume` finds them. `key` is the
+ * thread id — segment-checked here before any path use (it is interpolated into fs paths).
+ */
+export function kSecretaryConfigPaths(key: string, dataDir?: string): { runDir: string; cwd: string } {
+  assertSafeSegment(key, 'k-secretary thread key')
+  const base = path.join(dataDir ?? process.env.K_DATA_DIR ?? DEFAULT_DATA_DIR, 'k-secretary', key)
+  return { runDir: path.join(base, 'agent'), cwd: path.join(base, 'cwd') }
 }
 
 /**

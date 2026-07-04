@@ -23,7 +23,7 @@ import os from 'os'
 import path from 'path'
 import { createRequire } from 'module'
 import { fileURLToPath, pathToFileURL } from 'url'
-import { synthesizeConfigDir, pruneOrphanAgentRuns } from '../src/agent-config.js'
+import { synthesizeConfigDir, pruneOrphanAgentRuns, kSecretaryConfigPaths } from '../src/agent-config.js'
 import type { SynthesizeOpts } from '../src/agent-config.js'
 import { DEFAULT_PROFILE, type CharterName } from '../src/profiles.js'
 
@@ -312,6 +312,53 @@ describe('bundle-driven mounting + kstore wiring (Wave 6)', () => {
     expect(mcp.mcpServers.kstore.command).toBe(process.execPath)
     expect(mcp.mcpServers.logistics.env.K_RUN_ID).toBe(runId)
     expect(mcp.mcpServers.logistics.command).toBe(process.execPath)
+  })
+})
+
+// W7a — the STABLE, persisted K-secretary config (design A). A K ask reuses one
+// per-thread dir so the CLI's session files survive for `--resume`, instead of the
+// ephemeral per-run dir that regular dispatch runs still get + clean up.
+describe('synthesizeConfigDir — W7a persistent (K-secretary) config', () => {
+  it('runDirOverride puts config at <override>/config and persist:true KEEPS it (+ session state) on cleanup()', () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-agcfg-persist-'))
+    tmpDirs.push(dataDir)
+    const runDirOverride = path.join(dataDir, 'k-secretary', 'k-default', 'agent')
+    const cfg = synthesizeConfigDir(DEFAULT_PROFILE, {
+      runId: 'run-abc', dataDir, assetsDir: ASSET_DIR, runDirOverride, persist: true,
+    })
+    // Config lands under the stable override, NOT the boot-swept agent-runs/ namespace.
+    expect(cfg.configDir).toBe(path.join(runDirOverride, 'config'))
+    expect(cfg.configDir.includes(`${path.sep}agent-runs${path.sep}`)).toBe(false)
+    expect(fs.existsSync(cfg.appendSystemPromptFile)).toBe(true)
+    // Simulate the CLI session state that lives under CLAUDE_CONFIG_DIR (what --resume reads).
+    const sessionMarker = path.join(cfg.configDir, 'projects', 'session.jsonl')
+    fs.mkdirSync(path.dirname(sessionMarker), { recursive: true })
+    fs.writeFileSync(sessionMarker, '{}', 'utf8')
+
+    cfg.cleanup() // persist:true → NO-OP
+
+    expect(fs.existsSync(cfg.configDir)).toBe(true)
+    expect(fs.existsSync(sessionMarker)).toBe(true) // session survives across asks
+  })
+
+  it('REGULAR unchanged: no override/persist → config under agent-runs/<runId> and cleanup() REMOVES it', () => {
+    const cfg = synth() // default per-run dir
+    expect(cfg.configDir.includes(`${path.sep}agent-runs${path.sep}`)).toBe(true)
+    cfg.cleanup()
+    expect(fs.existsSync(cfg.configDir)).toBe(false)
+  })
+
+  it('kSecretaryConfigPaths returns a stable per-thread runDir + cwd OUTSIDE agent-runs/', () => {
+    const dataDir = path.join(os.tmpdir(), 'k-fake-data')
+    const { runDir, cwd } = kSecretaryConfigPaths('k-default', dataDir)
+    expect(runDir).toBe(path.join(dataDir, 'k-secretary', 'k-default', 'agent'))
+    expect(cwd).toBe(path.join(dataDir, 'k-secretary', 'k-default', 'cwd'))
+    expect(runDir.includes(`${path.sep}agent-runs${path.sep}`)).toBe(false)
+    expect(cwd.includes(`${path.sep}agent-runs${path.sep}`)).toBe(false)
+  })
+
+  it('kSecretaryConfigPaths rejects a traversal key before building any path', () => {
+    expect(() => kSecretaryConfigPaths('../escape')).toThrow(/unsafe/)
   })
 })
 

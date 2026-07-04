@@ -419,6 +419,11 @@ db.exec(`
     title         TEXT,
     status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','idle')),
     active_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    -- The stable Claude CLI session id this thread's K asks resume (W7a, F-054).
+    -- NULL until the first ask answers successfully; thereafter every ask runs
+    -- claude -p --resume <cli_session_id> so continuity comes from a cheap cache-read
+    -- of the session, not a held warm process or a replayed transcript.
+    cli_session_id TEXT,
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL
   );
@@ -536,7 +541,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -678,6 +683,15 @@ function migrateSlow(d: Database.Database): void {
   // migrate() safe against old-schema fixtures predating the table.
   if (hasTable(d, 'projects')) {
     addColumn(d, 'projects', 'default_branch', 'TEXT')
+  }
+  // k_threads.cli_session_id (SCHEMA_VERSION 6, W7a / F-054): the stable Claude CLI
+  // session id a K thread's asks resume, so K continuity comes from `--resume` (a cheap
+  // cache-read) instead of a held warm process. Appended via guarded ALTER so existing
+  // DBs gain it; fresh installs get it from the DDL above. Pre-migration rows read back
+  // NULL (the "no session yet → first ask" sentinel). hasTable guard keeps migrate() safe
+  // against old-schema fixtures predating the table.
+  if (hasTable(d, 'k_threads')) {
+    addColumn(d, 'k_threads', 'cli_session_id', 'TEXT')
   }
   // project_tasks issue columns — LEGACY-UPGRADE path ONLY (P5.1d2b). The table is
   // no longer created anywhere (dropped by the one-shot mig_project_tasks_drop
@@ -2167,6 +2181,14 @@ const insertThread = db.prepare(`
 const getThread = db.prepare(`SELECT * FROM k_threads WHERE id = ?`)
 const updateThreadActiveRun = db.prepare(`UPDATE k_threads SET active_run_id = ?, updated_at = ? WHERE id = ?`)
 const updateThreadStatus = db.prepare(`UPDATE k_threads SET status = ?, updated_at = ? WHERE id = ?`)
+// The stable CLI session id for a thread's K asks (W7a). Read to decide first-ask
+// (--session-id) vs resume (--resume); written ONCE on the first ask's successful
+// terminal. The `IS NULL` guard makes the write idempotent — a resume ask never
+// re-stamps it, and a rare concurrent first-ask can't clobber the winner's id.
+const getThreadCliSessionId = db.prepare(`SELECT cli_session_id FROM k_threads WHERE id = ?`)
+const setThreadCliSessionId = db.prepare(
+  `UPDATE k_threads SET cli_session_id = ?, updated_at = ? WHERE id = ? AND cli_session_id IS NULL`,
+)
 
 const insertTurn = db.prepare(`
   INSERT INTO k_thread_turns (id, thread_id, role, text, run_id, created_at)
@@ -2175,6 +2197,20 @@ const insertTurn = db.prepare(`
 const getTurn = db.prepare(`SELECT * FROM k_thread_turns WHERE id = ?`)
 const patchTurnRunId = db.prepare(`UPDATE k_thread_turns SET run_id = ? WHERE id = ?`)
 const listTurns = db.prepare(`SELECT * FROM k_thread_turns WHERE thread_id = ? ORDER BY created_at ASC, id ASC`)
+// F-060 undo: remove every turn a killed/undone run appended (the dangling `user` ask
+// with no reply, plus any partial `k` turn), so an undone message is never replayed
+// into a later seed. And clear a thread stranded pointing at that just-killed run.
+const deleteTurnsByRunId = db.prepare(`DELETE FROM k_thread_turns WHERE run_id = ?`)
+const clearThreadActiveRunByRunId = db.prepare(
+  `UPDATE k_threads SET active_run_id = NULL, status = 'idle', updated_at = ? WHERE active_run_id = ?`,
+)
+// F-060 backstop: is there still a live `user` ask turn linked to this run? A `k` reply
+// for a run whose `user` turn was removed (undone) would be orphaned — so this gates the
+// reply-append paths (captureAnswers / reportDelegationBack) against a late flush from a
+// killed-then-undone run resurrecting a reply with no matching ask.
+const hasUserTurnForRun = db.prepare(
+  `SELECT 1 FROM k_thread_turns WHERE run_id = ? AND role = 'user' LIMIT 1`,
+)
 // Resolve the K thread that DELEGATED a given run (loop-b2 Chief→K continuation). The
 // K→Chief link is derivable with NO new table: delegateToChief patches the Chief run id
 // onto the operator's user turn (and its ack turn), so a k_thread_turns row whose run_id =
@@ -2189,9 +2225,14 @@ export const kThreadsDb = {
   getThread,
   updateThreadActiveRun,
   updateThreadStatus,
+  getThreadCliSessionId,
+  setThreadCliSessionId,
   insertTurn,
   getTurn,
   patchTurnRunId,
   listTurns,
+  deleteTurnsByRunId,
+  clearThreadActiveRunByRunId,
+  hasUserTurnForRun,
   getThreadIdByTurnRunId,
 }

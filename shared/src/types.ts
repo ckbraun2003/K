@@ -1111,6 +1111,14 @@ export const KAskBodySchema = z.object({
 })
 export type KAskBody = z.infer<typeof KAskBodySchema>
 
+/** Body for POST /api/k/undo — undo a just-started K ask (F-060). Kills the run AND
+ *  removes the dangling turns it appended, so an undone message is never replayed into
+ *  a later seed/resume. `runId` is the run KAskResult returned. */
+export const KUndoBodySchema = z.object({
+  runId: z.string().min(1).max(200),
+})
+export type KUndoBody = z.infer<typeof KUndoBodySchema>
+
 // ─── Durable work-items HTTP surface (operator-global) ───────────────────────
 // The two DURABLE scopes an operator creates/reads over the /api/k/work-items API:
 // `personal` (the operator's own list) and `org` (org-wide). The ephemeral `run`

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import {
   KAskBodySchema,
+  KUndoBodySchema,
   WorkItemStatusSchema,
   DurableWorkItemScopeSchema,
   KWorkItemCreateBodySchema,
@@ -10,8 +11,8 @@ import {
   type WorkItemStatus,
   type DurableWorkItemScope,
 } from '@k/shared'
-import { askK, ensureDefaultKThread, listKThreadTurns } from '../k-thread.js'
-import { workItemsDb, logisticsDb } from '../db.js'
+import { askK, undoK, ensureDefaultKThread, listKThreadTurns } from '../k-thread.js'
+import { workItemsDb, logisticsDb, runsDb } from '../db.js'
 import { rowToWorkItem } from '../mcp/k-store.js'
 import { rowToNote, rowToCalendarEvent, rowToReminder } from '../mcp/logistics.js'
 import { sendError, sendZodError } from './http-errors.js'
@@ -60,6 +61,23 @@ export async function kRoutes(app: FastifyInstance) {
     } catch (e) {
       req.log.error(e)
       return sendError(reply, 500, 'k ask failed')
+    }
+  })
+
+  // POST /api/k/undo — undo a just-started K ask (F-060): kill the run AND remove the
+  // dangling turns it appended so the undone message is never replayed. 400 bad body ·
+  // 404 unknown run · 200 { undone:true }. The existence guard mirrors /runs/:id/kill so
+  // undoing an unknown id is a clear 404, not a silent success.
+  app.post('/api/k/undo', async (req, reply) => {
+    const parsed = KUndoBodySchema.safeParse(req.body)
+    if (!parsed.success) return sendZodError(reply, parsed.error)
+    if (!runsDb.getRun.get(parsed.data.runId)) return sendError(reply, 404, 'not found')
+    try {
+      undoK(parsed.data.runId)
+      return reply.send({ undone: true })
+    } catch (e) {
+      req.log.error(e)
+      return sendError(reply, 500, 'k undo failed')
     }
   })
 

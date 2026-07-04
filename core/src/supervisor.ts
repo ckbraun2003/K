@@ -23,7 +23,7 @@ import { route } from './router.js'
 import { resolvePermissionMode } from './claude-args.js'
 import { getProvider, parseClaudeLine } from './providers.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
-import { synthesizeConfigDir, pruneOrphanAgentRuns, type SynthesizedConfig } from './agent-config.js'
+import { synthesizeConfigDir, pruneOrphanAgentRuns, kSecretaryConfigPaths, type SynthesizedConfig } from './agent-config.js'
 import { DEFAULT_PROFILE } from './profiles.js'
 import { TERMINAL_RUN_STATUSES } from './run-lifecycle.js'
 
@@ -108,6 +108,13 @@ export type StartRunOptions = {
    *  unchanged; startAgentRun passes the resolved profile so a run gets ITS tier's
    *  config, not the orchestrator's. Ignored for ollama runs (no config synthesis). */
   profile?: AgentProfile
+  /** W7a (K-secretary ONLY): make this a RESUMABLE one-shot run against a STABLE,
+   *  persisted per-thread config dir + cwd instead of a fresh worktree + ephemeral
+   *  per-run config. `key` is the K thread id (keys the stable dir/cwd); `sessionId` is
+   *  the CLI session id; `resume` false → establish it (`--session-id`), true → continue
+   *  it (`--resume`). Absent for every regular dispatch run → fresh worktree, fresh
+   *  synthesized config, no session flags — byte-for-byte the prior behavior. */
+  persistentSession?: { key: string; sessionId: string; resume: boolean }
 }
 
 export async function startRun(prompt: string, opts: StartRunOptions = {}): Promise<Run> {
@@ -118,7 +125,12 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   // (and could mis-select ollama for a claude-* id), so neutralize maxCostUsd too.
   const routeResult = route({ prompt, preferLocal: opts.model ? false : opts.preferLocal, maxCostUsd: opts.model ? undefined : opts.maxCostUsd })
   const runId = uuid()
-  const cwd = opts.cwd ?? REPO_ROOT
+  // W7a: a K-secretary ask runs in a STABLE per-thread cwd (so the CLI's session files,
+  // keyed by cwd, persist for `--resume`) — never a fresh worktree. Absent for regular
+  // runs → the caller's cwd (or the repo root), unchanged.
+  const ps = opts.persistentSession
+  const kPaths = ps ? kSecretaryConfigPaths(ps.key) : undefined
+  const cwd = kPaths?.cwd ?? opts.cwd ?? REPO_ROOT
   const worktreePath = path.join(WORKTREES_DIR, runId)
   const now = Date.now()
 
@@ -169,23 +181,35 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
 
   // Try to create a worktree; fall back to cwd if git isn't set up
   let effectiveCwd = cwd
-  try {
-    // Only create worktree if cwd is inside a git repo
-    await execa('git', ['-C', cwd, 'rev-parse', '--git-dir'], { reject: true })
-    await execa('git', ['-C', cwd, 'worktree', 'add', '--detach', worktreePath], { reject: true })
-    effectiveCwd = worktreePath
-  } catch {
-    // Not a git repo or worktree failed — run in cwd directly
-    effectiveCwd = cwd
+  if (ps) {
+    // K-secretary ask: run directly in the STABLE per-thread cwd — K does logistics/Q&A/
+    // routing, not code, so it needs NO throwaway worktree, and a stable cwd is what lets
+    // `--resume` find the session. Ensure the dir exists; never a worktree.
+    fs.mkdirSync(cwd, { recursive: true })
     run.worktree = undefined
     runsDb.clearRunWorktree.run(run.id)
+    effectiveCwd = cwd
+  } else {
+    try {
+      // Only create worktree if cwd is inside a git repo
+      await execa('git', ['-C', cwd, 'rev-parse', '--git-dir'], { reject: true })
+      await execa('git', ['-C', cwd, 'worktree', 'add', '--detach', worktreePath], { reject: true })
+      effectiveCwd = worktreePath
+    } catch {
+      // Not a git repo or worktree failed — run in cwd directly
+      effectiveCwd = cwd
+      run.worktree = undefined
+      runsDb.clearRunWorktree.run(run.id)
+    }
   }
 
   const inWorktree = effectiveCwd === worktreePath
 
   // Launch in background — don't await. The profile (default: orchestrator) drives
-  // per-tier config synthesis inside runAgent.
-  void runAgent(run, prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE)
+  // per-tier config synthesis inside runAgent. A persistent session (K only) threads the
+  // stable run dir + session id/resume through.
+  const session = ps ? { runDir: kPaths!.runDir, sessionId: ps.sessionId, resume: ps.resume } : undefined
+  void runAgent(run, prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE, session)
 
   return run
 }
@@ -313,12 +337,12 @@ export function reconcileOrphanedLeadDispatches(d: import('better-sqlite3').Data
 }
 
 /**
- * Clear k_threads stranded pointing at a DEAD warm run. Live-observed after a
+ * Clear k_threads stranded pointing at a DEAD run. Live-observed after a
  * crash/boot: a thread stuck status='active' with an active_run_id whose run is
  * already terminal (the captureAnswers subscriber that would have cleared it does
- * not survive a restart) or whose runs row is missing entirely. The warm-path
- * check (k-thread.ts::isWarm) would treat such a pointer as cold anyway, but the
- * stale 'active' status misreports the thread forever — so the boot sweep resets it:
+ * not survive a restart) or whose runs row is missing entirely. askK ignores such a
+ * pointer anyway (a K ask never continues a dead run), but the stale 'active' status
+ * misreports the thread forever — so the boot sweep resets it:
  * active_run_id → NULL, status → 'idle', updated_at stamped. Runs AFTER
  * reconcileStaleRuns so runs just flipped 'interrupted' are covered. A thread whose
  * run is still live is untouched. Terminal set built from run-lifecycle.ts::
@@ -427,7 +451,18 @@ function isTurnEndLine(line: string): boolean {
   try { return (JSON.parse(line) as { type?: string }).type === 'result' } catch { return false }
 }
 
-async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boolean, interactive: boolean, profile: AgentProfile = DEFAULT_PROFILE) {
+async function runAgent(
+  run: Run,
+  prompt: string,
+  cwd: string,
+  inWorktree: boolean,
+  interactive: boolean,
+  profile: AgentProfile = DEFAULT_PROFILE,
+  // W7a (K-secretary ONLY): build the config under a STABLE, persisted run dir and pass
+  // the CLI session flags. Undefined for every regular run → ephemeral per-run config +
+  // no session flags, exactly as before.
+  session?: { runDir: string; sessionId: string; resume: boolean },
+) {
   emitStatusEvent(run.id, 'running', nextSeq(run.id), Date.now())
   eventBus.emitRunUpdate({ ...run, status: 'running' })
 
@@ -449,13 +484,23 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
     // host ~/.claude is NEVER loaded and the run gets K's per-tier allowlist, MCP,
     // settings, and injected L0+L1 system prompt. ollama runs are unaffected.
     if (provider.name === 'claude') {
-      synth = synthesizeConfigDir(profile, { runId: run.id })
+      // A K-secretary ask (session set) builds its config under the STABLE per-thread
+      // dir and keeps it (persist) so the CLI session state survives for `--resume`;
+      // every regular run gets the ephemeral per-run dir cleaned on terminal, as before.
+      synth = synthesizeConfigDir(
+        profile,
+        session ? { runId: run.id, runDirOverride: session.runDir, persist: true } : { runId: run.id },
+      )
     }
 
     const proc = execa(
       provider.binary,
       provider.buildArgs(prompt, {
         inWorktree, permissionMode: PERMISSION_MODE, model: run.model, interactive,
+        // Session flags (K only): establish (--session-id) or continue (--resume) the
+        // thread's stable CLI session. Absent for regular runs → no session flags.
+        sessionId: session?.sessionId,
+        resumeSession: session?.resume,
         claudeConfig: synth
           ? {
               allowedTools: synth.allowedTools,
@@ -499,7 +544,8 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
           const parsed = provider.parseLine(line, run.id, s)
           const event = parsed ? validateAgentEvent(parsed, run.id, s) : null
           if (event) {
-            // Accumulate usage (last-wins overwrite; a real 0 is a legitimate value)
+            // Accumulate usage (F-057: sum per-turn `usage` events; cost last-wins with
+            // a real 0 a legitimate value — see accumulate)
             ;({ tokensIn, tokensOut, costUsd } = accumulate({ tokensIn, tokensOut, costUsd }, event))
             eventBus.emitEvent(event)
           }
@@ -622,15 +668,29 @@ export function endSession(runId: string): boolean {
 type Usage = { tokensIn: number; tokensOut: number; costUsd: number }
 
 /**
- * Roll a parsed event's usage into the running totals with last-wins/overwrite
- * semantics. Guards are explicit `!= null` nullish checks (not truthy) so a
- * legitimate `0` (cache-only turn, free/Ollama run, total_cost_usd: 0) is
- * recorded instead of letting the prior non-zero value persist.
+ * Roll a parsed event's usage into the running totals (F-057).
+ *
+ * The per-turn `usage` event (the claude `result` line — see providers.ts mapType)
+ * is the ONE authoritative usage carrier: it reports THAT TURN's full input
+ * (input + cache_creation + cache_read) and output. We SUM those across turn
+ * boundaries so a multi-turn/interactive run — and a `/compact` turn that reports
+ * near-zero fresh input — reflects the TRUE total instead of collapsing to the LAST
+ * turn (the prior last-wins bug: the final near-zero result overwrote the real total).
+ * A one-shot run has exactly ONE `usage` event, so the sum equals that single
+ * whole-run value — byte-identical to before for every regular (one-shot) dispatch.
+ *
+ * `costUsd` comes from `total_cost_usd`, already a CUMULATIVE running total, so it
+ * stays last-wins — with the explicit `!= null` guard preserving the falsy-zero fix
+ * (a real 0, e.g. a free/Ollama run, overwrites a stale non-zero instead of persisting
+ * it). Non-usage events (streaming assistant text/tool_use, status, …) do NOT move the
+ * run totals: the `usage` event is the single source of truth, and folding the
+ * streaming assistant token projections in too would double-count.
  */
 export function accumulate(prev: Usage, event: AgentEvent): Usage {
+  if (event.type !== 'usage') return prev
   return {
-    tokensIn: event.tokensIn != null ? event.tokensIn : prev.tokensIn,
-    tokensOut: event.tokensOut != null ? event.tokensOut : prev.tokensOut,
+    tokensIn: event.tokensIn != null ? prev.tokensIn + event.tokensIn : prev.tokensIn,
+    tokensOut: event.tokensOut != null ? prev.tokensOut + event.tokensOut : prev.tokensOut,
     costUsd: event.costUsd != null ? event.costUsd : prev.costUsd,
   }
 }

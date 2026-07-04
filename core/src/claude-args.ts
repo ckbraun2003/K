@@ -48,11 +48,23 @@ export function buildClaudeArgs(
     model?: string
     interactive?: boolean
     claudeConfig?: ClaudeConfigArgs
+    // W7a (gated to K-secretary asks): a stable CLI session id to establish or resume.
+    // `resumeSession` false → `--session-id <sessionId>` (create the session on the first
+    // ask); true → `--resume <sessionId>` (continue it cheaply from the cache). Absent for
+    // every regular dispatch run → NEITHER flag is emitted (argv byte-identical to before).
+    sessionId?: string
+    resumeSession?: boolean
   },
 ): string[] {
   const args = opts.interactive
     ? ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--replay-user-messages']
     : ['-p', prompt, '--output-format', 'stream-json', '--verbose']
+  // Session continuity (K only): --session-id establishes a stable session on the first
+  // ask; --resume continues it on every later ask (composes with -p / --print). Emitted
+  // ONLY when a sessionId is supplied, so a regular run's argv is unchanged.
+  if (opts.sessionId) {
+    args.push(opts.resumeSession ? '--resume' : '--session-id', opts.sessionId)
+  }
   if (opts.inWorktree && opts.permissionMode !== 'default') {
     args.push('--permission-mode', opts.permissionMode)
   }

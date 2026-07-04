@@ -2,7 +2,8 @@
  * CommandBar → K front-door wiring (P5.1c2). The orchestrator's gate:
  *   1. a plain query shows the inline route preview from routeForMessage
  *   2. sending (click the ask-k row) calls api.k.ask exactly once with the message
- *   3. an undo toast appears; clicking Undo kills the returned runId via api.runs.kill
+ *   3. an undo toast appears; clicking Undo undoes the returned runId via api.k.undo
+ *      (kill + dangling-turn removal, F-060)
  * api + route are mocked; the REAL routeForMessage (from @k/shared) drives the
  * expected label so the assertion tracks the router, not a hardcoded string.
  */
@@ -21,16 +22,16 @@ const statusValue: Status = {
 
 // vi.hoisted so these are initialized before the (hoisted) vi.mock factories run
 // — the factories reference them eagerly, so a plain const would hit a TDZ error.
-const { mockAsk, mockKill, mockNavigate } = vi.hoisted(() => ({
+const { mockAsk, mockUndo, mockNavigate } = vi.hoisted(() => ({
   mockAsk: vi.fn(),
-  mockKill: vi.fn(async () => ({ killed: true })),
+  mockUndo: vi.fn(async () => ({ undone: true })),
   mockNavigate: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
   api: {
-    k: { ask: mockAsk },
-    runs: { list: async () => [], kill: mockKill },
+    k: { ask: mockAsk, undo: mockUndo },
+    runs: { list: async () => [] },
     projects: { list: async () => [] },
     claudeModel: {
       get: async () => ({
@@ -70,7 +71,7 @@ beforeEach(() => {
   // jsdom does not implement scrollIntoView (CommandBar calls it on selection).
   Element.prototype.scrollIntoView = vi.fn()
   mockAsk.mockReset()
-  mockKill.mockClear()
+  mockUndo.mockClear()
   mockNavigate.mockClear()
   mockAsk.mockImplementation(async (message: string) => ({
     kThreadId: 'kt', agentRunId: 'ar', runId: 'run-123', route: routeForMessage(message), warm: false,
@@ -106,7 +107,7 @@ describe('CommandBar → K front door', () => {
     )
   })
 
-  it('sending calls api.k.ask once + opens the run console, then Undo kills the run', async () => {
+  it('sending calls api.k.ask once + opens the run console, then Undo undoes the run', async () => {
     renderBar()
     const input = screen.getByTestId('cmdk-input') as HTMLInputElement
     fireEvent.change(input, { target: { value: MSG } })
@@ -121,13 +122,13 @@ describe('CommandBar → K front door', () => {
     // REQ 3: the run console is opened with the runId api.k.ask returned.
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-123'))
 
-    // (3) undo toast surfaces with an Undo action; clicking it kills the run.
+    // (3) undo toast surfaces with an Undo action; clicking it undoes the run.
     const undo = await screen.findByTestId('ask-k-undo')
     expect(screen.getByTestId('ask-k-undo-toast')).toBeTruthy()
     fireEvent.click(undo)
 
-    await waitFor(() => expect(mockKill).toHaveBeenCalledWith('run-123'))
-    expect(mockKill).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mockUndo).toHaveBeenCalledWith('run-123'))
+    expect(mockUndo).toHaveBeenCalledTimes(1)
   })
 
   it('the footer power controls force the route (preview + send opts) and pick a model', async () => {
@@ -162,10 +163,10 @@ describe('CommandBar → K front door', () => {
     fireEvent.click(await screen.findByTestId('cmdk-row-ask-k'))
 
     // The error shows in the footer; no run was started so there is no undo toast
-    // and nothing to kill.
+    // and nothing to undo.
     await screen.findByText(/kaboom/)
     expect(screen.queryByTestId('ask-k-undo-toast')).toBeNull()
-    expect(mockKill).not.toHaveBeenCalled()
+    expect(mockUndo).not.toHaveBeenCalled()
   })
 
   it('auto-dismiss after the 5s window commits WITHOUT killing the run', async () => {
@@ -177,10 +178,10 @@ describe('CommandBar → K front door', () => {
       await waitFor(() => expect(mockAsk).toHaveBeenCalledTimes(1))
       expect(screen.getByTestId('ask-k-undo-toast')).toBeTruthy()
       // Let the 5s undo window elapse WITHOUT clicking Undo: the toast auto-dismisses
-      // and the run is committed — api.runs.kill is NEVER called (the send stands).
+      // and the run is committed — api.k.undo is NEVER called (the send stands).
       await act(async () => { vi.advanceTimersByTime(5001) })
       await waitFor(() => expect(screen.queryByTestId('ask-k-undo-toast')).toBeNull())
-      expect(mockKill).not.toHaveBeenCalled()
+      expect(mockUndo).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }

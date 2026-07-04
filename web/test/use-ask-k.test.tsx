@@ -6,7 +6,8 @@
  *   - a trimmed-empty message is a no-op (no ask, no navigate).
  *   - useAskK({ navigateOnSend: false }) sends + sets pendingUndo WITHOUT navigating
  *     (the K-home policy — wave C1); the default stays navigate-on-send (⌘K).
- *   - undo() kills the pending run once via api.runs.kill and clears pendingUndo.
+ *   - undo() undoes the pending run once via api.k.undo (kill + dangling-turn removal,
+ *     F-060) and clears pendingUndo.
  *   - a rejected send surfaces the error and leaves pendingUndo null.
  * api + route.navigate are mocked (vi.hoisted, mirroring command-bar-ask-k.test).
  */
@@ -14,16 +15,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { routeForMessage } from '@k/shared'
 
-const { mockAsk, mockKill, mockNavigate } = vi.hoisted(() => ({
+const { mockAsk, mockUndo, mockNavigate } = vi.hoisted(() => ({
   mockAsk: vi.fn(),
-  mockKill: vi.fn(async () => ({ killed: true })),
+  mockUndo: vi.fn(async () => ({ undone: true })),
   mockNavigate: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
   api: {
-    k: { ask: mockAsk },
-    runs: { kill: mockKill },
+    k: { ask: mockAsk, undo: mockUndo },
   },
 }))
 
@@ -40,7 +40,7 @@ const MSG = 'refactor the auth module'
 
 beforeEach(() => {
   mockAsk.mockReset()
-  mockKill.mockClear()
+  mockUndo.mockClear()
   mockNavigate.mockClear()
   mockAsk.mockImplementation(async (message: string) => ({
     kThreadId: 'kt', agentRunId: 'ar', runId: 'run-123', route: routeForMessage(message), warm: false,
@@ -100,7 +100,7 @@ describe('useAskK', () => {
     expect(result.current.pendingUndo).toEqual({ runId: 'run-123', route: routeForMessage(MSG) })
   })
 
-  it('undo kills the pending run once and clears pendingUndo', async () => {
+  it('undo undoes the pending run once via api.k.undo and clears pendingUndo', async () => {
     const { result } = renderHook(() => useAskK())
 
     await act(async () => { await result.current.send(MSG) })
@@ -108,25 +108,26 @@ describe('useAskK', () => {
 
     await act(async () => { await result.current.undo() })
 
-    expect(mockKill).toHaveBeenCalledTimes(1)
-    expect(mockKill).toHaveBeenCalledWith('run-123')
+    // api.k.undo (not a bare runs.kill) so the dangling turns are removed too (F-060).
+    expect(mockUndo).toHaveBeenCalledTimes(1)
+    expect(mockUndo).toHaveBeenCalledWith('run-123')
     expect(result.current.pendingUndo).toBeNull()
   })
 
   it('undo with no pending run is a no-op', async () => {
     const { result } = renderHook(() => useAskK())
     await act(async () => { await result.current.undo() })
-    expect(mockKill).not.toHaveBeenCalled()
+    expect(mockUndo).not.toHaveBeenCalled()
   })
 
-  it('clearUndo nulls pendingUndo without killing', async () => {
+  it('clearUndo nulls pendingUndo without undoing', async () => {
     const { result } = renderHook(() => useAskK())
     await act(async () => { await result.current.send(MSG) })
 
     act(() => { result.current.clearUndo() })
 
     expect(result.current.pendingUndo).toBeNull()
-    expect(mockKill).not.toHaveBeenCalled()
+    expect(mockUndo).not.toHaveBeenCalled()
   })
 
   it('a rejected send surfaces the error and leaves pendingUndo null', async () => {
