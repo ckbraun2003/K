@@ -14,6 +14,25 @@ export interface RunRow {
   cost_usd: number
 }
 
+/**
+ * A run whose cost AND token usage were NEVER observed: an operator-KILLED run recording
+ * 0 input tokens, 0 output tokens, AND $0 cost (fix-b, metrics side). The claude CLI emits
+ * its authoritative usage only at turn-end (`result`), which a mid-turn kill never reaches,
+ * so these 0s are UNMEASURED — not a real "the work was free". Such a run must be COUNTED as
+ * a run but EXCLUDED from the MEASURED cost/token aggregates, so a killed run is never a
+ * measured $0 that drags a per-run average down or implies the work cost nothing. A killed
+ * run that DID observe usage — interim tokens recovered on the supervisor's killed path
+ * (reconcileKilledUsage), or cost accumulated from a completed earlier turn — is measured
+ * normally (this predicate is false for it). Mirrors the codebase's exclude-the-unmeasured
+ * philosophy: verify.ts F-032 (prorate over measured dimensions), and aggregateRouting's
+ * positive-cost average pool + killed-excluded success population. Pure.
+ */
+export function isUnmeasuredKilledRun(
+  r: { status: string; tokens_in: number; tokens_out: number; cost_usd: number },
+): boolean {
+  return r.status === 'killed' && r.tokens_in === 0 && r.tokens_out === 0 && r.cost_usd === 0
+}
+
 function localDateKey(ts: number): string {
   const d = new Date(ts)
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -40,6 +59,11 @@ export function summarizeRuns(
     const b = buckets.get(localDateKey(r.created_at))
     if (!b) continue // older than the window (safety guard; rows should be pre-windowed)
     b.runs++
+    // Count the run, but keep an UNMEASURED killed run (0 tokens / $0 cost, never observed
+    // usage) OUT of the measured cost/token sums — its 0s are unknown, not a measured "free"
+    // point (fix-b). Numerically a (0,0,0) row adds nothing anyway; the guard makes the
+    // exclude-from-measured contract explicit and holds if such a row ever carries a stray value.
+    if (isUnmeasuredKilledRun(r)) continue
     b.tokens += r.tokens_in + r.tokens_out
     b.costUsd += r.cost_usd
   }
@@ -122,6 +146,9 @@ export function buildTimeseries(
     // Update label in case a later row has a name for the same key
     entry.label = label
     entry.points[idx].runs++
+    // Same as summarizeRuns: an UNMEASURED killed run counts as a run but its unknown 0
+    // cost/tokens are excluded from the measured series sums (fix-b).
+    if (isUnmeasuredKilledRun(r)) continue
     entry.points[idx].tokens += r.tokens_in + r.tokens_out
     entry.points[idx].costUsd += r.cost_usd
   }

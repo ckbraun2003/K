@@ -137,8 +137,10 @@ export async function runsRoutes(app: FastifyInstance) {
     return reply.status(204).send()
   })
 
-  // POST /api/runs/:id/end — gracefully end an interactive session (close stdin →
-  // agent finishes → status 'done'). 404 unknown · 200 { ended } (false if not interactive).
+  // POST /api/runs/:id/end — gracefully end a run. Interactive session → close stdin (agent
+  // finishes → 'done'); a non-interactive supervised run (e.g. a relay-dispatched lead run) →
+  // graceful signal-terminate so its status flips (→ 'killed') instead of staying stuck
+  // (fix-c). 404 unknown · 200 { ended } (false only when the run has no live process).
   app.post<{ Params: { id: string } }>('/api/runs/:id/end', async (req, reply) => {
     if (!runsDb.getRun.get(req.params.id)) return sendError(reply, 404, 'not found')
     return reply.send({ ended: endSession(req.params.id) })

@@ -590,6 +590,14 @@ async function runAgent(
   let tokensIn = 0
   let tokensOut = 0
   let costUsd = 0
+  // F-… killed-run honesty: the AUTHORITATIVE usage carrier is the turn-end `result`
+  // (type 'usage') line, which a run KILLED mid-turn never emits — leaving tokens at 0
+  // (a misleading "0 tokens / $0" for real work). The claude stream DOES carry per-message
+  // usage on each `assistant` line, so we accumulate interim usage here (output SUMMED across
+  // messages, input MAX — see accumulateInterimUsage) and, on a killed terminal that never
+  // summed a `result`, fall back to it (reconcileKilledUsage) so the killed run records its
+  // real OBSERVED tokens. Cost is NOT recoverable — the stream reports cost only on `result`.
+  let lastInterimUsage: { tokensIn: number; tokensOut: number } | null = null
 
   // Per-run K-owned config dir for managed claude runs (undefined for ollama).
   // Declared before the try so both terminal paths can clean it up.
@@ -679,6 +687,13 @@ async function runAgent(
             // Accumulate usage (F-057: sum per-turn `usage` events; cost last-wins with
             // a real 0 a legitimate value — see accumulate)
             ;({ tokensIn, tokensOut, costUsd } = accumulate({ tokensIn, tokensOut, costUsd }, event))
+            // Best-effort interim-usage capture for the killed-run fallback: an `assistant`
+            // line carries THAT MESSAGE'S own usage before the turn-end `result`. Output is
+            // SUMMED across messages; input takes the MAX (see accumulateInterimUsage). Only
+            // assistant events feed this — never the `result` (type 'usage') event, whose
+            // totals accumulate above — so a completed run's accounting is untouched; only a
+            // mid-turn kill reads it back.
+            lastInterimUsage = accumulateInterimUsage(lastInterimUsage, event)
             eventBus.emitEvent(event)
           }
           // Interactive: a `result` line ends a turn while the process stays alive
@@ -701,6 +716,10 @@ async function runAgent(
     // (a fallback SIGTERM may have stopped a process that ignored stdin EOF).
     const finalStatus: Run['status'] =
       wasKilled ? 'killed' : wasEnded ? 'done' : result.exitCode === 0 ? 'done' : 'error'
+    // Killed-run honesty: a mid-turn kill may have summed no `result` usage — recover the
+    // last observed interim tokens so the run isn't recorded as a misleading 0 (no-op for a
+    // run that saw a `result`, and for a non-killed terminal).
+    ;({ tokensIn, tokensOut, costUsd } = reconcileKilledUsage({ tokensIn, tokensOut, costUsd }, wasKilled, lastInterimUsage))
     const finalRun: Run = { ...run, status: finalStatus, tokensIn, tokensOut, costUsd, endedAt: Date.now() }
     emitStatusEvent(run.id, finalStatus, nextSeq(run.id), Date.now())
     eventBus.emitRunUpdate(finalRun)
@@ -711,6 +730,8 @@ async function runAgent(
   } catch (err) {
     const wasKilled = killedRuns.delete(run.id)
     // endingRuns is cleared by clearRunTracking below; no need to delete it here.
+    // Same killed-run honesty as the success path: recover interim tokens for a mid-turn kill.
+    ;({ tokensIn, tokensOut, costUsd } = reconcileKilledUsage({ tokensIn, tokensOut, costUsd }, wasKilled, lastInterimUsage))
     const errRun: Run = { ...run, status: wasKilled ? 'killed' : 'error', tokensIn, tokensOut, costUsd, endedAt: Date.now() }
     const errEvent: AgentEvent = {
       id: uuid(), runId: run.id, seq: nextSeq(run.id), type: 'error',
@@ -778,14 +799,36 @@ export function sendInput(runId: string, text: string): boolean {
 }
 
 /**
- * Gracefully end an interactive session: close stdin (EOF) so the agent finishes
- * and exits with status 'done'. A fallback SIGTERM stops a process that ignores
- * EOF; the run is still finalized as 'done' (endingRuns). No-op (false) for a
- * non-interactive or already-gone run.
+ * Gracefully end a run.
+ *
+ * Interactive session (the original path, UNCHANGED): close stdin (EOF) so the agent
+ * finishes its turn and exits with status 'done'. A fallback SIGTERM stops a process that
+ * ignores EOF; the run is still finalized as 'done' (endingRuns).
+ *
+ * Non-interactive supervised run — e.g. a relay-dispatched LEAD run supervised in the MAIN
+ * process (fix-c): there is NO stdin turn protocol to close, so a graceful "let it finish"
+ * is not available — the only early stop is a signal. Previously endSession no-op'd
+ * (returned false) for any non-interactive run, so `/end` on a relay lead run left its
+ * status STUCK while `/kill` (which reaches the same activeProcesses proc) flipped it. We
+ * now route such a run through `kill()` — the same path `/kill` uses to reach relay
+ * supervision — so `/end` actually transitions it to a terminal status via runAgent's exit
+ * handler. The run did NOT complete its work, so 'killed' (an operator-terminated run,
+ * excluded from success metrics) is the honest terminal status, not a misleading 'done'.
+ *
+ * No-op (false) only for an already-gone run (no live process).
  */
 export function endSession(runId: string): boolean {
   const proc = activeProcesses.get(runId)
-  if (!proc || !proc.interactive || !proc.stdin) return false
+  if (!proc) return false
+  // Non-interactive supervised run (e.g. a relay-dispatched lead run): reach it the same way
+  // /kill does so /end flips its status instead of no-op'ing. kill() SIGTERMs now (with a
+  // SIGKILL backstop) and marks the run so runAgent's exit path finalizes it 'killed'. Scoped
+  // to genuinely NON-interactive procs — the interactive branch below stays byte-identical.
+  if (!proc.interactive) return kill(runId)
+  // Interactive session but the stdin is already gone: no graceful EOF to send — no-op (false),
+  // exactly as before (this case is deliberately NOT routed to kill()).
+  if (!proc.stdin) return false
+  // Interactive session with live stdin: graceful EOF → agent finishes → 'done' (unchanged).
   clearIdleTimer(runId)
   endingRuns.add(runId)
   try { proc.stdin.end() } catch { /* already closed — exit path finalizes */ }
@@ -825,6 +868,65 @@ export function accumulate(prev: Usage, event: AgentEvent): Usage {
     tokensOut: event.tokensOut != null ? prev.tokensOut + event.tokensOut : prev.tokensOut,
     costUsd: event.costUsd != null ? event.costUsd : prev.costUsd,
   }
+}
+
+/**
+ * Fold one parsed event's INTERIM per-message usage into the best-effort accumulator used for
+ * killed-run recovery (reconcileKilledUsage). Only `assistant` events contribute — the
+ * authoritative `result`/usage total is summed separately by `accumulate`, so this never
+ * touches a completed run's accounting.
+ *
+ * Reduction semantics (chosen so recovery can only UNDER-count, never over-bill):
+ *   - OUTPUT tokens are SUMMED across messages. Each `assistant` line's `tokensOut` is THAT
+ *     message's own output (per-message, not cumulative), so a multi-round tool-use turn's real
+ *     output is the sum — summing strictly recovers more than last-write-wins.
+ *   - INPUT tokens take the MAX observed. An `assistant` line's `tokensIn` is the (growing)
+ *     fresh input for that call under prompt caching; summing could double-count shared context,
+ *     so MAX is the conservative choice that can only under-count, never over-bill.
+ * Returns the updated accumulator (or `prev` unchanged for a non-interim / usage-less event).
+ * Pure + exported for direct unit-testing.
+ */
+export function accumulateInterimUsage(
+  prev: { tokensIn: number; tokensOut: number } | null,
+  event: AgentEvent,
+): { tokensIn: number; tokensOut: number } | null {
+  if (event.type !== 'assistant' || (event.tokensIn == null && event.tokensOut == null)) return prev
+  const base = prev ?? { tokensIn: 0, tokensOut: 0 }
+  return {
+    tokensIn: Math.max(base.tokensIn, event.tokensIn ?? 0), // MAX — conservative (never over-bill)
+    tokensOut: base.tokensOut + (event.tokensOut ?? 0),     // SUM — per-message output totals
+  }
+}
+
+/**
+ * Killed-run usage honesty (fix-b, Route 1). A run KILLED mid-turn may never emit the
+ * authoritative turn-end `result` (type 'usage') line, so `accumulate` leaves its totals
+ * at 0 — a misleading "0 tokens / $0" for real work done. The claude stream DOES expose
+ * per-message usage on each `assistant` line; `lastInterim` is the best-effort accumulation of
+ * that (via accumulateInterimUsage: OUTPUT summed across messages, INPUT the conservative MAX),
+ * and this recovers it so a killed run records its real OBSERVED tokens. Best-effort, not
+ * precise: input is a floor (MAX single call, not the true multi-call total) — deliberately so
+ * recovery can only under-count, never over-bill.
+ *
+ * Applied ONLY when the run `wasKilled` AND no authoritative usage was ever summed
+ * (tokensIn === 0 && tokensOut === 0) — so:
+ *   - a run that completed a turn (saw a `result`) keeps its summed totals UNCHANGED (never
+ *     double-counted, since interim usage is only a fallback for the never-measured case);
+ *   - a non-killed terminal is untouched;
+ *   - a kill with no interim usage observed at all (killed before any `assistant` line) stays
+ *     at 0 — genuinely UNMEASURED, never fabricated.
+ * Cost is passed through unchanged: the stream reports cost ONLY on `result`, so a mid-turn
+ * kill has no interim cost signal to recover (a killed run's $0 cost is honestly unmeasured).
+ * Pure + exported for direct unit-testing.
+ */
+export function reconcileKilledUsage(
+  totals: Usage,
+  wasKilled: boolean,
+  lastInterim: { tokensIn: number; tokensOut: number } | null,
+): Usage {
+  if (!wasKilled || !lastInterim) return totals
+  if (totals.tokensIn !== 0 || totals.tokensOut !== 0) return totals
+  return { tokensIn: lastInterim.tokensIn, tokensOut: lastInterim.tokensOut, costUsd: totals.costUsd }
 }
 
 /**
