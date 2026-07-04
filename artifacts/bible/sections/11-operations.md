@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-07-02
+updated: 2026-07-04
 ---
 
 ## Running locally
@@ -67,6 +67,12 @@ K's own bible therefore lives on-disk as a living spec and is **not** under vers
 - Recompile: restart core, or `POST /api/bible/compile` (bearer auth), or wait for the next startup.
 - The compiled HTML is self-contained — open it directly in a browser or via the dashboard Docs view.
 - Registered projects follow the same flow with `<repo>/docs/bible/`.
+- **In-dashboard editing is per-SECTION (D-065).** The Bible/Artifacts tab edits one section at a
+  time; Save (`PUT /api/artifacts/:slug/sections/:sectionSlug`, `saveBibleSection`) writes the edited
+  body back to that `sections/<slug>.md` **source** (frontmatter preserved) then recompiles — so the
+  edit IS the source and survives every recompile. Editing the *combined* markdown of a bible slug is
+  rejected (`400` → the section editor), and a project-bible save stays in the project's own dir
+  (never K's `ARTIFACTS_DIR`, never clobbering the row's `html_path`).
 
 ## Onboard / verify scaffold-then-commit workflow
 
@@ -127,12 +133,41 @@ before subscribing them to the event bus. On loopback dev the dashboard uses the
 dev token transparently (no login). Accessed remotely, a REST `401` triggers a
 **login screen**: paste the harness token; it is stored in `sessionStorage` and
 attached to subsequent REST (`Authorization: Bearer …`) and WS (`?token=…`)
-calls. The real token is **never** baked into the built bundle — only the
-loopback-only dev token is.
+calls. The real token is **never** baked into the built bundle, and since W10a
+(D-066) even the loopback-only dev terminal/harness tokens are emitted only under
+`vite serve` — a **prod build ships none**.
+
+## Security hardening — terminal + host credentials (W10a, D-066)
+
+Three defense-in-depth hardenings on top of the loopback default:
+
+- **Scrubbed terminal env (F-084).** The browser terminal's `node-pty` no longer inherits
+  `process.env`. It runs a **scrubbed** env — a denylist strips vendor prefixes and any
+  `*_TOKEN` / `*_KEY` / `*_SECRET` / `*_PASSWORD` plus connection-string
+  `*_URL` / `*_URI` / `*_DSN` / `*_PASS` / `*_PWD` / `CONNECTION` vars (while `PATH` / `HOME` / `PWD`
+  and the like survive) — so even a leaked/guessed terminal token can't `echo $ANTHROPIC_API_KEY`.
+- **No dev tokens in a prod bundle (F-084).** `VITE_TERMINAL_TOKEN` and `VITE_HARNESS_TOKEN` are
+  emitted `undefined` in a production build (the dev literal is injected only under `vite serve`), and
+  `TerminalPage`'s token fallback is dev-gated — so `pnpm build` never ships `dev-terminal-token` /
+  `dev-token-change-me`; prod fails **closed** instead.
+- **Remote terminal is opt-in (F-084).** A non-loopback `HOST` **with** `ENABLE_TERMINAL` now
+  **refuses to boot** unless `TERMINAL_ALLOW_REMOTE=true` — even with a strong `TERMINAL_TOKEN`
+  (previously only a weak/empty token was refused) — so an accidental LAN bind can't expose a shell.
+
+**Credential posture is surfaced + opt-out-able (F-064/F-090).** The agent-engine boundary (§02) uses
+a K-token-first auth with a guarded host-credential dogfooding fallback (D-027). That fallback is now
+**visible**: `credentialPosture()` reports one of `managed` (a managed `ANTHROPIC_API_KEY` /
+`CLAUDE_CODE_OAUTH_TOKEN` is set) · `host-fallback` (no managed token, fallback ON — runs copy host
+creds) · `disabled`, surfaced on **`/api/status`**, the **Settings** auth card, and a **one-line boot
+summary** (never the secret itself), so silent host-credential use is no longer invisible. Setting
+**`K_DISABLE_HOST_CREDENTIAL_FALLBACK=true`** opts a deployment **out** — a run with no managed token
+is left unauthenticated rather than silently copying host credentials. The **default (no flag) is
+unchanged** — OOTB dogfooding is byte-identical; the fallback copy stays `chmod 0600` under the
+gitignored data dir.
 
 ## Troubleshooting
 
-- **Stale worktree after a crash.** A crashed or killed run can leave a `.worktrees/<runId>` directory behind. On boot, `reconcileOnBoot` (core/src/supervisor.ts, wired in index.ts) auto-reconciles runs stuck in `running`/`queued` to `interrupted`, runs `git worktree prune`, and removes orphaned `.worktrees/*` dirs — so a simple core restart usually cleans these up. On Windows a file lock can block removal (logged, non-fatal); if a stale dir persists, close any process holding it and run `git worktree prune` manually, then delete the directory.
+- **Stale worktree after a crash.** A crashed or killed run can leave a `.worktrees/<runId>` directory behind. On boot, `reconcileOnBoot` (core/src/supervisor.ts, wired in index.ts) auto-reconciles runs stuck in `running`/`queued` to `interrupted`, removes orphaned `.worktrees/*` dirs, **then** runs `git worktree prune` — the prune runs **after** dir removal (W10b/F-091) so a crash-orphaned worktree's metadata is reclaimed the same boot. On Windows, `removeWorktree` retries an `EBUSY` (3× backoff) before a best-effort swallow (the happy path adds no delay); a file lock that still blocks removal is logged non-fatal — if a stale dir persists, close any process holding it and run `git worktree prune` manually, then delete the directory.
 - **SQLite "database is locked".** `core/data/k.db` runs in WAL mode. A first boot after a new schema migration, or two core processes pointing at the same DB, can race and surface a lock. Run a single core process, and start the dev server **stopped** for the first boot after a migration (see Schema migrations). The `-wal`/`-shm` sidecar files are normal and are checkpointed automatically.
 - **Port already in use.** The core binds `PORT` (default 3001) and the web dev server binds 5173. If either is taken (`EADDRINUSE`), stop the other process or change `PORT` in `core/.env` (and `CORS_ORIGIN` to match the web origin). On Windows, find the holder with `netstat -ano | findstr :3001`.
 - **A registered project's folder was moved/deleted.** The GitHub poller **skips** a project whose `localPath` no longer exists instead of erroring every cycle (one warn per boot per project; the row is never deleted or mutated), and the read surface stamps an additive `Project.pathMissing` so the UI can say why (P5.7, D-058). Re-register or restore the path to resume polling.
@@ -148,6 +183,15 @@ Beyond the registry/metrics endpoints, the project + verification surface is:
 | `GET /api/projects/:id/verifications` | report history, newest first |
 | `GET /api/runs/:id/events/:seq/raw` | lazy per-event raw stream-json (404 on missing/null-raw seq, 400 on non-numeric) |
 | `GET /api/runs?status=&limit=` | server-side run filters (`status` validated; `limit` 1–500, default 100) |
+| `GET /api/profiles[/:id]` | **read-only** (W2, F-020) — exposes K / Chief / leads for inspection with **no write path**, so the authority ceiling stays intact |
+
+**API robustness (W2, F-015..F-028/F-074).** The whole surface now shares one **error envelope** —
+`error` is **always a string** (`sendError` / `sendZodError`), fixing the UI's `[object Object]` on a
+validation error — and a consistent **validate-body (`400`) → then existence (`404`)** ordering, so
+`kill` / `events` on a nonexistent run `404` (were `200`) and a validation rejection names the
+offending field. `GET /api/chief/org` includes the **K node** above the Chief (F-023 — the full
+user → K → Chief → leads tree), and `workflow_runs` gained a `workflow_id` FK (guarded ALTER,
+`SCHEMA_VERSION 3→4`) so a run is traceable to the definition it ran.
 
 ## Key files
 
@@ -163,7 +207,7 @@ Beyond the registry/metrics endpoints, the project + verification surface is:
 | `core/src/profiles.ts` | DB-backed `AgentProfile` registry (get/list/create/update + `seedProfiles`) over `agent_profiles`; keeps `DEFAULT_PROFILE` as the orchestrator fallback (P5.0) |
 | `core/src/authority.ts` | `resolveAuthority(tier)` → `{allowedTools, mcpServers, skills}` from `agent-config/{allowlists,mcp,bundles}`; fail-closed mcp↔allowlist grant guard + coding-tools gating check (P5.0) |
 | `core/src/agent-runs.ts` | `startAgentRun(profileId, {trigger, goal\|thread, …})` — activates a profile into a supervised run over the `run-lifecycle` seam, tracked in `agent_runs`, with dispatch-failure rollback (P5.0) |
-| `core/src/k-thread.ts` | K front-door runtime (D-023, P5.1c) — `askK` (warm-vs-fresh dispatch), durable K thread over `k_threads`/`k_thread_turns`, `renderSeed` (cold reseed), `captureAnswers` (K replies → thread at each turn boundary); SDK-free, reuses the D-014 persistent-stdin loop |
+| `core/src/k-thread.ts` | K front-door runtime (D-023/D-042, P5.1c; resumable one-shot W7a, D-062) — `askK` (establish-or-`--resume` a stable per-thread CLI session, answer-and-exit — no park), durable K thread over `k_threads`/`k_thread_turns` (source of truth), `renderSeed` (first-ask/reset transcript seed), `captureAnswers` (K replies → thread at each turn boundary, persists `cli_session_id` on first `done`), `undoK` (removes the dangling turn); SDK-free |
 | `core/src/routes/k.ts` | the "talk to K" HTTP surface (P5.1c) — `POST /api/k/ask` (activate K, returns `KAskResult`) + `GET /api/k/thread` (the durable thread + turns) |
 | `core/src/claude-args.ts` | pure: resolve `RUN_PERMISSION_MODE` + build claude CLI argv (worktree-gated `--permission-mode`, per-tier `--allowedTools`, `--mcp-config`/`--strict-mcp-config`) |
 | `core/src/auth.ts` | token resolution/persistence (`resolveHarnessToken`), safety gate (`unsafeBootReason`), constant-time compare (`tokensEqual`/`wsTokenOk`), and `isAuthExempt(url)` pathname exemption (decodes once, no dot-segment bypass) |

@@ -2,7 +2,7 @@
 title: Architecture
 icon: "⬡"
 status: stable
-updated: 2026-06-28
+updated: 2026-07-04
 ---
 
 **Architecture A with B-seams** — a single monolithic core (Architecture A) with three deliberate **B-seams** built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected). A planned **fourth B-seam — TranscriptionProvider** (voice in, Phase 5.4) follows the same swap-without-rewrite contract (D-031).
@@ -106,8 +106,14 @@ skills/plugins/MCP/credentials never load.
 - **MCP wiring:** the tier's `agent-config/mcp/<tier>.json` is rewritten per run — the **kstore**
   server's command/args become this core's launch of `k-store-server` and its env gets the run's
   `K_DATA_DIR` + `K_RUN_ID` so the child opens the right `k.db` and resolves the right run.
+- **External-repo gitnexus suppression (F-068).** A dispatched run whose cwd is an **external**
+  registered project — not K's own repo, and not a K-secretary persistent session — does **not**
+  mount the gitnexus MCP server or fire the analyze hook (`shouldSuppressGitnexus(cwd,
+  isPersistentSession)`), so `.gitnexus/`, `.gitignore`, and `.claude/skills/gitnexus` stop leaking
+  into the target repo's checkout. K's own + K-secretary sessions always keep gitnexus.
 - **Auth:** K-token-first (`ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN`) with a guarded
-  host-credential dogfooding fallback.
+  host-credential dogfooding fallback — now surfaced as a credential **posture** on `/api/status` and
+  opt-out-able via `K_DISABLE_HOST_CREDENTIAL_FALLBACK` (§11, D-066).
 - **Profiles:** `core/src/profiles.ts` defines `AgentProfile` (tier `secretary | chief |
   orchestrator`) + the default `default-orchestrator` profile — the pre-Phase-5 bridge to the org
   model below.
@@ -178,3 +184,10 @@ Monorepo (pnpm workspaces)
 1. `POST /api/runs` (or ⌘K dispatch) → supervisor creates a worktree, spawns the claude CLI.
 2. Every stream-json line → normalized `AgentEvent` → EventBus → SQLite (immutable, replayable) + WS push (live console).
 3. Run completes → status/cost roll-ups on the `runs` row → artifacts saved → (Phase 1+) PR opened via GitHubProvider → CI status polls back onto the dashboard.
+
+**Opt-in carry-working-tree (D-067).** By default a run's worktree is `git worktree add --detach HEAD`
+— a clean checkout at HEAD. An opt-in `carryWorkingTree` flag on `POST /api/runs` (threaded through
+`startRun` / `startAgentRun`, boolean-validated) instead seeds the worktree with the source repo's
+uncommitted **tracked + staged** changes (a non-destructive `git stash create` + apply; **untracked
+not carried**; the source repo is never mutated), so a run can start from your in-progress edits. The
+default path (no flag) is byte-identical to before.

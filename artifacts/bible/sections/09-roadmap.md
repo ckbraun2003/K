@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-07-02
+updated: 2026-07-04
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -203,6 +203,9 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
   real connectors stays an open follow-up
 - [x] Memory layer A: per-profile markdown lessons + gated end-of-run reflection (operator-approved)
 - [x] K runtime (hybrid): durable thread + warm interactive session + fresh-seeded run on restart/idle/wake
+  — **runtime redesigned (2026-07-04, D-062):** the warm/fresh hybrid became a **resumable one-shot**
+  (a stable per-thread `--session-id`/`--resume` CLI session, answer-and-exit, no park); the durable
+  thread stays the source of truth
 - [x] `agent_tasks` (K-owned global checklists) distinct from `project_tasks` — **delivered as the
   OPPOSITE design (2026-07-02 annotation):** there is no `agent_tasks` table and no split — the
   as-built model is the **unified `work_items` store with scopes** (`run`/`personal`/`org`/`project`,
