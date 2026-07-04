@@ -129,10 +129,13 @@ export default function Sidebar({
         collapsed ? 'items-center px-2' : 'px-2.5'
       )}
     >
+      {/* The expand/collapse toggle stays in the header in BOTH states (F-011) —
+          collapsed stacks it under the logo, expanded sits it to the right — so
+          it never jumps to a different spot in the rail between states. */}
       <div
         className={cn(
-          'mb-3 flex items-center',
-          collapsed ? 'justify-center' : 'justify-between px-1'
+          'mb-3 flex',
+          collapsed ? 'flex-col items-center gap-2' : 'items-center justify-between px-1'
         )}
       >
         <div className="flex items-center gap-2">
@@ -144,17 +147,15 @@ export default function Sidebar({
             </div>
           )}
         </div>
-        {!collapsed && (
-          <button
-            onClick={onToggleCollapse}
-            aria-label="Collapse sidebar"
-            aria-expanded={true}
-            title="Collapse sidebar"
-            className="flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] transition-colors hover:bg-[var(--raised)] hover:text-[var(--accent-hover)]"
-          >
-            «
-          </button>
-        )}
+        <button
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] transition-colors hover:bg-[var(--raised)] hover:text-[var(--accent-hover)]"
+        >
+          {collapsed ? '»' : '«'}
+        </button>
       </div>
 
       {/* Direct — talk to / drive the org. */}
@@ -172,17 +173,6 @@ export default function Sidebar({
 
       <div className="flex-1" />
 
-      {collapsed && (
-        <button
-          onClick={onToggleCollapse}
-          aria-label="Expand sidebar"
-          aria-expanded={false}
-          title="Expand sidebar"
-          className="mb-1 flex h-9 w-10 items-center justify-center rounded-control text-[var(--muted)] transition-colors hover:bg-[var(--raised)] hover:text-[var(--accent-hover)]"
-        >
-          »
-        </button>
-      )}
       {footer.map(renderButton)}
     </nav>
   )

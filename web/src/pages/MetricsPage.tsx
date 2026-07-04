@@ -25,6 +25,7 @@ function SegControl<T extends string>({
         <button
           key={opt.value}
           onClick={() => onChange(opt.value)}
+          aria-pressed={value === opt.value}
           className={cn(
             'rounded px-3 py-1 text-xs font-medium transition-colors duration-150',
             value === opt.value

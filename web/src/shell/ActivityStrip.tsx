@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Run, MetricsSummary } from '@k/shared'
-import { api } from '../lib/api'
+import type { Run } from '@k/shared'
 import { onWsMessage } from '../lib/ws'
 import { navigate } from '../lib/route'
 import { makeRunUpdateInvalidator } from '../lib/live-invalidate'
@@ -12,11 +11,6 @@ export default function ActivityStrip() {
   // The shared default-runs-list query — ONE key + fn for every consumer (see
   // runs-query.ts), so the cache entry can't be fed by drifting queryFns.
   const { data: runs = [] } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn, refetchInterval: 10_000 })
-  const { data: metrics } = useQuery<MetricsSummary>({
-    queryKey: ['metrics'],
-    queryFn: api.metrics.summary,
-    refetchInterval: 30_000,
-  })
 
   // run_update → invalidate runs/metrics per message + the org keys throttled
   // (policy + tests live in live-invalidate.ts). dispose() cancels any pending
@@ -53,9 +47,9 @@ export default function ActivityStrip() {
           last: {lastDone.status === 'done' ? '✓' : '✗'} {lastDone.prompt.slice(0, 40)}
         </button>
       )}
-      <span className="mono ml-auto text-[var(--muted)]">
-        {metrics ? `${metrics.today.runs} runs today · $${metrics.today.costUsd.toFixed(2)} · ${(metrics.today.tokens / 1000).toFixed(0)}k tok` : '—'}
-      </span>
+      {/* Day totals (runs / cost / tokens) intentionally live ONLY on the Metrics
+          page's "Today" tiles (D-026 / CLAIM-08-5) — they were duplicated here on
+          every page, so the strip stays focused on live/last run activity (F-004). */}
     </footer>
   )
 }

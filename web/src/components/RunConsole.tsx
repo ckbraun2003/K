@@ -106,7 +106,7 @@ export default function RunConsole({ runId }: Props) {
   const autoCompactRef = useRef<AutoCompactState>({ armed: true })
   const [autoCompactFired, setAutoCompactFired] = useState(false)
 
-  const { data: run } = useQuery<Run>({
+  const { data: run, isError } = useQuery<Run>({
     queryKey: ['run', runId],
     queryFn: () => api.runs.get(runId),
   })
@@ -228,6 +228,26 @@ export default function RunConsole({ runId }: Props) {
     if (pressure.band === 'ok' && autoCompactFired) setAutoCompactFired(false)
   }, [run, pressure.band, sending, answer, submitTurn, autoCompactFired])
 
+  // A bad/removed run id 404s (api throws on non-ok) — surface a real not-found
+  // instead of looping on "Loading…" forever (F-002). Loading is only the pre-
+  // resolution state (no data, no error yet).
+  if (isError) {
+    return (
+      <div
+        data-testid="run-not-found"
+        className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center"
+      >
+        <p className="text-sm font-medium text-[var(--text)]">Run not found</p>
+        <p className="text-xs text-[var(--muted)]">This run doesn’t exist or is no longer available.</p>
+        <button
+          onClick={() => navigate('runs')}
+          className="mt-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+        >
+          ← All runs
+        </button>
+      </div>
+    )
+  }
   if (!run) return <div className="flex-1 flex items-center justify-center text-[var(--muted)]">Loading…</div>
 
   return (

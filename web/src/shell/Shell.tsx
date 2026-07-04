@@ -24,10 +24,11 @@ import OrchestratorDetailPage from '../pages/OrchestratorDetailPage'
 import EvalsPage from '../pages/EvalsPage'
 import MemoryPage from '../pages/MemoryPage'
 import NotFound from '../pages/NotFound'
-import { useHashRoute, navigate, isKnownView } from '../lib/route'
+import { useHashRoute, isKnownView } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
 import { stageTransition } from '../lib/motion'
-import { CHORDS, CHORD_MAP } from '../lib/chords'
+import { CHORDS } from '../lib/chords'
+import { useShellKeys } from '../lib/use-shell-keys'
 
 export default function Shell() {
   const route = useHashRoute()
@@ -60,41 +61,11 @@ export default function Shell() {
     return () => { clearTimeout(t); unsub(); unsubStatus() }
   }, [])
 
-  useEffect(() => {
-    let chord = false
-    let chordTimer: ReturnType<typeof setTimeout>
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setCommandOpen(o => !o)
-        return
-      }
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      // `?` (Shift+/) toggles the shortcut legend; Escape closes it.
-      if (e.key === '?' && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault()
-        // clear any armed g-chord so the g→? quirk can't fire a stale chord
-        // after the legend closes.
-        chord = false
-        clearTimeout(chordTimer)
-        setLegendOpen(o => !o)
-        return
-      }
-      if (e.key === 'Escape') { e.preventDefault(); setLegendOpen(false) }
-      if (e.key === 'g' && !e.metaKey && !e.ctrlKey) {
-        chord = true
-        clearTimeout(chordTimer)
-        chordTimer = setTimeout(() => { chord = false }, 800)
-        return
-      }
-      if (chord) {
-        if (CHORD_MAP[e.key]) { e.preventDefault(); navigate(CHORD_MAP[e.key]) }
-        chord = false
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => { clearTimeout(chordTimer); window.removeEventListener('keydown', handler) }
-  }, [])
+  const { chordArmed } = useShellKeys({
+    onToggleCommand: () => setCommandOpen(o => !o),
+    onToggleLegend: () => setLegendOpen(o => !o),
+    onCloseLegend: () => setLegendOpen(false),
+  })
 
   return (
     <MotionConfig reducedMotion="user">
@@ -142,6 +113,27 @@ export default function Shell() {
 
       <ActivityStrip />
       <CommandBar open={commandOpen} onClose={() => setCommandOpen(false)} />
+
+      {/* Pending g-chord affordance — shown while a `g` chord is armed so the
+          prefix isn't an invisible mode that times out silently (F-009). */}
+      <AnimatePresence>
+        {chordArmed && (
+          <motion.div
+            data-testid="chord-pending"
+            className="fixed bottom-16 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--muted)] shadow-lg"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.12 }}
+            aria-hidden
+          >
+            <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--text)]">g</kbd>
+            <span>then a destination —</span>
+            <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px]">?</kbd>
+            <span>for the list</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {legendOpen && (
