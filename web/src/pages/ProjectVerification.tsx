@@ -11,6 +11,7 @@ import {
   barPct,
   formatTimeAgo,
   latestReport,
+  trendIndicator,
   BREAKDOWN_BARS,
   BREAKDOWN_MAX,
   SEVERITY_DOT,
@@ -234,15 +235,26 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
               History
             </h3>
             <ol className="mt-3 space-y-2">
-              {reports.map(r => (
-                <li key={r.id} className="flex items-center gap-2 text-xs">
-                  <span className={cn('mono font-semibold', scoreColor(r.score))}>{r.score}</span>
-                  <span className="text-[var(--muted)]">{formatTimeAgo(r.startedAt)}</span>
-                  {r.id === latest.id && (
-                    <span className="ml-auto text-[10px] text-[var(--accent-hover)]">latest</span>
-                  )}
-                </li>
-              ))}
+              {[...reports]
+                .sort((a, b) => b.startedAt - a.startedAt)
+                .map(r => {
+                  const trend = trendIndicator(reports, r.id)
+                  const trendColor = trend.includes('▲')
+                    ? 'text-[var(--green)]'
+                    : trend.includes('▼')
+                      ? 'text-[var(--red)]'
+                      : 'text-[var(--muted)]'
+                  return (
+                    <li key={r.id} className="flex items-center gap-2 text-xs">
+                      <span className={cn('mono font-semibold', scoreColor(r.score))}>{r.score}</span>
+                      <span className={cn('mono text-[10px]', trendColor)}>{trend}</span>
+                      <span className="text-[var(--muted)]">{formatTimeAgo(r.startedAt)}</span>
+                      {r.id === latest.id && (
+                        <span className="ml-auto text-[10px] text-[var(--accent)]">latest</span>
+                      )}
+                    </li>
+                  )
+                })}
             </ol>
           </div>
         </div>

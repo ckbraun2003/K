@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Run, VerificationReport, GithubStatus } from '@k/shared'
+import type { Run, VerificationReport, GithubStatus, Project } from '@k/shared'
 import { api, type OnboardResult } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { cn } from '../../lib/cn'
@@ -47,9 +47,35 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
     enabled: !!projectId,
     retry: false,
   })
+  // The project record (app-wide cached ['projects']) for the remote chip.
+  const { data: projects = [] } = useQuery<Project[]>({
+    queryKey: ['projects'],
+    queryFn: api.projects.list,
+  })
+  const project = projects.find(p => p.id === projectId)
   const latest = reports.length > 0
     ? [...reports].sort((a, b) => b.startedAt - a.startedAt)[0]
     : null
+
+  // Status chips for parity with the fleet cards (F-053): remote · bible · CI. The
+  // bible signal comes from the latest verification breakdown (>0 ⇒ a bible was
+  // scored); CI from the newest GitHub Actions run's conclusion.
+  const ciConclusion = github?.ci?.[0]?.conclusion ?? null
+  const ciChip: { label: string; tone: string } =
+    ciConclusion == null
+      ? { label: 'CI —', tone: 'text-[var(--muted)]' }
+      : ciConclusion === 'success'
+        ? { label: 'CI ✓', tone: 'text-[var(--green)]' }
+        : { label: 'CI ✗', tone: 'text-[var(--amber)]' }
+  const bibleChip: { label: string; tone: string } =
+    latest?.breakdown == null
+      ? { label: 'bible —', tone: 'text-[var(--muted)]' }
+      : latest.breakdown.bible > 0
+        ? { label: 'bible ✓', tone: 'text-[var(--green)]' }
+        : { label: 'bible ✗', tone: 'text-[var(--amber)]' }
+  const remoteChip: { label: string; tone: string } = project?.githubRemote
+    ? { label: `remote ✓ ${project.githubRemote}`, tone: 'text-[var(--green)]' }
+    : { label: 'no remote', tone: 'text-[var(--amber)]' }
 
   const verify = useMutation({
     mutationFn: (deep: boolean) => api.projects.verify(projectId, deep ? { deep: true } : undefined),
@@ -76,6 +102,21 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-5 p-5">
+
+      {/* ── Status chips (remote · bible · CI) — parity with the fleet cards ── */}
+      <div data-testid="overview-chips" className="flex flex-wrap items-center gap-2">
+        {[remoteChip, bibleChip, ciChip].map(chip => (
+          <span
+            key={chip.label}
+            className={cn(
+              'mono rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-0.5 text-[10px]',
+              chip.tone,
+            )}
+          >
+            {chip.label}
+          </span>
+        ))}
+      </div>
 
       {/* ── Health Score ─────────────────────────────────────────────── */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">

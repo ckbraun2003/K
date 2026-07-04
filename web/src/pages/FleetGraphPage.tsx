@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import ForceGraph3D from 'react-force-graph-3d'
 import type { Project } from '@k/shared'
@@ -34,6 +34,27 @@ export default function FleetGraphPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const graphRef = useRef<any>(undefined)
   const [dims, setDims] = useState({ width: 1200, height: 700 })
+  // Auto-fit ONCE per rendered graph. Without a fit the 3D camera opens on a
+  // default frustum where — with only a few widely-spaced project nodes — just one
+  // node lands in-viewport (F-043). Reset the latch when the project set changes so
+  // a freshly loaded fleet re-fits, but a user's later zoom/pan is never yanked.
+  const didFitRef = useRef(false)
+
+  const fit = useCallback(() => graphRef.current?.zoomToFit(400, 40), [])
+
+  useEffect(() => {
+    didFitRef.current = false
+  }, [projects.length])
+
+  // Fit-view keyboard shortcut (parity with the Knowledge-Graph tab's 'f').
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'f') fit()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [fit])
 
   useEffect(() => {
     const el = containerRef.current
@@ -83,6 +104,16 @@ export default function FleetGraphPage() {
         <span className="font-mono ml-2 text-[11px] text-[var(--muted)]">
           {projects.length} project{projects.length === 1 ? '' : 's'}
         </span>
+        {projects.length > 0 && (
+          <button
+            onClick={fit}
+            data-testid="fleet-graph-fit"
+            title="Fit view (f)"
+            className="ml-auto rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+          >
+            Fit (f)
+          </button>
+        )}
       </div>
 
       {/* Graph */}
@@ -112,6 +143,15 @@ export default function FleetGraphPage() {
                 d3VelocityDecay={0.3}
                 d3AlphaDecay={0.02}
                 enableNodeDrag
+                onEngineStop={() => {
+                  // Auto-fit once the force layout settles, so the whole fleet is
+                  // framed on first load (guarded so a later re-settle after a
+                  // user pan/zoom doesn't fight them).
+                  if (!didFitRef.current) {
+                    didFitRef.current = true
+                    fit()
+                  }
+                }}
               />
             </GraphErrorBoundary>
             {/* Legend */}

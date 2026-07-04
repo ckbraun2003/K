@@ -1,10 +1,20 @@
-import type { Project, GithubStatus } from '@k/shared'
+import type { Project, GithubStatus, Run } from '@k/shared'
 import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
-import { formatTimeAgo } from '../lib/verify'
+import { formatTimeAgo, relativeTime } from '../lib/verify'
 
 // A health score below this flags the card for attention alongside failing CI.
 const LOW_HEALTH_THRESHOLD = 50
+
+// Run-status → dot color for the last-run line.
+const RUN_DOT: Record<string, string> = {
+  queued:      'bg-[var(--amber)]',
+  running:     'bg-[var(--accent)]',
+  done:        'bg-[var(--green)]',
+  error:       'bg-[var(--red)]',
+  killed:      'bg-[var(--muted)]',
+  interrupted: 'bg-[var(--red)]',
+}
 
 function ciState(gh?: GithubStatus): 'passing' | 'failing' | 'unknown' {
   const latest = gh?.ci?.[0]
@@ -18,10 +28,14 @@ function ciState(gh?: GithubStatus): 'passing' | 'failing' | 'unknown' {
 export default function ProjectCard({
   project,
   gh,
+  lastRun,
   onDelete,
 }: {
   project: Project
   gh?: GithubStatus
+  /** Most recent run for this project (fleet-level batch from the parent grid) —
+   *  surfaces last-run status + when on the card (F-065). */
+  lastRun?: Run | null
   onDelete?: () => void
 }) {
   const ci = ciState(gh)
@@ -80,6 +94,15 @@ export default function ProjectCard({
         )}
       </p>
       <p className="mono mt-2 truncate text-[10px] text-[var(--muted)] opacity-60">{project.localPath}</p>
+      {lastRun && (
+        <p
+          data-testid={`project-card-lastrun-${project.id}`}
+          className="mt-1.5 flex items-center gap-1.5 text-[10px] text-[var(--muted)]"
+        >
+          <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', RUN_DOT[lastRun.status] ?? 'bg-[var(--muted)]')} />
+          <span className="truncate">last run {lastRun.status} · {relativeTime(lastRun.createdAt)}</span>
+        </p>
+      )}
       <div className="mt-2 flex items-center justify-between">
         <span className={cn('text-[10px]', lowHealth ? 'text-[var(--amber)]' : 'text-[var(--muted)]')}>
           {formatTimeAgo(project.lastVerifiedAt)}

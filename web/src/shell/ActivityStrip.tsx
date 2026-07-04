@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Run } from '@k/shared'
 import { onWsMessage } from '../lib/ws'
 import { navigate } from '../lib/route'
-import { makeRunUpdateInvalidator } from '../lib/live-invalidate'
+import { makeRunUpdateInvalidator, makeProjectListInvalidator } from '../lib/live-invalidate'
 import { RUNS_LIST_KEY, runsListQueryFn } from '../lib/runs-query'
 
 export default function ActivityStrip() {
@@ -17,7 +17,13 @@ export default function ActivityStrip() {
   // trailing invalidation on unmount.
   useEffect(() => {
     const invalidator = makeRunUpdateInvalidator(qc)
-    const unsubscribe = onWsMessage(invalidator.handler)
+    // github_update → refresh the projects list so an externally-registered
+    // project's card appears live, without a manual reload (F-036).
+    const projectListInvalidator = makeProjectListInvalidator(qc)
+    const unsubscribe = onWsMessage(msg => {
+      invalidator.handler(msg)
+      projectListInvalidator(msg)
+    })
     return () => {
       unsubscribe()
       invalidator.dispose()

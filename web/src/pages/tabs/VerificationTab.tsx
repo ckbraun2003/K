@@ -11,22 +11,11 @@ import {
   barPct,
   formatTimeAgo,
   latestReport,
+  trendIndicator,
   BREAKDOWN_BARS,
   BREAKDOWN_MAX,
   SEVERITY_DOT,
 } from '../../lib/verify'
-
-// Score trend indicator: compare a score to the one before it in the history.
-function trendIndicator(reports: VerificationReport[], id: string): string {
-  const sorted = [...reports].sort((a, b) => b.startedAt - a.startedAt)
-  const idx = sorted.findIndex(r => r.id === id)
-  if (idx < 0 || idx === sorted.length - 1) return ''
-  const prev = sorted[idx + 1].score
-  const curr = sorted[idx].score
-  if (curr > prev) return ' ▲'
-  if (curr < prev) return ' ▼'
-  return ' ='
-}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 

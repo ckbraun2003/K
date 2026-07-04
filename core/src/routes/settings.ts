@@ -29,7 +29,7 @@ import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 import { probeWhisper } from '../transcription.js'
-import { GrantError } from '../authority.js'
+import { GrantError, resolveAuthority } from '../authority.js'
 import { getProfile, updateProfile } from '../profiles.js'
 import { sendError, sendZodError, describePatchRejection } from './http-errors.js'
 
@@ -335,6 +335,23 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
     if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
       return sendError(reply, 400, 'unknown model')
+    }
+    // Skills must exist in the tier's authored skill set (F-049). The tier bundle is
+    // the synthesizer's CEILING — agent-config.ts throws at DISPATCH time on a profile
+    // skill outside it. Validate here at the edit boundary so an unregistered skill
+    // gets a clear 400 instead of being stored silently and breaking the next run.
+    if (parsed.data.skills) {
+      const profile = getProfile(ORG_DEFAULT_ID)
+      if (!profile) return sendError(reply, 404, 'not found')
+      const available = new Set(resolveAuthority(profile.tier).skills)
+      const unknown = parsed.data.skills.filter(s => !available.has(s))
+      if (unknown.length > 0) {
+        return sendError(
+          reply,
+          400,
+          `unknown skill(s): ${unknown.join(', ')} — not in the ${profile.tier} tier skill set`,
+        )
+      }
     }
     try {
       const updated = updateProfile(ORG_DEFAULT_ID, parsed.data)

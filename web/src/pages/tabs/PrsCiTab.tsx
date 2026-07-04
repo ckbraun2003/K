@@ -1,11 +1,28 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { GithubStatus, PrInfo, CiRunInfo } from '@k/shared'
+import type { GithubStatus, PrInfo, CiRunInfo, Project } from '@k/shared'
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
 
 interface Props {
   projectId: string
+}
+
+/** GitHub Actions run URL for a CI run, or null when the repo remote is unknown
+ *  (CiRunInfo carries no url of its own — we compose the canonical Actions path). */
+export function ciRunUrl(remote: string | undefined, runId: number): string | null {
+  return remote ? `https://github.com/${remote}/actions/runs/${runId}` : null
+}
+
+/** Best-effort default base branch for a new PR (fix F-047). The Project record
+ *  doesn't persist the repo's default branch, so infer it from the GitHub status:
+ *  a repo's CI runs on its default branch, so the most recent CI run whose branch
+ *  is a conventional default ('main' or 'master') names it — distinguishing a
+ *  master-default repo from a main-default one. Falls back to 'main' when no such
+ *  signal exists. (ci[] is newest-first, so the first match is the freshest.) */
+export function defaultBaseBranch(github: GithubStatus | undefined): string {
+  const hit = github?.ci?.find(r => r.branch === 'main' || r.branch === 'master')
+  return hit?.branch ?? 'main'
 }
 
 function timeAgo(isoOrMs: string | number | null | undefined): string {
@@ -71,8 +88,9 @@ function PrRow({ pr }: { pr: PrInfo }) {
   )
 }
 
-function CiRow({ run }: { run: CiRunInfo }) {
+function CiRow({ run, remote }: { run: CiRunInfo; remote?: string }) {
   const color = ciConclusionColor(run.conclusion, run.status)
+  const url = ciRunUrl(remote, run.id)
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--surface)] transition-colors">
       <div className="flex-1 min-w-0">
@@ -84,9 +102,23 @@ function CiRow({ run }: { run: CiRunInfo }) {
           {run.branch} · {timeAgo(run.createdAt)}
         </p>
       </div>
-      <span className="font-mono text-[10px] text-[var(--muted)] flex-shrink-0">
-        #{run.id}
-      </span>
+      {url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()}
+          title="Open run on GitHub"
+          aria-label={`Open CI run ${run.id} on GitHub`}
+          className="font-mono text-[10px] text-[var(--muted)] flex-shrink-0 hover:text-[var(--accent-hover)] transition-colors"
+        >
+          #{run.id} ↗
+        </a>
+      ) : (
+        <span className="font-mono text-[10px] text-[var(--muted)] flex-shrink-0">
+          #{run.id}
+        </span>
+      )}
     </div>
   )
 }
@@ -105,6 +137,16 @@ export default function PrsCiTab({ projectId }: Props) {
     queryFn: () => api.projects.github(projectId),
     refetchInterval: 60_000,
   })
+
+  // The project record — its `githubRemote` gates every PR-creation affordance
+  // (F-061: a remoteless project has nowhere to push a PR) and provides the repo
+  // slug that linkifies CI runs (F-046). Reads the app-wide cached ['projects'].
+  const { data: projects = [] } = useQuery<Project[]>({
+    queryKey: ['projects'],
+    queryFn: api.projects.list,
+  })
+  const remote = projects.find(p => p.id === projectId)?.githubRemote
+  const hasRemote = !!remote
 
   const createPrMutation = useMutation({
     mutationFn: () => api.projects.createPr(projectId, prForm),
@@ -125,19 +167,37 @@ export default function PrsCiTab({ projectId }: Props) {
   }, [showModal])
 
   const openPrs = github?.prs.filter(p => p.state === 'OPEN') ?? []
+  // Merged/closed PRs were never surfaced (open-only filter): with 0 open PRs the
+  // tab had zero PR links at all (F-046). Show them in their own section.
+  const closedPrs = github?.prs.filter(p => p.state !== 'OPEN') ?? []
   const ciRuns = github?.ci ?? []
+
+  // Open the Create-PR modal with the base pre-filled to the repo's real default
+  // branch (F-047) rather than a hardcoded 'main'.
+  function openCreatePr() {
+    setPrForm({ ...DEFAULT_FORM, base: defaultBaseBranch(github) })
+    createPrMutation.reset()
+    setShowModal(true)
+  }
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Header bar */}
       <div className="flex-shrink-0 px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => { setPrForm(DEFAULT_FORM); createPrMutation.reset(); setShowModal(true) }}
-            className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:border-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
-          >
-            + Open PR
-          </button>
+          {hasRemote ? (
+            <button
+              data-testid="prs-open-pr"
+              onClick={openCreatePr}
+              className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:border-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
+            >
+              + Open PR
+            </button>
+          ) : (
+            <span data-testid="prs-no-remote" className="text-[11px] text-[var(--muted)]">
+              No GitHub remote — PRs unavailable
+            </span>
+          )}
         </div>
         <span className="font-mono text-[10px] text-[var(--muted)]">
           {github?.fetchedAt != null
@@ -200,6 +260,18 @@ export default function PrsCiTab({ projectId }: Props) {
             )}
           </div>
 
+          {/* Merged / closed PRs section (F-046) — only when there are any */}
+          {closedPrs.length > 0 && (
+            <div className="flex-shrink-0">
+              <div className="px-4 py-2 bg-[var(--raised)] border-b border-[var(--border)]">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                  Merged / Closed · {closedPrs.length}
+                </h3>
+              </div>
+              {closedPrs.map(pr => <PrRow key={pr.number} pr={pr} />)}
+            </div>
+          )}
+
           {/* CI Runs section */}
           <div className="flex-shrink-0">
             <div className="px-4 py-2 bg-[var(--raised)] border-b border-[var(--border)]">
@@ -210,14 +282,14 @@ export default function PrsCiTab({ projectId }: Props) {
             {ciRuns.length === 0 ? (
               <div className="px-4 py-4 text-xs text-[var(--muted)]">No CI runs.</div>
             ) : (
-              ciRuns.map(run => <CiRow key={run.id} run={run} />)
+              ciRuns.map(run => <CiRow key={run.id} run={run} remote={remote} />)
             )}
           </div>
         </>
       )}
 
-      {/* Create PR Modal */}
-      {showModal && (
+      {/* Create PR Modal — never rendered for a remoteless project (F-061) */}
+      {showModal && hasRemote && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
           onClick={e => { if (e.target === e.currentTarget) setShowModal(false) }}

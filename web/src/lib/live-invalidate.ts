@@ -62,3 +62,24 @@ export function makeRunUpdateInvalidator(
 
   return { handler, dispose }
 }
+
+/**
+ * Live projects-list invalidation (fix F-036). An externally-registered project —
+ * one an agent (or another client) adds through the API/MCP, not this tab's
+ * register dialog — never appeared until a manual reload, because the ['projects']
+ * query has no live signal. The GitHub poller broadcasts a `github_update` for
+ * every registered project (including a newly-registered one on its first poll),
+ * so treating that as the projects-changed signal surfaces the new card live.
+ *
+ * Invalidates ['projects'] and ['github-fleet'] (the fleet-level cached github
+ * batch behind the cards) on every `github_update`; all other messages are ignored.
+ */
+export function makeProjectListInvalidator(
+  qc: Pick<QueryClient, 'invalidateQueries'>,
+): (msg: WsMessage) => void {
+  return (msg: WsMessage) => {
+    if (msg.type !== 'github_update') return
+    void qc.invalidateQueries({ queryKey: ['projects'] })
+    void qc.invalidateQueries({ queryKey: ['github-fleet'] })
+  }
+}

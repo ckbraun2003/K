@@ -27,6 +27,7 @@ vi.mock('../src/lib/api', () => ({
   api: {
     runs: { get: mockGet, events: async () => [] },
     status: async () => statusValue,
+    projects: { list: async () => [] },
   },
 }))
 vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))

@@ -49,18 +49,40 @@ describe('GET /api/org-default', () => {
 })
 
 describe('PATCH /api/org-default', () => {
-  it('round-trips a skills change; the durable row reflects it', async () => {
+  it('round-trips a skills change (a real tier-bundle skill); the durable row reflects it', async () => {
     const app = await makeApp()
     try {
+      // 'gitnexus' is in the orchestrator tier bundle (the skills ceiling), so it is
+      // an accepted org-default skill (F-049 validates against that set).
       const res = await app.inject({
         method: 'PATCH',
         url: '/api/org-default',
-        payload: { skills: ['org-default-x'] },
+        payload: { skills: ['gitnexus'] },
       })
       expect(res.statusCode).toBe(200)
       const updated = res.json() as AgentProfile
-      expect(updated.skills).toEqual(['org-default-x'])
-      expect(getProfile('default-orchestrator')!.skills).toEqual(['org-default-x'])
+      expect(updated.skills).toEqual(['gitnexus'])
+      expect(getProfile('default-orchestrator')!.skills).toEqual(['gitnexus'])
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('400 on a skill outside the tier skill set (F-049); the profile is UNCHANGED', async () => {
+    const app = await makeApp()
+    try {
+      const before = getProfile('default-orchestrator')!.skills
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/org-default',
+        payload: { skills: ['gitnexus', 'this-skill-does-not-exist'] },
+      })
+      expect(res.statusCode).toBe(400)
+      const err = (res.json() as { error: string }).error
+      expect(err).toMatch(/this-skill-does-not-exist/)
+      expect(err).toMatch(/skill/)
+      // The row did NOT change — validation ran before the UPDATE.
+      expect(getProfile('default-orchestrator')!.skills).toEqual(before)
     } finally {
       await app.close()
     }

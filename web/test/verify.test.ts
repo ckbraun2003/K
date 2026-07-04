@@ -5,6 +5,7 @@ import {
   barPct,
   formatTimeAgo,
   latestReport,
+  trendIndicator,
   BREAKDOWN_BARS,
   BREAKDOWN_MAX,
   SEVERITY_ORDER,
@@ -157,5 +158,26 @@ describe('verification_update WS handler', () => {
     const handler = makeHandler({ invalidateQueries })
     handler({ type: 'ping' })
     expect(invalidateQueries).not.toHaveBeenCalled()
+  })
+})
+
+describe('trendIndicator (F-052 — shared by the verify tab + standalone page)', () => {
+  const a = report({ id: 'a', startedAt: 3000, score: 80 }) // newest
+  const b = report({ id: 'b', startedAt: 2000, score: 60 })
+  const c = report({ id: 'c', startedAt: 1000, score: 70 }) // oldest
+  const reports = [b, a, c] // deliberately unsorted
+
+  it('marks an improvement over the previous report with ▲', () => {
+    expect(trendIndicator(reports, 'a')).toBe(' ▲') // 80 > 60
+  })
+  it('marks a regression with ▼', () => {
+    expect(trendIndicator(reports, 'b')).toBe(' ▼') // 60 < 70
+  })
+  it('marks the oldest report (no prior) with an empty string', () => {
+    expect(trendIndicator(reports, 'c')).toBe('')
+  })
+  it('marks an unchanged score with =', () => {
+    const eq = [report({ id: 'x', startedAt: 2, score: 50 }), report({ id: 'y', startedAt: 1, score: 50 })]
+    expect(trendIndicator(eq, 'x')).toBe(' =')
   })
 })

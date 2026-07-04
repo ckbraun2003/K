@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import type { Run, AgentEvent, WsMessage, Status } from '@k/shared'
+import type { Run, AgentEvent, WsMessage, Status, Project } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
@@ -114,6 +114,12 @@ export default function RunConsole({ runId }: Props) {
   // Shared-cache status query (same key as Settings/CommandBar — no fan-out) so the
   // HITL reply box can gate the mic on whether voice is enabled.
   const { data: status } = useQuery<Status>({ queryKey: ['status'], queryFn: () => api.status() })
+
+  // The run's project (app-wide cached ['projects']) — its `githubRemote` gates the
+  // "Create PR from Run →" shortcut: a remoteless project has nowhere to open a PR
+  // (F-061), so the shortcut is hidden there.
+  const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
+  const runProjectHasRemote = !!projects.find(p => p.id === run?.projectId)?.githubRemote
 
   // Pair tool_use↔tool_result and coalesce consecutive tool calls once per event
   // change, not on every render (each WS event would otherwise rebuild ~2N objects).
@@ -393,9 +399,10 @@ export default function RunConsole({ runId }: Props) {
         </div>
       )}
 
-      {/* Footer: Create PR shortcut — only shown for terminal runs associated with a project */}
+      {/* Footer: Create PR shortcut — only for terminal runs whose project has a
+          GitHub remote (a remoteless project can't open a PR — F-061). */}
       {(run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted') &&
-        run.projectId && (
+        run.projectId && runProjectHasRemote && (
           <div className="flex-shrink-0 border-t border-[var(--border)] px-5 py-2 flex justify-end">
             <button
               onClick={() => navigate('project', run.projectId!, 'prs-ci')}

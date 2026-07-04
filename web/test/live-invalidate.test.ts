@@ -8,10 +8,11 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { WsMessage } from '@k/shared'
-import { makeRunUpdateInvalidator } from '../src/lib/live-invalidate'
+import { makeRunUpdateInvalidator, makeProjectListInvalidator } from '../src/lib/live-invalidate'
 
 const runUpdate = { type: 'run_update', run: {} as never } as WsMessage
 const otherMsg = { type: 'pong' } as WsMessage
+const githubUpdate = { type: 'github_update', projectId: 'p1', kind: 'pr', payload: [] } as WsMessage
 
 const ORG_KEYS = ['chief-org', 'orchestrators', 'orchestrator'] as const
 
@@ -85,5 +86,28 @@ describe('makeRunUpdateInvalidator', () => {
 
     vi.advanceTimersByTime(1000)
     for (const key of ORG_KEYS) expect(keyCounts(invalidateQueries)[key]).toBe(1)
+  })
+})
+
+describe('makeProjectListInvalidator (F-036)', () => {
+  it('a github_update invalidates the projects list + fleet-github batch', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeProjectListInvalidator({ invalidateQueries })
+
+    handler(githubUpdate)
+
+    const counts = keyCounts(invalidateQueries)
+    expect(counts.projects).toBe(1)
+    expect(counts['github-fleet']).toBe(1)
+  })
+
+  it('ignores run_update and other non-github messages', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeProjectListInvalidator({ invalidateQueries })
+
+    handler(runUpdate)
+    handler(otherMsg)
+
+    expect(invalidateQueries).not.toHaveBeenCalled()
   })
 })

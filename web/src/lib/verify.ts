@@ -72,3 +72,18 @@ export function latestReport(reports: VerificationReport[]): VerificationReport 
   if (reports.length === 0) return undefined
   return [...reports].sort((a, b) => b.startedAt - a.startedAt)[0]
 }
+
+// Score-trend marker for a report vs the chronologically-previous one: ' ▲' improved,
+// ' ▼' regressed, ' =' unchanged, '' when there is no prior report. Shared by the
+// workspace Verification tab AND the standalone verify page so the two render the
+// history identically (F-052 — the '=' delta marker previously existed only on the tab).
+export function trendIndicator(reports: VerificationReport[], id: string): string {
+  const sorted = [...reports].sort((a, b) => b.startedAt - a.startedAt)
+  const idx = sorted.findIndex(r => r.id === id)
+  if (idx < 0 || idx === sorted.length - 1) return ''
+  const prev = sorted[idx + 1].score
+  const curr = sorted[idx].score
+  if (curr > prev) return ' ▲'
+  if (curr < prev) return ' ▼'
+  return ' ='
+}

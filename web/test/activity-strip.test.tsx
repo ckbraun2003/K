@@ -18,6 +18,7 @@ vi.mock('../src/lib/runs-query', () => ({
 vi.mock('../src/lib/ws', () => ({ onWsMessage: () => () => {} }))
 vi.mock('../src/lib/live-invalidate', () => ({
   makeRunUpdateInvalidator: () => ({ handler: () => {}, dispose: () => {} }),
+  makeProjectListInvalidator: () => () => {},
 }))
 vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 

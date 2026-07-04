@@ -43,6 +43,10 @@ export default function TasksTab({ projectId }: Props) {
   const qc = useQueryClient()
   const [newTitle, setNewTitle] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  // Synchronous re-entrancy guard so a same-tick double-submit (rapid double-click,
+  // or Enter + click) can't fire the create mutation twice before `isPending`
+  // re-renders the disabled button (fix F-041).
+  const addGuard = useRef(false)
   const [pendingDispatchIds, setPendingDispatchIds] = useState<Set<string>>(new Set())
   // Multi-select for the "run delegation workflow" path (distinct from the per-row quick dispatch).
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -50,6 +54,9 @@ export default function TasksTab({ projectId }: Props) {
   const [dispatched, setDispatched] = useState<{ runId: string; count: number } | null>(null)
   // Task pending a delete confirm.
   const [deletingTask, setDeletingTask] = useState<ProjectTask | null>(null)
+  // Task pending a dispatch confirm — a per-row dispatch spends tokens, so it must
+  // be confirmed rather than firing a paid run on a single stray click (fix F-040).
+  const [dispatchingTask, setDispatchingTask] = useState<ProjectTask | null>(null)
 
   const { data: tasks = [] } = useQuery<ProjectTask[]>({
     queryKey: ['tasks', projectId],
@@ -92,6 +99,9 @@ export default function TasksTab({ projectId }: Props) {
       setNewTitle('')
       inputRef.current?.focus()
     },
+    // Release the double-submit guard once the create settles (success OR error),
+    // so a failed add can be retried.
+    onSettled: () => { addGuard.current = false },
   })
 
   const updateStatus = useMutation({
@@ -130,8 +140,10 @@ export default function TasksTab({ projectId }: Props) {
     onSettled: (_d, _e, task) => setPendingDispatchIds(s => { const n = new Set(s); n.delete(task.id); return n }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['runs', 'project', projectId] })
+      setDispatchingTask(null)
     },
   })
+  function closeDispatch() { setDispatchingTask(null); dispatchAgent.reset() }
 
   const dispatchWorkflow = useMutation({
     mutationFn: (ids: string[]) => api.projects.tasks.dispatchWorkflow(projectId, ids),
@@ -144,7 +156,8 @@ export default function TasksTab({ projectId }: Props) {
 
   function handleAdd() {
     const t = newTitle.trim()
-    if (!t) return
+    if (!t || addGuard.current || createTask.isPending) return
+    addGuard.current = true
     createTask.mutate(t)
   }
 
@@ -258,9 +271,10 @@ export default function TasksTab({ projectId }: Props) {
               </p>
             </div>
 
-            {/* Dispatch agent button */}
+            {/* Dispatch agent button — opens a confirm first (a per-row dispatch is a PAID run) */}
             <button
-              onClick={() => dispatchAgent.mutate(task)}
+              data-testid={`task-dispatch-btn-${task.id}`}
+              onClick={() => setDispatchingTask(task)}
               disabled={pendingDispatchIds.has(task.id) || dispatchWorkflow.isPending}
               title="Quick single agent run for this task (use the checkboxes + bar below for a delegation workflow: implementer→review→orchestrator)"
               className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 rounded-control border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs font-medium text-[var(--text)] hover:border-[var(--accent-hover)] hover:text-[var(--accent-hover)] transition-all disabled:opacity-40"
@@ -330,6 +344,13 @@ export default function TasksTab({ projectId }: Props) {
           {syncIssues.isSuccess && syncIssues.data?.degraded && (
             <span className="text-[11px] text-[var(--muted)]">gh unavailable — nothing synced</span>
           )}
+          {syncIssues.isSuccess && !syncIssues.data?.degraded && (
+            <span data-testid="tasks-sync-result" className="text-[11px] text-[var(--muted)]">
+              {syncIssues.data && syncIssues.data.synced > 0
+                ? `Synced ${syncIssues.data.synced} issue${syncIssues.data.synced === 1 ? '' : 's'}`
+                : 'No new issues'}
+            </span>
+          )}
           {syncIssues.isError && (
             <span className="text-[11px] text-[var(--red)]">⚠ {String(syncIssues.error)}</span>
           )}
@@ -355,6 +376,24 @@ export default function TasksTab({ projectId }: Props) {
           onClick: () => dispatched && navigate('runs', dispatched.runId),
         }}
         onDismiss={() => setDispatched(null)}
+      />
+
+      <ConfirmDialog
+        open={dispatchingTask !== null}
+        testid="task-dispatch"
+        title="Dispatch agent"
+        message={
+          <>
+            Start a paid agent run for{' '}
+            <span className="font-semibold text-[var(--text)]">{dispatchingTask?.title}</span>? This
+            spends tokens.
+          </>
+        }
+        confirmLabel="Dispatch agent"
+        busy={dispatchAgent.isPending}
+        error={dispatchAgent.isError ? String(dispatchAgent.error) : undefined}
+        onConfirm={() => dispatchingTask && dispatchAgent.mutate(dispatchingTask)}
+        onCancel={closeDispatch}
       />
 
       <ConfirmDialog

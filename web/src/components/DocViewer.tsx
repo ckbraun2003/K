@@ -8,6 +8,28 @@ interface Props {
   slug: string
 }
 
+/**
+ * Make in-document `#anchor` links (a bible's table of contents) resolve WITHIN the
+ * srcDoc iframe instead of against the parent SPA (fix F-042).
+ *
+ * A `srcDoc` + `sandbox` iframe has an opaque origin and (in Chromium) resolves a
+ * bare `#frag` click against the PARENT document's URL — so clicking a TOC anchor
+ * navigated the iframe to `<spa-url>#frag`, loading the SPA (and its Vite client)
+ * cross-origin: origin-null blocked it, blanking the viewer with ~6 CORS errors.
+ * Injecting `<base href="about:srcdoc">` pins the document's base to itself, so
+ * `#frag` resolves to `about:srcdoc#frag` — the same document — and the browser
+ * scrolls to the anchor instead of navigating away. The bible HTML is fully
+ * self-contained (inline CSS/JS, no external asset refs), so a base href is safe.
+ */
+export function withInDocBase(html: string): string {
+  if (/<base\b/i.test(html)) return html // already has a base — don't fight the author
+  const base = '<base href="about:srcdoc">'
+  // Prefer just after <head …>; fall back to after <html …>; else prepend.
+  if (/<head\b[^>]*>/i.test(html)) return html.replace(/(<head\b[^>]*>)/i, `$1${base}`)
+  if (/<html\b[^>]*>/i.test(html)) return html.replace(/(<html\b[^>]*>)/i, `$1${base}`)
+  return base + html
+}
+
 export default function DocViewer({ slug }: Props) {
   const [view, setView] = useState<'md' | 'html'>('html')
 
@@ -73,7 +95,7 @@ export default function DocViewer({ slug }: Props) {
         )}
         {view === 'html' && artifact.html && (
           <iframe
-            srcDoc={artifact.html}
+            srcDoc={withInDocBase(artifact.html)}
             className="w-full h-full border-none"
             sandbox="allow-scripts"
             title={artifact.title}
