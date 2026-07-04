@@ -8,6 +8,7 @@ import { relativeTime } from '../lib/verify'
 import { useAskK } from '../lib/useAskK'
 import { FORCE_ROUTE_OPTIONS } from '../lib/force-route-options'
 import { RUNS_LIST_KEY, runsListQueryFn } from '../lib/runs-query'
+import { cleanRunPrompt } from '../lib/prompt'
 import MicButton from '../components/MicButton'
 import Toast from '../components/Toast'
 
@@ -394,7 +395,7 @@ export default function KHome() {
                 key={r.id}
                 className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2 text-sm"
               >
-                <span className="min-w-0 flex-1 truncate text-[var(--text)]">{r.prompt}</span>
+                <span className="min-w-0 flex-1 truncate text-[var(--text)]">{cleanRunPrompt(r.prompt)}</span>
                 <span className={`flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide ${statusColor(r.status)}`}>
                   {r.status}
                 </span>

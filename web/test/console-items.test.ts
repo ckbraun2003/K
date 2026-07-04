@@ -15,6 +15,9 @@ import {
   delegatePrompt,
   delegateResultText,
   resultText,
+  resolveToolKind,
+  toolArgSummary,
+  isCommandTool,
   type ToolItem,
 } from '../src/lib/console'
 
@@ -194,6 +197,38 @@ describe('delegate derivation', () => {
   it('falls back to description when childLabel is absent', () => {
     const item = toolItem({ toolKind: 'delegate', toolInput: { description: 'desc here', prompt: 'p' } })
     expect(delegateChildLabel(item)).toBe('desc here')
+  })
+})
+
+describe('resolveToolKind — display-side command upgrade (F-078)', () => {
+  it('keeps a known toolKind as-is', () => {
+    expect(resolveToolKind(toolItem({ toolKind: 'command', tool: 'Bash' }))).toBe('command')
+    expect(resolveToolKind(toolItem({ toolKind: 'file', tool: 'Write' }))).toBe('file')
+    expect(resolveToolKind(toolItem({ toolKind: 'delegate', tool: 'Task' }))).toBe('delegate')
+  })
+  it('upgrades a name-recognized shell tool the classifier tagged "other" to command', () => {
+    expect(resolveToolKind(toolItem({ toolKind: 'other', tool: 'PowerShell', toolInput: { command: 'gh pr create' } }))).toBe('command')
+    expect(resolveToolKind(toolItem({ toolKind: 'other', tool: 'pwsh', toolInput: { command: 'ls' } }))).toBe('command')
+    expect(isCommandTool('powershell')).toBe(true)
+    expect(isCommandTool('Read')).toBe(false)
+  })
+  it('leaves a genuinely-other tool as other', () => {
+    expect(resolveToolKind(toolItem({ toolKind: 'other', tool: 'Read', toolInput: { file_path: '/x' } }))).toBe('other')
+  })
+})
+
+describe('toolArgSummary — salient input arg (F-063)', () => {
+  it('extracts the known salient key per tool', () => {
+    expect(toolArgSummary(toolItem({ tool: 'Read', toolInput: { file_path: '/a/b.ts' } }))).toBe('/a/b.ts')
+    expect(toolArgSummary(toolItem({ tool: 'ToolSearch', toolInput: { query: 'select:Read' } }))).toBe('select:Read')
+    expect(toolArgSummary(toolItem({ tool: 'Glob', toolInput: { pattern: '**/*.ts' } }))).toBe('**/*.ts')
+  })
+  it('labels the first string field when no known key matches', () => {
+    expect(toolArgSummary(toolItem({ tool: 'mcp__x__y', toolInput: { widget: 'gizmo' } }))).toBe('widget: gizmo')
+  })
+  it('returns empty string when there is no salient arg', () => {
+    expect(toolArgSummary(toolItem({ tool: 'NoArgs', toolInput: {} }))).toBe('')
+    expect(toolArgSummary(toolItem({ tool: 'BadInput', toolInput: 42 }))).toBe('')
   })
 })
 

@@ -13,6 +13,8 @@ import {
   delegatePrompt,
   delegateResultText,
   resultText,
+  resolveToolKind,
+  toolArgSummary,
   isPending,
   isError,
 } from '../lib/console'
@@ -26,16 +28,19 @@ import {
  * the CSS reduced-motion rule. Error styling (red) is shown only when the
  * result is EXPLICITLY flagged as an error.
  */
-export default function ToolCall({ item }: { item: ToolItem }) {
-  switch (item.call.toolKind) {
+export default function ToolCall({ item, runEnded = false }: { item: ToolItem; runEnded?: boolean }) {
+  // Resolve on the display side so a name-recognized shell tool the core
+  // classifier tagged 'other' (PowerShell/pwsh) still renders as a command card
+  // with its command in the header (F-078).
+  switch (resolveToolKind(item)) {
     case 'command':
-      return <CommandCall item={item} />
+      return <CommandCall item={item} runEnded={runEnded} />
     case 'file':
-      return <FileCall item={item} />
+      return <FileCall item={item} runEnded={runEnded} />
     case 'delegate':
-      return <DelegateCall item={item} />
+      return <DelegateCall item={item} runEnded={runEnded} />
     default:
-      return <OtherCall item={item} />
+      return <OtherCall item={item} runEnded={runEnded} />
   }
 }
 
@@ -146,11 +151,13 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 // ─── Command (Bash) ───────────────────────────────────────────────────────────
 
-export function CommandCall({ item }: { item: ToolItem }) {
+export function CommandCall({ item, runEnded = false }: { item: ToolItem; runEnded?: boolean }) {
   const command = commandText(item)
   const description = commandDescription(item)
   const output = resultText(item)
-  const pending = isPending(item)
+  // A tool_use with no result after the run ended is resolved (unknown), never
+  // perpetually "running…" (F-063).
+  const pending = isPending(item) && !runEnded
   const error = isError(item)
 
   const detail =
@@ -186,12 +193,13 @@ const FILE_OP_LABEL: Record<string, string> = {
   unknown: 'File',
 }
 
-export function FileCall({ item }: { item: ToolItem }) {
+export function FileCall({ item, runEnded = false }: { item: ToolItem; runEnded?: boolean }) {
   const path = fileSummary(item)
   const op = fileOp(item)
   const detail = fileDetail(item)
   const error = isError(item)
   const errorText = error ? resultText(item) : ''
+  const pending = isPending(item) && !runEnded
 
   let body: React.ReactNode
   if (detail.type === 'write') {
@@ -222,7 +230,7 @@ export function FileCall({ item }: { item: ToolItem }) {
       testid="tool-file"
       icon="✎"
       error={error}
-      pending={isPending(item)}
+      pending={pending}
       summary={
         <span>
           <span className="text-[var(--accent-hover)]">{FILE_OP_LABEL[op]}</span> {path}
@@ -240,12 +248,12 @@ export function FileCall({ item }: { item: ToolItem }) {
 
 // ─── Delegated agents (Agent / Task) ──────────────────────────────────────────
 
-export function DelegateCall({ item }: { item: ToolItem }) {
+export function DelegateCall({ item, runEnded = false }: { item: ToolItem; runEnded?: boolean }) {
   const agent = delegateLabel(item)
   const label = delegateChildLabel(item)
   const prompt = delegatePrompt(item)
   const result = delegateResultText(item)
-  const pending = isPending(item)
+  const pending = isPending(item) && !runEnded
   const error = isError(item)
 
   return (
@@ -284,10 +292,13 @@ export function DelegateCall({ item }: { item: ToolItem }) {
 
 // ─── Other / unknown tools ────────────────────────────────────────────────────
 
-export function OtherCall({ item }: { item: ToolItem }) {
+export function OtherCall({ item, runEnded = false }: { item: ToolItem; runEnded?: boolean }) {
   const name = item.call.tool ?? 'tool'
+  // Show the tool's salient input arg in the header instead of empty parens
+  // (Read → path, ToolSearch → query, mcp__ tools → their key arg) — F-063.
+  const arg = toolArgSummary(item)
   const output = resultText(item)
-  const pending = isPending(item)
+  const pending = isPending(item) && !runEnded
   const error = isError(item)
 
   return (
@@ -296,7 +307,12 @@ export function OtherCall({ item }: { item: ToolItem }) {
       icon="⚙"
       error={error}
       pending={pending}
-      summary={<span className="text-[var(--accent-hover)]">{name}()</span>}
+      summary={
+        <span>
+          <span className="text-[var(--accent-hover)]">{name}</span>
+          <span className="text-[var(--muted)]">({arg})</span>
+        </span>
+      }
       detail={
         !pending && output ? (
           <CodeBlock text={output} tone={error ? 'error' : undefined} />

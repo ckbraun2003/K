@@ -5,7 +5,8 @@ import type { Run, WsMessage } from '@k/shared'
 import { api } from '../lib/api'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
-import { RUNS_LIST_KEY, RUNS_LIST_LIMIT, runsListQueryFn } from '../lib/runs-query'
+import { RUNS_LIST_KEY, RUNS_LIST_LIMIT, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
+import { cleanRunPrompt } from '../lib/prompt'
 import ConfirmDialog from './ConfirmDialog'
 
 interface Props {
@@ -14,21 +15,23 @@ interface Props {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  queued:      'bg-amber/15 text-[var(--amber)]',
-  running:     'bg-accent/15 text-[var(--accent-hover)]',
-  done:        'bg-green/15 text-[var(--green)]',
-  error:       'bg-red/15 text-[var(--red)]',
-  killed:      'bg-muted/15 text-[var(--muted)]',
-  interrupted: 'bg-red/15 text-[var(--red)]',
+  queued:         'bg-amber/15 text-[var(--amber)]',
+  running:        'bg-accent/15 text-[var(--accent-hover)]',
+  awaiting_input: 'bg-amber/25 text-[var(--amber)]',
+  done:           'bg-green/15 text-[var(--green)]',
+  error:          'bg-red/15 text-[var(--red)]',
+  killed:         'bg-muted/15 text-[var(--muted)]',
+  interrupted:    'bg-red/15 text-[var(--red)]',
 }
 
 const STATUS_DOT: Record<string, string> = {
-  queued:      'bg-[var(--amber)]',
-  running:     'bg-[var(--accent)] glow-live',
-  done:        'bg-[var(--green)]',
-  error:       'bg-[var(--red)]',
-  killed:      'bg-[var(--muted)]',
-  interrupted: 'bg-[var(--red)]',
+  queued:         'bg-[var(--amber)]',
+  running:        'bg-[var(--accent)] glow-live',
+  awaiting_input: 'bg-[var(--amber)] glow-live',
+  done:           'bg-[var(--green)]',
+  error:          'bg-[var(--red)]',
+  killed:         'bg-[var(--muted)]',
+  interrupted:    'bg-[var(--red)]',
 }
 
 type FilterKey = 'all' | 'active' | 'done' | 'error' | 'killed' | 'interrupted'
@@ -37,7 +40,9 @@ const FILTERS: FilterKey[] = ['all', 'active', 'done', 'error', 'killed', 'inter
 
 function matchesFilter(run: Run, filter: FilterKey): boolean {
   if (filter === 'all') return true
-  if (filter === 'active') return run.status === 'running' || run.status === 'queued'
+  // "active" folds in parked (awaiting_input) runs — they hold a live CLI process
+  // needing operator attention, so they must not read as inactive (F-055).
+  if (filter === 'active') return isActiveRun(run) || isParkedRun(run)
   return run.status === filter
 }
 
@@ -187,7 +192,7 @@ export default function RunList({ selectedId, onSelect }: Props) {
                   </button>
                 )}
               </div>
-              <p className="text-sm text-[var(--text)] truncate">{run.prompt}</p>
+              <p className="text-sm text-[var(--text)] truncate">{cleanRunPrompt(run.prompt)}</p>
               <p className="mono text-xs text-[var(--muted)] mt-0.5">
                 {new Date(run.createdAt).toLocaleTimeString()} · {run.model}
               </p>

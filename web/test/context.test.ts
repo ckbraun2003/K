@@ -71,6 +71,45 @@ describe('latestContextTokens', () => {
   it('tolerates a null/undefined events argument', () => {
     expect(latestContextTokens(undefined as unknown as AgentEvent[])).toBe(0)
   })
+
+  // ── F-056 / F-073: single-turn window, never the cumulative usage/result event ──
+  it('ignores the cumulative `usage`/result event even at the highest seq (F-056)', () => {
+    const events: AgentEvent[] = [
+      // per-turn assistant context — the true single-turn window occupancy
+      { id: 'a', runId: 'r', seq: 1, type: 'assistant', ts: 0, contextTokens: 36_000 },
+      { id: 'b', runId: 'r', seq: 2, type: 'assistant', ts: 0, contextTokens: 30_000 },
+      // final result line → 'usage' event carrying the RUN-CUMULATIVE total; highest
+      // seq, so the old code returned it (245k against a 200k window).
+      { id: 'c', runId: 'r', seq: 3, type: 'usage', ts: 0, contextTokens: 245_000, tokensIn: 245_000 },
+    ]
+    // Returns the LATEST assistant turn (seq 2 = 30k) — NOT the 245k cumulative
+    // usage event, and NOT summed.
+    const tokens = latestContextTokens(events)
+    expect(tokens).toBe(30_000)
+    expect(tokens).not.toBe(245_000)
+  })
+
+  it('does not surface a multi-agent cumulative sum from the usage event (F-073)', () => {
+    const events: AgentEvent[] = [
+      { id: 'a', runId: 'r', seq: 1, type: 'assistant', ts: 0, contextTokens: 40_000 },
+      // usage event whose total folds in subagent usage → 449k; must be ignored.
+      { id: 'u', runId: 'r', seq: 9, type: 'usage', ts: 0, contextTokens: 449_000 },
+    ]
+    expect(latestContextTokens(events)).toBe(40_000)
+  })
+})
+
+describe('contextPressure — cumulative usage event never drives the meter (F-056/F-073)', () => {
+  it('a long run that peaked ~18% stays ok, not danger, after the cumulative result lands', () => {
+    const events: AgentEvent[] = [
+      { id: 'a', runId: 'r', seq: 1, type: 'assistant', ts: 0, contextTokens: 0.18 * LIMIT },
+      { id: 'c', runId: 'r', seq: 2, type: 'usage', ts: 0, contextTokens: 245_000 },
+    ]
+    const p = contextPressure(events, MODEL)
+    expect(p.tokens).toBe(0.18 * LIMIT)
+    expect(Math.round(p.percent!)).toBe(18)
+    expect(p.band).toBe('ok')
+  })
 })
 
 describe('contextPressure — known model bands', () => {

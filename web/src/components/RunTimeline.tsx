@@ -51,6 +51,10 @@ export default function RunTimeline({ events, runId }: Props) {
   const [playing, setPlaying] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Per-row refs so play/seek can scroll the cursor row into view (F-080) — the
+  // replay was blind: it dimmed future rows + moved the counter but never scrolled,
+  // leaving the active row thousands of px off-screen.
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([])
   // Cache for lazily-fetched raw strings, keyed by seq. Null means fetch returned 404.
   // NB: seq is only unique within a run — RunConsole remounts this component with
   // key={runId}, so this state never leaks across runs.
@@ -72,6 +76,13 @@ export default function RunTimeline({ events, runId }: Props) {
     setCursor(Math.max(0, events.length - 1))
     setPlaying(false)
   }, [events])
+
+  // Scroll the cursor row into view whenever the cursor moves — on play (the
+  // engine advances it) AND on seek (the range input sets it). `block: 'nearest'`
+  // scrolls the list container minimally without yanking the page (F-080).
+  useEffect(() => {
+    rowRefs.current[cursor]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [cursor])
 
   // Replay engine — chained setTimeout, cleans up on unmount / pause / events change
   useEffect(() => {
@@ -214,6 +225,8 @@ export default function RunTimeline({ events, runId }: Props) {
           return (
             <div
               key={e.id}
+              ref={el => { rowRefs.current[idx] = el }}
+              data-testid="timeline-row"
               className={cn('py-1.5 border-b border-[var(--border)] last:border-0 transition-opacity duration-150', dimmed ? 'opacity-25' : 'opacity-100')}
             >
               <button

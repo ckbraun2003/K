@@ -34,12 +34,24 @@ export interface ContextPressure {
  * `seq` carrying a context signal (rather than trusting array order), returning
  * its `contextTokens` (preferred), else `tokensIn`, else 0. Returns 0 when no
  * event carries either signal. Never throws.
+ *
+ * Only `assistant` events are considered — they carry the per-turn context size
+ * (fresh input + cache, for that ONE turn). The final `result` line maps to a
+ * `usage` event whose token totals are RUN-CUMULATIVE (and, on a multi-agent run,
+ * fold in subagent usage), so counting it made the meter read the whole-run sum
+ * against the single-turn 200k window — e.g. `ctx 245k/200k` on a run that peaked
+ * at ~18%, or `ctx 449k/200k` when subagent tokens were summed (F-056 / F-073).
+ * Excluding non-assistant events keeps the meter on the true single-turn value
+ * that is already correct live (before the cumulative `result` event lands).
  */
 export function latestContextTokens(events: AgentEvent[]): number {
   let bestSeq = -Infinity
   let bestTokens = 0
   for (const e of events ?? []) {
     if (e == null) continue
+    // The context window is a single-turn window: only per-turn assistant events
+    // report it. Skip the cumulative `usage`/`result` event (and any non-turn row).
+    if (e.type !== 'assistant') continue
     const raw = e.contextTokens ?? e.tokensIn
     // Ignore malformed (non-numeric) signals so a bad event can't poison the read.
     if (typeof raw !== 'number' || !Number.isFinite(raw)) continue

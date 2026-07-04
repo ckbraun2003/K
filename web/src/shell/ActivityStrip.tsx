@@ -4,7 +4,8 @@ import type { Run } from '@k/shared'
 import { onWsMessage } from '../lib/ws'
 import { navigate } from '../lib/route'
 import { makeRunUpdateInvalidator, makeProjectListInvalidator } from '../lib/live-invalidate'
-import { RUNS_LIST_KEY, runsListQueryFn } from '../lib/runs-query'
+import { RUNS_LIST_KEY, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
+import { cleanRunPrompt } from '../lib/prompt'
 
 export default function ActivityStrip() {
   const qc = useQueryClient()
@@ -30,14 +31,28 @@ export default function ActivityStrip() {
     }
   }, [qc])
 
-  const active = runs.filter(r => r.status === 'running' || r.status === 'queued')
+  const active = runs.filter(isActiveRun)
+  // Parked runs (awaiting_input) hold a live CLI process waiting on the operator —
+  // surfaced distinctly as "needs input" so they never read as idle (F-055).
+  const needsInput = runs.filter(isParkedRun)
   const lastDone = runs.find(r => r.status === 'done' || r.status === 'error' || r.status === 'killed' || r.status === 'interrupted')
 
   return (
     <footer className="glass relative z-10 flex items-center gap-5 overflow-x-auto whitespace-nowrap border-x-0 border-b-0 border-t px-4 py-1.5 text-xs">
-      {active.length === 0 && (
+      {active.length === 0 && needsInput.length === 0 && (
         <span className="text-[var(--muted)]">idle — no agents running</span>
       )}
+      {needsInput.map(r => (
+        <button
+          key={r.id}
+          data-testid="activity-needs-input"
+          onClick={() => navigate('runs', r.id)}
+          className="flex items-center gap-2 font-medium text-[var(--amber)] transition-colors duration-150 hover:text-[var(--text)]"
+        >
+          <span className="glow-live h-1.5 w-1.5 rounded-full bg-[var(--amber)]" />
+          <span className="max-w-72 truncate">needs input · {cleanRunPrompt(r.prompt)}</span>
+        </button>
+      ))}
       {active.map(r => (
         <button
           key={r.id}
@@ -45,12 +60,12 @@ export default function ActivityStrip() {
           className="flex items-center gap-2 text-[var(--text)] transition-colors duration-150 hover:text-[var(--accent-hover)]"
         >
           <span className="glow-live h-1.5 w-1.5 rounded-full bg-[var(--green)]" />
-          <span className="max-w-72 truncate">{r.prompt}</span>
+          <span className="max-w-72 truncate">{cleanRunPrompt(r.prompt)}</span>
         </button>
       ))}
       {lastDone && (
         <button onClick={() => navigate('runs', lastDone.id)} className="text-[var(--muted)] transition-colors duration-150 hover:text-[var(--text)]">
-          last: {lastDone.status === 'done' ? '✓' : '✗'} {lastDone.prompt.slice(0, 40)}
+          last: {lastDone.status === 'done' ? '✓' : '✗'} {cleanRunPrompt(lastDone.prompt).slice(0, 40)}
         </button>
       )}
       {/* Day totals (runs / cost / tokens) intentionally live ONLY on the Metrics

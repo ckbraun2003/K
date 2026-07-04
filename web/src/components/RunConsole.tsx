@@ -8,6 +8,8 @@ import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
 import { pairToolCalls, groupConsoleItems } from '../lib/console'
 import { contextPressure, nextAutoCompact, type AutoCompactState } from '../lib/context'
+import { cleanRunPrompt } from '../lib/prompt'
+import { linkify } from '../lib/linkify'
 import RunTimeline from './RunTimeline'
 import ToolCall from './ToolCall'
 import ConfirmDialog from './ConfirmDialog'
@@ -73,16 +75,16 @@ function EventLine({ event: e }: { event: AgentEvent }) {
         </span>
       )}
       {e.type === 'error' && (
-        <span>⚠ {e.text}</span>
+        <span>⚠ {linkify(e.text ?? '')}</span>
       )}
       {e.type === 'assistant' && e.tool && (
         <span className="text-[var(--accent-hover)]">⚙ {e.tool}()</span>
       )}
       {e.type === 'assistant' && !e.tool && e.text && (
-        <span>{e.text}</span>
+        <span>{linkify(e.text)}</span>
       )}
       {(e.type === 'system' || e.type === 'user') && e.text && (
-        <span className="opacity-60">{e.text}</span>
+        <span className="opacity-60">{linkify(e.text)}</span>
       )}
     </motion.div>
   )
@@ -256,12 +258,18 @@ export default function RunConsole({ runId }: Props) {
   }
   if (!run) return <div className="flex-1 flex items-center justify-center text-[var(--muted)]">Loading…</div>
 
+  // A terminal run's tool calls can't still be running: an unpaired tool_use is
+  // resolved (not perpetually pending) once the run ends (F-063). awaiting_input
+  // is NOT terminal — the CLI is live and a turn may still be in flight.
+  const runEnded =
+    run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted'
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-[var(--text)] truncate">{run.prompt}</p>
+          <p className="text-sm font-medium text-[var(--text)] truncate">{cleanRunPrompt(run.prompt)}</p>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--muted)]">
             <span>
               {run.model} · {run.tokensIn.toLocaleString()} in / {run.tokensOut.toLocaleString()} out · ${run.costUsd.toFixed(4)}
@@ -323,7 +331,7 @@ export default function RunConsole({ runId }: Props) {
             seg.type === 'tools' ? (
               <div key={seg.key} className="space-y-1 border-l border-[var(--border)] pl-2">
                 {seg.items.map(it => (
-                  <ToolCall key={it.call.id} item={it} />
+                  <ToolCall key={it.call.id} item={it} runEnded={runEnded} />
                 ))}
               </div>
             ) : (
