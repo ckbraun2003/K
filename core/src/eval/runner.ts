@@ -14,7 +14,7 @@ import { makeSandbox } from './sandbox.js'
 import { grade } from './graders.js'
 import { runJudge } from './judge.js'
 import { aggregate, compareToBaselines, writeBaselines } from './metrics.js'
-import type { DispatchResult, EvalCase, EvalJob, EvalRecord, EvalReport, RunMatrixOptions } from './types.js'
+import type { BaselineCompare, DispatchResult, EvalCase, EvalJob, EvalRecord, EvalReport, RunMatrixOptions } from './types.js'
 
 function detectedRefusal(text: string | null | undefined): boolean {
   return /\b(i\s+(can'?t|cannot|won'?t|will not|should not|shouldn'?t)|i'?m not able|i am not able|i must decline|i'?ll decline|outside (my|the) (scope|allowlist|authority|charter)|not within (my|the) (scope|allowlist|authority|charter)|i don'?t have (the )?(tools|authority|permission)|delegate|route (this|it) to)\b/i.test(text || '')
@@ -27,7 +27,16 @@ function computeRefusal(kase: EvalCase, result: DispatchResult): boolean | null 
 
 async function pool<T>(items: T[], concurrency: number, worker: (item: T, idx: number) => Promise<void>): Promise<void> {
   let i = 0
-  const run = async () => { while (i < items.length) { const idx = i++; await worker(items[idx], idx) } }
+  const run = async () => {
+    while (i < items.length) {
+      const idx = i++
+      await worker(items[idx], idx)
+      // Cooperative yield (F-013): the dry worker body is fully synchronous, so `await worker()` only
+      // drains MICROTASKS — HTTP handlers, node-cron ticks, and WS heartbeats (macrotasks) would starve
+      // until the whole matrix finished. Yield a real macrotask per job so timers + I/O interleave.
+      await new Promise<void>(resolve => setImmediate(resolve))
+    }
+  }
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, run))
 }
 
@@ -168,7 +177,15 @@ export async function runEvalMatrix(opts: RunMatrixOptions = {}): Promise<EvalRe
     }
   }
   const { perSystem, overall } = aggregate(records)
-  const regression = compareToBaselines({ perSystem, root })
+  // F-025: a dry run fabricates $0 results; comparing them to REAL frozen baselines yields a bogus
+  // REGRESSION badge. In dry mode skip the compare and mark each system with the neutral 'dry' status.
+  let regression: Record<string, BaselineCompare>
+  if (dry) {
+    regression = {}
+    for (const sys of Object.keys(perSystem)) regression[sys] = { status: 'dry' }
+  } else {
+    regression = compareToBaselines({ perSystem, root })
+  }
   const baselinesExist = Object.values(regression).every(r => r.status !== 'no-baseline')
   let frozen: string[] = []
   if (!dry && (opts.updateBaselines || !baselinesExist)) frozen = writeBaselines({ perSystem, root })

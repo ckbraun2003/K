@@ -101,6 +101,12 @@ export async function evalsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: parsed.error.flatten() })
     }
     const body = parsed.data
+    // F-014: an explicit empty `systems: []` selects NOTHING (see store.ts loadSystemsFromDb) — reject
+    // it up front with a clear message rather than relying on the downstream 0-jobs path. Omitting
+    // `systems` entirely is distinct: it still runs ALL systems.
+    if (body.systems && body.systems.length === 0) {
+      return reply.status(400).send({ error: 'no systems selected' })
+    }
     const models = body.models ?? DEFAULT_EVAL_MODELS
     const variants = body.variants ?? DEFAULT_EVAL_VARIANTS
     const onlyCases = body.cases ?? null
@@ -149,8 +155,13 @@ export async function evalsRoutes(app: FastifyInstance) {
 
   // POST /api/evals/runs/:id/freeze-baselines — freeze per-system baselines from the run report.
   app.post<{ Params: { id: string } }>('/api/evals/runs/:id/freeze-baselines', async (req, reply) => {
-    const row = evalRunsDb.getEvalRun.get(req.params.id)
+    const row = evalRunsDb.getEvalRun.get(req.params.id) as EvalRunRow | undefined
     if (!row) return reply.status(404).send({ error: 'not found' })
+    // A dry run's metrics are fabricated — freezing them would poison real regression comparisons.
+    // Reject up front (400) before mutating eval_baselines.
+    if (row.dry === 1) {
+      return reply.status(400).send({ error: 'cannot freeze baselines from a dry run' })
+    }
     return reply.send({ frozen: freezeBaselinesFromRun(req.params.id) })
   })
 

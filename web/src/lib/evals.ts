@@ -32,9 +32,10 @@ export interface EvalRunSummary {
   completedAt: number | null
 }
 
-/** Per-system regression verdict vs the frozen DB baselines. */
+/** Per-system regression verdict vs the frozen DB baselines. `dry` = a dry run's neutral,
+ *  un-compared status (fabricated results are never diffed vs real baselines). */
 export interface BaselineCompare {
-  status: 'no-baseline' | 'REGRESSION' | 'ok'
+  status: 'no-baseline' | 'REGRESSION' | 'ok' | 'dry'
   deltas?: Record<string, number>
   regressionThreshold?: number
 }
@@ -175,6 +176,8 @@ export function regressionBadge(
   if (c?.status === 'ok') return { label: 'ok', colorClass: 'bg-green-500/20 text-green-300' }
   if (c?.status === 'REGRESSION')
     return { label: 'REGRESSION', colorClass: 'bg-red-500/20 text-red-300' }
+  // A dry run never compares fabricated results to real baselines — show a neutral, non-red badge.
+  if (c?.status === 'dry') return { label: 'dry', colorClass: 'bg-[var(--raised)] text-[var(--muted)]' }
   return { label: 'no baseline', colorClass: 'bg-[var(--raised)] text-[var(--muted)]' }
 }
 
@@ -196,4 +199,28 @@ export function runStatusColor(status: string): string {
 export function detPassGlyph(detPass: number | null): string {
   if (detPass == null) return EMPTY
   return detPass ? '✓' : '✗'
+}
+
+export interface ResultTally {
+  passed: number
+  failed: number
+  total: number
+  label: string
+}
+
+/**
+ * Tally deterministic pass/fail across result rows. A row is FAILED when it errored or its det grade
+ * did not pass; PASSED only when detPass === 1; a null detPass with no error is neither. `total` is the
+ * completed-row count. This distinguishes PASSED from merely COMPLETED — the run-row progress "N/N"
+ * counts completion, which reads (falsely) as all-green even when some rows failed (F-044).
+ */
+export function resultTally(rows: Pick<EvalResultRow, 'detPass' | 'error'>[]): ResultTally {
+  let passed = 0
+  let failed = 0
+  for (const r of rows) {
+    if (r.error != null) failed++
+    else if (r.detPass === 1) passed++
+    else if (r.detPass === 0) failed++
+  }
+  return { passed, failed, total: rows.length, label: `${passed}/${rows.length} passed` }
 }

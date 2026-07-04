@@ -133,6 +133,17 @@ describe('loadSystemsFromDb — equivalent to loadSystems (file loader)', () => 
     expect(one.map(s => s.id)).toEqual(['L0'])
   })
 
+  it('F-014: an explicit empty `only: []` selects NO systems; omitted `only` runs ALL', () => {
+    // Pre-fix `[]` was treated as "all" (a falsy length skipped the filter) → a stray systems:[] fanned
+    // out to a full real-spend run. Post-fix only null/undefined means all; `[]` selects nothing.
+    seedEvalSystems({ root })
+    expect(loadSystemsFromDb({ root, only: [] })).toEqual([])
+    const all = loadSystemsFromDb({ root })
+    expect(all.length).toBeGreaterThan(0)
+    const one = loadSystemsFromDb({ root, only: [all[0].id] })
+    expect(one.map(s => s.id)).toEqual([all[0].id])
+  })
+
   it('excludes disabled systems (enabled = 0) from the runner registry load (F4.W2)', () => {
     // loadSystemsFromDb is the RUNNER's source, so the dashboard's `enabled` flag actually gates a
     // system's inclusion in eval runs. (The dashboard LIST endpoint shows all systems, incl. disabled.)
@@ -144,6 +155,18 @@ describe('loadSystemsFromDb — equivalent to loadSystems (file loader)', () => 
     // re-enabling restores it (and leaves the row enabled for the other tests / re-seed)
     db.prepare(`UPDATE eval_systems SET enabled = 1 WHERE id = 'L0'`).run()
     expect(loadSystemsFromDb({ root }).map(s => s.id)).toContain('L0')
+  })
+})
+
+describe('loadSystems (file loader) — `only` filter (F-014 mirror of store.ts)', () => {
+  it('an explicit empty `only: []` selects NO systems; omitted `only` runs ALL', () => {
+    // The file loader is the runner's DEFAULT loadSystemsFn fallback, so it must share store.ts's
+    // semantics: only null/undefined = all, [] = none. Pre-fix `[]` fell through to "all".
+    expect(loadSystems({ root, only: [] })).toEqual([])
+    const all = loadSystems({ root })
+    expect(all.length).toBeGreaterThan(0)
+    const one = loadSystems({ root, only: [all[0].id] })
+    expect(one.map(s => s.id)).toEqual([all[0].id])
   })
 })
 

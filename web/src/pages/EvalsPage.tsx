@@ -11,6 +11,7 @@ import {
   formatScore,
   formatCost,
   runProgress,
+  resultTally,
   discriminationStatus,
   regressionBadge,
   runStatusColor,
@@ -129,7 +130,7 @@ export default function EvalsPage() {
                 expanded={expandedRun === run.id}
                 onToggle={() => setExpandedRun(id => (id === run.id ? null : run.id))}
               />
-              {expandedRun === run.id && <RunDetail runId={run.id} />}
+              {expandedRun === run.id && <RunDetail runId={run.id} dry={run.dry} />}
             </div>
           ))}
         </div>
@@ -343,7 +344,9 @@ export function RunSummaryRow({
         className={run.dry ? 'bg-[var(--raised)] text-[var(--muted)]' : 'bg-amber/20 text-[var(--amber)]'}
       />
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="mono text-xs text-[var(--muted)]">{prog.label}</span>
+        {/* Label the count as JOBS DONE, not a pass ratio — "N/N" is completion, not all-green (F-044).
+            The honest pass/fail tally lives in the expanded Results section below. */}
+        <span className="mono text-xs text-[var(--muted)]">{prog.label} jobs</span>
         <div className="h-1 w-24 overflow-hidden rounded-full bg-[var(--raised)]">
           <div
             className="h-full rounded-full bg-[var(--accent)]"
@@ -358,9 +361,37 @@ export function RunSummaryRow({
   )
 }
 
+// ─── Freeze-baselines button (prop-fed, render-testable) ──────────────────────
+
+/** The freeze control is DISABLED for a dry run: a dry run's metrics are fabricated, so freezing them
+ *  as baselines would poison every later real regression comparison (mirrors the service/route 400). */
+export function FreezeBaselinesButton({
+  dry,
+  disabled,
+  pending,
+  onFreeze,
+}: {
+  dry: boolean
+  disabled: boolean
+  pending: boolean
+  onFreeze: () => void
+}) {
+  return (
+    <button
+      onClick={onFreeze}
+      disabled={disabled || dry}
+      data-testid="evals-freeze-baselines"
+      title={dry ? 'Dry runs fabricate results — freezing them would poison real baselines' : undefined}
+      className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+    >
+      {pending ? '…' : '❄ freeze baselines'}
+    </button>
+  )
+}
+
 // ─── Run detail (uses queries) ────────────────────────────────────────────────
 
-function RunDetail({ runId }: { runId: string }) {
+function RunDetail({ runId, dry }: { runId: string; dry: boolean }) {
   const qc = useQueryClient()
   const detail = useQuery({
     queryKey: ['evals', 'run', runId],
@@ -370,6 +401,9 @@ function RunDetail({ runId }: { runId: string }) {
   const compare = useQuery({
     queryKey: ['evals', 'compare', runId],
     queryFn: () => api.evals.compare(runId),
+    // A dry run neutralizes regression in the report (all 'dry') and never uses this result — skip the
+    // useless network round-trip entirely. (F-025)
+    enabled: !dry,
   })
   const results = useQuery({
     queryKey: ['evals', 'results', runId],
@@ -386,8 +420,12 @@ function RunDetail({ runId }: { runId: string }) {
   })
 
   const report = detail.data?.report ?? null
-  const regression: Record<string, BaselineCompare> =
-    compare.data ?? report?.regression ?? {}
+  // For a DRY run, use the report's neutral 'dry' statuses and DON'T fall through to the compare
+  // endpoint (which re-diffs the fabricated metrics against real baselines → a bogus REGRESSION). The
+  // non-dry path still prefers the live compare query. (F-025)
+  const regression: Record<string, BaselineCompare> = report?.dry
+    ? (report.regression ?? {})
+    : (compare.data ?? report?.regression ?? {})
 
   return (
     <div className="border-t border-[var(--border)] px-4 py-3">
@@ -397,14 +435,12 @@ function RunDetail({ runId }: { runId: string }) {
           <h4 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
             Pass-rate · discrimination · regression
           </h4>
-          <button
-            onClick={() => freezeMutation.mutate()}
+          <FreezeBaselinesButton
+            dry={!!report?.dry}
             disabled={freezeMutation.isPending || !report}
-            data-testid="evals-freeze-baselines"
-            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
-          >
-            {freezeMutation.isPending ? '…' : '❄ freeze baselines'}
-          </button>
+            pending={freezeMutation.isPending}
+            onFreeze={() => freezeMutation.mutate()}
+          />
         </div>
         {detail.isLoading && <p className="text-xs text-[var(--muted)]">Loading report…</p>}
         {detail.isError && <p className="text-xs text-red-400">Failed to load report.</p>}
@@ -498,8 +534,21 @@ export function EvalResultsTable({ rows }: { rows: EvalResultRow[] }) {
   if (rows.length === 0) {
     return <p data-testid="evals-results-empty" className="text-xs text-[var(--muted)]">No results.</p>
   }
+  // Honest pass/fail tally — distinguishes PASSED from merely COMPLETED (the run-row "N/N" count) so a
+  // run with failures no longer reads as all-green (F-044).
+  const tally = resultTally(rows)
   return (
     <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+      <div
+        data-testid="evals-results-tally"
+        className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5 text-[11px]"
+      >
+        <span className="font-semibold text-[var(--green)]">{tally.passed} passed</span>
+        {tally.failed > 0 && (
+          <span className="font-semibold text-[var(--red)]">· {tally.failed} failed</span>
+        )}
+        <span className="text-[var(--muted)]">· {tally.total} total</span>
+      </div>
       <table data-testid="evals-results-table" className="w-full text-xs">
         <thead>
           <tr className="border-b border-[var(--border)] text-left text-[var(--muted)]">

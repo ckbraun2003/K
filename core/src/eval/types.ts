@@ -388,7 +388,9 @@ export interface BaselineFile {
 }
 
 export interface BaselineCompare {
-  status: 'no-baseline' | 'REGRESSION' | 'ok'
+  // 'dry' = a dry run's neutral, un-compared status (fabricated results are never diffed vs real
+  // baselines — see runner.ts F-025).
+  status: 'no-baseline' | 'REGRESSION' | 'ok' | 'dry'
   deltas?: Record<string, number>
   regressionThreshold?: number
 }

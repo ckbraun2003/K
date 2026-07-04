@@ -231,6 +231,10 @@ export function freezeBaselinesFromRun(
   const run = stmts.getRun.get(evalRunId) as { report: string | null } | undefined
   if (!run || !run.report) return []
   const report = JSON.parse(run.report) as EvalReport
+  // F-025 follow-up: a dry run's per-system metrics are fabricated ($0, always-pass). Freezing them as
+  // baselines would permanently poison every later REAL regression comparison — refuse. The route also
+  // guards (400) before reaching here; this throw makes the service safe when called directly.
+  if (report.dry) throw new Error('cannot freeze baselines from a dry run')
   const now = Date.now()
   const frozen: string[] = []
   for (const [sys, metrics] of Object.entries(report.perSystem)) {

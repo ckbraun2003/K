@@ -14,11 +14,12 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, existsSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { v4 as uuid } from 'uuid'
 import { db, evalRunsDb, evalResultsDb, evalBaselinesDb } from '../src/db.js'
 import { seedEvalSystems, loadSystemsFromDb } from '../src/eval/store.js'
 import { startEvalRun, freezeBaselinesFromRun, compareRunToBaselines } from '../src/eval/service.js'
 import { repoRoot } from '../src/eval/systems.js'
-import type { EvalReport, EvalRecord } from '../src/eval/types.js'
+import type { EvalReport, EvalRecord, SystemMetrics } from '../src/eval/types.js'
 
 const root = repoRoot()
 const reportsDir = mkdtempSync(path.join(os.tmpdir(), 'k-eval-svc-reports-'))
@@ -154,17 +155,59 @@ describe('startEvalRun — empty matrix finalizes cleanly (0 jobs)', () => {
 })
 
 describe('freezeBaselinesFromRun + compareRunToBaselines (DB-backed)', () => {
-  it('freezes per-system baselines from the run report and returns the system ids', () => {
-    const frozen = freezeBaselinesFromRun(evalRunId)
+  // Freezing is only legal for a NON-DRY run — a dry run's per-system metrics are fabricated ($0,
+  // always-pass) and must never become baselines. `evalRunId` (module beforeAll) is a DRY run, so the
+  // freeze/compare-ok flow here drives a synthetic NON-DRY completed run inserted directly via the repos
+  // (deterministic, no real spend).
+  let nonDryRunId: string
+  function makeMetrics(): SystemMetrics {
+    return {
+      n: { real: 1, degraded: 1 },
+      real: {
+        judgeMean: 0.9, detPassRate: 1, detScoreMean: 0.95, formatMean: 1, refusalCorrectRate: null,
+        costUsd: 0.05, latencyMsMean: 1000, turnsMean: 2, tokensInSum: null, tokensOutSum: null,
+      },
+      degraded: { judgeMean: 0.3, detPassRate: 0, detScoreMean: 0.2 },
+      discriminationJudge: 0.6, discriminationDet: 0.75, discriminationPass: true, perModel: {},
+    }
+  }
+  beforeAll(() => {
+    nonDryRunId = uuid()
+    const report: EvalReport = {
+      runId: nonDryRunId, generatedAt: new Date().toISOString(), models: ['sonnet'],
+      variants: ['real', 'degraded'], dry: false,
+      overall: {
+        systems: 1, models: ['sonnet'], totalRecords: 2, totalCostUsd: 0.05, realJudgeMean: 0.9,
+        realDetPassRate: 1, discriminationPassCount: 1, discriminationThreshold: 0.15,
+        detDiscriminationThreshold: 0.1,
+      },
+      perSystem: { [sysId]: makeMetrics() }, regression: {}, baselinesFrozen: [],
+    }
+    evalRunsDb.insertEvalRun.run({
+      id: nonDryRunId, status: 'done', models: JSON.stringify(['sonnet']),
+      variants: JSON.stringify(['real', 'degraded']), systems: JSON.stringify([sysId]), dry: 0,
+      totalJobs: 2, completedJobs: 2, totalCostUsd: 0.05, report: JSON.stringify(report), error: null,
+      createdAt: Date.now(), completedAt: Date.now(),
+    })
+    db.exec('DELETE FROM eval_baselines') // start from a clean baseline slate
+  })
+
+  it('REFUSES to freeze a DRY run (fabricated metrics must never become baselines)', () => {
+    expect(() => freezeBaselinesFromRun(evalRunId)).toThrow(/dry/i)
+    expect(evalBaselinesDb.getEvalBaseline.get(sysId)).toBeUndefined() // nothing was written
+  })
+
+  it('freezes per-system baselines from a NON-DRY run report and returns the system ids', () => {
+    const frozen = freezeBaselinesFromRun(nonDryRunId)
     expect(frozen).toContain(sysId)
     const b = evalBaselinesDb.getEvalBaseline.get(sysId) as { metrics: string; evalRunId: string }
     expect(b).toBeDefined()
-    expect(b.evalRunId).toBe(evalRunId)
+    expect(b.evalRunId).toBe(nonDryRunId)
     expect(() => JSON.parse(b.metrics)).not.toThrow()
   })
 
   it('compares ok (zero deltas) against the just-frozen baseline', () => {
-    const cmp = compareRunToBaselines(evalRunId)
+    const cmp = compareRunToBaselines(nonDryRunId)
     expect(cmp[sysId]).toBeDefined()
     expect(cmp[sysId].status).toBe('ok')
   })
@@ -179,18 +222,18 @@ describe('freezeBaselinesFromRun + compareRunToBaselines (DB-backed)', () => {
     evalBaselinesDb.upsertEvalBaseline.run({
       systemId: sysId,
       metrics: JSON.stringify(metrics),
-      evalRunId,
+      evalRunId: nonDryRunId,
       frozenAt: Date.now(),
     })
 
-    const cmp = compareRunToBaselines(evalRunId)
+    const cmp = compareRunToBaselines(nonDryRunId)
     expect(cmp[sysId].status).toBe('REGRESSION')
     expect(cmp[sysId].deltas?.detScoreMean).toBeLessThan(-0.1)
   })
 
   it('reports no-baseline for a system with no frozen row', () => {
     db.exec('DELETE FROM eval_baselines')
-    const cmp = compareRunToBaselines(evalRunId)
+    const cmp = compareRunToBaselines(nonDryRunId)
     expect(cmp[sysId].status).toBe('no-baseline')
   })
 })

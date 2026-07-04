@@ -19,7 +19,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runEvalMatrix } from '../src/eval/runner.js'
 import { loadSystems } from '../src/eval/systems.js'
-import type { EvalRecord } from '../src/eval/types.js'
+import type { EvalRecord, EvalSystem } from '../src/eval/types.js'
 
 // core/test/<this> → repo root is two levels up.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -107,5 +107,46 @@ describe('runEvalMatrix — dry path (no dispatch, no spend)', () => {
     expect(after.map(r => r.jobKey).sort()).toEqual(
       [`${CASE}::sonnet::degraded`, `${CASE}::sonnet::real`].sort(),
     )
+  })
+
+  it('F-025: a dry run marks every regression entry neutral ("dry"), never a real REGRESSION verdict', async () => {
+    // Pre-fix the runner compared the fabricated $0 dry results to REAL frozen baselines and could flag
+    // a bogus REGRESSION (or 'ok'/'no-baseline'). Post-fix a dry run never compares — each system's
+    // status is the neutral 'dry'.
+    const report = await runEvalMatrix(opts) // dry (resumes; still aggregates + builds the report)
+    const entries = Object.values(report.regression)
+    expect(entries.length).toBeGreaterThan(0)
+    for (const r of entries) expect(r.status).toBe('dry')
+    expect(entries.some(r => r.status === 'REGRESSION')).toBe(false)
+  })
+
+  it('F-013: cooperatively yields the event loop between jobs (macrotasks are not starved)', async () => {
+    // The dry worker body is fully synchronous, so pre-fix the whole pool ran inside ONE macrotask and
+    // a self-rescheduling setImmediate counter barely advanced (~0-1). Post-fix each job yields a real
+    // macrotask, so the counter interleaves ≈ once per job. Deterministic — not a wall-clock timeout.
+    let ticks = 0
+    let running = true
+    const schedule = (): void => { if (running) setImmediate(() => { ticks++; schedule() }) }
+    schedule()
+
+    const cases = Array.from({ length: 16 }, (_, i) => ({ id: `syn-${i}`, input: 'x', checks: [] }))
+    const synthetic: EvalSystem = {
+      id: 'synthetic', title: 'Synthetic', job: 'synthetic', promptFile: '', degradedFile: '',
+      allowedTools: [], disallowedTools: [], maxTurns: 1, rubricText: '', cases,
+    }
+    try {
+      await runEvalMatrix({
+        root, reportsDir, baseDir, dry: true, runId: 'unit-yield',
+        models: ['sonnet'], variants: ['real'], // no degraded → exactly 16 jobs
+        concurrency: 1, // one worker → the pool yields exactly once per job (clearest signal)
+        loadSystemsFn: () => [synthetic],
+      })
+    } finally {
+      // Always stop the self-rescheduling ticker — a throw/failed assertion must not leave it looping
+      // and hanging the vitest worker.
+      running = false
+    }
+    // 16 jobs, one macrotask yield each → ≈16 interleaved ticks post-fix; the synchronous pool allowed ~0-1.
+    expect(ticks).toBeGreaterThan(8)
   })
 })
