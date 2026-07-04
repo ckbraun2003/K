@@ -77,7 +77,7 @@ describe('PATCH /api/org-default', () => {
     }
   })
 
-  it('400 on an unknown key (.strict)', async () => {
+  it('400 on an unknown key (.strict) — names the offending field (F-024)', async () => {
     const app = await makeApp()
     try {
       const res = await app.inject({
@@ -86,7 +86,26 @@ describe('PATCH /api/org-default', () => {
         payload: { bogus: true },
       })
       expect(res.statusCode).toBe(400)
-      expect((res.json() as { error: string }).error).toBe('invalid patch')
+      // The opaque "invalid patch" was replaced with a message naming the offending key.
+      expect((res.json() as { error: string }).error).toMatch(/bogus/)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('400 naming tier/charter as immutable when a PATCH tries to move them (F-024)', async () => {
+    const app = await makeApp()
+    try {
+      for (const payload of [{ tier: 'chief' }, { charter: 'secretary' }]) {
+        const res = await app.inject({ method: 'PATCH', url: '/api/org-default', payload })
+        expect(res.statusCode).toBe(400)
+        const err = (res.json() as { error: string }).error
+        expect(err).toMatch(/tier|charter/)
+        expect(err).toMatch(/immutable/)
+      }
+      // The profile's tier/charter are untouched.
+      expect(getProfile('default-orchestrator')!.tier).toBe('orchestrator')
+      expect(getProfile('default-orchestrator')!.charter).toBe('orchestrator')
     } finally {
       await app.close()
     }

@@ -43,7 +43,7 @@ beforeAll(() => {
   })
   workflowRunsDb.insertWorkflowRun.run({
     id: WF_ID, projectId: PROJECT_ID, runId: RUN_WF, taskIds: '[]', mode: 'combined',
-    status: 'running', createdAt: Date.now(), completedAt: null,
+    workflowId: null, status: 'running', createdAt: Date.now(), completedAt: null,
   })
 })
 
@@ -97,7 +97,7 @@ describe('S2-012: seq is monotonic MAX+1 and never reused under interleaved upse
     })
     workflowRunsDb.insertWorkflowRun.run({
       id: wf2, projectId: PROJECT_ID, runId: run2, taskIds: '[]', mode: 'combined',
-      status: 'running', createdAt: Date.now(), completedAt: null,
+      workflowId: null, status: 'running', createdAt: Date.now(), completedAt: null,
     })
     const ctx2: KStoreContext = { runId: run2 }
     try {

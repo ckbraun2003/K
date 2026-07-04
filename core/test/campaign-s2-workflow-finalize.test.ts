@@ -83,7 +83,7 @@ function seedWorkflow(): { runId: string; wfId: string } {
   })
   workflowRunsDb.insertWorkflowRun.run({
     id: wfId, projectId: PROJECT_ID, runId, taskIds: '[]', mode: 'combined',
-    status: 'running', createdAt: Date.now(), completedAt: null,
+    workflowId: null, status: 'running', createdAt: Date.now(), completedAt: null,
   })
   return { runId, wfId }
 }

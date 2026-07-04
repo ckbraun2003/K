@@ -158,6 +158,12 @@ describe('GET /api/chief/org', () => {
     expect(body.chief?.name).toBe('Chief')
     expect(body.chief?.tier).toBe('chief')
 
+    // F-023: the K node — Chief's PARENT in the whole-org tree (user → K → Chief → leads)
+    // — is present, so the tree is no longer Chief-down. It is a secretary-tier profile.
+    expect(body.k).not.toBeNull()
+    expect(body.k?.name).toBe('K')
+    expect(body.k?.tier).toBe('secretary')
+
     // the five discipline leads, each with the lead sub-shape (no default-orchestrator).
     expect(Array.isArray(body.leads)).toBe(true)
     const leadIds = body.leads.map(l => l.profile.id)
@@ -326,6 +332,23 @@ describe('PATCH /api/chief/assignments/:id', () => {
         })
         expect(res.statusCode).toBe(400)
       }
+    } finally {
+      db.prepare('DELETE FROM mgmt_assignments WHERE id = ?').run(id)
+    }
+  })
+
+  it('F-026: a bad body returns discoverable zod field errors naming leadProfileId', async () => {
+    const id = insertAssignment()
+    try {
+      // A missing leadProfileId must surface WHICH field is expected, not an opaque
+      // "invalid body" — the caller reads details.fieldErrors to self-correct.
+      const res = await app.inject({
+        method: 'PATCH', url: `/api/chief/assignments/${id}`, headers: AUTH, payload: {},
+      })
+      expect(res.statusCode).toBe(400)
+      const body = res.json() as { error: string; details?: { fieldErrors?: Record<string, unknown> } }
+      expect(body.error).toBe('validation failed')
+      expect(body.details?.fieldErrors).toHaveProperty('leadProfileId')
     } finally {
       db.prepare('DELETE FROM mgmt_assignments WHERE id = ?').run(id)
     }

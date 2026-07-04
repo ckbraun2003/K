@@ -112,6 +112,7 @@ db.exec(`
     run_id       TEXT REFERENCES runs(id) ON DELETE SET NULL,
     task_ids     TEXT NOT NULL DEFAULT '[]',   -- JSON array of task ids
     mode         TEXT NOT NULL DEFAULT 'combined',
+    workflow_id  TEXT,   -- loose ref (intentionally no FK): the workflow_definitions TEMPLATE the run was dispatched from (F-074); NULL = a default code-wave dispatch. Kept loose so deleting a definition never cascades into run history.
     status       TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed')),
     created_at   INTEGER NOT NULL,
     completed_at INTEGER
@@ -529,7 +530,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -614,6 +615,14 @@ function migrateSlow(d: Database.Database): void {
   // migrate() safe against old-schema fixtures predating the table.
   if (hasTable(d, 'artifacts')) {
     addColumn(d, 'artifacts', 'html_path', 'TEXT')
+  }
+  // workflow_runs.workflow_id (SCHEMA_VERSION 4): the workflow_definitions TEMPLATE a run
+  // was dispatched from (F-074) — so GET /api/workflows/runs can say WHICH definition each
+  // run used. Loose ref (no FK), NULL for pre-F-074 rows and default code-wave dispatches.
+  // Appended via guarded ALTER so existing DBs gain it; fresh installs get it from the DDL
+  // above. hasTable guard keeps migrate() safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'workflow_runs')) {
+    addColumn(d, 'workflow_runs', 'workflow_id', 'TEXT')
   }
   // project_tasks issue columns — LEGACY-UPGRADE path ONLY (P5.1d2b). The table is
   // no longer created anywhere (dropped by the one-shot mig_project_tasks_drop
@@ -1307,8 +1316,8 @@ export function rowToProjectTask(r: Record<string, unknown>): ProjectTask {
 // site). run_id is null until the underlying agent run is created.
 
 const insertWorkflowRun = db.prepare(`
-  INSERT INTO workflow_runs (id, project_id, run_id, task_ids, mode, status, created_at, completed_at)
-  VALUES (@id, @projectId, @runId, @taskIds, @mode, @status, @createdAt, @completedAt)
+  INSERT INTO workflow_runs (id, project_id, run_id, task_ids, mode, workflow_id, status, created_at, completed_at)
+  VALUES (@id, @projectId, @runId, @taskIds, @mode, @workflowId, @status, @createdAt, @completedAt)
 `)
 
 const patchWorkflowRunId = db.prepare(`UPDATE workflow_runs SET run_id = ? WHERE id = ?`)
@@ -1324,9 +1333,14 @@ const listWorkflowRunsByProject = db.prepare(`
 `)
 
 // Cross-project newest-first list (bounded) — backs GET /api/workflows/runs, the
-// Workflows run-picker's "which runs were workflow-dispatched?" identity source.
+// Workflows run-picker's "which runs were workflow-dispatched?" identity source. LEFT
+// JOINs workflow_definitions so each row carries the template's name (workflow_name)
+// alongside its id (workflow_id) — a dropped/unknown definition simply yields NULL (F-074).
 const listRecentWorkflowRuns = db.prepare(`
-  SELECT * FROM workflow_runs ORDER BY created_at DESC LIMIT ?
+  SELECT wr.*, wd.name AS workflow_name
+    FROM workflow_runs wr
+    LEFT JOIN workflow_definitions wd ON wd.id = wr.workflow_id
+   ORDER BY wr.created_at DESC LIMIT ?
 `)
 
 export const workflowRunsDb = {
@@ -1357,6 +1371,10 @@ const updateWorkItem = db.prepare(`
   UPDATE work_items SET title = @title, body = @body, status = @status, updated_at = @updatedAt
   WHERE id = @id
 `)
+// Durable-only delete (F-019): scope-guarded to 'personal'/'org' so the HTTP DELETE can
+// never remove an ephemeral run-scoped ticket or a project row — same guard the durable
+// read/PATCH statements use. `changes` (0 when no durable row matched) lets the route 404.
+const deleteWorkItemDurable = db.prepare(`DELETE FROM work_items WHERE id = ? AND scope IN ('personal','org')`)
 const getWorkItem = db.prepare(`SELECT * FROM work_items WHERE id = ?`)
 // Run-scoped fetch — `IS` is null-safe so a null owner (no/unknown run) only matches
 // null-owner rows; `scope = 'run'` keeps the ephemeral run view isolated from the
@@ -1390,6 +1408,7 @@ const listDurableWorkItemsByStatus = db.prepare(
 export const workItemsDb = {
   insertWorkItem,
   updateWorkItem,
+  deleteWorkItemDurable,
   getWorkItem,
   getWorkItemOwned,
   listWorkItemsByRun,

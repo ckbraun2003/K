@@ -23,9 +23,11 @@ export type OrchestratorPatch = Partial<
 >
 
 /** The named-workflow patch (PATCH /api/workflows/:id). Mirrors the backend zod schema —
- *  the fields the WorkflowDetail editor mutates (name/scaffold/cross-project/roles). */
+ *  the fields the WorkflowDetail editor mutates (name/scaffold/cross-project). `roles` are
+ *  READ-ONLY (CLAIM-04-2): the editor renders them but never patches them, and the backend
+ *  now rejects a stray `roles` key (F-015), so it is excluded here to keep the mirror honest. */
 export type NamedWorkflowPatch = Partial<
-  Pick<NamedWorkflow, 'name' | 'roles' | 'promptScaffold' | 'crossProject'>
+  Pick<NamedWorkflow, 'name' | 'promptScaffold' | 'crossProject'>
 >
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */

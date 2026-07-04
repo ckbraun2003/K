@@ -60,7 +60,7 @@ describe('GET /api/workflows/runs', () => {
     })
     workflowRunsDb.insertWorkflowRun.run({
       id: workflowRunId, projectId, runId: null, taskIds: JSON.stringify([taskId]),
-      mode: 'combined', status: 'running', createdAt: now, completedAt: null,
+      mode: 'combined', workflowId: null, status: 'running', createdAt: now, completedAt: null,
     })
 
     const res = await app.inject({ method: 'GET', url: '/api/workflows/runs', headers: AUTH })

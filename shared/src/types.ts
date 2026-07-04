@@ -403,6 +403,11 @@ export const WorkflowRunSchema = z.object({
   status: z.enum(['running', 'completed', 'failed']),
   createdAt: z.number(),
   completedAt: z.number().nullable(),
+  // Which NamedWorkflow TEMPLATE the run was dispatched from (workflow_definitions id),
+  // and — when resolvable — that template's name. Null for a default (code-wave) dispatch
+  // that named no template. Optional so older payloads/fixtures without them still parse.
+  workflowId: z.string().nullable().optional(),
+  workflowName: z.string().nullable().optional(),
 })
 export type WorkflowRun = z.infer<typeof WorkflowRunSchema>
 
@@ -676,6 +681,10 @@ export interface ChiefOrgHealth {
 
 export interface ChiefOrgPayload {
   chief: AgentProfile | null
+  /** The K (secretary) profile — Chief's parent in the whole-org tree (user → K → Chief →
+   *  leads). Read-only inspection; K is unpatchable. Optional/null so an older payload or an
+   *  unseeded K still builds a tree (the client falls back to a synthetic K node). */
+  k?: AgentProfile | null
   leads: ChiefOrgLead[]
   /** The Chief's own recent activations (bounded) — the autonomous-wake history. */
   chiefWakes: AgentRun[]
@@ -767,6 +776,10 @@ export const CreateSkillSchema = z.object({
   triggerType: z.enum(['manual', 'schedule', 'event']),
   schedule: z.string().nullable().optional(),
   eventTrigger: z.string().nullable().optional(),
+  // Whether the skill is armed at creation. Optional — omitted defaults to enabled (1),
+  // preserving prior behavior. A schedule/event skill created `enabled:false` must NOT fire
+  // until explicitly enabled (registerSkill honors this rather than hardcoding armed).
+  enabled: z.boolean().optional(),
 })
 export type CreateSkill = z.infer<typeof CreateSkillSchema>
 

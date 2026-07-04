@@ -106,7 +106,10 @@ export function registerSkill(opts: CreateSkill): Skill {
     triggerType: opts.triggerType,
     schedule: opts.schedule ?? null,
     eventTrigger: opts.eventTrigger ?? null,
-    enabled: 1,
+    // Honor an explicit enabled flag; omitted defaults to enabled (1). A skill created
+    // `enabled:false` must land DISABLED so a "disabled" schedule/event skill can't fire
+    // (the scheduler/event listener gate on `enabled`). Only an explicit `false` disarms.
+    enabled: opts.enabled === false ? 0 : 1,
     createdAt: now,
   })
   return rowToSkill(skillsDb.getSkill.get(id) as Record<string, unknown>)

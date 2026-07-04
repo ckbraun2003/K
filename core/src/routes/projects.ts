@@ -266,7 +266,11 @@ export async function projectsRoutes(app: FastifyInstance) {
       scaffold = def.promptScaffold
     }
     try {
-      const { workflowRunId, runId } = await dispatchTaskWorkflow(project, parsed.data.taskIds, { scaffold })
+      // Record which template drove the run (F-074) so GET /api/workflows/runs can name it.
+      const { workflowRunId, runId } = await dispatchTaskWorkflow(project, parsed.data.taskIds, {
+        scaffold,
+        workflowId: parsed.data.workflowId,
+      })
       return reply.status(202).send({ workflowRunId, runId })
     } catch (e) {
       // A bad/foreign taskId is a client error → 400; anything else is a 500.

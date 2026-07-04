@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getWorkflowDef, listWorkflowDefs, updateWorkflowDef } from '../workflow-defs.js'
 import { workflowRunsDb } from '../db.js'
 import { dbRowToWorkflowRun } from './runs.js'
+import { sendError } from './http-errors.js'
 
 /**
  * Named-workflow definitions route (P5.3b, D-047) — the list + detail + editor for the
@@ -19,15 +20,15 @@ const WORKFLOW_RUNS_LIMIT = 100
 
 // The mutable patch. All fields optional (partial patch); `.strict()` so an unknown key is
 // a 400 (a typo can't silently no-op). An empty body is rejected below — a PATCH must
-// actually change something. roles is the ordered {id,label,description} list.
+// actually change something. `roles` is DELIBERATELY excluded (F-015 / CLAIM-04-2): a
+// workflow's delegation roles are READ-ONLY — the detail editor renders them but never
+// edits them — so accepting `roles` here would let a PATCH silently corrupt the role
+// definitions. With `.strict()`, a stray `roles` key is now a 400, never persisted.
 const WorkflowPatchSchema = z
   .object({
     name: z.string().min(1).optional(),
     promptScaffold: z.string().min(1).optional(),
     crossProject: z.boolean().optional(),
-    roles: z
-      .array(z.object({ id: z.string(), label: z.string(), description: z.string() }))
-      .optional(),
   })
   .strict()
 
@@ -49,7 +50,7 @@ export async function workflowsRoutes(app: FastifyInstance) {
   // GET /api/workflows/:id — one template; 404 for an unknown id.
   app.get<{ Params: { id: string } }>('/api/workflows/:id', async (req, reply) => {
     const def = getWorkflowDef(req.params.id)
-    if (!def) return reply.status(404).send({ error: 'not found' })
+    if (!def) return sendError(reply, 404, 'not found')
     return reply.send(def)
   })
 
@@ -61,17 +62,17 @@ export async function workflowsRoutes(app: FastifyInstance) {
   // re-throws so Fastify answers 500 instead of mislabelling it a 400.
   app.patch<{ Params: { id: string } }>('/api/workflows/:id', async (req, reply) => {
     const parsed = WorkflowPatchSchema.safeParse(req.body)
-    if (!parsed.success) return reply.status(400).send({ error: 'invalid patch' })
+    if (!parsed.success) return sendError(reply, 400, 'invalid patch')
     if (Object.keys(parsed.data).length === 0) {
-      return reply.status(400).send({ error: 'empty patch' })
+      return sendError(reply, 400, 'empty patch')
     }
     try {
       const updated = updateWorkflowDef(req.params.id, parsed.data)
-      if (!updated) return reply.status(404).send({ error: 'not found' })
+      if (!updated) return sendError(reply, 404, 'not found')
       return reply.send(updated)
     } catch (e) {
       const msg = (e as Error).message
-      if (/UNIQUE constraint/i.test(msg)) return reply.status(400).send({ error: 'name already in use' })
+      if (/UNIQUE constraint/i.test(msg)) return sendError(reply, 400, 'name already in use')
       throw e
     }
   })

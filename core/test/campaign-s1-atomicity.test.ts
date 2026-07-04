@@ -81,7 +81,7 @@ describe('S1 — projectsDb.deleteProject removes the project + all dependents a
       issueNumber: null, issueUrl: null, issueState: null,
     })
     workflowRunsDb.insertWorkflowRun.run({
-      id: uuid(), projectId, runId, taskIds: '[]', mode: 'combined', status: 'running',
+      id: uuid(), projectId, runId, taskIds: '[]', mode: 'combined', workflowId: null, status: 'running',
       createdAt: now, completedAt: null,
     })
     projectGraphsDb.upsertProjectGraph.run({

@@ -8,7 +8,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
-import { db, runsDb, projectsDb, migrate } from '../src/db.js'
+import { db, runsDb, projectsDb, migrate, SCHEMA_VERSION } from '../src/db.js'
 
 const PROJECT_ID = uuid()
 const RUN_WITH_PROJECT = uuid()
@@ -192,5 +192,78 @@ describe('migrate() — mgmt_assignments.lead_run_id (guarded ALTER + FK action)
     // Force the FULL scan (see the runs.project_id idempotency case above).
     tempDb.pragma('user_version = 0')
     expect(() => migrate(tempDb)).not.toThrow()
+  })
+})
+
+// F-074: the workflow_runs.workflow_id column (SCHEMA_VERSION 4) — the NamedWorkflow
+// TEMPLATE a run was dispatched from. Guarded ALTER on a pre-F-074 workflow_runs table;
+// a pre-existing row must read back workflow_id = null.
+describe('migrate() — workflow_runs.workflow_id (guarded ALTER + old-schema row)', () => {
+  const tmpPath = path.join(os.tmpdir(), `k-migration-wfid-${Date.now()}.db`)
+  let tempDb: Database.Database
+
+  afterAll(() => {
+    try { tempDb?.close() } catch { /* ignore */ }
+    try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+  })
+
+  it('adds workflow_id on an old-schema workflow_runs; a pre-existing row reads back null; stamps SCHEMA_VERSION', () => {
+    tempDb = new Database(tmpPath)
+    tempDb.pragma('foreign_keys = ON')
+
+    // Old-schema (pre-F-074): workflow_runs WITHOUT workflow_id + the projects/runs it FKs.
+    tempDb.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY);
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY, prompt TEXT NOT NULL, cwd TEXT NOT NULL, worktree TEXT,
+        status TEXT NOT NULL DEFAULT 'queued', provider TEXT NOT NULL DEFAULT 'claude',
+        model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6', tokens_in INTEGER NOT NULL DEFAULT 0,
+        tokens_out INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL, ended_at INTEGER
+      );
+      CREATE TABLE workflow_runs (
+        id           TEXT PRIMARY KEY,
+        project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        run_id       TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        task_ids     TEXT NOT NULL DEFAULT '[]',
+        mode         TEXT NOT NULL DEFAULT 'combined',
+        status       TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed')),
+        created_at   INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+    `)
+
+    // A pre-existing row from before the column existed.
+    const now = Date.now()
+    tempDb.prepare(`INSERT INTO projects (id) VALUES ('wf-proj')`).run()
+    tempDb.prepare(
+      `INSERT INTO workflow_runs (id, project_id, run_id, task_ids, mode, status, created_at, completed_at)
+       VALUES ('wf-old', 'wf-proj', NULL, '[]', 'combined', 'running', ?, NULL)`,
+    ).run(now)
+
+    migrate(tempDb)
+
+    // (a) the column now exists
+    const cols = (tempDb.pragma('table_info(workflow_runs)') as Array<{ name: string }>).map(c => c.name)
+    expect(cols).toContain('workflow_id')
+
+    // (b) the pre-existing row reads back workflow_id = null (backfilled NULL, not corrupted)
+    const row = tempDb.prepare(`SELECT workflow_id FROM workflow_runs WHERE id = 'wf-old'`).get() as
+      { workflow_id: string | null }
+    expect(row.workflow_id).toBeNull()
+
+    // (d) the schema version stamps to the current SCHEMA_VERSION (4)
+    expect(tempDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
+  })
+
+  it('migrate() is idempotent for the workflow_id branch — second run does not error or double-add', () => {
+    // Force the FULL scan (see the runs.project_id idempotency case above).
+    tempDb.pragma('user_version = 0')
+    expect(() => migrate(tempDb)).not.toThrow()
+    // Still exactly ONE workflow_id column (no duplicate ADD COLUMN).
+    const wfIdCols = (tempDb.pragma('table_info(workflow_runs)') as Array<{ name: string }>)
+      .filter(c => c.name === 'workflow_id')
+    expect(wfIdCols.length).toBe(1)
+    expect(tempDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
   })
 })

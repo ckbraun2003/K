@@ -20,6 +20,7 @@
 import type { FastifyInstance } from 'fastify'
 import { voiceEnabled } from '../config-store.js'
 import { getTranscriptionProvider, TranscriptionError } from '../transcription.js'
+import { sendError } from './http-errors.js'
 
 const MAX_BODY_BYTES = 25 * 1024 * 1024 // 25 MB
 
@@ -39,9 +40,10 @@ export async function voiceRoutes(app: FastifyInstance) {
   // ── POST /api/transcribe ──────────────────────────────────────────────────
 
   app.post('/api/transcribe', async (req, reply) => {
-    // Feature gate: 503 when voice is disabled in config.
+    // Feature gate: 503 when voice is disabled in config. Envelope standardized via
+    // sendError (F-028/F-021) — same status + message, now the shared { error } shape.
     if (!voiceEnabled()) {
-      return reply.status(503).send({ error: 'voice disabled' })
+      return sendError(reply, 503, 'voice disabled')
     }
 
     // Reject non-audio content-types (415) BEFORE touching the body or provider,
@@ -53,20 +55,20 @@ export async function voiceRoutes(app: FastifyInstance) {
     // content-type to the allowed octet-stream path.
     const mime = (req.headers['content-type'] ?? 'application/octet-stream').split(';')[0].trim().toLowerCase()
     if (!AUDIO_TYPES.includes(mime)) {
-      return reply.status(415).send({ error: 'unsupported media type (audio only)' })
+      return sendError(reply, 415, 'unsupported media type (audio only)')
     }
 
     const body = req.body as Buffer | null
 
     // Empty body guard (missing or zero-length payload).
     if (!body || body.length === 0) {
-      return reply.status(400).send({ error: 'empty body' })
+      return sendError(reply, 400, 'empty body')
     }
 
     // Belt-and-suspenders size check (primary enforcement is addContentTypeParser
     // bodyLimit, but guard again here in case Content-Length was wrong/absent).
     if (body.length > MAX_BODY_BYTES) {
-      return reply.status(413).send({ error: 'audio too large (max 25 MB)' })
+      return sendError(reply, 413, 'audio too large (max 25 MB)')
     }
 
     try {
@@ -75,11 +77,11 @@ export async function voiceRoutes(app: FastifyInstance) {
     } catch (e) {
       if (e instanceof TranscriptionError) {
         // Upstream Whisper failed or was unreachable — standard 502 proxy error.
-        return reply.status(502).send({ error: e.message })
+        return sendError(reply, 502, e.message)
       }
       // Unexpected error — log it (without the audio body) and return 502.
       app.log.error('[voice] unexpected transcription error: ' + (e instanceof Error ? e.message : String(e)))
-      return reply.status(502).send({ error: 'transcription failed' })
+      return sendError(reply, 502, 'transcription failed')
     }
   })
 }

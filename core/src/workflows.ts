@@ -112,12 +112,14 @@ export function finalizeWorkflowRun(workflowRunId: string, terminalRunStatus: st
  *  `opts.scaffold` is an alternate NamedWorkflow prompt scaffold (C2 "Run this
  *  workflow") rendered through the same renderWorkflowPrompt seam; omitted = the
  *  built-in CODE_WAVE_SCAFFOLD, byte-identical to the pre-C2 buildDelegationPrompt
- *  path (which stays exported for its own tests/callers).
+ *  path (which stays exported for its own tests/callers). `opts.workflowId` records
+ *  WHICH NamedWorkflow template drove the run on the workflow_run row (F-074) — omitted
+ *  = a default code-wave dispatch (stored NULL).
  */
 export async function dispatchTaskWorkflow(
   project: Project,
   taskIds: string[],
-  opts: { scaffold?: string } = {},
+  opts: { scaffold?: string; workflowId?: string } = {},
 ): Promise<{ workflowRunId: string; runId: string }> {
   // 0. Reject an empty dispatch up-front — validate-before-mutate, mirroring the
   //    step-1 TaskNotFound guard. Without this, steps 1+2 no-op over the empty
@@ -158,6 +160,7 @@ export async function dispatchTaskWorkflow(
     runId: null,
     taskIds: JSON.stringify(taskIds),
     mode: 'combined',
+    workflowId: opts.workflowId ?? null,
     status: 'running',
     createdAt: now,
     completedAt: null,

@@ -14,6 +14,7 @@ import { askK, ensureDefaultKThread, listKThreadTurns } from '../k-thread.js'
 import { workItemsDb, logisticsDb } from '../db.js'
 import { rowToWorkItem } from '../mcp/k-store.js'
 import { rowToNote, rowToCalendarEvent, rowToReminder } from '../mcp/logistics.js'
+import { sendError, sendZodError } from './http-errors.js'
 
 /** Hard cap on the durable work-items list read (mirrors the memory-gate route's 200). */
 const DURABLE_LIST_LIMIT = 200
@@ -31,6 +32,7 @@ type Row = Record<string, unknown>
  *   GET   /api/k/work-items     — the DURABLE operator-global work items (personal + org)
  *   POST  /api/k/work-items     — create a durable operator-global work item
  *   PATCH /api/k/work-items/:id — set a durable work item's status
+ *   DELETE /api/k/work-items/:id — delete a durable operator-global work item
  *   GET   /api/k/notes          — the most recent logistics notes (K-home Notes card)
  *   GET   /api/k/schedule       — upcoming events + pending reminders (Schedule card)
  *
@@ -43,11 +45,11 @@ export async function kRoutes(app: FastifyInstance) {
   // POST /api/k/ask — 400 bad body/unknown model · 500 dispatch failure · 201 KAskResult.
   app.post('/api/k/ask', async (req, reply) => {
     const parsed = KAskBodySchema.safeParse(req.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return sendZodError(reply, parsed.error)
     // An explicit model override must be a known Claude model id — the same gate
     // PATCH /api/orchestrators/:id applies to a profile's defaultModel.
     if (parsed.data.model !== undefined && !isKnownModel(parsed.data.model)) {
-      return reply.status(400).send({ error: 'unknown model' })
+      return sendError(reply, 400, 'unknown model')
     }
     try {
       const result = await askK(parsed.data.message, {
@@ -57,7 +59,7 @@ export async function kRoutes(app: FastifyInstance) {
       return reply.status(201).send(result)
     } catch (e) {
       req.log.error(e)
-      return reply.status(500).send({ error: 'k ask failed' })
+      return sendError(reply, 500, 'k ask failed')
     }
   })
 
@@ -70,7 +72,7 @@ export async function kRoutes(app: FastifyInstance) {
       return reply.send({ thread, turns })
     } catch (e) {
       req.log.error(e)
-      return reply.status(500).send({ error: 'k thread read failed' })
+      return sendError(reply, 500, 'k thread read failed')
     }
   })
 
@@ -84,13 +86,13 @@ export async function kRoutes(app: FastifyInstance) {
         let status: WorkItemStatus | undefined
         if (req.query.status !== undefined && req.query.status !== '') {
           const p = WorkItemStatusSchema.safeParse(req.query.status)
-          if (!p.success) return reply.status(400).send({ error: 'invalid status' })
+          if (!p.success) return sendError(reply, 400, 'invalid status')
           status = p.data
         }
         let scope: DurableWorkItemScope | undefined
         if (req.query.scope !== undefined && req.query.scope !== '') {
           const p = DurableWorkItemScopeSchema.safeParse(req.query.scope)
-          if (!p.success) return reply.status(400).send({ error: 'invalid scope' })
+          if (!p.success) return sendError(reply, 400, 'invalid scope')
           scope = p.data
         }
         let rows: Row[]
@@ -106,7 +108,7 @@ export async function kRoutes(app: FastifyInstance) {
         return reply.send(rows.map(rowToWorkItem))
       } catch (e) {
         req.log.error(e)
-        return reply.status(500).send({ error: 'work items read failed' })
+        return sendError(reply, 500, 'work items read failed')
       }
     },
   )
@@ -115,7 +117,7 @@ export async function kRoutes(app: FastifyInstance) {
   // (operator-created, no run provenance); status starts 'open'. 400 on a bad body.
   app.post('/api/k/work-items', async (req, reply) => {
     const parsed = KWorkItemCreateBodySchema.safeParse(req.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return sendZodError(reply, parsed.error)
     try {
       const now = Date.now()
       const id = randomUUID()
@@ -132,7 +134,7 @@ export async function kRoutes(app: FastifyInstance) {
       return reply.status(201).send(rowToWorkItem(workItemsDb.getWorkItem.get(id) as Row))
     } catch (e) {
       req.log.error(e)
-      return reply.status(500).send({ error: 'work item create failed' })
+      return sendError(reply, 500, 'work item create failed')
     }
   })
 
@@ -140,10 +142,10 @@ export async function kRoutes(app: FastifyInstance) {
   // durable-only fetch means run-scoped and project rows are NOT reachable here (404).
   app.patch<{ Params: { id: string } }>('/api/k/work-items/:id', async (req, reply) => {
     const parsed = KWorkItemPatchBodySchema.safeParse(req.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return sendZodError(reply, parsed.error)
     try {
       const existing = workItemsDb.getWorkItemDurable.get(req.params.id) as Row | undefined
-      if (!existing) return reply.status(404).send({ error: 'not found' })
+      if (!existing) return sendError(reply, 404, 'not found')
       const cur = rowToWorkItem(existing)
       workItemsDb.updateWorkItem.run({
         id: req.params.id,
@@ -155,7 +157,23 @@ export async function kRoutes(app: FastifyInstance) {
       return reply.send(rowToWorkItem(workItemsDb.getWorkItemDurable.get(req.params.id) as Row))
     } catch (e) {
       req.log.error(e)
-      return reply.status(500).send({ error: 'work item update failed' })
+      return sendError(reply, 500, 'work item update failed')
+    }
+  })
+
+  // DELETE /api/k/work-items/:id — remove a durable operator-global item (204 no content).
+  // Same durable-only scope guard as the PATCH (F-019): the delete statement matches only
+  // scope IN ('personal','org'), so a run-scoped kstore ticket or a project row is unreachable
+  // (0 rows changed → 404) — a run can never delete another surface's items through here. A
+  // second delete of the same id also 404s (already gone).
+  app.delete<{ Params: { id: string } }>('/api/k/work-items/:id', async (req, reply) => {
+    try {
+      const { changes } = workItemsDb.deleteWorkItemDurable.run(req.params.id)
+      if (changes === 0) return sendError(reply, 404, 'not found')
+      return reply.status(204).send()
+    } catch (e) {
+      req.log.error(e)
+      return sendError(reply, 500, 'work item delete failed')
     }
   })
 
@@ -167,7 +185,7 @@ export async function kRoutes(app: FastifyInstance) {
       return reply.send(rows.map(rowToNote))
     } catch (e) {
       req.log.error(e)
-      return reply.status(500).send({ error: 'notes read failed' })
+      return sendError(reply, 500, 'notes read failed')
     }
   })
 
@@ -186,7 +204,7 @@ export async function kRoutes(app: FastifyInstance) {
       return reply.send({ events, reminders })
     } catch (e) {
       req.log.error(e)
-      return reply.status(500).send({ error: 'schedule read failed' })
+      return sendError(reply, 500, 'schedule read failed')
     }
   })
 }
