@@ -1,16 +1,25 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Artifact } from '@k/shared'
-import { api } from '../../lib/api'
+import { api, type BibleSectionView } from '../../lib/api'
 import { cn } from '../../lib/cn'
 import DocViewer from '../../components/DocViewer'
+import Toast from '../../components/Toast'
 
 /**
  * Project Artifacts tab (formerly "Bible"). Presents THIS project's artifacts as a
- * gallery — the project's OWN compiled bible (`project-<id>-bible`), its UI demo, plus
- * the harness `ui-demo` as a platform reference — each rendered through the shared
- * DocViewer (md/html toggle, sandboxed iframe). Keeps the per-artifact markdown editor
- * and a bible recompile action scoped to this project (never the harness's own bible).
+ * gallery — the project's OWN compiled bible (`project-<id>-bible`) plus anything else
+ * namespaced to it (`project-<id>-*`) — each rendered through the shared DocViewer
+ * (md/html toggle, sandboxed iframe), and keeps a bible recompile action scoped to this
+ * project.
+ *
+ * Editing is source-of-truth aware:
+ *   - a BIBLE is edited by SECTION — Save writes the section body back to its canonical
+ *     `artifacts/bible/sections/<slug>.md` source (frontmatter preserved) and recompiles,
+ *     so the edit survives the next recompile and a project bible never leaks into K's
+ *     ARTIFACTS_DIR (F-029 / F-030). The whole-combined-md path is intentionally not used.
+ *   - a regular artifact keeps the whole-markdown editor, passing its title/tags through
+ *     so a save never clobbers the rail row to the bare slug (F-035).
  */
 export default function ArtifactsTab({ projectId }: { projectId?: string }) {
   const qc = useQueryClient()
@@ -26,17 +35,17 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
   // the harness bible.
   const bibleSlug = projectId ? `project-${projectId}-bible` : 'project-bible'
 
-  // This project's artifacts: its own bible + anything else namespaced to it
-  // (project-<id>-*), plus the harness `ui-demo` as a platform reference (clearly
-  // titled "K — Agentic Org · UI Demo"). The harness `project-bible` is deliberately
-  // EXCLUDED from a project surface so K's bible never masquerades as the project's.
+  // F-038: a PROJECT surface lists ONLY that project's own artifacts (`project-<id>-*`,
+  // which includes its bible + ui-demo). The harness's GLOBAL `ui-demo` / `project-bible`
+  // are cross-scope and excluded here — they stay on the harness Docs surface. The
+  // harness context (no projectId) still shows its own bible + the ui-demo reference.
   const mine = useMemo(() => {
     const isMine = (slug: string) =>
-      slug === bibleSlug ||
-      slug === 'ui-demo' ||
-      (projectId ? slug.startsWith(`project-${projectId}-`) : false)
+      projectId
+        ? slug.startsWith(`project-${projectId}-`)
+        : slug === 'project-bible' || slug === 'ui-demo'
     return artifacts.filter(a => isMine(a.slug))
-  }, [artifacts, projectId, bibleSlug])
+  }, [artifacts, projectId])
 
   const [selected, setSelected] = useState<string | null>(null)
   // Default selection: prefer this surface's bible, else the first available artifact.
@@ -45,23 +54,89 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
       ? selected
       : mine.find(a => a.slug === bibleSlug)?.slug ?? mine[0]?.slug ?? null
 
-  // ── Per-artifact markdown editor (null = untouched; '' = user cleared it) ──
+  // ── Editor state ──────────────────────────────────────────────────────────
   const [editingSlug, setEditingSlug] = useState<string | null>(null)
-  const [editMd, setEditMd] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
+  // Success confirmation (F-035): the message doubles as the open flag.
+  const [savedMsg, setSavedMsg] = useState<string | null>(null)
+  // Whole-markdown editor (regular artifacts) + section editor (bible) working state.
+  const [editMd, setEditMd] = useState<string | null>(null)
+  const [sectionSlug, setSectionSlug] = useState<string | null>(null)
+  const [sectionBody, setSectionBody] = useState<string | null>(null)
 
-  const loadSection = useQuery<Artifact>({
+  const editingArtifact = mine.find(a => a.slug === editingSlug)
+  const editingIsBible =
+    !!editingSlug && (editingSlug === bibleSlug || (editingArtifact?.tags.includes('bible') ?? false))
+
+  const openEditor = (slug: string) => {
+    setEditingSlug(slug)
+    setEditError(null)
+    setEditMd(null)
+    setSectionSlug(null)
+    setSectionBody(null)
+  }
+  const closeEditor = () => {
+    setEditingSlug(null)
+    setEditError(null)
+    setEditMd(null)
+    setSectionSlug(null)
+    setSectionBody(null)
+  }
+
+  // ── Whole-markdown editor (regular, non-bible artifacts) ──
+  const loadArtifact = useQuery<Artifact>({
     queryKey: ['artifacts', editingSlug],
     queryFn: () => api.artifacts.get(editingSlug!),
-    enabled: !!editingSlug,
+    enabled: !!editingSlug && !editingIsBible,
     staleTime: 0,
   })
-  const displayMd = editMd ?? loadSection.data?.md ?? ''
-  const closeEditor = () => { setEditingSlug(null); setEditMd(null); setEditError(null) }
+  const displayMd = editMd ?? loadArtifact.data?.md ?? ''
 
-  const save = useMutation({
-    mutationFn: (md: string) => api.artifacts.save(editingSlug!, { md }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['artifacts'] }); closeEditor() },
+  const saveMd = useMutation({
+    // Pass the loaded title/tags/phase/status THROUGH so the save doesn't reset the
+    // rail row to the bare slug / drop its badge (F-035).
+    mutationFn: (md: string) =>
+      api.artifacts.save(editingSlug!, {
+        md,
+        title: loadArtifact.data?.title,
+        tags: loadArtifact.data?.tags,
+        phase: loadArtifact.data?.phase,
+        status: loadArtifact.data?.status,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['artifacts'] })
+      qc.invalidateQueries({ queryKey: ['artifact', editingSlug] })
+      setSavedMsg('Saved')
+      closeEditor()
+    },
+    onError: (e: Error) => setEditError(e.message),
+  })
+
+  // ── Section editor (bible artifacts) ──
+  const sectionsQuery = useQuery<{ sections: BibleSectionView[] }>({
+    queryKey: ['artifacts', editingSlug, 'sections'],
+    queryFn: () => api.artifacts.sections(editingSlug!),
+    enabled: !!editingSlug && editingIsBible,
+    staleTime: 0,
+  })
+  const sections = sectionsQuery.data?.sections ?? []
+  const activeSection =
+    (sectionSlug && sections.find(s => s.slug === sectionSlug)) || sections[0] || null
+  // Body shown: the local edit if touched, else the selected section's stored body.
+  const sectionDisplay = sectionBody ?? activeSection?.body ?? ''
+
+  const saveSection = useMutation({
+    mutationFn: ({ section, body }: { section: string; body: string }) =>
+      api.artifacts.saveSection(editingSlug!, section, body),
+    onSuccess: () => {
+      // The server rewrote the section source + recompiled → the row (title/tags) and
+      // composed html regenerate from the edit. Refresh the list + the viewer.
+      qc.invalidateQueries({ queryKey: ['artifacts'] })
+      qc.invalidateQueries({ queryKey: ['artifact', editingSlug] })
+      qc.invalidateQueries({ queryKey: ['artifacts', editingSlug, 'sections'] })
+      setSavedMsg('Saved · bible recompiled')
+      closeEditor()
+    },
     onError: (e: Error) => setEditError(e.message),
   })
 
@@ -82,6 +157,9 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
     return '📄'
   }
 
+  const savePending = saveMd.isPending || saveSection.isPending
+  const editorLoading = editingIsBible ? sectionsQuery.isLoading : loadArtifact.isLoading
+
   return (
     <div className="flex h-full flex-col">
       {/* ── Toolbar ──────────────────────────────────────────────────────── */}
@@ -96,12 +174,13 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
 
         {mine.length > 0 && (
           <select
-            onChange={e => { if (e.target.value) { setEditingSlug(e.target.value); setEditMd(null); setEditError(null) } e.target.value = '' }}
+            onChange={e => { if (e.target.value) openEditor(e.target.value); e.target.value = '' }}
             defaultValue=""
-            aria-label="Edit an artifact's markdown"
+            aria-label="Edit an artifact"
+            data-testid="artifact-edit-select"
             className="mono cursor-pointer rounded-control border border-[var(--border)] bg-[var(--raised)] px-2.5 py-2 text-xs text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-hover)]"
           >
-            <option value="" disabled>Edit markdown…</option>
+            <option value="" disabled>Edit…</option>
             {mine.map(a => (
               <option key={a.slug} value={a.slug}>{a.title ?? a.slug}</option>
             ))}
@@ -163,35 +242,66 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
         </section>
       </div>
 
-      {/* ── Markdown editor (modal overlay) ─────────────────────────────── */}
+      {/* ── Editor (modal overlay) ──────────────────────────────────────── */}
       {editingSlug && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="flex w-full max-w-3xl flex-col rounded-panel border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
             <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
               <span className="mono text-xs text-[var(--muted)]">
-                Editing: <span className="text-[var(--text)]">{editingSlug}</span>
+                {editingIsBible ? 'Editing bible section' : 'Editing'}:{' '}
+                <span className="text-[var(--text)]">
+                  {editingIsBible ? (activeSection?.slug ?? editingSlug) : editingSlug}
+                </span>
               </span>
               <button onClick={closeEditor} className="text-[var(--muted)] hover:text-[var(--text)]" aria-label="Close editor">✕</button>
             </div>
-            {loadSection.isLoading ? (
+
+            {editingIsBible && (
+              <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-2">
+                <label className="mono text-[11px] text-[var(--muted)]">Section</label>
+                <select
+                  value={activeSection?.slug ?? ''}
+                  onChange={e => { setSectionSlug(e.target.value); setSectionBody(null); setEditError(null) }}
+                  aria-label="Choose a bible section to edit"
+                  data-testid="bible-section-select"
+                  className="mono cursor-pointer rounded-control border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-hover)]"
+                >
+                  {sections.map(s => (
+                    <option key={s.slug} value={s.slug}>{s.icon} {s.title}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {editorLoading ? (
               <p className="p-6 text-center text-sm text-[var(--muted)]">Loading…</p>
+            ) : editingIsBible && sections.length === 0 ? (
+              <p className="p-6 text-center text-sm text-[var(--muted)]">
+                This bible has no editable sections yet — compile it first.
+              </p>
             ) : (
               <>
                 <textarea
-                  value={displayMd}
-                  onChange={e => setEditMd(e.target.value)}
+                  value={editingIsBible ? sectionDisplay : displayMd}
+                  onChange={e => (editingIsBible ? setSectionBody(e.target.value) : setEditMd(e.target.value))}
                   spellCheck={false}
+                  data-testid="artifact-editor-textarea"
                   className="mono min-h-[400px] w-full resize-y bg-[var(--raised)] px-4 py-3 text-xs text-[var(--text)] focus:outline-none"
                 />
-                {editError && <p className="px-4 py-1 text-[11px] text-[var(--red)]">⚠ {editError}</p>}
+                {editError && <p className="px-4 py-1 text-[11px] text-[var(--red)]" data-testid="artifact-editor-error">⚠ {editError}</p>}
                 <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
                   <button onClick={closeEditor} className="rounded-control border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs text-[var(--text)] hover:border-[var(--accent-hover)]">Cancel</button>
                   <button
-                    onClick={() => save.mutate(displayMd)}
-                    disabled={save.isPending}
+                    onClick={() =>
+                      editingIsBible
+                        ? activeSection && saveSection.mutate({ section: activeSection.slug, body: sectionDisplay })
+                        : saveMd.mutate(displayMd)
+                    }
+                    disabled={savePending || (editingIsBible && !activeSection)}
+                    data-testid="artifact-save-btn"
                     className="rounded-control bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
                   >
-                    {save.isPending ? 'Saving…' : 'Save'}
+                    {savePending ? 'Saving…' : 'Save'}
                   </button>
                 </div>
               </>
@@ -199,6 +309,13 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
           </div>
         </div>
       )}
+
+      <Toast
+        open={!!savedMsg}
+        message={savedMsg ?? ''}
+        testid="artifact-saved-toast"
+        onDismiss={() => setSavedMsg(null)}
+      />
     </div>
   )
 }

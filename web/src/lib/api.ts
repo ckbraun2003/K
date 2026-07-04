@@ -30,6 +30,17 @@ export type NamedWorkflowPatch = Partial<
   Pick<NamedWorkflow, 'name' | 'promptScaffold' | 'crossProject'>
 >
 
+/** One editable bible section — mirrors core's BibleSectionView (bible.ts). The body
+ *  is the markdown AFTER the frontmatter; the editor round-trips just the body. */
+export interface BibleSectionView {
+  slug: string
+  title: string
+  icon: string
+  status: string
+  updated: string
+  body: string
+}
+
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
 export interface OnboardResult {
   created: string[]
@@ -124,6 +135,16 @@ export const api = {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+      }),
+    // A bible is edited by section (its source of truth) — never as combined md, which
+    // the recompile would overwrite. `sections` lists a bible's editable sections;
+    // `saveSection` writes one section's body back and recompiles server-side.
+    sections: (slug: string) => req<{ sections: BibleSectionView[] }>(`/artifacts/${slug}/sections`),
+    saveSection: (slug: string, sectionSlug: string, body: string) =>
+      req<{ slug: string; section: string; compiledAt: number }>(`/artifacts/${slug}/sections/${sectionSlug}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
       }),
     compileBible: () =>
       req<{ htmlPath: string; sections: string[]; compiledAt: number }>('/bible/compile', {

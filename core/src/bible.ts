@@ -21,9 +21,11 @@ import path from 'path'
 import { marked } from 'marked'
 import { db, artifactsDb } from './db.js'
 import { ARTIFACTS_DIR } from './artifacts.js'
-import { parseFrontmatter, roadmapPhases } from './bible-parse.js'
+import { getProject } from './projects.js'
+import { parseFrontmatter, splitFrontmatter, roadmapPhases } from './bible-parse.js'
 import { sanitizeRenderedHtml } from './sanitize.js'
 import { escHtml } from './html.js'
+import { isPathWithin } from './paths.js'
 
 // ── Section model ─────────────────────────────────────────────────────────────
 
@@ -453,4 +455,131 @@ export async function compileProjectBible(
 export async function ensureHarnessBibleRegistered(): Promise<void> {
   if (artifactsDb.getArtifact.get('project-bible')) return
   await compileBible(undefined, undefined, { writeHtml: false })
+}
+
+// ── Section-scoped editing (durable, source-of-truth) ──────────────────────────
+//
+// A bible's canonical source is its section files (`<bibleDir>/sections/<slug>.md`,
+// frontmatter + markdown), NOT the combined artifact md that the artifacts API/DocViewer
+// render. An edit must therefore be written BACK to a section source and the bible
+// recompiled — otherwise the next recompile regenerates the row FROM the sections and
+// silently drops the edit (F-029), and a whole-md write via saveArtifact would leak
+// `project-<id>-bible.{md,html}` into K's ARTIFACTS_DIR and null the row's html_path
+// (F-030). These helpers implement the section-scoped path.
+
+/** A bible section as presented to the editor: frontmatter fields + the editable body. */
+export interface BibleSectionView {
+  slug: string
+  title: string
+  icon: string
+  status: string
+  updated: string
+  body: string
+}
+
+/** Client-input errors from the section editor (unknown section, no manifest, …) —
+ *  routes map these to 400 so a structural mismatch is a clear rejection, never a
+ *  silent loss/corruption. */
+export class BibleEditError extends Error {}
+
+/** True when `slug` is a bible artifact by NAME — the harness's own `project-bible`
+ *  or a registered project's `project-<id>-bible`. Pure (no DB); the slug is always
+ *  minted by compileBible/projectBibleSlug, so the pattern is authoritative. */
+export function isBibleSlug(slug: string): boolean {
+  if (slug === 'project-bible') return true
+  return (
+    slug.startsWith('project-') &&
+    slug.endsWith('-bible') &&
+    slug.length > 'project-'.length + '-bible'.length
+  )
+}
+
+/**
+ * Resolve a bible artifact slug to its on-disk source dir + a bound recompile fn, or
+ * null when the slug isn't a bible (or names a project that no longer exists). The
+ * harness bible lives under `ARTIFACTS_DIR/bible`; a registered project's under
+ * `<localPath>/artifacts/bible`, and recompiles into the PROJECT dir (never K's).
+ */
+export function resolveBible(
+  slug: string,
+): { bibleDir: string; recompile: () => Promise<CompileResult | null> } | null {
+  if (slug === 'project-bible') {
+    return { bibleDir: path.join(ARTIFACTS_DIR, 'bible'), recompile: () => compileBible() }
+  }
+  if (!isBibleSlug(slug)) return null
+  const projectId = slug.slice('project-'.length, -'-bible'.length)
+  const project = getProject(projectId)
+  if (!project) return null
+  return {
+    bibleDir: path.join(project.localPath, 'artifacts', 'bible'),
+    recompile: () => compileProjectBible(project),
+  }
+}
+
+function readManifest(bibleDir: string): BibleManifest | null {
+  const manifestPath = path.join(bibleDir, 'manifest.json')
+  if (!fs.existsSync(manifestPath)) return null
+  return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as BibleManifest
+}
+
+/**
+ * List a bible's editable sections (slug + frontmatter fields + body), in manifest
+ * order, skipping any manifest slug with no source file. Returns null when `slug`
+ * isn't a bible (or its project/manifest is gone) so the route can 400 cleanly.
+ */
+export function listBibleSections(slug: string): BibleSectionView[] | null {
+  const resolved = resolveBible(slug)
+  if (!resolved) return null
+  const manifest = readManifest(resolved.bibleDir)
+  if (!manifest) return null
+  const views: BibleSectionView[] = []
+  for (const secSlug of manifest.sections) {
+    const file = path.join(resolved.bibleDir, 'sections', `${secSlug}.md`)
+    if (!fs.existsSync(file)) continue
+    const { meta, body } = parseFrontmatter(fs.readFileSync(file, 'utf8'))
+    views.push({
+      slug: secSlug,
+      title: meta.title ?? secSlug,
+      icon: meta.icon ?? '§',
+      status: meta.status ?? 'draft',
+      updated: meta.updated ?? '—',
+      body,
+    })
+  }
+  return views
+}
+
+/**
+ * Write an edited section BODY back to its canonical source (`<bibleDir>/sections/
+ * <sectionSlug>.md`), preserving the section's frontmatter byte-for-byte, then
+ * recompile so the composed html + artifact row regenerate FROM the edit — durable
+ * across future recompiles. A project bible stays entirely in the project dir.
+ *
+ * The section is allowlisted against the manifest: an unknown/renamed section is a
+ * clear BibleEditError (never a silent create), and that allowlist also blocks path
+ * traversal — only a manifest-listed slug can become a write target. Returns the
+ * CompileResult, or null when the manifest resolves to no sections.
+ */
+export async function saveBibleSection(
+  slug: string,
+  sectionSlug: string,
+  body: string,
+): Promise<CompileResult | null> {
+  const resolved = resolveBible(slug)
+  if (!resolved) throw new BibleEditError('not a bible artifact')
+  const manifest = readManifest(resolved.bibleDir)
+  if (!manifest) throw new BibleEditError('no bible manifest found')
+  if (!manifest.sections.includes(sectionSlug)) {
+    throw new BibleEditError(`unknown section "${sectionSlug}" — edit an existing bible section`)
+  }
+  const sectionsRoot = path.resolve(resolved.bibleDir, 'sections')
+  const file = path.resolve(sectionsRoot, `${sectionSlug}.md`)
+  // Defense in depth beyond the manifest allowlist: the write target must stay under
+  // the sections dir (mirrors the artifacts/scaffold path guards).
+  if (!isPathWithin(sectionsRoot, file)) throw new BibleEditError('invalid section path')
+  if (!fs.existsSync(file)) throw new BibleEditError(`section "${sectionSlug}" has no source file`)
+
+  const { frontmatter } = splitFrontmatter(fs.readFileSync(file, 'utf8'))
+  fs.writeFileSync(file, frontmatter + body, 'utf8')
+  return resolved.recompile()
 }
