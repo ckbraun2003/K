@@ -62,6 +62,26 @@ export interface SynthesizeOpts {
   assetsDir?: string            // default: repo-root agent-config/
   dataDir?: string              // default: process.env.K_DATA_DIR ?? <repo>/data
   hostCredentialsPath?: string  // default: <home>/.claude/.credentials.json — INJECTABLE for tests
+  // W7a: a STABLE run dir (absolute) to build the config under instead of the default
+  // per-run `<dataDir>/agent-runs/<runId>`. K-secretary asks pass a per-THREAD stable
+  // dir so the CLI's session files (stored under CLAUDE_CONFIG_DIR keyed by cwd) survive
+  // across asks and `--resume` can find them. MUST stay under dataDir (guard-checked).
+  // Absent for every regular dispatch run → the default per-run dir, byte-for-byte as before.
+  runDirOverride?: string
+  // W7a: when true, cleanup() is a NO-OP so the (stable) run dir — and the CLI session
+  // state under it — persists across asks. Absent/false for regular runs → cleanup()
+  // removes the ephemeral per-run dir on terminal exactly as before.
+  persist?: boolean
+  // F-068: SUPPRESS the gitnexus bootstrap for a run whose target repo is an EXTERNAL
+  // registered project (NOT K's own repo). The gitnexus MCP server's init AND the
+  // `gitnexus analyze` nudge (the PostToolUse hook) resolve the canonical repo root via
+  // the SHARED git dir, so for a run dispatched into a linked worktree of an external
+  // project they write `.gitnexus/`, a `.gitignore` line, and `.claude/skills/gitnexus`
+  // into the TARGET checkout (not the ephemeral worktree) — residue removeWorktree never
+  // cleans. When true, the gitnexus MCP server is NOT mounted and the gitnexus hook groups
+  // are stripped from settings.json, so nothing is ever written into the target repo.
+  // Absent/false (every K-internal run — cwd inside the K repo) → gitnexus stays, as before.
+  suppressGitnexus?: boolean
 }
 
 // ── path guard ─────────────────────────────────────────────────────────────────
@@ -114,6 +134,37 @@ function copyDirGuarded(root: string, src: string, dest: string): void {
   }
 }
 
+/**
+ * F-068: remove every settings.json hook group whose command invokes the gitnexus hook,
+ * so an EXTERNAL-target run never runs the `gitnexus analyze` nudge against the target
+ * repo. Returns the settings JSON text with those groups dropped (and any now-empty event
+ * array removed). Every hook in the shipped template IS a gitnexus hook, so this yields an
+ * empty `hooks` object today — but it is written as a targeted filter (matches the
+ * `gitnexus-hook` command) so a future non-gitnexus hook survives suppression.
+ */
+function stripGitnexusHooks(settingsJson: string): string {
+  const parsed = JSON.parse(settingsJson) as {
+    hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>
+  }
+  const hooks = parsed.hooks
+  if (hooks && typeof hooks === 'object') {
+    for (const event of Object.keys(hooks)) {
+      const groups = hooks[event]
+      if (!Array.isArray(groups)) continue
+      const kept = groups.filter(
+        g =>
+          !(
+            Array.isArray(g.hooks) &&
+            g.hooks.some(h => typeof h.command === 'string' && h.command.includes('gitnexus-hook'))
+          ),
+      )
+      if (kept.length > 0) hooks[event] = kept
+      else delete hooks[event]
+    }
+  }
+  return JSON.stringify(parsed, null, 2)
+}
+
 /** Absolute file:// URL of K's OWN tsx ESM loader (cwd-independent), for the dev
  *  `node --import <loader>` launch of the kstore server. Resolving from this
  *  module's location pins tsx to K's install; never bare `tsx` (cwd-relative,
@@ -125,6 +176,76 @@ function resolveTsxLoader(): string {
   } catch {
     return 'tsx'
   }
+}
+
+// ── credential posture (F-064/F-090) ────────────────────────────────────────────
+
+/**
+ * Opt-OUT for the host-credential dogfooding fallback (D-027). Default FALSE — the
+ * fallback stays on so K authenticates out-of-the-box when no managed token is set.
+ * When `K_DISABLE_HOST_CREDENTIAL_FALLBACK` is set truthy, a run with no managed
+ * token FAILS CLOSED (unauthenticated) instead of copying host ~/.claude
+ * credentials into the run dir — for security-conscious deployments that must never
+ * let a host credential leave ~/.claude. Pure; reads only the env. Truthy = one of
+ * true/1/yes/on (case-insensitive) so a misspelt value can't silently re-enable it.
+ */
+export function hostCredentialFallbackDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return /^(1|true|yes|on)$/i.test((env.K_DISABLE_HOST_CREDENTIAL_FALLBACK ?? '').trim())
+}
+
+export type CredentialPosture = 'managed' | 'host-fallback' | 'disabled'
+
+/**
+ * The harness's credential posture, WITHOUT ever exposing a secret — for the boot
+ * summary and /api/status. Mirrors the auth-resolution ladder in synthesizeConfigDir:
+ *   - 'managed'       → a managed token is set (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN).
+ *   - 'disabled'      → no managed token AND the host-credential fallback is opted out
+ *                       (K_DISABLE_HOST_CREDENTIAL_FALLBACK) → runs are unauthenticated.
+ *   - 'host-fallback' → no managed token, fallback ON (default) → runs copy host creds.
+ * Pure: reads only the env, returns no credential value.
+ */
+export function credentialPosture(env: NodeJS.ProcessEnv = process.env): CredentialPosture {
+  if ((env.ANTHROPIC_API_KEY ?? '').length > 0 || (env.CLAUDE_CODE_OAUTH_TOKEN ?? '').length > 0) {
+    return 'managed'
+  }
+  return hostCredentialFallbackDisabled(env) ? 'disabled' : 'host-fallback'
+}
+
+// ── org-role model capability (warn-only) ────────────────────────────────────
+
+/**
+ * Whether `modelId` can reliably drive the DEFERRED / dynamic MCP MANAGEMENT tools
+ * (lead_list, assign_lead, dispatch_lead, report_list, …) the autonomous org chain
+ * depends on. The haiku tier does NOT reliably invoke the deferred-tool protocol, so a
+ * Chief or lead run resolved to a haiku model silently stalls the K→Chief→lead chain
+ * (live-observed). opus / sonnet / fable are treated as capable; ANY haiku-tier id
+ * (`claude-haiku-*`, dated snapshots included) is not. Pure + id-family based so a future
+ * haiku snapshot needs no edit here. WARN-ONLY: this predicate only decides whether to
+ * surface the warning — callers still dispatch exactly as configured. An absent/empty id
+ * → treated as capable (the router resolves a default at dispatch; nothing to warn about).
+ */
+export function isOrgToolCapableModel(modelId: string | null | undefined): boolean {
+  if (!modelId) return true
+  return !/haiku/i.test(modelId)
+}
+
+/**
+ * WARN-ONLY guard for an org-management dispatch (Chief / lead): if `modelId` can't
+ * reliably drive the deferred management tools (isOrgToolCapableModel → false), emit ONE
+ * clear warning naming the role, the model id, and the consequence, then return true
+ * (warned). It does NOT change the model, tokens, tool grants, or dispatch — the operator's
+ * configured model still runs (the org may just stall, which the warning explains). Returns
+ * false (no warning) for a capable model. Uses the same console.warn sink as the other
+ * boot/dispatch warnings so the signal lands in the core log next to the wake/dispatch lines.
+ */
+export function warnIfOrgRoleModelNotToolCapable(role: string, modelId: string | null | undefined): boolean {
+  if (isOrgToolCapableModel(modelId)) return false
+  console.warn(
+    `[org] ${role} dispatched with model ${modelId}, which may be unable to invoke the ` +
+      `deferred management tools; the autonomous chain can stall. Use a sonnet/opus-class ` +
+      `model for org roles.`,
+  )
+  return true
 }
 
 // ── public API ───────────────────────────────────────────────────────────────
@@ -190,7 +311,14 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
       )
     }
   }
-  const wantedServers = new Set(serversToMount)
+  // F-068: an EXTERNAL-target run drops gitnexus from the mounted set here — dropping a
+  // mount is always safe (fewer grants), and it is validated BELOW (assertMcpGrants) and
+  // filtered into mcp.json (wantedServers) from this narrowed set, so no gitnexus server
+  // is ever written for that run. K-internal runs pass through unchanged.
+  const mountedServers = opts.suppressGitnexus
+    ? serversToMount.filter(name => name !== 'gitnexus')
+    : serversToMount
+  const wantedServers = new Set(mountedServers)
   mcp.mcpServers = Object.fromEntries(
     Object.entries(mcp.mcpServers ?? {}).filter(([k]) => wantedServers.has(k)),
   )
@@ -216,8 +344,9 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     }
   }
   // Mounting ≠ granting (D-034) holds at synth time too: every mounted server must
-  // be granted by the FINAL (possibly profile-narrowed) allowlist.
-  assertMcpGrants(profile.tier, allowedTools, serversToMount)
+  // be granted by the FINAL (possibly profile-narrowed) allowlist. Checked against the
+  // ACTUALLY-mounted set (gitnexus already dropped for an external-target run).
+  assertMcpGrants(profile.tier, allowedTools, mountedServers)
   // The hard tool ceiling: --allowedTools is only an AUTO-APPROVAL list (under
   // acceptEdits, Write/Edit are auto-approved for every tier and other built-ins
   // stay invocable subject to prompts). The denylist — UNIVERSE minus the run's
@@ -225,8 +354,10 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   // for built-ins at the CLI.
   const disallowedTools = computeDisallowedTools(allowedTools)
 
-  // 1. run config dir (path-guarded root for every write below)
-  const runDir = path.join(dataDir, 'agent-runs', opts.runId)
+  // 1. run config dir (path-guarded root for every write below). A K-secretary ask
+  //    passes a STABLE per-thread runDirOverride so its config + CLI session state
+  //    persist across asks; every regular run gets the ephemeral per-run default.
+  const runDir = opts.runDirOverride ?? path.join(dataDir, 'agent-runs', opts.runId)
   guardUnder(dataDir, runDir) // defense-in-depth: runDir (and thus cleanup) stays under dataDir
   const configDir = path.join(runDir, 'config')
   fs.mkdirSync(configDir, { recursive: true })
@@ -239,11 +370,19 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   guardedWrite(configDir, appendSystemPromptFile, `${l0}\n\n---\n\n${l1}`)
 
   // 3. settings: rewrite every __HOOK__ placeholder to the run's hooks dir
-  //    (forward slashes so the JSON value is valid on Windows too).
+  //    (forward slashes so the JSON value is valid on Windows too). For an EXTERNAL-target
+  //    run (F-068) the gitnexus hook groups are then stripped so the `gitnexus analyze`
+  //    nudge never fires against the target repo. The non-suppressed path stays a pure
+  //    string-substitution (byte-identical to before — the idempotency LOCK still holds).
   const template = fs.readFileSync(path.join(assetsDir, 'settings.template.json'), 'utf8')
   const hooksDirFwd = path.join(configDir, 'hooks').split(path.sep).join('/')
   const settingsPath = path.join(configDir, 'settings.json')
-  guardedWrite(configDir, settingsPath, template.split('__HOOK__').join(hooksDirFwd))
+  const settingsContent = template.split('__HOOK__').join(hooksDirFwd)
+  guardedWrite(
+    configDir,
+    settingsPath,
+    opts.suppressGitnexus ? stripGitnexusHooks(settingsContent) : settingsContent,
+  )
 
   // 4. mount ONLY the skills + worker-agent defs resolved in the validation block
   //    above (profile-narrowed or the tier bundle) — not the whole library. The
@@ -299,8 +438,12 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   //    block above (before any write).
 
   // 8. auth resolution (Wave-0 finding: credentials are isolated too).
-  //    Prefer a K-supplied token; else copy host credentials as a dogfooding
-  //    fallback; else run unauthenticated (warn).
+  //    MANAGED-FIRST: prefer a K-supplied token (ANTHROPIC_API_KEY / OAUTH); else,
+  //    unless the operator opted OUT (K_DISABLE_HOST_CREDENTIAL_FALLBACK), copy host
+  //    credentials as the dogfooding fallback (D-027 — how K authenticates OOTB);
+  //    else run unauthenticated (warn). The managed-token path NEVER copies, so
+  //    setting a managed token is also how a persistent K-secretary session avoids
+  //    a lingering credential file.
   let authEnv: Record<string, string> = {}
   let usedHostCredentialFallback = false
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -309,9 +452,23 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     authEnv = { ANTHROPIC_API_KEY: apiKey }
   } else if (oauth) {
     authEnv = { CLAUDE_CODE_OAUTH_TOKEN: oauth }
+  } else if (hostCredentialFallbackDisabled()) {
+    // Opt-out (security-conscious): fail closed rather than let a host credential
+    // leave ~/.claude. The run is unauthenticated until a managed token is set.
+    console.warn(
+      '[agent-config] no managed token (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN) and ' +
+        'K_DISABLE_HOST_CREDENTIAL_FALLBACK is set — refusing to copy host credentials; this run ' +
+        'is UNAUTHENTICATED. Set a managed token to authenticate.',
+    )
   } else if (fs.existsSync(hostCredentialsPath)) {
     const credDest = path.join(configDir, '.credentials.json')
     guardedCopy(configDir, hostCredentialsPath, credDest)
+    // Chmod 0600 (best-effort; honoured on POSIX, advisory on Windows/NTFS ACLs). For a
+    // PERSISTED K-secretary session (opts.persist) this file LINGERS across asks under the
+    // protected data dir (kSecretaryConfigPaths → <dataDir>/k-secretary/<key>/…). The
+    // exposure is bounded by the 0600 perms + the gitignored data dir; a deployment that
+    // must avoid a resting credential file should set a managed token (skips this copy
+    // entirely) or K_DISABLE_HOST_CREDENTIAL_FALLBACK (opts out above).
     try { fs.chmodSync(credDest, 0o600) } catch { /* best-effort on FSes that honour it */ }
     usedHostCredentialFallback = true
     console.warn(
@@ -323,10 +480,12 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     )
   }
 
-  // 9. cleanup removes the whole run dir (config + any siblings).
-  const cleanup = (): void => {
-    fs.rmSync(runDir, { recursive: true, force: true })
-  }
+  // 9. cleanup removes the whole run dir (config + any siblings). For a PERSISTED
+  //    (K-secretary) config this is a NO-OP so the stable dir — and the CLI session
+  //    files under it that `--resume` needs — survive across asks.
+  const cleanup = opts.persist
+    ? (): void => { /* persisted: keep the stable dir + its CLI session state */ }
+    : (): void => { fs.rmSync(runDir, { recursive: true, force: true }) }
 
   return {
     configDir,
@@ -339,6 +498,22 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     usedHostCredentialFallback,
     cleanup,
   }
+}
+
+/**
+ * Resolve the STABLE per-K-thread paths a K-secretary ask reuses across invocations
+ * (W7a, design A). Both live under a dedicated `<dataDir>/k-secretary/<key>` namespace
+ * — deliberately NOT under `agent-runs/` — so the boot orphan-sweep
+ * (pruneOrphanAgentRuns), which reaps every `agent-runs/<id>` not held by a live run,
+ * never deletes K's persistent session state. `runDir` is fed to synthesizeConfigDir's
+ * runDirOverride (its config lands at `<runDir>/config`); `cwd` is the stable working
+ * directory the CLI keys its session files under, so `--resume` finds them. `key` is the
+ * thread id — segment-checked here before any path use (it is interpolated into fs paths).
+ */
+export function kSecretaryConfigPaths(key: string, dataDir?: string): { runDir: string; cwd: string } {
+  assertSafeSegment(key, 'k-secretary thread key')
+  const base = path.join(dataDir ?? process.env.K_DATA_DIR ?? DEFAULT_DATA_DIR, 'k-secretary', key)
+  return { runDir: path.join(base, 'agent'), cwd: path.join(base, 'cwd') }
 }
 
 /**

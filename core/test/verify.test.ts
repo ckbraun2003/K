@@ -13,11 +13,13 @@ import {
   auditInvariants,
   hasWorkflowFile,
   hasBibleDir,
+  hasAuthoredBible,
   bibleFreshnessDays,
   readCoveragePct,
   classifyCoverageTrend,
   type HealthScoreInputs,
 } from '../src/verify.js'
+import { scaffoldBible, BIBLE_SCAFFOLD_MARKER } from '../src/scaffold.js'
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -47,41 +49,60 @@ function ciRun(conclusion: string | null, createdAt?: string): CiRunInfo {
   }
 }
 
+// A fully-MEASURED, healthy project: real passing CI, measured stable coverage, an
+// authored bible, no findings. Every dimension is measured → the score is the plain
+// weighted sum, 100.
 const ALL_GREEN: HealthScoreInputs = {
   ci: 'passing',
   coverageTrend: 'stable',
-  bibleFresh: true,
+  bibleAuthored: true,
   findings: [],
 }
 
-// ── computeHealthScore ──────────────────────────────────────────────────────
+// ── computeHealthScore (F-032 rework: PRORATE over MEASURED dimensions) ────────
 
 describe('computeHealthScore', () => {
-  it('all-green = 100 with full breakdown', () => {
+  it('all-measured green = 100 with full breakdown', () => {
     const { score, breakdown } = computeHealthScore(ALL_GREEN)
     expect(score).toBe(100)
     expect(breakdown).toEqual({ ci: 40, coverage: 20, bible: 20, findings: 20 })
   })
 
-  it('ci failing floors CI component to 0 → score caps at 60', () => {
+  it('CRUX: an all-UNMEASURED project (scaffold, nothing run) scores NULL, not 100', () => {
+    // ci 'none' (no decisive run — a scaffold workflow that never ran), coverage
+    // 'unknown' (no summary), bible NOT authored (bare scaffold). Nothing is
+    // measurable → insufficient signal → null, and every breakdown cell is null.
+    const { score, breakdown } = computeHealthScore({
+      ci: 'none',
+      coverageTrend: 'unknown',
+      bibleAuthored: false,
+      findings: [],
+    })
+    expect(score).toBeNull()
+    expect(breakdown).toEqual({ ci: null, coverage: null, bible: null, findings: null })
+  })
+
+  it("ci 'none' (no decisive run) is EXCLUDED, not zeroed — score prorates over the rest", () => {
+    // ci null/excluded; coverage 20 + bible 20 + findings 20 over weight 60 → 100.
+    const { score, breakdown } = computeHealthScore({ ...ALL_GREEN, ci: 'none' })
+    expect(breakdown.ci).toBeNull()
+    expect(score).toBe(100)
+  })
+
+  it('ci failing is a MEASURED problem → 0/40, dragged into the prorate', () => {
+    // ci 0 + coverage 20 + bible 20 + findings 20 over weight 100 → 60.
     const { score, breakdown } = computeHealthScore({ ...ALL_GREEN, ci: 'failing' })
     expect(breakdown.ci).toBe(0)
     expect(score).toBe(60)
   })
 
-  it("ci 'none' scores 0 (same as failing)", () => {
-    const { score, breakdown } = computeHealthScore({ ...ALL_GREEN, ci: 'none' })
-    expect(breakdown.ci).toBe(0)
-    expect(score).toBe(60)
-  })
-
-  it('flaky ci = half component (20)', () => {
+  it('flaky ci = MEASURED half (20/40)', () => {
     const { score, breakdown } = computeHealthScore({ ...ALL_GREEN, ci: 'flaky' })
     expect(breakdown.ci).toBe(20)
-    expect(score).toBe(80)
+    expect(score).toBe(80) // (20+20+20+20)/100
   })
 
-  it('each open critical -10, warn -2 on findings component', () => {
+  it('each open critical -10, warn -2 on the findings component', () => {
     const { breakdown } = computeHealthScore({
       ...ALL_GREEN,
       findings: [finding('critical'), finding('warn'), finding('warn')],
@@ -95,7 +116,7 @@ describe('computeHealthScore', () => {
       findings: [finding('critical'), finding('critical'), finding('critical')],
     })
     expect(breakdown.findings).toBe(0)
-    expect(score).toBe(80) // 40 + 20 + 20 + 0
+    expect(score).toBe(80) // (40+20+20+0)/100
   })
 
   it('info findings carry no penalty', () => {
@@ -106,42 +127,61 @@ describe('computeHealthScore', () => {
     expect(breakdown.findings).toBe(20)
   })
 
-  it("coverage 'unknown' is neutral — same score as stable", () => {
-    const unknown = computeHealthScore({ ...ALL_GREEN, coverageTrend: 'unknown' })
-    const stable = computeHealthScore({ ...ALL_GREEN, coverageTrend: 'stable' })
-    expect(unknown.score).toBe(stable.score)
-    expect(unknown.breakdown.coverage).toBe(20)
+  it("coverage 'unknown' is EXCLUDED (no summary) — null, not credited full", () => {
+    const { score, breakdown } = computeHealthScore({ ...ALL_GREEN, coverageTrend: 'unknown' })
+    expect(breakdown.coverage).toBeNull()
+    // ci 40 + bible 20 + findings 20 over weight 80 → 100.
+    expect(score).toBe(100)
   })
 
-  it("coverage 'improving' = full component (20)", () => {
+  it("coverage 'improving' = MEASURED full (20)", () => {
     const { breakdown } = computeHealthScore({ ...ALL_GREEN, coverageTrend: 'improving' })
     expect(breakdown.coverage).toBe(20)
   })
 
-  it("coverage 'declining' = half component (10)", () => {
+  it("coverage 'declining' = MEASURED half (10)", () => {
     const { score, breakdown } = computeHealthScore({ ...ALL_GREEN, coverageTrend: 'declining' })
     expect(breakdown.coverage).toBe(10)
-    expect(score).toBe(90)
+    expect(score).toBe(90) // (40+10+20+20)/100
   })
 
-  it('bibleFresh false → bible component 0', () => {
-    const { score, breakdown } = computeHealthScore({ ...ALL_GREEN, bibleFresh: false })
-    expect(breakdown.bible).toBe(0)
-    expect(score).toBe(80)
+  it('an UNAUTHORED (scaffold) bible is EXCLUDED — bible null, prorated over the rest', () => {
+    const { score, breakdown } = computeHealthScore({ ...ALL_GREEN, bibleAuthored: false })
+    expect(breakdown.bible).toBeNull()
+    // ci 40 + coverage 20 + findings 20 over weight 80 → 100.
+    expect(score).toBe(100)
   })
 
-  it('floor case (declining coverage is the only non-zero component) → 10', () => {
-    // ci=0, coverage=10 (declining=0.5·20), bible=0, findings floored to 0.
-    // 'declining' is the lowest coverage multiplier, so this is the practical
-    // minimum — there is no coverage input that scores 0.
+  it('an AUTHORED bible is MEASURED full (20) regardless of commits (F-032b)', () => {
+    const { breakdown } = computeHealthScore({ ...ALL_GREEN, bibleAuthored: true })
+    expect(breakdown.bible).toBe(20)
+  })
+
+  it('findings dimension is EXCLUDED when there is NO other signal (stays null → score null)', () => {
+    // Even with a clean findings set, a zero-signal project is null (not 100): the
+    // findings quality only counts once ci/coverage/bible has real signal.
+    const { score, breakdown } = computeHealthScore({
+      ci: 'none',
+      coverageTrend: 'unknown',
+      bibleAuthored: false,
+      findings: [finding('info')],
+    })
+    expect(score).toBeNull()
+    expect(breakdown.findings).toBeNull()
+  })
+
+  it('prorate example: failing CI + declining coverage + criticals, no bible', () => {
+    // ci 0/40 (measured), coverage 10/20 (measured), bible null (unauthored), findings
+    // measured (signal present) → 2 criticals floor findings to 0/20. earned 10 over
+    // weight 80 → round(12.5) = 13.
     const { score, breakdown } = computeHealthScore({
       ci: 'failing',
       coverageTrend: 'declining',
-      bibleFresh: false,
+      bibleAuthored: false,
       findings: [finding('critical'), finding('critical')],
     })
-    expect(breakdown).toEqual({ ci: 0, coverage: 10, bible: 0, findings: 0 })
-    expect(score).toBe(10)
+    expect(breakdown).toEqual({ ci: 0, coverage: 10, bible: null, findings: 0 })
+    expect(score).toBe(13)
   })
 })
 
@@ -274,9 +314,13 @@ describe('auditBible', () => {
     expect(f[0]).toMatchObject({ severity: 'critical', area: 'bible' })
   })
 
-  it('null freshness → warn', () => {
+  it('null freshness → info (unmeasurable, no penalty — F-032)', () => {
+    // A present bible with no commit-based freshness signal is UNKNOWN, not stale:
+    // info carries no findings penalty (onboarding leaves it uncommitted by design).
     const f = auditBible(null, true)
-    expect(f[0].severity).toBe('warn')
+    expect(f).toHaveLength(1)
+    expect(f[0].severity).toBe('info')
+    expect(f[0].message).toContain('freshness unknown')
   })
 
   it('freshnessDays > 30 → warn (stale)', () => {
@@ -415,6 +459,47 @@ describe('hasBibleDir', () => {
     fs.mkdirSync(path.join(tmp, 'docs', 'bible'), { recursive: true })
     fs.writeFileSync(path.join(tmp, 'docs', 'bible', 'manifest.json'), '{}')
     expect(hasBibleDir(tmp, 'docs/bible')).toBe(true)
+  })
+})
+
+// ── hasAuthoredBible (authored-vs-scaffold — F-032 rework) ─────────────────────
+
+describe('hasAuthoredBible', () => {
+  it('false with no bible at all', () => {
+    expect(hasAuthoredBible(makeTmp(), 'artifacts/bible')).toBe(false)
+  })
+
+  it('false for a PURE onboarding scaffold (every section still carries the marker)', () => {
+    const tmp = makeTmp()
+    scaffoldBible(tmp) // writes the placeholder manifest + sections
+    expect(hasBibleDir(tmp, 'artifacts/bible')).toBe(true) // manifest present…
+    expect(hasAuthoredBible(tmp, 'artifacts/bible')).toBe(false) // …but nothing authored
+  })
+
+  it('true once ANY section is authored (its scaffold marker removed)', () => {
+    const tmp = makeTmp()
+    scaffoldBible(tmp)
+    // Author one section: replace the placeholder body (drop the marker line).
+    const sec = path.join(tmp, 'artifacts', 'bible', 'sections', '01-vision.md')
+    fs.writeFileSync(sec, '---\ntitle: "Vision"\nicon: "◈"\nstatus: draft\nupdated: 2026-07-04\n---\n\nReal authored vision content.\n')
+    expect(fs.readFileSync(sec, 'utf8').includes(BIBLE_SCAFFOLD_MARKER)).toBe(false)
+    expect(hasAuthoredBible(tmp, 'artifacts/bible')).toBe(true)
+  })
+
+  it('true for a hand-authored bible whose sections never had the scaffold marker', () => {
+    const tmp = makeTmp()
+    const dir = path.join(tmp, 'artifacts', 'bible', 'sections')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(tmp, 'artifacts', 'bible', 'manifest.json'), JSON.stringify({ sections: ['intro'] }))
+    fs.writeFileSync(path.join(dir, 'intro.md'), '# Intro\n\nGenuine content.\n')
+    expect(hasAuthoredBible(tmp, 'artifacts/bible')).toBe(true)
+  })
+
+  it('false when a manifest exists but the sections dir is missing/empty', () => {
+    const tmp = makeTmp()
+    fs.mkdirSync(path.join(tmp, 'artifacts', 'bible'), { recursive: true })
+    fs.writeFileSync(path.join(tmp, 'artifacts', 'bible', 'manifest.json'), '{}')
+    expect(hasAuthoredBible(tmp, 'artifacts/bible')).toBe(false)
   })
 })
 

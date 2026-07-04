@@ -107,6 +107,22 @@ describe('POST /api/skills — trigger-type / field validation', () => {
     expect(res.json().triggerType).toBe('manual')
     persistedNames.push(payload.name as string)
   })
+
+  it('F-016: create with enabled:false lands DISABLED (a "disabled" skill must not be armed)', async () => {
+    const payload = makeSkill({ triggerType: 'manual', enabled: false })
+    const res = await app.inject({ method: 'POST', url: '/api/skills', headers: AUTH, payload })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().enabled).toBe(false)
+    persistedNames.push(payload.name as string)
+  })
+
+  it('F-016: create with enabled omitted defaults to ENABLED (preserves prior behavior)', async () => {
+    const payload = makeSkill({ triggerType: 'manual' })
+    const res = await app.inject({ method: 'POST', url: '/api/skills', headers: AUTH, payload })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().enabled).toBe(true)
+    persistedNames.push(payload.name as string)
+  })
 })
 
 describe('PATCH /api/skills/:id — body validation', () => {

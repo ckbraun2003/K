@@ -8,12 +8,20 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { WsMessage } from '@k/shared'
-import { makeRunUpdateInvalidator } from '../src/lib/live-invalidate'
+import {
+  makeRunUpdateInvalidator,
+  makeProjectListInvalidator,
+  makeWorkflowCompleteInvalidator,
+} from '../src/lib/live-invalidate'
 
 const runUpdate = { type: 'run_update', run: {} as never } as WsMessage
 const otherMsg = { type: 'pong' } as WsMessage
+const githubUpdate = { type: 'github_update', projectId: 'p1', kind: 'pr', payload: [] } as WsMessage
+const terminalRunUpdate = { type: 'run_update', run: { status: 'done' } as never } as WsMessage
+const runningRunUpdate = { type: 'run_update', run: { status: 'running' } as never } as WsMessage
 
 const ORG_KEYS = ['chief-org', 'orchestrators', 'orchestrator'] as const
+const K_KEYS = ['k-thread', 'k-notes', 'k-schedule', 'k-work-items'] as const
 
 function keyCounts(spy: ReturnType<typeof vi.fn>) {
   const counts: Record<string, number> = {}
@@ -85,5 +93,94 @@ describe('makeRunUpdateInvalidator', () => {
 
     vi.advanceTimersByTime(1000)
     for (const key of ORG_KEYS) expect(keyCounts(invalidateQueries)[key]).toBe(1)
+  })
+
+  // ── F-059: a TERMINAL run refreshes the K-home surfaces ──
+  it('a terminal run_update invalidates the K-home surface keys (F-059)', () => {
+    const invalidateQueries = vi.fn()
+    const { handler, dispose } = makeRunUpdateInvalidator({ invalidateQueries })
+
+    handler(terminalRunUpdate)
+
+    const counts = keyCounts(invalidateQueries)
+    // A completed run writes items + a k-turn — the K-home reads refresh live.
+    for (const key of K_KEYS) expect(counts[key]).toBe(1)
+    // The pre-existing per-message invalidations still fire.
+    expect(counts.runs).toBe(1)
+    expect(counts.metrics).toBe(1)
+    dispose()
+  })
+
+  it('a NON-terminal run_update does NOT invalidate the K-home keys (only on settle)', () => {
+    const invalidateQueries = vi.fn()
+    const { handler, dispose } = makeRunUpdateInvalidator({ invalidateQueries })
+
+    handler(runningRunUpdate)
+
+    const counts = keyCounts(invalidateQueries)
+    for (const key of K_KEYS) expect(counts[key]).toBeUndefined()
+    // runs/metrics still invalidate per message regardless of status.
+    expect(counts.runs).toBe(1)
+    dispose()
+  })
+})
+
+describe('makeProjectListInvalidator (F-036)', () => {
+  it('a github_update invalidates the projects list + fleet-github batch', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeProjectListInvalidator({ invalidateQueries })
+
+    handler(githubUpdate)
+
+    const counts = keyCounts(invalidateQueries)
+    expect(counts.projects).toBe(1)
+    expect(counts['github-fleet']).toBe(1)
+  })
+
+  it('ignores run_update and other non-github messages', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeProjectListInvalidator({ invalidateQueries })
+
+    handler(runUpdate)
+    handler(otherMsg)
+
+    expect(invalidateQueries).not.toHaveBeenCalled()
+  })
+})
+
+describe('makeWorkflowCompleteInvalidator (F-076)', () => {
+  const workflowComplete = {
+    type: 'workflow_complete', workflowRunId: 'wf1', projectId: 'p9',
+    status: 'completed', taskIds: ['t1', 't2'],
+  } as WsMessage
+  const emptyWorkflowComplete = {
+    type: 'workflow_complete', workflowRunId: 'wf2', projectId: 'p9',
+    status: 'completed', taskIds: [],
+  } as WsMessage
+
+  it('invalidates the project task list + workflow-runs on a task-workflow completion', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeWorkflowCompleteInvalidator({ invalidateQueries })
+
+    handler(workflowComplete)
+
+    // ['tasks', projectId] — the scoped key the project's Tasks tab reads.
+    const tasksCall = invalidateQueries.mock.calls.find(
+      c => (c[0] as { queryKey: unknown[] }).queryKey[0] === 'tasks',
+    )
+    expect((tasksCall?.[0] as { queryKey: unknown[] }).queryKey).toEqual(['tasks', 'p9'])
+    const counts = keyCounts(invalidateQueries)
+    expect(counts['workflow-runs']).toBe(1)
+  })
+
+  it('ignores a workflow_complete with no tasks (a lead workflow run) + non-matching messages', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeWorkflowCompleteInvalidator({ invalidateQueries })
+
+    handler(emptyWorkflowComplete)
+    handler(runUpdate)
+    handler(otherMsg)
+
+    expect(invalidateQueries).not.toHaveBeenCalled()
   })
 })

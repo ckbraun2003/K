@@ -4,6 +4,7 @@ import { isKnownModel, type OrchestratorRosterPayload } from '@k/shared'
 import { GrantError } from '../authority.js'
 import { getProfile, listProfiles, updateProfile } from '../profiles.js'
 import { assembleLead, isLead, rosterVitals } from './org-shared.js'
+import { sendError, describePatchRejection } from './http-errors.js'
 
 /**
  * Orchestrators control-plane route (P5.3a) — the roster + detail + per-lead
@@ -55,7 +56,7 @@ export async function orchestratorsRoutes(app: FastifyInstance) {
   // / the generic default-orchestrator).
   app.get<{ Params: { id: string } }>('/api/orchestrators/:id', async (req, reply) => {
     const profile = getProfile(req.params.id)
-    if (!profile || !isLead(profile)) return reply.status(404).send({ error: 'not found' })
+    if (!profile || !isLead(profile)) return sendError(reply, 404, 'not found')
     return reply.send(assembleLead(profile))
   })
 
@@ -66,9 +67,12 @@ export async function orchestratorsRoutes(app: FastifyInstance) {
   // bypassed); a null return (race) → 404.
   app.patch<{ Params: { id: string } }>('/api/orchestrators/:id', async (req, reply) => {
     const parsed = OrchestratorPatchSchema.safeParse(req.body)
-    if (!parsed.success) return reply.status(400).send({ error: 'invalid patch' })
+    // Name the offending field(s) (F-024) instead of the opaque "invalid patch": a PATCH that
+    // tries to move tier/charter (the deliberately-excluded, immutable fields) now hears WHY it
+    // was rejected — mirroring the quality of the GrantError ceiling messages.
+    if (!parsed.success) return sendError(reply, 400, describePatchRejection(parsed.error, ['tier', 'charter']))
     if (Object.keys(parsed.data).length === 0) {
-      return reply.status(400).send({ error: 'empty patch' })
+      return sendError(reply, 400, 'empty patch')
     }
     // defaultModel must be a known Claude model id (same gate as PUT /api/claude/model);
     // null explicitly CLEARS the override back to the runtime default. '' normalizes to
@@ -76,15 +80,15 @@ export async function orchestratorsRoutes(app: FastifyInstance) {
     // (db.ts rowToAgentProfile), so it must clear, never 400.
     if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
     if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
-      return reply.status(400).send({ error: 'unknown model' })
+      return sendError(reply, 400, 'unknown model')
     }
 
     const existing = getProfile(req.params.id)
-    if (!existing || !isLead(existing)) return reply.status(404).send({ error: 'not found' })
+    if (!existing || !isLead(existing)) return sendError(reply, 404, 'not found')
 
     try {
       const updated = updateProfile(req.params.id, parsed.data)
-      if (!updated) return reply.status(404).send({ error: 'not found' })
+      if (!updated) return sendError(reply, 404, 'not found')
       return reply.send(updated)
     } catch (e) {
       // ONLY the typed GrantError (the two fail-closed guards: assertMcpGrants —
@@ -92,7 +96,7 @@ export async function orchestratorsRoutes(app: FastifyInstance) {
       // client error: a 400, with the row UNCHANGED (updateProfile threw before the
       // UPDATE). Any OTHER throw is a server fault — re-throw so Fastify answers 500
       // instead of mislabelling it a 400.
-      if (e instanceof GrantError) return reply.status(400).send({ error: e.message })
+      if (e instanceof GrantError) return sendError(reply, 400, e.message)
       throw e
     }
   })

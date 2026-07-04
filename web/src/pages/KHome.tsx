@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ChiefOrgPayload, Run, Status, Note, KSchedule, WorkItem, KForceRoute } from '@k/shared'
+import type { ChiefOrgPayload, Run, Status, Note, KSchedule, WorkItem, KForceRoute, KThreadTurn } from '@k/shared'
 import { routeForMessage, routeForTarget } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
@@ -8,6 +8,7 @@ import { relativeTime } from '../lib/verify'
 import { useAskK } from '../lib/useAskK'
 import { FORCE_ROUTE_OPTIONS } from '../lib/force-route-options'
 import { RUNS_LIST_KEY, runsListQueryFn } from '../lib/runs-query'
+import { cleanRunPrompt } from '../lib/prompt'
 import MicButton from '../components/MicButton'
 import Toast from '../components/Toast'
 
@@ -22,7 +23,8 @@ import Toast from '../components/Toast'
  *
  * Reads (all on shared/batched cache keys, no per-item fan-out): `chief-org` (glance),
  * the shared runs default-list (recent feed), `status` (mic gate), `claude-model`
- * (the model-override picker, same key as SettingsModels), and the three glance
+ * (the model-override picker, same key as SettingsModels), `k-thread` (the durable
+ * conversation — operator asks + K's replies/report-backs), and the three glance
  * reads `k-notes` / `k-schedule` / `k-work-items` (one query per card). Query
  * failures render VISIBLE error states — the front door never disguises an outage
  * as an empty org.
@@ -67,6 +69,10 @@ export default function KHome() {
   const { data: status } = useQuery<Status>({ queryKey: ['status'], queryFn: () => api.status() })
   // Same cache key as SettingsModels so react-query dedupes the model registry read.
   const { data: claudeModel } = useQuery({ queryKey: ['claude-model'], queryFn: () => api.claudeModel.get() })
+  // The durable K conversation (source of truth, survives reload) — operator asks +
+  // K's replies (including Chief report-backs). Live-refreshed on a run terminal via
+  // the shell's run_update invalidator (F-059).
+  const { data: threadData, isError: threadError } = useQuery({ queryKey: ['k-thread'], queryFn: () => api.k.thread() })
   const { data: notes = [], isError: notesError } = useQuery<Note[]>({ queryKey: ['k-notes'], queryFn: () => api.k.notes() })
   const { data: schedule, isError: scheduleError } = useQuery<KSchedule>({ queryKey: ['k-schedule'], queryFn: () => api.k.schedule() })
   const { data: workItems = [], isError: workItemsError } = useQuery<WorkItem[]>({
@@ -104,6 +110,7 @@ export default function KHome() {
   const objectives = org?.assignments.length ?? 0
   const recent = runs.slice(0, 6)
   const now = Date.now()
+  const turns: KThreadTurn[] = threadData?.turns ?? []
 
   async function submit() {
     const msg = query.trim()
@@ -246,6 +253,43 @@ export default function KHome() {
           </p>
         )}
       </div>
+
+      {/* ── Conversation with K (the durable thread — source of truth, survives
+          reload) ── Rendered only once it has turns (or failed to load); a fresh
+          front door stays clean with the composer alone. */}
+      {(turns.length > 0 || threadError) && (
+        <section data-testid="khome-thread" className="glass-tint mt-7 rounded-panel p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Conversation with K</h2>
+          {threadError ? (
+            <p data-testid="khome-thread-error" className="mt-3 text-xs italic text-[var(--red)]">
+              Failed to load the conversation.
+            </p>
+          ) : (
+            <div className="mt-3 space-y-2.5">
+              {turns.map(t => (
+                <div
+                  key={t.id}
+                  data-testid={`khome-thread-turn-${t.role}`}
+                  className={`flex flex-col gap-0.5 ${t.role === 'user' ? 'items-end' : 'items-start'}`}
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    {t.role === 'user' ? 'You' : 'K'}
+                  </span>
+                  <div
+                    className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
+                      t.role === 'user'
+                        ? 'bg-accent/15 text-[var(--text)]'
+                        : 'border border-[var(--border)] bg-[var(--raised)] text-[var(--text)]'
+                    }`}
+                  >
+                    {t.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── Glance grid: Notes · Schedule · Your work ── */}
       <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -394,7 +438,7 @@ export default function KHome() {
                 key={r.id}
                 className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2 text-sm"
               >
-                <span className="min-w-0 flex-1 truncate text-[var(--text)]">{r.prompt}</span>
+                <span className="min-w-0 flex-1 truncate text-[var(--text)]">{cleanRunPrompt(r.prompt)}</span>
                 <span className={`flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide ${statusColor(r.status)}`}>
                   {r.status}
                 </span>
@@ -420,14 +464,14 @@ export default function KHome() {
         open={ask.pendingUndo !== null}
         testid="khome-undo-toast"
         durationMs={5000}
-        resetKey={ask.pendingUndo?.runId}
+        resetKey={ask.pendingUndo?.key}
         message={
           <>
             Sent to K · <span className="text-[var(--text)]">{ask.pendingUndo?.route.label}</span>{' '}
             <button
               type="button"
               data-testid="khome-view-run"
-              onClick={() => { if (ask.pendingUndo) navigate('runs', ask.pendingUndo.runId) }}
+              onClick={() => { if (ask.pendingUndo?.runId) navigate('runs', ask.pendingUndo.runId) }}
               className="text-[var(--accent-hover)] transition-colors hover:underline"
             >
               View run →

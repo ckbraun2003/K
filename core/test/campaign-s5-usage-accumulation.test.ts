@@ -7,14 +7,16 @@
  *  - the ingest boundary (`validateAgentEvent` / supervisor `parseLine`) DROPS a
  *    line whose usage fields are non-numeric — a malformed turn never persists a
  *    string/NaN into a numeric column.
- *  - accumulate() shows no drift / double-count across a long event stream
- *    (last-wins; a real 0 overwrites; an absent field preserves).
- *  - the documented `tokensIn` semantics flip: assistant events carry FRESH input
- *    only, while the terminal `result` event carries the FULL input sum (incl.
- *    cache), and last-wins makes that the final run figure.
+ *  - accumulate() sums the authoritative per-turn `usage` events with no drift /
+ *    double-count across a long event stream (F-057: streaming assistant projections
+ *    are ignored; a per-turn 0 adds nothing; total_cost_usd stays cumulative last-wins).
+ *  - the documented `tokensIn` semantics: assistant events carry FRESH input only
+ *    (context indicator), while each `result`/`usage` event carries that turn's FULL
+ *    input sum (incl. cache); the run figure is the SUM of those usage events.
  *
  * Findings: S5-011 (context sum), S5-012 (ingest drop), S5-013 (accumulation),
  * S5-014 (tokensIn semantics). See testing/findings/S5-supervisor-providers-routing.md.
+ * NB S5-013/S5-014 were re-baselined for the F-057 fix (per-turn sum, not last-wins).
  */
 import { describe, it, expect } from 'vitest'
 import { v4 as uuid } from 'uuid'
@@ -73,35 +75,38 @@ describe('S5 — ingest boundary drops non-numeric usage (S5-012)', () => {
   })
 })
 
-describe('S5 — accumulate has no drift / double-count over a long stream (S5-013)', () => {
-  it('folding 200 mixed events yields the LAST usage-bearing values (no summing)', () => {
+describe('S5 — accumulate sums per-turn usage events, no drift / double-count (S5-013, F-057)', () => {
+  // Authoritative per-turn usage carrier (the claude `result` line → type 'usage').
+  const usageEv = (p: Partial<AgentEvent>): AgentEvent => ev({ type: 'usage', ...p })
+
+  it('folding many usage events yields the running SUM; interleaved streaming events add nothing', () => {
     let u = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
-    let lastIn = 0, lastOut = 0, lastCost = 0
+    let sumIn = 0, sumOut = 0, lastCost = 0
     for (let i = 1; i <= 200; i++) {
       if (i % 3 === 0) {
-        // text-only event: no usage fields → must preserve prior totals
-        u = accumulate(u, ev({ text: `chunk ${i}` }))
+        // streaming assistant text (carries fresh tokens) — must NOT move the run totals
+        u = accumulate(u, ev({ type: 'assistant', tokensIn: i * 7, tokensOut: i, text: `chunk ${i}` }))
       } else {
-        lastIn = i * 10; lastOut = i; lastCost = i * 0.001
-        u = accumulate(u, ev({ tokensIn: lastIn, tokensOut: lastOut, costUsd: lastCost }))
+        sumIn += i * 10; sumOut += i; lastCost = i * 0.001
+        u = accumulate(u, usageEv({ tokensIn: i * 10, tokensOut: i, costUsd: lastCost }))
       }
     }
-    // last-wins: totals equal the final usage-bearing event, NOT a running sum
-    expect(u).toEqual({ tokensIn: lastIn, tokensOut: lastOut, costUsd: lastCost })
+    // tokens are the SUM of the usage events (F-057), cost is the latest cumulative figure
+    expect(u).toEqual({ tokensIn: sumIn, tokensOut: sumOut, costUsd: lastCost })
   })
 
-  it('a real terminal 0 overwrites accumulated non-zero (free/Ollama turn)', () => {
+  it('a per-turn 0 adds nothing to tokens; total_cost_usd 0 still overwrites (free/Ollama turn)', () => {
     let u = { tokensIn: 5000, tokensOut: 900, costUsd: 3.14 }
-    u = accumulate(u, ev({ tokensIn: 0, tokensOut: 0, costUsd: 0 }))
-    expect(u).toEqual({ tokensIn: 0, tokensOut: 0, costUsd: 0 })
+    u = accumulate(u, usageEv({ tokensIn: 0, tokensOut: 0, costUsd: 0 }))
+    expect(u).toEqual({ tokensIn: 5000, tokensOut: 900, costUsd: 0 })
   })
 
-  it('interleaved absent-field events never clobber the running totals', () => {
+  it('non-usage events (text / tool / contextTokens) never clobber the running totals', () => {
     let u = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
-    u = accumulate(u, ev({ tokensIn: 100, tokensOut: 40, costUsd: 0.5 }))
+    u = accumulate(u, usageEv({ tokensIn: 100, tokensOut: 40, costUsd: 0.5 }))
     u = accumulate(u, ev({ text: 'thinking' }))
     u = accumulate(u, ev({ tool: 'Bash' }))
-    u = accumulate(u, ev({ contextTokens: 9000 })) // not a usage field
+    u = accumulate(u, ev({ contextTokens: 9000 })) // not a usage-type event
     expect(u).toEqual({ tokensIn: 100, tokensOut: 40, costUsd: 0.5 })
   })
 })
@@ -121,8 +126,9 @@ describe('S5 — tokensIn semantics: fresh (assistant) vs full sum (result) (S5-
     )!
     expect(result.tokensIn).toBe(115)      // FULL sum (input + cache_creation + cache_read)
 
-    // Across the run, last-wins makes the final run.tokensIn the result's full sum,
-    // NOT the assistant's fresh-input figure — documented + intentional.
+    // Across a one-shot run the streaming assistant event is ignored and the single
+    // `usage` event sums in — so run.tokensIn is the result's FULL sum, not the
+    // assistant's fresh-input figure (F-057; identical outcome to the old last-wins here).
     let u = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
     u = accumulate(u, asst)
     u = accumulate(u, result)

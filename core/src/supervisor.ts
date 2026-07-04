@@ -23,7 +23,8 @@ import { route } from './router.js'
 import { resolvePermissionMode } from './claude-args.js'
 import { getProvider, parseClaudeLine } from './providers.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
-import { synthesizeConfigDir, pruneOrphanAgentRuns, type SynthesizedConfig } from './agent-config.js'
+import { isPathWithin } from './paths.js'
+import { synthesizeConfigDir, pruneOrphanAgentRuns, kSecretaryConfigPaths, type SynthesizedConfig } from './agent-config.js'
 import { DEFAULT_PROFILE } from './profiles.js'
 import { TERMINAL_RUN_STATUSES } from './run-lifecycle.js'
 
@@ -108,6 +109,35 @@ export type StartRunOptions = {
    *  unchanged; startAgentRun passes the resolved profile so a run gets ITS tier's
    *  config, not the orchestrator's. Ignored for ollama runs (no config synthesis). */
   profile?: AgentProfile
+  /** W7a (K-secretary ONLY): make this a RESUMABLE one-shot run against a STABLE,
+   *  persisted per-thread config dir + cwd instead of a fresh worktree + ephemeral
+   *  per-run config. `key` is the K thread id (keys the stable dir/cwd); `sessionId` is
+   *  the CLI session id; `resume` false → establish it (`--session-id`), true → continue
+   *  it (`--resume`). Absent for every regular dispatch run → fresh worktree, fresh
+   *  synthesized config, no session flags — byte-for-byte the prior behavior. */
+  persistentSession?: { key: string; sessionId: string; resume: boolean }
+  /** H8 (OPT-IN): after adding the run's detached worktree, replay the SOURCE repo's
+   *  UNCOMMITTED tracked+staged changes into it so the agent starts from the operator's
+   *  dirty state (see applyWorkingTreeInto for the exact semantics — untracked/ignored
+   *  files are NOT carried). Default false/undefined → the worktree stays at clean
+   *  committed HEAD, BYTE-IDENTICAL to the prior behavior. Ignored for a persistent
+   *  session (no worktree) and for a non-git cwd (falls back to running in cwd). */
+  carryWorkingTree?: boolean
+}
+
+/**
+ * F-068: whether a run must SUPPRESS the gitnexus bootstrap (MCP server + analyze hook).
+ * True ONLY for a dispatch operating on an EXTERNAL repo — its ORIGINAL cwd (`run.cwd`, the
+ * project's localPath, NEVER the ephemeral worktree) resolves OUTSIDE the K repo. A
+ * K-secretary PERSISTENT SESSION is never external: its stable cwd lives under K_DATA_DIR,
+ * which is env-overridable and may be relocated OUTSIDE the repo — such a run is still
+ * K-internal and must keep gitnexus regardless of where the data dir lives (MEDIUM-1). Pure +
+ * exported so the exact predicate runAgent uses is unit-lockable (guards a future refactor
+ * that might pass the worktree path instead of run.cwd — MEDIUM-2).
+ */
+export function shouldSuppressGitnexus(runCwd: string, isPersistentSession: boolean): boolean {
+  if (isPersistentSession) return false
+  return !isPathWithin(REPO_ROOT, runCwd, { inclusive: true })
 }
 
 export async function startRun(prompt: string, opts: StartRunOptions = {}): Promise<Run> {
@@ -118,7 +148,12 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   // (and could mis-select ollama for a claude-* id), so neutralize maxCostUsd too.
   const routeResult = route({ prompt, preferLocal: opts.model ? false : opts.preferLocal, maxCostUsd: opts.model ? undefined : opts.maxCostUsd })
   const runId = uuid()
-  const cwd = opts.cwd ?? REPO_ROOT
+  // W7a: a K-secretary ask runs in a STABLE per-thread cwd (so the CLI's session files,
+  // keyed by cwd, persist for `--resume`) — never a fresh worktree. Absent for regular
+  // runs → the caller's cwd (or the repo root), unchanged.
+  const ps = opts.persistentSession
+  const kPaths = ps ? kSecretaryConfigPaths(ps.key) : undefined
+  const cwd = kPaths?.cwd ?? opts.cwd ?? REPO_ROOT
   const worktreePath = path.join(WORKTREES_DIR, runId)
   const now = Date.now()
 
@@ -169,23 +204,41 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
 
   // Try to create a worktree; fall back to cwd if git isn't set up
   let effectiveCwd = cwd
-  try {
-    // Only create worktree if cwd is inside a git repo
-    await execa('git', ['-C', cwd, 'rev-parse', '--git-dir'], { reject: true })
-    await execa('git', ['-C', cwd, 'worktree', 'add', '--detach', worktreePath], { reject: true })
-    effectiveCwd = worktreePath
-  } catch {
-    // Not a git repo or worktree failed — run in cwd directly
-    effectiveCwd = cwd
+  if (ps) {
+    // K-secretary ask: run directly in the STABLE per-thread cwd — K does logistics/Q&A/
+    // routing, not code, so it needs NO throwaway worktree, and a stable cwd is what lets
+    // `--resume` find the session. Ensure the dir exists; never a worktree.
+    fs.mkdirSync(cwd, { recursive: true })
     run.worktree = undefined
     runsDb.clearRunWorktree.run(run.id)
+    effectiveCwd = cwd
+  } else {
+    try {
+      // Only create worktree if cwd is inside a git repo
+      await execa('git', ['-C', cwd, 'rev-parse', '--git-dir'], { reject: true })
+      await execa('git', ['-C', cwd, 'worktree', 'add', '--detach', worktreePath], { reject: true })
+      effectiveCwd = worktreePath
+      // H8 (opt-in): replay the source's uncommitted tracked+staged WIP into the fresh
+      // worktree so the run sees the dirty state. Guarded by the flag, so when it is
+      // absent this branch is never entered and the worktree stays at clean committed
+      // HEAD — byte-identical to before. applyWorkingTreeInto never throws (a carry
+      // failure degrades to a clean-HEAD run), so it can't disturb the worktree fallback.
+      if (opts.carryWorkingTree) await applyWorkingTreeInto(cwd, worktreePath)
+    } catch {
+      // Not a git repo or worktree failed — run in cwd directly
+      effectiveCwd = cwd
+      run.worktree = undefined
+      runsDb.clearRunWorktree.run(run.id)
+    }
   }
 
   const inWorktree = effectiveCwd === worktreePath
 
   // Launch in background — don't await. The profile (default: orchestrator) drives
-  // per-tier config synthesis inside runAgent.
-  void runAgent(run, prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE)
+  // per-tier config synthesis inside runAgent. A persistent session (K only) threads the
+  // stable run dir + session id/resume through.
+  const session = ps ? { runDir: kPaths!.runDir, sessionId: ps.sessionId, resume: ps.resume } : undefined
+  void runAgent(run, prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE, session)
 
   return run
 }
@@ -225,13 +278,86 @@ function clearRunTracking(runId: string) {
   endingRuns.delete(runId)
 }
 
+/**
+ * H8 (opt-in carryWorkingTree): copy the SOURCE repo's UNCOMMITTED tracked+staged
+ * changes INTO a freshly-added detached worktree so a dispatched run can start from
+ * the operator's dirty state instead of clean committed HEAD.
+ *
+ * Mechanism: `git -C <src> stash create` snapshots the tracked+staged WIP as a
+ * stash-format commit-ish WITHOUT touching the source working tree or the stash list
+ * (it is a pure, non-destructive capture — the operator's tree is left exactly as it
+ * was). A clean tree prints nothing → no-op (returns false). Otherwise we
+ * `git -C <wt> stash apply <sha>` to replay that WIP into the worktree; because the
+ * worktree is detached at the same HEAD the stash was based on, it applies cleanly and
+ * restores both modified tracked files and staged (index) changes, including deletions.
+ *
+ * SEMANTICS — what is / isn't carried:
+ *   • CARRIED: modified tracked files + staged (index) changes.
+ *   • NOT carried: UNTRACKED files and ignored files. `git stash create` omits them by
+ *     design, and the only way to include them (`git stash push -u`) MUTATES the source
+ *     working tree — unacceptable for a read-only capture — so untracked work is
+ *     deliberately left behind. A run that needs an untracked file should `git add` it
+ *     first (staged files ARE carried).
+ * The run commits to its own branch as usual; the --force worktree removal only discards
+ * still-uncommitted residue, exactly like any run — so there is no write-back to do.
+ *
+ * Best-effort + NEVER throws: a carry failure must not abort the dispatch — the run
+ * simply starts from clean committed HEAD (today's behavior). Returns true iff WIP was
+ * applied, false if the source was clean or the carry was skipped/failed.
+ */
+export async function applyWorkingTreeInto(sourceCwd: string, worktreePath: string): Promise<boolean> {
+  try {
+    // `stash create` writes the commit-ish to stdout (empty string when the tree is
+    // clean). It does NOT alter the working tree or push onto the stash list.
+    const { stdout } = await execa('git', ['-C', sourceCwd, 'stash', 'create'], { reject: true })
+    const sha = stdout.trim()
+    if (!sha) return false // clean source tree → nothing to carry
+    await execa('git', ['-C', worktreePath, 'stash', 'apply', sha], { reject: true })
+    return true
+  } catch (err) {
+    console.warn('[supervisor] carryWorkingTree failed — run starts from clean HEAD:', (err as Error).message)
+    return false
+  }
+}
+
 // ── Private ──────────────────────────────────────────────────────────────────
+
+/**
+ * H7: run a worktree-removal `attempt` with a small retry-with-backoff. On Windows a
+ * lingering child handle can make `git worktree remove --force` fail EBUSY transiently;
+ * retrying a few times with a short linear backoff lets the handle release so a
+ * transient failure doesn't leak the worktree to the next-boot prune. The FINAL
+ * attempt's failure is not rethrown — cleanup must NEVER throw. Exported + parameterized
+ * (attempt fn, attempts, delay, injectable sleep) so the retry logic is unit-testable
+ * without a real worktree or real timers. Returns true on eventual success, false if
+ * every attempt failed. The happy path (first attempt succeeds) adds ZERO delay.
+ */
+export async function removeWorktreeWithRetry(
+  attempt: () => Promise<void>,
+  opts: { attempts?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<boolean> {
+  const attempts = opts.attempts ?? 3
+  const delayMs = opts.delayMs ?? 150
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await attempt()
+      return true
+    } catch {
+      // Back off before the next try; no sleep after the last (failed) attempt.
+      if (i < attempts - 1) await sleep(delayMs * (i + 1))
+    }
+  }
+  return false
+}
 
 async function removeWorktree(run: Run) {
   if (run.worktree && fs.existsSync(run.worktree)) {
-    try {
-      await execa('git', ['-C', run.cwd, 'worktree', 'remove', '--force', run.worktree])
-    } catch { /* best-effort cleanup */ }
+    // Retry a transient Windows EBUSY (lingering child handle) before the final
+    // best-effort swallow; removeWorktreeWithRetry never throws.
+    await removeWorktreeWithRetry(() =>
+      execa('git', ['-C', run.cwd, 'worktree', 'remove', '--force', run.worktree!]).then(() => undefined),
+    )
   }
 }
 
@@ -313,12 +439,12 @@ export function reconcileOrphanedLeadDispatches(d: import('better-sqlite3').Data
 }
 
 /**
- * Clear k_threads stranded pointing at a DEAD warm run. Live-observed after a
+ * Clear k_threads stranded pointing at a DEAD run. Live-observed after a
  * crash/boot: a thread stuck status='active' with an active_run_id whose run is
  * already terminal (the captureAnswers subscriber that would have cleared it does
- * not survive a restart) or whose runs row is missing entirely. The warm-path
- * check (k-thread.ts::isWarm) would treat such a pointer as cold anyway, but the
- * stale 'active' status misreports the thread forever — so the boot sweep resets it:
+ * not survive a restart) or whose runs row is missing entirely. askK ignores such a
+ * pointer anyway (a K ask never continues a dead run), but the stale 'active' status
+ * misreports the thread forever — so the boot sweep resets it:
  * active_run_id → NULL, status → 'idle', updated_at stamped. Runs AFTER
  * reconcileStaleRuns so runs just flipped 'interrupted' are covered. A thread whose
  * run is still live is untouched. Terminal set built from run-lifecycle.ts::
@@ -351,26 +477,45 @@ export function reconcileStaleKThreads(d: import('better-sqlite3').Database = db
  * fail, so every step is guarded and logged. Call after reconcileStaleRuns().
  */
 export function pruneOrphanWorktrees(): void {
+  sweepOrphanWorktrees(REPO_ROOT, WORKTREES_DIR, new Set(activeProcesses.keys()))
+}
+
+/**
+ * Testable core of the orphan-worktree boot sweep (F-091). Removes leftover
+ * `<worktreesDir>/*` directories NOT held by an active run, THEN runs
+ * `git worktree prune`.
+ *
+ * F-091 fix: prune runs AFTER the removal loop (previously it ran BEFORE). Pruning
+ * first meant a dir removed THIS boot still had its git metadata registered
+ * ("prunable") until the NEXT boot; pruning after the removals reclaims that metadata
+ * the SAME boot. Never throws — Windows file locks can make removal fail, so every step
+ * is guarded and logged. Parameterized (repoRoot, worktreesDir, activeIds) so it is
+ * unit-testable against a real temp git repo.
+ */
+export function sweepOrphanWorktrees(repoRoot: string, worktreesDir: string, activeIds: Set<string>): void {
   try {
-    execFileSync('git', ['worktree', 'prune'], { cwd: REPO_ROOT, stdio: 'ignore' })
-  } catch (err) {
-    console.warn('[supervisor] git worktree prune failed:', (err as Error).message)
-  }
-  try {
-    if (!fs.existsSync(WORKTREES_DIR)) return
-    for (const entry of fs.readdirSync(WORKTREES_DIR)) {
-      // Active runs hold their worktree dir; reconcileStaleRuns nulled the rest,
-      // so anything on disk here is orphaned. Remove best-effort.
-      if (activeProcesses.has(entry)) continue
-      const dir = path.join(WORKTREES_DIR, entry)
-      try {
-        fs.rmSync(dir, { recursive: true, force: true })
-      } catch (err) {
-        console.warn(`[supervisor] could not remove orphan worktree ${dir}:`, (err as Error).message)
+    if (fs.existsSync(worktreesDir)) {
+      for (const entry of fs.readdirSync(worktreesDir)) {
+        // Active runs hold their worktree dir; reconcileStaleRuns nulled the rest,
+        // so anything on disk here is orphaned. Remove best-effort.
+        if (activeIds.has(entry)) continue
+        const dir = path.join(worktreesDir, entry)
+        try {
+          fs.rmSync(dir, { recursive: true, force: true })
+        } catch (err) {
+          console.warn(`[supervisor] could not remove orphan worktree ${dir}:`, (err as Error).message)
+        }
       }
     }
   } catch (err) {
     console.warn('[supervisor] worktree dir sweep failed:', (err as Error).message)
+  }
+  // Prune AFTER the removal loop so git metadata for a dir removed THIS boot is
+  // reclaimed now, not left registered as 'prunable' until the next boot (F-091).
+  try {
+    execFileSync('git', ['worktree', 'prune'], { cwd: repoRoot, stdio: 'ignore' })
+  } catch (err) {
+    console.warn('[supervisor] git worktree prune failed:', (err as Error).message)
   }
 }
 
@@ -427,13 +572,32 @@ function isTurnEndLine(line: string): boolean {
   try { return (JSON.parse(line) as { type?: string }).type === 'result' } catch { return false }
 }
 
-async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boolean, interactive: boolean, profile: AgentProfile = DEFAULT_PROFILE) {
+async function runAgent(
+  run: Run,
+  prompt: string,
+  cwd: string,
+  inWorktree: boolean,
+  interactive: boolean,
+  profile: AgentProfile = DEFAULT_PROFILE,
+  // W7a (K-secretary ONLY): build the config under a STABLE, persisted run dir and pass
+  // the CLI session flags. Undefined for every regular run → ephemeral per-run config +
+  // no session flags, exactly as before.
+  session?: { runDir: string; sessionId: string; resume: boolean },
+) {
   emitStatusEvent(run.id, 'running', nextSeq(run.id), Date.now())
   eventBus.emitRunUpdate({ ...run, status: 'running' })
 
   let tokensIn = 0
   let tokensOut = 0
   let costUsd = 0
+  // F-… killed-run honesty: the AUTHORITATIVE usage carrier is the turn-end `result`
+  // (type 'usage') line, which a run KILLED mid-turn never emits — leaving tokens at 0
+  // (a misleading "0 tokens / $0" for real work). The claude stream DOES carry per-message
+  // usage on each `assistant` line, so we accumulate interim usage here (output SUMMED across
+  // messages, input MAX — see accumulateInterimUsage) and, on a killed terminal that never
+  // summed a `result`, fall back to it (reconcileKilledUsage) so the killed run records its
+  // real OBSERVED tokens. Cost is NOT recoverable — the stream reports cost only on `result`.
+  let lastInterimUsage: { tokensIn: number; tokensOut: number } | null = null
 
   // Per-run K-owned config dir for managed claude runs (undefined for ollama).
   // Declared before the try so both terminal paths can clean it up.
@@ -449,13 +613,34 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
     // host ~/.claude is NEVER loaded and the run gets K's per-tier allowlist, MCP,
     // settings, and injected L0+L1 system prompt. ollama runs are unaffected.
     if (provider.name === 'claude') {
-      synth = synthesizeConfigDir(profile, { runId: run.id })
+      // A K-secretary ask (session set) builds its config under the STABLE per-thread
+      // dir and keeps it (persist) so the CLI session state survives for `--resume`;
+      // every regular run gets the ephemeral per-run dir cleaned on terminal, as before.
+      //
+      // F-068: detect an EXTERNAL-target run — one whose ORIGINAL cwd (run.cwd, the
+      // project's localPath, never the ephemeral worktree) is NOT inside the K repo. Such
+      // a run works on a linked worktree whose shared git dir is the external project's, so
+      // the gitnexus MCP init + analyze hook would write .gitnexus/.gitignore/.claude into
+      // the target checkout. Suppress the gitnexus bootstrap for it. K's own runs keep
+      // gitnexus — including a K-secretary persistent session, which is NEVER external even
+      // when K_DATA_DIR (its stable cwd's root) is relocated outside the repo (MEDIUM-1).
+      const suppressGitnexus = shouldSuppressGitnexus(run.cwd, !!session)
+      synth = synthesizeConfigDir(
+        profile,
+        session
+          ? { runId: run.id, runDirOverride: session.runDir, persist: true, suppressGitnexus }
+          : { runId: run.id, suppressGitnexus },
+      )
     }
 
     const proc = execa(
       provider.binary,
       provider.buildArgs(prompt, {
         inWorktree, permissionMode: PERMISSION_MODE, model: run.model, interactive,
+        // Session flags (K only): establish (--session-id) or continue (--resume) the
+        // thread's stable CLI session. Absent for regular runs → no session flags.
+        sessionId: session?.sessionId,
+        resumeSession: session?.resume,
         claudeConfig: synth
           ? {
               allowedTools: synth.allowedTools,
@@ -499,8 +684,16 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
           const parsed = provider.parseLine(line, run.id, s)
           const event = parsed ? validateAgentEvent(parsed, run.id, s) : null
           if (event) {
-            // Accumulate usage (last-wins overwrite; a real 0 is a legitimate value)
+            // Accumulate usage (F-057: sum per-turn `usage` events; cost last-wins with
+            // a real 0 a legitimate value — see accumulate)
             ;({ tokensIn, tokensOut, costUsd } = accumulate({ tokensIn, tokensOut, costUsd }, event))
+            // Best-effort interim-usage capture for the killed-run fallback: an `assistant`
+            // line carries THAT MESSAGE'S own usage before the turn-end `result`. Output is
+            // SUMMED across messages; input takes the MAX (see accumulateInterimUsage). Only
+            // assistant events feed this — never the `result` (type 'usage') event, whose
+            // totals accumulate above — so a completed run's accounting is untouched; only a
+            // mid-turn kill reads it back.
+            lastInterimUsage = accumulateInterimUsage(lastInterimUsage, event)
             eventBus.emitEvent(event)
           }
           // Interactive: a `result` line ends a turn while the process stays alive
@@ -523,6 +716,10 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
     // (a fallback SIGTERM may have stopped a process that ignored stdin EOF).
     const finalStatus: Run['status'] =
       wasKilled ? 'killed' : wasEnded ? 'done' : result.exitCode === 0 ? 'done' : 'error'
+    // Killed-run honesty: a mid-turn kill may have summed no `result` usage — recover the
+    // last observed interim tokens so the run isn't recorded as a misleading 0 (no-op for a
+    // run that saw a `result`, and for a non-killed terminal).
+    ;({ tokensIn, tokensOut, costUsd } = reconcileKilledUsage({ tokensIn, tokensOut, costUsd }, wasKilled, lastInterimUsage))
     const finalRun: Run = { ...run, status: finalStatus, tokensIn, tokensOut, costUsd, endedAt: Date.now() }
     emitStatusEvent(run.id, finalStatus, nextSeq(run.id), Date.now())
     eventBus.emitRunUpdate(finalRun)
@@ -533,6 +730,8 @@ async function runAgent(run: Run, prompt: string, cwd: string, inWorktree: boole
   } catch (err) {
     const wasKilled = killedRuns.delete(run.id)
     // endingRuns is cleared by clearRunTracking below; no need to delete it here.
+    // Same killed-run honesty as the success path: recover interim tokens for a mid-turn kill.
+    ;({ tokensIn, tokensOut, costUsd } = reconcileKilledUsage({ tokensIn, tokensOut, costUsd }, wasKilled, lastInterimUsage))
     const errRun: Run = { ...run, status: wasKilled ? 'killed' : 'error', tokensIn, tokensOut, costUsd, endedAt: Date.now() }
     const errEvent: AgentEvent = {
       id: uuid(), runId: run.id, seq: nextSeq(run.id), type: 'error',
@@ -600,14 +799,36 @@ export function sendInput(runId: string, text: string): boolean {
 }
 
 /**
- * Gracefully end an interactive session: close stdin (EOF) so the agent finishes
- * and exits with status 'done'. A fallback SIGTERM stops a process that ignores
- * EOF; the run is still finalized as 'done' (endingRuns). No-op (false) for a
- * non-interactive or already-gone run.
+ * Gracefully end a run.
+ *
+ * Interactive session (the original path, UNCHANGED): close stdin (EOF) so the agent
+ * finishes its turn and exits with status 'done'. A fallback SIGTERM stops a process that
+ * ignores EOF; the run is still finalized as 'done' (endingRuns).
+ *
+ * Non-interactive supervised run — e.g. a relay-dispatched LEAD run supervised in the MAIN
+ * process (fix-c): there is NO stdin turn protocol to close, so a graceful "let it finish"
+ * is not available — the only early stop is a signal. Previously endSession no-op'd
+ * (returned false) for any non-interactive run, so `/end` on a relay lead run left its
+ * status STUCK while `/kill` (which reaches the same activeProcesses proc) flipped it. We
+ * now route such a run through `kill()` — the same path `/kill` uses to reach relay
+ * supervision — so `/end` actually transitions it to a terminal status via runAgent's exit
+ * handler. The run did NOT complete its work, so 'killed' (an operator-terminated run,
+ * excluded from success metrics) is the honest terminal status, not a misleading 'done'.
+ *
+ * No-op (false) only for an already-gone run (no live process).
  */
 export function endSession(runId: string): boolean {
   const proc = activeProcesses.get(runId)
-  if (!proc || !proc.interactive || !proc.stdin) return false
+  if (!proc) return false
+  // Non-interactive supervised run (e.g. a relay-dispatched lead run): reach it the same way
+  // /kill does so /end flips its status instead of no-op'ing. kill() SIGTERMs now (with a
+  // SIGKILL backstop) and marks the run so runAgent's exit path finalizes it 'killed'. Scoped
+  // to genuinely NON-interactive procs — the interactive branch below stays byte-identical.
+  if (!proc.interactive) return kill(runId)
+  // Interactive session but the stdin is already gone: no graceful EOF to send — no-op (false),
+  // exactly as before (this case is deliberately NOT routed to kill()).
+  if (!proc.stdin) return false
+  // Interactive session with live stdin: graceful EOF → agent finishes → 'done' (unchanged).
   clearIdleTimer(runId)
   endingRuns.add(runId)
   try { proc.stdin.end() } catch { /* already closed — exit path finalizes */ }
@@ -622,17 +843,90 @@ export function endSession(runId: string): boolean {
 type Usage = { tokensIn: number; tokensOut: number; costUsd: number }
 
 /**
- * Roll a parsed event's usage into the running totals with last-wins/overwrite
- * semantics. Guards are explicit `!= null` nullish checks (not truthy) so a
- * legitimate `0` (cache-only turn, free/Ollama run, total_cost_usd: 0) is
- * recorded instead of letting the prior non-zero value persist.
+ * Roll a parsed event's usage into the running totals (F-057).
+ *
+ * The per-turn `usage` event (the claude `result` line — see providers.ts mapType)
+ * is the ONE authoritative usage carrier: it reports THAT TURN's full input
+ * (input + cache_creation + cache_read) and output. We SUM those across turn
+ * boundaries so a multi-turn/interactive run — and a `/compact` turn that reports
+ * near-zero fresh input — reflects the TRUE total instead of collapsing to the LAST
+ * turn (the prior last-wins bug: the final near-zero result overwrote the real total).
+ * A one-shot run has exactly ONE `usage` event, so the sum equals that single
+ * whole-run value — byte-identical to before for every regular (one-shot) dispatch.
+ *
+ * `costUsd` comes from `total_cost_usd`, already a CUMULATIVE running total, so it
+ * stays last-wins — with the explicit `!= null` guard preserving the falsy-zero fix
+ * (a real 0, e.g. a free/Ollama run, overwrites a stale non-zero instead of persisting
+ * it). Non-usage events (streaming assistant text/tool_use, status, …) do NOT move the
+ * run totals: the `usage` event is the single source of truth, and folding the
+ * streaming assistant token projections in too would double-count.
  */
 export function accumulate(prev: Usage, event: AgentEvent): Usage {
+  if (event.type !== 'usage') return prev
   return {
-    tokensIn: event.tokensIn != null ? event.tokensIn : prev.tokensIn,
-    tokensOut: event.tokensOut != null ? event.tokensOut : prev.tokensOut,
+    tokensIn: event.tokensIn != null ? prev.tokensIn + event.tokensIn : prev.tokensIn,
+    tokensOut: event.tokensOut != null ? prev.tokensOut + event.tokensOut : prev.tokensOut,
     costUsd: event.costUsd != null ? event.costUsd : prev.costUsd,
   }
+}
+
+/**
+ * Fold one parsed event's INTERIM per-message usage into the best-effort accumulator used for
+ * killed-run recovery (reconcileKilledUsage). Only `assistant` events contribute — the
+ * authoritative `result`/usage total is summed separately by `accumulate`, so this never
+ * touches a completed run's accounting.
+ *
+ * Reduction semantics (chosen so recovery can only UNDER-count, never over-bill):
+ *   - OUTPUT tokens are SUMMED across messages. Each `assistant` line's `tokensOut` is THAT
+ *     message's own output (per-message, not cumulative), so a multi-round tool-use turn's real
+ *     output is the sum — summing strictly recovers more than last-write-wins.
+ *   - INPUT tokens take the MAX observed. An `assistant` line's `tokensIn` is the (growing)
+ *     fresh input for that call under prompt caching; summing could double-count shared context,
+ *     so MAX is the conservative choice that can only under-count, never over-bill.
+ * Returns the updated accumulator (or `prev` unchanged for a non-interim / usage-less event).
+ * Pure + exported for direct unit-testing.
+ */
+export function accumulateInterimUsage(
+  prev: { tokensIn: number; tokensOut: number } | null,
+  event: AgentEvent,
+): { tokensIn: number; tokensOut: number } | null {
+  if (event.type !== 'assistant' || (event.tokensIn == null && event.tokensOut == null)) return prev
+  const base = prev ?? { tokensIn: 0, tokensOut: 0 }
+  return {
+    tokensIn: Math.max(base.tokensIn, event.tokensIn ?? 0), // MAX — conservative (never over-bill)
+    tokensOut: base.tokensOut + (event.tokensOut ?? 0),     // SUM — per-message output totals
+  }
+}
+
+/**
+ * Killed-run usage honesty (fix-b, Route 1). A run KILLED mid-turn may never emit the
+ * authoritative turn-end `result` (type 'usage') line, so `accumulate` leaves its totals
+ * at 0 — a misleading "0 tokens / $0" for real work done. The claude stream DOES expose
+ * per-message usage on each `assistant` line; `lastInterim` is the best-effort accumulation of
+ * that (via accumulateInterimUsage: OUTPUT summed across messages, INPUT the conservative MAX),
+ * and this recovers it so a killed run records its real OBSERVED tokens. Best-effort, not
+ * precise: input is a floor (MAX single call, not the true multi-call total) — deliberately so
+ * recovery can only under-count, never over-bill.
+ *
+ * Applied ONLY when the run `wasKilled` AND no authoritative usage was ever summed
+ * (tokensIn === 0 && tokensOut === 0) — so:
+ *   - a run that completed a turn (saw a `result`) keeps its summed totals UNCHANGED (never
+ *     double-counted, since interim usage is only a fallback for the never-measured case);
+ *   - a non-killed terminal is untouched;
+ *   - a kill with no interim usage observed at all (killed before any `assistant` line) stays
+ *     at 0 — genuinely UNMEASURED, never fabricated.
+ * Cost is passed through unchanged: the stream reports cost ONLY on `result`, so a mid-turn
+ * kill has no interim cost signal to recover (a killed run's $0 cost is honestly unmeasured).
+ * Pure + exported for direct unit-testing.
+ */
+export function reconcileKilledUsage(
+  totals: Usage,
+  wasKilled: boolean,
+  lastInterim: { tokensIn: number; tokensOut: number } | null,
+): Usage {
+  if (!wasKilled || !lastInterim) return totals
+  if (totals.tokensIn !== 0 || totals.tokensOut !== 0) return totals
+  return { tokensIn: lastInterim.tokensIn, tokensOut: lastInterim.tokensOut, costUsd: totals.costUsd }
 }
 
 /**

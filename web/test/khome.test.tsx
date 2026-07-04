@@ -8,7 +8,7 @@
  *   - the power controls (model select · force-route select) ride the send opts
  *   - Send calls api.k.ask once and raises the undo toast WITHOUT navigating away
  *     (K-home stays put — wave C1); the toast's "View run" link opens the run and
- *     Undo kills it via api.runs.kill
+ *     Undo undoes it via api.k.undo (kill + dangling-turn removal, F-060)
  *   - a second send inside the 5s window restarts the countdown and retargets Undo
  *     to the NEW run (Toast resetKey — wave C1)
  *   - the Notes / Schedule / Your-work cards render their reads, empty states, and
@@ -19,13 +19,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor, fireEvent, within, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { routeForMessage, routeForTarget, type Status, type ChiefOrgPayload, type Run, type Note, type KSchedule, type WorkItem } from '@k/shared'
+import { MotionGlobalConfig } from 'framer-motion'
+import { routeForMessage, routeForTarget, type Status, type ChiefOrgPayload, type Run, type Note, type KSchedule, type WorkItem, type KThread, type KThreadTurn } from '@k/shared'
+
+// framer-motion's rAF frameloop stalls after a sibling test uses vi.useFakeTimers (the
+// "second send" test), which would otherwise leave AnimatePresence exits hanging — e.g.
+// the optimistic undo toast tearing down on a failed send (F-066). Make animations
+// instant so mount/exit is synchronous and deterministic across the file.
+MotionGlobalConfig.skipAnimations = true
 
 const statusValue: Status = {
   claude: { available: true },
   ollama: { enabled: false, reachable: false, baseUrl: '', model: '' },
   github: { authenticated: false },
-  auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false },
+  auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'managed' },
   voice: { enabled: true, reachable: true, baseUrl: 'x', model: 'm' },
 }
 
@@ -65,11 +72,18 @@ const workItemsList: WorkItem[] = [
   { id: 'wi3', runId: null, title: 'verify core', body: null, status: 'blocked', scope: 'personal', createdAt: 3, updatedAt: 3 },
 ]
 
+const threadValue: KThread = { id: 'k-default', title: null, status: 'idle', activeRunId: null, createdAt: 1, updatedAt: 2 }
+const threadTurns: KThreadTurn[] = [
+  { id: 't1', threadId: 'k-default', role: 'user', text: 'remind me to prep the notes', runId: 'r1', createdAt: 1 },
+  { id: 't2', threadId: 'k-default', role: 'k', text: 'Noted — I added a reminder for you.', runId: 'r1', createdAt: 2 },
+]
+
 const {
-  mockAsk, mockKill, mockList, mockOrg, mockStatus, mockNavigate,
-  mockNotes, mockSchedule, mockWiList, mockWiCreate, mockWiSetStatus, mockClaudeModel,
+  mockAsk, mockUndo, mockKill, mockList, mockOrg, mockStatus, mockNavigate,
+  mockNotes, mockSchedule, mockWiList, mockWiCreate, mockWiSetStatus, mockClaudeModel, mockThread,
 } = vi.hoisted(() => ({
   mockAsk: vi.fn(),
+  mockUndo: vi.fn(async () => ({ undone: true })),
   mockKill: vi.fn(async () => ({ killed: true })),
   mockList: vi.fn(),
   mockOrg: vi.fn(),
@@ -81,12 +95,15 @@ const {
   mockWiCreate: vi.fn(),
   mockWiSetStatus: vi.fn(),
   mockClaudeModel: vi.fn(),
+  mockThread: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
   api: {
     k: {
       ask: mockAsk,
+      undo: mockUndo,
+      thread: mockThread,
       notes: mockNotes,
       schedule: mockSchedule,
       workItems: { list: mockWiList, create: mockWiCreate, setStatus: mockWiSetStatus },
@@ -127,6 +144,7 @@ const NO_OPTS = { model: undefined, forceRoute: undefined }
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   mockAsk.mockReset()
+  mockUndo.mockClear()
   mockKill.mockClear()
   mockNavigate.mockClear()
   mockWiCreate.mockReset()
@@ -136,6 +154,7 @@ beforeEach(() => {
   mockStatus.mockResolvedValue(statusValue)
   mockNotes.mockResolvedValue(notesList)
   mockSchedule.mockResolvedValue(scheduleValue)
+  mockThread.mockResolvedValue({ thread: threadValue, turns: threadTurns })
   mockWiList.mockResolvedValue(workItemsList)
   mockWiCreate.mockResolvedValue(workItemsList[0])
   mockWiSetStatus.mockResolvedValue(workItemsList[0])
@@ -215,7 +234,7 @@ describe('KHome', () => {
     expect(mockAsk).toHaveBeenCalledWith(MSG, { model: 'claude-opus-4-8', forceRoute: undefined })
   })
 
-  it('Send asks K once, stays on K-home (no navigation), and Undo kills the run', async () => {
+  it('Send asks K once, stays on K-home (no navigation), and Undo undoes the run', async () => {
     renderHome()
     const input = screen.getByTestId('khome-composer') as HTMLInputElement
     fireEvent.change(input, { target: { value: MSG } })
@@ -232,8 +251,8 @@ describe('KHome', () => {
     expect(mockNavigate).not.toHaveBeenCalled()
 
     fireEvent.click(undo)
-    await waitFor(() => expect(mockKill).toHaveBeenCalledWith('run-123'))
-    expect(mockKill).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mockUndo).toHaveBeenCalledWith('run-123'))
+    expect(mockUndo).toHaveBeenCalledTimes(1)
     expect(mockNavigate).not.toHaveBeenCalled()
   })
 
@@ -246,7 +265,7 @@ describe('KHome', () => {
     expect(mockNavigate).not.toHaveBeenCalled() // send alone never navigates
     fireEvent.click(viewRun)
     expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-123')
-    expect(mockKill).not.toHaveBeenCalled() // viewing ≠ undoing
+    expect(mockUndo).not.toHaveBeenCalled() // viewing ≠ undoing
   })
 
   it('a second send inside the undo window restarts the 5s countdown and retargets Undo', async () => {
@@ -283,10 +302,10 @@ describe('KHome', () => {
       expect(toast.textContent).toContain(routeForMessage(FE_MSG).label)
       expect(toast.textContent).not.toContain(routeForMessage(MSG).label)
 
-      // Undo kills run-2 ONLY (never the already-committed run-1).
+      // Undo undoes run-2 ONLY (never the already-committed run-1).
       fireEvent.click(screen.getByTestId('khome-undo'))
-      await waitFor(() => expect(mockKill).toHaveBeenCalledWith('run-2'))
-      expect(mockKill).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(mockUndo).toHaveBeenCalledWith('run-2'))
+      expect(mockUndo).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
@@ -305,8 +324,34 @@ describe('KHome', () => {
     await screen.findByTestId('khome-send-error')
     expect(screen.getByTestId('khome-send-error').textContent).toMatch(/kaboom/)
     expect((screen.getByTestId('khome-composer') as HTMLInputElement).value).toBe(MSG)
-    expect(screen.queryByTestId('khome-undo-toast')).toBeNull()
-    expect(mockKill).not.toHaveBeenCalled()
+    // The window is raised optimistically at send (F-066); a failed dispatch tears it
+    // back down — no lingering undo affordance (animations are instant here).
+    await waitFor(() => expect(screen.queryByTestId('khome-undo-toast')).toBeNull())
+    expect(mockUndo).not.toHaveBeenCalled()
+  })
+
+  // ── Conversation with K (the durable thread — F-077) ──────────────────────
+
+  it('fetches the durable K thread and renders its turns as a conversation (F-077)', async () => {
+    renderHome()
+    const section = await screen.findByTestId('khome-thread')
+    // Both the operator ask and K's reply render verbatim (the turns store real text,
+    // not synthesized prompts) — so the durable conversation is reachable after reload.
+    expect(await within(section).findByText('remind me to prep the notes')).toBeTruthy()
+    expect(within(section).getByText(/Noted — I added a reminder/)).toBeTruthy()
+    expect(mockThread).toHaveBeenCalled()
+  })
+
+  it('hides the conversation section when the thread has no turns, surfaces its error state', async () => {
+    mockThread.mockResolvedValue({ thread: threadValue, turns: [] })
+    renderHome()
+    await screen.findByTestId('khome-greeting')
+    expect(screen.queryByTestId('khome-thread')).toBeNull()
+    cleanup()
+
+    mockThread.mockRejectedValue(new Error('down'))
+    renderHome()
+    expect(await screen.findByTestId('khome-thread-error')).toBeTruthy()
   })
 
   it('Enter in the composer sends', async () => {

@@ -51,9 +51,12 @@
 import fs from 'fs'
 import { leadDispatchDb, mgmtDb } from './db.js'
 import { startAgentRun } from './agent-runs.js'
-import { reportLeadOutcomeToChief } from './chief-dispatch.js'
+import { reportLeadOutcomeToChief, seedLeadWorkflowRun } from './chief-dispatch.js'
 import { continueLeadOutcomeToK } from './k-thread.js'
 import { getProjectByName } from './projects.js'
+import { getProfile } from './profiles.js'
+import { claudeDefaultModel } from './config-store.js'
+import { warnIfOrgRoleModelNotToolCapable } from './agent-config.js'
 import { rowToAssignment } from './mcp/mgmt.js'
 
 /** Default poll interval for the relay (ms). Overridable via env; read lazily inside
@@ -133,6 +136,17 @@ export async function drainLeadDispatches(): Promise<number> {
         }
         if (scope.warning) console.warn(`[lead-relay] dispatch ${id}: ${scope.warning}`)
 
+        // WARN-ONLY (org-role model capability): mirror the Chief warning for a lead run —
+        // a lead resolved to a haiku-tier model can't reliably drive the DEFERRED management
+        // tools, so the autonomous chain stalls. One warning per dispatch at this lead choke-
+        // point; the configured model still runs unchanged (same tokens/tool grants). Model
+        // resolution mirrors startAgentRun's precedence (a lead dispatch passes no per-run
+        // model → the lead profile default → the runtime Claude default).
+        warnIfOrgRoleModelNotToolCapable(
+          `Lead ${String(row.lead)} (${String(row.lead_profile_id)})`,
+          getProfile(String(row.lead_profile_id))?.defaultModel ?? claudeDefaultModel(),
+        )
+
         // Dispatch under the resolved lead profile in the MAIN process (its tracking-row
         // lifecycle + the report-back subscriber below outlive the mgmt-server child).
         const { runId } = await startAgentRun(String(row.lead_profile_id), {
@@ -149,6 +163,21 @@ export async function drainLeadDispatches(): Promise<number> {
         try {
           leadDispatchDb.setLeadDispatchRun.run({ id, leadRunId: runId })
           mgmtDb.setAssignmentLeadRun.run({ id: String(row.assignment_id), leadRunId: runId, updatedAt: Date.now() })
+          // F-070: bind the lead run to a workflow_runs row + seed its checklist so the lead's
+          // kstore status-write tools resolve (no longer 'not_in_workflow'). Only when scoped to
+          // a project — workflow_runs.project_id is NOT NULL, so an unscoped (K-repo) dispatch
+          // gets no checklist. INDEPENDENTLY isolated (its own try/catch, like the two hops
+          // below): a seed throw (e.g. SQLITE_BUSY) must degrade to "no checklist" — it must NOT
+          // fall through to the outer catch and SKIP the report-back hops, which would silently
+          // drop the live lead run's outcome (lead_run_id is already set, so the boot sweep can't
+          // rescue it either). "No checklist" matches the accepted unscoped-dispatch behavior.
+          if (scope.projectId) {
+            try {
+              seedLeadWorkflowRun(runId, scope.projectId, String(row.workflow_id))
+            } catch (seedErr) {
+              console.warn(`[lead-relay] dispatch ${id}: workflow-run seed failed (no checklist):`, seedErr)
+            }
+          }
           if (row.chief_run_id != null) {
             // Two INDEPENDENT best-effort hops on the same lead terminal — the lead→Chief mgmt
             // report and the Chief→K continuation (loop-b2, no-op when the Chief woke

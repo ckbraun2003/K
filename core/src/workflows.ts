@@ -11,9 +11,10 @@
 
 import { randomUUID } from 'crypto'
 import type { Project, ProjectTask } from '@k/shared'
-import { projectWorkItemsDb, workflowRunsDb, rowToProjectTask } from './db.js'
+import { projectWorkItemsDb, workflowRunsDb, workflowStepsDb, rowToProjectTask } from './db.js'
 import { startRun } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
+import { eventBus } from './events.js'
 
 /** Thrown when a requested taskId is missing or not scoped to this project. The
  *  route discriminates on this type (instanceof) to translate it to a 400. */
@@ -92,13 +93,48 @@ export function deriveWorkflowStatus(terminalRunStatus: string): 'completed' | '
  *  status from the actual run outcome (done→completed, else→failed) and wins
  *  (campaign-s2 S2-013). It is last-writer-wins with NO terminal lock of its own
  *  (S2-015), so a duplicate terminal event re-finalizing is harmless — the
- *  run-lifecycle seam's finalize-once latch makes that a non-issue in practice. */
+ *  run-lifecycle seam's finalize-once latch makes that a non-issue in practice.
+ *
+ *  F-072: after writing the row's terminal status, RECONCILE any lingering non-terminal
+ *  child step (still 'pending'/'in_progress') to 'blocked', so the checklist can never
+ *  contradict the finalized row (a step stuck 'in_progress' under a 'completed' run). An
+ *  unfinished step becomes 'blocked' — honest "not resolved", never a false 'done'. */
 export function finalizeWorkflowRun(workflowRunId: string, terminalRunStatus: string): void {
-  workflowRunsDb.updateWorkflowRunStatus.run(
-    deriveWorkflowStatus(terminalRunStatus),
-    Date.now(),
-    workflowRunId,
-  )
+  const status = deriveWorkflowStatus(terminalRunStatus)
+  workflowRunsDb.updateWorkflowRunStatus.run(status, Date.now(), workflowRunId)
+  workflowStepsDb.reconcileNonTerminalSteps.run({ workflowRunId, updatedAt: Date.now() })
+
+  // F-076: emit a transient completion SIGNAL the UI surfaces as a nudge to REVIEW +
+  // CLOSE the tasks this workflow locked to 'in_progress'. dispatchTaskWorkflow never
+  // auto-closes them (D-012 — the PR/operator decides), and finalize touches no task, so
+  // without this signal they linger 'in_progress' with no operator cue. Only for a TASK
+  // workflow (non-empty task_ids); a lead workflow run (chief-dispatch seedLeadWorkflowRun,
+  // task_ids='[]') has no tasks to nudge, so it broadcasts nothing. Best-effort: a broadcast
+  // failure must never break the authoritative finalize write above.
+  try {
+    const row = workflowRunsDb.getWorkflowRun.get(workflowRunId) as
+      | { project_id?: string | null; task_ids?: string | null }
+      | undefined
+    if (!row?.project_id) return
+    let taskIds: string[] = []
+    try {
+      const parsed = JSON.parse(row.task_ids ?? '[]')
+      if (Array.isArray(parsed)) taskIds = parsed.map(String)
+    } catch {
+      /* malformed task_ids → no nudge */
+    }
+    if (taskIds.length > 0) {
+      eventBus.broadcast({
+        type: 'workflow_complete',
+        workflowRunId,
+        projectId: String(row.project_id),
+        status,
+        taskIds,
+      })
+    }
+  } catch (err) {
+    console.warn('[workflows] workflow_complete broadcast failed:', (err as Error).message)
+  }
 }
 
 /** Dispatch ONE supervised agent run that addresses the selected todos via the
@@ -112,12 +148,14 @@ export function finalizeWorkflowRun(workflowRunId: string, terminalRunStatus: st
  *  `opts.scaffold` is an alternate NamedWorkflow prompt scaffold (C2 "Run this
  *  workflow") rendered through the same renderWorkflowPrompt seam; omitted = the
  *  built-in CODE_WAVE_SCAFFOLD, byte-identical to the pre-C2 buildDelegationPrompt
- *  path (which stays exported for its own tests/callers).
+ *  path (which stays exported for its own tests/callers). `opts.workflowId` records
+ *  WHICH NamedWorkflow template drove the run on the workflow_run row (F-074) — omitted
+ *  = a default code-wave dispatch (stored NULL).
  */
 export async function dispatchTaskWorkflow(
   project: Project,
   taskIds: string[],
-  opts: { scaffold?: string } = {},
+  opts: { scaffold?: string; workflowId?: string } = {},
 ): Promise<{ workflowRunId: string; runId: string }> {
   // 0. Reject an empty dispatch up-front — validate-before-mutate, mirroring the
   //    step-1 TaskNotFound guard. Without this, steps 1+2 no-op over the empty
@@ -158,6 +196,7 @@ export async function dispatchTaskWorkflow(
     runId: null,
     taskIds: JSON.stringify(taskIds),
     mode: 'combined',
+    workflowId: opts.workflowId ?? null,
     status: 'running',
     createdAt: now,
     completedAt: null,

@@ -9,13 +9,21 @@
  *   - startScheduler: cron loop for schedule-triggered skills
  */
 
+import fs from 'fs'
+import path from 'path'
 import { randomUUID } from 'crypto'
 import { schedule as cronSchedule, validate as cronValidate } from 'node-cron'
 import type { Skill, CreateSkill, SkillEval } from '@k/shared'
-import { db, skillsDb, skillEvalsDb } from './db.js'
-import { startRun } from './supervisor.js'
+import { db, skillsDb, skillEvalsDb, projectsDb } from './db.js'
+import { startRun, REPO_ROOT, type StartRunOptions } from './supervisor.js'
 import { eventBus } from './events.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
+import { isPathWithin } from './paths.js'
+
+/** The ONLY directory `readSkillSource` will read a skill's `source` as a file from. A
+ *  `source` resolving outside this root (an absolute path, a `..` escape) is treated as raw
+ *  inline prompt text — NEVER an unconfined file read (F-069 security review). */
+const SKILLS_ROOT = path.join(REPO_ROOT, 'agent-config', 'skills')
 
 // Prepared once at module load — sets runId on a skill_run after the run is created
 const patchSkillRunId = db.prepare(`UPDATE skill_runs SET runId = ? WHERE id = ?`)
@@ -106,19 +114,95 @@ export function registerSkill(opts: CreateSkill): Skill {
     triggerType: opts.triggerType,
     schedule: opts.schedule ?? null,
     eventTrigger: opts.eventTrigger ?? null,
-    enabled: 1,
+    // Honor an explicit enabled flag; omitted defaults to enabled (1). A skill created
+    // `enabled:false` must land DISABLED so a "disabled" schedule/event skill can't fire
+    // (the scheduler/event listener gate on `enabled`). Only an explicit `false` disarms.
+    enabled: opts.enabled === false ? 0 : 1,
     createdAt: now,
   })
   return rowToSkill(skillsDb.getSkill.get(id) as Record<string, unknown>)
 }
 
+/**
+ * Resolve a skill's EXECUTABLE content. A built-in skill's `source` is a repo-relative
+ * `SKILL.md` PATH UNDER `agent-config/skills/`; read its CONTENTS so a dispatched run
+ * EXECUTES the skill's instructions rather than just reading+summarizing the bare path (the
+ * F-069 no-op). A user-authored inline prompt is returned verbatim.
+ *
+ * SECURITY (F-069 review): the file read is CONFINED to the skills root. `skill.source` is
+ * only validated as `z.string().min(1).max(2000)` with no path confinement, so an
+ * authenticated caller could register `source` = an absolute path to a secret (`.env`, an
+ * SSH key, another project's file) and have its contents pulled into the agent's prompt (and
+ * exfiltrated via a PR). So we read a file ONLY when the resolved absolute path stays STRICTLY
+ * INSIDE `SKILLS_ROOT` (isPathWithin — rejects absolute paths and `..` traversal); anything
+ * else falls back to treating `source` as RAW inline text, never a file read. A
+ * non-existent/unreadable in-root file also degrades to raw. As a second gate, the REAL
+ * (symlink-resolved) path must ALSO stay inside the real skills root — a symlink planted
+ * in-root that points outside the repo is refused (realpathSync confinement); a throw
+ * (nonexistent) or an out-of-root real path degrades to raw, exactly like any other
+ * non-confined source. Pure + exported for unit-testing.
+ */
+export function readSkillSource(skill: Skill): string {
+  const abs = path.isAbsolute(skill.source) ? skill.source : path.join(REPO_ROOT, skill.source)
+  if (isPathWithin(SKILLS_ROOT, abs)) {
+    try {
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+        // Symlink hardening (F-069): the STRING path is in-root, but a symlink planted
+        // inside SKILLS_ROOT could resolve OUTSIDE the repo. Require the REAL (symlink-
+        // resolved) path to STILL be within the real skills root before reading.
+        // realpathSync THROWS on a nonexistent path — this is fail-safe: any throw, or a
+        // real path outside the root, falls through to the raw source (NO file read),
+        // exactly as an out-of-root source already does.
+        const realRoot = fs.realpathSync(SKILLS_ROOT)
+        const real = fs.realpathSync(abs)
+        if (isPathWithin(realRoot, real)) {
+          const contents = fs.readFileSync(real, 'utf8')
+          if (contents.trim().length > 0) return contents
+        }
+      }
+    } catch {
+      /* unreadable / unresolvable — fall through to the raw source */
+    }
+  }
+  return skill.source
+}
+
+/**
+ * Build the run prompt for a triggered skill: an EXECUTE instruction wrapping the skill's
+ * actual CONTENTS (F-069), not the bare SKILL.md path (which made the agent read the file,
+ * summarize it, and exit — $ for a no-op). Pure + exported for unit-testing.
+ */
+export function buildSkillRunPrompt(skill: Skill): string {
+  return [
+    `Execute the following skill ("${skill.name}"). Carry out its instructions against the`,
+    `current working directory / selected project — do NOT merely read or summarize it.`,
+    ``,
+    `"""`,
+    readSkillSource(skill),
+    `"""`,
+  ].join('\n')
+}
+
 export async function triggerSkill(
   skillId: string,
   triggeredBy: string,
+  opts: { projectId?: string } = {},
 ): Promise<{ skillRunId: string; runId: string }> {
   const row = skillsDb.getSkill.get(skillId) as Record<string, unknown> | undefined
   if (!row) throw new Error(`Skill not found: ${skillId}`)
   const skill = rowToSkill(row)
+
+  // Optional PROJECT SELECTOR (F-069): a skill run may target a registered project — resolve
+  // its checkout as the run's cwd so the skill EXECUTES against that project (startRun makes
+  // the worktree + records the projectId). No projectId → runs against K (cwd = repo root),
+  // exactly as the scheduler/event paths do.
+  const runOpts: StartRunOptions = {}
+  if (opts.projectId) {
+    const projectRow = projectsDb.getProject.get(opts.projectId) as Record<string, unknown> | undefined
+    if (!projectRow) throw new Error(`Project not found: ${opts.projectId}`)
+    runOpts.cwd = String(projectRow.local_path)
+    runOpts.projectId = opts.projectId
+  }
 
   const skillRunId = randomUUID()
   const now = Date.now()
@@ -134,8 +218,9 @@ export async function triggerSkill(
     status: 'running',
   })
 
-  // Launch the underlying run
-  const run = await startRun(skill.source)
+  // Launch the underlying run: the skill's EXECUTE-instruction prompt (its contents, F-069),
+  // in the selected project's cwd when one was chosen.
+  const run = await startRun(buildSkillRunPrompt(skill), runOpts)
 
   // Wire the supervised-run completion lifecycle (patch runId, finalize on
   //   terminal, race-backstopped) — shared via run-lifecycle.ts. NOTE: this gives
@@ -175,7 +260,9 @@ export function listSkillEvals(skillId: string): SkillEval[] {
 
 /** Build the eval prompt: instruct the agent to apply the eval-harness
  *  methodology to the target skill's source and end with a machine-readable
- *  verdict line. Pure + exported for unit-testing. */
+ *  verdict line. Embeds the skill's actual CONTENTS (readSkillSource), not the bare
+ *  SKILL.md path (F-069) — so the eval judges the real instructions, not a filename.
+ *  Pure + exported for unit-testing. */
 export function buildEvalPrompt(skill: Skill): string {
   return [
     `You are evaluating a registered skill using the eval-harness methodology.`,
@@ -184,7 +271,7 @@ export function buildEvalPrompt(skill: Skill): string {
     ``,
     `Skill source under test:`,
     `"""`,
-    skill.source,
+    readSkillSource(skill),
     `"""`,
     ``,
     `Assess whether this skill's source is well-formed, unambiguous, and would`,

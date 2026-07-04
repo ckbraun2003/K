@@ -160,6 +160,27 @@ describe('ChiefPage — reassign flow', () => {
   })
 })
 
+describe('ChiefPage — objective card', () => {
+  it('shows the objective status (pending until dispatched) and its created-at (F-083)', async () => {
+    renderPage()
+    await screen.findByTestId('chief-objective-a1')
+    // leadRunId is null in the fixture → not yet dispatched.
+    expect(screen.getByTestId('chief-objective-status-a1').textContent).toContain('pending')
+    expect(screen.getByTestId('chief-objective-created-a1').textContent).toContain('created')
+    expect(screen.getByTestId('chief-objective-created-a1').textContent).toContain('ago')
+  })
+
+  it("reads 'dispatched' once the objective has a lead run", async () => {
+    mockOrg.mockResolvedValue({
+      ...orgPayload,
+      assignments: [{ ...orgPayload.assignments[0], leadRunId: 'run-be' }],
+    })
+    renderPage()
+    await screen.findByTestId('chief-objective-a1')
+    expect(screen.getByTestId('chief-objective-status-a1').textContent).toContain('dispatched')
+  })
+})
+
 describe('ChiefPage — inspector actions', () => {
   it('a live lead node offers Open lead / View run / Stop run (confirm-gated kill)', async () => {
     renderPage()

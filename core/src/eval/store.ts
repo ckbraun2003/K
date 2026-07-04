@@ -175,7 +175,10 @@ export function loadSystemsFromDb(
 ): EvalSystem[] {
   const base = opts.root || repoRoot()
   const d = opts.db ?? moduleDb
-  const onlySet = opts.only && opts.only.length ? new Set(opts.only) : null
+  // F-014: only null/undefined means "all systems". An explicit empty array selects NOTHING —
+  // `new Set([])` makes the `!onlySet.has(r.id)` filter below exclude every system — so a stray
+  // `systems: []` can't silently fan out to a full (real-spend) run.
+  const onlySet = opts.only ? new Set(opts.only) : null
 
   const sysRows = d.prepare(`SELECT * FROM eval_systems WHERE enabled = 1 ORDER BY id`).all() as EvalSystemRow[]
   const caseStmt = d.prepare(`SELECT * FROM eval_cases WHERE systemId = ? ORDER BY id`)

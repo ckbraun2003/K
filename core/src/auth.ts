@@ -153,15 +153,21 @@ export function unsafeBootReason(host: string, token: string): string | null {
 }
 
 /**
- * Refuse to expose the web terminal (a host shell) on a non-loopback HOST with a
- * weak/empty/default TERMINAL_TOKEN. Returns an actionable message when unsafe,
- * or null when safe (terminal disabled, loopback host, or strong token). Pure
- * predicate — index.ts decides whether to throw.
+ * Refuse to expose the web terminal (a host shell) on a non-loopback HOST unless
+ * it is BOTH guarded by a strong TERMINAL_TOKEN AND explicitly opted in via
+ * `TERMINAL_ALLOW_REMOTE=true`. Two independent guards:
+ *   1. a weak/empty/default TERMINAL_TOKEN is always refused on a non-loopback host;
+ *   2. even a STRONG token is refused on a non-loopback host without the explicit
+ *      opt-in, so an accidental LAN bind can never expose the shell silently.
+ * Returns an actionable message when unsafe, or null when safe (terminal disabled,
+ * loopback host, or strong token + opt-in). Pure predicate — index.ts decides
+ * whether to throw.
  */
 export function unsafeTerminalBootReason(
   host: string,
   enabled: boolean,
   terminalToken: string,
+  allowRemote = false,
 ): string | null {
   if (!enabled) return null
   if (isLoopbackHost(host)) return null
@@ -172,6 +178,15 @@ export function unsafeTerminalBootReason(
       `Set a strong TERMINAL_TOKEN (e.g. \`openssl rand -base64 32\`), or unset ` +
       `ENABLE_TERMINAL to disable the terminal. Only expose a non-loopback HOST ` +
       `behind Tailscale or an authenticating HTTPS proxy.`
+    )
+  }
+  if (!allowRemote) {
+    return (
+      `Refusing to start: HOST=${host} is non-loopback and ENABLE_TERMINAL=true. ` +
+      `The web terminal grants a host shell, so exposing it beyond loopback needs an ` +
+      `EXPLICIT opt-in even with a strong TERMINAL_TOKEN. Set TERMINAL_ALLOW_REMOTE=true ` +
+      `to confirm, unset ENABLE_TERMINAL to disable the terminal, or bind a loopback HOST. ` +
+      `Only expose a non-loopback HOST behind Tailscale or an authenticating HTTPS proxy.`
     )
   }
   return null

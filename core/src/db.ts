@@ -82,6 +82,9 @@ db.exec(`
     github_remote     TEXT,
     workspace_managed INTEGER NOT NULL DEFAULT 0,
     bible_dir         TEXT NOT NULL DEFAULT 'artifacts/bible',
+    -- The repo's real default branch (detected at register/clone). Nullable: pre-
+    -- migration rows stay NULL and callers fall back to a heuristic (W4 follow-up).
+    default_branch    TEXT,
     health_score      INTEGER,
     last_verified_at  INTEGER,
     created_at        INTEGER NOT NULL
@@ -90,7 +93,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS verification_reports (
     id            TEXT PRIMARY KEY,
     project_id    TEXT NOT NULL REFERENCES projects(id),
-    score         INTEGER NOT NULL,
+    -- nullable: NULL = insufficient signal (no dimension measured — the health score
+    -- prorates over measured dimensions only; F-032 rework). Existing NOT-NULL DBs are
+    -- rebuilt to nullable in migrateSlow.
+    score         INTEGER,
     findings      TEXT NOT NULL DEFAULT '[]',
     fixes_applied TEXT NOT NULL DEFAULT '[]',
     started_at    INTEGER NOT NULL,
@@ -112,6 +118,7 @@ db.exec(`
     run_id       TEXT REFERENCES runs(id) ON DELETE SET NULL,
     task_ids     TEXT NOT NULL DEFAULT '[]',   -- JSON array of task ids
     mode         TEXT NOT NULL DEFAULT 'combined',
+    workflow_id  TEXT,   -- loose ref (intentionally no FK): the workflow_definitions TEMPLATE the run was dispatched from (F-074); NULL = a default code-wave dispatch. Kept loose so deleting a definition never cascades into run history.
     status       TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed')),
     created_at   INTEGER NOT NULL,
     completed_at INTEGER
@@ -412,6 +419,11 @@ db.exec(`
     title         TEXT,
     status        TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','idle')),
     active_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    -- The stable Claude CLI session id this thread's K asks resume (W7a, F-054).
+    -- NULL until the first ask answers successfully; thereafter every ask runs
+    -- claude -p --resume <cli_session_id> so continuity comes from a cheap cache-read
+    -- of the session, not a held warm process or a replayed transcript.
+    cli_session_id TEXT,
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL
   );
@@ -529,7 +541,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 6
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -574,6 +586,46 @@ function migrateSlow(d: Database.Database): void {
     // CREATE TABLE) exactly like score_breakdown — migrate() runs at boot so fresh
     // installs and existing DBs both gain it.
     addColumn(d, 'verification_reports', 'coverage_pct', 'REAL')
+    // score NOT NULL → nullable (F-032 rework): the health score is now null when NO
+    // dimension could be measured (insufficient signal). SQLite can't drop a column
+    // constraint in place, so rebuild the table. Guarded on the column still being
+    // NOT NULL (notnull===1) → idempotent (after the rebuild it's nullable → skip);
+    // no one-shot flag needed. Runs AFTER the score_breakdown/coverage_pct ALTERs
+    // above so the copied column list is complete. Nothing FKs INTO verification_reports,
+    // so the rebuild is local. FKs OFF during the drop/rename (mirrors the work_items
+    // rebuild idiom); the finally restores the pragma on success AND on failure.
+    const scoreCol = (d.pragma('table_info(verification_reports)') as Array<{ name: string; notnull: number }>)
+      .find(c => c.name === 'score')
+    if (scoreCol && scoreCol.notnull === 1) {
+      d.pragma('foreign_keys = OFF')
+      try {
+        const rebuild = d.transaction(() => {
+          d.exec(`
+            CREATE TABLE verification_reports_new (
+              id            TEXT PRIMARY KEY,
+              project_id    TEXT NOT NULL REFERENCES projects(id),
+              score         INTEGER,
+              findings      TEXT NOT NULL DEFAULT '[]',
+              fixes_applied TEXT NOT NULL DEFAULT '[]',
+              started_at    INTEGER NOT NULL,
+              completed_at  INTEGER,
+              score_breakdown TEXT,
+              coverage_pct  REAL
+            );
+            INSERT INTO verification_reports_new
+              (id, project_id, score, findings, fixes_applied, started_at, completed_at, score_breakdown, coverage_pct)
+            SELECT id, project_id, score, findings, fixes_applied, started_at, completed_at, score_breakdown, coverage_pct
+            FROM verification_reports;
+            DROP TABLE verification_reports;
+            ALTER TABLE verification_reports_new RENAME TO verification_reports;
+            CREATE INDEX IF NOT EXISTS idx_verification_project ON verification_reports(project_id, started_at);
+          `)
+        })
+        rebuild.immediate()
+      } finally {
+        d.pragma('foreign_keys = ON')
+      }
+    }
   }
   // events(run_id, seq) must be unique — the lazy raw endpoint does a .get() by
   // (run_id, seq) assuming a single row. SQLite can't ALTER ADD CONSTRAINT, so a
@@ -614,6 +666,32 @@ function migrateSlow(d: Database.Database): void {
   // migrate() safe against old-schema fixtures predating the table.
   if (hasTable(d, 'artifacts')) {
     addColumn(d, 'artifacts', 'html_path', 'TEXT')
+  }
+  // workflow_runs.workflow_id (SCHEMA_VERSION 4): the workflow_definitions TEMPLATE a run
+  // was dispatched from (F-074) — so GET /api/workflows/runs can say WHICH definition each
+  // run used. Loose ref (no FK), NULL for pre-F-074 rows and default code-wave dispatches.
+  // Appended via guarded ALTER so existing DBs gain it; fresh installs get it from the DDL
+  // above. hasTable guard keeps migrate() safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'workflow_runs')) {
+    addColumn(d, 'workflow_runs', 'workflow_id', 'TEXT')
+  }
+  // projects.default_branch (SCHEMA_VERSION 5): the repo's real default branch,
+  // detected + persisted at register/clone (W4 follow-up) so the PR-base default no
+  // longer relies on a fragile CI-branch heuristic. Appended via guarded ALTER so
+  // existing DBs gain it; fresh installs get it from the DDL above. Pre-migration rows
+  // read back NULL and callers fall back to the heuristic. hasTable guard keeps
+  // migrate() safe against old-schema fixtures predating the table.
+  if (hasTable(d, 'projects')) {
+    addColumn(d, 'projects', 'default_branch', 'TEXT')
+  }
+  // k_threads.cli_session_id (SCHEMA_VERSION 6, W7a / F-054): the stable Claude CLI
+  // session id a K thread's asks resume, so K continuity comes from `--resume` (a cheap
+  // cache-read) instead of a held warm process. Appended via guarded ALTER so existing
+  // DBs gain it; fresh installs get it from the DDL above. Pre-migration rows read back
+  // NULL (the "no session yet → first ask" sentinel). hasTable guard keeps migrate() safe
+  // against old-schema fixtures predating the table.
+  if (hasTable(d, 'k_threads')) {
+    addColumn(d, 'k_threads', 'cli_session_id', 'TEXT')
   }
   // project_tasks issue columns — LEGACY-UPGRADE path ONLY (P5.1d2b). The table is
   // no longer created anywhere (dropped by the one-shot mig_project_tasks_drop
@@ -1050,7 +1128,15 @@ const listAssistantEventsAfterSeq = db.prepare(
   `SELECT seq, text FROM events WHERE run_id = ? AND seq > ? AND type = 'assistant' ORDER BY seq ASC`,
 )
 
-export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listAssistantEvents, listAssistantEventsAfterSeq }
+// The LAST non-empty assistant event for a run — the run's CONCLUSION (final assistant
+// message), not its opening. Backs the lead report-back TAIL summary (F-075:
+// chief-dispatch.ts / k-thread.ts) so a report-back reflects what the lead concluded,
+// never the "I'll start by loading the workflow status tools…" prefix. Bounded to one row.
+const latestAssistantEvent = db.prepare(
+  `SELECT seq, text FROM events WHERE run_id = ? AND type = 'assistant' AND text IS NOT NULL AND length(text) > 0 ORDER BY seq DESC LIMIT 1`,
+)
+
+export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listAssistantEvents, listAssistantEventsAfterSeq, latestAssistantEvent }
 
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
@@ -1079,6 +1165,21 @@ const insertProject = db.prepare(`
   INSERT INTO projects (id, name, local_path, github_remote, workspace_managed, bible_dir, created_at)
   VALUES (@id, @name, @localPath, @githubRemote, @workspaceManaged, @bibleDir, @createdAt)
 `)
+
+// default_branch is set via a dedicated statement right after insert (keeps the
+// widely-used insertProject param shape unchanged across ~40 call sites). NULL until
+// set — callers then fall back to a heuristic (W4 follow-up).
+const setProjectDefaultBranch = db.prepare(`UPDATE projects SET default_branch = ? WHERE id = ?`)
+
+// Atomic registration (MEDIUM-1): the row insert + its detected default_branch write
+// land together or not at all, so a crash between them can't strand a row with the
+// branch lost. Mirrors persistReport's both-or-neither transaction.
+const insertProjectWithDefaultBranch = db.transaction(
+  (params: Record<string, unknown>, defaultBranch: string | null) => {
+    insertProject.run(params)
+    if (defaultBranch != null) setProjectDefaultBranch.run(defaultBranch, params.id as string)
+  },
+)
 
 const updateProjectHealth = db.prepare(`
   UPDATE projects SET health_score = @healthScore, last_verified_at = @lastVerifiedAt WHERE id = @id
@@ -1134,6 +1235,8 @@ const deleteProject = db.transaction((id: string) => {
 
 export const projectsDb = {
   insertProject,
+  setProjectDefaultBranch,
+  insertProjectWithDefaultBranch,
   updateProjectHealth,
   getProject,
   listProjects,
@@ -1194,7 +1297,8 @@ export function rowToReport(r: Record<string, unknown>): VerificationReport {
   const report: VerificationReport = {
     id: String(r.id),
     projectId: String(r.project_id),
-    score: Number(r.score),
+    // null = insufficient signal (F-032 rework); older rows are always numeric.
+    score: r.score == null ? null : Number(r.score),
     findings: parseArr(r.findings) as VerificationReport['findings'],
     fixesApplied: parseArr(r.fixes_applied) as string[],
     startedAt: Number(r.started_at),
@@ -1307,8 +1411,8 @@ export function rowToProjectTask(r: Record<string, unknown>): ProjectTask {
 // site). run_id is null until the underlying agent run is created.
 
 const insertWorkflowRun = db.prepare(`
-  INSERT INTO workflow_runs (id, project_id, run_id, task_ids, mode, status, created_at, completed_at)
-  VALUES (@id, @projectId, @runId, @taskIds, @mode, @status, @createdAt, @completedAt)
+  INSERT INTO workflow_runs (id, project_id, run_id, task_ids, mode, workflow_id, status, created_at, completed_at)
+  VALUES (@id, @projectId, @runId, @taskIds, @mode, @workflowId, @status, @createdAt, @completedAt)
 `)
 
 const patchWorkflowRunId = db.prepare(`UPDATE workflow_runs SET run_id = ? WHERE id = ?`)
@@ -1324,9 +1428,14 @@ const listWorkflowRunsByProject = db.prepare(`
 `)
 
 // Cross-project newest-first list (bounded) — backs GET /api/workflows/runs, the
-// Workflows run-picker's "which runs were workflow-dispatched?" identity source.
+// Workflows run-picker's "which runs were workflow-dispatched?" identity source. LEFT
+// JOINs workflow_definitions so each row carries the template's name (workflow_name)
+// alongside its id (workflow_id) — a dropped/unknown definition simply yields NULL (F-074).
 const listRecentWorkflowRuns = db.prepare(`
-  SELECT * FROM workflow_runs ORDER BY created_at DESC LIMIT ?
+  SELECT wr.*, wd.name AS workflow_name
+    FROM workflow_runs wr
+    LEFT JOIN workflow_definitions wd ON wd.id = wr.workflow_id
+   ORDER BY wr.created_at DESC LIMIT ?
 `)
 
 export const workflowRunsDb = {
@@ -1357,6 +1466,10 @@ const updateWorkItem = db.prepare(`
   UPDATE work_items SET title = @title, body = @body, status = @status, updated_at = @updatedAt
   WHERE id = @id
 `)
+// Durable-only delete (F-019): scope-guarded to 'personal'/'org' so the HTTP DELETE can
+// never remove an ephemeral run-scoped ticket or a project row — same guard the durable
+// read/PATCH statements use. `changes` (0 when no durable row matched) lets the route 404.
+const deleteWorkItemDurable = db.prepare(`DELETE FROM work_items WHERE id = ? AND scope IN ('personal','org')`)
 const getWorkItem = db.prepare(`SELECT * FROM work_items WHERE id = ?`)
 // Run-scoped fetch — `IS` is null-safe so a null owner (no/unknown run) only matches
 // null-owner rows; `scope = 'run'` keeps the ephemeral run view isolated from the
@@ -1390,6 +1503,7 @@ const listDurableWorkItemsByStatus = db.prepare(
 export const workItemsDb = {
   insertWorkItem,
   updateWorkItem,
+  deleteWorkItemDurable,
   getWorkItem,
   getWorkItemOwned,
   listWorkItemsByRun,
@@ -1473,6 +1587,15 @@ const upsertWorkflowStepRow = db.prepare(`
     updated_at   = excluded.updated_at
 `)
 
+// F-072: on finalize, reconcile any lingering NON-terminal step (still 'pending' or
+// 'in_progress') to 'blocked' so the checklist can't contradict the finalized
+// (completed/failed) workflow_run — an unfinished step is marked blocked, never falsely
+// 'done'. Scoped to one workflow_run; only touches the two non-terminal statuses.
+const reconcileNonTerminalSteps = db.prepare(
+  `UPDATE workflow_steps SET status = 'blocked', updated_at = @updatedAt
+     WHERE workflow_run_id = @workflowRunId AND status IN ('pending','in_progress')`,
+)
+
 // Upsert a step by (workflow_run_id, label) in one transaction: a new label gets
 // the next seq; an existing label keeps its seq (only kind/status/detail/link
 // refresh). Returns the resulting row.
@@ -1503,6 +1626,7 @@ export const workflowStepsDb = {
   getWorkflowStepByLabel,
   listWorkflowSteps,
   setWorkflowStep,
+  reconcileNonTerminalSteps,
 }
 
 // ─── logistics working store helpers (P5.1a; operator-durable, A1) ────────────
@@ -2075,6 +2199,14 @@ const insertThread = db.prepare(`
 const getThread = db.prepare(`SELECT * FROM k_threads WHERE id = ?`)
 const updateThreadActiveRun = db.prepare(`UPDATE k_threads SET active_run_id = ?, updated_at = ? WHERE id = ?`)
 const updateThreadStatus = db.prepare(`UPDATE k_threads SET status = ?, updated_at = ? WHERE id = ?`)
+// The stable CLI session id for a thread's K asks (W7a). Read to decide first-ask
+// (--session-id) vs resume (--resume); written ONCE on the first ask's successful
+// terminal. The `IS NULL` guard makes the write idempotent — a resume ask never
+// re-stamps it, and a rare concurrent first-ask can't clobber the winner's id.
+const getThreadCliSessionId = db.prepare(`SELECT cli_session_id FROM k_threads WHERE id = ?`)
+const setThreadCliSessionId = db.prepare(
+  `UPDATE k_threads SET cli_session_id = ?, updated_at = ? WHERE id = ? AND cli_session_id IS NULL`,
+)
 
 const insertTurn = db.prepare(`
   INSERT INTO k_thread_turns (id, thread_id, role, text, run_id, created_at)
@@ -2083,6 +2215,20 @@ const insertTurn = db.prepare(`
 const getTurn = db.prepare(`SELECT * FROM k_thread_turns WHERE id = ?`)
 const patchTurnRunId = db.prepare(`UPDATE k_thread_turns SET run_id = ? WHERE id = ?`)
 const listTurns = db.prepare(`SELECT * FROM k_thread_turns WHERE thread_id = ? ORDER BY created_at ASC, id ASC`)
+// F-060 undo: remove every turn a killed/undone run appended (the dangling `user` ask
+// with no reply, plus any partial `k` turn), so an undone message is never replayed
+// into a later seed. And clear a thread stranded pointing at that just-killed run.
+const deleteTurnsByRunId = db.prepare(`DELETE FROM k_thread_turns WHERE run_id = ?`)
+const clearThreadActiveRunByRunId = db.prepare(
+  `UPDATE k_threads SET active_run_id = NULL, status = 'idle', updated_at = ? WHERE active_run_id = ?`,
+)
+// F-060 backstop: is there still a live `user` ask turn linked to this run? A `k` reply
+// for a run whose `user` turn was removed (undone) would be orphaned — so this gates the
+// reply-append paths (captureAnswers / reportDelegationBack) against a late flush from a
+// killed-then-undone run resurrecting a reply with no matching ask.
+const hasUserTurnForRun = db.prepare(
+  `SELECT 1 FROM k_thread_turns WHERE run_id = ? AND role = 'user' LIMIT 1`,
+)
 // Resolve the K thread that DELEGATED a given run (loop-b2 Chief→K continuation). The
 // K→Chief link is derivable with NO new table: delegateToChief patches the Chief run id
 // onto the operator's user turn (and its ack turn), so a k_thread_turns row whose run_id =
@@ -2097,9 +2243,14 @@ export const kThreadsDb = {
   getThread,
   updateThreadActiveRun,
   updateThreadStatus,
+  getThreadCliSessionId,
+  setThreadCliSessionId,
   insertTurn,
   getTurn,
   patchTurnRunId,
   listTurns,
+  deleteTurnsByRunId,
+  clearThreadActiveRunByRunId,
+  hasUserTurnForRun,
   getThreadIdByTurnRunId,
 }

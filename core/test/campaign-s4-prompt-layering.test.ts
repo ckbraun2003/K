@@ -95,6 +95,23 @@ describe('S4 prompt layering: order + per-tier charter', () => {
   })
 })
 
+describe('S4 secretary charter: store-disambiguation guidance (F-058)', () => {
+  it('the shipped secretary charter maps each capture intent to its own store tool', () => {
+    const cfg = synthAs('secretary')
+    const body = fs.readFileSync(cfg.appendSystemPromptFile, 'utf8')
+    // K mounts BOTH logistics (note/event/reminder) and kstore (work_item) tools, and
+    // the charter used to steer everything to kstore — so an ambiguous "add a note" wrote
+    // a work item. The shipped L1 charter must now map each intent to its own tool: a
+    // note→note_add, a schedule/remind→event_add/reminder_add, a task→work_item_create
+    // scope='personal' (F-058).
+    expect(body).toContain('note_add')
+    expect(body).toContain('event_add')
+    expect(body).toContain('reminder_add')
+    expect(body).toContain('work_item_create')
+    expect(body).toContain("scope='personal'")
+  })
+})
+
 describe('S4 prompt layering: a missing critical asset fails loudly', () => {
   it('S4-009: a missing base-operating-prompt.md throws (no silent half-build)', () => {
     // An assetsDir with NO base prompt: the first asset read (L0) must throw.

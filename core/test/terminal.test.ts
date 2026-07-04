@@ -6,7 +6,13 @@
  * frame protocol both ways.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { terminalGate, createTerminalSession, type PtyLike } from '../src/terminal.js'
+import {
+  terminalGate,
+  createTerminalSession,
+  isSensitiveEnvName,
+  scrubSensitiveEnv,
+  type PtyLike,
+} from '../src/terminal.js'
 
 describe('terminalGate', () => {
   const expectedToken = 'secret'
@@ -38,6 +44,94 @@ describe('terminalGate', () => {
 
   it('allows when enabled and token matches', () => {
     expect(terminalGate({ enabled: true, token: 'secret', expectedToken })).toEqual({ ok: true })
+  })
+})
+
+describe('scrubSensitiveEnv (F-084 pty env scrub)', () => {
+  it('drops credential-bearing vars but keeps PATH/HOME and other safe vars', () => {
+    const scrubbed = scrubSensitiveEnv({
+      PATH: '/usr/bin:/bin',
+      HOME: '/home/k',
+      SystemRoot: 'C:\\Windows',
+      TERM: 'xterm-256color',
+      LANG: 'en_US.UTF-8',
+      ANTHROPIC_API_KEY: 'sk-ant-should-be-gone',
+      CLAUDE_CODE_OAUTH_TOKEN: 'oauth-gone',
+      HARNESS_TOKEN: 'harness-gone',
+      TERMINAL_TOKEN: 'terminal-gone',
+      FOO_TOKEN: 'foo-gone',
+      MY_API_KEY: 'key-gone',
+      DB_PASSWORD: 'pw-gone',
+      AWS_SECRET_ACCESS_KEY: 'aws-gone',
+      GH_TOKEN: 'gh-gone',
+      GITHUB_TOKEN: 'ghp-gone',
+      NPM_TOKEN: 'npm-gone',
+    })
+    // Safe vars survive.
+    expect(scrubbed.PATH).toBe('/usr/bin:/bin')
+    expect(scrubbed.HOME).toBe('/home/k')
+    expect(scrubbed.SystemRoot).toBe('C:\\Windows')
+    expect(scrubbed.TERM).toBe('xterm-256color')
+    expect(scrubbed.LANG).toBe('en_US.UTF-8')
+    // Every credential-shaped var is stripped.
+    for (const k of [
+      'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'HARNESS_TOKEN', 'TERMINAL_TOKEN',
+      'FOO_TOKEN', 'MY_API_KEY', 'DB_PASSWORD', 'AWS_SECRET_ACCESS_KEY', 'GH_TOKEN',
+      'GITHUB_TOKEN', 'NPM_TOKEN',
+    ]) {
+      expect(scrubbed[k], k).toBeUndefined()
+    }
+    // No stripped secret value survives anywhere in the scrubbed env.
+    const values = Object.values(scrubbed).join('\n')
+    expect(values).not.toMatch(/gone/)
+  })
+
+  it('matches sensitive names case-insensitively (Windows env names)', () => {
+    expect(isSensitiveEnvName('anthropic_api_key')).toBe(true)
+    expect(isSensitiveEnvName('Harness_Token')).toBe(true)
+    expect(isSensitiveEnvName('terminal_token')).toBe(true)
+    // Plain non-secret vars are not flagged.
+    expect(isSensitiveEnvName('PATH')).toBe(false)
+    expect(isSensitiveEnvName('HOME')).toBe(false)
+    expect(isSensitiveEnvName('PATHEXT')).toBe(false)
+    expect(isSensitiveEnvName('K_DATA_DIR')).toBe(false)
+  })
+
+  it('drops connection-string / DSN / shorthand-password vars but keeps non-cred siblings', () => {
+    const scrubbed = scrubSensitiveEnv({
+      PATH: '/usr/bin',
+      HOME: '/home/k',
+      DATABASE_HOST: 'db.internal', // NON-cred host — must survive
+      PWD: '/home/k/project',       // POSIX cwd var — must survive (not `_PWD`)
+      DATABASE_URL: 'postgres://user:pass@db:5432/app',
+      REDIS_URL: 'redis://:secret@cache:6379',
+      MONGODB_URI: 'mongodb://user:pass@mongo:27017',
+      SENTRY_DSN: 'https://key@sentry.io/1',
+      FOO_DSN: 'x',
+      DB_PASS: 'hunter2',
+      DB_PWD: 'hunter2',
+      APP_CONNECTION_STRING: 'Server=x;Password=y',
+    })
+    expect(scrubbed.PATH).toBe('/usr/bin')
+    expect(scrubbed.HOME).toBe('/home/k')
+    expect(scrubbed.DATABASE_HOST).toBe('db.internal')
+    expect(scrubbed.PWD).toBe('/home/k/project')
+    for (const k of [
+      'DATABASE_URL', 'REDIS_URL', 'MONGODB_URI', 'SENTRY_DSN', 'FOO_DSN',
+      'DB_PASS', 'DB_PWD', 'APP_CONNECTION_STRING',
+    ]) {
+      expect(scrubbed[k], k).toBeUndefined()
+    }
+    // Bare `PWD` is preserved (only `_PWD` matches).
+    expect(isSensitiveEnvName('PWD')).toBe(false)
+    expect(isSensitiveEnvName('DB_PWD')).toBe(true)
+    expect(isSensitiveEnvName('DATABASE_HOST')).toBe(false)
+  })
+
+  it('drops undefined values (NodeJS.ProcessEnv holes) without keeping them', () => {
+    const scrubbed = scrubSensitiveEnv({ PATH: '/bin', UNSET: undefined })
+    expect(scrubbed.PATH).toBe('/bin')
+    expect('UNSET' in scrubbed).toBe(false)
   })
 })
 

@@ -1,12 +1,18 @@
 import { useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import type { MetricsSummary, MetricsTimeseries, RoutingStats, TimeseriesGroupBy } from '@k/shared'
+import type { MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, RoutingStats, TimeseriesGroupBy } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
-import { formatCompact, formatUsd, weightedSuccessRate, weightedAvgLatencyMs } from '../lib/format-metrics'
+import { formatCompact, formatUsd, tileValue, weightedSuccessRate, weightedErrorRate, weightedAvgLatencyMs } from '../lib/format-metrics'
 import TimeseriesChart from '../components/TimeseriesChart'
+import QualityTrendChart from '../components/QualityTrendChart'
 import MetricCard from '../components/MetricCard'
 import type { Metric } from '../lib/chart'
+
+/** Latency (ms) → '1.2s' for the KPI tiles. */
+function fmtLatencySecs(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`
+}
 
 type Days = 14 | 30 | 60
 
@@ -25,6 +31,7 @@ function SegControl<T extends string>({
         <button
           key={opt.value}
           onClick={() => onChange(opt.value)}
+          aria-pressed={value === opt.value}
           className={cn(
             'rounded px-3 py-1 text-xs font-medium transition-colors duration-150',
             value === opt.value
@@ -110,9 +117,46 @@ function CostBreakdown({
   )
 }
 
+/** Card wrapper around a QualityTrendChart — title + loading/error framing, mirroring
+ *  CostBreakdown so the success-rate + latency trends read as the same family of panels. */
+function TrendCard({
+  title,
+  data,
+  isLoading,
+  error,
+  field,
+  color,
+  format,
+  fixedMax,
+}: {
+  title: string
+  data?: MetricsQualityTimeseries
+  isLoading: boolean
+  error?: unknown
+  field: 'successRate' | 'avgLatencyMs'
+  color: string
+  format: (v: number) => string
+  fixedMax?: number
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{title}</h2>
+      {error ? (
+        <div className="text-sm text-[var(--red)]">{String((error as Error).message ?? error)}</div>
+      ) : isLoading && !data ? (
+        <div className="flex h-[120px] items-center justify-center text-sm text-[var(--muted)]">loading…</div>
+      ) : data ? (
+        <QualityTrendChart data={data} field={field} color={color} format={format} fixedMax={fixedMax} />
+      ) : null}
+    </div>
+  )
+}
+
 export default function MetricsPage() {
   const [groupBy, setGroupBy] = useState<TimeseriesGroupBy>('project')
-  const [days, setDays] = useState<Days>(30)
+  // Default 14d so the chart window matches the pinned "14d · Cost" KPI + the 14-day
+  // summary rollup — one consistent default period across the page (F-083).
+  const [days, setDays] = useState<Days>(14)
   const [metric, setMetric] = useState<Metric>('tokens')
 
   const { data, isLoading, error } = useQuery<MetricsTimeseries>({
@@ -152,8 +196,28 @@ export default function MetricsPage() {
     refetchInterval: 30_000,
     placeholderData: keepPreviousData,
   })
+  // Third cost breakdown: by discipline-lead (the orchestrator that ran each run;
+  // runs with no lead activation fold into 'Unassigned' — W9b F-084). Dedupes on the
+  // shared timeseries key when the page toggle already selects 'lead'.
+  const byLead = useQuery<MetricsTimeseries>({
+    queryKey: ['timeseries', days, 'lead'],
+    queryFn: () => api.metrics.timeseries(days, 'lead'),
+    refetchInterval: 30_000,
+    placeholderData: keepPreviousData,
+  })
+  // Per-day success-rate + latency trend — the time-series companion to the Success /
+  // Avg-latency KPIs (same killed-/parked-excluded definitions, W9b F-087).
+  const quality = useQuery<MetricsQualityTimeseries>({
+    queryKey: ['quality', days],
+    queryFn: () => api.metrics.quality(days),
+    refetchInterval: 30_000,
+    placeholderData: keepPreviousData,
+  })
 
   // Summary-derived tile values (guarded — data is undefined while loading).
+  // `summaryLoading` distinguishes a COLD LOAD from a real zero so a tile shows "—"
+  // instead of a convincing "$0.00 today" before the feed arrives (F-083).
+  const summaryLoading = summary === undefined
   const daily = summary?.daily ?? []
   const todayCost = summary?.today.costUsd ?? 0
   const todayRuns = summary?.today.runs ?? 0
@@ -165,10 +229,16 @@ export default function MetricsPage() {
   // Routing-derived tiles. Each is weighted by the SAME denominator the per-group
   // stat uses — terminal count for success, latency-sample count for latency — NOT
   // total runs, so many non-terminal (active/queued) runs can't drag them down.
+  const routingLoading = routing === undefined
   const groups = routing?.groups ?? []
   const terminalRuns = groups.reduce((sum, g) => sum + g.terminalRuns, 0)
   const successRate = weightedSuccessRate(groups)
+  const errorRate = weightedErrorRate(groups)
   const avgLatencyMs = weightedAvgLatencyMs(groups)
+  // Org-wide active-latency percentiles ride the same routing payload (not weightable
+  // from per-group means — computed server-side over the full sample set, W9b F-086).
+  const latencyP50Ms = routing?.latencyP50Ms ?? 0
+  const latencyP95Ms = routing?.latencyP95Ms ?? 0
 
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -179,19 +249,22 @@ export default function MetricsPage() {
 
       {/* KPI tile row — summary rollups + weighted routing aggregates */}
       <div className="mb-4 flex flex-wrap gap-3">
-        <MetricCard label="Today · Cost" value={formatUsd(todayCost)} spark={daily.map(d => d.costUsd)} />
-        <MetricCard label="Today · Runs" value={String(todayRuns)} spark={daily.map(d => d.runs)} />
-        <MetricCard label="Today · Tokens" value={formatCompact(todayTokens)} spark={daily.map(d => d.tokens)} />
-        <MetricCard label="Active runs" value={String(activeRuns)} accent={activeRuns > 0} />
-        <MetricCard label="Total runs" value={String(totalRuns)} />
-        <MetricCard label="14d · Cost" value={formatUsd(cost14d)} spark={daily.map(d => d.costUsd)} />
+        <MetricCard label="Today · Cost" value={tileValue(summaryLoading, formatUsd(todayCost))} spark={daily.map(d => d.costUsd)} />
+        <MetricCard label="Today · Runs" value={tileValue(summaryLoading, String(todayRuns))} spark={daily.map(d => d.runs)} />
+        <MetricCard label="Today · Tokens" value={tileValue(summaryLoading, formatCompact(todayTokens))} spark={daily.map(d => d.tokens)} />
+        <MetricCard label="Active runs" value={tileValue(summaryLoading, String(activeRuns))} accent={activeRuns > 0} />
+        <MetricCard label="Total runs" value={tileValue(summaryLoading, String(totalRuns))} />
+        <MetricCard label="14d · Cost" value={tileValue(summaryLoading, formatUsd(cost14d))} spark={daily.map(d => d.costUsd)} />
         <MetricCard
           label="Success rate"
-          value={`${(successRate * 100).toFixed(1)}%`}
+          value={tileValue(routingLoading, `${(successRate * 100).toFixed(1)}%`)}
           accent={terminalRuns > 0 && successRate >= 0.9}
           tone="positive"
         />
-        <MetricCard label="Avg latency" value={`${(avgLatencyMs / 1000).toFixed(1)}s`} />
+        <MetricCard label="Avg latency" value={tileValue(routingLoading, fmtLatencySecs(avgLatencyMs))} />
+        <MetricCard label="Latency p50" value={tileValue(routingLoading, fmtLatencySecs(latencyP50Ms))} />
+        <MetricCard label="Latency p95" value={tileValue(routingLoading, fmtLatencySecs(latencyP95Ms))} />
+        <MetricCard label="Error rate" value={tileValue(routingLoading, `${(errorRate * 100).toFixed(1)}%`)} />
       </div>
 
       {/* controls row */}
@@ -200,6 +273,7 @@ export default function MetricsPage() {
           options={[
             { label: 'By Project', value: 'project' },
             { label: 'By Model', value: 'model' },
+            { label: 'By Lead', value: 'lead' },
           ]}
           value={groupBy}
           onChange={setGroupBy}
@@ -241,10 +315,34 @@ export default function MetricsPage() {
         )}
       </div>
 
-      {/* ranked cost breakdowns — both groupings, bars not charts */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      {/* ranked cost breakdowns — all three groupings, bars not charts */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <CostBreakdown title="Cost by model" data={byModel.data} isLoading={byModel.isLoading} error={byModel.error} />
         <CostBreakdown title="Cost by project" data={byProject.data} isLoading={byProject.isLoading} error={byProject.error} />
+        <CostBreakdown title="Cost by lead" data={byLead.data} isLoading={byLead.isLoading} error={byLead.error} />
+      </div>
+
+      {/* success-rate + latency trends — the time-series companion to the single KPIs */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <TrendCard
+          title="Success rate / day"
+          data={quality.data}
+          isLoading={quality.isLoading}
+          error={quality.error}
+          field="successRate"
+          color="var(--green)"
+          format={v => `${Math.round(v * 100)}%`}
+          fixedMax={1}
+        />
+        <TrendCard
+          title="Latency / day"
+          data={quality.data}
+          isLoading={quality.isLoading}
+          error={quality.error}
+          field="avgLatencyMs"
+          color="var(--chart-1)"
+          format={fmtLatencySecs}
+        />
       </div>
     </div>
   )

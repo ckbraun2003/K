@@ -175,6 +175,7 @@ describe('S3 server: initialize / tools/list / tools/call round-trips', () => {
       runId: RUN_WF,
       taskIds: '[]',
       mode: 'combined',
+      workflowId: null,
       status: 'running',
       createdAt: Date.now(),
       completedAt: null,

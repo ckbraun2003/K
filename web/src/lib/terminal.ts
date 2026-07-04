@@ -50,16 +50,34 @@ export function parseServerFrame(raw: string): ServerFrame | null {
   return null
 }
 
-/** Human-readable reason for an error frame's code. */
+/** Human-readable reason for an error frame's code — user-facing, no operator
+ *  env-var jargon (the disabled copy tells the operator it's off, not how to set
+ *  a server flag). Shown once, in the pane overlay. */
 export function errorReason(code: string): string {
   switch (code) {
     case 'disabled':
-      return 'Terminal disabled — set ENABLE_TERMINAL=true to enable it.'
+      return 'The terminal is turned off for this workspace.'
     case 'unauthorized':
       return 'Unauthorized — the terminal token did not match.'
     case 'unavailable':
-      return 'pty unavailable on this platform.'
+      return 'The terminal is unavailable on this platform.'
     default:
       return `Terminal error: ${code}`
+  }
+}
+
+/** A short status-pill label for an error state. The full sentence lives in the
+ *  pane overlay, so the header pill must NOT repeat it (F-008). `null` (a raw
+ *  transport failure with no server code) reads as "Offline". */
+export function errorShort(code: string | null): string {
+  switch (code) {
+    case 'disabled':
+      return 'Off'
+    case 'unauthorized':
+      return 'Unauthorized'
+    case 'unavailable':
+      return 'Unavailable'
+    default:
+      return 'Offline'
   }
 }

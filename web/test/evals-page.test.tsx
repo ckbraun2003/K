@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
-import { SystemMetricsTable, EvalResultsTable, RunSummaryRow } from '../src/pages/EvalsPage'
+import {
+  SystemMetricsTable,
+  EvalResultsTable,
+  RunSummaryRow,
+  FreezeBaselinesButton,
+} from '../src/pages/EvalsPage'
 import type {
   SystemMetrics,
   BaselineCompare,
@@ -159,6 +164,23 @@ describe('EvalResultsTable', () => {
     render(<EvalResultsTable rows={[]} />)
     expect(screen.getByTestId('evals-results-empty')).toBeTruthy()
   })
+
+  it('F-044: the header distinguishes PASSED from COMPLETED when there are failures', () => {
+    // 4 completed rows, only 2 det-passing — the header must NOT read as an all-green "4/4".
+    const rows = [
+      result({ id: 'p1', detPass: 1 }),
+      result({ id: 'p2', detPass: 1 }),
+      result({ id: 'f1', detPass: 0 }),
+      result({ id: 'e1', error: 'dispatch failed', detPass: null }),
+    ]
+    render(<EvalResultsTable rows={rows} />)
+    const tally = screen.getByTestId('evals-results-tally')
+    expect(tally.textContent).toContain('2 passed')
+    expect(tally.textContent).toContain('2 failed')
+    expect(tally.textContent).toContain('4 total')
+    // the passed count is explicitly different from the completed/total count
+    expect(tally.textContent).not.toContain('4 passed')
+  })
 })
 
 // ── RunSummaryRow ──────────────────────────────────────────────────────────────
@@ -185,5 +207,28 @@ describe('RunSummaryRow', () => {
     expect(row.textContent).toContain('running')
     expect(row.textContent).toContain('3/8')
     expect(row.textContent).toContain('$0.42')
+  })
+})
+
+// ── FreezeBaselinesButton ────────────────────────────────────────────────────────
+
+describe('FreezeBaselinesButton', () => {
+  it('is DISABLED for a dry run, with an explanatory title (F-025 follow-up)', () => {
+    render(<FreezeBaselinesButton dry disabled={false} pending={false} onFreeze={() => {}} />)
+    const btn = screen.getByTestId('evals-freeze-baselines') as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    expect(btn.title).toMatch(/dry/i)
+  })
+
+  it('is enabled for a non-dry, ready run', () => {
+    render(<FreezeBaselinesButton dry={false} disabled={false} pending={false} onFreeze={() => {}} />)
+    const btn = screen.getByTestId('evals-freeze-baselines') as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+    expect(btn.title).toBe('')
+  })
+
+  it('stays disabled while pending even for a non-dry run', () => {
+    render(<FreezeBaselinesButton dry={false} disabled pending onFreeze={() => {}} />)
+    expect((screen.getByTestId('evals-freeze-baselines') as HTMLButtonElement).disabled).toBe(true)
   })
 })

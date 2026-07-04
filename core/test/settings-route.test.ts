@@ -68,6 +68,7 @@ describe('buildStatus (pure)', () => {
     tokenSource: 'generated',
     host: '127.0.0.1',
     terminalEnabled: false,
+    credentialPosture: 'managed',
   }
   const probes: StatusProbes = {
     claude: { available: true, version: '1.2.3' },
@@ -84,6 +85,7 @@ describe('buildStatus (pure)', () => {
     expect(s.github).toEqual({ authenticated: true, user: 'octocat' })
     expect(s.auth.tokenSource).toBe('generated')
     expect(s.auth.loopbackOnly).toBe(true) // derived from 127.0.0.1
+    expect(s.auth.credentialPosture).toBe('managed')
     expect(JSON.stringify(s)).not.toMatch(/dev-token|HARNESS_TOKEN/)
     expect(s.voice).toEqual({
       enabled: false, reachable: false, baseUrl: 'http://localhost:9000', model: 'whisper-base.en',
@@ -93,6 +95,13 @@ describe('buildStatus (pure)', () => {
   it('marks a non-loopback host as not loopbackOnly', () => {
     const s = buildStatus(probes, { ...env, host: '0.0.0.0' })
     expect(s.auth.loopbackOnly).toBe(false)
+  })
+
+  it('surfaces the credential posture (host-fallback / disabled) without leaking a secret', () => {
+    expect(buildStatus(probes, { ...env, credentialPosture: 'host-fallback' }).auth.credentialPosture).toBe('host-fallback')
+    const disabled = buildStatus(probes, { ...env, credentialPosture: 'disabled' })
+    expect(disabled.auth.credentialPosture).toBe('disabled')
+    expect(JSON.stringify(disabled)).not.toMatch(/credentials\.json|ANTHROPIC_API_KEY/)
   })
 
   it('voice.reachable reflects the probe result', () => {
@@ -141,6 +150,7 @@ describe('GET /api/status', () => {
       expect(typeof body.ollama.reachable).toBe('boolean')
       expect(typeof body.github.authenticated).toBe('boolean')
       expect(['env', 'generated']).toContain(body.auth.tokenSource)
+      expect(['managed', 'host-fallback', 'disabled']).toContain(body.auth.credentialPosture)
       // never leak the token value
       expect(JSON.stringify(body)).not.toMatch(/dev-token-change-me/)
       // voice section

@@ -218,8 +218,8 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
         >
           {building ? 'Building…' : dataUnavailable ? 'Rebuild' : hasData ? 'Refresh' : 'Build graph'}
         </button>
-        <span className="font-mono text-[10px] text-[var(--muted)]">
-          {graph.nodes.length} nodes · {graph.links.length} edges
+        <span className="font-mono text-[10px] text-[var(--muted)]" data-testid="kg-count-label">
+          {filteredData.nodes.length} nodes · {filteredData.links.length} edges
         </span>
         <div className="ml-auto flex items-center gap-2">
           {building && (

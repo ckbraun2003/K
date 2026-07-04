@@ -128,6 +128,46 @@ describe('buildClaudeArgs', () => {
     expect(args).not.toContain('--allowedTools')
     expect(args).not.toContain('--append-system-prompt-file')
   })
+
+  // W7a — K-secretary session continuity flags. Gated by `sessionId`: a FIRST ask
+  // ESTABLISHES the session (--session-id), a later ask RESUMES it (--resume). A run
+  // with NO sessionId (every regular dispatch) emits NEITHER — argv unchanged.
+  it('sessionId (first ask) appends --session-id <id> right after the base args', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: false, permissionMode: 'acceptEdits', sessionId: 'sess-1' })
+    expect(args).toEqual([...BASE_ARGS, '--session-id', 'sess-1'])
+  })
+
+  it('sessionId + resumeSession appends --resume <id> (not --session-id)', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, { inWorktree: false, permissionMode: 'acceptEdits', sessionId: 'sess-1', resumeSession: true })
+    expect(args).toEqual([...BASE_ARGS, '--resume', 'sess-1'])
+    expect(args).not.toContain('--session-id')
+  })
+
+  it('session flags compose with model + claudeConfig in a fixed order (session, then model, then config)', () => {
+    const args = buildClaudeArgs(BASE_PROMPT, {
+      inWorktree: false, permissionMode: 'acceptEdits', model: 'claude-opus-4-8', sessionId: 'sess-9', resumeSession: true, claudeConfig: CLAUDE_CONFIG,
+    })
+    expect(args).toEqual([
+      ...BASE_ARGS,
+      '--resume', 'sess-9',
+      '--model', 'claude-opus-4-8',
+      '--settings', '/run/cfg/settings.json',
+      '--mcp-config', '/run/cfg/mcp.json',
+      '--strict-mcp-config',
+      '--allowedTools', 'Bash', 'Read', 'Task',
+      '--append-system-prompt-file', '/run/cfg/system-prompt.md',
+    ])
+  })
+
+  it('REGULAR-DISPATCH PROOF: no sessionId → argv carries NEITHER --resume NOR --session-id', () => {
+    for (const inWorktree of [true, false]) {
+      for (const interactive of [true, false]) {
+        const args = buildClaudeArgs(BASE_PROMPT, { inWorktree, permissionMode: 'acceptEdits', interactive, claudeConfig: CLAUDE_CONFIG })
+        expect(args).not.toContain('--resume')
+        expect(args).not.toContain('--session-id')
+      }
+    }
+  })
 })
 
 describe('resolvePermissionMode', () => {

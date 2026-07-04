@@ -52,13 +52,21 @@ import { eventBus } from './events.js'
 import { startAgentRun } from './agent-runs.js'
 import { agentRunsDb, configDb } from './db.js'
 import { getProfile } from './profiles.js'
+import { claudeDefaultModel } from './config-store.js'
+import { warnIfOrgRoleModelNotToolCapable } from './agent-config.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
 
-/** The Chief's default schedule-wake instruction (the `-p` seed for a cron wake). */
+/** The Chief's default schedule-wake instruction (the `-p` seed for a cron wake). Names the
+ *  dispatchable leads inline (F-067) so an autonomously-woken Chief always knows the VALID
+ *  lead identifiers and never invents a discipline like "engineering"; `lead_list` remains the
+ *  authoritative runtime roster. The lead set is fixed by the durable seed (profiles.ts), so a
+ *  static enumeration is safe and keeps this a plain constant. */
 export const DEFAULT_CHIEF_WAKE_GOAL =
   'Autonomous org check-in: review active leads and open objectives with the mgmt read tools ' +
   '(assignment_list, report_list); surface blockers and note any unstaffed work. Report a concise ' +
-  'status; do not dispatch new work yet.'
+  'status; do not dispatch new work yet. The dispatchable leads are Frontend (lead-frontend), ' +
+  'Backend (lead-backend), Systems (lead-systems), Security (lead-security), and Network ' +
+  '(lead-network) — call lead_list for the authoritative roster before assign_lead / dispatch_lead.'
 
 /** Default cron for the Chief's scheduled wake (every 15 minutes). A literal default;
  *  the `CHIEF_WAKE_CRON` env override is read lazily inside startChiefWake() so it can
@@ -111,6 +119,13 @@ export function resetChiefWakeDebounce(): void {
   lastWakeAt = 0
 }
 
+/** Single-line preview of a wake goal for the observability log (F-089): collapse
+ *  whitespace and cap length so a long default instruction stays one readable line. */
+function goalPreview(goal: string, max = 80): string {
+  const oneLine = goal.replace(/\s+/g, ' ').trim()
+  return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine
+}
+
 /**
  * Wake the Chief: activate `startAgentRun('chief', { trigger, goal })` unless a guard
  * blocks it. Never throws — a dispatch failure degrades to {woke:false,reason:'failed'}
@@ -153,8 +168,23 @@ export async function wakeChief(
   lastWakeAt = now
   const goal = opts.goal ?? opts.thread ?? DEFAULT_CHIEF_WAKE_GOAL
 
+  // WARN-ONLY (org-role model capability): a Chief resolved to a haiku-tier model can't
+  // reliably drive the DEFERRED management tools (assign_lead/dispatch_lead/…), so the
+  // autonomous chain silently stalls (live-observed). Surface it once per wake at the
+  // Chief-dispatch choke-point; do NOT change the dispatch — the configured model still
+  // runs with the same tokens/tool grants. Model resolution MIRRORS startAgentRun's
+  // precedence (no per-wake override → the chief profile default → the runtime Claude
+  // default resolved at dispatch time).
+  warnIfOrgRoleModelNotToolCapable('Chief', getProfile('chief')?.defaultModel ?? claudeDefaultModel())
+
   try {
     const { agentRunId, runId } = await startAgentRun('chief', { trigger, goal })
+    // F-089: a wake previously left only DB rows as evidence. Emit ONE routine line at
+    // the successful PASS so an operator can see, in the core log, that the Chief woke —
+    // the trigger, the seeding goal (truncated), and the resulting run + ledger ids.
+    console.log(
+      `[chief-wake] woke chief (trigger=${trigger}, run=${runId}, agentRun=${agentRunId}) goal="${goalPreview(goal)}"`,
+    )
     return { woke: true, agentRunId, runId }
   } catch (e) {
     // startAgentRun already recorded the row 'failed' + re-threw (its rollback

@@ -20,6 +20,7 @@ import { projectsRoutes } from './routes/projects.js'
 import { skillsRoutes } from './routes/skills.js'
 import { chiefRoutes } from './routes/chief.js'
 import { orchestratorsRoutes } from './routes/orchestrators.js'
+import { profilesRoutes } from './routes/profiles.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
@@ -37,7 +38,7 @@ import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
-import { getProject } from './projects.js'
+import { getProject, warnStaleProjectPaths } from './projects.js'
 import { reconcileOnBoot } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
 import { acquireInstanceLock } from './instance-lock.js'
@@ -53,7 +54,8 @@ import {
   unsafeTerminalBootReason,
   type ResolvedToken,
 } from './auth.js'
-import { terminalGate, createTerminalSession, type SpawnPty } from './terminal.js'
+import { terminalGate, createTerminalSession, scrubSensitiveEnv, installConptyStderrFilter, type SpawnPty } from './terminal.js'
+import { credentialPosture } from './agent-config.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
 // loopback by default — Phase 0's security posture assumes localhost-only;
@@ -125,6 +127,7 @@ export async function buildApp() {
   await app.register(skillsRoutes)
   await app.register(chiefRoutes)
   await app.register(orchestratorsRoutes)
+  await app.register(profilesRoutes)
   await app.register(workflowsRoutes)
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
@@ -220,13 +223,20 @@ export async function buildApp() {
     let spawnPty: SpawnPty
     try {
       const pty = await import('node-pty')
+      // F-088: node-pty's ConPTY teardown can print a benign `AttachConsole failed`
+      // stack to stderr. Install the narrow filter now that a pty is actually in use
+      // (idempotent — only the first terminal session installs it).
+      installConptyStderrFilter()
       spawnPty = (shell, cols, rows) =>
         pty.spawn(shell, [], {
           name: 'xterm-color',
           cols,
           rows,
           cwd: process.env.HOME ?? process.cwd(),
-          env: process.env,
+          // SCRUBBED env: the browser shell must never inherit the core's own
+          // credentials (ANTHROPIC_API_KEY / HARNESS_TOKEN / TERMINAL_TOKEN /
+          // cloud keys, …), or `echo $ANTHROPIC_API_KEY` would leak them.
+          env: scrubSensitiveEnv(process.env),
         })
     } catch {
       if (socket.readyState === socket.OPEN) {
@@ -258,6 +268,35 @@ export async function buildApp() {
   return app
 }
 
+/**
+ * Signals on which the single-instance lock is released before exit (F-092). SIGINT
+ * (Ctrl-C) and SIGTERM (kill / `node --watch` restart) apply everywhere; SIGBREAK
+ * (Windows Ctrl-Break) is added ONLY on win32 — POSIX has no such signal name and
+ * registering it there throws. A HARD kill (Windows `Stop-Process` / POSIX SIGKILL) is
+ * UNCATCHABLE by design and cannot release the lock here; the next boot's dead-pid
+ * reclaim in acquireInstanceLock() detects and takes over the stale lock — correct and
+ * self-healing. Pure + parameterized so the signal set is unit-testable on any platform.
+ */
+export function lockReleaseSignals(platform: NodeJS.Platform = process.platform): NodeJS.Signals[] {
+  const sigs: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+  if (platform === 'win32') sigs.push('SIGBREAK')
+  return sigs
+}
+
+/**
+ * Wire `release` to run on process 'exit' and on each termination signal
+ * (lockReleaseSignals) so the instance lock is freed on Ctrl-C / kill / Windows
+ * Ctrl-Break as well as the Fastify onClose graceful path. The 'exit' handler must be
+ * synchronous. Exported so the signal wiring — including the Windows SIGBREAK handler
+ * (F-092) — is unit-testable without booting the server.
+ */
+export function installLockReleaseHandlers(release: () => void): void {
+  process.once('exit', () => release())
+  for (const sig of lockReleaseSignals()) {
+    process.once(sig, () => { release(); process.exit(0) })
+  }
+}
+
 // ── Bootstrap + Listen ────────────────────────────────────────────────────────
 
 async function start() {
@@ -269,15 +308,35 @@ async function start() {
     process.exit(1)
   }
   // Same gate for the web terminal: a host shell must never be reachable on a
-  // non-loopback HOST with a weak/default TERMINAL_TOKEN.
+  // non-loopback HOST with a weak/default TERMINAL_TOKEN — AND, even with a STRONG
+  // token, exposing the shell beyond loopback requires an explicit
+  // TERMINAL_ALLOW_REMOTE opt-in so an accidental LAN bind can't expose it.
   const unsafeTerminal = unsafeTerminalBootReason(
     HOST,
     process.env.ENABLE_TERMINAL === 'true',
     TERMINAL_TOKEN,
+    process.env.TERMINAL_ALLOW_REMOTE === 'true',
   )
   if (unsafeTerminal) {
     console.error(`\n✖ ${unsafeTerminal}\n`)
     process.exit(1)
+  }
+
+  // Credential posture (F-064/F-090): make it VISIBLE once at boot whether K is
+  // authenticating with a managed token or falling back to copying host
+  // ~/.claude credentials into every run (never prints the credential itself).
+  const posture = credentialPosture()
+  if (posture === 'host-fallback') {
+    console.warn(
+      '⚠ K auth: no managed token set — runs will COPY host ~/.claude/.credentials.json ' +
+        '(dogfooding fallback). Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN for a managed ' +
+        'token, or set K_DISABLE_HOST_CREDENTIAL_FALLBACK=true to fail closed instead.',
+    )
+  } else if (posture === 'disabled') {
+    console.warn(
+      '⚠ K auth: no managed token and K_DISABLE_HOST_CREDENTIAL_FALLBACK is set — the host-credential ' +
+        'fallback is OFF, so runs will be UNAUTHENTICATED until a managed token is set.',
+    )
   }
 
   // Single-instance lock (H1/H3): refuse a SECOND core on the same DATA_DIR before
@@ -295,15 +354,19 @@ async function start() {
     process.exit(1)
   }
   releaseInstanceLock = lock.release
-  // Release on process exit too (Fastify onClose covers a graceful close; these
-  // cover Ctrl-C / kill / node --watch restart). 'exit' must be synchronous.
-  process.once('exit', () => releaseInstanceLock?.())
-  process.once('SIGINT', () => { releaseInstanceLock?.(); process.exit(0) })
-  process.once('SIGTERM', () => { releaseInstanceLock?.(); process.exit(0) })
+  // Release the lock on exit + termination signals (Fastify onClose covers a graceful
+  // close; these cover Ctrl-C / kill / node --watch restart / Windows Ctrl-Break). A
+  // HARD Stop-Process / SIGKILL is uncatchable and cannot release the lock here — the
+  // next boot's dead-pid reclaim in acquireInstanceLock() self-heals the stale lock.
+  installLockReleaseHandlers(() => releaseInstanceLock?.())
 
   // Crash recovery: mark runs left `running`/`queued` by a prior crash as
   // interrupted and prune orphaned worktrees, before serving traffic.
   reconcileOnBoot()
+  // F-033: warn once per registered project whose localPath has vanished on disk, so
+  // a silently-broken project surfaces in the boot log (its workspace actions are
+  // disabled in the UI). CLAIM-11-9: one warn/boot.
+  warnStaleProjectPaths()
 
   const app = await buildApp()
   // Bible is recompiled on request + on merge/push (see ensureHarnessBibleRegistered);

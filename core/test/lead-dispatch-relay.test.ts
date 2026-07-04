@@ -263,6 +263,43 @@ describe('drainLeadDispatches: Chief→K report continuation', () => {
   })
 })
 
+// ── org-role model capability warn-only (fix-a, lead choke-point) ─────────────
+
+describe('drainLeadDispatches: warns (only) when a lead resolves to a haiku model (fix-a)', () => {
+  it('a lead dispatched with a haiku-tier model triggers the warn-only org warning', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Pin lead-frontend to a haiku model (a lead dispatch passes no per-run model, so the
+    // profile default is what startAgentRun resolves — same precedence the warn mirrors).
+    db.prepare(`UPDATE agent_profiles SET default_model = ? WHERE id = 'lead-frontend'`).run('claude-haiku-4-5-20251001')
+    try {
+      recordIntent('RELAY-HAIKU-WARN')
+      await drainLeadDispatches()
+      const orgWarn = warn.mock.calls.map(c => String(c[0])).find(m => m.includes('[org]') && m.includes('lead-frontend'))
+      expect(orgWarn).toBeDefined()
+      expect(orgWarn!).toContain('claude-haiku-4-5-20251001')
+      expect(orgWarn!).toMatch(/deferred management tools/i)
+    } finally {
+      db.prepare(`UPDATE agent_profiles SET default_model = '' WHERE id = 'lead-frontend'`).run()
+      warn.mockRestore()
+    }
+  })
+
+  it('a lead dispatched with an opus/sonnet model triggers NO org warning; dispatch is unchanged', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    db.prepare(`UPDATE agent_profiles SET default_model = ? WHERE id = 'lead-frontend'`).run('claude-opus-4-8')
+    try {
+      const { assignmentId } = recordIntent('RELAY-OPUS-NOWARN')
+      expect(await drainLeadDispatches()).toBe(1) // dispatch still happens (warn-only)
+      expect(String(assignmentLeadRun(assignmentId))).toMatch(/^mock-relay-run-/)
+      const orgWarn = warn.mock.calls.map(c => String(c[0])).find(m => m.includes('[org]'))
+      expect(orgWarn).toBeUndefined()
+    } finally {
+      db.prepare(`UPDATE agent_profiles SET default_model = '' WHERE id = 'lead-frontend'`).run()
+      warn.mockRestore()
+    }
+  })
+})
+
 // ── 5. startLeadDispatchRelay wiring ─────────────────────────────────────────
 
 describe('startLeadDispatchRelay', () => {

@@ -28,9 +28,11 @@ import { REPO_ROOT } from '../supervisor.js'
 import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
+import { credentialPosture, type CredentialPosture } from '../agent-config.js'
 import { probeWhisper } from '../transcription.js'
-import { GrantError } from '../authority.js'
+import { GrantError, resolveAuthority } from '../authority.js'
 import { getProfile, updateProfile } from '../profiles.js'
+import { sendError, sendZodError, describePatchRejection } from './http-errors.js'
 
 // ── System-prompt file location ───────────────────────────────────────────────
 
@@ -104,6 +106,7 @@ export interface StatusEnv {
   tokenSource: 'env' | 'generated'
   host: string
   terminalEnabled: boolean
+  credentialPosture: CredentialPosture
 }
 
 /** Pure shaping of the /status response from already-resolved probe + env state.
@@ -123,6 +126,7 @@ export function buildStatus(probes: StatusProbes, env: StatusEnv): Status {
       host: env.host,
       loopbackOnly: isLoopbackHost(env.host),
       terminalEnabled: env.terminalEnabled,
+      credentialPosture: env.credentialPosture,
     },
     voice: {
       enabled: env.voiceEnabled,
@@ -190,6 +194,7 @@ function liveStatusEnv(): StatusEnv {
     tokenSource: harnessTokenSource(),
     host: process.env.HOST ?? '127.0.0.1',
     terminalEnabled: process.env.ENABLE_TERMINAL === 'true',
+    credentialPosture: credentialPosture(),
   }
 }
 
@@ -243,15 +248,13 @@ export async function settingsRoutes(app: FastifyInstance) {
   // block, back up the prior file. Schema-locked body (extra key / oversize → 400).
   app.put('/api/system-prompt', async (req, reply) => {
     const parsed = SystemPromptBodySchema.safeParse(req.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    if (!parsed.success) return sendZodError(reply, parsed.error)
 
     // The human region must never contain the gitnexus block markers: a stray
     // start/end marker would be re-classified as "block" on the next GET, silently
     // swallowing everything after it. Reject rather than corrupt the round-trip.
     if (parsed.data.md.includes(GITNEXUS_START) || parsed.data.md.includes(GITNEXUS_END)) {
-      return reply
-        .status(400)
-        .send({ error: 'The system prompt body must not contain gitnexus block markers.' })
+      return sendError(reply, 400, 'The system prompt body must not contain gitnexus block markers.')
     }
 
     const target = systemPromptPath()
@@ -302,7 +305,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     } catch (e) {
       await fs.unlink(tmp).catch(() => {})
       app.log.error(`[settings] system-prompt write failed: ${e instanceof Error ? e.message : e}`)
-      return reply.status(500).send({ error: 'Failed to write system prompt.' })
+      return sendError(reply, 500, 'Failed to write system prompt.')
     }
 
     return reply.send({ savedAt: Date.now() })
@@ -313,7 +316,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   // happen post-seed).
   app.get('/api/org-default', async (_req, reply) => {
     const profile = getProfile(ORG_DEFAULT_ID)
-    if (!profile) return reply.status(404).send({ error: 'not found' })
+    if (!profile) return sendError(reply, 404, 'not found')
     return reply.send(profile)
   })
 
@@ -324,9 +327,10 @@ export async function settingsRoutes(app: FastifyInstance) {
   // (unseeded) → 404.
   app.patch('/api/org-default', async (req, reply) => {
     const parsed = OrgDefaultPatchSchema.safeParse(req.body)
-    if (!parsed.success) return reply.status(400).send({ error: 'invalid patch' })
+    // Name the offending field(s) (F-024) — a tier/charter move hears WHY it was rejected.
+    if (!parsed.success) return sendError(reply, 400, describePatchRejection(parsed.error, ['tier', 'charter']))
     if (Object.keys(parsed.data).length === 0) {
-      return reply.status(400).send({ error: 'empty patch' })
+      return sendError(reply, 400, 'empty patch')
     }
     // defaultModel must be a known Claude model id (same gate as PUT /api/claude/model);
     // null explicitly CLEARS the override back to the runtime default. '' normalizes to
@@ -334,15 +338,32 @@ export async function settingsRoutes(app: FastifyInstance) {
     // (db.ts rowToAgentProfile), so it must clear, never 400.
     if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
     if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
-      return reply.status(400).send({ error: 'unknown model' })
+      return sendError(reply, 400, 'unknown model')
+    }
+    // Skills must exist in the tier's authored skill set (F-049). The tier bundle is
+    // the synthesizer's CEILING — agent-config.ts throws at DISPATCH time on a profile
+    // skill outside it. Validate here at the edit boundary so an unregistered skill
+    // gets a clear 400 instead of being stored silently and breaking the next run.
+    if (parsed.data.skills) {
+      const profile = getProfile(ORG_DEFAULT_ID)
+      if (!profile) return sendError(reply, 404, 'not found')
+      const available = new Set(resolveAuthority(profile.tier).skills)
+      const unknown = parsed.data.skills.filter(s => !available.has(s))
+      if (unknown.length > 0) {
+        return sendError(
+          reply,
+          400,
+          `unknown skill(s): ${unknown.join(', ')} — not in the ${profile.tier} tier skill set`,
+        )
+      }
     }
     try {
       const updated = updateProfile(ORG_DEFAULT_ID, parsed.data)
-      if (!updated) return reply.status(404).send({ error: 'not found' })
+      if (!updated) return sendError(reply, 404, 'not found')
       return reply.send(updated)
     } catch (e) {
       // Typed guard signal → 400 with the message verbatim; anything else → 500.
-      if (e instanceof GrantError) return reply.status(400).send({ error: e.message })
+      if (e instanceof GrantError) return sendError(reply, 400, e.message)
       throw e
     }
   })

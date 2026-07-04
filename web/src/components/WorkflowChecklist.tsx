@@ -1,5 +1,6 @@
 import type { WorkflowStep, WorkflowRun } from '@k/shared'
 import { cn } from '../lib/cn'
+import { linkify } from '../lib/linkify'
 
 /** Glyph + colour per step status — the at-a-glance checklist state. */
 const STATUS: Record<WorkflowStep['status'], { icon: string; cls: string }> = {
@@ -69,7 +70,7 @@ export default function WorkflowChecklist({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className={cn(s.status === 'done' && 'text-[var(--muted)] line-through')}>{s.label}</span>
-                  {s.detail && <span className="ml-2 text-[var(--muted)]">— {s.detail}</span>}
+                  {s.detail && <span className="ml-2 text-[var(--muted)]">— {linkify(s.detail)}</span>}
                 </span>
                 <span className={cn('shrink-0 text-[10px] uppercase tracking-wide', st.cls)}>
                   {s.status.replace(/_/g, ' ')}

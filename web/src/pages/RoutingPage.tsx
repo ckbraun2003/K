@@ -22,11 +22,21 @@ export function formatSuccessRate(rate: number): string {
   return `${Math.round(rate * 100)}%`
 }
 
-/** Cost → '$0.0123' / '$0' / '$1.50'. Non-finite → '—'. */
+/** Cost → '$0.0123' / '$0' / '$1.50'. Non-finite → '—'. Used for the Avg-$ column,
+ *  where sub-cent per-run averages need 4dp precision. */
 export function formatCost(v: number): string {
   if (!Number.isFinite(v)) return '—'
   if (v === 0) return '$0'
   if (v < 1) return `$${v.toFixed(4)}`
+  return `$${v.toFixed(2)}`
+}
+
+/** Total-cost column formatter: ALWAYS 2 decimals so values align down the column
+ *  ($0.26 beside $2.55 beside $0.00) instead of formatCost's mixed 4dp/2dp/'$0'
+ *  precision (F-083). Non-finite → '—'. Totals are aggregates where 2dp reads clean;
+ *  Avg-$ keeps formatCost's sub-cent precision. */
+export function formatCostTotal(v: number): string {
+  if (!Number.isFinite(v)) return '—'
   return `$${v.toFixed(2)}`
 }
 
@@ -45,6 +55,7 @@ function SegControl<T extends string>({
         <button
           key={opt.value}
           onClick={() => onChange(opt.value)}
+          aria-pressed={value === opt.value}
           className={cn(
             'rounded px-3 py-1 text-xs font-medium transition-colors duration-150',
             value === opt.value
@@ -143,7 +154,7 @@ export default function RoutingPage() {
                         <td className="px-3 py-2 text-right text-[var(--text)]">{g.runs}</td>
                         <td className="px-3 py-2 text-right text-[var(--text)]">{formatSuccessRate(g.successRate)}</td>
                         <td className="px-3 py-2 text-right text-[var(--muted)]">{formatCost(g.avgCostUsd)}</td>
-                        <td className="px-3 py-2 text-right text-[var(--text)]">{formatCost(g.totalCostUsd)}</td>
+                        <td className="px-3 py-2 text-right text-[var(--text)]">{formatCostTotal(g.totalCostUsd)}</td>
                         <td className="px-3 py-2 text-right text-[var(--muted)]">{formatLatency(g.avgLatencyMs)}</td>
                       </tr>
                     ))}

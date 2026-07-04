@@ -15,7 +15,8 @@ export function loadSystems({ root, only } = {}) {
   const base = root || repoRoot()
   const regPath = path.join(base, 'testing', 'eval', 'systems.json')
   const registry = JSON.parse(readFileSync(regPath, 'utf8'))
-  const onlySet = only && only.length ? new Set(only) : null
+  // Mirror of the core loaders (F-014): only null/undefined means "all"; an explicit [] selects nothing.
+  const onlySet = only ? new Set(only) : null
   const out = []
   for (const s of registry.systems) {
     if (onlySet && !onlySet.has(s.id)) continue

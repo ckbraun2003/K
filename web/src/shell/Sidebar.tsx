@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { Run } from '@k/shared'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
-import { RUNS_LIST_KEY, runsListQueryFn } from '../lib/runs-query'
+import { RUNS_LIST_KEY, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
 
 export interface Destination {
   id: string
@@ -67,11 +67,14 @@ export default function Sidebar({
   const observe = primary.filter(d => d.group === 'observe')
   const footer = DESTINATIONS.filter(d => d.section === 'footer')
 
-  // Active-runs count for the Runs badge — the SAME shared default-list key/fn
-  // ActivityStrip's live query uses (runs-query.ts), so this adds zero fetches;
-  // the predicate matches ActivityStrip's "active" definition.
+  // Runs-badge counts from the SAME shared default-list key/fn ActivityStrip's
+  // live query uses (runs-query.ts), so this adds zero fetches; the predicates
+  // match ActivityStrip's definitions. Parked (awaiting_input) runs count too —
+  // an empty badge next to a run needing input hid it entirely (F-055).
   const { data: runs = [] } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn })
-  const activeRuns = runs.filter(r => r.status === 'running' || r.status === 'queued').length
+  const activeRuns = runs.filter(isActiveRun).length
+  const parkedRuns = runs.filter(isParkedRun).length
+  const badgeCount = activeRuns + parkedRuns
 
   // Uppercase tracked group label — only rendered when the rail is expanded.
   const groupLabel = (text: string) => (
@@ -110,12 +113,19 @@ export default function Sidebar({
           {d.icon}
         </span>
         {!collapsed && <span className="truncate">{d.label}</span>}
-        {!collapsed && d.id === 'runs' && activeRuns > 0 && (
+        {!collapsed && d.id === 'runs' && badgeCount > 0 && (
           <span
             data-testid="sidebar-runs-badge"
-            className="ml-auto rounded bg-[var(--raised)] px-1.5 text-[10px] font-semibold text-[var(--accent-hover)]"
+            title={parkedRuns > 0 ? `${parkedRuns} run${parkedRuns > 1 ? 's' : ''} awaiting your input` : undefined}
+            className={cn(
+              'ml-auto rounded px-1.5 text-[10px] font-semibold',
+              // Amber = attention: at least one run is parked awaiting input.
+              parkedRuns > 0
+                ? 'bg-amber/20 text-[var(--amber)]'
+                : 'bg-[var(--raised)] text-[var(--accent-hover)]',
+            )}
           >
-            {activeRuns}
+            {badgeCount}
           </span>
         )}
       </button>
@@ -129,10 +139,13 @@ export default function Sidebar({
         collapsed ? 'items-center px-2' : 'px-2.5'
       )}
     >
+      {/* The expand/collapse toggle stays in the header in BOTH states (F-011) —
+          collapsed stacks it under the logo, expanded sits it to the right — so
+          it never jumps to a different spot in the rail between states. */}
       <div
         className={cn(
-          'mb-3 flex items-center',
-          collapsed ? 'justify-center' : 'justify-between px-1'
+          'mb-3 flex',
+          collapsed ? 'flex-col items-center gap-2' : 'items-center justify-between px-1'
         )}
       >
         <div className="flex items-center gap-2">
@@ -144,17 +157,15 @@ export default function Sidebar({
             </div>
           )}
         </div>
-        {!collapsed && (
-          <button
-            onClick={onToggleCollapse}
-            aria-label="Collapse sidebar"
-            aria-expanded={true}
-            title="Collapse sidebar"
-            className="flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] transition-colors hover:bg-[var(--raised)] hover:text-[var(--accent-hover)]"
-          >
-            «
-          </button>
-        )}
+        <button
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] transition-colors hover:bg-[var(--raised)] hover:text-[var(--accent-hover)]"
+        >
+          {collapsed ? '»' : '«'}
+        </button>
       </div>
 
       {/* Direct — talk to / drive the org. */}
@@ -172,17 +183,6 @@ export default function Sidebar({
 
       <div className="flex-1" />
 
-      {collapsed && (
-        <button
-          onClick={onToggleCollapse}
-          aria-label="Expand sidebar"
-          aria-expanded={false}
-          title="Expand sidebar"
-          className="mb-1 flex h-9 w-10 items-center justify-center rounded-control text-[var(--muted)] transition-colors hover:bg-[var(--raised)] hover:text-[var(--accent-hover)]"
-        >
-          »
-        </button>
-      )}
       {footer.map(renderButton)}
     </nav>
   )

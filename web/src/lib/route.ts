@@ -13,9 +13,18 @@ export function isKnownView(view: string): boolean {
   return KNOWN_VIEWS.has(view)
 }
 
-function parse(): Route {
-  const segs = window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean)
+/** Parse a raw location.hash into a Route. Exported (pure) for testing; `parse`
+ *  feeds it window.location.hash. A query suffix within the hash (#/metrics?foo=bar)
+ *  is stripped BEFORE splitting so the view is 'metrics', not 'metrics?foo=bar' →
+ *  NotFound (F-083). The query itself is ignored — no route consumes it today. */
+export function parseHash(hash: string): Route {
+  const path = hash.replace(/^#\/?/, '').split('?')[0]
+  const segs = path.split('/').filter(Boolean)
   return { view: segs[0] || 'home', param: segs[1], subParam: segs[2] }
+}
+
+function parse(): Route {
+  return parseHash(window.location.hash)
 }
 
 export function navigate(view: string, param?: string, subParam?: string) {

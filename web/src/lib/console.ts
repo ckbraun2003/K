@@ -102,6 +102,63 @@ export function isPending(item: ToolItem): boolean {
   return item.result == null
 }
 
+/** The render kinds ToolCall discriminates on (mirrors AgentEvent.toolKind). */
+export type ToolKind = 'command' | 'file' | 'delegate' | 'other'
+
+/** Tool NAMES whose input is a shell command (an `input.command` string) and so
+ *  should render as a command card. The core classifier only tags `Bash` as
+ *  'command'; PowerShell/pwsh land as 'other', hiding the command from the card
+ *  header (F-078). Matched case-insensitively on the display side so already-
+ *  indexed events upgrade without a re-analyze. */
+const COMMAND_TOOL_NAMES = new Set(['bash', 'powershell', 'pwsh', 'sh'])
+
+/** True when a tool's name marks it as a shell-command tool (Bash/PowerShell/…). */
+export function isCommandTool(name: string | undefined): boolean {
+  return COMMAND_TOOL_NAMES.has((name ?? '').toLowerCase())
+}
+
+/**
+ * The render kind for a tool item. Trusts the core-assigned `toolKind` when it is
+ * specific, but UPGRADES a name-recognized shell tool the classifier tagged
+ * 'other' (e.g. PowerShell) to 'command' so its command shows in the header just
+ * like Bash (F-078). Never downgrades a known kind.
+ */
+export function resolveToolKind(item: ToolItem): ToolKind {
+  const stored = item.call.toolKind
+  if (stored && stored !== 'other') return stored
+  if (isCommandTool(item.call.tool)) return 'command'
+  return stored ?? 'other'
+}
+
+// Input keys, in priority order, that carry a tool's SALIENT argument — the one
+// value worth showing in a card header (Read → file_path, ToolSearch → query, an
+// mcp__ tool → its title/name/query, etc.).
+const SALIENT_ARG_KEYS = [
+  'file_path', 'path', 'notebook_path',
+  'pattern', 'query', 'command', 'url',
+  'title', 'name', 'subject', 'description', 'prompt', 'text', 'message',
+]
+
+/**
+ * A short summary of a tool's salient INPUT argument for the card header, so any
+ * tool shows what it acted on instead of empty parens — `Read()` → the path,
+ * `ToolSearch()` → the query, `mcp__kstore__lesson_propose()` → its key arg
+ * (F-063). Prefers a known key, else the first non-empty string field (labeled).
+ * Returns '' when nothing salient is present. Never throws.
+ */
+export function toolArgSummary(item: ToolItem): string {
+  const input = asRecord(item.call.toolInput)
+  for (const k of SALIENT_ARG_KEYS) {
+    const v = asString(input[k])
+    if (v != null && v.length > 0) return v
+  }
+  for (const key of Object.keys(input)) {
+    const v = asString(input[key])
+    if (v != null && v.length > 0) return `${key}: ${v}`
+  }
+  return ''
+}
+
 /** True only when the result is EXPLICITLY flagged as an error (tri-state). */
 export function isError(item: ToolItem): boolean {
   return item.result?.toolResultIsError === true

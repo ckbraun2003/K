@@ -26,9 +26,10 @@ export function groupFindings(findings: Finding[]): { severity: Severity; items:
 }
 
 // Fraction [0,1] of a breakdown value against its weighted max. Clamped so a
-// malformed/over-max value can never blow past a full bar.
-export function barPct(value: number, max: number): number {
-  if (max <= 0) return 0
+// malformed/over-max value can never blow past a full bar. A null value (the
+// dimension was UNMEASURED — excluded from the score) renders as an empty bar.
+export function barPct(value: number | null, max: number): number {
+  if (value == null || max <= 0) return 0
   const r = Math.max(0, Math.min(1, value / max))
   return Number.isFinite(r) ? r : 0
 }
@@ -53,8 +54,10 @@ export function formatTimeAgo(ts: number | undefined, now: number = Date.now()):
   return rel === 'just now' ? 'verified just now' : `verified ${rel}`
 }
 
-// Score → Tailwind color class.
-export function scoreColor(score: number): string {
+// Score → Tailwind color class. null (insufficient signal — no dimension measured)
+// renders muted, matching the "—" the UI shows for a null score.
+export function scoreColor(score: number | null): string {
+  if (score == null) return 'text-[var(--muted)]'
   if (score >= 75) return 'text-[var(--green)]'
   if (score >= 50) return 'text-[var(--amber)]'
   return 'text-[var(--red)]'
@@ -71,4 +74,21 @@ export const SEVERITY_DOT: Record<Severity, string> = {
 export function latestReport(reports: VerificationReport[]): VerificationReport | undefined {
   if (reports.length === 0) return undefined
   return [...reports].sort((a, b) => b.startedAt - a.startedAt)[0]
+}
+
+// Score-trend marker for a report vs the chronologically-previous one: ' ▲' improved,
+// ' ▼' regressed, ' =' unchanged, '' when there is no prior report. Shared by the
+// workspace Verification tab AND the standalone verify page so the two render the
+// history identically (F-052 — the '=' delta marker previously existed only on the tab).
+export function trendIndicator(reports: VerificationReport[], id: string): string {
+  const sorted = [...reports].sort((a, b) => b.startedAt - a.startedAt)
+  const idx = sorted.findIndex(r => r.id === id)
+  if (idx < 0 || idx === sorted.length - 1) return ''
+  const prev = sorted[idx + 1].score
+  const curr = sorted[idx].score
+  // No trend when either report had insufficient signal (null score) — nothing to compare.
+  if (prev == null || curr == null) return ''
+  if (curr > prev) return ' ▲'
+  if (curr < prev) return ' ▼'
+  return ' ='
 }

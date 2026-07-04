@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import { terminalTokenDefine, harnessTokenDefine, devAutoAuthEnabled, devProxyAuthHeader } from './src/lib/vite-token-defines'
 
 // Isolation knobs (default to the production-equivalent single-stack values).
 // The e2e swarm boots N stacks in parallel by overriding CORE_PORT/WEB_PORT per
@@ -16,34 +17,32 @@ const WEB_PORT = Number(process.env.WEB_PORT ?? 5173)
 // Overridable via WEB_HOST (e.g. 0.0.0.0 for LAN exposure).
 const WEB_HOST = process.env.WEB_HOST ?? '127.0.0.1'
 
-// The dev convenience harness token — the ONLY value we ever bake into the
-// bundle. If HARNESS_TOKEN is set to a real (non-dev) value during `vite build`
-// we must NOT compile it in: define it as the literal `undefined` instead, so a
-// production build is inert and the runtime login (sessionStorage) is the sole
-// source of the real token. Enforced here in code, not just by discipline.
-const DEV_HARNESS_TOKEN = 'dev-token-change-me'
-const harnessTokenDefine =
-  process.env.HARNESS_TOKEN && process.env.HARNESS_TOKEN !== DEV_HARNESS_TOKEN
-    ? 'undefined'
-    : JSON.stringify(process.env.HARNESS_TOKEN ?? DEV_HARNESS_TOKEN)
-
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react()],
   // The terminal WS upgrade can't carry an auth header, so its token is passed
   // as a query param — exposed to the client here. NOTE: this is the SCOPED
   // TERMINAL_TOKEN, never HARNESS_TOKEN — so a leaked bundle grants only terminal
   // access (a default-off feature), not the full REST API.
   define: {
-    'import.meta.env.VITE_TERMINAL_TOKEN': JSON.stringify(
-      process.env.TERMINAL_TOKEN ?? 'dev-terminal-token',
-    ),
+    // Never bake a REAL terminal token into any bundle, and never bake ANY token
+    // (not even the dev literal) into a PROD build — emit `undefined` so the token
+    // is injected at runtime (like the harness login). Only a dev server (vite
+    // serve) with no real token gets the dev literal. Enforced in code, not by
+    // discipline (see src/lib/vite-token-defines.ts).
+    'import.meta.env.VITE_TERMINAL_TOKEN': terminalTokenDefine({
+      isDev: command === 'serve',
+      token: process.env.TERMINAL_TOKEN,
+    }),
     // Dev-only harness token, exposed so the authenticated /ws gateway works
     // under `pnpm dev` with no login. Mirrors the value the /api proxy injects
-    // (below), so loopback dev is zero-friction. A real HARNESS_TOKEN is NEVER
-    // baked in: when one is set this define is the literal `undefined` (see
-    // harnessTokenDefine above), so the real token reaches the client only via
-    // the runtime login (sessionStorage). Enforced in code, not by discipline.
-    'import.meta.env.VITE_HARNESS_TOKEN': harnessTokenDefine,
+    // (below), so loopback dev is zero-friction. NEVER baked into a PROD build (nor
+    // is a real token ever baked): a prod build emits `undefined`, so the real token
+    // reaches the client only via the runtime login (sessionStorage). Enforced in
+    // code, not by discipline (see src/lib/vite-token-defines.ts).
+    'import.meta.env.VITE_HARNESS_TOKEN': harnessTokenDefine({
+      isDev: command === 'serve',
+      token: process.env.HARNESS_TOKEN,
+    }),
     // Core port for the WS client (the /ws upgrade is direct, not proxied).
     // Defaults to 3001; the e2e harness overrides it per isolated stack.
     'import.meta.env.VITE_CORE_PORT': JSON.stringify(CORE_PORT),
@@ -61,8 +60,16 @@ export default defineConfig({
         target: `http://localhost:${CORE_PORT}`,
         changeOrigin: true,
         configure: (proxy) => {
+          // F-086: auto-inject a Bearer so loopback `pnpm dev` needs no login — UNLESS
+          // VITE_DEV_AUTOAUTH=0, which suppresses the injection so a dev can exercise the
+          // real 401 login gate. Default (flag unset) = today's behavior. (The /ws gateway
+          // is separately auto-authed via VITE_HARNESS_TOKEN and is not affected here.)
+          const authHeader = devProxyAuthHeader({
+            autoAuth: devAutoAuthEnabled(process.env),
+            token: process.env.HARNESS_TOKEN,
+          })
           proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('Authorization', `Bearer ${process.env.HARNESS_TOKEN ?? 'dev-token-change-me'}`)
+            if (authHeader) proxyReq.setHeader('Authorization', authHeader)
           })
           // Core can still be booting (node --watch) while Vite is already serving.
           // Degrade gracefully: return 503 instead of an opaque 500, and throttle
@@ -83,4 +90,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

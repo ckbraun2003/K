@@ -47,9 +47,12 @@ export default function ProjectWorkspace({
     queryKey: ['projects'],
     queryFn: api.projects.list,
   })
+  // Declared before any early return so the hook order is stable across a
+  // projectId change (the route param can flip on the same mounted instance).
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   const project = projects.find(p => p.id === projectId)
-  const projectName = project?.name ?? (projectsLoaded ? 'Project not found' : 'Project')
+  const projectName = project?.name ?? 'Project'
 
   if (!projectId) {
     return (
@@ -59,7 +62,40 @@ export default function ProjectWorkspace({
     )
   }
 
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
+  // Once the project list has loaded and the id still matches nothing, render a
+  // clean not-found — and crucially DO NOT render the tab bar / action buttons,
+  // which would otherwise POST against a nonexistent id and spray console errors
+  // from each tab's own failing query (F-003).
+  if (projectsLoaded && !project) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-3">
+          <button
+            onClick={() => navigate('projects')}
+            className="text-xs text-[var(--muted)] transition-colors duration-150 hover:text-[var(--text)]"
+            aria-label="Back to fleet"
+          >
+            ← Fleet
+          </button>
+          <span className="text-[var(--border)]">/</span>
+          <h2 className="text-sm font-semibold text-[var(--text)]">Project not found</h2>
+        </div>
+        <div
+          data-testid="project-not-found"
+          className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center"
+        >
+          <p className="text-sm text-[var(--text)]">This project doesn’t exist or was removed.</p>
+          <button
+            onClick={() => navigate('projects')}
+            className="mt-1 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+          >
+            ← Back to fleet
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   const goTab = (id: TabId) => navigate('project', projectId, id)
   const goBack = () => navigate('projects')
 

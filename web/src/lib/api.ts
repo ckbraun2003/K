@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -23,10 +23,23 @@ export type OrchestratorPatch = Partial<
 >
 
 /** The named-workflow patch (PATCH /api/workflows/:id). Mirrors the backend zod schema —
- *  the fields the WorkflowDetail editor mutates (name/scaffold/cross-project/roles). */
+ *  the fields the WorkflowDetail editor mutates (name/scaffold/cross-project). `roles` are
+ *  READ-ONLY (CLAIM-04-2): the editor renders them but never patches them, and the backend
+ *  now rejects a stray `roles` key (F-015), so it is excluded here to keep the mirror honest. */
 export type NamedWorkflowPatch = Partial<
-  Pick<NamedWorkflow, 'name' | 'roles' | 'promptScaffold' | 'crossProject'>
+  Pick<NamedWorkflow, 'name' | 'promptScaffold' | 'crossProject'>
 >
+
+/** One editable bible section — mirrors core's BibleSectionView (bible.ts). The body
+ *  is the markdown AFTER the frontmatter; the editor round-trips just the body. */
+export interface BibleSectionView {
+  slug: string
+  title: string
+  icon: string
+  status: string
+  updated: string
+  body: string
+}
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
 export interface OnboardResult {
@@ -123,6 +136,16 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
+    // A bible is edited by section (its source of truth) — never as combined md, which
+    // the recompile would overwrite. `sections` lists a bible's editable sections;
+    // `saveSection` writes one section's body back and recompiles server-side.
+    sections: (slug: string) => req<{ sections: BibleSectionView[] }>(`/artifacts/${slug}/sections`),
+    saveSection: (slug: string, sectionSlug: string, body: string) =>
+      req<{ slug: string; section: string; compiledAt: number }>(`/artifacts/${slug}/sections/${sectionSlug}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      }),
     compileBible: () =>
       req<{ htmlPath: string; sections: string[]; compiledAt: number }>('/bible/compile', {
         method: 'POST',
@@ -133,6 +156,9 @@ export const api = {
     timeseries: (days: number, groupBy: TimeseriesGroupBy) =>
       req<MetricsTimeseries>(`/metrics/timeseries?days=${days}&groupBy=${groupBy}`),
     routing: (days = 30) => req<RoutingStats>(`/metrics/routing?days=${days}`),
+    // Per-day success-rate + active-latency trend (the time-series companion to the
+    // Success/Avg-latency KPIs). Same killed-/parked-excluded definitions (W9b).
+    quality: (days = 30) => req<MetricsQualityTimeseries>(`/metrics/quality?days=${days}`),
   },
   projects: {
     list: () => req<Project[]>('/projects'),
@@ -235,8 +261,20 @@ export const api = {
       }),
     delete: (id: string) =>
       req<void>(`/skills/${id}`, { method: 'DELETE' }),
-    trigger: (id: string) =>
-      req<{ skillRunId: string; runId: string }>(`/skills/${id}/trigger`, { method: 'POST' }),
+    // Optional projectId (F-069): run the skill against a chosen registered project; omitted
+    // → runs against K. Only sends a JSON body when a project is selected (a bare POST stays
+    // bodyless, exactly as before).
+    trigger: (id: string, projectId?: string) =>
+      req<{ skillRunId: string; runId: string }>(
+        `/skills/${id}/trigger`,
+        projectId
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ projectId }),
+            }
+          : { method: 'POST' },
+      ),
     test: (id: string) =>
       req<{ evalId: string; runId: string }>(`/skills/${id}/test`, { method: 'POST' }),
     evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),
@@ -268,6 +306,12 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       }),
+  },
+  // Durable agent profiles (read-only) — GET /api/profiles returns every seeded profile
+  // (K, Chief, the org-default, and the five discipline leads). The Memory filter sources
+  // its lead-roster options from this so every lead appears even with zero lessons (F-081).
+  profiles: {
+    list: () => req<AgentProfile[]>('/profiles'),
   },
   // Named workflow definitions (P5.3b) — the operator-editable workflow templates
   // (list · one-detail · edit). `update` is a read-merge-write patch server-side.
@@ -405,6 +449,14 @@ export const api = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, ...opts }),
+      }),
+    // Undo a just-started ask (F-060): kills the run AND removes the dangling turns it
+    // appended, so the undone message is never replayed. Replaces a bare runs.kill.
+    undo: (runId: string) =>
+      req<{ undone: boolean }>('/k/undo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId }),
       }),
     thread: () => req<{ thread: KThread; turns: KThreadTurn[] }>('/k/thread'),
     notes: () => req<Note[]>('/k/notes'),

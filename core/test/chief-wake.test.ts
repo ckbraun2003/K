@@ -237,6 +237,33 @@ describe('wakeChief', () => {
     expect(chiefWakes().some(r => r.status === 'running')).toBe(false)
   })
 
+  it('f) F-089: a successful wake logs ONE observability line; a debounced tick does not', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const T = Date.now()
+      const first = await wakeChief('schedule', { goal: 'p89-log', now: T })
+      expect(first.woke).toBe(true)
+      if (!first.woke) throw new Error('expected woke')
+
+      // The success PASS logged exactly one `[chief-wake] woke chief` line naming the
+      // trigger + resulting run id.
+      const wokeLines = logSpy.mock.calls
+        .map(c => String(c[0]))
+        .filter(l => l.includes('[chief-wake] woke chief'))
+      expect(wokeLines).toHaveLength(1)
+      expect(wokeLines[0]).toContain('trigger=schedule')
+      expect(wokeLines[0]).toContain(first.runId)
+
+      // A debounced tick inside the same window logs NO "woke" line.
+      logSpy.mockClear()
+      const second = await wakeChief('schedule', { goal: 'p89-log-2', now: T })
+      expect(second.woke).toBe(false)
+      expect(logSpy.mock.calls.map(c => String(c[0])).filter(l => l.includes('woke chief'))).toHaveLength(0)
+    } finally {
+      logSpy.mockRestore()
+    }
+  })
+
   it('returns {reason:disabled} when CHIEF_WAKE=0', async () => {
     const prev = process.env.CHIEF_WAKE
     process.env.CHIEF_WAKE = '0'
@@ -403,6 +430,47 @@ describe('onChiefWakeRunUpdate (event path) + startChiefWake', () => {
       expect(eventWakes).toHaveLength(2) // the 3rd wake was suppressed by the breaker
     } finally {
       db.prepare(`DELETE FROM app_config WHERE key = 'chief_wake_max_per_hour'`).run()
+    }
+  })
+})
+
+// ── org-role model capability warn-only (fix-a, Chief choke-point) ────────────
+
+describe('wakeChief: warns (only) when the Chief resolves to a haiku model (fix-a)', () => {
+  it('a Chief dispatched with a haiku-tier model triggers the warn-only org warning; still dispatches', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Clear any lingering running chief run (Guard B) + reset debounce so this wake PASSES.
+    db.prepare(`DELETE FROM agent_runs WHERE profile_id = 'chief' AND status = 'running'`).run()
+    resetChiefWakeDebounce()
+    db.prepare(`UPDATE agent_profiles SET default_model = ? WHERE id = 'chief'`).run('claude-haiku-4-5-20251001')
+    try {
+      const res = await wakeChief('schedule', { goal: 'fixa-chief-haiku', now: Date.now() + 3 * 60 * 60_000 })
+      expect(res.woke).toBe(true) // warn-only: the dispatch still happens
+      const orgWarn = warn.mock.calls.map(c => String(c[0])).find(m => m.includes('[org]') && m.includes('Chief'))
+      expect(orgWarn).toBeDefined()
+      expect(orgWarn!).toContain('claude-haiku-4-5-20251001')
+      expect(orgWarn!).toMatch(/deferred management tools/i)
+      if (res.woke) eventBus.emitRunUpdate(terminalRun(res.runId)) // finalize so no running row leaks
+    } finally {
+      db.prepare(`UPDATE agent_profiles SET default_model = '' WHERE id = 'chief'`).run()
+      warn.mockRestore()
+    }
+  })
+
+  it('a Chief dispatched with a sonnet model triggers NO org warning', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    db.prepare(`DELETE FROM agent_runs WHERE profile_id = 'chief' AND status = 'running'`).run()
+    resetChiefWakeDebounce()
+    db.prepare(`UPDATE agent_profiles SET default_model = ? WHERE id = 'chief'`).run('claude-sonnet-4-6')
+    try {
+      const res = await wakeChief('schedule', { goal: 'fixa-chief-sonnet', now: Date.now() + 6 * 60 * 60_000 })
+      expect(res.woke).toBe(true)
+      const orgWarn = warn.mock.calls.map(c => String(c[0])).find(m => m.includes('[org]'))
+      expect(orgWarn).toBeUndefined()
+      if (res.woke) eventBus.emitRunUpdate(terminalRun(res.runId))
+    } finally {
+      db.prepare(`UPDATE agent_profiles SET default_model = '' WHERE id = 'chief'`).run()
+      warn.mockRestore()
     }
   })
 })

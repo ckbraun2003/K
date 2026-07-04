@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { v4 as uuid } from 'uuid'
-import { db, evalRunsDb, evalResultsDb } from '../src/db.js'
+import { db, evalRunsDb, evalResultsDb, evalBaselinesDb } from '../src/db.js'
 import { seedEvalSystems, loadSystemsFromDb } from '../src/eval/store.js'
 import { repoRoot } from '../src/eval/systems.js'
 import type { EvalReport, SystemMetrics } from '../src/eval/types.js'
@@ -54,16 +54,17 @@ function makeMetrics(): SystemMetrics {
 
 /**
  * Insert a synthetic COMPLETED run with a stored report keyed by a REAL seeded system id (eval_baselines
- * has an FK to eval_systems, and FKs are ON) plus its two result rows. Returns the run id.
+ * has an FK to eval_systems, and FKs are ON) plus its two result rows. `dry` controls the run's dry flag
+ * (a dry run cannot be frozen). Returns the run id.
  */
-function insertSyntheticRun(sysId: string, caseId: string): string {
+function insertSyntheticRun(sysId: string, caseId: string, dry = true): string {
   const id = uuid()
   const report: EvalReport = {
     runId: id,
     generatedAt: new Date().toISOString(),
     models: ['sonnet'],
     variants: ['real', 'degraded'],
-    dry: true,
+    dry,
     overall: {
       systems: 1, models: ['sonnet'], totalRecords: 2, totalCostUsd: 0,
       realJudgeMean: 0.9, realDetPassRate: 1, discriminationPassCount: 1,
@@ -75,7 +76,7 @@ function insertSyntheticRun(sysId: string, caseId: string): string {
   }
   evalRunsDb.insertEvalRun.run({
     id, status: 'done', models: JSON.stringify(['sonnet']), variants: JSON.stringify(['real', 'degraded']),
-    systems: JSON.stringify([sysId]), dry: 1, totalJobs: 2, completedJobs: 2, totalCostUsd: 0,
+    systems: JSON.stringify([sysId]), dry: dry ? 1 : 0, totalJobs: 2, completedJobs: 2, totalCostUsd: 0,
     report: JSON.stringify(report), error: null, createdAt: Date.now(), completedAt: Date.now(),
   })
   for (const variant of ['real', 'degraded'] as const) {
@@ -154,12 +155,36 @@ describe('POST /api/evals/run', () => {
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toMatch(/no matching/i)
   })
+
+  it('F-014: 400 when `systems` is present but EMPTY (must not silently fan out to all)', async () => {
+    // Pre-fix `systems: []` loaded every system (192-job real-spend risk) → 202. Post-fix it is
+    // rejected up front with a clear message, and NO background run is started.
+    const res = await app.inject({
+      method: 'POST', url: '/api/evals/run', headers: AUTH,
+      payload: { systems: [] },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/no systems/i)
+  })
+
+  it('F-014: 202 when `systems` is OMITTED — omitted still runs ALL (scoped here by a case filter)', async () => {
+    // Distinguishes omitted (run all) from empty (run none). Scope to one case so the dry run is tiny.
+    const res = await app.inject({
+      method: 'POST', url: '/api/evals/run', headers: AUTH,
+      payload: { dry: true, cases: [firstCase] },
+    })
+    expect(res.statusCode).toBe(202)
+    const { evalRunId } = res.json() as { evalRunId: string }
+    startedRunIds.push(evalRunId)
+  })
 })
 
 describe('run inspection + baseline freeze/compare (synthetic completed run)', () => {
-  let runId: string
+  let runId: string // DRY run — inspected + freeze-rejected
+  let nonDryRunId: string // NON-DRY run — the legal freeze/compare-ok target
   beforeAll(() => {
-    runId = insertSyntheticRun(firstSys, firstCase)
+    runId = insertSyntheticRun(firstSys, firstCase, true)
+    nonDryRunId = insertSyntheticRun(firstSys, firstCase, false)
     // Start this block from a clean baseline slate: seedEvalSystems() may have frozen a baseline for
     // firstSys from testing/eval/baselines/<id>.json, which would make the no-baseline case return 'ok'.
     db.exec('DELETE FROM eval_baselines')
@@ -209,9 +234,19 @@ describe('run inspection + baseline freeze/compare (synthetic completed run)', (
     expect(cmp[firstSys].status).toBe('no-baseline')
   })
 
-  it('POST /api/evals/runs/:id/freeze-baselines → { frozen: [system] }', async () => {
+  it('POST /api/evals/runs/:id/freeze-baselines → 400 for a DRY run (fabricated metrics)', async () => {
     const res = await app.inject({
       method: 'POST', url: `/api/evals/runs/${runId}/freeze-baselines`, headers: AUTH,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/dry/i)
+    // the rejected freeze must not have written a baseline
+    expect(evalBaselinesDb.getEvalBaseline.get(firstSys)).toBeUndefined()
+  })
+
+  it('POST /api/evals/runs/:id/freeze-baselines → { frozen: [system] } for a NON-DRY run', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/api/evals/runs/${nonDryRunId}/freeze-baselines`, headers: AUTH,
     })
     expect(res.statusCode).toBe(200)
     const { frozen } = res.json() as { frozen: string[] }
@@ -219,7 +254,7 @@ describe('run inspection + baseline freeze/compare (synthetic completed run)', (
   })
 
   it('GET /api/evals/runs/:id/compare → ok against the just-frozen baseline', async () => {
-    const res = await app.inject({ method: 'GET', url: `/api/evals/runs/${runId}/compare`, headers: AUTH })
+    const res = await app.inject({ method: 'GET', url: `/api/evals/runs/${nonDryRunId}/compare`, headers: AUTH })
     expect(res.statusCode).toBe(200)
     const cmp = res.json() as Record<string, { status: string }>
     expect(cmp[firstSys].status).toBe('ok')

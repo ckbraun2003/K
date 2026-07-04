@@ -11,12 +11,14 @@ import {
   barPct,
   formatTimeAgo,
   latestReport,
+  trendIndicator,
   BREAKDOWN_BARS,
   BREAKDOWN_MAX,
   SEVERITY_DOT,
 } from '../lib/verify'
 
-function scoreColor(score: number): string {
+function scoreColor(score: number | null): string {
+  if (score == null) return 'text-[var(--muted)]' // insufficient signal — no measured dimension
   if (score >= 75) return 'text-[var(--green)]'
   if (score >= 50) return 'text-[var(--amber)]'
   return 'text-[var(--red)]'
@@ -140,9 +142,11 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
               <div className="flex items-baseline gap-3">
                 <span className={cn('mono text-3xl font-semibold', scoreColor(latest.score))}>
-                  {latest.score}
+                  {latest.score ?? '—'}
                 </span>
-                <span className="text-xs text-[var(--muted)]">/ 100 health</span>
+                <span className="text-xs text-[var(--muted)]">
+                  {latest.score == null ? 'insufficient signal' : '/ 100 health'}
+                </span>
               </div>
 
               {latest.breakdown ? (() => {
@@ -158,7 +162,7 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="text-[var(--muted)]">{label}</span>
                           <span className="mono text-[var(--muted)]">
-                            {value}/{max}
+                            {value == null ? 'not measured' : `${value}/${max}`}
                           </span>
                         </div>
                         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--raised)]">
@@ -234,15 +238,26 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
               History
             </h3>
             <ol className="mt-3 space-y-2">
-              {reports.map(r => (
-                <li key={r.id} className="flex items-center gap-2 text-xs">
-                  <span className={cn('mono font-semibold', scoreColor(r.score))}>{r.score}</span>
-                  <span className="text-[var(--muted)]">{formatTimeAgo(r.startedAt)}</span>
-                  {r.id === latest.id && (
-                    <span className="ml-auto text-[10px] text-[var(--accent-hover)]">latest</span>
-                  )}
-                </li>
-              ))}
+              {[...reports]
+                .sort((a, b) => b.startedAt - a.startedAt)
+                .map(r => {
+                  const trend = trendIndicator(reports, r.id)
+                  const trendColor = trend.includes('▲')
+                    ? 'text-[var(--green)]'
+                    : trend.includes('▼')
+                      ? 'text-[var(--red)]'
+                      : 'text-[var(--muted)]'
+                  return (
+                    <li key={r.id} className="flex items-center gap-2 text-xs">
+                      <span className={cn('mono font-semibold', scoreColor(r.score))}>{r.score ?? '—'}</span>
+                      <span className={cn('mono text-[10px]', trendColor)}>{trend}</span>
+                      <span className="text-[var(--muted)]">{formatTimeAgo(r.startedAt)}</span>
+                      {r.id === latest.id && (
+                        <span className="ml-auto text-[10px] text-[var(--accent)]">latest</span>
+                      )}
+                    </li>
+                  )
+                })}
             </ol>
           </div>
         </div>

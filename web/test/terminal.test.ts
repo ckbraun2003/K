@@ -5,6 +5,7 @@ import {
   encodeResize,
   parseServerFrame,
   errorReason,
+  errorShort,
 } from '../src/lib/terminal'
 
 describe('terminalWsUrl', () => {
@@ -69,13 +70,31 @@ describe('parseServerFrame', () => {
 })
 
 describe('errorReason', () => {
-  it('maps known codes to friendly text', () => {
-    expect(errorReason('disabled')).toContain('ENABLE_TERMINAL')
+  it('maps known codes to user-facing text', () => {
+    expect(errorReason('disabled')).toContain('turned off')
     expect(errorReason('unauthorized')).toContain('token')
-    expect(errorReason('unavailable')).toContain('pty')
+    expect(errorReason('unavailable')).toContain('unavailable')
+  })
+
+  it('the disabled copy has no operator env-var jargon (F-008)', () => {
+    expect(errorReason('disabled')).not.toContain('ENABLE_TERMINAL')
+    expect(errorReason('disabled')).not.toMatch(/=true/)
   })
 
   it('falls back to the raw code', () => {
     expect(errorReason('weird')).toContain('weird')
+  })
+})
+
+describe('errorShort', () => {
+  it('gives a short pill label per code (not the full sentence)', () => {
+    expect(errorShort('disabled')).toBe('Off')
+    expect(errorShort('unauthorized')).toBe('Unauthorized')
+    expect(errorShort('unavailable')).toBe('Unavailable')
+  })
+
+  it('a null (transport) code reads as Offline', () => {
+    expect(errorShort(null)).toBe('Offline')
+    expect(errorShort('weird')).toBe('Offline')
   })
 })

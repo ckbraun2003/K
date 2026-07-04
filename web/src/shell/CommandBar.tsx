@@ -27,6 +27,7 @@ type Item =
   | { kind: 'dispatch-project'; label: string; prompt: string; project: Project }
   | { kind: 'project-completion'; label: string; project: Project }
   | { kind: 'project-ambiguous'; label: string }
+  | { kind: 'project-empty'; label: string }
   | { kind: 'nav'; label: string; icon: string; view: string; param?: string }
 
 /** A project-scoped dispatch the user has selected — held while the confirm/preview
@@ -82,12 +83,13 @@ export default function CommandBar({ open, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // A successful send is the only thing that sets a pending-undo entry — treat that
-  // transition as the "sent" signal and close the bar (the Undo toast lives outside
-  // the open gate, so it survives). A failed send leaves pendingUndo null → bar stays
-  // open showing the footer error.
+  // A COMMITTED send (the dispatch resolved a runId) is the "sent" signal — close the
+  // bar then (the Undo toast lives outside the open gate, so it survives). Gate on
+  // `runId`, not the mere presence of pendingUndo: the window is now raised optimistically
+  // at send (F-066), so a still-in-flight or FAILED send must not close the bar — a failure
+  // clears pendingUndo again and the footer error stays visible.
   useEffect(() => {
-    if (ask.pendingUndo) onClose()
+    if (ask.pendingUndo?.runId) onClose()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ask.pendingUndo])
 
@@ -125,6 +127,17 @@ export default function CommandBar({ open, onClose }: Props) {
     }
 
     if (parsed.type === 'completion') {
+      // `@` with nothing to complete — surface a hint instead of a blank list so
+      // the picker never looks broken (F-005). Distinguish "no projects at all"
+      // from "no project matches this prefix".
+      if (parsed.matches.length === 0) {
+        return { navMatch: false, items: [{
+          kind: 'project-empty',
+          label: projects.length === 0
+            ? 'No projects yet — register one to dispatch'
+            : 'No matching project',
+        }] }
+      }
       return { navMatch: false, items: parsed.matches.map(p => ({
         kind: 'project-completion' as const,
         label: p.name,
@@ -192,7 +205,7 @@ export default function CommandBar({ open, onClose }: Props) {
       inputRef.current?.focus()
       return
     }
-    if (item.kind === 'project-ambiguous') {
+    if (item.kind === 'project-ambiguous' || item.kind === 'project-empty') {
       // not selectable — do nothing
       return
     }
@@ -311,11 +324,17 @@ export default function CommandBar({ open, onClose }: Props) {
                 <span className="text-[var(--text)]">→ {askKRoute.label}</span>
               </div>
             )}
-            <ul ref={listRef} className="max-h-72 overflow-y-auto py-1.5">
+            <ul ref={listRef} role="listbox" aria-label="Command results" className="max-h-72 overflow-y-auto py-1.5">
               {items.map((item, i) => (
-                <li key={`${item.kind}-${item.label}-${i}`}>
-                  {item.kind === 'project-ambiguous' ? (
-                    <div className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm text-[var(--muted)] opacity-50 cursor-default select-none">
+                <li key={`${item.kind}-${item.label}-${i}`} role="presentation">
+                  {item.kind === 'project-ambiguous' || item.kind === 'project-empty' ? (
+                    <div
+                      data-testid={item.kind === 'project-empty' ? 'cmdk-empty' : undefined}
+                      role="option"
+                      aria-selected={false}
+                      aria-disabled
+                      className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm text-[var(--muted)] opacity-50 cursor-default select-none"
+                    >
                       <span className="text-[var(--accent)]">@</span>
                       <span className="truncate">{item.label}</span>
                     </div>
@@ -328,6 +347,8 @@ export default function CommandBar({ open, onClose }: Props) {
                             ? 'cmdk-row-dispatch'
                             : 'cmdk-row-nav'
                       }
+                      role="option"
+                      aria-selected={i === selected}
                       onMouseEnter={() => setSelected(i)}
                       onClick={() => execute(item)}
                       className={cn(
@@ -406,11 +427,11 @@ export default function CommandBar({ open, onClose }: Props) {
                   type="button"
                   data-testid="enter-mode-toggle"
                   onClick={() => { setModeOverride(enterMode === 'navigate' ? 'dispatch' : 'navigate'); inputRef.current?.focus() }}
-                  className="flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[var(--text)] transition-colors duration-100 hover:border-accent/50"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[var(--text)] transition-colors duration-100 hover:border-accent/50"
                   title="Toggle whether Enter navigates or dispatches"
                 >
                   <span className="text-[var(--accent)]">{enterMode === 'navigate' ? '↪' : '⚡'}</span>
-                  <span>↵ {enterMode === 'navigate' ? 'Navigate' : 'Ask K'}</span>
+                  <span className="whitespace-nowrap">↵ {enterMode === 'navigate' ? 'Navigate' : 'Ask K'}</span>
                   <kbd className="mono text-[10px] opacity-70">tab</kbd>
                 </button>
               )}
@@ -533,7 +554,7 @@ export default function CommandBar({ open, onClose }: Props) {
       open={ask.pendingUndo !== null}
       testid="ask-k-undo-toast"
       durationMs={5000}
-      resetKey={ask.pendingUndo?.runId}
+      resetKey={ask.pendingUndo?.key}
       message={<>Sent to K · <span className="text-[var(--text)]">{ask.pendingUndo?.route.label}</span></>}
       action={{ label: 'Undo', testid: 'ask-k-undo', onClick: () => void ask.undo() }}
       onDismiss={ask.clearUndo}

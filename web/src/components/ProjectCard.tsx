@@ -1,10 +1,20 @@
-import type { Project, GithubStatus } from '@k/shared'
+import type { Project, GithubStatus, Run } from '@k/shared'
 import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
-import { formatTimeAgo } from '../lib/verify'
+import { formatTimeAgo, relativeTime } from '../lib/verify'
 
 // A health score below this flags the card for attention alongside failing CI.
 const LOW_HEALTH_THRESHOLD = 50
+
+// Run-status → dot color for the last-run line.
+const RUN_DOT: Record<string, string> = {
+  queued:      'bg-[var(--amber)]',
+  running:     'bg-[var(--accent)]',
+  done:        'bg-[var(--green)]',
+  error:       'bg-[var(--red)]',
+  killed:      'bg-[var(--muted)]',
+  interrupted: 'bg-[var(--red)]',
+}
 
 function ciState(gh?: GithubStatus): 'passing' | 'failing' | 'unknown' {
   const latest = gh?.ci?.[0]
@@ -18,16 +28,23 @@ function ciState(gh?: GithubStatus): 'passing' | 'failing' | 'unknown' {
 export default function ProjectCard({
   project,
   gh,
+  lastRun,
   onDelete,
 }: {
   project: Project
   gh?: GithubStatus
+  /** Most recent run for this project (fleet-level batch from the parent grid) —
+   *  surfaces last-run status + when on the card (F-065). */
+  lastRun?: Run | null
   onDelete?: () => void
 }) {
   const ci = ciState(gh)
   const openPrs = gh?.prs.filter(p => p.state === 'OPEN').length ?? 0
   const lowHealth = project.healthScore != null && project.healthScore < LOW_HEALTH_THRESHOLD
-  const attention = ci === 'failing' || lowHealth
+  // F-033: localPath vanished on disk (derived server-side). The workspace actions
+  // would act against a missing path, so the card badges it and disables them.
+  const pathMissing = project.pathMissing === true
+  const attention = ci === 'failing' || lowHealth || pathMissing
   const goWorkspace = () => navigate('project', project.id)
   const goVerify = () => navigate('verify', project.id)
 
@@ -80,14 +97,33 @@ export default function ProjectCard({
         )}
       </p>
       <p className="mono mt-2 truncate text-[10px] text-[var(--muted)] opacity-60">{project.localPath}</p>
+      {pathMissing && (
+        <p
+          data-testid={`project-card-pathmissing-${project.id}`}
+          className="mt-2 rounded-control border border-[var(--red)]/40 bg-[var(--red)]/10 px-2 py-1 text-[10px] font-medium text-[var(--red)]"
+        >
+          ⚠ path missing — the repo folder is gone; workspace actions are disabled
+        </p>
+      )}
+      {lastRun && (
+        <p
+          data-testid={`project-card-lastrun-${project.id}`}
+          className="mt-1.5 flex items-center gap-1.5 text-[10px] text-[var(--muted)]"
+        >
+          <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', RUN_DOT[lastRun.status] ?? 'bg-[var(--muted)]')} />
+          <span className="truncate">last run {lastRun.status} · {relativeTime(lastRun.createdAt)}</span>
+        </p>
+      )}
       <div className="mt-2 flex items-center justify-between">
         <span className={cn('text-[10px]', lowHealth ? 'text-[var(--amber)]' : 'text-[var(--muted)]')}>
           {formatTimeAgo(project.lastVerifiedAt)}
         </span>
         <button
           data-testid={`project-verify-btn-${project.id}`}
-          onClick={e => { e.stopPropagation(); goVerify() }}
-          className="text-[11px] font-medium text-[var(--accent-hover)] transition-opacity duration-150 hover:opacity-80"
+          onClick={e => { e.stopPropagation(); if (!pathMissing) goVerify() }}
+          disabled={pathMissing}
+          title={pathMissing ? 'Path missing — restore the repo folder to verify' : undefined}
+          className="text-[11px] font-medium text-[var(--accent-hover)] transition-opacity duration-150 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
         >
           ▶ Run verification
         </button>

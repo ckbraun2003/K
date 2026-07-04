@@ -144,3 +144,39 @@ describe('GET /api/k/thread', () => {
     expect(body.turns.some(t => t.text === 'what is on my calendar')).toBe(true)
   })
 })
+
+describe('POST /api/k/undo — F-060', () => {
+  const threadTurns = async (): Promise<Array<{ text: string }>> => {
+    const res = await app.inject({ method: 'GET', url: '/api/k/thread', headers: AUTH })
+    return (res.json() as { turns: Array<{ text: string }> }).turns
+  }
+
+  it('no body → 400', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/k/undo', headers: AUTH })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('unknown runId → 404', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/k/undo', headers: AUTH, payload: { runId: 'no-such-run' },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('undoes a just-started ask: 200 { undone:true } and removes the dangling user turn', async () => {
+    const ask = await app.inject({
+      method: 'POST', url: '/api/k/ask', headers: AUTH, payload: { message: 'remind me to undo this' },
+    })
+    const runId = (ask.json() as { runId: string }).runId
+    expect((await threadTurns()).some(t => t.text === 'remind me to undo this')).toBe(true)
+
+    const undo = await app.inject({
+      method: 'POST', url: '/api/k/undo', headers: AUTH, payload: { runId },
+    })
+    expect(undo.statusCode).toBe(200)
+    expect((undo.json() as { undone: boolean }).undone).toBe(true)
+
+    // The dangling turn is gone — it will not be replayed into a later seed.
+    expect((await threadTurns()).some(t => t.text === 'remind me to undo this')).toBe(false)
+  })
+})

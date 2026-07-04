@@ -103,6 +103,10 @@ export const ProjectSchema = z.object({
   githubRemote: z.string().optional(), // "owner/repo"
   workspaceManaged: z.boolean().default(false), // true if harness cloned it
   bibleDir: z.string().default('docs/bible'),
+  // The repo's real default branch (e.g. 'main'/'master'), detected + persisted at
+  // registration/clone. Optional: pre-migration rows read back undefined and callers
+  // fall back to a heuristic. Powers the PR-base default (W4 follow-up).
+  defaultBranch: z.string().optional(),
   healthScore: z.number().min(0).max(100).optional(),
   lastVerifiedAt: z.number().optional(), // unix ms
   // derived at read time (never persisted) — true when localPath no longer exists
@@ -125,15 +129,24 @@ export type Finding = z.infer<typeof FindingSchema>
 export const VerificationReportSchema = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
-  score: z.number().min(0).max(100),
+  // null = INSUFFICIENT SIGNAL: no dimension could be measured (e.g. a brand-new
+  // onboarded project — scaffold CI never ran, no coverage, bible still a scaffold).
+  // The health score prorates over MEASURED dimensions only (verify.ts).
+  score: z.number().min(0).max(100).nullable(),
   findings: z.array(FindingSchema).default([]),
   fixesApplied: z.array(z.string()).default([]),
   startedAt: z.number(),
   completedAt: z.number().optional(),
-  // Per-factor weighted score components (mirrors verify.ts HealthBreakdown).
+  // Per-factor weighted score components (mirrors verify.ts HealthBreakdown). A null
+  // component = that dimension was UNMEASURED (excluded from the score), not a demerit.
   // Optional so reports persisted before this field still validate.
   breakdown: z
-    .object({ ci: z.number(), coverage: z.number(), bible: z.number(), findings: z.number() })
+    .object({
+      ci: z.number().nullable(),
+      coverage: z.number().nullable(),
+      bible: z.number().nullable(),
+      findings: z.number().nullable(),
+    })
     .optional(),
   // Measured overall line-coverage % at verify time; null when the project emits no
   // coverage-summary. Optional so reports persisted before this field still validate.
@@ -161,7 +174,12 @@ export type MetricsSummary = z.infer<typeof MetricsSummarySchema>
 
 // ─── Metrics time series ─────────────────────────────────────────────────────
 
-export const TimeseriesGroupBySchema = z.enum(['project', 'model'])
+// 'lead' groups a run under the ORCHESTRATOR (discipline-lead) profile that ran it —
+// resolved from the run's latest agent_runs activation whose profile is tier
+// 'orchestrator'. A run with no orchestrator activation (a plain UI run, a K/Chief
+// run) has no lead and groups under 'unassigned' so window cost is CONSERVED (every
+// run lands in exactly one bucket), never silently dropped (W9b F-084).
+export const TimeseriesGroupBySchema = z.enum(['project', 'model', 'lead'])
 export type TimeseriesGroupBy = z.infer<typeof TimeseriesGroupBySchema>
 
 export const TimeseriesPointSchema = z.object({
@@ -309,6 +327,15 @@ export const WsMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('verification_update'), report: VerificationReportSchema }),
   // Knowledge-graph build state transition (building → ready/error) + reindex marks
   z.object({ type: z.literal('graph_update'), projectId: z.string(), meta: ProjectGraphMetaSchema }),
+  // A task-workflow run finalized (F-076) — a nudge to REVIEW + CLOSE the tasks it locked
+  // to in_progress (the harness never auto-closes them — D-012). Transient, not persisted.
+  z.object({
+    type: z.literal('workflow_complete'),
+    workflowRunId: z.string(),
+    projectId: z.string(),
+    status: z.enum(['completed', 'failed']),
+    taskIds: z.array(z.string()),
+  }),
   // Ollama model pull progress — transient, not persisted
   z.object({
     type: z.literal('ollama_pull'),
@@ -356,6 +383,10 @@ export const StartRunBodySchema = z.object({
   projectId: z.string().uuid().optional(), // explicit project association (overrides cwd inference)
   preferLocal: z.boolean().optional(), // route local-model preference; UI "Ollama (local)" sets this
   interactive: z.boolean().optional(), // keep stdin open for multi-turn HITL (claude only)
+  // H8 (opt-in): start the run's worktree from the source repo's UNCOMMITTED
+  // tracked+staged changes instead of clean committed HEAD. Default false/absent →
+  // byte-identical clean-HEAD checkout. Untracked/ignored files are NOT carried.
+  carryWorkingTree: z.boolean().optional(),
 })
 export type StartRunBody = z.infer<typeof StartRunBodySchema>
 
@@ -403,6 +434,11 @@ export const WorkflowRunSchema = z.object({
   status: z.enum(['running', 'completed', 'failed']),
   createdAt: z.number(),
   completedAt: z.number().nullable(),
+  // Which NamedWorkflow TEMPLATE the run was dispatched from (workflow_definitions id),
+  // and — when resolvable — that template's name. Null for a default (code-wave) dispatch
+  // that named no template. Optional so older payloads/fixtures without them still parse.
+  workflowId: z.string().nullable().optional(),
+  workflowName: z.string().nullable().optional(),
 })
 export type WorkflowRun = z.infer<typeof WorkflowRunSchema>
 
@@ -676,6 +712,10 @@ export interface ChiefOrgHealth {
 
 export interface ChiefOrgPayload {
   chief: AgentProfile | null
+  /** The K (secretary) profile — Chief's parent in the whole-org tree (user → K → Chief →
+   *  leads). Read-only inspection; K is unpatchable. Optional/null so an older payload or an
+   *  unseeded K still builds a tree (the client falls back to a synthetic K node). */
+  k?: AgentProfile | null
   leads: ChiefOrgLead[]
   /** The Chief's own recent activations (bounded) — the autonomous-wake history. */
   chiefWakes: AgentRun[]
@@ -767,6 +807,10 @@ export const CreateSkillSchema = z.object({
   triggerType: z.enum(['manual', 'schedule', 'event']),
   schedule: z.string().nullable().optional(),
   eventTrigger: z.string().nullable().optional(),
+  // Whether the skill is armed at creation. Optional — omitted defaults to enabled (1),
+  // preserving prior behavior. A schedule/event skill created `enabled:false` must NOT fire
+  // until explicitly enabled (registerSkill honors this rather than hardcoding armed).
+  enabled: z.boolean().optional(),
 })
 export type CreateSkill = z.infer<typeof CreateSkillSchema>
 
@@ -807,11 +851,15 @@ export const RoutingModelStatSchema = z.object({
   provider: z.string(),
   model: z.string(),
   runs: z.number().int(),
-  terminalRuns: z.number().int(), // count of runs in a terminal status (successRate's denominator)
-  successRate: z.number(),   // done / terminal-count, 0..1 (0 if no terminal runs)
+  terminalRuns: z.number().int(), // terminal-status runs EXCLUDING operator-killed (successRate's denominator)
+  successRate: z.number(),   // done / terminal-count, 0..1; operator-killed runs count as neither success nor failure (0 if no terminal runs)
+  // Complement of successRate over the SAME killed-excluded terminal population (W9a):
+  // (terminal − done) / terminal — i.e. the fraction of finished, non-killed runs that
+  // did NOT complete (status error / interrupted). 0 when no terminal runs (W9b F-085).
+  errorRate: z.number(),
   avgCostUsd: z.number(),    // mean over runs with cost_usd > 0 (0 if none)
   totalCostUsd: z.number(),
-  avgLatencyMs: z.number(),  // mean ended_at - created_at over completed runs (0 if none)
+  avgLatencyMs: z.number(),  // mean ACTIVE latency: wall-clock minus awaiting_input parked time, over completed runs (0 if none)
   latencyCount: z.number().int(), // count of runs with a usable latency (avgLatencyMs's denominator)
 })
 export type RoutingModelStat = z.infer<typeof RoutingModelStatSchema>
@@ -821,8 +869,36 @@ export const RoutingStatsSchema = z.object({
   totalRuns: z.number().int(),
   groups: z.array(RoutingModelStatSchema), // sorted by runs desc, then provider+model asc
   recommendation: z.string(),
+  // Org-wide ACTIVE-latency percentiles (parked-excluded, W9a) over ALL runs' latency
+  // samples in the window — NOT weightable from per-group means, so computed from the
+  // full sample set (linear-interpolation / R-7 method). 0 when no samples (W9b F-086).
+  latencyP50Ms: z.number(),
+  latencyP95Ms: z.number(),
+  latencySamples: z.number().int(), // count of runs contributing a latency sample (percentile denominator)
 })
 export type RoutingStats = z.infer<typeof RoutingStatsSchema>
+
+// ─── Metrics quality time series (success-rate + latency trend — W9b F-087) ──
+// Per-day success-rate and active-latency trend, the time-series companion to the
+// single-KPI Success/Avg-latency tiles. successRate/avgLatencyMs are NULL for a day
+// with no terminal runs / no latency samples (a genuine GAP, never NaN or a fake 0).
+// Uses the SAME killed-excluded terminal + parked-excluded latency definitions as
+// aggregateRouting (W9a), so the trend and the KPIs can't contradict each other.
+export const MetricsQualityPointSchema = z.object({
+  date: z.string(),                       // YYYY-MM-DD local
+  terminalRuns: z.number().int(),         // killed-excluded terminal runs that day
+  successRate: z.number().nullable(),     // done/terminal, 0..1; null when terminalRuns === 0
+  avgLatencyMs: z.number().nullable(),    // mean active latency; null when no latency samples
+  latencyCount: z.number().int(),         // latency samples that day (avgLatencyMs denominator)
+})
+export type MetricsQualityPoint = z.infer<typeof MetricsQualityPointSchema>
+
+export const MetricsQualityTimeseriesSchema = z.object({
+  days: z.number().int(),
+  dates: z.array(z.string()),                    // YYYY-MM-DD local, oldest → newest
+  points: z.array(MetricsQualityPointSchema),    // length === dates.length
+})
+export type MetricsQualityTimeseries = z.infer<typeof MetricsQualityTimeseriesSchema>
 
 // ─── Settings: provider / auth status ────────────────────────────────────────
 // GET /api/status — provider availability + harness auth posture for the Settings
@@ -850,6 +926,11 @@ export const StatusSchema = z.object({
     host: z.string(),
     loopbackOnly: z.boolean(),
     terminalEnabled: z.boolean(),
+    // Credential posture (F-064/F-090), never the credential itself:
+    //   'managed'       → a managed token (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN) is set;
+    //   'host-fallback' → no managed token → runs COPY host ~/.claude credentials (default);
+    //   'disabled'      → no managed token + fallback opted out → runs are unauthenticated.
+    credentialPosture: z.enum(['managed', 'host-fallback', 'disabled']),
   }),
   voice: z.object({
     enabled: z.boolean(),
@@ -1006,7 +1087,14 @@ const K_LOGISTICS_RULES: ReadonlyArray<RegExp> = [
   /\bwhat'?s on my (list|calendar|schedule)\b/,
 ]
 
-/** Ordered lead rules — first match wins. Kept as a testable array (not a switch). */
+/** Ordered lead rules — first match wins. Kept as a testable array (not a switch).
+ *  Keyword collisions across leads are EXPECTED heuristic behavior, not bugs: e.g.
+ *  "fix the flaky auth test" matches 'auth'→security here even though a human might
+ *  read it as a Backend test task (F-010). The classifier is a deterministic first-
+ *  match keyword preview, not an intent model; when it guesses wrong the operator
+ *  forces the lead via forceRoute (KForceRouteSchema / routeForTarget). Refining the
+ *  ordering to disambiguate one collision would just shift the ambiguity elsewhere,
+ *  so the bias is left explicit and force-route is the escape hatch. */
 const K_ROUTE_RULES: ReadonlyArray<{ target: KRouteTarget; re: RegExp }> = [
   { target: 'frontend', re: /\b(frontend|front-end|ui|react|css|component|styling|tailwind)\b/ },
   { target: 'backend', re: /\b(backend|back-end|api|endpoint|server|database|\bdb\b|sql)\b/ },
@@ -1084,6 +1172,14 @@ export const KAskBodySchema = z.object({
   model: z.string().min(1).max(200).optional(),
 })
 export type KAskBody = z.infer<typeof KAskBodySchema>
+
+/** Body for POST /api/k/undo — undo a just-started K ask (F-060). Kills the run AND
+ *  removes the dangling turns it appended, so an undone message is never replayed into
+ *  a later seed/resume. `runId` is the run KAskResult returned. */
+export const KUndoBodySchema = z.object({
+  runId: z.string().min(1).max(200),
+})
+export type KUndoBody = z.infer<typeof KUndoBodySchema>
 
 // ─── Durable work-items HTTP surface (operator-global) ───────────────────────
 // The two DURABLE scopes an operator creates/reads over the /api/k/work-items API:

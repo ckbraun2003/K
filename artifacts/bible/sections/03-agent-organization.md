@@ -2,7 +2,7 @@
 title: Agent Organization
 icon: "❖"
 status: active
-updated: 2026-07-02
+updated: 2026-07-04
 ---
 
 > **Status — PARTIALLY BUILT (Phase 5).** This section is the design of record for the agent
@@ -113,14 +113,18 @@ station even if a prompt asks it to:
      non-ticket logistics data, not a second task store.) The Google Calendar/Gmail/Drive
      connectors are **NOT wired** — see *Reused connectors* below.
    - the **mgmt** server (**Chief, BUILT — P5.2a**) — the Chief's management working store:
-     `assign_lead` (hand a lead an objective), `pick_workflow`, `scope_projects`, and `report` (a
-     status write up the chain), plus the execution tool `dispatch_lead` (below) and — **P5.7,
-     D-053 — two chief-READABLE tools, `assignment_list` / `report_list`**, durable **across Chief
-     activations** (the enriched assignment list carries the dispatched lead run's live status), so
-     a freshly-woken Chief can actually read the org state its charter tells it to review; writes
-     keep run-scoped ownership. Same shape as kstore/logistics — an **SDK-free** store layer
+     `assign_lead` (hand a lead an objective), `pick_workflow`, `scope_projects`, `report` (a status
+     write up the chain), and the read-only **`lead_list`** roster tool (**F-067, D-063** — the valid
+     lead identifiers: id · name · discipline · role), plus the execution tool `dispatch_lead`
+     (below) and — **P5.7, D-053 — two chief-READABLE tools, `assignment_list` / `report_list`**,
+     durable **across Chief activations** (the enriched assignment list carries the dispatched lead
+     run's live status), so a freshly-woken Chief can actually read the org state its charter tells
+     it to review; writes keep run-scoped ownership. **`assign_lead` now VALIDATES the lead name**
+     (F-067, D-063) via the SAME `resolveLeadProfileId` `dispatch_lead` uses and REJECTS an unknown
+     lead (e.g. "engineering") at assign time — no more accepted-then-dangling assignment the
+     dispatch step later rejects. Same shape as kstore/logistics — an **SDK-free** store layer
      (`core/src/mcp/mgmt.ts`, unit-tested) under a thin stdio glue (`mgmt-server.ts`), mounted on
-     the chief tier and granted via `mcp__mgmt`. The four storage tools stay **STORAGE, not
+     the chief tier and granted via `mcp__mgmt`. The storage tools stay **STORAGE, not
      execution** — assigning a lead does **not** dispatch it; the autonomous K→Chief→lead
      **dispatch** is BUILT (D-046 → D-051, below).
 2. **The claude `--allowedTools` allowlist.** Coding tools — **Bash · Write · Edit · `Task`** — are
@@ -180,15 +184,24 @@ activate a profile:
   autonomously (e.g. the Chief on a cron, a lead on `ci.failed`).
 - **delegation** — one tier activates the next (K → Chief → lead → role subagent).
 
-**As-built (P5.1c) — the "talk to K" front door.** `POST /api/k/ask` activates K via
-`startAgentRun('k-secretary', { trigger: 'user-message', thread })` and streams over the *existing*
-supervisor/EventBus/WS wire (no bespoke chat channel). A **durable K thread** (`k_threads` /
-`k_thread_turns`) is the source of truth — it survives reload, and K's answers are captured back to
-it at each turn boundary so a reseed stays coherent. Execution is ephemeral: while you keep chatting,
-a **warm interactive session** (reusing the D-014 persistent-stdin loop) continues the *same* live
-run via `sendInput`; when the thread is cold/idle a **fresh run** is started, seeded from the durable
-thread. The route surfaced when composing is a deterministic `routeForMessage` **preview** (client
-and server agree via `@k/shared`); K's runtime tool/hand-up decision is authoritative.
+**As-built (P5.1c; K runtime redesigned W7a — D-062) — the "talk to K" front door.**
+`POST /api/k/ask` activates K via `startAgentRun('k-secretary', { trigger: 'user-message', thread })`
+and streams over the *existing* supervisor/EventBus/WS wire (no bespoke chat channel). A **durable K
+thread** (`k_threads` / `k_thread_turns`) is the source of truth — it survives reload, and K's answers
+are captured back to it at each turn boundary so a reseed stays coherent. Execution is a **resumable
+one-shot** (D-062, superseding the old warm/fresh hybrid): each thread owns a stable Claude CLI
+session — `--session-id <uuid>` on the FIRST ask (seeded with the full `renderSeed` transcript),
+`--resume <id>` on every LATER ask sending **only the new message** — plus a stable per-thread config
+dir + cwd under `<dataDir>/k-secretary/<threadId>/` (**no worktree** — K writes no code). Continuity
+is a cheap cache-read of the resumed session, NOT a held warm process or a replayed transcript, so a
+cold ask no longer re-pays the ~24k system-prompt + tool-schema envelope. The run **answers and
+exits** (`done`) — it never parks at `awaiting_input` holding a live process (fixes the F-054
+cost/park leak, subsumes H10); `cli_session_id` is persisted only on the first ask's successful
+`done`, and undo (`POST /api/k/undo`) removes the dangling user turn so it is never replayed. This is
+**GATED to `k-secretary`** — regular dispatch runs are byte-for-byte unchanged (fresh worktree,
+ephemeral config, interactive HITL park). The route surfaced when composing is a deterministic
+`routeForMessage` **preview** (client and server agree via `@k/shared`); K's runtime tool/hand-up
+decision is authoritative.
 
 ### Autonomous wake — the Chief wakes itself (BUILT — P5.2b, D-044)
 
@@ -227,6 +240,9 @@ wake cycle needed a hard cost bound:
 - **Kill switch** — `chief_wake_events_enabled` (`'1'` default, read lazily per event so the
   operator can flip it at runtime) gates the event path only; the cron heartbeat is unaffected.
 
+A **successful** wake logs one line (trigger / run / goal) so the loop is observable; debounced or
+suppressed ticks stay quiet (F-089).
+
 Per **D-044**, a "Chief wake" is not a new table — it **reuses `agent_runs`**: a row with
 `profile_id='chief'` and `trigger ∈ {schedule,event}`, whose columns already carry the four wake
 facts (kind=`trigger`, time=`created_at`, resulting run=`run_id`, outcome=`status`). The Chief org
@@ -242,8 +258,10 @@ route is consulted **before** the warm/cold branch: when `route.escalates` is tr
 named discipline lead), K **delegates instead of running the message itself** —
 `startAgentRun('chief', { trigger: 'delegation', goal })`, where the goal is K's ask verbatim plus,
 for a named-lead route, the discipline hint so the Chief can `assign_lead` the right lead. K's pure
-logistics/Q&A path (`route.escalates === false`) is **unchanged** — it still continues a warm
-interactive session via `sendInput` or starts a fresh seeded k-secretary run.
+logistics/Q&A path (`route.escalates === false`) is **unchanged in routing** — K handles the message
+itself as the resumable one-shot above (establish-or-`--resume` the thread's CLI session), never
+delegating. The delegation check runs BEFORE the resumable path, so a hand-up is independent of K's
+own session.
 
 Three P5.7 refinements on the front door:
 
@@ -259,8 +277,9 @@ Three P5.7 refinements on the front door:
   deliberately impossible). `routeForTarget` is the one shared mapping, so the composer's forced
   preview and the server's actual routing are the same computation.
 - **Per-ask model override.** `KAskBody.model` (validated against the known-model registry at the
-  route boundary) wins over the profile override, which wins over the runtime default (D-056);
-  `askK` skips the warm session on an explicit model so an override is never silently ignored.
+  route boundary) wins over the profile override, which wins over the runtime default (D-056). With
+  the resumable one-shot (D-062) an override no longer forfeits continuity — there is no live process
+  to keep, so the ask simply RESUMES the same session under the chosen model.
 
 - **Report-back up the chain.** When the delegated Chief run reaches a **terminal** status, its
   outcome lands back on K's thread as a `k` turn — via `reportDelegationBack`, which rides the shared
@@ -268,7 +287,7 @@ Three P5.7 refinements on the front door:
   `startAgentRun`'s own tracking. The summary prefers the Chief's latest **mgmt `report`** (the status
   written up the chain, read run-scoped via `mgmtDb.listReportsByRun`), falling back to the run's own
   assistant text, then to a bare status line — so the operator always sees a result *where they
-  asked*. It never touches the thread's `active_run_id` (that belongs to K's own warm session).
+  asked*. It never touches the thread's `active_run_id` (that belongs to K's own run, a separate concern from a delegated run).
 - **Traceability — no new table, no new column.** The delegation **is** the
   `startAgentRun('chief', { trigger:'delegation' })` row (`agent_runs.trigger='delegation'`,
   `run_id`=the Chief run). The parent→child link is recorded on the **existing `k_thread_turns.run_id`
@@ -302,6 +321,17 @@ Chief run's assignments and activates its lead:
   item** — then appends a **lead charter line** instructing the lead to deliver the batch and **open a
   PR** (never push to a default branch). The lead is activated with
   `startAgentRun(leadProfileId, { trigger: 'delegation', goal, workflowId })`.
+- **Fail-fast lead naming + injected roster (F-067, D-063).** So the Chief always names a REAL lead,
+  the AUTO paths — the Chief's wake-goal seed, its no-hint delegation seed, and its charter — INJECT
+  the five lead identifiers, and `lead_list` remains the authoritative roster to call before
+  assigning. `resolveLeadProfileId` gates `assign_lead` (at assign time) and `dispatch_lead`
+  identically, so an unknown lead like "engineering" is rejected once — never accepted-then-dangling.
+- **Bound checklist (F-070, D-063).** A **project-scoped** lead dispatch binds a `workflow_runs` row +
+  seeds its steps from the delegation workflow, so the lead's kstore status-write tools
+  (`workflow_step_set` / `workflow_status_set`) RESOLVE against a real checklist instead of
+  improvising. Seeding is isolated so a failure degrades to no-checklist without dropping the
+  Chief/K report-back, and `finalizeWorkflowRun` reconciles lingering pending/in-progress steps to
+  `blocked` so the checklist can't contradict a completed run.
 - **Report-back up the chain.** On the lead run's **terminal**, `reportLeadOutcomeToChief` rides the
   same **run-lifecycle seam** (`trackSupervisedRun`) — the downward twin of `reportDelegationBack` —
   and files a mgmt `report` scoped to the **Chief's** run summarizing the lead's assistant text

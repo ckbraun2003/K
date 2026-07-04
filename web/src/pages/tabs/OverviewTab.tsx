@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Run, VerificationReport, GithubStatus } from '@k/shared'
+import type { Run, VerificationReport, GithubStatus, Project } from '@k/shared'
 import { api, type OnboardResult } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { cn } from '../../lib/cn'
@@ -47,9 +47,39 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
     enabled: !!projectId,
     retry: false,
   })
+  // The project record (app-wide cached ['projects']) for the remote chip.
+  const { data: projects = [] } = useQuery<Project[]>({
+    queryKey: ['projects'],
+    queryFn: api.projects.list,
+  })
+  const project = projects.find(p => p.id === projectId)
+  // F-033: when the repo folder is gone, arming Onboard/Dispatch/Verify would act
+  // against a missing path — disable them and show a banner.
+  const pathMissing = project?.pathMissing === true
   const latest = reports.length > 0
     ? [...reports].sort((a, b) => b.startedAt - a.startedAt)[0]
     : null
+
+  // Status chips for parity with the fleet cards (F-053): remote · bible · CI. The
+  // bible signal comes from the latest verification breakdown (>0 ⇒ a bible was
+  // scored); CI from the newest GitHub Actions run's conclusion.
+  const ciConclusion = github?.ci?.[0]?.conclusion ?? null
+  const ciChip: { label: string; tone: string } =
+    ciConclusion == null
+      ? { label: 'CI —', tone: 'text-[var(--muted)]' }
+      : ciConclusion === 'success'
+        ? { label: 'CI ✓', tone: 'text-[var(--green)]' }
+        : { label: 'CI ✗', tone: 'text-[var(--amber)]' }
+  const bibleChip: { label: string; tone: string } =
+    latest?.breakdown?.bible == null
+      // null breakdown OR an UNMEASURED bible (a bare scaffold) → not scored, show —.
+      ? { label: 'bible —', tone: 'text-[var(--muted)]' }
+      : latest.breakdown.bible > 0
+        ? { label: 'bible ✓', tone: 'text-[var(--green)]' }
+        : { label: 'bible ✗', tone: 'text-[var(--amber)]' }
+  const remoteChip: { label: string; tone: string } = project?.githubRemote
+    ? { label: `remote ✓ ${project.githubRemote}`, tone: 'text-[var(--green)]' }
+    : { label: 'no remote', tone: 'text-[var(--amber)]' }
 
   const verify = useMutation({
     mutationFn: (deep: boolean) => api.projects.verify(projectId, deep ? { deep: true } : undefined),
@@ -77,6 +107,35 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
   return (
     <div className="space-y-5 p-5">
 
+      {/* ── Path-missing banner (F-033) ─────────────────────────────────────── */}
+      {pathMissing && (
+        <div
+          data-testid="overview-path-missing"
+          className="rounded-lg border border-[var(--red)]/40 bg-[var(--red)]/10 px-4 py-3 text-xs text-[var(--red)]"
+        >
+          <span className="font-semibold">⚠ Repo folder missing on disk.</span>{' '}
+          <span className="text-[var(--muted)]">
+            <span className="mono">{project?.localPath}</span> no longer exists — Onboard, Dispatch and
+            Verify are disabled until the folder is restored or the project is removed.
+          </span>
+        </div>
+      )}
+
+      {/* ── Status chips (remote · bible · CI) — parity with the fleet cards ── */}
+      <div data-testid="overview-chips" className="flex flex-wrap items-center gap-2">
+        {[remoteChip, bibleChip, ciChip].map(chip => (
+          <span
+            key={chip.label}
+            className={cn(
+              'mono rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-0.5 text-[10px]',
+              chip.tone,
+            )}
+          >
+            {chip.label}
+          </span>
+        ))}
+      </div>
+
       {/* ── Health Score ─────────────────────────────────────────────── */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
         <div className="flex items-baseline gap-3">
@@ -85,9 +144,11 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
           ) : latest ? (
             <>
               <span className={cn('mono text-3xl font-semibold', scoreColor(latest.score))}>
-                {latest.score}
+                {latest.score ?? '—'}
               </span>
-              <span className="text-xs text-[var(--muted)]">/ 100 health</span>
+              <span className="text-xs text-[var(--muted)]">
+                {latest.score == null ? 'insufficient signal' : '/ 100 health'}
+              </span>
               <span className="ml-auto text-[11px] text-[var(--muted)]">
                 {formatTimeAgo(latest.completedAt ?? latest.startedAt)}
               </span>
@@ -107,7 +168,9 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
                 <div key={key}>
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-[var(--muted)]">{label}</span>
-                    <span className="mono text-[var(--muted)]">{value}/{max}</span>
+                    <span className="mono text-[var(--muted)]">
+                      {value == null ? 'not measured' : `${value}/${max}`}
+                    </span>
                   </div>
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--raised)]">
                     <div
@@ -207,15 +270,15 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
       <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => verify.mutate(false)}
-          disabled={pending}
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-40"
+          disabled={pending || pathMissing}
+          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {verify.isPending ? 'verifying…' : '▶ Run Verification'}
         </button>
         <button
           onClick={() => verify.mutate(true)}
-          disabled={pending}
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] disabled:opacity-40"
+          disabled={pending || pathMissing}
+          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Deep Verify
         </button>
@@ -227,15 +290,17 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
         </button>
         <button
           onClick={() => onboard.mutate()}
-          disabled={onboard.isPending}
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] disabled:opacity-40"
-          title="Scaffold the starter bible + CI workflow if missing"
+          disabled={onboard.isPending || pathMissing}
+          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
+          title={pathMissing ? 'Path missing — restore the repo folder first' : 'Scaffold the starter bible + CI workflow if missing'}
         >
           {onboard.isPending ? 'onboarding…' : '✦ Onboard'}
         </button>
         <button
-          onClick={() => navigate('project', projectId, 'runs')}
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)]"
+          onClick={() => { if (!pathMissing) navigate('project', projectId, 'runs') }}
+          disabled={pathMissing}
+          title={pathMissing ? 'Path missing — restore the repo folder first' : undefined}
+          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Dispatch Agent
         </button>

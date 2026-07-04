@@ -2,7 +2,7 @@
 title: Verification System
 icon: "✓"
 status: active
-updated: 2026-06-30
+updated: 2026-07-04
 ---
 
 Verification is **two-layer** (decision D-004): machines check what machines are good at; agents judge what requires judgment.
@@ -54,14 +54,19 @@ Reports persist to SQLite, stream to the dashboard's Verification tab, and the s
 
 ## Health score
 
-`score = 40·CI + 20·coverage-trend + 20·bible-freshness + 20·findings`
+The score **PRORATES over only the dimensions it could actually MEASURE** (F-032 / D-064):
 
-- **CI (40):** latest default-branch run green = full marks; failing = 0; flaky (mixed last 5) = half.
-- **Coverage trend (20):** improving or stable (≥ baseline within tolerance) = full marks; declining = proportional (half). `unknown` (no coverage signal available for the project) = neutral / full marks (no penalty). The trend is a **live signal** — see below.
-- **Bible freshness (20):** all sections updated within 30 days of last significant commit = full.
-- **Findings (20):** no open critical = full; each open critical −10, each warn −2 (floor 0).
+`score = round( Σ earned(measured) / Σ weight(measured) · 100 )` over four weighted dimensions —
+**CI 40 · coverage-trend 20 · bible 20 · findings 20**.
 
-The formula is deliberately simple and documented here so agents and operator agree on what "healthy" means. Tune it by editing this section — the verification skill reads its weights from the bible.
+An **unmeasured** dimension is **excluded from both the numerator and the denominator** — it neither helps nor hurts, and renders as a `null` bar (never a 0-bar or a full bar). If **no** dimension is measured the score is **null** — "insufficient signal" — **not 100**: a freshly-onboarded project no longer reads 100/100 off scaffold files that never ran. A **measured** dimension still demerits exactly as before:
+
+- **CI (40):** classified (`classifyCi`) from the **decisive** runs — a `success` or a failure-class conclusion (`failure`/`timed_out`/`action_required`/`startup_failure`); neutral (`skipped`/`cancelled`/`neutral`/`stale`) and in-progress runs carry no signal and are ignored — among the last 10 CI runs (`gh run list --limit 10`) across **all branches** (there is **no** default-branch filter; `headBranch` is fetched but never used to filter). Latest decisive run green = full marks (40); latest decisive run failed = 0; **flaky** = at least one success **and** at least one failure among those decisive runs (no fixed "last N" window) = half (20). **Unmeasured** when there is no decisive CI signal at all — no workflow, or a workflow that has never produced a decisive run.
+- **Coverage trend (20):** improving or stable (≥ prior within tolerance) = full marks; declining = half. **Unmeasured** (no `coverage-summary.json`) → excluded, never penalised. It is a **live signal** — see below.
+- **Bible (20):** scored on **AUTHORED content**, not commit history — an authored bible (past the `BIBLE_SCAFFOLD_MARKER` sentinel), **even uncommitted** (D-028), earns full marks; a bare scaffold is **unmeasured**. Bible *quality* isn't machine-scorable, so a measured bible is simply full.
+- **Findings (20):** no open critical = full; each open critical −10, each warn −2 (floor 0). Measured only once at least one of CI / coverage / bible is measured — a zero-signal scaffold carries no findings dimension either.
+
+Because a score can now be absent, `verification_reports.score` and `score_breakdown` are **nullable** (a table rebuild, `SCHEMA_VERSION 4→5`), and every API + web consumer is null-safe. The formula is deliberately simple and documented here so agents and operator agree on what "healthy" means. Tune the weights by editing this section — the verification skill reads them from the bible.
 
 ## What shipped — the deterministic spine vs. the agent layer
 
@@ -71,9 +76,9 @@ This milestone delivered the deterministic Layer-1 spine end-to-end and authored
 
 The health score and report are computed and persisted **deterministically** by `core/src/verify.ts` — no agent in the loop:
 
-- `computeHealthScore` implements the exact §07 formula above (`40·CI + 20·coverage-trend + 20·bible-freshness + 20·findings`), returning the clamped score plus a per-factor `breakdown` for the UI bars.
+- `computeHealthScore` implements the §07 **prorated** formula above — it earns points per MEASURED dimension over the measured weight, returning the clamped score (or **null** when no dimension is measured) plus a per-factor `breakdown` (each factor `null` when unmeasured) for the UI bars.
 - The pure auditors — **CI** (`auditCi` / `classifyCi`), **bible-freshness** (`auditBible`), and **invariants** (`auditInvariants`) — take already-gathered facts and emit `Finding[]`. `composeFindings` dedupes them so each root cause is counted once (CI/bible auditors own the missing-workflow / missing-bible criticals; only the GitHub-remote invariant is kept from `auditInvariants`, avoiding a double penalty).
-- `runVerification` is the impure conductor: it gathers facts (cached GitHub CI status, `.github/workflows/` presence, bible git-freshness via `git log` on the bible dir), scores with the pure core, persists a `VerificationReport` (including `score_breakdown`) and updates project health **atomically** in one SQLite transaction, then broadcasts a `verification_update` event.
+- `runVerification` is the impure conductor: it gathers facts (cached GitHub CI status, `.github/workflows/` presence, the project's `coverage-summary.json`, and whether the bible is **authored** past the scaffold sentinel via `hasAuthoredBible` — which drives the *score* — while bible git-freshness via `git log` on the bible dir still feeds `auditBible`'s soft-staleness *finding*, not the score), scores with the pure core, persists a `VerificationReport` (including `score_breakdown`) and updates project health **atomically** in one SQLite transaction, then broadcasts a `verification_update` event.
 
 Exposed via `POST /api/projects/:id/verify` (synchronous, authoritative) and `GET /api/projects/:id/verifications` (report history, newest first).
 
@@ -136,7 +141,10 @@ SkillEval {
 
 Every run already records its provider, model, cost, tokens, and status. The **routing dashboard**
 aggregates that run-outcome data — cost, latency, and success rate by provider+model (and task
-shape) — so the operator can see where spend goes and whether cheaper routing is paying off. The
+shape) — so the operator can see where spend goes and whether cheaper routing is paying off.
+**Latency excludes** the time a run sat **parked** at `awaiting_input` (the shared `activeLatencyMs`
+rule, W9a/F-082), so it measures processing time not operator think-time, and an operator-**killed**
+run counts as **neither** a success nor a failure (excluded from the terminal denominator). The
 same aggregates feed the `ModelRouter`'s cost-aware decisions (§02 Architecture). The view
 reuses the existing stacked-SVG charts and `buildTimeseries`, and renders a sane empty state
 before any runs exist. It is read-only insight today; **learned/automatic routing tuning is a

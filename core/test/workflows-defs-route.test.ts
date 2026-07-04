@@ -8,10 +8,11 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import Fastify from 'fastify'
-import { db } from '../src/db.js'
+import { v4 as uuid } from 'uuid'
+import { db, workflowRunsDb, projectsDb } from '../src/db.js'
 import { workflowsRoutes } from '../src/routes/workflows.js'
 import { seedWorkflowDefinitions, getWorkflowDef } from '../src/workflow-defs.js'
-import type { NamedWorkflow } from '@k/shared'
+import type { NamedWorkflow, WorkflowRun } from '@k/shared'
 
 const SEED_IDS = ['code-wave', 'investigate', 'refactor']
 
@@ -118,6 +119,25 @@ describe('PATCH /api/workflows/:id', () => {
     }
   })
 
+  it('F-015: a `roles` key is rejected 400 and the stored roles are UNCHANGED (read-only)', async () => {
+    const app = await makeApp()
+    try {
+      const before = JSON.stringify(getWorkflowDef('refactor')!.roles)
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/workflows/refactor',
+        // A corrupting role rewrite must NOT be honored — roles are read-only (CLAIM-04-2).
+        payload: { roles: [{ id: 'x', label: 'X', description: 'corrupt' }] },
+      })
+      expect(res.statusCode).toBe(400)
+      expect((res.json() as { error: string }).error).toBe('invalid patch')
+      // The durable roles are untouched — the PATCH never reached updateWorkflowDef.
+      expect(JSON.stringify(getWorkflowDef('refactor')!.roles)).toBe(before)
+    } finally {
+      await app.close()
+    }
+  })
+
   it('SEAM: renaming onto an existing name (UNIQUE) is a 400, row UNCHANGED', async () => {
     const app = await makeApp()
     try {
@@ -132,6 +152,45 @@ describe('PATCH /api/workflows/:id', () => {
       expect((res.json() as { error: string }).error).toBe('name already in use')
       // The UPDATE threw before committing — the row keeps its prior name.
       expect(getWorkflowDef('investigate')!.name).toBe(before)
+    } finally {
+      await app.close()
+    }
+  })
+})
+
+describe('GET /api/workflows/runs (F-074)', () => {
+  const projectId = `wf-runs-proj-${uuid().slice(0, 8)}`
+  const runRowId = uuid()
+
+  beforeAll(() => {
+    projectsDb.insertProject.run({
+      id: projectId, name: projectId, localPath: `/tmp/${projectId}`,
+      githubRemote: null, workspaceManaged: 0, bibleDir: 'docs/bible', createdAt: Date.now(),
+    })
+    // A workflow run dispatched from the seeded `code-wave` TEMPLATE.
+    workflowRunsDb.insertWorkflowRun.run({
+      id: runRowId, projectId, runId: null, taskIds: JSON.stringify([]),
+      mode: 'combined', workflowId: 'code-wave', status: 'running',
+      createdAt: Date.now(), completedAt: null,
+    })
+  })
+
+  afterAll(() => {
+    db.prepare('DELETE FROM workflow_runs WHERE id = ?').run(runRowId)
+    db.prepare('DELETE FROM projects WHERE id = ?').run(projectId)
+  })
+
+  it('each run row carries its workflowId + the joined workflow name', async () => {
+    const app = await makeApp()
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/workflows/runs' })
+      expect(res.statusCode).toBe(200)
+      const rows = res.json() as WorkflowRun[]
+      const mine = rows.find(r => r.id === runRowId)
+      expect(mine).toBeDefined()
+      // You can now tell WHICH definition the run used (was: no workflowId at all).
+      expect(mine!.workflowId).toBe('code-wave')
+      expect(mine!.workflowName).toBe('Code wave')
     } finally {
       await app.close()
     }

@@ -48,8 +48,16 @@ export function authVerdict(a: Status['auth']): StatusVerdict {
   // (advisory) when bound to a non-loopback host — the operator should be sure a
   // proxy/Tailscale fronts it. tokenSource never carries the token value.
   const src = a.tokenSource === 'env' ? 'HARNESS_TOKEN env' : 'generated/persisted'
+  // Credential posture (F-064/F-090): make a host-credential fallback (or a
+  // fail-closed opt-out) visible; a managed token needs no extra note.
+  const creds =
+    a.credentialPosture === 'host-fallback'
+      ? ' · creds: host fallback'
+      : a.credentialPosture === 'disabled'
+        ? ' · creds: unauthenticated (fallback off)'
+        : ''
   if (a.loopbackOnly) {
-    return { tone: 'green', label: 'Loopback only', detail: `${a.host} · token: ${src}` }
+    return { tone: 'green', label: 'Loopback only', detail: `${a.host} · token: ${src}${creds}` }
   }
-  return { tone: 'amber', label: 'Network-exposed', detail: `${a.host} · token: ${src}` }
+  return { tone: 'amber', label: 'Network-exposed', detail: `${a.host} · token: ${src}${creds}` }
 }

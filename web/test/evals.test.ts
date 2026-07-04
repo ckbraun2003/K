@@ -8,6 +8,7 @@ import {
   regressionBadge,
   runStatusColor,
   detPassGlyph,
+  resultTally,
   EMPTY,
   type BaselineCompare,
 } from '../src/lib/evals'
@@ -125,6 +126,38 @@ describe('regressionBadge', () => {
       label: 'no baseline',
       colorClass: 'bg-[var(--raised)] text-[var(--muted)]',
     })
+  })
+  it('maps dry → neutral (never red) — a dry run is not compared to real baselines (F-025)', () => {
+    expect(regressionBadge({ status: 'dry' })).toEqual({
+      label: 'dry',
+      colorClass: 'bg-[var(--raised)] text-[var(--muted)]',
+    })
+  })
+})
+
+describe('resultTally', () => {
+  it('counts passed/failed/total, distinguishing passed from completed (F-044)', () => {
+    const t = resultTally([
+      { detPass: 1, error: null },
+      { detPass: 1, error: null },
+      { detPass: 0, error: null },
+      { detPass: null, error: 'boom' }, // errored → failed
+    ])
+    expect(t.passed).toBe(2)
+    expect(t.failed).toBe(2)
+    expect(t.total).toBe(4)
+    expect(t.label).toBe('2/4 passed')
+    // passed must NOT equal the completed/total count when there are failures
+    expect(t.passed).not.toBe(t.total)
+  })
+  it('treats a null detPass with no error as neither passed nor failed', () => {
+    expect(resultTally([{ detPass: null, error: null }])).toEqual({
+      passed: 0, failed: 0, total: 1, label: '0/1 passed',
+    })
+  })
+  it('reports all-passed only when every row passed', () => {
+    const t = resultTally([{ detPass: 1, error: null }, { detPass: 1, error: null }])
+    expect(t).toEqual({ passed: 2, failed: 0, total: 2, label: '2/2 passed' })
   })
 })
 

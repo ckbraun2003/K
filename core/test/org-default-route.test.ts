@@ -49,18 +49,40 @@ describe('GET /api/org-default', () => {
 })
 
 describe('PATCH /api/org-default', () => {
-  it('round-trips a skills change; the durable row reflects it', async () => {
+  it('round-trips a skills change (a real tier-bundle skill); the durable row reflects it', async () => {
     const app = await makeApp()
     try {
+      // 'gitnexus' is in the orchestrator tier bundle (the skills ceiling), so it is
+      // an accepted org-default skill (F-049 validates against that set).
       const res = await app.inject({
         method: 'PATCH',
         url: '/api/org-default',
-        payload: { skills: ['org-default-x'] },
+        payload: { skills: ['gitnexus'] },
       })
       expect(res.statusCode).toBe(200)
       const updated = res.json() as AgentProfile
-      expect(updated.skills).toEqual(['org-default-x'])
-      expect(getProfile('default-orchestrator')!.skills).toEqual(['org-default-x'])
+      expect(updated.skills).toEqual(['gitnexus'])
+      expect(getProfile('default-orchestrator')!.skills).toEqual(['gitnexus'])
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('400 on a skill outside the tier skill set (F-049); the profile is UNCHANGED', async () => {
+    const app = await makeApp()
+    try {
+      const before = getProfile('default-orchestrator')!.skills
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/org-default',
+        payload: { skills: ['gitnexus', 'this-skill-does-not-exist'] },
+      })
+      expect(res.statusCode).toBe(400)
+      const err = (res.json() as { error: string }).error
+      expect(err).toMatch(/this-skill-does-not-exist/)
+      expect(err).toMatch(/skill/)
+      // The row did NOT change — validation ran before the UPDATE.
+      expect(getProfile('default-orchestrator')!.skills).toEqual(before)
     } finally {
       await app.close()
     }
@@ -77,7 +99,7 @@ describe('PATCH /api/org-default', () => {
     }
   })
 
-  it('400 on an unknown key (.strict)', async () => {
+  it('400 on an unknown key (.strict) — names the offending field (F-024)', async () => {
     const app = await makeApp()
     try {
       const res = await app.inject({
@@ -86,7 +108,26 @@ describe('PATCH /api/org-default', () => {
         payload: { bogus: true },
       })
       expect(res.statusCode).toBe(400)
-      expect((res.json() as { error: string }).error).toBe('invalid patch')
+      // The opaque "invalid patch" was replaced with a message naming the offending key.
+      expect((res.json() as { error: string }).error).toMatch(/bogus/)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('400 naming tier/charter as immutable when a PATCH tries to move them (F-024)', async () => {
+    const app = await makeApp()
+    try {
+      for (const payload of [{ tier: 'chief' }, { charter: 'secretary' }]) {
+        const res = await app.inject({ method: 'PATCH', url: '/api/org-default', payload })
+        expect(res.statusCode).toBe(400)
+        const err = (res.json() as { error: string }).error
+        expect(err).toMatch(/tier|charter/)
+        expect(err).toMatch(/immutable/)
+      }
+      // The profile's tier/charter are untouched.
+      expect(getProfile('default-orchestrator')!.tier).toBe('orchestrator')
+      expect(getProfile('default-orchestrator')!.charter).toBe('orchestrator')
     } finally {
       await app.close()
     }

@@ -41,8 +41,21 @@ describe('settings-status verdicts', () => {
   })
 
   it('auth loopback → green, network-exposed → amber', () => {
-    expect(authVerdict({ tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false }).tone).toBe('green')
-    expect(authVerdict({ tokenSource: 'env', host: '0.0.0.0', loopbackOnly: false, terminalEnabled: false }).tone).toBe('amber')
+    expect(authVerdict({ tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'managed' }).tone).toBe('green')
+    expect(authVerdict({ tokenSource: 'env', host: '0.0.0.0', loopbackOnly: false, terminalEnabled: false, credentialPosture: 'managed' }).tone).toBe('amber')
+  })
+
+  it('auth surfaces the host-credential fallback posture in the detail (tone unchanged)', () => {
+    const managed = authVerdict({ tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'managed' })
+    expect(managed.tone).toBe('green')
+    expect(managed.detail).not.toMatch(/creds:/)
+
+    const fallback = authVerdict({ tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'host-fallback' })
+    expect(fallback.tone).toBe('green') // tone stays host-based
+    expect(fallback.detail).toMatch(/host fallback/)
+
+    const disabled = authVerdict({ tokenSource: 'env', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'disabled' })
+    expect(disabled.detail).toMatch(/fallback off/)
   })
 
   it('toneColor maps to the midnight-glass palette vars only', () => {

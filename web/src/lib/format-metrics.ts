@@ -16,6 +16,13 @@ export function formatUsd(n: number): string {
   return `$${n.toFixed(2)}`
 }
 
+/** KPI-tile value gate: render an em-dash while the feed is still loading so a cold
+ *  load never reads as a REAL zero ("$0.00 today" / "0 runs"). Once loaded the
+ *  formatted value shows through — including a genuine zero (F-083). */
+export function tileValue(isLoading: boolean, value: string): string {
+  return isLoading ? '—' : value
+}
+
 /**
  * Org-wide success rate (0..1) from per-model routing stats: Σdone/Σterminal,
  * computed as Σ(terminalRuns·successRate)/Σ(terminalRuns). Weighted by the SAME
@@ -26,6 +33,19 @@ export function weightedSuccessRate(groups: ReadonlyArray<{ terminalRuns: number
   const denom = groups.reduce((s, g) => s + g.terminalRuns, 0)
   if (denom <= 0) return 0
   return groups.reduce((s, g) => s + g.terminalRuns * g.successRate, 0) / denom
+}
+
+/**
+ * Org-wide error rate (0..1) from per-model routing stats: Σ(errored)/Σterminal,
+ * computed as Σ(terminalRuns·errorRate)/Σ(terminalRuns). Weighted by the SAME
+ * killed-excluded terminal denominator as weightedSuccessRate — so the two are exact
+ * complements (successRate + errorRate === 1 over the terminal population). 0 when no
+ * terminal runs (W9b F-085).
+ */
+export function weightedErrorRate(groups: ReadonlyArray<{ terminalRuns: number; errorRate: number }>): number {
+  const denom = groups.reduce((s, g) => s + g.terminalRuns, 0)
+  if (denom <= 0) return 0
+  return groups.reduce((s, g) => s + g.terminalRuns * g.errorRate, 0) / denom
 }
 
 /**

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { LessonStatus } from '@k/shared'
+import type { LessonStatus, AgentProfile } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { relativeTime } from '../lib/verify'
@@ -40,10 +40,23 @@ export default function MemoryPage() {
     queryFn: () => api.memory.lessons(profileId ? { status, profileId } : { status }),
   })
 
-  // Distinct (profileId, profileName) pairs from the unfiltered list. Pre-A1 rows
-  // with a null profileId are simply omitted (no "unassigned" pseudo-filter).
+  // The durable profile roster — feeds the filter with EVERY dispatchable lead so each one
+  // is selectable even before it has proposed a single lesson (F-081). Fetched once; graceful
+  // [] if it fails (options then fall back to just the proposing profiles below).
+  const { data: roster = [] } = useQuery<AgentProfile[]>({
+    queryKey: ['profiles'],
+    queryFn: () => api.profiles.list(),
+  })
+
+  // Filter options (F-081): the lead ROSTER first — every dispatchable lead (orchestrator
+  // tier, minus the generic default-orchestrator) appears even with zero lessons — then any
+  // OTHER profile that actually proposed a lesson (K/Chief/…), so their lessons stay
+  // filterable. Null-profile (org-blind) lessons are omitted by design (no pseudo-filter).
   const profileOptions = (() => {
     const seen = new Map<string, string>()
+    for (const p of roster) {
+      if (p.tier === 'orchestrator' && p.id !== 'default-orchestrator') seen.set(p.id, p.name)
+    }
     for (const l of allLessons) {
       if (l.profileId != null && !seen.has(l.profileId)) {
         seen.set(l.profileId, l.profileName ?? l.profileId)

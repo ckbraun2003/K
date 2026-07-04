@@ -19,7 +19,10 @@ export function loadSystems({ root, only }: { root?: string; only?: string[] | n
   const regPath = path.join(base, 'testing', 'eval', 'systems.json')
   // narrow JSON boundary: the registry file is authored to the SystemRegistry shape
   const registry = JSON.parse(readFileSync(regPath, 'utf8')) as SystemRegistry
-  const onlySet = only && only.length ? new Set(only) : null
+  // F-014 (mirror of store.ts): only null/undefined means "all systems"; an explicit empty array
+  // selects NOTHING. This is the default loadSystemsFn fallback in the runner, so keeping the two
+  // loaders identical prevents a caller that omits the DB loader from reintroducing the []-means-all hole.
+  const onlySet = only ? new Set(only) : null
   const out: EvalSystem[] = []
   for (const s of registry.systems) {
     if (onlySet && !onlySet.has(s.id)) continue

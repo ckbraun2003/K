@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-02
+updated: 2026-07-04
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -250,7 +250,7 @@ A project opens into its workspace (unchanged in shape):
 | **Tasks** | project tickets (`work_items`, scope `project` — §04), optional GitHub Issues sync, multi-select → run a delegation workflow |
 | **PRs & CI** | open PRs with check status, diff links, Actions run history |
 | **Verification** | report timeline, findings by severity, fixes applied, re-run button |
-| **Artifacts** | this project's artifacts as a gallery, each in a sandboxed iframe; per-artifact markdown edit + bible recompile |
+| **Artifacts** | this project's OWN artifacts as a gallery (only `project-<id>-*`, not the harness globals — F-038), each in a sandboxed iframe; a regular artifact edits as markdown, a **bible edits per SECTION** with source-of-truth writeback + recompile, staying in the project's own dir (D-065) |
 
 ## Observe — the watch surfaces (today)
 
@@ -261,8 +261,18 @@ A project opens into its workspace (unchanged in shape):
   with **End session** and **Compact context**, plus a **`ctx X / Y · Z%`** pressure meter. (Internals
   in §13.)
 - **Graph (3D).** Fleet + per-project knowledge graphs (below).
-- **Metrics.** Tokens / cost / run trends over time (stacked-SVG charts).
-- **Routing.** Model-routing outcomes — cost / latency / success by provider+model.
+- **Metrics.** Tokens / cost / run trends over time (stacked-SVG charts), plus KPI tiles and
+  gap-audit breakdowns (W9): **cost-by-lead** (`groupBy=lead` — each run resolved to its lead via the
+  latest orchestrator `agent_runs` activation; no-activation → `unassigned`), an **error-rate** KPI
+  (the exact complement of success rate), **latency p50 / p95** (R-7 interpolation over the
+  parked-excluded active latency), and **success-rate + latency day trends**
+  (`GET /api/metrics/quality`; a day with no terminal/latency data is a null **gap**, never NaN).
+  Latency everywhere **excludes time a run sat parked** at `awaiting_input` (the shared
+  `activeLatencyMs` rule), so it reflects processing time, not operator think-time; an operator-**killed**
+  run is **excluded from the terminal denominator** — neither a success nor a failure. (Retry-rate is
+  documented UNAVAILABLE — no retry tracking exists; nothing fabricated.)
+- **Routing.** Model-routing outcomes — cost / latency / success by provider+model, over the same
+  parked-excluded active latency and killed-excluded success rate.
 - **Evals.** The behavioral eval subsystem (§07): systems, runs with progress, a per-system pass-rate /
   discrimination / regression report, the raw results table, and a **gated Run** (dry by default — a real
   token-spending run requires an explicit opt-in that resets on every dialog open). (Internals in §07.)

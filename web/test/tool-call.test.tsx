@@ -3,7 +3,7 @@ import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MotionConfig } from 'framer-motion'
 import type { AgentEvent } from '@k/shared'
-import { CommandCall, FileCall, DelegateCall } from '../src/components/ToolCall'
+import ToolCall, { CommandCall, FileCall, DelegateCall, OtherCall } from '../src/components/ToolCall'
 import type { ToolItem } from '../src/lib/console'
 
 // jsdom has no matchMedia; framer may probe it. Provide an inert stub.
@@ -171,6 +171,59 @@ describe('error styling', () => {
       <CommandCall item={item({ toolKind: 'command', toolUseId: 't', toolInput: { command: 'ok' } }, { toolUseId: 't', toolResult: 'fine' })} />,
     )
     expect(screen.getByTestId('tool-command').className).not.toContain('var(--red)')
+  })
+})
+
+// ─── Salient arg extraction for non-command/file/delegate tools (F-063) ────────
+
+describe('OtherCall — salient input arg in header', () => {
+  it('Read shows its file path instead of empty parens', () => {
+    render(<OtherCall item={item({ tool: 'Read', toolKind: 'other', toolUseId: 't', toolInput: { file_path: '/src/app.ts' } }, { toolUseId: 't', toolResult: '…' })} />)
+    const card = screen.getByTestId('tool-other')
+    expect(card.textContent).toContain('Read')
+    expect(card.textContent).toContain('/src/app.ts')
+    expect(card.textContent).not.toContain('()')
+  })
+
+  it('ToolSearch shows its query', () => {
+    render(<OtherCall item={item({ tool: 'ToolSearch', toolKind: 'other', toolUseId: 't', toolInput: { query: 'select:Read,Edit' } }, { toolUseId: 't', toolResult: 'ok' })} />)
+    expect(screen.getByTestId('tool-other').textContent).toContain('select:Read,Edit')
+  })
+
+  it('an mcp__ tool shows a key input arg (not empty parens)', () => {
+    render(<OtherCall item={item({ tool: 'mcp__kstore__lesson_propose', toolKind: 'other', toolUseId: 't', toolInput: { lesson: 'always validate at the boundary' } }, { toolUseId: 't', toolResult: 'ok' })} />)
+    expect(screen.getByTestId('tool-other').textContent).toContain('always validate at the boundary')
+  })
+})
+
+// ─── PowerShell renders like Bash — command in the header (F-078) ──────────────
+
+describe('PowerShell tool card (F-078)', () => {
+  it('routes a PowerShell tool_use (kind "other") to a command card showing the command', () => {
+    const it_ = item(
+      { tool: 'PowerShell', toolKind: 'other', toolUseId: 't', toolInput: { command: 'git push origin main' } },
+      { toolUseId: 't', toolResult: 'Everything up-to-date' },
+    )
+    render(<ToolCall item={it_} />)
+    // Rendered as a command card ($ prefix), command visible in the header.
+    expect(screen.getByTestId('tool-command')).toBeTruthy()
+    expect(screen.getByText('git push origin main')).toBeTruthy()
+  })
+})
+
+// ─── Unpaired tool_use is not stuck pending after the run ends (F-063) ─────────
+
+describe('runEnded resolves a dangling tool_use', () => {
+  const unpaired = () => item({ tool: 'ToolSearch', toolKind: 'other', toolUseId: 't', toolInput: { query: 'q' } })
+
+  it('shows running… while the run is live (no runEnded)', () => {
+    render(<OtherCall item={unpaired()} />)
+    expect(screen.getByTestId('tool-other').textContent).toContain('running…')
+  })
+
+  it('is NOT perpetually pending once the run has ended', () => {
+    render(<OtherCall item={unpaired()} runEnded />)
+    expect(screen.getByTestId('tool-other').textContent).not.toContain('running…')
   })
 })
 

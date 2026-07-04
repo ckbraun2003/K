@@ -28,11 +28,11 @@
 
 import { randomUUID } from 'crypto'
 import type { AgentProfile } from '@k/shared'
-import { getProfile, getProfileByName } from './profiles.js'
+import { getProfile, getProfileByName, listProfiles } from './profiles.js'
 import { getWorkflowDef, getWorkflowDefByName } from './workflow-defs.js'
-import { renderWorkflowPrompt, CODE_WAVE_SCAFFOLD } from './workflows.js'
+import { renderWorkflowPrompt, CODE_WAVE_SCAFFOLD, finalizeWorkflowRun } from './workflows.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
-import { mgmtDb, eventsDb } from './db.js'
+import { mgmtDb, eventsDb, workflowRunsDb, workflowStepsDb } from './db.js'
 
 /** The default NamedWorkflow a lead dispatch seeds from when the assignment names no
  *  workflow choice (pick_workflow was never called). Matches the seeded code-wave id. */
@@ -42,9 +42,6 @@ export const DEFAULT_LEAD_WORKFLOW_ID = 'code-wave'
  *  huge raw transcript into the Chief's mgmt store (mirrors k-thread's cap). */
 export const LEAD_REPORT_TEXT_CAP = 2_000
 
-/** How many of the lead run's earliest `assistant` events the report-back scans (seq ASC)
- *  — enough to fill the 2k cap without materializing a long lead run's whole event log. */
-const LEAD_REPORT_EVENT_SCAN = 50
 
 /** The charter line appended to every dispatched lead's seed prompt: it tells the
  *  lead it is an orchestrator dispatched by the Chief and that it must OPEN A PR
@@ -59,6 +56,33 @@ type Row = Record<string, unknown>
  *  orchestrator-tier; discipline is a bundle+charter, not a tier — D-020). */
 export function isLeadProfile(p: AgentProfile): boolean {
   return p.tier === 'orchestrator' && p.id !== 'default-orchestrator'
+}
+
+/** The dispatchable leads, in seed order — the ONE roster the `lead_list` mgmt tool, the
+ *  assign-time validation, and the AUTO-path seed injection all derive from (so they can
+ *  never name different sets). Each lead's discipline slug is its `lead-<slug>` id tail. */
+export function listDispatchableLeads(): Array<{ id: string; name: string; discipline: string }> {
+  return listProfiles()
+    .filter(isLeadProfile)
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      discipline: p.id.startsWith('lead-') ? p.id.slice('lead-'.length) : p.name.toLowerCase(),
+    }))
+}
+
+/** A one-line roster hint naming every dispatchable lead by name + id — injected into the
+ *  Chief's AUTO-path seeds (wake goal / no-hint delegation) and the assign-time rejection
+ *  message so the Chief always knows the VALID lead identifiers and never invents a
+ *  discipline like "engineering" (F-067). Empty string when the roster is unseeded. */
+export function leadRosterHint(): string {
+  const leads = listDispatchableLeads()
+  if (leads.length === 0) return ''
+  const names = leads.map(l => `${l.name} (${l.id})`).join(', ')
+  return (
+    `Dispatchable leads: ${names}. Use the lead_list tool for the authoritative roster, then ` +
+    `assign_lead with one of those names/ids (never an invented discipline).`
+  )
 }
 
 /**
@@ -114,27 +138,96 @@ export function buildLeadSeed(objective: string, scaffold: string): string {
   return `${renderWorkflowPrompt(scaffold, [{ title: objective }])}\n\n${LEAD_CHARTER_LINE}`
 }
 
-/** Concatenate a bounded prefix of a lead run's `assistant` event texts (oldest→newest,
- *  up to LEAD_REPORT_EVENT_SCAN events) then cap to LEAD_REPORT_TEXT_CAP — the report-back
- *  summary of the lead's own words. Mirrors k-thread.ts::concatAssistantText (a one-shot
- *  capped summary, not a stateful turn-by-turn capture). */
-function concatLeadAssistantText(runId: string): string {
-  const rows = eventsDb.listAssistantEvents.all(runId, LEAD_REPORT_EVENT_SCAN) as Row[]
-  const parts: string[] = []
-  for (const row of rows) {
-    const text = row.text == null ? '' : String(row.text)
-    if (text.length > 0) parts.push(text)
+/**
+ * F-070: bind a dispatched lead run to a `workflow_runs` row + seed its checklist, so the
+ * lead's kstore status-write tools RESOLVE (workflow_step_set / workflow_status_set no
+ * longer return `not_in_workflow`) and it opens with a real checklist instead of improvising.
+ *
+ * `startAgentRun` records `workflow_id` on the agent_runs tracking row but never inserts a
+ * `workflow_runs` row (only dispatchTaskWorkflow does), so kstore's resolveWorkflowRun found
+ * nothing for a lead run. This creates that row (run_id = the lead run), seeds ONE 'pending'
+ * step per role in the chosen NamedWorkflow (the checklist skeleton the lead then fills in),
+ * and wires finalize on the lead's terminal (done→completed, else failed) via the shared
+ * run-lifecycle seam — the same finalize that reconciles lingering steps (F-072).
+ *
+ * REQUIRES a real `projectId` (workflow_runs.project_id is NOT NULL) — the relay only calls
+ * this for a project-scoped dispatch. Idempotent: a run that already has a workflow_run
+ * reuses it. Returns the workflow_run id (or the existing one).
+ */
+export function seedLeadWorkflowRun(leadRunId: string, projectId: string, workflowId: string): string {
+  const existing = workflowStepsDb.getWorkflowRunByRunId.get(leadRunId) as { id: string } | undefined
+  if (existing) return existing.id
+
+  const workflowRunId = randomUUID()
+  const now = Date.now()
+  workflowRunsDb.insertWorkflowRun.run({
+    id: workflowRunId,
+    projectId,
+    runId: leadRunId,
+    taskIds: '[]',
+    mode: 'combined',
+    workflowId,
+    status: 'running',
+    createdAt: now,
+    completedAt: null,
+  })
+
+  // One checklist step per role in the NamedWorkflow (pending). A review role → kind
+  // 'review'; every other role → 'phase'. The lead upserts these by label as it works.
+  const def = getWorkflowDef(workflowId)
+  if (def) {
+    for (const role of def.roles) {
+      const isReview = /review/i.test(role.id) || /review/i.test(role.label)
+      workflowStepsDb.setWorkflowStep({
+        id: randomUUID(),
+        workflowRunId,
+        label: role.label,
+        kind: isReview ? 'review' : 'phase',
+        workItemId: null,
+        status: 'pending',
+        detail: role.description ?? null,
+        updatedAt: Date.now(),
+      })
+    }
   }
-  const joined = parts.join('\n')
-  return joined.length > LEAD_REPORT_TEXT_CAP ? `${joined.slice(0, LEAD_REPORT_TEXT_CAP)}…` : joined
+
+  // Finalize the lead's workflow_run when the lead run terminates (and reconcile lingering
+  // steps — F-072), riding the same run-lifecycle seam as the report-back subscribers.
+  trackSupervisedRun(leadRunId, {
+    onStarted: () => {
+      /* run id already known — nothing to patch */
+    },
+    finalize: status => finalizeWorkflowRun(workflowRunId, status),
+  })
+
+  return workflowRunId
+}
+
+/** The lead run's CONCLUSION — its final (last) non-empty `assistant` event text, capped
+ *  to LEAD_REPORT_TEXT_CAP. F-075: the report-back is the lead's actual conclusion (the
+ *  TAIL, e.g. "Opened PR #7; CI green."), NOT a truncated PREFIX of the opening turns
+ *  ("I'll start by loading the workflow status tools…"). */
+function finalLeadAssistantText(runId: string): string {
+  const row = eventsDb.latestAssistantEvent.get(runId) as Row | undefined
+  const text = row?.text == null ? '' : String(row.text)
+  return text.length > LEAD_REPORT_TEXT_CAP ? `${text.slice(0, LEAD_REPORT_TEXT_CAP)}…` : text
 }
 
 /** Summarize a dispatched lead run's terminal outcome for the report filed UP to the
- *  Chief. Prefers the lead run's own assistant text; falls back to a bare status line
- *  when the lead produced no summary. */
+ *  Chief. F-075: prefers a CONCISE signal — the lead's own mgmt `report` (report_list) when
+ *  it filed one — mirroring k-thread.ts::summarizeDelegatedOutcome; else the lead's
+ *  CONCLUSION (final assistant message, not the prefix); else a bare status line. */
 export function summarizeLeadOutcome(leadRunId: string, status: string, lead: string): string {
   const verb = status === 'done' ? 'completed' : status
-  const answer = concatLeadAssistantText(leadRunId)
+  // Prefer the lead's explicit mgmt report (a concise status write) over raw transcript.
+  const reports = mgmtDb.listReportsByRun.all(leadRunId, 1) as Row[]
+  const reportBody = reports.length > 0 ? String(reports[0].body) : ''
+  if (reportBody.length > 0) {
+    const capped =
+      reportBody.length > LEAD_REPORT_TEXT_CAP ? `${reportBody.slice(0, LEAD_REPORT_TEXT_CAP)}…` : reportBody
+    return `Lead ${lead} (delegation ${verb}) reported: ${capped}`
+  }
+  const answer = finalLeadAssistantText(leadRunId)
   return answer.length > 0
     ? `Lead ${lead} (delegation ${verb}): ${answer}`
     : `Lead ${lead} delegation ${verb} — no summary was produced.`

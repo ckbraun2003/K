@@ -61,7 +61,7 @@ function StatusSection() {
   )
 }
 
-function SystemPromptSection() {
+export function SystemPromptSection() {
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery<{ md: string }>({
     queryKey: ['system-prompt'],
@@ -86,6 +86,19 @@ function SystemPromptSection() {
 
   const dirty = data?.md !== undefined && draft !== data.md
 
+  // Unsaved-changes guard (F-048): the editor previously discarded an unsaved edit
+  // silently on navigate/reload. While the draft is dirty, arm the browser's
+  // beforeunload confirmation so a reload/close/leave can't drop the edit unnoticed.
+  useEffect(() => {
+    if (!dirty) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = '' // legacy browsers require a set returnValue to prompt
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
+
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
@@ -94,7 +107,8 @@ function SystemPromptSection() {
             Global system prompt
           </h2>
           <p className="mt-1 text-[11px] text-[var(--muted)]">
-            Repo-root <span className="mono">CLAUDE.md</span> — applied to every agent the harness runs.
+            The base operating prompt (<span className="mono">agent-config/base-operating-prompt.md</span>) —
+            applied to every agent the harness runs.
           </p>
         </div>
         <button

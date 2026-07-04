@@ -2,7 +2,7 @@
 title: Project Model
 icon: "▦"
 status: active
-updated: 2026-06-17
+updated: 2026-07-04
 ---
 
 K manages a **fleet of projects**. A project is a registry entry pointing at a local git repository with a GitHub remote (decision D-005).
@@ -11,11 +11,13 @@ K manages a **fleet of projects**. A project is a registry entry pointing at a l
 Project {
   id: uuid
   name: string
-  localPath: string          // absolute path to the repo on disk
+  localPath: string          // absolute path to the repo on disk (unique — a duplicate is rejected 409, W5b)
   githubRemote?: string      // "owner/repo" — required for managed projects
   workspaceManaged: boolean  // true if K cloned it into the workspace dir
   bibleDir: string           // bible source dir, default "docs/bible"
-  healthScore?: number       // 0–100, written by verification runs
+  defaultBranch?: string     // detected + persisted at registration (W5b); web PR base prefers it over the CI-branch heuristic
+  healthScore?: number | null // 0–100, or null ("insufficient signal", D-064); written by verification runs
+  pathMissing?: boolean      // read-surface flag: the localPath no longer exists on disk (W5b/W10)
   lastVerifiedAt?: number    // unix ms
   createdAt: number
 }
@@ -42,6 +44,8 @@ These three invariants are exactly what the verification system (§07) enforces,
 
 Onboarding now **actively scaffolds** the missing invariants rather than merely checking them. `POST /api/projects/:id/onboard` inspects the three invariants above (GitHub remote, `docs/bible/`, `.github/workflows/`) and scaffolds a starter bible (manifest + sections) and CI workflow for whatever is absent. It is idempotent — an existing bible (keyed on a real `manifest.json` sentinel, not just an empty dir) or workflow is left untouched, so re-running creates nothing. The GitHub remote is reported but not fabricated. The verification system then measures and enforces these same invariants on every run.
 
+**Registration guards (W5b).** A `localPath` is normalized + case-folded and **rejected `409`** if it duplicates an already-registered project — no two rows managing one repo (F-031). The repo's **default branch** is detected and persisted atomically at registration, and the web PR base prefers it over the CI-branch heuristic. If a registered project's path later **vanishes**, `onboard` / `verify` return a single server-side **`409`** ("project localPath is missing on disk … — restore it or remove the project") instead of silently `mkdir`-recreating the directory, and the read surface stamps `pathMissing` so the UI can disable actions and explain why (the GitHub poller also skips a missing path — §11) (F-033). **Registration** is stricter (F-037): it distinguishes the two failure modes with distinct `ClientError` messages — *path does not exist* vs. *path is not a git repository (no `.git` found)* — each surfaced as a **`400`**, so a caller learns exactly which invariant the folder failed.
+
 ## Project zero
 
 The harness applies its own rules to itself: this bible is compiled by the same `compileBible()` used for every other project, the harness gets a CI workflow, and verification runs against it like any fleet member. If the mechanism is annoying for project zero, it is annoying for everything — fix the mechanism.
@@ -55,6 +59,7 @@ WorkflowRun {
   id: uuid
   projectId: uuid            // → projects, ON DELETE CASCADE
   runId?: uuid               // → runs, ON DELETE SET NULL (patched in after startRun)
+  workflowId?: uuid          // → the NamedWorkflow definition this run ran (guarded ALTER, SCHEMA_VERSION 3→4, F-074)
   taskIds: uuid[]            // JSON — the project_tasks selected for this batch
   mode: 'combined'           // one orchestrator run for the whole selection
   status: 'running' | 'completed' | 'failed'

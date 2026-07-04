@@ -8,9 +8,13 @@ import {
   encodeResize,
   parseServerFrame,
   errorReason,
+  errorShort,
 } from '../lib/terminal'
 
-const TOKEN = import.meta.env.VITE_TERMINAL_TOKEN ?? 'dev-terminal-token'
+// The dev fallback is DEV-only: in a prod build VITE_TERMINAL_TOKEN is `undefined`
+// (vite emits no token — see vite-token-defines.ts) and this resolves to '' so no
+// dev literal is ever usable in prod; the real token must be injected at runtime.
+const TOKEN = import.meta.env.VITE_TERMINAL_TOKEN ?? (import.meta.env.DEV ? 'dev-terminal-token' : '')
 
 /**
  * Web terminal: an xterm.js view bridged to a node-pty shell over /ws/terminal.
@@ -20,6 +24,10 @@ const TOKEN = import.meta.env.VITE_TERMINAL_TOKEN ?? 'dev-terminal-token'
 export default function TerminalPage() {
   const hostRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
+  // The raw server error code (or null for a transport failure), kept so the
+  // header pill can show a SHORT status word without repeating the overlay's
+  // full sentence (F-008).
+  const [errorCode, setErrorCode] = useState<string | null>(null)
   // Until the socket is open (or has failed) the xterm host is blank — show a
   // status so the pane is never silently empty (esp. when the terminal is
   // disabled or core is on a non-default port).
@@ -50,10 +58,11 @@ export default function TerminalPage() {
     // handlers): once a server gate/degradation frame explains the failure, an
     // unclean close must not clobber that clearer reason with a generic message.
     let reported = false
-    const report = (msg: string) => {
+    const report = (msg: string, code: string | null = null) => {
       reported = true
       setConnecting(false)
       setError(msg)
+      setErrorCode(code)
     }
 
     ws.onmessage = (e) => {
@@ -62,10 +71,11 @@ export default function TerminalPage() {
       if (f.type === 'output') term.write(f.data)
       else if (f.type === 'exit') term.write(`\r\n[process exited (${f.exitCode})]\r\n`)
       else if (f.type === 'error') {
-        // A gate/degradation frame (disabled / unauthorized / unavailable):
-        // the socket opened, so stop the connecting state and show the reason.
-        report(errorReason(f.code))
-        term.write(`\r\n[terminal ${f.code}]\r\n`)
+        // A gate/degradation frame (disabled / unauthorized / unavailable): the
+        // socket opened, so stop the connecting state and show the reason ONCE in
+        // the overlay. Don't also echo it into the xterm buffer (F-008) — that
+        // was the third copy of the same message.
+        report(errorReason(f.code), f.code)
       }
     }
 
@@ -113,6 +123,18 @@ export default function TerminalPage() {
       ? 'connecting'
       : 'connected'
 
+  // In an error/disabled state the xterm helper <textarea> is inert — drop it
+  // from the tab order so keyboard users don't land on a dead input (F-008).
+  useEffect(() => {
+    if (status !== 'error') return
+    const ta = hostRef.current?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
+    if (ta) {
+      ta.tabIndex = -1
+      ta.setAttribute('readonly', '')
+      ta.setAttribute('aria-hidden', 'true')
+    }
+  }, [status])
+
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
       <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
@@ -125,7 +147,7 @@ export default function TerminalPage() {
               status === 'error' ? 'text-[var(--accent-hover)]' : 'text-[var(--muted)]'
             }`}
           >
-            {status === 'error' ? error : 'Connecting…'}
+            {status === 'error' ? errorShort(errorCode) : 'Connecting…'}
           </span>
         )}
       </div>

@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import type { Run, AgentEvent, WsMessage, Status } from '@k/shared'
+import type { Run, AgentEvent, WsMessage, Status, Project } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
 import { pairToolCalls, groupConsoleItems } from '../lib/console'
 import { contextPressure, nextAutoCompact, type AutoCompactState } from '../lib/context'
+import { cleanRunPrompt } from '../lib/prompt'
+import { linkify } from '../lib/linkify'
 import RunTimeline from './RunTimeline'
 import ToolCall from './ToolCall'
 import ConfirmDialog from './ConfirmDialog'
@@ -73,16 +75,16 @@ function EventLine({ event: e }: { event: AgentEvent }) {
         </span>
       )}
       {e.type === 'error' && (
-        <span>⚠ {e.text}</span>
+        <span>⚠ {linkify(e.text ?? '')}</span>
       )}
       {e.type === 'assistant' && e.tool && (
         <span className="text-[var(--accent-hover)]">⚙ {e.tool}()</span>
       )}
       {e.type === 'assistant' && !e.tool && e.text && (
-        <span>{e.text}</span>
+        <span>{linkify(e.text)}</span>
       )}
       {(e.type === 'system' || e.type === 'user') && e.text && (
-        <span className="opacity-60">{e.text}</span>
+        <span className="opacity-60">{linkify(e.text)}</span>
       )}
     </motion.div>
   )
@@ -106,7 +108,7 @@ export default function RunConsole({ runId }: Props) {
   const autoCompactRef = useRef<AutoCompactState>({ armed: true })
   const [autoCompactFired, setAutoCompactFired] = useState(false)
 
-  const { data: run } = useQuery<Run>({
+  const { data: run, isError } = useQuery<Run>({
     queryKey: ['run', runId],
     queryFn: () => api.runs.get(runId),
   })
@@ -114,6 +116,12 @@ export default function RunConsole({ runId }: Props) {
   // Shared-cache status query (same key as Settings/CommandBar — no fan-out) so the
   // HITL reply box can gate the mic on whether voice is enabled.
   const { data: status } = useQuery<Status>({ queryKey: ['status'], queryFn: () => api.status() })
+
+  // The run's project (app-wide cached ['projects']) — its `githubRemote` gates the
+  // "Create PR from Run →" shortcut: a remoteless project has nowhere to open a PR
+  // (F-061), so the shortcut is hidden there.
+  const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
+  const runProjectHasRemote = !!projects.find(p => p.id === run?.projectId)?.githubRemote
 
   // Pair tool_use↔tool_result and coalesce consecutive tool calls once per event
   // change, not on every render (each WS event would otherwise rebuild ~2N objects).
@@ -228,14 +236,40 @@ export default function RunConsole({ runId }: Props) {
     if (pressure.band === 'ok' && autoCompactFired) setAutoCompactFired(false)
   }, [run, pressure.band, sending, answer, submitTurn, autoCompactFired])
 
+  // A bad/removed run id 404s (api throws on non-ok) — surface a real not-found
+  // instead of looping on "Loading…" forever (F-002). Loading is only the pre-
+  // resolution state (no data, no error yet).
+  if (isError) {
+    return (
+      <div
+        data-testid="run-not-found"
+        className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center"
+      >
+        <p className="text-sm font-medium text-[var(--text)]">Run not found</p>
+        <p className="text-xs text-[var(--muted)]">This run doesn’t exist or is no longer available.</p>
+        <button
+          onClick={() => navigate('runs')}
+          className="mt-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+        >
+          ← All runs
+        </button>
+      </div>
+    )
+  }
   if (!run) return <div className="flex-1 flex items-center justify-center text-[var(--muted)]">Loading…</div>
+
+  // A terminal run's tool calls can't still be running: an unpaired tool_use is
+  // resolved (not perpetually pending) once the run ends (F-063). awaiting_input
+  // is NOT terminal — the CLI is live and a turn may still be in flight.
+  const runEnded =
+    run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted'
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-[var(--text)] truncate">{run.prompt}</p>
+          <p className="text-sm font-medium text-[var(--text)] truncate">{cleanRunPrompt(run.prompt)}</p>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--muted)]">
             <span>
               {run.model} · {run.tokensIn.toLocaleString()} in / {run.tokensOut.toLocaleString()} out · ${run.costUsd.toFixed(4)}
@@ -297,7 +331,7 @@ export default function RunConsole({ runId }: Props) {
             seg.type === 'tools' ? (
               <div key={seg.key} className="space-y-1 border-l border-[var(--border)] pl-2">
                 {seg.items.map(it => (
-                  <ToolCall key={it.call.id} item={it} />
+                  <ToolCall key={it.call.id} item={it} runEnded={runEnded} />
                 ))}
               </div>
             ) : (
@@ -373,9 +407,10 @@ export default function RunConsole({ runId }: Props) {
         </div>
       )}
 
-      {/* Footer: Create PR shortcut — only shown for terminal runs associated with a project */}
+      {/* Footer: Create PR shortcut — only for terminal runs whose project has a
+          GitHub remote (a remoteless project can't open a PR — F-061). */}
       {(run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted') &&
-        run.projectId && (
+        run.projectId && runProjectHasRemote && (
           <div className="flex-shrink-0 border-t border-[var(--border)] px-5 py-2 flex justify-end">
             <button
               onClick={() => navigate('project', run.projectId!, 'prs-ci')}

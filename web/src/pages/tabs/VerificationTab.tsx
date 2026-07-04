@@ -11,22 +11,11 @@ import {
   barPct,
   formatTimeAgo,
   latestReport,
+  trendIndicator,
   BREAKDOWN_BARS,
   BREAKDOWN_MAX,
   SEVERITY_DOT,
 } from '../../lib/verify'
-
-// Score trend indicator: compare a score to the one before it in the history.
-function trendIndicator(reports: VerificationReport[], id: string): string {
-  const sorted = [...reports].sort((a, b) => b.startedAt - a.startedAt)
-  const idx = sorted.findIndex(r => r.id === id)
-  if (idx < 0 || idx === sorted.length - 1) return ''
-  const prev = sorted[idx + 1].score
-  const curr = sorted[idx].score
-  if (curr > prev) return ' ▲'
-  if (curr < prev) return ' ▼'
-  return ' ='
-}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -109,9 +98,11 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
               <div className="flex items-baseline gap-3">
                 <span className={cn('mono text-3xl font-semibold', scoreColor(latest.score))}>
-                  {latest.score}
+                  {latest.score ?? '—'}
                 </span>
-                <span className="text-xs text-[var(--muted)]">/ 100 health</span>
+                <span className="text-xs text-[var(--muted)]">
+                  {latest.score == null ? 'insufficient signal' : '/ 100 health'}
+                </span>
                 <span className="ml-auto text-[11px] text-[var(--muted)]">
                   {formatTimeAgo(latest.completedAt ?? latest.startedAt)}
                 </span>
@@ -129,7 +120,9 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
                         <div key={key} data-testid={`bar-${key}`}>
                           <div className="flex items-center justify-between text-[11px]">
                             <span className="text-[var(--muted)]">{label}</span>
-                            <span className="mono text-[var(--muted)]">{value}/{max}</span>
+                            <span className="mono text-[var(--muted)]">
+                              {value == null ? 'not measured' : `${value}/${max}`}
+                            </span>
                           </div>
                           <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--raised)]">
                             <motion.div
@@ -221,7 +214,7 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
                       : 'text-[var(--muted)]'
                   return (
                     <li key={r.id} className="flex items-center gap-2 text-xs">
-                      <span className={cn('mono font-semibold', scoreColor(r.score))}>{r.score}</span>
+                      <span className={cn('mono font-semibold', scoreColor(r.score))}>{r.score ?? '—'}</span>
                       <span className={cn('mono text-[10px]', trendColor)}>{trend}</span>
                       <span className="text-[var(--muted)]">{formatTimeAgo(r.startedAt)}</span>
                       {r.id === latest.id && (

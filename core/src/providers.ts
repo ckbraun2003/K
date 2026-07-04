@@ -22,7 +22,7 @@ import { buildClaudeArgs, type PermissionMode, type ClaudeConfigArgs } from './c
  *  `--model <id>` when set (see buildClaudeArgs); for ollama it is the
  *  `ollama run <model>` target. `claudeConfig` carries the per-run K-owned
  *  isolation config for managed claude runs; ollama ignores it. */
-export type BuildArgsOptions = { inWorktree: boolean; permissionMode: PermissionMode; model?: string; interactive?: boolean; claudeConfig?: ClaudeConfigArgs }
+export type BuildArgsOptions = { inWorktree: boolean; permissionMode: PermissionMode; model?: string; interactive?: boolean; claudeConfig?: ClaudeConfigArgs; sessionId?: string; resumeSession?: boolean }
 
 export interface Provider {
   /** Routed provider name — matches RouteResult.provider. */

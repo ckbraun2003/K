@@ -3,8 +3,10 @@ import type { Finding, VerificationReport, WsMessage } from '@k/shared'
 import {
   groupFindings,
   barPct,
+  scoreColor,
   formatTimeAgo,
   latestReport,
+  trendIndicator,
   BREAKDOWN_BARS,
   BREAKDOWN_MAX,
   SEVERITY_ORDER,
@@ -38,6 +40,22 @@ describe('barPct', () => {
 
   it('returns 0 for a non-positive max', () => {
     expect(barPct(5, 0)).toBe(0)
+  })
+
+  it('returns 0 for a null (UNMEASURED) value — an empty bar, not a full one', () => {
+    expect(barPct(null, 40)).toBe(0)
+  })
+})
+
+// scoreColor + null (insufficient-signal) handling (F-032 rework)
+describe('scoreColor', () => {
+  it('maps score bands to green/amber/red', () => {
+    expect(scoreColor(90)).toContain('green')
+    expect(scoreColor(60)).toContain('amber')
+    expect(scoreColor(20)).toContain('red')
+  })
+  it('renders a null score (insufficient signal) muted', () => {
+    expect(scoreColor(null)).toContain('muted')
   })
 })
 
@@ -157,5 +175,33 @@ describe('verification_update WS handler', () => {
     const handler = makeHandler({ invalidateQueries })
     handler({ type: 'ping' })
     expect(invalidateQueries).not.toHaveBeenCalled()
+  })
+})
+
+describe('trendIndicator (F-052 — shared by the verify tab + standalone page)', () => {
+  const a = report({ id: 'a', startedAt: 3000, score: 80 }) // newest
+  const b = report({ id: 'b', startedAt: 2000, score: 60 })
+  const c = report({ id: 'c', startedAt: 1000, score: 70 }) // oldest
+  const reports = [b, a, c] // deliberately unsorted
+
+  it('marks an improvement over the previous report with ▲', () => {
+    expect(trendIndicator(reports, 'a')).toBe(' ▲') // 80 > 60
+  })
+  it('marks a regression with ▼', () => {
+    expect(trendIndicator(reports, 'b')).toBe(' ▼') // 60 < 70
+  })
+  it('marks the oldest report (no prior) with an empty string', () => {
+    expect(trendIndicator(reports, 'c')).toBe('')
+  })
+  it('marks an unchanged score with =', () => {
+    const eq = [report({ id: 'x', startedAt: 2, score: 50 }), report({ id: 'y', startedAt: 1, score: 50 })]
+    expect(trendIndicator(eq, 'x')).toBe(' =')
+  })
+
+  it('shows no trend when either report had a null (insufficient-signal) score', () => {
+    const withNull = [report({ id: 'p', startedAt: 2, score: null }), report({ id: 'q', startedAt: 1, score: 80 })]
+    expect(trendIndicator(withNull, 'p')).toBe('') // current null → no comparison
+    const nullPrev = [report({ id: 'p', startedAt: 2, score: 80 }), report({ id: 'q', startedAt: 1, score: null })]
+    expect(trendIndicator(nullPrev, 'p')).toBe('') // prior null → no comparison
   })
 })

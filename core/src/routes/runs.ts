@@ -4,6 +4,7 @@ import { StartRunBodySchema, RunsQuerySchema, SendInputBodySchema, isKnownModel 
 import { startRun, kill, sendInput, endSession, REPO_ROOT } from '../supervisor.js'
 import { runsDb, eventsDb, projectsDb, workflowStepsDb } from '../db.js'
 import { matchProjectByCwd, type ProjectPathRow } from '../project-match.js'
+import { sendError, sendZodError } from './http-errors.js'
 
 /**
  * A client-supplied `cwd` must resolve under a registered project's localPath
@@ -22,26 +23,26 @@ export async function runsRoutes(app: FastifyInstance) {
   app.post('/api/runs', async (req, reply) => {
     const parsed = StartRunBodySchema.safeParse(req.body)
     if (!parsed.success) {
-      return reply.status(400).send({ error: parsed.error.flatten() })
+      return sendZodError(reply, parsed.error)
     }
-    const { prompt, cwd, model, projectId, preferLocal, interactive } = parsed.data
+    const { prompt, cwd, model, projectId, preferLocal, interactive, carryWorkingTree } = parsed.data
     // Validate the model at the boundary (lessons.md): reject anything not in the
     // known registry so a typo can't silently fall through to the CLI/router.
     if (model !== undefined && !isKnownModel(model)) {
-      return reply.status(400).send({ error: 'unknown model' })
+      return sendError(reply, 400, 'unknown model')
     }
     // A project can now be deleted (DELETE /api/projects/:id). This existence
     // check is the fast/clear path; the FK INSERT inside startRun is the source of
     // truth. If the project is removed in the TOCTOU window between the two,
     // SQLite raises a FOREIGN KEY error — caught below and mapped to 400, not 500.
     if (projectId && !projectsDb.getProject.get(projectId)) {
-      return reply.status(400).send({ error: 'unknown projectId' })
+      return sendError(reply, 400, 'unknown projectId')
     }
     if (cwd !== undefined && !isCwdAllowed(cwd)) {
-      return reply.status(400).send({ error: 'cwd not under a registered project' })
+      return sendError(reply, 400, 'cwd not under a registered project')
     }
     try {
-      const run = await startRun(prompt, { cwd, model, projectId, preferLocal, interactive })
+      const run = await startRun(prompt, { cwd, model, projectId, preferLocal, interactive, carryWorkingTree })
       return reply.status(201).send(run)
     } catch (e) {
       // The only FK on the runs INSERT is project_id → projects(id), so a SQLite
@@ -49,9 +50,9 @@ export async function runsRoutes(app: FastifyInstance) {
       // TOCTOU window — a client 400, not a 500. (Revisit this mapping if runs ever
       // gains another foreign key.)
       const msg = e instanceof Error ? e.message : String(e)
-      if (/FOREIGN KEY/i.test(msg)) return reply.status(400).send({ error: 'unknown projectId' })
+      if (/FOREIGN KEY/i.test(msg)) return sendError(reply, 400, 'unknown projectId')
       req.log.error(e)
-      return reply.status(500).send({ error: 'run failed' })
+      return sendError(reply, 500, 'run failed')
     }
   })
 
@@ -59,11 +60,11 @@ export async function runsRoutes(app: FastifyInstance) {
   app.get('/api/runs', async (req, reply) => {
     const parsed = RunsQuerySchema.safeParse(req.query)
     if (!parsed.success) {
-      return reply.status(400).send({ error: parsed.error.flatten() })
+      return sendZodError(reply, parsed.error)
     }
     // projectId filter: if provided, validate that the project exists
     if (parsed.data.projectId && !projectsDb.getProject.get(parsed.data.projectId)) {
-      return reply.status(400).send({ error: 'unknown projectId' })
+      return sendError(reply, 400, 'unknown projectId')
     }
     const rows = runsDb.listRunsFiltered(parsed.data)
     return reply.send(rows.map(dbRowToRun))
@@ -72,7 +73,7 @@ export async function runsRoutes(app: FastifyInstance) {
   // GET /api/runs/:id — single run
   app.get<{ Params: { id: string } }>('/api/runs/:id', async (req, reply) => {
     const row = runsDb.getRun.get(req.params.id) as Record<string, unknown> | undefined
-    if (!row) return reply.status(404).send({ error: 'not found' })
+    if (!row) return sendError(reply, 404, 'not found')
     return reply.send(dbRowToRun(row))
   })
 
@@ -80,6 +81,9 @@ export async function runsRoutes(app: FastifyInstance) {
   // ?raw=1 opts into including the original JSON line in each event.
   // Only the literal '1' enables it; ?raw=true / bare ?raw are intentionally off.
   app.get<{ Params: { id: string }; Querystring: { raw?: string } }>('/api/runs/:id/events', async (req, reply) => {
+    // Existence guard (F-018): an unknown run 404s rather than answering 200 [] — an empty
+    // array must mean "this run has no events", not "no such run" (the two were indistinguishable).
+    if (!runsDb.getRun.get(req.params.id)) return sendError(reply, 404, 'not found')
     const rows = eventsDb.listEvents.all(req.params.id) as Array<Record<string, unknown>>
     const includeRaw = req.query.raw === '1'
     return reply.send(rows.map(r => dbRowToEvent(r, includeRaw)))
@@ -91,9 +95,9 @@ export async function runsRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string; seq: string } }>('/api/runs/:id/events/:seq/raw', async (req, reply) => {
     const seq = Number(req.params.seq)
     // reject non-numeric seq before it binds as NaN→0 and silently queries the wrong row
-    if (!Number.isInteger(seq) || seq < 0) return reply.status(400).send({ error: 'seq must be a non-negative integer' })
+    if (!Number.isInteger(seq) || seq < 0) return sendError(reply, 400, 'seq must be a non-negative integer')
     const row = eventsDb.getEventRaw.get(req.params.id, seq) as { raw: string | null } | undefined
-    if (!row || row.raw == null) return reply.status(404).send({ error: 'not found' })
+    if (!row || row.raw == null) return sendError(reply, 404, 'not found')
     return reply.send({ raw: row.raw })
   })
 
@@ -110,8 +114,11 @@ export async function runsRoutes(app: FastifyInstance) {
     return reply.send({ workflowRun: dbRowToWorkflowRun(wf), steps: steps.map(dbRowToWorkflowStep) })
   })
 
-  // POST /api/runs/:id/kill — kill a running agent
+  // POST /api/runs/:id/kill — kill a running agent. 404 unknown · 200 { killed } (false when
+  // the run exists but has no live process). The existence guard (F-018/F-017) matches /end and
+  // /input so killing an unknown id is a clear 404, not a misleading 200 { killed: false }.
   app.post<{ Params: { id: string } }>('/api/runs/:id/kill', async (req, reply) => {
+    if (!runsDb.getRun.get(req.params.id)) return sendError(reply, 404, 'not found')
     const killed = kill(req.params.id)
     return reply.send({ killed })
   })
@@ -120,20 +127,22 @@ export async function runsRoutes(app: FastifyInstance) {
   // run parked at awaiting_input. 404 unknown run · 400 bad body · 409 not awaiting · 204 ok.
   app.post<{ Params: { id: string } }>('/api/runs/:id/input', async (req, reply) => {
     const parsed = SendInputBodySchema.safeParse(req.body)
-    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
-    if (!runsDb.getRun.get(req.params.id)) return reply.status(404).send({ error: 'not found' })
+    if (!parsed.success) return sendZodError(reply, parsed.error)
+    if (!runsDb.getRun.get(req.params.id)) return sendError(reply, 404, 'not found')
     // sendInput returns false when the run has no live interactive process or isn't
     // awaiting input — a stale client trying to answer a finished/mid-turn run.
     if (!sendInput(req.params.id, parsed.data.text)) {
-      return reply.status(409).send({ error: 'run is not awaiting input' })
+      return sendError(reply, 409, 'run is not awaiting input')
     }
     return reply.status(204).send()
   })
 
-  // POST /api/runs/:id/end — gracefully end an interactive session (close stdin →
-  // agent finishes → status 'done'). 404 unknown · 200 { ended } (false if not interactive).
+  // POST /api/runs/:id/end — gracefully end a run. Interactive session → close stdin (agent
+  // finishes → 'done'); a non-interactive supervised run (e.g. a relay-dispatched lead run) →
+  // graceful signal-terminate so its status flips (→ 'killed') instead of staying stuck
+  // (fix-c). 404 unknown · 200 { ended } (false only when the run has no live process).
   app.post<{ Params: { id: string } }>('/api/runs/:id/end', async (req, reply) => {
-    if (!runsDb.getRun.get(req.params.id)) return reply.status(404).send({ error: 'not found' })
+    if (!runsDb.getRun.get(req.params.id)) return sendError(reply, 404, 'not found')
     return reply.send({ ended: endSession(req.params.id) })
   })
 }
@@ -163,6 +172,11 @@ export function dbRowToWorkflowRun(r: Record<string, unknown>) {
     id: r.id, projectId: r.project_id, runId: r.run_id ?? null,
     taskIds: safeJsonColumn(r.task_ids) ?? [], mode: r.mode, status: r.status,
     createdAt: r.created_at, completedAt: r.completed_at ?? null,
+    // Which NamedWorkflow TEMPLATE drove the run (F-074). workflow_name is present only when
+    // the row was read through a join (GET /api/workflows/runs); NULL otherwise. Both null for
+    // a default code-wave dispatch or a pre-F-074 row.
+    workflowId: r.workflow_id ?? null,
+    workflowName: r.workflow_name ?? null,
   }
 }
 

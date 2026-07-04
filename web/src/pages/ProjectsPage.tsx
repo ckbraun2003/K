@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import type { Project } from '@k/shared'
+import type { Project, Run } from '@k/shared'
 import { api } from '../lib/api'
 import ProjectCard from '../components/ProjectCard'
 import GettingStarted from '../components/GettingStarted'
@@ -13,6 +13,22 @@ export default function ProjectsPage() {
   const qc = useQueryClient()
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
   const githubFor = useFleetGithub()
+  // ONE fleet-level runs read (no per-card fan-out — mirrors useFleetGithub's socket
+  // discipline) → the newest run per project, for each card's last-run line (F-065).
+  const { data: fleetRuns = [] } = useQuery<Run[]>({
+    queryKey: ['runs', 'fleet'],
+    queryFn: () => api.runs.list({ limit: 100 }),
+    refetchInterval: 15_000,
+  })
+  const lastRunByProject = useMemo(() => {
+    const m = new Map<string, Run>()
+    for (const r of fleetRuns) {
+      if (!r.projectId) continue
+      const cur = m.get(r.projectId)
+      if (!cur || r.createdAt > cur.createdAt) m.set(r.projectId, r)
+    }
+    return m
+  }, [fleetRuns])
   const [open, setOpen] = useState(false)
   const [deleting, setDeleting] = useState<Project | null>(null)
   const [name, setName] = useState('')
@@ -74,7 +90,13 @@ export default function ProjectsPage() {
 
       <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-3">
         {projects.map(p => (
-          <ProjectCard key={p.id} project={p} gh={githubFor(p.id)} onDelete={() => setDeleting(p)} />
+          <ProjectCard
+            key={p.id}
+            project={p}
+            gh={githubFor(p.id)}
+            lastRun={lastRunByProject.get(p.id) ?? null}
+            onDelete={() => setDeleting(p)}
+          />
         ))}
       </div>
       {projects.length === 0 && (
@@ -152,7 +174,19 @@ export default function ProjectsPage() {
         message={
           <>
             Permanently delete <span className="font-semibold text-[var(--text)]">{deleting?.name}</span> and
-            all its runs, tasks, verification history & knowledge graph? This cannot be undone.
+            all its runs, tasks, verification history & knowledge graph?
+            {deleting?.workspaceManaged ? (
+              <>
+                {' '}Because this project was cloned into <span className="mono">workspace/</span>, its
+                on-disk clone at <span className="mono">{deleting?.localPath}</span> is also removed.
+              </>
+            ) : (
+              <>
+                {' '}Your local repo at <span className="mono">{deleting?.localPath}</span> is left untouched —
+                only the registry entry is removed.
+              </>
+            )}
+            {' '}This cannot be undone.
           </>
         }
         confirmLabel="Delete project"

@@ -5,6 +5,7 @@ import type { AgentProfile, AgentRun, Assignment, ChiefOrgLead, ChiefOrgPayload 
 import { getProfile, listProfiles } from '../profiles.js'
 import { db, agentRunsDb, mgmtDb, runsDb, leadDispatchDb } from '../db.js'
 import { rowToAssignment } from '../mcp/mgmt.js'
+import { sendError, sendZodError } from './http-errors.js'
 import {
   AGENT_RUN_SCAN,
   ASSIGNMENT_LIMIT,
@@ -125,6 +126,10 @@ export async function chiefRoutes(app: FastifyInstance) {
   // GET /api/chief/org — the one batched org-status payload.
   app.get('/api/chief/org', async (_req, reply) => {
     const chief = getProfile('chief')
+    // The K (secretary) profile — Chief's PARENT in the whole-org tree (user → K → Chief →
+    // leads). Included read-only so the tree renders the K node above Chief (F-023) rather
+    // than starting at Chief; the seed id is 'k-secretary' (getProfile('k') would be null).
+    const k = getProfile('k-secretary')
 
     // The five discipline leads: orchestrator-tier profiles minus the generic
     // default-orchestrator (bible §03 — leads are the seeded lead-* rows).
@@ -156,6 +161,7 @@ export async function chiefRoutes(app: FastifyInstance) {
 
     const payload: ChiefOrgPayload = {
       chief,
+      k,
       leads,
       chiefWakes,
       assignments,
@@ -174,20 +180,23 @@ export async function chiefRoutes(app: FastifyInstance) {
   // Assignment. The read→guards→update→audit sequence runs inside reassignTx (above).
   app.patch<{ Params: { id: string } }>('/api/chief/assignments/:id', async (req, reply) => {
     const parsed = ReassignBodySchema.safeParse(req.body)
-    if (!parsed.success) return reply.status(400).send({ error: 'invalid body' })
+    // Return the zod field errors (F-026) instead of an undiscoverable "invalid body" — the
+    // `details.fieldErrors` names `leadProfileId` (the one expected field) so a caller with a
+    // wrong/missing key can self-correct.
+    if (!parsed.success) return sendZodError(reply, parsed.error)
 
     // The target must be a dispatchable lead profile — the same isLead gate both org
     // surfaces use, so K/Chief/default-orchestrator can never be assigned as a lead.
     // Validated OUTSIDE the tx (a profile read, not part of the assignment RMW).
     const profile = getProfile(parsed.data.leadProfileId)
-    if (!profile || !isLead(profile)) return reply.status(400).send({ error: 'unknown lead' })
+    if (!profile || !isLead(profile)) return sendError(reply, 400, 'unknown lead')
 
     try {
       return reply.send(reassignTx.immediate(req.params.id, profile))
     } catch (e) {
       // ONLY the typed guard error is a client error; anything else is a server
       // fault — re-throw so Fastify answers 500 instead of mislabelling it.
-      if (e instanceof ReassignError) return reply.status(e.status).send({ error: e.message })
+      if (e instanceof ReassignError) return sendError(reply, e.status, e.message)
       throw e
     }
   })

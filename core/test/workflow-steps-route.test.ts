@@ -34,7 +34,7 @@ beforeAll(() => {
   seedRun(RUN_PLAIN)
   workflowRunsDb.insertWorkflowRun.run({
     id: WF_ID, projectId: PROJECT_ID, runId: RUN_WF, taskIds: '[]', mode: 'combined',
-    status: 'running', createdAt: Date.now(), completedAt: null,
+    workflowId: null, status: 'running', createdAt: Date.now(), completedAt: null,
   })
   // Seed two steps with explicit seq in REVERSE insertion order (CI=2 inserted
   // before Implement X=1) so the route's ORDER BY seq is actually exercised — an
