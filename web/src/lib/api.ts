@@ -258,8 +258,20 @@ export const api = {
       }),
     delete: (id: string) =>
       req<void>(`/skills/${id}`, { method: 'DELETE' }),
-    trigger: (id: string) =>
-      req<{ skillRunId: string; runId: string }>(`/skills/${id}/trigger`, { method: 'POST' }),
+    // Optional projectId (F-069): run the skill against a chosen registered project; omitted
+    // → runs against K. Only sends a JSON body when a project is selected (a bare POST stays
+    // bodyless, exactly as before).
+    trigger: (id: string, projectId?: string) =>
+      req<{ skillRunId: string; runId: string }>(
+        `/skills/${id}/trigger`,
+        projectId
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ projectId }),
+            }
+          : { method: 'POST' },
+      ),
     test: (id: string) =>
       req<{ evalId: string; runId: string }>(`/skills/${id}/test`, { method: 'POST' }),
     evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),

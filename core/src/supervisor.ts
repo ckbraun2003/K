@@ -23,6 +23,7 @@ import { route } from './router.js'
 import { resolvePermissionMode } from './claude-args.js'
 import { getProvider, parseClaudeLine } from './providers.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
+import { isPathWithin } from './paths.js'
 import { synthesizeConfigDir, pruneOrphanAgentRuns, kSecretaryConfigPaths, type SynthesizedConfig } from './agent-config.js'
 import { DEFAULT_PROFILE } from './profiles.js'
 import { TERMINAL_RUN_STATUSES } from './run-lifecycle.js'
@@ -115,6 +116,21 @@ export type StartRunOptions = {
    *  it (`--resume`). Absent for every regular dispatch run → fresh worktree, fresh
    *  synthesized config, no session flags — byte-for-byte the prior behavior. */
   persistentSession?: { key: string; sessionId: string; resume: boolean }
+}
+
+/**
+ * F-068: whether a run must SUPPRESS the gitnexus bootstrap (MCP server + analyze hook).
+ * True ONLY for a dispatch operating on an EXTERNAL repo — its ORIGINAL cwd (`run.cwd`, the
+ * project's localPath, NEVER the ephemeral worktree) resolves OUTSIDE the K repo. A
+ * K-secretary PERSISTENT SESSION is never external: its stable cwd lives under K_DATA_DIR,
+ * which is env-overridable and may be relocated OUTSIDE the repo — such a run is still
+ * K-internal and must keep gitnexus regardless of where the data dir lives (MEDIUM-1). Pure +
+ * exported so the exact predicate runAgent uses is unit-lockable (guards a future refactor
+ * that might pass the worktree path instead of run.cwd — MEDIUM-2).
+ */
+export function shouldSuppressGitnexus(runCwd: string, isPersistentSession: boolean): boolean {
+  if (isPersistentSession) return false
+  return !isPathWithin(REPO_ROOT, runCwd, { inclusive: true })
 }
 
 export async function startRun(prompt: string, opts: StartRunOptions = {}): Promise<Run> {
@@ -487,9 +503,20 @@ async function runAgent(
       // A K-secretary ask (session set) builds its config under the STABLE per-thread
       // dir and keeps it (persist) so the CLI session state survives for `--resume`;
       // every regular run gets the ephemeral per-run dir cleaned on terminal, as before.
+      //
+      // F-068: detect an EXTERNAL-target run — one whose ORIGINAL cwd (run.cwd, the
+      // project's localPath, never the ephemeral worktree) is NOT inside the K repo. Such
+      // a run works on a linked worktree whose shared git dir is the external project's, so
+      // the gitnexus MCP init + analyze hook would write .gitnexus/.gitignore/.claude into
+      // the target checkout. Suppress the gitnexus bootstrap for it. K's own runs keep
+      // gitnexus — including a K-secretary persistent session, which is NEVER external even
+      // when K_DATA_DIR (its stable cwd's root) is relocated outside the repo (MEDIUM-1).
+      const suppressGitnexus = shouldSuppressGitnexus(run.cwd, !!session)
       synth = synthesizeConfigDir(
         profile,
-        session ? { runId: run.id, runDirOverride: session.runDir, persist: true } : { runId: run.id },
+        session
+          ? { runId: run.id, runDirOverride: session.runDir, persist: true, suppressGitnexus }
+          : { runId: run.id, suppressGitnexus },
       )
     }
 

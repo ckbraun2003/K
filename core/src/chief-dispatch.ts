@@ -42,9 +42,6 @@ export const DEFAULT_LEAD_WORKFLOW_ID = 'code-wave'
  *  huge raw transcript into the Chief's mgmt store (mirrors k-thread's cap). */
 export const LEAD_REPORT_TEXT_CAP = 2_000
 
-/** How many of the lead run's earliest `assistant` events the report-back scans (seq ASC)
- *  — enough to fill the 2k cap without materializing a long lead run's whole event log. */
-const LEAD_REPORT_EVENT_SCAN = 50
 
 /** The charter line appended to every dispatched lead's seed prompt: it tells the
  *  lead it is an orchestrator dispatched by the Chief and that it must OPEN A PR
@@ -206,27 +203,31 @@ export function seedLeadWorkflowRun(leadRunId: string, projectId: string, workfl
   return workflowRunId
 }
 
-/** Concatenate a bounded prefix of a lead run's `assistant` event texts (oldest→newest,
- *  up to LEAD_REPORT_EVENT_SCAN events) then cap to LEAD_REPORT_TEXT_CAP — the report-back
- *  summary of the lead's own words. Mirrors k-thread.ts::concatAssistantText (a one-shot
- *  capped summary, not a stateful turn-by-turn capture). */
-function concatLeadAssistantText(runId: string): string {
-  const rows = eventsDb.listAssistantEvents.all(runId, LEAD_REPORT_EVENT_SCAN) as Row[]
-  const parts: string[] = []
-  for (const row of rows) {
-    const text = row.text == null ? '' : String(row.text)
-    if (text.length > 0) parts.push(text)
-  }
-  const joined = parts.join('\n')
-  return joined.length > LEAD_REPORT_TEXT_CAP ? `${joined.slice(0, LEAD_REPORT_TEXT_CAP)}…` : joined
+/** The lead run's CONCLUSION — its final (last) non-empty `assistant` event text, capped
+ *  to LEAD_REPORT_TEXT_CAP. F-075: the report-back is the lead's actual conclusion (the
+ *  TAIL, e.g. "Opened PR #7; CI green."), NOT a truncated PREFIX of the opening turns
+ *  ("I'll start by loading the workflow status tools…"). */
+function finalLeadAssistantText(runId: string): string {
+  const row = eventsDb.latestAssistantEvent.get(runId) as Row | undefined
+  const text = row?.text == null ? '' : String(row.text)
+  return text.length > LEAD_REPORT_TEXT_CAP ? `${text.slice(0, LEAD_REPORT_TEXT_CAP)}…` : text
 }
 
 /** Summarize a dispatched lead run's terminal outcome for the report filed UP to the
- *  Chief. Prefers the lead run's own assistant text; falls back to a bare status line
- *  when the lead produced no summary. */
+ *  Chief. F-075: prefers a CONCISE signal — the lead's own mgmt `report` (report_list) when
+ *  it filed one — mirroring k-thread.ts::summarizeDelegatedOutcome; else the lead's
+ *  CONCLUSION (final assistant message, not the prefix); else a bare status line. */
 export function summarizeLeadOutcome(leadRunId: string, status: string, lead: string): string {
   const verb = status === 'done' ? 'completed' : status
-  const answer = concatLeadAssistantText(leadRunId)
+  // Prefer the lead's explicit mgmt report (a concise status write) over raw transcript.
+  const reports = mgmtDb.listReportsByRun.all(leadRunId, 1) as Row[]
+  const reportBody = reports.length > 0 ? String(reports[0].body) : ''
+  if (reportBody.length > 0) {
+    const capped =
+      reportBody.length > LEAD_REPORT_TEXT_CAP ? `${reportBody.slice(0, LEAD_REPORT_TEXT_CAP)}…` : reportBody
+    return `Lead ${lead} (delegation ${verb}) reported: ${capped}`
+  }
+  const answer = finalLeadAssistantText(leadRunId)
   return answer.length > 0
     ? `Lead ${lead} (delegation ${verb}): ${answer}`
     : `Lead ${lead} delegation ${verb} — no summary was produced.`

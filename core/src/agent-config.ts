@@ -72,6 +72,16 @@ export interface SynthesizeOpts {
   // state under it — persists across asks. Absent/false for regular runs → cleanup()
   // removes the ephemeral per-run dir on terminal exactly as before.
   persist?: boolean
+  // F-068: SUPPRESS the gitnexus bootstrap for a run whose target repo is an EXTERNAL
+  // registered project (NOT K's own repo). The gitnexus MCP server's init AND the
+  // `gitnexus analyze` nudge (the PostToolUse hook) resolve the canonical repo root via
+  // the SHARED git dir, so for a run dispatched into a linked worktree of an external
+  // project they write `.gitnexus/`, a `.gitignore` line, and `.claude/skills/gitnexus`
+  // into the TARGET checkout (not the ephemeral worktree) — residue removeWorktree never
+  // cleans. When true, the gitnexus MCP server is NOT mounted and the gitnexus hook groups
+  // are stripped from settings.json, so nothing is ever written into the target repo.
+  // Absent/false (every K-internal run — cwd inside the K repo) → gitnexus stays, as before.
+  suppressGitnexus?: boolean
 }
 
 // ── path guard ─────────────────────────────────────────────────────────────────
@@ -122,6 +132,37 @@ function copyDirGuarded(root: string, src: string, dest: string): void {
     if (e.isDirectory()) copyDirGuarded(root, s, d)
     else guardedCopy(root, s, d)
   }
+}
+
+/**
+ * F-068: remove every settings.json hook group whose command invokes the gitnexus hook,
+ * so an EXTERNAL-target run never runs the `gitnexus analyze` nudge against the target
+ * repo. Returns the settings JSON text with those groups dropped (and any now-empty event
+ * array removed). Every hook in the shipped template IS a gitnexus hook, so this yields an
+ * empty `hooks` object today — but it is written as a targeted filter (matches the
+ * `gitnexus-hook` command) so a future non-gitnexus hook survives suppression.
+ */
+function stripGitnexusHooks(settingsJson: string): string {
+  const parsed = JSON.parse(settingsJson) as {
+    hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>
+  }
+  const hooks = parsed.hooks
+  if (hooks && typeof hooks === 'object') {
+    for (const event of Object.keys(hooks)) {
+      const groups = hooks[event]
+      if (!Array.isArray(groups)) continue
+      const kept = groups.filter(
+        g =>
+          !(
+            Array.isArray(g.hooks) &&
+            g.hooks.some(h => typeof h.command === 'string' && h.command.includes('gitnexus-hook'))
+          ),
+      )
+      if (kept.length > 0) hooks[event] = kept
+      else delete hooks[event]
+    }
+  }
+  return JSON.stringify(parsed, null, 2)
 }
 
 /** Absolute file:// URL of K's OWN tsx ESM loader (cwd-independent), for the dev
@@ -200,7 +241,14 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
       )
     }
   }
-  const wantedServers = new Set(serversToMount)
+  // F-068: an EXTERNAL-target run drops gitnexus from the mounted set here — dropping a
+  // mount is always safe (fewer grants), and it is validated BELOW (assertMcpGrants) and
+  // filtered into mcp.json (wantedServers) from this narrowed set, so no gitnexus server
+  // is ever written for that run. K-internal runs pass through unchanged.
+  const mountedServers = opts.suppressGitnexus
+    ? serversToMount.filter(name => name !== 'gitnexus')
+    : serversToMount
+  const wantedServers = new Set(mountedServers)
   mcp.mcpServers = Object.fromEntries(
     Object.entries(mcp.mcpServers ?? {}).filter(([k]) => wantedServers.has(k)),
   )
@@ -226,8 +274,9 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     }
   }
   // Mounting ≠ granting (D-034) holds at synth time too: every mounted server must
-  // be granted by the FINAL (possibly profile-narrowed) allowlist.
-  assertMcpGrants(profile.tier, allowedTools, serversToMount)
+  // be granted by the FINAL (possibly profile-narrowed) allowlist. Checked against the
+  // ACTUALLY-mounted set (gitnexus already dropped for an external-target run).
+  assertMcpGrants(profile.tier, allowedTools, mountedServers)
   // The hard tool ceiling: --allowedTools is only an AUTO-APPROVAL list (under
   // acceptEdits, Write/Edit are auto-approved for every tier and other built-ins
   // stay invocable subject to prompts). The denylist — UNIVERSE minus the run's
@@ -251,11 +300,19 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   guardedWrite(configDir, appendSystemPromptFile, `${l0}\n\n---\n\n${l1}`)
 
   // 3. settings: rewrite every __HOOK__ placeholder to the run's hooks dir
-  //    (forward slashes so the JSON value is valid on Windows too).
+  //    (forward slashes so the JSON value is valid on Windows too). For an EXTERNAL-target
+  //    run (F-068) the gitnexus hook groups are then stripped so the `gitnexus analyze`
+  //    nudge never fires against the target repo. The non-suppressed path stays a pure
+  //    string-substitution (byte-identical to before — the idempotency LOCK still holds).
   const template = fs.readFileSync(path.join(assetsDir, 'settings.template.json'), 'utf8')
   const hooksDirFwd = path.join(configDir, 'hooks').split(path.sep).join('/')
   const settingsPath = path.join(configDir, 'settings.json')
-  guardedWrite(configDir, settingsPath, template.split('__HOOK__').join(hooksDirFwd))
+  const settingsContent = template.split('__HOOK__').join(hooksDirFwd)
+  guardedWrite(
+    configDir,
+    settingsPath,
+    opts.suppressGitnexus ? stripGitnexusHooks(settingsContent) : settingsContent,
+  )
 
   // 4. mount ONLY the skills + worker-agent defs resolved in the validation block
   //    above (profile-narrowed or the tier bundle) — not the whole library. The

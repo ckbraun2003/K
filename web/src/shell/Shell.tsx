@@ -14,6 +14,7 @@ import ProjectVerification from '../pages/ProjectVerification'
 import ProjectWorkspace from '../pages/ProjectWorkspace'
 import FleetGraphPage from '../pages/FleetGraphPage'
 import SkillsPage from '../pages/SkillsPage'
+import WorkflowNudge from '../components/WorkflowNudge'
 import TerminalPage from '../pages/TerminalPage'
 import SettingsPage from '../pages/SettingsPage'
 import WorkflowsPage from '../pages/WorkflowsPage'
@@ -113,6 +114,9 @@ export default function Shell() {
 
       <ActivityStrip />
       <CommandBar open={commandOpen} onClose={() => setCommandOpen(false)} />
+      {/* Global nudge: a finalized task-workflow prompts the operator to review + close
+          its tasks (F-076 — the harness never auto-closes them). */}
+      <WorkflowNudge />
 
       {/* Pending g-chord affordance — shown while a `g` chord is armed so the
           prefix isn't an invisible mode that times out silently (F-009). */}

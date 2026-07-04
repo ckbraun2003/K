@@ -322,6 +322,15 @@ export const WsMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('verification_update'), report: VerificationReportSchema }),
   // Knowledge-graph build state transition (building → ready/error) + reindex marks
   z.object({ type: z.literal('graph_update'), projectId: z.string(), meta: ProjectGraphMetaSchema }),
+  // A task-workflow run finalized (F-076) — a nudge to REVIEW + CLOSE the tasks it locked
+  // to in_progress (the harness never auto-closes them — D-012). Transient, not persisted.
+  z.object({
+    type: z.literal('workflow_complete'),
+    workflowRunId: z.string(),
+    projectId: z.string(),
+    status: z.enum(['completed', 'failed']),
+    taskIds: z.array(z.string()),
+  }),
   // Ollama model pull progress — transient, not persisted
   z.object({
     type: z.literal('ollama_pull'),

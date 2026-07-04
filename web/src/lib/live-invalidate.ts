@@ -103,3 +103,21 @@ export function makeProjectListInvalidator(
     void qc.invalidateQueries({ queryKey: ['github-fleet'] })
   }
 }
+
+/**
+ * Live refresh on a task-workflow completion (F-076). When core broadcasts
+ * `workflow_complete` (a finalized task-workflow, naming the tasks it locked to
+ * in_progress), refresh the affected project's task list (['tasks', projectId]) and the
+ * workflow-runs list so their state is live where the operator reviews + closes the tasks —
+ * the harness never auto-closes them (D-012). A signal with no task ids (a lead workflow
+ * run) and every non-workflow_complete message are ignored.
+ */
+export function makeWorkflowCompleteInvalidator(
+  qc: Pick<QueryClient, 'invalidateQueries'>,
+): (msg: WsMessage) => void {
+  return (msg: WsMessage) => {
+    if (msg.type !== 'workflow_complete' || msg.taskIds.length === 0) return
+    void qc.invalidateQueries({ queryKey: ['tasks', msg.projectId] })
+    void qc.invalidateQueries({ queryKey: ['workflow-runs'] })
+  }
+}

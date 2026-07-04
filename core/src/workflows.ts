@@ -14,6 +14,7 @@ import type { Project, ProjectTask } from '@k/shared'
 import { projectWorkItemsDb, workflowRunsDb, workflowStepsDb, rowToProjectTask } from './db.js'
 import { startRun } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
+import { eventBus } from './events.js'
 
 /** Thrown when a requested taskId is missing or not scoped to this project. The
  *  route discriminates on this type (instanceof) to translate it to a 400. */
@@ -99,12 +100,41 @@ export function deriveWorkflowStatus(terminalRunStatus: string): 'completed' | '
  *  contradict the finalized row (a step stuck 'in_progress' under a 'completed' run). An
  *  unfinished step becomes 'blocked' — honest "not resolved", never a false 'done'. */
 export function finalizeWorkflowRun(workflowRunId: string, terminalRunStatus: string): void {
-  workflowRunsDb.updateWorkflowRunStatus.run(
-    deriveWorkflowStatus(terminalRunStatus),
-    Date.now(),
-    workflowRunId,
-  )
+  const status = deriveWorkflowStatus(terminalRunStatus)
+  workflowRunsDb.updateWorkflowRunStatus.run(status, Date.now(), workflowRunId)
   workflowStepsDb.reconcileNonTerminalSteps.run({ workflowRunId, updatedAt: Date.now() })
+
+  // F-076: emit a transient completion SIGNAL the UI surfaces as a nudge to REVIEW +
+  // CLOSE the tasks this workflow locked to 'in_progress'. dispatchTaskWorkflow never
+  // auto-closes them (D-012 — the PR/operator decides), and finalize touches no task, so
+  // without this signal they linger 'in_progress' with no operator cue. Only for a TASK
+  // workflow (non-empty task_ids); a lead workflow run (chief-dispatch seedLeadWorkflowRun,
+  // task_ids='[]') has no tasks to nudge, so it broadcasts nothing. Best-effort: a broadcast
+  // failure must never break the authoritative finalize write above.
+  try {
+    const row = workflowRunsDb.getWorkflowRun.get(workflowRunId) as
+      | { project_id?: string | null; task_ids?: string | null }
+      | undefined
+    if (!row?.project_id) return
+    let taskIds: string[] = []
+    try {
+      const parsed = JSON.parse(row.task_ids ?? '[]')
+      if (Array.isArray(parsed)) taskIds = parsed.map(String)
+    } catch {
+      /* malformed task_ids → no nudge */
+    }
+    if (taskIds.length > 0) {
+      eventBus.broadcast({
+        type: 'workflow_complete',
+        workflowRunId,
+        projectId: String(row.project_id),
+        status,
+        taskIds,
+      })
+    }
+  } catch (err) {
+    console.warn('[workflows] workflow_complete broadcast failed:', (err as Error).message)
+  }
 }
 
 /** Dispatch ONE supervised agent run that addresses the selected todos via the

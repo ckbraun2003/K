@@ -286,6 +286,16 @@ function concatAssistantText(runId: string): string {
   return joined.length > REPORT_BACK_TEXT_CAP ? `${joined.slice(0, REPORT_BACK_TEXT_CAP)}…` : joined
 }
 
+/** The run's CONCLUSION — its final (last) non-empty `assistant` event text, capped. F-075:
+ *  the lead-continuation report-back uses this TAIL (the lead's final message, e.g. "Opened
+ *  PR #7; CI green.") instead of concatAssistantText's PREFIX scan, which loses the
+ *  conclusion by truncating the opening turns. */
+function finalAssistantText(runId: string): string {
+  const row = eventsDb.latestAssistantEvent.get(runId) as Row | undefined
+  const text = row?.text == null ? '' : String(row.text)
+  return text.length > REPORT_BACK_TEXT_CAP ? `${text.slice(0, REPORT_BACK_TEXT_CAP)}…` : text
+}
+
 /**
  * Summarize a delegated Chief run's outcome for the report-back turn. Prefers the
  * Chief's latest mgmt `report` (the status written UP the chain), falling back to the
@@ -354,13 +364,22 @@ export function resolveKDelegationThread(chiefRunId: string): string | null {
 
 /**
  * Summarize a dispatched LEAD run's terminal outcome for the continuation turn on K's
- * thread. Prefers the lead run's own assistant text (reusing this module's capped
- * concatAssistantText — the same source reportDelegationBack falls back to); a bare status
- * line when the lead produced no summary. Pure + exported so a test can assert the phrasing.
+ * thread. F-075: prefers a CONCISE signal — the lead's own mgmt `report` when it filed one
+ * (mirroring summarizeDelegatedOutcome) — else the lead's CONCLUSION (final assistant
+ * message, the TAIL, not the opening-turns prefix); else a bare status line. Pure +
+ * exported so a test can assert the phrasing.
  */
 export function summarizeChiefLeadContinuation(leadRunId: string, lead: string, status: string): string {
   const verb = status === 'done' ? 'completed' : status
-  const answer = concatAssistantText(leadRunId)
+  // Prefer the lead's explicit mgmt report over raw transcript text.
+  const reports = mgmtDb.listReportsByRun.all(leadRunId, 1) as Row[]
+  const reportBody = reports.length > 0 ? String(reports[0].body) : ''
+  if (reportBody.length > 0) {
+    const capped =
+      reportBody.length > REPORT_BACK_TEXT_CAP ? `${reportBody.slice(0, REPORT_BACK_TEXT_CAP)}…` : reportBody
+    return `Chief (via ${lead}) ${verb} reported: ${capped}`
+  }
+  const answer = finalAssistantText(leadRunId)
   return answer.length > 0
     ? `Chief (via ${lead}) ${verb}: ${answer}`
     : `Chief (via ${lead}) ${verb} — no summary was produced.`

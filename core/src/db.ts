@@ -1128,7 +1128,15 @@ const listAssistantEventsAfterSeq = db.prepare(
   `SELECT seq, text FROM events WHERE run_id = ? AND seq > ? AND type = 'assistant' ORDER BY seq ASC`,
 )
 
-export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listAssistantEvents, listAssistantEventsAfterSeq }
+// The LAST non-empty assistant event for a run — the run's CONCLUSION (final assistant
+// message), not its opening. Backs the lead report-back TAIL summary (F-075:
+// chief-dispatch.ts / k-thread.ts) so a report-back reflects what the lead concluded,
+// never the "I'll start by loading the workflow status tools…" prefix. Bounded to one row.
+const latestAssistantEvent = db.prepare(
+  `SELECT seq, text FROM events WHERE run_id = ? AND type = 'assistant' AND text IS NOT NULL AND length(text) > 0 ORDER BY seq DESC LIMIT 1`,
+)
+
+export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listAssistantEvents, listAssistantEventsAfterSeq, latestAssistantEvent }
 
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 

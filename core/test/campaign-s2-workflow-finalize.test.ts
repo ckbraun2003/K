@@ -25,7 +25,7 @@ import { db, runsDb, projectsDb, projectWorkItemsDb, workflowRunsDb } from '../s
 import { eventBus } from '../src/events.js'
 import { startRun } from '../src/supervisor.js'
 import { kStoreTools, type KStoreContext } from '../src/mcp/k-store.js'
-import type { Project, Run } from '@k/shared'
+import type { Project, Run, WsMessage } from '@k/shared'
 
 vi.mock('../src/supervisor.js', async () => {
   const actual = await vi.importActual<typeof import('../src/supervisor.js')>('../src/supervisor.js')
@@ -123,6 +123,45 @@ describe('S2-015: finalizeWorkflowRun is last-writer-wins (no terminal lock)', (
     expect((workflowRunsDb.getWorkflowRun.get(wfId) as { status: string }).status).toBe('completed')
     finalizeWorkflowRun(wfId, 'error')
     expect((workflowRunsDb.getWorkflowRun.get(wfId) as { status: string }).status).toBe('failed')
+  })
+})
+
+describe('F-076: workflow finalize emits a completion nudge signal', () => {
+  it('broadcasts workflow_complete naming the locked tasks for a task-workflow', async () => {
+    const captured: WsMessage[] = []
+    const unsub = eventBus.onBroadcast(m => captured.push(m))
+
+    const taskA = uuid()
+    const taskB = uuid()
+    for (const [id, title] of [[taskA, 'nudge A'], [taskB, 'nudge B']] as const) {
+      projectWorkItemsDb.insertProjectTask.run({
+        id, projectId: PROJECT_ID, title, status: 'open', createdAt: Date.now(),
+        completedAt: null, issueNumber: null, issueUrl: null, issueState: null,
+      })
+    }
+
+    const { workflowRunId, runId } = await dispatchTaskWorkflow(project, [taskA, taskB])
+    eventBus.emitRunUpdate({ id: runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+    unsub()
+
+    const nudge = captured.find(m => m.type === 'workflow_complete')
+    expect(nudge).toBeTruthy()
+    if (nudge && nudge.type === 'workflow_complete') {
+      expect(nudge.workflowRunId).toBe(workflowRunId)
+      expect(nudge.projectId).toBe(PROJECT_ID)
+      expect(nudge.status).toBe('completed')
+      expect(new Set(nudge.taskIds)).toEqual(new Set([taskA, taskB]))
+    }
+  })
+
+  it('does NOT broadcast for a workflow_run with no tasks (a lead workflow run)', () => {
+    const captured: WsMessage[] = []
+    const unsub = eventBus.onBroadcast(m => { if (m.type === 'workflow_complete') captured.push(m) })
+    // seedWorkflow inserts task_ids='[]' — the lead-workflow shape (chief-dispatch).
+    const { wfId } = seedWorkflow()
+    finalizeWorkflowRun(wfId, 'done')
+    unsub()
+    expect(captured).toHaveLength(0)
   })
 })
 

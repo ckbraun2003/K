@@ -8,7 +8,11 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { WsMessage } from '@k/shared'
-import { makeRunUpdateInvalidator, makeProjectListInvalidator } from '../src/lib/live-invalidate'
+import {
+  makeRunUpdateInvalidator,
+  makeProjectListInvalidator,
+  makeWorkflowCompleteInvalidator,
+} from '../src/lib/live-invalidate'
 
 const runUpdate = { type: 'run_update', run: {} as never } as WsMessage
 const otherMsg = { type: 'pong' } as WsMessage
@@ -137,6 +141,43 @@ describe('makeProjectListInvalidator (F-036)', () => {
     const invalidateQueries = vi.fn()
     const handler = makeProjectListInvalidator({ invalidateQueries })
 
+    handler(runUpdate)
+    handler(otherMsg)
+
+    expect(invalidateQueries).not.toHaveBeenCalled()
+  })
+})
+
+describe('makeWorkflowCompleteInvalidator (F-076)', () => {
+  const workflowComplete = {
+    type: 'workflow_complete', workflowRunId: 'wf1', projectId: 'p9',
+    status: 'completed', taskIds: ['t1', 't2'],
+  } as WsMessage
+  const emptyWorkflowComplete = {
+    type: 'workflow_complete', workflowRunId: 'wf2', projectId: 'p9',
+    status: 'completed', taskIds: [],
+  } as WsMessage
+
+  it('invalidates the project task list + workflow-runs on a task-workflow completion', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeWorkflowCompleteInvalidator({ invalidateQueries })
+
+    handler(workflowComplete)
+
+    // ['tasks', projectId] — the scoped key the project's Tasks tab reads.
+    const tasksCall = invalidateQueries.mock.calls.find(
+      c => (c[0] as { queryKey: unknown[] }).queryKey[0] === 'tasks',
+    )
+    expect((tasksCall?.[0] as { queryKey: unknown[] }).queryKey).toEqual(['tasks', 'p9'])
+    const counts = keyCounts(invalidateQueries)
+    expect(counts['workflow-runs']).toBe(1)
+  })
+
+  it('ignores a workflow_complete with no tasks (a lead workflow run) + non-matching messages', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeWorkflowCompleteInvalidator({ invalidateQueries })
+
+    handler(emptyWorkflowComplete)
     handler(runUpdate)
     handler(otherMsg)
 

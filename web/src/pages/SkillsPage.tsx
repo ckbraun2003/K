@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Skill, CreateSkill, UpdateSkill, SkillEval } from '@k/shared'
+import type { Skill, CreateSkill, UpdateSkill, SkillEval, Project } from '@k/shared'
 import { api } from '../lib/api'
 import AutoTextarea from '../components/AutoTextarea'
 import type { SkillRun } from '../lib/skill-runs'
@@ -46,6 +46,12 @@ export default function SkillsPage() {
     queryKey: ['skills'],
     queryFn: api.skills.list,
   })
+  // Registered projects for the per-skill "▶ run" project selector (F-069) — a skill run
+  // may target a project (its checkout becomes the run's cwd); default is K (no project).
+  const { data: projects = [] } = useQuery<Project[]>({
+    queryKey: ['projects'],
+    queryFn: api.projects.list,
+  })
 
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<CreateSkill>(BLANK)
@@ -77,8 +83,8 @@ export default function SkillsPage() {
   })
 
   const triggerMutation = useMutation({
-    mutationFn: (skill: Skill) =>
-      api.skills.trigger(skill.id).then(res => ({ res, skill })),
+    mutationFn: ({ skill, projectId }: { skill: Skill; projectId?: string }) =>
+      api.skills.trigger(skill.id, projectId).then(res => ({ res, skill })),
     onSuccess: ({ res, skill }) => {
       // Surface the fire-and-link toast + refresh the skill's run history.
       setTriggered({ skillName: skill.name, runId: res.runId })
@@ -266,13 +272,14 @@ export default function SkillsPage() {
           <SkillRow
             key={skill.id}
             skill={skill}
+            projects={projects}
             onToggle={enabled => toggleMutation.mutate({ id: skill.id, enabled })}
-            onTrigger={() => triggerMutation.mutate(skill)}
+            onTrigger={projectId => triggerMutation.mutate({ skill, projectId })}
             onTest={() => testMutation.mutate(skill.id)}
             onDelete={() => setPendingDelete(skill)}
-            isTriggerPending={triggerMutation.isPending && triggerMutation.variables?.id === skill.id}
+            isTriggerPending={triggerMutation.isPending && triggerMutation.variables?.skill.id === skill.id}
             triggerError={
-              triggerMutation.isError && triggerMutation.variables?.id === skill.id
+              triggerMutation.isError && triggerMutation.variables?.skill.id === skill.id
                 ? (triggerMutation.error as Error).message
                 : undefined
             }
@@ -327,6 +334,7 @@ const EVAL_BADGE: Record<SkillEval['status'], string> = {
 
 function SkillRow({
   skill,
+  projects,
   onToggle,
   onTrigger,
   onTest,
@@ -336,8 +344,9 @@ function SkillRow({
   isTestPending,
 }: {
   skill: Skill
+  projects: Project[]
   onToggle: (enabled: boolean) => void
-  onTrigger: () => void
+  onTrigger: (projectId?: string) => void
   onTest: () => void
   onDelete: () => void
   isTriggerPending: boolean
@@ -351,6 +360,9 @@ function SkillRow({
   const latestEval = evals[0]
   const [historyOpen, setHistoryOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  // Selected project for "▶ run" (F-069). '' → run against K (no project). Passed to
+  // onTrigger so the skill executes against the chosen project's checkout.
+  const [runProjectId, setRunProjectId] = useState('')
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)]">
       <div className="flex items-center gap-3 px-4 py-3">
@@ -415,8 +427,24 @@ function SkillRow({
           >
             {historyOpen ? '▾ history' : '▸ history'}
           </button>
+          {projects.length > 0 && (
+            <select
+              data-testid="skill-run-project"
+              aria-label="Run against project"
+              value={runProjectId}
+              onChange={e => setRunProjectId(e.target.value)}
+              className="max-w-[9rem] rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[var(--accent)]"
+            >
+              <option value="">K (no project)</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          )}
           <button
-            onClick={onTrigger}
+            onClick={() => onTrigger(runProjectId || undefined)}
             disabled={isTriggerPending}
             className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
           >

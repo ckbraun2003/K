@@ -14,9 +14,15 @@ beforeAll(() => {
   }
 })
 
-const { mockList, mockEvals, mockRuns } = vi.hoisted(() => ({ mockList: vi.fn(), mockEvals: vi.fn(), mockRuns: vi.fn() }))
+const { mockList, mockEvals, mockRuns, mockProjects } = vi.hoisted(() => ({
+  mockList: vi.fn(), mockEvals: vi.fn(), mockRuns: vi.fn(), mockProjects: vi.fn(),
+}))
 vi.mock('../src/lib/api', () => ({
-  api: { skills: { list: mockList, evals: mockEvals, runs: mockRuns } },
+  api: {
+    skills: { list: mockList, evals: mockEvals, runs: mockRuns },
+    // SkillsPage loads registered projects for the per-skill "▶ run" project selector (F-069).
+    projects: { list: mockProjects },
+  },
 }))
 vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 
@@ -38,8 +44,9 @@ function renderPage() {
 }
 
 beforeEach(() => {
-  mockList.mockReset(); mockEvals.mockReset(); mockRuns.mockReset()
+  mockList.mockReset(); mockEvals.mockReset(); mockRuns.mockReset(); mockProjects.mockReset()
   mockList.mockResolvedValue([skill]); mockEvals.mockResolvedValue([]); mockRuns.mockResolvedValue([])
+  mockProjects.mockResolvedValue([])
 })
 afterEach(() => cleanup())
 

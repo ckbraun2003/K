@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { validate as cronValidate } from 'node-cron'
 import { CreateSkillSchema, UpdateSkillSchema } from '@k/shared'
-import { skillsDb } from '../db.js'
+import { skillsDb, projectsDb } from '../db.js'
 import { listSkills, listSkillEvals, registerSkill, rowToSkill, runSkillTest, triggerSkill } from '../skills.js'
 import { sendError, sendZodError } from './http-errors.js'
 
@@ -123,12 +123,23 @@ export async function skillsRoutes(app: FastifyInstance) {
     return reply.status(204).send()
   })
 
-  // POST /api/skills/:id/trigger — manual trigger (202 + { skillRunId, runId })
-  app.post<{ Params: { id: string } }>('/api/skills/:id/trigger', async (req, reply) => {
+  // POST /api/skills/:id/trigger — manual trigger (202 + { skillRunId, runId }).
+  // Optional body `projectId` (F-069): run the skill against a chosen registered project
+  // (its checkout becomes the run's cwd). Omitted → the skill runs against K, as before.
+  app.post<{ Params: { id: string }; Body: { projectId?: string } }>('/api/skills/:id/trigger', async (req, reply) => {
     const row = skillsDb.getSkill.get(req.params.id)
     if (!row) return sendError(reply, 404, 'not found')
+    const projectId = req.body?.projectId
+    if (projectId !== undefined) {
+      if (typeof projectId !== 'string' || projectId.trim().length === 0) {
+        return sendError(reply, 400, 'projectId must be a non-empty string')
+      }
+      if (!projectsDb.getProject.get(projectId)) {
+        return sendError(reply, 404, `project not found: ${projectId}`)
+      }
+    }
     try {
-      const result = await triggerSkill(req.params.id, 'manual')
+      const result = await triggerSkill(req.params.id, 'manual', projectId ? { projectId } : {})
       return reply.status(202).send(result)
     } catch (e) {
       req.log.error(e)
