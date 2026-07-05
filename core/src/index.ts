@@ -18,6 +18,7 @@ import { artifactsRoutes } from './routes/artifacts.js'
 import { metricsRoutes } from './routes/metrics.js'
 import { projectsRoutes } from './routes/projects.js'
 import { skillsRoutes } from './routes/skills.js'
+import { skillCreatorRoutes } from './routes/skill-creator.js'
 import { chiefRoutes } from './routes/chief.js'
 import { orchestratorsRoutes } from './routes/orchestrators.js'
 import { profilesRoutes } from './routes/profiles.js'
@@ -125,6 +126,7 @@ export async function buildApp() {
   await app.register(metricsRoutes)
   await app.register(projectsRoutes)
   await app.register(skillsRoutes)
+  await app.register(skillCreatorRoutes)
   await app.register(chiefRoutes)
   await app.register(orchestratorsRoutes)
   await app.register(profilesRoutes)
