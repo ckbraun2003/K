@@ -179,6 +179,58 @@ export function buildSkillIndex(skills: ResolvedSkill[]): SkillIndexEntry[] {
   return entries
 }
 
+/** Char budget for inlining skill bodies into a prompt-only (degraded) run's
+ *  system prompt (D-072: ~12k chars, roughly 3k tokens). */
+export const INLINE_SKILLS_BUDGET_CHARS = 12_000
+
+/**
+ * The DEGRADE-path skills section (B4): a tool-less model can't read_skill, so
+ * skill bodies are inlined directly into the system prompt within a char
+ * budget. Greedy smallest-first fill — equivalently, the LARGEST bodies are
+ * the ones skipped when over budget (maximizes how many skills fit) — with the
+ * skipped ones named in a note so the model knows what it is missing. Returns
+ * null when no skill bodies resolve.
+ */
+export function buildInlineSkillsSection(
+  skills: ResolvedSkill[],
+  budgetChars = INLINE_SKILLS_BUDGET_CHARS,
+): string | null {
+  const unreadable: string[] = []
+  const entries = buildSkillIndex(skills)
+    .map(e => {
+      let body = ''
+      try {
+        body = fs.readFileSync(e.path, 'utf8')
+      } catch {
+        unreadable.push(e.key)
+      }
+      return { key: e.key, body }
+    })
+    .filter(e => e.body.length > 0)
+  if (entries.length === 0 && unreadable.length === 0) return null
+  entries.sort((a, b) => a.body.length - b.body.length)
+  const included: string[] = []
+  const skipped: string[] = []
+  let used = 0
+  for (const e of entries) {
+    if (used + e.body.length <= budgetChars) {
+      included.push(`### Skill: ${e.key}\n\n${e.body}`)
+      used += e.body.length
+    } else {
+      skipped.push(e.key)
+    }
+  }
+  const parts = ['## Skills (inlined — this model has no tool support)', ...included]
+  if (skipped.length > 0) {
+    parts.push(`(Skipped for context budget: ${skipped.join(', ')})`)
+  }
+  // Named separately from the budget skips — a different reason, honestly told.
+  if (unreadable.length > 0) {
+    parts.push(`(Unreadable skills, not inlined: ${unreadable.join(', ')})`)
+  }
+  return parts.join('\n\n')
+}
+
 // ─── path guard ───────────────────────────────────────────────────────────────
 
 /** Typed input rejection — execute() maps it to an isError result (fed back to

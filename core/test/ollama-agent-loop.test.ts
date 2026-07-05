@@ -15,6 +15,7 @@ import { v4 as uuid } from 'uuid'
 import type { AgentEvent } from '@k/shared'
 import { startOllamaAgentRun, TOOL_RESULT_MESSAGE_CAP_CHARS } from '../src/ollama-agent/loop.js'
 import type { OllamaAgentRunConfig } from '../src/ollama-agent/loop.js'
+import { __resetModelCapabilityCache } from '../src/ollama-agent/capability.js'
 import {
   fakeAssets,
   makeFakeMcpClient,
@@ -29,6 +30,9 @@ let worktree: string
 const tmpDirs: string[] = []
 
 beforeEach(() => {
+  // The capability cache is process-lifetime and every test reuses the same
+  // model name — reset so a scripted show() result can never leak across tests.
+  __resetModelCapabilityCache()
   worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'k-ollama-loop-'))
   tmpDirs.push(worktree)
 })

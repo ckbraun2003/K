@@ -24,6 +24,7 @@ import {
 } from '../ollama-client.js'
 import { CATALOG, freeDiskBytes, fitsOnDisk } from '../ollama-catalog.js'
 import { activeOllamaModel, setActiveOllamaModel } from '../config-store.js'
+import { invalidateModelCapability } from '../ollama-agent/capability.js'
 import { eventBus } from '../events.js'
 
 // Model name: non-empty, bounded, safe charset (handles `name:tag` and
@@ -126,6 +127,10 @@ export async function ollamaRoutes(app: FastifyInstance) {
           },
           ctrl.signal,
         )
+        // A successful pull may swap the model behind this name (tool support
+        // can appear/disappear) — its cached capability verdict must not
+        // outlive the manifest it was probed from (D-072 B4).
+        invalidateModelCapability(name)
         eventBus.broadcast({ type: 'ollama_pull', name, status: 'done', done: true })
       } catch (e) {
         // We own this controller and abort it ourselves on cancel, so the

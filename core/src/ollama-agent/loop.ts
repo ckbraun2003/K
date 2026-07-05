@@ -36,9 +36,15 @@ import { connectStdioMcp } from '../mcp-client.js'
 import {
   createNativeTools,
   buildSkillIndex,
+  buildInlineSkillsSection,
   truncateOutput,
   type FsScope,
 } from './native-tools.js'
+import {
+  resolveModelCapability,
+  markModelToolUnsupported,
+  isToolUnsupportedError,
+} from './capability.js'
 import { buildToolRegistry, type ConnectedMcpServer, type ToolRegistry } from './tool-registry.js'
 import type { OllamaChatMessage, OllamaChatTransport, OllamaToolCall } from './transport.js'
 import {
@@ -60,6 +66,9 @@ export const DEFAULT_TOOL_CALL_TIMEOUT_MS = 60_000
 export const TOOL_RESULT_MESSAGE_CAP_CHARS = 8_000
 /** Identical (tool, args) calls tolerated before the loop injects a warning. */
 export const REPEAT_CALL_LIMIT = 3
+/** Context-pressure warning threshold: prompt_eval_count vs the model's shown
+ *  context length (B4). */
+export const CONTEXT_PRESSURE_RATIO = 0.85
 
 export interface OllamaAgentRunConfig {
   runId: string
@@ -76,9 +85,15 @@ export interface OllamaAgentRunConfig {
   /** The shared validate→accumulate→emit seam (B3). Called for EVERY event. */
   onEvent: (event: AgentEvent) => void
   numCtx?: number
-  /** Capability-policy verdict (B4). Default true; false → tools are not
-   *  advertised and the run degrades to prompt-only IN PLACE. */
+  /** Capability-policy PIN (tests / callers that already probed). Absent →
+   *  the loop resolves it via the capability policy (/api/show probe with a
+   *  process-lifetime cache — capability.ts). false → tools are not
+   *  advertised and the run degrades to prompt-only IN PLACE (never a silent
+   *  claude fallback). */
   toolSupport?: boolean
+  /** Model context window override; absent → taken from the capability probe.
+   *  Feeds the context-pressure warning. */
+  contextLength?: number
   maxIterations?: number
   runTimeoutMs?: number
   toolCallTimeoutMs?: number
@@ -134,6 +149,11 @@ export function buildSystemPrompt(
         ].join('\n'),
       )
     }
+  } else {
+    // Degrade path (B4): no tools → no read_skill, so skill bodies are inlined
+    // within the char budget (largest skipped with a note).
+    const inline = buildInlineSkillsSection(assets.skills)
+    if (inline) parts.push(inline)
   }
   return parts.join('\n\n---\n\n')
 }
@@ -176,7 +196,6 @@ export function startOllamaAgentRun(cfg: OllamaAgentRunConfig, deps: OllamaAgent
     const maxIterations = cfg.maxIterations ?? DEFAULT_MAX_ITERATIONS
     const runTimeoutMs = cfg.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS
     const toolCallTimeoutMs = cfg.toolCallTimeoutMs ?? DEFAULT_TOOL_CALL_TIMEOUT_MS
-    const toolSupport = cfg.toolSupport ?? true
 
     const timer = setTimeout(() => {
       timedOut = true
@@ -197,6 +216,20 @@ export function startOllamaAgentRun(cfg: OllamaAgentRunConfig, deps: OllamaAgent
           runId: cfg.runId,
           suppressGitnexus: cfg.suppressGitnexus,
         })
+      }
+
+      // ── capability policy (B4): a pinned cfg.toolSupport wins (tests /
+      //    pre-probed callers); otherwise resolve via /api/show with the
+      //    process-lifetime cache. A tool-less model degrades IN PLACE —
+      //    never a silent claude fallback. ──
+      let toolSupport: boolean
+      let contextLength = cfg.contextLength
+      if (cfg.toolSupport != null) {
+        toolSupport = cfg.toolSupport
+      } else {
+        const cap = await resolveModelCapability(cfg.model, deps.transport)
+        toolSupport = cap.toolSupport
+        contextLength = contextLength ?? cap.contextLength
       }
 
       // ── spawn ALL resolved MCP servers up front; a failure degrades, never
@@ -258,6 +291,7 @@ export function startOllamaAgentRun(cfg: OllamaAgentRunConfig, deps: OllamaAgent
 
       let lastCallSig: string | null = null
       let repeatCount = 0
+      let contextPressureWarned = false
 
       for (let iter = 0; iter < maxIterations; iter++) {
         if (signal.aborted) return { exitCode: 1 }
@@ -268,19 +302,51 @@ export function startOllamaAgentRun(cfg: OllamaAgentRunConfig, deps: OllamaAgent
         const toolCalls: OllamaToolCall[] = []
         let promptEvalCount: number | undefined
         let evalCount: number | undefined
-        for await (const chunk of deps.transport.chat(
-          {
-            model: cfg.model,
-            messages,
-            ...(toolSupport && registry.tools.length > 0 ? { tools: registry.toOllamaTools() } : {}),
-            options: { num_ctx: cfg.numCtx ?? DEFAULT_NUM_CTX },
-          },
-          signal,
-        )) {
-          if (typeof chunk.message?.content === 'string') text += chunk.message.content
-          if (Array.isArray(chunk.message?.tool_calls)) toolCalls.push(...chunk.message.tool_calls)
-          if (typeof chunk.prompt_eval_count === 'number') promptEvalCount = chunk.prompt_eval_count
-          if (typeof chunk.eval_count === 'number') evalCount = chunk.eval_count
+        try {
+          for await (const chunk of deps.transport.chat(
+            {
+              model: cfg.model,
+              messages,
+              ...(toolSupport && registry.tools.length > 0 ? { tools: registry.toOllamaTools() } : {}),
+              options: { num_ctx: cfg.numCtx ?? DEFAULT_NUM_CTX },
+            },
+            signal,
+          )) {
+            if (typeof chunk.message?.content === 'string') text += chunk.message.content
+            if (Array.isArray(chunk.message?.tool_calls)) toolCalls.push(...chunk.message.tool_calls)
+            if (typeof chunk.prompt_eval_count === 'number') promptEvalCount = chunk.prompt_eval_count
+            if (typeof chunk.eval_count === 'number') evalCount = chunk.eval_count
+          }
+        } catch (err) {
+          // B4 try-once fallback: an old daemon (no capabilities field) was
+          // attempted WITH tools and rejected 400 — degrade IN PLACE to
+          // prompt-only (skills inlined), cache the verdict for later runs of
+          // this model, and retry the turn. Never a silent claude fallback.
+          if (toolSupport && isToolUnsupportedError(err)) {
+            toolSupport = false
+            markModelToolUnsupported(cfg.model)
+            messages[0] = {
+              role: 'system',
+              content: buildSystemPrompt(assets, { cwd: cfg.cwd, toolSupport: false }),
+            }
+            emit(b => systemEvent(b,
+              `ollama-agent: model=${cfg.model} rejected tools (400) — degraded to prompt-only, skills inlined`))
+            continue
+          }
+          throw err
+        }
+
+        // ── context-pressure warning (B4): the prompt already occupies >85% of
+        //    the model's shown context window — warn ONCE per run. ──
+        if (
+          !contextPressureWarned &&
+          contextLength != null &&
+          promptEvalCount != null &&
+          promptEvalCount > CONTEXT_PRESSURE_RATIO * contextLength
+        ) {
+          contextPressureWarned = true
+          emit(b => systemEvent(b,
+            `ollama-agent: context pressure — prompt_eval_count ${promptEvalCount} exceeds 85% of the model context (${contextLength}); raise num_ctx or shorten the task`))
         }
 
         // ── events for this iteration (shapes pairToolCalls understands) ──
@@ -339,7 +405,10 @@ export function startOllamaAgentRun(cfg: OllamaAgentRunConfig, deps: OllamaAgent
         for (const c of callsWithIds) {
           if (signal.aborted) return { exitCode: 1 }
           const args = c.args // parsed once, shared with the event's toolInput
-          const registered = c.name ? registry.get(c.name) : undefined
+          // toolSupport re-gates dispatch too: after a mid-run degrade the
+          // registry still exists, but a straggler/hallucinated tool_call must
+          // be rejected like any ungranted tool — the run declared prompt-only.
+          const registered = toolSupport && c.name ? registry.get(c.name) : undefined
 
           let result: { text: string; isError: boolean }
           if (args === null) {

@@ -14,6 +14,7 @@ import path from 'path'
 import { v4 as uuid } from 'uuid'
 import type { AgentEvent } from '@k/shared'
 import { startOllamaAgentRun } from '../src/ollama-agent/loop.js'
+import { __resetModelCapabilityCache } from '../src/ollama-agent/capability.js'
 import {
   fakeAssets,
   hangingMcpHandler,
@@ -28,6 +29,9 @@ import {
 let worktree: string
 
 beforeEach(() => {
+  // Process-lifetime capability cache + one shared model name across tests —
+  // reset so a scripted show() result can never leak between it blocks.
+  __resetModelCapabilityCache()
   worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'k-ollama-kill-'))
 })
 
@@ -122,11 +126,13 @@ describe('kill', () => {
   })
 
   it('a kill landing during MCP spawn short-circuits without ever calling the model', async () => {
-    // The loop body runs synchronously up to its first await — with an MCP
-    // server to spawn, that await point is where an early kill can land.
+    // toolSupport is PINNED so the loop's first await is the connectMcp call
+    // itself (unpinned, the B4 capability probe would absorb a same-tick kill
+    // before any spawn started) — the kill lands while the connect is in flight.
     const mcp = makeFakeMcpClient('kstore', [{ name: 't', inputSchema: { type: 'object' } }])
     const transport = makeFakeTransport([{ chunks: [textChunk('x'), usageChunk(1, 1)] }])
     const { handle } = start(transport, {
+      toolSupport: true,
       assets: fakeAssets({
         allowedTools: ['Read', 'mcp__kstore'],
         mcpServers: [mountedServer('kstore')],

@@ -15,7 +15,7 @@
  * mocked.) The claude path's regression lock is the EXISTING supervisor suites
  * passing unmodified — nothing here touches them.
  */
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -32,6 +32,7 @@ import {
   __resetConfigCache,
 } from '../src/config-store.js'
 import { DEFAULT_NUM_CTX } from '../src/ollama-agent/loop.js'
+import { __resetModelCapabilityCache } from '../src/ollama-agent/capability.js'
 import {
   makeFakeMcpClient,
   makeFakeTransport,
@@ -106,6 +107,12 @@ beforeAll(async () => {
   // children here — a second process opening the shared test SQLite is the
   // documented K_DATA_DIR flake source. The fake connector reports no tools.
   __testHooks.setOllamaMcpConnector(async name => makeFakeMcpClient(name, []))
+})
+
+beforeEach(() => {
+  // Process-lifetime capability cache + one shared model name across tests —
+  // reset so a scripted show() result can never leak between it blocks.
+  __resetModelCapabilityCache()
 })
 
 afterEach(() => {
