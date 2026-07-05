@@ -35,18 +35,51 @@
 
 import fs from 'fs'
 import path from 'path'
-import { randomUUID } from 'crypto'
-import type { SkillDraft } from '@k/shared'
+import { createHash, randomUUID } from 'crypto'
+import type { DraftEval, Skill, SkillDraft } from '@k/shared'
 import { db, eventsDb } from './db.js'
 import { getProfile } from './profiles.js'
 import { startRun, REPO_ROOT } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
+import { buildEvalPrompt, deriveEvalStatus, registerSkill } from './skills.js'
+import { assertSafeSegment } from './agent-config.js'
+import { estimateTokens } from './token-estimate.js'
+import { isPathWithin } from './paths.js'
 
 // ─── State-conflict error (route maps → 409) ─────────────────────────────────
 
 /** A lifecycle-state conflict (e.g. refining while an authoring run is live, or
  *  refining a draft that has no content yet). Routes answer 409. */
 export class DraftStateError extends Error {}
+
+/** A save collision: the target slug already exists as a library directory or a
+ *  registered qualified key. Routes answer 409. */
+export class DraftCollisionError extends Error {}
+
+// ─── Draft evals storage (D2 decision — parallel minimal table) ──────────────
+// skill_evals.skillId is NOT NULL REFERENCES skills(id) with foreign_keys=ON, so
+// a draft id can never ride that table. The sanctioned alternative is this
+// PARALLEL MINIMAL table, column-for-column the skill_evals shape with skillId →
+// draftId (FK → skill_drafts, CASCADE: deleting a draft deletes its eval
+// history; runId stays a LOOSE ref like skill_drafts.run_id — deleting a run
+// never cascades here). db.ts's schema is FROZEN at v7 this program, so the
+// table is created HERE, idempotently, on module load — the same
+// CREATE-IF-NOT-EXISTS idiom db.ts itself uses for migrated/fixture DBs. The
+// conductor may fold this into db.ts's canonical schema at a later version
+// bump; the statement is a no-op then.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS skill_draft_evals (
+    id             TEXT PRIMARY KEY,
+    draftId        TEXT NOT NULL REFERENCES skill_drafts(id) ON DELETE CASCADE,
+    runId          TEXT,
+    status         TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','pass','fail')),
+    regression     INTEGER NOT NULL DEFAULT 0,
+    baselineEvalId TEXT REFERENCES skill_draft_evals(id) ON DELETE SET NULL,
+    createdAt      INTEGER NOT NULL,
+    completedAt    INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_skill_draft_evals_draft ON skill_draft_evals(draftId);
+`)
 
 // ─── Prepared statements (module load — skills.ts::patchSkillRunId precedent) ─
 
@@ -367,7 +400,305 @@ export async function refineDraft(id: string, feedback: string): Promise<SkillDr
 }
 
 /** Delete a draft. Deleting one with a live authoring run is safe: the tracked
- *  completion lands on a missing row and no-ops. Returns false for unknown ids. */
+ *  completion lands on a missing row and no-ops (its draft-eval history goes
+ *  with it — FK CASCADE). Returns false for unknown ids. */
 export function deleteDraft(id: string): boolean {
   return deleteDraftStmt.run(id).changes > 0
+}
+
+// ─── Draft evals (D2) — the skill_evals machinery, draft-scoped ──────────────
+// SQL mirrors db.ts's skillEvalsDb statements verbatim (skillId → draftId).
+
+const insertDraftEvalStmt = db.prepare(`
+  INSERT INTO skill_draft_evals (id, draftId, runId, status, regression, baselineEvalId, createdAt, completedAt)
+  VALUES (@id, @draftId, NULL, 'pending', 0, NULL, @createdAt, NULL)
+`)
+const getDraftEvalStmt = db.prepare(`SELECT * FROM skill_draft_evals WHERE id = ?`)
+const listDraftEvalsStmt = db.prepare(`
+  SELECT * FROM skill_draft_evals WHERE draftId = ? ORDER BY createdAt DESC LIMIT 20
+`)
+// Most recent completed (pass|fail) eval for a draft — the regression baseline.
+const latestCompletedDraftEvalStmt = db.prepare(`
+  SELECT * FROM skill_draft_evals
+  WHERE draftId = ? AND status IN ('pass','fail')
+  ORDER BY createdAt DESC LIMIT 1
+`)
+const patchDraftEvalRunIdStmt = db.prepare(`UPDATE skill_draft_evals SET runId = ? WHERE id = ?`)
+const updateDraftEvalResultStmt = db.prepare(`
+  UPDATE skill_draft_evals SET status = @status, regression = @regression, baselineEvalId = @baselineEvalId, completedAt = @completedAt WHERE id = @id
+`)
+
+/** DB row → DraftEval shape (mirrors skills.ts::rowToSkillEval). */
+export function rowToDraftEval(r: Record<string, unknown>): DraftEval {
+  return {
+    id: String(r.id),
+    draftId: String(r.draftId),
+    runId: r.runId != null ? String(r.runId) : null,
+    status: r.status as DraftEval['status'],
+    regression: Number(r.regression) === 1,
+    baselineEvalId: r.baselineEvalId != null ? String(r.baselineEvalId) : null,
+    createdAt: Number(r.createdAt),
+    completedAt: r.completedAt != null ? Number(r.completedAt) : null,
+  }
+}
+
+export function listDraftEvals(draftId: string): DraftEval[] {
+  return (listDraftEvalsStmt.all(draftId) as Record<string, unknown>[]).map(rowToDraftEval)
+}
+
+/** Finalize a draft eval: regression vs the prior completed baseline, exactly
+ *  skills.ts::finalizeSkillEval's rule (was-pass → now-fail). Exported so tests
+ *  can drive the result path directly. */
+export function finalizeDraftEval(
+  evalId: string,
+  draftId: string,
+  newStatus: 'pass' | 'fail',
+): DraftEval {
+  const baselineRow = latestCompletedDraftEvalStmt.get(draftId) as
+    | Record<string, unknown>
+    | undefined
+  const baseline =
+    baselineRow && String(baselineRow.id) !== evalId ? rowToDraftEval(baselineRow) : null
+  const regression = baseline?.status === 'pass' && newStatus === 'fail'
+  updateDraftEvalResultStmt.run({
+    id: evalId,
+    status: newStatus,
+    regression: regression ? 1 : 0,
+    baselineEvalId: baseline?.id ?? null,
+    completedAt: Date.now(),
+  })
+  return rowToDraftEval(getDraftEvalStmt.get(evalId) as Record<string, unknown>)
+}
+
+/** The Skill-shaped stand-in that threads a DRAFT's content through the eval
+ *  harness's own prompt builder (skills.ts::buildEvalPrompt). `source` carries
+ *  the raw SKILL.md text: readSkillSource treats any non-in-root-path string as
+ *  inline content and embeds it verbatim — the same semantics an inline
+ *  automation-registry skill gets. */
+function pseudoSkillForEval(draft: SkillDraft, skillMd: string): Skill {
+  const name = parseSkillFrontmatter(skillMd).name ?? draft.nameHint ?? `draft-${draft.id.slice(0, 8)}`
+  return {
+    id: draft.id,
+    name,
+    type: 'skill',
+    source: skillMd,
+    triggerType: 'manual',
+    schedule: null,
+    eventTrigger: null,
+    enabled: true,
+    createdAt: draft.createdAt,
+  }
+}
+
+/**
+ * Evaluate the draft's CURRENT skill_md via the eval harness, exactly as
+ * POST /api/skills/:id/test does (skills.ts::runSkillTest): durable 'pending'
+ * eval row first; startRun(buildEvalPrompt(...)) — the SAME default-profile
+ * dispatch runSkillTest uses; trackSupervisedRun → finalize with
+ * deriveEvalStatus(terminal status); dispatch throw degrades to a finalized
+ * 'fail' row + runId '' (route stays 202). Guards: no live authoring run (the
+ * landing would swap the content under the eval) and content must exist.
+ * Returns null for an unknown id.
+ */
+export async function evaluateDraft(id: string): Promise<{ evalId: string; runId: string } | null> {
+  const row = getDraftStmt.get(id) as Record<string, unknown> | undefined
+  if (!row) return null
+  if (String(row.status) === 'drafting') {
+    throw new DraftStateError('an authoring run is in progress — evaluate after it lands')
+  }
+  const skillMd = row.skill_md != null ? String(row.skill_md) : null
+  if (!skillMd) {
+    throw new DraftStateError('draft has no content to evaluate yet')
+  }
+
+  const evalId = randomUUID()
+  insertDraftEvalStmt.run({ id: evalId, draftId: id, createdAt: Date.now() })
+
+  let run
+  try {
+    run = await startRun(buildEvalPrompt(pseudoSkillForEval(rowToSkillDraft(row), skillMd)))
+  } catch (e) {
+    console.warn(`[skill-creator] evaluateDraft dispatch failed for ${id}:`, e)
+    finalizeDraftEval(evalId, id, 'fail')
+    return { evalId, runId: '' }
+  }
+
+  trackSupervisedRun(run.id, {
+    onStarted: rid => patchDraftEvalRunIdStmt.run(rid, evalId),
+    finalize: status => finalizeDraftEval(evalId, id, deriveEvalStatus(status)),
+  })
+
+  return { evalId, runId: run.id }
+}
+
+// ─── Save to K's library (D2) ────────────────────────────────────────────────
+
+const DEFAULT_SKILLS_ROOT = path.join(REPO_ROOT, 'agent-config', 'skills')
+
+const getSkillByQualifiedKeyStmt = db.prepare(`SELECT id FROM skills WHERE qualified_key = ?`)
+// Provenance columns registerSkill's insertSkill statement (db.ts, frozen) does
+// not bind — set in the same transaction as the insert.
+const updateSkillProvenanceStmt = db.prepare(`
+  UPDATE skills SET content_hash = @contentHash, est_tokens = @estTokens, est_tokens_meta = @estTokensMeta WHERE id = @id
+`)
+const setDraftSavedSkillStmt = db.prepare(`UPDATE skill_drafts SET saved_skill_id = ?, updated_at = ? WHERE id = ?`)
+
+/** Frontmatter fields from a shaped SKILL.md (single-line values, the house
+ *  convention; surrounding quotes stripped). Pure + exported for unit-testing. */
+export function parseSkillFrontmatter(skillMd: string): { name: string | null; description: string | null } {
+  const lines = skillMd.replace(/\r\n/g, '\n').split('\n')
+  if (lines[0]?.trim() !== '---') return { name: null, description: null }
+  let close = -1
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === '---') { close = i; break }
+  }
+  if (close === -1) return { name: null, description: null }
+  const fm = lines.slice(1, close).join('\n')
+  const unquote = (s: string): string => s.trim().replace(/^(['"])([\s\S]*)\1$/, '$2').trim()
+  const name = /^name:[ \t]*(.+)$/m.exec(fm)
+  const description = /^description:[ \t]*(.+)$/m.exec(fm)
+  return {
+    name: name ? unquote(name[1]) : null,
+    description: description ? unquote(description[1]) : null,
+  }
+}
+
+/** Rewrite the frontmatter `name:` field to `slug` (K invariant: the frontmatter
+ *  name matches the library directory). Line endings are normalized to LF first
+ *  (review fix: without it a CRLF draft saved a MIXED-EOL file — every line CRLF
+ *  except the rewritten name line); everything else — description included — is
+ *  preserved verbatim. Pure + exported for unit-testing. Precondition:
+ *  isSkillMdShaped(skillMd) (the caller gates). */
+export function rewriteFrontmatterName(skillMd: string, slug: string): string {
+  const lines = skillMd.replace(/\r\n/g, '\n').split('\n')
+  let close = -1
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === '---') { close = i; break }
+  }
+  for (let i = 1; i < close; i++) {
+    if (/^name:[ \t]*/.test(lines[i])) {
+      lines[i] = `name: ${slug}`
+      break
+    }
+  }
+  return lines.join('\n')
+}
+
+const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex')
+
+/** Windows reserved device names — they pass BOTH assertSafeSegment and the
+ *  kebab regex, and Node on Win11 happily creates `con/SKILL.md`, but
+ *  git-for-windows cannot track it (reviewer-verified live). KEEP IN LOCKSTEP
+ *  with routes/skill-creator.ts::SaveBodySchema (the same two-layer
+ *  route-400 / service-throw duplication as the kebab rule). */
+const WINDOWS_RESERVED_NAMES = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i
+
+/** The always-loaded metadata slice of a SKILL.md: its frontmatter block,
+ *  opening `---` through the closing `---` INCLUSIVE — the SAME rule as
+ *  run-assets.ts::skillMetaText, the program-wide est_tokens_meta convention
+ *  (conductor ruling). Falls back to the bare name for unshaped content. */
+function skillMetaSlice(content: string, fallbackName: string): string {
+  if (content.startsWith('---')) {
+    const end = content.indexOf('\n---', 3)
+    if (end > 0) return content.slice(0, end + 4)
+  }
+  return fallbackName
+}
+
+/**
+ * Save a ready draft into K's library: write agent-config/skills/<slug>/SKILL.md
+ * (frontmatter name rewritten to the slug) and register the automation-registry
+ * row with k-native provenance (source_kind 'k' + enabled 1 via the table
+ * defaults, qualified_key = slug via registerSkill, content_hash/est_tokens[_meta]
+ * set in the same transaction).
+ *
+ * Slug trust: assertSafeSegment + a strict kebab-case regex + the Windows
+ * reserved-device-name rejection, THEN a guardUnder-style isPathWithin
+ * confinement on the resolved dir/file — the slug is never trusted beyond the
+ * asserts (spec requirement). Collisions (existing library dir OR existing
+ * qualified_key) → DraftCollisionError (409). Not-ready / unshaped content →
+ * DraftStateError (409). Unknown id → null (404).
+ *
+ * Re-saving an ALREADY-SAVED draft under a different slug is deliberate
+ * "save-as-new" behavior (conductor product ruling): the first skill stays
+ * registered; the draft's saved_skill_id repoints to the newest save.
+ *
+ * Crash honesty: the file lands before the registry transaction; a failure in
+ * the transaction removes the just-created dir and rethrows, so no orphan
+ * library entry silently masquerades as registered. `opts.skillsRoot` exists for
+ * test confinement only (production callers use the default).
+ */
+export function saveDraft(
+  id: string,
+  name: string,
+  opts: { skillsRoot?: string } = {},
+): { skill: Skill } | null {
+  const row = getDraftStmt.get(id) as Record<string, unknown> | undefined
+  if (!row) return null
+  const skillMd = row.skill_md != null ? String(row.skill_md) : null
+  if (String(row.status) !== 'ready' || !skillMd) {
+    throw new DraftStateError('draft is not ready to save (no landed content)')
+  }
+  if (!isSkillMdShaped(skillMd)) {
+    throw new DraftStateError('draft content is not a structurally valid SKILL.md (frontmatter name + description, then a body)')
+  }
+
+  assertSafeSegment(name, 'skill slug')
+  // KEEP IN LOCKSTEP with routes/skill-creator.ts::SaveBodySchema (route = the
+  // friendly 400; this = the hard gate for non-route callers).
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
+    throw new Error(`skill slug must be kebab-case: "${name}"`)
+  }
+  if (WINDOWS_RESERVED_NAMES.test(name)) {
+    throw new Error(`skill slug is a reserved Windows device name: "${name}"`)
+  }
+  const skillsRoot = opts.skillsRoot ?? DEFAULT_SKILLS_ROOT
+  const dir = path.join(skillsRoot, name)
+  const file = path.join(dir, 'SKILL.md')
+  if (!isPathWithin(skillsRoot, dir) || !isPathWithin(dir, file)) {
+    throw new Error(`skill slug escapes the library root: "${name}"`)
+  }
+
+  if (fs.existsSync(dir)) {
+    throw new DraftCollisionError(`a skill directory named '${name}' already exists in K's library`)
+  }
+  if (getSkillByQualifiedKeyStmt.get(name)) {
+    throw new DraftCollisionError(`a registered skill with qualified key '${name}' already exists`)
+  }
+
+  const finalContent = rewriteFrontmatterName(skillMd, name)
+  const { description } = parseSkillFrontmatter(finalContent)
+
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(file, finalContent, 'utf8')
+
+  let skill: Skill
+  try {
+    const registerWithProvenance = db.transaction((): Skill => {
+      const s = registerSkill({
+        name,
+        description: description ?? undefined,
+        type: 'skill',
+        source: `agent-config/skills/${name}/SKILL.md`,
+        triggerType: 'manual',
+      })
+      updateSkillProvenanceStmt.run({
+        id: s.id,
+        contentHash: sha256(finalContent),
+        estTokens: estimateTokens(finalContent),
+        // Meta = the raw frontmatter block (run-assets.ts::skillMetaText rule —
+        // the program-wide est_tokens_meta convention, conductor ruling).
+        estTokensMeta: estimateTokens(skillMetaSlice(finalContent, name)),
+      })
+      return s
+    })
+    skill = registerWithProvenance()
+  } catch (e) {
+    // Never leave an unregistered library dir behind masquerading as saved.
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* best-effort */ }
+    throw e
+  }
+
+  setDraftSavedSkillStmt.run(skill.id, Date.now(), id)
+  return { skill }
 }
