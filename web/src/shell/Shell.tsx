@@ -100,7 +100,7 @@ export default function Shell() {
             {route.view === 'verify' && <ProjectVerification projectId={route.param} />}
             {route.view === 'project' && <ProjectWorkspace projectId={route.param} tab={route.subParam} />}
             {route.view === 'graph' && <FleetGraphPage />}
-            {route.view === 'skills' && <SkillsPage />}
+            {route.view === 'skills' && <SkillsPage tab={route.param} />}
             {route.view === 'terminal' && <TerminalPage />}
             {route.view === 'settings' && <SettingsPage />}
             {route.view === 'workflows' && <WorkflowsPage runId={route.param} />}
