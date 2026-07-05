@@ -136,6 +136,86 @@ function copyDirGuarded(root: string, src: string, dest: string): void {
   }
 }
 
+// ── confined vendoring (D-069 guard widening) ─────────────────────────────────
+
+/** Hard caps for one vendored skill dir — a hostile/degenerate host skill cannot
+ *  balloon a run config (fail-closed: breach THROWS, the dispatch is refused). */
+export const COPY_CONFINED_MAX_FILES = 500
+export const COPY_CONFINED_MAX_BYTES = 10 * 1024 * 1024
+
+/**
+ * Copy a DISCOVERED skill dir `src` → `dest` with guards on BOTH sides — the
+ * vendoring primitive for host content (copyDirGuarded stays for K's own assets):
+ *   - dest side: guardUnder(destRoot, …) per entry — unchanged semantics;
+ *   - src side: `src` must realpath-confine under `srcRoot` (throw — caller bug or
+ *     attack); every entry is lstat'd via Dirent — a SYMLINK is SKIPPED with a
+ *     warning (never followed); every FILE's realpath must stay under the real
+ *     srcRoot (a junction/mount escape is skipped with a warning) and is copied
+ *     from its REAL path;
+ *   - hard caps: > COPY_CONFINED_MAX_FILES files or > COPY_CONFINED_MAX_BYTES
+ *     cumulative bytes for this one skill dir → THROW (fail-closed).
+ */
+export function copyDirConfined(srcRoot: string, src: string, destRoot: string, dest: string): void {
+  const realSrcRoot = fs.realpathSync(srcRoot)
+  const realSrc = fs.realpathSync(src)
+  if (!isPathWithin(realSrcRoot, realSrc)) {
+    throw new Error(`agent-config: copyDirConfined src escapes its root — src="${src}", root="${srcRoot}"`)
+  }
+  let files = 0
+  let bytes = 0
+  const walk = (from: string, to: string): void => {
+    guardUnder(destRoot, to)
+    fs.mkdirSync(to, { recursive: true })
+    for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+      const s = path.join(from, e.name)
+      const d = path.join(to, e.name)
+      if (e.isSymbolicLink()) {
+        console.warn(`[agent-config] copyDirConfined: symlink skipped (never followed): ${s}`)
+        continue
+      }
+      if (e.isDirectory()) {
+        walk(s, d)
+        continue
+      }
+      if (!e.isFile()) {
+        console.warn(`[agent-config] copyDirConfined: irregular entry skipped: ${s}`)
+        continue
+      }
+      // Source-side realpath containment PER FILE: an escape (junction, bind
+      // mount) is skipped — the file is simply not vendored (warn, fail-closed).
+      let real: string
+      let size: number
+      try {
+        real = fs.realpathSync(s)
+        size = fs.statSync(real).size
+      } catch (err) {
+        console.warn(`[agent-config] copyDirConfined: unreadable entry skipped: ${s} (${(err as Error).message})`)
+        continue
+      }
+      if (!isPathWithin(realSrcRoot, real)) {
+        console.warn(`[agent-config] copyDirConfined: entry resolves outside the source root — skipped: ${s}`)
+        continue
+      }
+      files += 1
+      bytes += size
+      if (files > COPY_CONFINED_MAX_FILES) {
+        throw new Error(
+          `agent-config: copyDirConfined: skill dir exceeds ${COPY_CONFINED_MAX_FILES} files — refusing to vendor "${src}" (fail-closed)`,
+        )
+      }
+      if (bytes > COPY_CONFINED_MAX_BYTES) {
+        throw new Error(
+          `agent-config: copyDirConfined: skill dir exceeds ${COPY_CONFINED_MAX_BYTES} bytes — refusing to vendor "${src}" (fail-closed)`,
+        )
+      }
+      guardUnder(destRoot, d)
+      fs.mkdirSync(path.dirname(d), { recursive: true })
+      fs.copyFileSync(real, d)
+    }
+  }
+  walk(realSrc, dest)
+}
+
 /**
  * F-068: remove every settings.json hook group whose command invokes the gitnexus hook,
  * so an EXTERNAL-target run never runs the `gitnexus analyze` nudge against the target
@@ -305,6 +385,10 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   const mcp = JSON.parse(
     fs.readFileSync(path.join(assetsDir, 'mcp', `${charter}.json`), 'utf8'),
   ) as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> }
+  // D-070: `allowDiscoveredServers` is AUTHORITY data (read by resolveEffectiveCeiling),
+  // not run config — strip it so the run's mcp.json stays byte-identical to the
+  // pre-D-069 output (the template's other root keys, e.g. _note, ride along as before).
+  delete (mcp as Record<string, unknown>).allowDiscoveredServers
   const tierServerKeys = Object.keys(mcp.mcpServers ?? {})
   const serversToMount = profile.mcpServers.length > 0 ? profile.mcpServers : tierServerKeys
   for (const name of serversToMount) {

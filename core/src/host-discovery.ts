@@ -40,6 +40,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
+import type DatabaseType from 'better-sqlite3'
 import { RescanResultSchema, type CatalogWarning, type RescanResult, type SkillSourceKind } from '@k/shared'
 import { db, projectsDb, configDb, agentProfilesDb, rowToAgentProfile } from './db.js'
 import { assertSafeSkillKey } from './skill-roots.js'
@@ -575,10 +576,19 @@ export function scanHostMcpServers(
 
 // ─── sync (the ONE transactional upsert) ──────────────────────────────────────
 
-// Statements owned here (mgmt.ts/verify.ts precedent). Prepared at module load —
-// db.ts's DDL has already created the tables by the time this module imports it.
-const getSkillByKey = db.prepare(`SELECT * FROM skills WHERE qualified_key = ?`)
-const insertDiscoveredSkill = db.prepare(`
+// Statements owned here (not db.ts) so the catalog surface stays out of the
+// shared accumulation file. Prepared LAZILY on first use — NEVER at module
+// evaluation: db.ts's migration calls authority.ts::resolveAuthority, and
+// authority.ts imports THIS module, so db.ts → authority.ts → host-discovery.ts
+// → db.ts is a load-time CYCLE in which the db binding is not yet initialized
+// while this module's body runs. Every runtime call site sees the live binding.
+type Stmt = DatabaseType.Statement
+function lazy(sql: string): () => Stmt {
+  let s: Stmt | undefined
+  return () => (s ??= db.prepare(sql))
+}
+const getSkillByKey = lazy(`SELECT * FROM skills WHERE qualified_key = ?`)
+const insertDiscoveredSkill = lazy(`
   INSERT INTO skills (id, name, description, type, source, triggerType, schedule, eventTrigger,
                       enabled, createdAt, source_kind, origin_path, project_id, plugin_id,
                       plugin_version, content_hash, est_tokens, est_tokens_meta, status,
@@ -590,7 +600,7 @@ const insertDiscoveredSkill = db.prepare(`
 `)
 // Metadata refresh — deliberately NEVER touches `enabled` (the K-scoped overlay),
 // id, type, triggerType, or createdAt.
-const updateDiscoveredSkill = db.prepare(`
+const updateDiscoveredSkill = lazy(`
   UPDATE skills
   SET name = @name, description = @description, source = @source, origin_path = @originPath,
       project_id = @projectId, plugin_id = @pluginId, plugin_version = @pluginVersion,
@@ -598,13 +608,13 @@ const updateDiscoveredSkill = db.prepare(`
       status = 'ok', last_scanned_at = @now
   WHERE qualified_key = @qualifiedKey
 `)
-const listDiscoveredSkillRows = db.prepare(`SELECT * FROM skills WHERE source_kind != 'k'`)
+const listDiscoveredSkillRows = lazy(`SELECT * FROM skills WHERE source_kind != 'k'`)
 // A missing flip keeps last_scanned_at as the LAST TIME THE ASSET WAS SEEN.
-const markSkillMissing = db.prepare(`UPDATE skills SET status = 'missing' WHERE qualified_key = ?`)
-const deleteSkillByKey = db.prepare(`DELETE FROM skills WHERE qualified_key = ?`)
+const markSkillMissing = lazy(`UPDATE skills SET status = 'missing' WHERE qualified_key = ?`)
+const deleteSkillByKey = lazy(`DELETE FROM skills WHERE qualified_key = ?`)
 
-const getMcpByKey = db.prepare(`SELECT * FROM host_mcp_servers WHERE qualified_key = ?`)
-const insertHostMcp = db.prepare(`
+const getMcpByKey = lazy(`SELECT * FROM host_mcp_servers WHERE qualified_key = ?`)
+const insertHostMcp = lazy(`
   INSERT INTO host_mcp_servers (id, name, qualified_key, source_kind, project_id, command, args, env,
                                 config_hash, enabled, trusted_hash, trusted_at, est_tokens,
                                 probe_status, status, discovered_at, last_scanned_at)
@@ -612,7 +622,7 @@ const insertHostMcp = db.prepare(`
           @configHash, 0, NULL, NULL, NULL,
           NULL, 'ok', @now, @now)
 `)
-const updateHostMcpMeta = db.prepare(`
+const updateHostMcpMeta = lazy(`
   UPDATE host_mcp_servers
   SET name = @name, command = @command, args = @args, env = @env, config_hash = @configHash,
       status = 'ok', last_scanned_at = @now
@@ -620,12 +630,59 @@ const updateHostMcpMeta = db.prepare(`
 `)
 // D-070 drift consequence: config changed under a pinned trust → auto-disable +
 // clear the pin (the operator must re-review + re-trust the NEW config).
-const revokeHostMcpTrust = db.prepare(`
+const revokeHostMcpTrust = lazy(`
   UPDATE host_mcp_servers SET enabled = 0, trusted_hash = NULL, trusted_at = NULL WHERE qualified_key = ?
 `)
-const listHostMcpRows = db.prepare(`SELECT * FROM host_mcp_servers`)
-const markMcpMissing = db.prepare(`UPDATE host_mcp_servers SET status = 'missing' WHERE qualified_key = ?`)
-const deleteMcpByKey = db.prepare(`DELETE FROM host_mcp_servers WHERE qualified_key = ?`)
+const listHostMcpRows = lazy(`SELECT * FROM host_mcp_servers`)
+const markMcpMissing = lazy(`UPDATE host_mcp_servers SET status = 'missing' WHERE qualified_key = ?`)
+const deleteMcpByKey = lazy(`DELETE FROM host_mcp_servers WHERE qualified_key = ?`)
+
+// ─── catalog readers (the authority/synth consumers — D-069/D-070 gating) ────
+
+const listEnabledOkDiscoveredSkills = lazy(
+  `SELECT qualified_key FROM skills WHERE source_kind != 'k' AND enabled = 1 AND status = 'ok'`,
+)
+// "Trusted" = a pin exists AND it matches the CURRENT config hash (drift clears the
+// pin at rescan, but a manual row edit must not slip through either — belt+braces).
+const listEnabledTrustedOkMcp = lazy(
+  `SELECT qualified_key, name FROM host_mcp_servers
+   WHERE enabled = 1 AND status = 'ok' AND trusted_hash IS NOT NULL AND trusted_hash = config_hash`,
+)
+
+/** Qualified keys of every discovered skill that is enabled AND status-ok — the
+ *  discovered half of resolveEffectiveCeiling (authority.ts). */
+export function listEnabledDiscoveredSkillKeys(): string[] {
+  return (listEnabledOkDiscoveredSkills().all() as Array<{ qualified_key: string }>).map(r => r.qualified_key)
+}
+
+/** Enabled + trusted (pin matches the current hash) + status-ok host MCP servers.
+ *  `name` is what the mcp__<name> grant token keys on. */
+export function listEnabledTrustedHostMcpServers(): Array<{ qualifiedKey: string; name: string }> {
+  return (listEnabledTrustedOkMcp().all() as Array<{ qualified_key: string; name: string }>).map(r => ({
+    qualifiedKey: r.qualified_key,
+    name: r.name,
+  }))
+}
+
+/** Raw catalog row for a skill qualified key (any source_kind) — the detailed
+ *  WHY-rejected lookups in authority.ts::assertEffectiveGrants. */
+export function getCatalogSkillRow(qualifiedKey: string): Record<string, unknown> | undefined {
+  return getSkillByKey().get(qualifiedKey) as Record<string, unknown> | undefined
+}
+
+/** Raw host_mcp_servers row for a qualified key. */
+export function getHostMcpServerRow(qualifiedKey: string): Record<string, unknown> | undefined {
+  return getMcpByKey().get(qualifiedKey) as Record<string, unknown> | undefined
+}
+
+/** projectId → <localPath>/.claude/skills for every REGISTERED project — the
+ *  projectRoots map for resolveSkillRoots (a deregistered project closes its
+ *  root: its paths stop confining, fail-closed — skill-roots.ts). */
+export function registeredProjectSkillRoots(): Map<string, string> {
+  const roots = new Map<string, string>()
+  for (const p of registeredProjects()) roots.set(p.id, path.join(p.localPath, '.claude', 'skills'))
+  return roots
+}
 
 /** app_config key persisting the last RescanResult (durable across restarts) —
  *  the source for GET /api/capabilities/* `scannedAt` + `warnings` (A4). */
@@ -688,7 +745,7 @@ export function applyHostDiscovery(
     const seenSkillKeys = new Set<string>()
     for (const s of skills) {
       seenSkillKeys.add(s.qualifiedKey)
-      const existing = getSkillByKey.get(s.qualifiedKey) as Record<string, unknown> | undefined
+      const existing = getSkillByKey().get(s.qualifiedKey) as Record<string, unknown> | undefined
       const params = {
         name: s.name,
         description: s.description,
@@ -704,7 +761,7 @@ export function applyHostDiscovery(
         now,
       }
       if (!existing) {
-        insertDiscoveredSkill.run({ ...params, id: randomUUID(), sourceKind: s.sourceKind })
+        insertDiscoveredSkill().run({ ...params, id: randomUUID(), sourceKind: s.sourceKind })
         skillCounts.discovered++
       } else {
         const changed =
@@ -714,22 +771,22 @@ export function applyHostDiscovery(
           existing.description !== s.description ||
           existing.origin_path !== s.originPath ||
           existing.plugin_version !== s.pluginVersion
-        updateDiscoveredSkill.run(params)
+        updateDiscoveredSkill().run(params)
         if (changed) skillCounts.updated++
       }
     }
 
     // ── skills: previously-discovered-now-absent ───────────────────────────────
-    for (const row of listDiscoveredSkillRows.all() as Record<string, unknown>[]) {
+    for (const row of listDiscoveredSkillRows().all() as Record<string, unknown>[]) {
       const key = String(row.qualified_key)
       if (seenSkillKeys.has(key)) continue
       const referenced = refs.skills.has(key)
       const enabled = Number(row.enabled) === 1
       if (!referenced && !enabled) {
-        deleteSkillByKey.run(key)
+        deleteSkillByKey().run(key)
         skillCounts.missing++
       } else if (row.status !== 'missing') {
-        markSkillMissing.run(key)
+        markSkillMissing().run(key)
         skillCounts.missing++
       }
     }
@@ -738,7 +795,7 @@ export function applyHostDiscovery(
     const seenMcpKeys = new Set<string>()
     for (const srv of servers) {
       seenMcpKeys.add(srv.qualifiedKey)
-      const existing = getMcpByKey.get(srv.qualifiedKey) as Record<string, unknown> | undefined
+      const existing = getMcpByKey().get(srv.qualifiedKey) as Record<string, unknown> | undefined
       const params = {
         name: srv.name,
         command: srv.command,
@@ -749,14 +806,14 @@ export function applyHostDiscovery(
         now,
       }
       if (!existing) {
-        insertHostMcp.run({ ...params, id: randomUUID(), sourceKind: srv.sourceKind, projectId: srv.projectId })
+        insertHostMcp().run({ ...params, id: randomUUID(), sourceKind: srv.sourceKind, projectId: srv.projectId })
         mcpCounts.discovered++
       } else {
         const hashChanged = existing.config_hash !== srv.configHash
-        updateHostMcpMeta.run(params)
+        updateHostMcpMeta().run(params)
         // Trust pin vs LIVE config (D-070): drift auto-disables + clears trust.
         if (existing.trusted_hash != null && existing.trusted_hash !== srv.configHash) {
-          revokeHostMcpTrust.run(srv.qualifiedKey)
+          revokeHostMcpTrust().run(srv.qualifiedKey)
           allWarnings.push({
             path: srv.command,
             message: `[${srv.sourceKind}] MCP server "${srv.qualifiedKey}" config changed since it was trusted — auto-disabled, trust cleared (re-review to re-enable)`,
@@ -767,16 +824,16 @@ export function applyHostDiscovery(
     }
 
     // ── host MCP: now-absent ───────────────────────────────────────────────────
-    for (const row of listHostMcpRows.all() as Record<string, unknown>[]) {
+    for (const row of listHostMcpRows().all() as Record<string, unknown>[]) {
       const key = String(row.qualified_key)
       if (seenMcpKeys.has(key)) continue
       const referenced = refs.mcp.has(key)
       const enabled = Number(row.enabled) === 1
       if (!referenced && !enabled) {
-        deleteMcpByKey.run(key)
+        deleteMcpByKey().run(key)
         mcpCounts.missing++
       } else if (row.status !== 'missing') {
-        markMcpMissing.run(key)
+        markMcpMissing().run(key)
         mcpCounts.missing++
       }
     }

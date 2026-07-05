@@ -19,6 +19,8 @@ import { startRun, REPO_ROOT, type StartRunOptions } from './supervisor.js'
 import { eventBus } from './events.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
 import { isPathWithin } from './paths.js'
+import { resolveSkillRoots, confineToRoots, type SkillRoots } from './skill-roots.js'
+import { registeredProjectSkillRoots } from './host-discovery.js'
 
 /** The ONLY directory `readSkillSource` will read a skill's `source` as a file from. A
  *  `source` resolving outside this root (an absolute path, a `..` escape) is treated as raw
@@ -145,8 +147,37 @@ export function registerSkill(opts: CreateSkill): Skill {
  * in-root that points outside the repo is refused (realpathSync confinement); a throw
  * (nonexistent) or an out-of-root real path degrades to raw, exactly like any other
  * non-confined source. Pure + exported for unit-testing.
+ *
+ * DISCOVERED rows (D-069): a skill whose db row carries `origin_path` is host-
+ * discovered — its content lives on host disk, and the read routes through
+ * confineToRoots (skill-roots.ts): the explicit allowlisted-roots set (K assets,
+ * ~/.claude/skills, the plugin cache, each REGISTERED project's .claude/skills),
+ * string gate + realpath gate per root. ANY failure — unconfined path, planted
+ * symlink, vanished file, empty content — degrades to the raw `source` text
+ * exactly like the k-native path (for a discovered row, `source` IS its origin
+ * path string: honest provenance, never file content). k-native rows and Skill
+ * objects with no db row take the pre-D-069 branch byte-identically. `opts.roots`
+ * is injectable for tests (default: the real host roots + registered projects).
  */
-export function readSkillSource(skill: Skill): string {
+export function readSkillSource(skill: Skill, opts: { roots?: SkillRoots } = {}): string {
+  // Discovered-row detection is a db lookup by id (the wire Skill shape carries no
+  // catalog columns — GET /api/skills stays byte-compatible). An unknown id (unit
+  // tests hand-build Skill objects) has no row → the k-native branch, as today.
+  const row = skillsDb.getSkill.get(skill.id) as Record<string, unknown> | undefined
+  const originPath = row?.origin_path != null ? String(row.origin_path) : null
+  if (originPath) {
+    try {
+      const roots = opts.roots ?? resolveSkillRoots({ projectRoots: registeredProjectSkillRoots() })
+      const confined = confineToRoots(path.join(originPath, 'SKILL.md'), roots)
+      if (confined) {
+        const contents = fs.readFileSync(confined.real, 'utf8')
+        if (contents.trim().length > 0) return contents
+      }
+    } catch {
+      /* unreadable / unresolvable — degrade to the raw source below */
+    }
+    return skill.source
+  }
   const abs = path.isAbsolute(skill.source) ? skill.source : path.join(REPO_ROOT, skill.source)
   if (isPathWithin(SKILLS_ROOT, abs)) {
     try {
