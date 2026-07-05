@@ -79,6 +79,8 @@ export interface OllamaAgentRunConfig {
   /** Resolved via resolveRunAssets(profile) unless `assets` is injected. */
   profile?: AgentProfile
   assets?: ResolvedRunAssets
+  /** Scopes discovered claude-project assets to the run's project (D-069/A3). */
+  projectId?: string
   suppressGitnexus?: boolean
   /** Supervisor-owned per-run seq counter. */
   nextSeq: () => number
@@ -214,6 +216,7 @@ export function startOllamaAgentRun(cfg: OllamaAgentRunConfig, deps: OllamaAgent
         if (!cfg.profile) throw new Error('ollama-agent: neither assets nor profile provided')
         assets = resolveRunAssets(cfg.profile, {
           runId: cfg.runId,
+          projectId: cfg.projectId,
           suppressGitnexus: cfg.suppressGitnexus,
         })
       }

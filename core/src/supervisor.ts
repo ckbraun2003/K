@@ -695,6 +695,9 @@ async function runAgent(
           prompt,
           cwd,
           profile,
+          // projectId (D-069/A3): same scoping as the claude path — discovered
+          // claude-project assets outside the run's project are dropped at resolve.
+          projectId: run.projectId,
           // Same F-068 predicate as the claude path: an external-target run
           // must not mount gitnexus. A persistent session is claude-only, so
           // `!!session` is always false here in practice.
