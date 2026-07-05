@@ -1,5 +1,6 @@
 {
-  "_note": "chief bundle — a chief delegates teams of orchestrators and has NO code authority (no Bash/Write/Edit/Task), so it mounts NO coding worker-agents. It gets a planning / review-read / context-management subset plus read-only code intelligence. Delegation to orchestrators runs through K's orchestration layer, not the Task tool.",
+  "_note": "chief bundle — a chief delegates teams of orchestrators and has NO code authority (no Bash/Write/Edit/Task), so it mounts NO coding worker-agents. It gets a planning / review-read / context-management subset plus read-only code intelligence. Delegation to orchestrators runs through K's orchestration layer, not the Task tool. allowDiscoveredSkills=false (D-069): the chief tier never admits host-discovered skills.",
+  "allowDiscoveredSkills": false,
   "skills": [
     "gitnexus",
     "search-first",

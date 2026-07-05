@@ -18,7 +18,7 @@
 import { randomUUID } from 'crypto'
 import type { AgentProfile } from '@k/shared'
 import { agentProfilesDb, rowToAgentProfile } from './db.js'
-import { resolveAuthority, assertMcpGrants, assertTierCeiling, assertCodingToolsGating } from './authority.js'
+import { resolveAuthority, assertEffectiveGrants, assertCodingToolsGating } from './authority.js'
 
 export type { AgentProfile } from '@k/shared'
 
@@ -111,13 +111,14 @@ export function createProfile(input: CreateProfileInput): AgentProfile {
   // (config-store claudeDefaultModel()) at startAgentRun time.
   const defaultModel = input.defaultModel ?? null
   // Guard the FINAL (possibly caller-overridden) values too, so an explicit override
-  // can never persist a row that exceeds the tier ceiling (B1 fail-closed) or mounts
-  // an ungranted MCP server (D-034 fail-closed). The ceiling is keyed by CHARTER —
-  // the same asset set the defaults above were resolved from and the synthesizer
-  // will read at dispatch (charter === tier for every durable row; keying both
-  // checks to one asset set means they can never silently diverge).
-  assertTierCeiling(charter, allowedTools)
-  assertMcpGrants(input.tier, allowedTools, mcpServers)
+  // can never persist a row that exceeds the tier ceiling (B1 fail-closed), mounts
+  // an ungranted MCP server (D-034 fail-closed), or grants a discovered asset the
+  // tier/operator hasn't admitted (D-069/D-070 — assertEffectiveGrants widens the
+  // old assertTierCeiling+assertMcpGrants pair to the EFFECTIVE ceiling; bare-name
+  // flows are byte-identical). Keyed by CHARTER — the same asset set the defaults
+  // above were resolved from and the synthesizer will read at dispatch (charter ===
+  // tier for every durable row; one asset set, no silent divergence).
+  assertEffectiveGrants(charter, { allowedTools, mcpServers, skills })
   agentProfilesDb.insertProfile.run({
     id,
     name: input.name,
@@ -162,11 +163,16 @@ export function updateProfile(id: string, patch: UpdateProfileInput): AgentProfi
     mcpServers: patch.mcpServers ?? (auth ? auth.mcpServers : current.mcpServers),
     skills: patch.skills ?? (auth ? auth.skills : current.skills),
   }
-  // Fail-closed on the final values (mirrors createProfile): tier ceiling (B1,
-  // keyed by CHARTER — the asset set the synthesizer will read at dispatch) +
-  // mcp↔allowlist grant guard (D-034).
-  assertTierCeiling(merged.charter, merged.allowedTools)
-  assertMcpGrants(merged.tier, merged.allowedTools, merged.mcpServers)
+  // Fail-closed on the final values (mirrors createProfile): the EFFECTIVE ceiling
+  // (B1 tier ceiling ∪ admitted discovered assets, keyed by CHARTER — the asset set
+  // the synthesizer will read at dispatch) + mcp↔allowlist grant guard (D-034) +
+  // discovered-asset admission (D-069/D-070). A disabled/missing/untrusted
+  // discovered grant fail-closes THIS patch with an actionable GrantError → 400.
+  assertEffectiveGrants(merged.charter, {
+    allowedTools: merged.allowedTools,
+    mcpServers: merged.mcpServers,
+    skills: merged.skills,
+  })
   agentProfilesDb.updateProfileRow.run({
     id: merged.id,
     name: merged.name,

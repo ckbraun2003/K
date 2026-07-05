@@ -627,9 +627,11 @@ async function runAgent(
       const suppressGitnexus = shouldSuppressGitnexus(run.cwd, !!session)
       synth = synthesizeConfigDir(
         profile,
+        // projectId (D-069/A3): the run's target project scopes which discovered
+        // claude-project assets may mount (others are dropped at resolve).
         session
-          ? { runId: run.id, runDirOverride: session.runDir, persist: true, suppressGitnexus }
-          : { runId: run.id, suppressGitnexus },
+          ? { runId: run.id, projectId: run.projectId, runDirOverride: session.runDir, persist: true, suppressGitnexus }
+          : { runId: run.id, projectId: run.projectId, suppressGitnexus },
       )
     }
 
