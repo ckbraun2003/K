@@ -648,10 +648,18 @@ const updateHostMcpMeta = lazy(`
   WHERE qualified_key = @qualifiedKey
 `)
 // D-070 drift consequence: config changed under a pinned trust → auto-disable +
-// clear the pin (the operator must re-review + re-trust the NEW config).
+// clear the pin (the operator must re-review + re-trust the NEW config). The
+// probed figures (est_tokens/probe_status) describe the OLD config, so they are
+// cleared too — a drifted server shows no stale token estimate (A4 review M-1).
 const revokeHostMcpTrust = lazy(`
-  UPDATE host_mcp_servers SET enabled = 0, trusted_hash = NULL, trusted_at = NULL WHERE qualified_key = ?
+  UPDATE host_mcp_servers
+  SET enabled = 0, trusted_hash = NULL, trusted_at = NULL, est_tokens = NULL, probe_status = NULL
+  WHERE qualified_key = ?
 `)
+// Probe sidecar hygiene (A4): the routes persist a per-server toolCount under
+// app_config 'capabilities.probe.<key>' — deleted alongside its row so a later
+// REUSE of the qualified key can never surface another server's stale count.
+const deleteProbeSidecar = lazy(`DELETE FROM app_config WHERE key = ?`)
 const listHostMcpRows = lazy(`SELECT * FROM host_mcp_servers`)
 const markMcpMissing = lazy(`UPDATE host_mcp_servers SET status = 'missing' WHERE qualified_key = ?`)
 const deleteMcpByKey = lazy(`DELETE FROM host_mcp_servers WHERE qualified_key = ?`)
@@ -850,6 +858,7 @@ export function applyHostDiscovery(
       const enabled = Number(row.enabled) === 1
       if (!referenced && !enabled) {
         deleteMcpByKey().run(key)
+        deleteProbeSidecar().run(`capabilities.probe.${key}`)
         mcpCounts.missing++
       } else if (row.status !== 'missing') {
         markMcpMissing().run(key)
