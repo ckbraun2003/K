@@ -347,6 +347,9 @@ export const WsMessageSchema = z.discriminatedUnion('type', [
     done: z.boolean(),
     error: z.string().optional(),
   }),
+  // Capability catalog changed (rescan completed / overlay toggled) — a nudge to
+  // invalidate ['capabilities'] queries. Transient, not persisted (D-069).
+  z.object({ type: z.literal('capabilities_update'), scannedAt: z.number() }),
   z.object({ type: z.literal('ping') }),
   z.object({ type: z.literal('pong') }),
 ])
@@ -843,6 +846,210 @@ export const SkillEvalSchema = z.object({
   completedAt: z.number().nullable(),
 })
 export type SkillEval = z.infer<typeof SkillEvalSchema>
+
+// ─── Capability catalog (host integration — D-069/D-070/D-071) ───────────────
+// The WIRE family for the unified capability catalog (GET /api/capabilities/*):
+// K-native assets + skills/MCP/hooks DISCOVERED from the Claude Code host layer
+// (~/.claude, project .claude/, plugin cache), each with provenance. STORAGE is
+// the extended `skills` table + `host_mcp_servers` (SCHEMA_VERSION 7); these
+// schemas are deliberately SEPARATE from SkillSchema above — the automation
+// registry's wire shape stays byte-compatible (do NOT fold catalog fields into
+// SkillSchema/CreateSkillSchema/UpdateSkillSchema).
+
+/** Where a catalog entry comes from (D-069 provenance). 'k' = K's own
+ *  agent-config/ assets; the claude-* kinds are host-discovered. */
+export const SkillSourceKindSchema = z.enum(['k', 'claude-user', 'claude-project', 'claude-plugin'])
+export type SkillSourceKind = z.infer<typeof SkillSourceKindSchema>
+
+/** Whether a skill works regardless of model: 'universal' (plain instructions —
+ *  usable by Claude AND the Ollama tool loop), 'claude-only' (relies on
+ *  claude-specific machinery, e.g. hooks/slash plumbing), 'mcp-dependent'
+ *  (needs an MCP server mounted to be useful). Derived at scan time. */
+export const ModelCompatSchema = z.enum(['universal', 'claude-only', 'mcp-dependent'])
+export type ModelCompat = z.infer<typeof ModelCompatSchema>
+
+/** Catalog-entry liveness: 'ok' = present on disk at the last scan; 'missing' =
+ *  vanished from the host (fail-closed at PATCH and at synth — D-069). */
+export const CatalogStatusSchema = z.enum(['ok', 'missing'])
+export type CatalogStatus = z.infer<typeof CatalogStatusSchema>
+
+/** A structured, non-fatal discovery warning (unreadable host dir, malformed
+ *  SKILL.md, unparseable config) — surfaced in the catalog UI banner, never a throw. */
+export const CatalogWarningSchema = z.object({
+  path: z.string(),
+  message: z.string(),
+})
+export type CatalogWarning = z.infer<typeof CatalogWarningSchema>
+
+export const CatalogSkillSchema = z.object({
+  /** == the canonical qualified key (D-069 grammar: `<name>` | `user:<name>` |
+   *  `project:<projectId>:<name>` | `plugin:<plugin>@<marketplace>:<name>`). */
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  sourceKind: SkillSourceKindSchema,
+  /** The owning plugin's name for 'claude-plugin' rows; null otherwise. */
+  pluginName: z.string().nullable(),
+  /** Origin path on disk (provenance display; content is vendor-copied at synth). */
+  path: z.string(),
+  /** The K-scoped enable overlay (D-069) — K never mutates host ~/.claude files. */
+  enabled: z.boolean(),
+  /** Estimated FULL-BODY tokens (cost when invoked); null = not yet estimated. */
+  estTokens: z.number().int().nullable(),
+  /** Estimated name+description tokens (the always-loaded cost); null = not estimated. */
+  estTokensMeta: z.number().int().nullable(),
+  modelCompat: ModelCompatSchema,
+  /** Profiles currently mounting this skill (profile ids). */
+  mountedBy: z.array(z.string()),
+  status: CatalogStatusSchema,
+  /** last_scanned_at unix ms; null = never scanned (a k-native pre-v7 row). */
+  updatedAt: z.number().nullable(),
+})
+export type CatalogSkill = z.infer<typeof CatalogSkillSchema>
+
+export const CatalogSkillsResponseSchema = z.object({
+  skills: z.array(CatalogSkillSchema),
+  /** unix ms of the last completed discovery scan; null = never scanned. */
+  scannedAt: z.number().nullable(),
+  warnings: z.array(CatalogWarningSchema),
+})
+export type CatalogSkillsResponse = z.infer<typeof CatalogSkillsResponseSchema>
+
+export const CatalogMcpServerSchema = z.object({
+  /** == qualified key; tier-template ('k') servers use their server name. */
+  id: z.string(),
+  name: z.string(),
+  sourceKind: SkillSourceKindSchema,
+  pluginName: z.string().nullable(),
+  transport: z.enum(['stdio', 'http', 'sse']),
+  /** command + arg summary for the trust dialog. Env NAMES may be shown by the
+   *  trust surface; env VALUES never leave core (D-070). */
+  commandSummary: z.string(),
+  /** Trust is SEPARATE from enable (D-070): trust pins trusted_hash=config_hash;
+   *  enabling requires trust; config drift auto-disables + clears trust. */
+  trusted: z.boolean(),
+  enabled: z.boolean(),
+  /** Estimated tool-definition tokens; null until probed. */
+  estTokens: z.number().int().nullable(),
+  /** Tool count from the probe; null until probed. */
+  toolCount: z.number().int().nullable(),
+  mountedBy: z.array(z.string()),
+  status: CatalogStatusSchema,
+})
+export type CatalogMcpServer = z.infer<typeof CatalogMcpServerSchema>
+
+export const CatalogMcpResponseSchema = z.object({
+  servers: z.array(CatalogMcpServerSchema),
+  scannedAt: z.number().nullable(),
+  warnings: z.array(CatalogWarningSchema),
+})
+export type CatalogMcpResponse = z.infer<typeof CatalogMcpResponseSchema>
+
+/** Read-only hook VISIBILITY (host + K provenance). K runs execute only K's
+ *  vendored hooks — discovered hooks are listed, never executed (scope decision). */
+export const CatalogHookSchema = z.object({
+  id: z.string(),
+  sourceKind: SkillSourceKindSchema,
+  pluginName: z.string().nullable(),
+  /** Hook event name (e.g. 'PostToolUse'). */
+  event: z.string(),
+  matcher: z.string().nullable(),
+  commandSummary: z.string(),
+})
+export type CatalogHook = z.infer<typeof CatalogHookSchema>
+
+export const CatalogHooksResponseSchema = z.object({
+  hooks: z.array(CatalogHookSchema),
+  scannedAt: z.number().nullable(),
+  warnings: z.array(CatalogWarningSchema),
+})
+export type CatalogHooksResponse = z.infer<typeof CatalogHooksResponseSchema>
+
+/** Result of POST /api/capabilities/rescan — counts of the sync's effects per
+ *  asset family. `missing` counts entries newly flagged status='missing'. */
+export const RescanResultSchema = z.object({
+  scannedAt: z.number(),
+  skills: z.object({
+    discovered: z.number().int(),
+    updated: z.number().int(),
+    missing: z.number().int(),
+  }),
+  mcpServers: z.object({
+    discovered: z.number().int(),
+    updated: z.number().int(),
+    missing: z.number().int(),
+  }),
+  warnings: z.array(CatalogWarningSchema),
+})
+export type RescanResult = z.infer<typeof RescanResultSchema>
+
+/** One side (skills / mcp) of the capability summary. `estTokens` sums ONLY the
+ *  enabled entries that HAVE an estimate; `unestimatedCount` counts the enabled
+ *  entries with no estimate (excluded from the sum + footnoted in the UI —
+ *  estimates, never billed tokens). */
+const CapabilityTokenSideSchema = z.object({
+  enabledCount: z.number().int(),
+  estTokens: z.number().int(),
+  unestimatedCount: z.number().int(),
+})
+
+/** Per-source-kind entry counts (whole catalog, not just enabled). */
+const SourceCountsSchema = z.object({
+  skills: z.number().int(),
+  mcpServers: z.number().int(),
+})
+
+/** GET /api/capabilities/summary — enabled-set token totals + per-source counts
+ *  (the CapabilityStatRow header source). */
+export const CapabilitySummarySchema = z.object({
+  skills: CapabilityTokenSideSchema,
+  mcp: CapabilityTokenSideSchema,
+  /** skills.estTokens + mcp.estTokens — the "total context overhead" figure. */
+  totalEstTokens: z.number().int(),
+  perSource: z.object({
+    'k': SourceCountsSchema,
+    'claude-user': SourceCountsSchema,
+    'claude-project': SourceCountsSchema,
+    'claude-plugin': SourceCountsSchema,
+  }),
+  scannedAt: z.number().nullable(),
+})
+export type CapabilitySummary = z.infer<typeof CapabilitySummarySchema>
+
+// ─── Skill Creator drafts (D-071) ────────────────────────────────────────────
+// An agent-generated skill DRAFT (build → refine → evaluate → save). A draft is
+// honest about its state: it is NOT a saved skill until /save writes it into
+// K's library (agent-config/skills/) and registers the catalog row.
+
+export const SkillDraftStatusSchema = z.enum(['drafting', 'ready', 'failed'])
+export type SkillDraftStatus = z.infer<typeof SkillDraftStatusSchema>
+
+export const SkillDraftSchema = z.object({
+  id: z.string(),
+  /** Operator's suggested name; null = let the authoring run pick one. */
+  nameHint: z.string().nullable(),
+  /** The operator's brief the authoring run works from. */
+  brief: z.string(),
+  /** The drafted SKILL.md content; null until the first authoring run lands. */
+  skillMd: z.string().nullable(),
+  /** Refinement revision counter (0 = the initial draft). */
+  revision: z.number().int(),
+  status: SkillDraftStatusSchema,
+  /** The live/most-recent authoring run; null when none. */
+  runId: z.string().nullable(),
+  /** The registered skill id once saved to K's library; null until saved. */
+  savedSkillId: z.string().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type SkillDraft = z.infer<typeof SkillDraftSchema>
+
+/** A draft evaluation — the existing eval-harness semantics keyed to a DRAFT
+ *  instead of a registered skill (same lifecycle fields as SkillEval). */
+export const DraftEvalSchema = SkillEvalSchema.omit({ skillId: true }).extend({
+  draftId: z.string(),
+})
+export type DraftEval = z.infer<typeof DraftEvalSchema>
 
 // ─── Routing stats ───────────────────────────────────────────────────────────
 // Per-(provider,model) outcome aggregates powering the routing dashboard.

@@ -139,9 +139,16 @@ db.exec(`
     created_at      INTEGER NOT NULL
   );
 
+  -- Skills: the automation registry, EXTENDED into the unified capability catalog
+  -- (SCHEMA_VERSION 7, D-069). Host-discovered skills (claude-user/-project/-plugin)
+  -- land as rows here alongside the k-native ones; the D-069 catalog columns carry
+  -- provenance + scan state. UNIQUE lives on qualified_key (the canonical D-069 key;
+  -- k-native rows use the bare name, so k-native name-uniqueness is preserved), NOT
+  -- on name — the same skill NAME may exist from several sources. Pre-v7 DBs are
+  -- rebuilt to this exact shape in migrateSlow (UNIQUE moved name → qualified_key).
   CREATE TABLE IF NOT EXISTS skills (
     id           TEXT PRIMARY KEY,
-    name         TEXT NOT NULL UNIQUE,
+    name         TEXT NOT NULL,
     description  TEXT,
     type         TEXT NOT NULL CHECK(type IN ('skill','hook','workflow')),
     source       TEXT NOT NULL,
@@ -149,7 +156,27 @@ db.exec(`
     schedule     TEXT,
     eventTrigger TEXT,
     enabled      INTEGER NOT NULL DEFAULT 1,
-    createdAt    INTEGER NOT NULL
+    createdAt    INTEGER NOT NULL,
+    -- D-069 catalog columns. source_kind: 'k' | 'claude-user' | 'claude-project' |
+    -- 'claude-plugin' (no CHECK — the enum is owned by the Zod boundary so adding a
+    -- kind never needs a table rebuild). origin_path/project_id/plugin_* are
+    -- discovery provenance (NULL for k-native automation rows); est_tokens[_meta]
+    -- are the chars/4 estimates (token-estimate.ts); status 'ok'|'missing' is the
+    -- fail-closed liveness flag; qualified_key is the canonical wire id.
+    -- project_id is DELIBERATELY a loose ref (no FK, unlike host_mcp_servers):
+    -- deleting/deregistering a project must never FK-block on its discovered
+    -- skill rows — per D-069 they degrade to status='missing' at the next rescan.
+    source_kind     TEXT NOT NULL DEFAULT 'k',
+    origin_path     TEXT,
+    project_id      TEXT,
+    plugin_id       TEXT,
+    plugin_version  TEXT,
+    content_hash    TEXT,
+    est_tokens      INTEGER,
+    est_tokens_meta INTEGER,
+    status          TEXT NOT NULL DEFAULT 'ok',
+    last_scanned_at INTEGER,
+    qualified_key   TEXT NOT NULL UNIQUE
   );
 
   CREATE TABLE IF NOT EXISTS skill_runs (
@@ -171,6 +198,52 @@ db.exec(`
     baselineEvalId TEXT REFERENCES skill_evals(id) ON DELETE SET NULL,
     createdAt      INTEGER NOT NULL,
     completedAt    INTEGER
+  );
+
+  -- ── Host MCP servers (SCHEMA_VERSION 7, D-070) ───────────────────────────────
+  -- MCP servers DISCOVERED from the host layer (~/.claude.json user+project scopes,
+  -- project .mcp.json). Trust is SEPARATE from enable: trusted_hash pins the
+  -- reviewed config_hash; enabling requires trust; hash drift on rescan
+  -- auto-disables + clears trust; synth re-hashes the live config and throws on
+  -- mismatch (TOCTOU close). env stores JSON — VALUES never leave core (the API
+  -- exposes env NAMES only). Everything lands default-DISABLED (enabled=0).
+  -- Also created in migrateSlow (CREATE IF NOT EXISTS) for migrated/fixture DBs.
+  CREATE TABLE IF NOT EXISTS host_mcp_servers (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    qualified_key   TEXT NOT NULL UNIQUE,
+    source_kind     TEXT NOT NULL CHECK(source_kind IN ('claude-user','claude-project')),
+    project_id      TEXT REFERENCES projects(id),
+    command         TEXT NOT NULL,
+    args            TEXT NOT NULL DEFAULT '[]',
+    env             TEXT NOT NULL DEFAULT '{}',
+    config_hash     TEXT NOT NULL,
+    enabled         INTEGER NOT NULL DEFAULT 0,
+    trusted_hash    TEXT,
+    trusted_at      INTEGER,
+    est_tokens      INTEGER,
+    probe_status    TEXT,
+    status          TEXT NOT NULL DEFAULT 'ok',
+    discovered_at   INTEGER NOT NULL,
+    last_scanned_at INTEGER
+  );
+
+  -- ── Skill Creator drafts (SCHEMA_VERSION 7, D-071) ───────────────────────────
+  -- Agent-generated skill drafts (build → refine → evaluate → save). run_id /
+  -- saved_skill_id are LOOSE refs (no FK — the workflow_runs.workflow_id
+  -- precedent) so deleting a run or skill never cascades into draft history.
+  -- Also created in migrateSlow (CREATE IF NOT EXISTS) for migrated/fixture DBs.
+  CREATE TABLE IF NOT EXISTS skill_drafts (
+    id             TEXT PRIMARY KEY,
+    name_hint      TEXT,
+    brief          TEXT NOT NULL,
+    skill_md       TEXT,
+    revision       INTEGER NOT NULL DEFAULT 0,
+    status         TEXT NOT NULL DEFAULT 'drafting' CHECK(status IN ('drafting','ready','failed')),
+    run_id         TEXT,
+    saved_skill_id TEXT,
+    created_at     INTEGER NOT NULL,
+    updated_at     INTEGER NOT NULL
   );
 
   -- ── Eval subsystem (F3) ──────────────────────────────────────────────────────
@@ -541,7 +614,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1043,6 +1116,137 @@ function migrateSlow(d: Database.Database): void {
     })
     applySeedProfileResync.immediate()
   }
+
+  // ── Capability catalog (SCHEMA_VERSION 7 — D-069/D-070/D-071) ────────────────
+  // skills gains the host-discovery catalog columns + the canonical qualified_key,
+  // and UNIQUE moves name → qualified_key via a table rebuild. host_mcp_servers
+  // and skill_drafts are (re)created here so migrated DBs AND fixture DBs handed
+  // straight to migrate() gain them (fresh installs get them from the DDL above).
+  if (hasTable(d, 'skills')) {
+    // Appended via guarded ALTERs so pre-v7 DBs gain the columns; fresh installs
+    // already carry them (no-op). qualified_key is added NULLABLE first, then
+    // backfilled `= name` — the D-069 k-native grammar is the bare name, so
+    // existing rows/profiles need zero migration — and the rebuild below is what
+    // enforces NOT NULL + UNIQUE on it.
+    addColumn(d, 'skills', 'source_kind', "TEXT NOT NULL DEFAULT 'k'")
+    addColumn(d, 'skills', 'origin_path', 'TEXT')
+    addColumn(d, 'skills', 'project_id', 'TEXT')
+    addColumn(d, 'skills', 'plugin_id', 'TEXT')
+    addColumn(d, 'skills', 'plugin_version', 'TEXT')
+    addColumn(d, 'skills', 'content_hash', 'TEXT')
+    addColumn(d, 'skills', 'est_tokens', 'INTEGER')
+    addColumn(d, 'skills', 'est_tokens_meta', 'INTEGER')
+    addColumn(d, 'skills', 'status', "TEXT NOT NULL DEFAULT 'ok'")
+    addColumn(d, 'skills', 'last_scanned_at', 'INTEGER')
+    addColumn(d, 'skills', 'qualified_key', 'TEXT')
+    d.exec(`UPDATE skills SET qualified_key = name WHERE qualified_key IS NULL`)
+
+    // UNIQUE moves name → qualified_key: SQLite can't drop a column UNIQUE in
+    // place, so rebuild (the proven verification_reports / work_items idiom:
+    // FKs OFF outside the transaction, IMMEDIATE transaction, create-new →
+    // INSERT…SELECT → drop → rename). The skill_runs/skill_evals FKs reference
+    // skills.id (TEXT values, copied unchanged) — that is what FK integrity
+    // rides on; rowids are ALSO copied explicitly as belt-and-suspenders table
+    // identity (cheap, and keeps any rowid-based tooling/ordering stable). The
+    // new table matches the fresh-install DDL exactly, so both paths converge
+    // on one schema.
+    // Idempotency guard: rebuild ONLY while the sqlite_master DDL still carries
+    // the OLD `name … UNIQUE` — after the rebuild (or on a fresh install) this
+    // is a permanent no-op.
+    const OLD_NAME_UNIQUE_RE = /\bname\s+TEXT\s+NOT\s+NULL\s+UNIQUE\b/i
+    const skillsDdl = d
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='skills'`)
+      .get() as { sql?: string } | undefined
+    if (skillsDdl?.sql != null && OLD_NAME_UNIQUE_RE.test(skillsDdl.sql)) {
+      d.pragma('foreign_keys = OFF')
+      try {
+        const applySkillsRebuild = d.transaction(() => {
+          // Race re-check INSIDE the lock (multi-process boot: main server + per-run
+          // stdio MCP children each run migrate()): a process that lost the race
+          // must no-op instead of re-running against the already-rebuilt table.
+          const current = d
+            .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='skills'`)
+            .get() as { sql?: string } | undefined
+          if (!(current?.sql != null && OLD_NAME_UNIQUE_RE.test(current.sql))) return
+          d.exec(`
+            CREATE TABLE skills_new (
+              id           TEXT PRIMARY KEY,
+              name         TEXT NOT NULL,
+              description  TEXT,
+              type         TEXT NOT NULL CHECK(type IN ('skill','hook','workflow')),
+              source       TEXT NOT NULL,
+              triggerType  TEXT NOT NULL CHECK(triggerType IN ('manual','schedule','event')),
+              schedule     TEXT,
+              eventTrigger TEXT,
+              enabled      INTEGER NOT NULL DEFAULT 1,
+              createdAt    INTEGER NOT NULL,
+              source_kind     TEXT NOT NULL DEFAULT 'k',
+              origin_path     TEXT,
+              project_id      TEXT,
+              plugin_id       TEXT,
+              plugin_version  TEXT,
+              content_hash    TEXT,
+              est_tokens      INTEGER,
+              est_tokens_meta INTEGER,
+              status          TEXT NOT NULL DEFAULT 'ok',
+              last_scanned_at INTEGER,
+              qualified_key   TEXT NOT NULL UNIQUE
+            );
+            INSERT INTO skills_new (rowid, id, name, description, type, source, triggerType,
+              schedule, eventTrigger, enabled, createdAt, source_kind, origin_path, project_id,
+              plugin_id, plugin_version, content_hash, est_tokens, est_tokens_meta, status,
+              last_scanned_at, qualified_key)
+            SELECT rowid, id, name, description, type, source, triggerType,
+              schedule, eventTrigger, enabled, createdAt, source_kind, origin_path, project_id,
+              plugin_id, plugin_version, content_hash, est_tokens, est_tokens_meta, status,
+              last_scanned_at, qualified_key
+            FROM skills;
+            DROP TABLE skills;
+            ALTER TABLE skills_new RENAME TO skills;
+          `)
+        })
+        applySkillsRebuild.immediate()
+      } finally {
+        d.pragma('foreign_keys = ON')
+      }
+    }
+  }
+  // host_mcp_servers (D-070) + skill_drafts (D-071): CREATE IF NOT EXISTS keeps
+  // this idempotent AND race-safe across concurrent first-boots. The DDL matches
+  // the fresh-install block above EXACTLY (one schema, two entry points).
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS host_mcp_servers (
+      id              TEXT PRIMARY KEY,
+      name            TEXT NOT NULL,
+      qualified_key   TEXT NOT NULL UNIQUE,
+      source_kind     TEXT NOT NULL CHECK(source_kind IN ('claude-user','claude-project')),
+      project_id      TEXT REFERENCES projects(id),
+      command         TEXT NOT NULL,
+      args            TEXT NOT NULL DEFAULT '[]',
+      env             TEXT NOT NULL DEFAULT '{}',
+      config_hash     TEXT NOT NULL,
+      enabled         INTEGER NOT NULL DEFAULT 0,
+      trusted_hash    TEXT,
+      trusted_at      INTEGER,
+      est_tokens      INTEGER,
+      probe_status    TEXT,
+      status          TEXT NOT NULL DEFAULT 'ok',
+      discovered_at   INTEGER NOT NULL,
+      last_scanned_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS skill_drafts (
+      id             TEXT PRIMARY KEY,
+      name_hint      TEXT,
+      brief          TEXT NOT NULL,
+      skill_md       TEXT,
+      revision       INTEGER NOT NULL DEFAULT 0,
+      status         TEXT NOT NULL DEFAULT 'drafting' CHECK(status IN ('drafting','ready','failed')),
+      run_id         TEXT,
+      saved_skill_id TEXT,
+      created_at     INTEGER NOT NULL,
+      updated_at     INTEGER NOT NULL
+    );
+  `)
 }
 
 migrate(db)
@@ -1827,16 +2031,29 @@ export const githubDb = { upsertGithubCache, getGithubCache }
 
 // ─── Skills helpers ──────────────────────────────────────────────────────────
 
+// qualified_key is NOT NULL UNIQUE (SCHEMA_VERSION 7, D-069): every insert must
+// bind it. K-native (automation-registry) rows use the BARE NAME as their
+// qualified key — callers pass @qualifiedKey = name — which preserves the old
+// per-name uniqueness for k-native skills. source_kind defaults to 'k'.
 const insertSkill = db.prepare(`
-  INSERT INTO skills (id, name, description, type, source, triggerType, schedule, eventTrigger, enabled, createdAt)
-  VALUES (@id, @name, @description, @type, @source, @triggerType, @schedule, @eventTrigger, @enabled, @createdAt)
+  INSERT INTO skills (id, name, description, type, source, triggerType, schedule, eventTrigger, enabled, createdAt, qualified_key)
+  VALUES (@id, @name, @description, @type, @source, @triggerType, @schedule, @eventTrigger, @enabled, @createdAt, @qualifiedKey)
 `)
 
-const listSkills = db.prepare(`SELECT * FROM skills ORDER BY createdAt DESC`)
+// AUTOMATION-REGISTRY scope (D-069 back-compat lock): the pre-v7 surfaces —
+// GET /api/skills, the POST/PATCH name-collision pre-checks, seedBuiltinSkills —
+// see ONLY k-native rows. Post-v7, `name` is no longer unique across SOURCES
+// (a k-native `foo` and a discovered `user:foo` may coexist; qualified_key is
+// the real key), so an unscoped name lookup would 409 a legitimate k-native
+// create / suppress a builtin re-seed the moment Lane-A discovery inserts host
+// rows. Filtering on source_kind = 'k' is a no-op today (every existing row is
+// 'k') and keeps the automation registry byte-compatible afterward. Catalog
+// reads get their own statements in Lane A.
+const listSkills = db.prepare(`SELECT * FROM skills WHERE source_kind = 'k' ORDER BY createdAt DESC`)
 
 const getSkill = db.prepare(`SELECT * FROM skills WHERE id = ?`)
 
-const getSkillByName = db.prepare(`SELECT * FROM skills WHERE name = ?`)
+const getSkillByName = db.prepare(`SELECT * FROM skills WHERE name = ? AND source_kind = 'k'`)
 
 const updateSkillEnabled = db.prepare(`UPDATE skills SET enabled = ? WHERE id = ?`)
 

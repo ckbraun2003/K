@@ -42,8 +42,9 @@ const DEFAULT_ASSETS_DIR = path.join(__dirname, '../../agent-config')
 const DEFAULT_DATA_DIR = path.join(__dirname, '../../data')
 // The durable tiers a charter may resolve to. assertSafeSegment blocks traversal;
 // this blocks a safe-but-unknown tier (e.g. a poisoned Phase-5 DB profile row)
-// from silently selecting an unintended bundle/allowlist/charter.
-const KNOWN_CHARTERS = new Set(['orchestrator', 'chief', 'secretary'])
+// from silently selecting an unintended bundle/allowlist/charter. Exported so the
+// run-assets shim (run-assets.ts) gates on the SAME set — one source, no drift.
+export const KNOWN_CHARTERS = new Set(['orchestrator', 'chief', 'secretary'])
 
 export interface SynthesizedConfig {
   configDir: string                 // → CLAUDE_CONFIG_DIR for the spawn
@@ -101,8 +102,9 @@ function guardUnder(root: string, abs: string): void {
  * into asset READ paths, which `guardUnder` does not cover). Inputs are a UUID +
  * a hardcoded tier today, but `SynthesizeOpts`/`AgentProfile` are a public API and
  * Phase-5 profiles come from the DB — so the segment is validated, not trusted.
+ * Exported so the run-assets shim applies the SAME validation (one source).
  */
-function assertSafeSegment(value: string, label: string): void {
+export function assertSafeSegment(value: string, label: string): void {
   if (!/^[a-z0-9-]+$/i.test(value)) {
     throw new Error(`agent-config: unsafe ${label} "${value}" — must match /^[a-z0-9-]+$/i`)
   }
@@ -169,8 +171,9 @@ function stripGitnexusHooks(settingsJson: string): string {
  *  `node --import <loader>` launch of the kstore server. Resolving from this
  *  module's location pins tsx to K's install; never bare `tsx` (cwd-relative,
  *  could load a planted node_modules/tsx). Falls back to bare only if resolution
- *  fails (shouldn't in a dev tree; the built path never calls this). */
-function resolveTsxLoader(): string {
+ *  fails (shouldn't in a dev tree; the built path never calls this). Exported so
+ *  the run-assets shim resolves the SAME loader (same package → same result). */
+export function resolveTsxLoader(): string {
   try {
     return pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
   } catch {

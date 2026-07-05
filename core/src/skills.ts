@@ -119,6 +119,10 @@ export function registerSkill(opts: CreateSkill): Skill {
     // (the scheduler/event listener gate on `enabled`). Only an explicit `false` disarms.
     enabled: opts.enabled === false ? 0 : 1,
     createdAt: now,
+    // D-069 canonical key: a k-native (automation-registry) skill's qualified key
+    // IS its bare name — qualified_key is NOT NULL UNIQUE post-v7, so name
+    // uniqueness for k-native rows is preserved through the new constraint.
+    qualifiedKey: opts.name,
   })
   return rowToSkill(skillsDb.getSkill.get(id) as Record<string, unknown>)
 }
