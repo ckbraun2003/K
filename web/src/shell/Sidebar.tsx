@@ -48,6 +48,9 @@ export const DESTINATIONS: Destination[] = [
   // Hidden: not a top-level destination (artifacts live in each project now), but kept
   // so TopBar/⌘K can resolve the "Docs" label for the view Help deep-links into.
   { id: 'docs', icon: '▤', label: 'Docs', hint: 'Harness bible & artifacts', enabled: true, view: 'docs', param: 'project-bible', section: 'hidden' },
+  // Hidden: the Skill Creator is reached from the catalog's "+ create with agent"
+  // button (D-071), not the rail — listed so TopBar can resolve its title.
+  { id: 'skill-creator', icon: '✎', label: 'Skill Creator', hint: 'Draft, refine & evaluate a skill with an agent', enabled: true, section: 'hidden' },
 ]
 
 /** Destinations reachable from ⌘K — everything enabled and not `hidden`. */

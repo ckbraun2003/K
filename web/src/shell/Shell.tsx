@@ -14,6 +14,7 @@ import ProjectVerification from '../pages/ProjectVerification'
 import ProjectWorkspace from '../pages/ProjectWorkspace'
 import FleetGraphPage from '../pages/FleetGraphPage'
 import SkillsPage from '../pages/SkillsPage'
+import SkillCreatorPage from '../pages/SkillCreatorPage'
 import WorkflowNudge from '../components/WorkflowNudge'
 import TerminalPage from '../pages/TerminalPage'
 import SettingsPage from '../pages/SettingsPage'
@@ -101,6 +102,7 @@ export default function Shell() {
             {route.view === 'project' && <ProjectWorkspace projectId={route.param} tab={route.subParam} />}
             {route.view === 'graph' && <FleetGraphPage />}
             {route.view === 'skills' && <SkillsPage tab={route.param} />}
+            {route.view === 'skill-creator' && <SkillCreatorPage draftId={route.param} />}
             {route.view === 'terminal' && <TerminalPage />}
             {route.view === 'settings' && <SettingsPage />}
             {route.view === 'workflows' && <WorkflowsPage runId={route.param} />}

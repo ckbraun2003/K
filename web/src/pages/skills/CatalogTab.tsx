@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { CATALOG_HIGHLIGHT_KEY } from '../../lib/catalog-highlight'
 import type { CatalogSkillsResponse, CatalogSkill, SkillSourceKind, ModelCompat } from '@k/shared'
 import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
@@ -34,6 +35,18 @@ export default function CatalogTab() {
   const [compat, setCompat] = useState<CompatFacet>('all')
   const [enabledOnly, setEnabledOnly] = useState(false)
   const [q, setQ] = useState('')
+  // One-shot highlight of a skill just saved by the Skill Creator (D-071):
+  // the save handoff parks the new row's id in sessionStorage; we consume it
+  // once on mount so a reload doesn't re-highlight.
+  const [highlightId] = useState<string | null>(() => {
+    try {
+      const id = sessionStorage.getItem(CATALOG_HIGHLIGHT_KEY)
+      if (id !== null) sessionStorage.removeItem(CATALOG_HIGHLIGHT_KEY)
+      return id
+    } catch {
+      return null
+    }
+  })
 
   // The whole ['capabilities'] family refreshes on any overlay change — the
   // stat strip (summary) and mountedBy views must never disagree with the list.
@@ -85,6 +98,14 @@ export default function CatalogTab() {
             className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
           >
             {rescanMutation.isPending ? 'rescanning…' : '⟳ rescan host'}
+          </button>
+          {/* Skill Creator entry (D-071) — the hidden #/skill-creator route. */}
+          <button
+            onClick={() => navigate('skill-creator')}
+            data-testid="catalog-create-with-agent"
+            className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90"
+          >
+            + create with agent
           </button>
         </div>
       </div>
@@ -157,6 +178,7 @@ export default function CatalogTab() {
             <CatalogRow
               key={skill.id}
               skill={skill}
+              highlighted={skill.id === highlightId}
               onToggle={enabled => toggleMutation.mutate({ id: skill.id, enabled })}
               togglePending={toggleMutation.isPending && toggleMutation.variables?.id === skill.id}
               toggleError={
@@ -174,11 +196,14 @@ export default function CatalogTab() {
 
 function CatalogRow({
   skill,
+  highlighted,
   onToggle,
   togglePending,
   toggleError,
 }: {
   skill: CatalogSkill
+  /** One-shot emphasis for a row just saved by the Skill Creator. */
+  highlighted?: boolean
   onToggle: (enabled: boolean) => void
   togglePending: boolean
   toggleError?: string
@@ -188,7 +213,10 @@ function CatalogRow({
   return (
     <div
       data-testid={`catalog-row-${skill.id}`}
-      className={`rounded-xl border border-[var(--border)] bg-[var(--surface)] ${missing ? 'opacity-70' : ''}`}
+      data-highlighted={highlighted ? 'true' : undefined}
+      className={`rounded-xl border bg-[var(--surface)] ${
+        highlighted ? 'border-[color:rgba(255,143,192,0.5)] shadow-[0_0_0_1px_rgba(255,143,192,0.3)]' : 'border-[var(--border)]'
+      } ${missing ? 'opacity-70' : ''}`}
     >
       <div className="flex items-center gap-3 px-4 py-3">
         {/* K-scoped enable overlay dot — the SkillRow enable-dot pattern. A
