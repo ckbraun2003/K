@@ -42,6 +42,32 @@ export function mergeEvents(history: AgentEvent[], live: AgentEvent[]): AgentEve
  */
 export const COMPACT_COMMAND = '/compact'
 
+/**
+ * Runtime badge for LOCAL (ollama) runs — derived from the agent loop's
+ * run-start system declaration (`ollama-agent: … toolSupport=true|false`) and
+ * any later degrade event ("degraded to prompt-only"), so the header always
+ * reflects what ACTUALLY ran:
+ *   'local · tools'        — the K tool loop with tools advertised;
+ *   'local · prompt-only'  — degraded (no tool support), skills inlined.
+ * Returns null for claude runs AND for legacy `ollama run` dispatches (no
+ * declaration event) — no badge is honest there. Pure + exported for tests.
+ */
+export function ollamaRuntimeBadge(
+  run: Pick<Run, 'provider'> | undefined,
+  events: AgentEvent[],
+): string | null {
+  if (run?.provider !== 'ollama') return null
+  let toolSupport: boolean | null = null
+  for (const e of events) {
+    if (e.type !== 'system' || !e.text || !e.text.startsWith('ollama-agent:')) continue
+    const m = /toolSupport=(true|false)/.exec(e.text)
+    if (m) toolSupport = m[1] === 'true'
+    if (e.text.includes('degraded to prompt-only')) toolSupport = false
+  }
+  if (toolSupport === null) return null
+  return toolSupport ? 'local · tools' : 'local · prompt-only'
+}
+
 export const EVENT_COLOR: Record<string, string> = {
   system:    'text-[var(--muted)]',
   assistant: 'text-[var(--text)]',
@@ -211,6 +237,11 @@ export default function RunConsole({ runId }: Props) {
   // (run may be undefined before load) with a tolerant `run?.model`.
   const pressure = useMemo(() => contextPressure(events, run?.model), [events, run?.model])
 
+  // Local-runtime badge (D-072 B4): "local · tools" / "local · prompt-only",
+  // derived from the ollama agent loop's system declarations. null → no badge
+  // (claude runs and legacy `ollama run` dispatches).
+  const runtimeBadge = useMemo(() => ollamaRuntimeBadge(run, events), [run, events])
+
   // Guarded + debounced auto-compaction. The pure `nextAutoCompact` decides
   // (hysteresis: fire once per danger episode, re-arm at 'ok'); we only own the
   // side effect. The web Run type carries no explicit `interactive` flag, so we
@@ -274,6 +305,14 @@ export default function RunConsole({ runId }: Props) {
             <span>
               {run.model} · {run.tokensIn.toLocaleString()} in / {run.tokensOut.toLocaleString()} out · ${run.costUsd.toFixed(4)}
             </span>
+            {runtimeBadge && (
+              <span
+                data-testid="run-runtime-badge"
+                className="rounded border border-[var(--border)] bg-[var(--raised)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted)]"
+              >
+                {runtimeBadge}
+              </span>
+            )}
             <span aria-hidden>·</span>
             <ContextMeter pressure={pressure} />
           </p>
