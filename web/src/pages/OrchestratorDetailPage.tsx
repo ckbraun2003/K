@@ -5,6 +5,7 @@ import { api, type OrchestratorPatch } from '../lib/api'
 import { navigate } from '../lib/route'
 import { leadNode } from '../lib/delegation'
 import DelegationTree from '../components/DelegationTree'
+import CapabilityPicker from '../components/CapabilityPicker'
 import type { MemoryLesson } from '../lib/memory'
 
 /**
@@ -53,9 +54,7 @@ function NotFound({ id }: { id?: string }) {
 export default function OrchestratorDetailPage({ id }: { id?: string }) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<Tab>('charter')
-  const [skillInput, setSkillInput] = useState('')
   const [toolInput, setToolInput] = useState('')
-  const [mcpInput, setMcpInput] = useState('')
 
   const { data: detail, isLoading, isError } = useQuery<ChiefOrgLead>({
     queryKey: ['orchestrator', id],
@@ -72,22 +71,22 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
     enabled: !!id && tab === 'memory',
   })
 
-  // Org-default profile — the grant baseline every lead inherits. Fetched only for
-  // the tabs that surface its entries as add-suggestions (tools/skills datalists);
-  // shared cache key with the org-default editor so react-query dedupes the read.
+  // Org-default profile — the grant baseline every lead inherits. Fetched only
+  // for the Tools tab (its add-suggestions datalist); skills/mcp now source
+  // their candidates from the capability catalog via CapabilityPicker (C3).
   const { data: orgDefault } = useQuery<AgentProfile>({
     queryKey: ['org-default'],
     queryFn: () => api.orgDefault.get(),
-    enabled: !!id && (tab === 'tools' || tab === 'skills'),
+    enabled: !!id && tab === 'tools',
   })
 
   const mutation = useMutation({
     mutationFn: (patch: OrchestratorPatch) => api.orchestrators.update(id!, patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orchestrator', id] })
-      setSkillInput('')
+      // The catalog's mountedBy chips must reflect the new grant immediately.
+      queryClient.invalidateQueries({ queryKey: ['capabilities'] })
       setToolInput('')
-      setMcpInput('')
     },
     // Do NOT swallow — the grant-guard 400 message is surfaced in the panel below.
   })
@@ -187,61 +186,17 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
             </div>
           )}
 
-          {/* Skills — list + remove + add-by-name. */}
+          {/* Skills — catalog-backed mount editor (C3). Values stay string[]
+              qualified keys; the grant guard still answers 400 through `patch`. */}
           {tab === 'skills' && (
-            <div data-testid="orchestrator-panel-skills" className="space-y-2">
-              {profile.skills.length === 0 ? (
-                <p className="text-xs italic text-[var(--muted)]">No skills mounted.</p>
-              ) : (
-                <ul className="space-y-1">
-                  {profile.skills.map(skill => (
-                    <li
-                      key={skill}
-                      className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs"
-                    >
-                      <span className="min-w-0 flex-1 truncate text-[var(--text)]">{skill}</span>
-                      <button
-                        type="button"
-                        disabled={mutation.isPending}
-                        onClick={() => patch({ skills: profile.skills.filter(s => s !== skill) })}
-                        data-testid={`orchestrator-skill-remove-${skill}`}
-                        className="flex-shrink-0 text-[var(--red)] hover:underline disabled:opacity-50"
-                      >
-                        remove
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <form
-                className="flex gap-2"
-                onSubmit={e => {
-                  e.preventDefault()
-                  const name = skillInput.trim()
-                  if (name && !profile.skills.includes(name)) patch({ skills: [...profile.skills, name] })
-                }}
-              >
-                <input
-                  value={skillInput}
-                  onChange={e => setSkillInput(e.target.value)}
-                  placeholder="add skill by name"
-                  list="orchestrator-skill-suggestions"
-                  data-testid="orchestrator-skill-input"
-                  className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
-                />
-                <datalist id="orchestrator-skill-suggestions">
-                  {(orgDefault?.skills ?? [])
-                    .filter(s => !profile.skills.includes(s))
-                    .map(s => <option key={s} value={s} />)}
-                </datalist>
-                <button
-                  type="submit"
-                  disabled={mutation.isPending || skillInput.trim() === ''}
-                  className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] disabled:opacity-50"
-                >
-                  add
-                </button>
-              </form>
+            <div data-testid="orchestrator-panel-skills">
+              <CapabilityPicker
+                kind="skills"
+                profile={profile}
+                onChange={skills => patch({ skills })}
+                busy={mutation.isPending}
+                testidPrefix="orchestrator-skill"
+              />
             </div>
           )}
 
@@ -313,57 +268,17 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
             </div>
           )}
 
-          {/* MCP · Authority — list + remove + add (grant-guarded server-side). */}
+          {/* MCP · Authority — catalog-backed mount editor (C3), trust-aware:
+              untrusted/disabled servers are grayed in the add list. */}
           {tab === 'mcp' && (
             <div data-testid="orchestrator-panel-mcp" className="space-y-2">
-              {profile.mcpServers.length === 0 ? (
-                <p className="text-xs italic text-[var(--muted)]">No MCP servers mounted.</p>
-              ) : (
-                <ul className="space-y-1">
-                  {profile.mcpServers.map(server => (
-                    <li
-                      key={server}
-                      className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs"
-                    >
-                      <span className="min-w-0 flex-1 truncate text-[var(--text)]">{server}</span>
-                      <button
-                        type="button"
-                        disabled={mutation.isPending}
-                        onClick={() => patch({ mcpServers: profile.mcpServers.filter(s => s !== server) })}
-                        data-testid={`orchestrator-mcp-remove-${server}`}
-                        className="flex-shrink-0 text-[var(--red)] hover:underline disabled:opacity-50"
-                      >
-                        remove
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <form
-                className="flex gap-2"
-                onSubmit={e => {
-                  e.preventDefault()
-                  const name = mcpInput.trim()
-                  if (name && !profile.mcpServers.includes(name)) {
-                    patch({ mcpServers: [...profile.mcpServers, name] })
-                  }
-                }}
-              >
-                <input
-                  value={mcpInput}
-                  onChange={e => setMcpInput(e.target.value)}
-                  placeholder="add MCP server"
-                  data-testid="orchestrator-mcp-input"
-                  className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
-                />
-                <button
-                  type="submit"
-                  disabled={mutation.isPending || mcpInput.trim() === ''}
-                  className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] disabled:opacity-50"
-                >
-                  add
-                </button>
-              </form>
+              <CapabilityPicker
+                kind="mcp"
+                profile={profile}
+                onChange={mcpServers => patch({ mcpServers })}
+                busy={mutation.isPending}
+                testidPrefix="orchestrator-mcp"
+              />
               <p className="text-[11px] text-[var(--muted)]">
                 Authority is re-resolved and grant-guarded server-side: mounting an MCP server
                 requires a matching allowlist grant, or the change is rejected.
