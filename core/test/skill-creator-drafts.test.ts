@@ -213,6 +213,14 @@ describe('authoring prompts', () => {
     expect(p).toContain('"my-hinted-name"')
   })
 
+  it('buildAuthoringPrompt appends retry guidance only when feedback is given', () => {
+    const withFb = buildAuthoringPrompt({ brief: 'b', nameHint: null, feedback: 'FB-RETRY-1' })
+    expect(withFb).toContain('FB-RETRY-1')
+    expect(withFb).toContain('previous authoring attempt failed')
+    const without = buildAuthoringPrompt({ brief: 'b', nameHint: null })
+    expect(without).not.toContain('previous authoring attempt failed')
+  })
+
   it('buildRefinePrompt embeds current content + feedback + contract', () => {
     const p = buildRefinePrompt({ skillMd: 'CURRENT-DOC-XYZ', feedback: 'FEEDBACK-ABC' })
     expect(p).toContain('CURRENT-DOC-XYZ')
@@ -341,7 +349,7 @@ describe('updateDraft (manual edit)', () => {
 })
 
 describe('refineDraft', () => {
-  it('dispatches with current content + feedback; completion bumps the revision', async () => {
+  it('dispatches with current content + feedback via buildRefinePrompt; completion bumps the revision (behavior lock)', async () => {
     const draft = await createDraft({ brief: 'to refine' })
     expect(draft.revision).toBe(0)
     const before = H.prompts.length
@@ -351,6 +359,29 @@ describe('refineDraft', () => {
     const prompt = H.prompts[before]
     expect(prompt).toContain('tighten the verification section')
     expect(prompt).toContain(H.VALID_MD) // refines the CURRENT document
+    // The REFINE prompt, not the initial authoring prompt.
+    expect(prompt).toContain('REFINING an existing K skill draft')
+    expect(prompt).not.toContain('authoring a NEW K skill')
+  })
+
+  it('RETRY-OF-INITIAL: a failed FIRST attempt refines as a fresh authoring run (brief + feedback; revision stays 0)', async () => {
+    H.queue.push({ output: 'garbage' }) // first attempt: extraction failure
+    const draft = await createDraft({ brief: 'RETRY-BRIEF-42', nameHint: 'retry-skill' })
+    expect(draft.status).toBe('failed')
+    expect(draft.skillMd).toBeNull()
+
+    const before = H.prompts.length
+    const retried = await refineDraft(draft.id, 'RETRY-FEEDBACK-99') // default mock: valid output
+    expect(retried?.status).toBe('ready')
+    expect(retried?.skillMd).toBe(H.VALID_MD)
+    expect(retried?.revision).toBe(0) // retry of the INITIAL draft, not a refinement
+
+    const prompt = H.prompts[before]
+    expect(prompt).toContain('RETRY-BRIEF-42')          // rebuilt from the brief
+    expect(prompt).toContain('"retry-skill"')            // nameHint carried
+    expect(prompt).toContain('RETRY-FEEDBACK-99')        // operator guidance appended
+    expect(prompt).toContain('authoring a NEW K skill')  // the INITIAL prompt shape
+    expect(prompt).not.toContain('REFINING an existing K skill draft')
   })
 
   it('a failed refine keeps the prior content, status failed', async () => {
@@ -362,10 +393,12 @@ describe('refineDraft', () => {
     expect(refined?.revision).toBe(0)
   })
 
-  it('no content yet → DraftStateError; live run → DraftStateError; unknown → null', async () => {
-    H.queue.push({ output: 'garbage' })
-    const empty = await createDraft({ brief: 'no content' })
-    await expect(refineDraft(empty.id, 'f')).rejects.toThrow(DraftStateError)
+  it('contentless NON-failed draft → DraftStateError; live run → DraftStateError; unknown → null', async () => {
+    // A 'ready' row with null content cannot arise from the public flows — forge
+    // it to lock the residual guard (the failed-null shape now RETRIES instead).
+    const anomalous = await createDraft({ brief: 'anomalous ready-null' })
+    db.prepare(`UPDATE skill_drafts SET skill_md = NULL WHERE id = ?`).run(anomalous.id)
+    await expect(refineDraft(anomalous.id, 'f')).rejects.toThrow(DraftStateError)
 
     const ok = await createDraft({ brief: 'live run' })
     db.prepare(`UPDATE skill_drafts SET status = 'drafting' WHERE id = ?`).run(ok.id)
@@ -490,12 +523,29 @@ describe('routes /api/skill-creator/drafts', () => {
     })
     expect(missing.statusCode).toBe(404)
 
+    // A FAILED first attempt is retryable via /refine (retry-of-initial) → 202,
+    // and the retry lands the draft ready at revision 0.
     H.queue.push({ output: 'garbage' })
-    const empty = SkillDraftSchema.parse((await app.inject({
-      method: 'POST', url: '/api/skill-creator/drafts', headers: AUTH, payload: { brief: 'no content route' },
+    const failedFirst = SkillDraftSchema.parse((await app.inject({
+      method: 'POST', url: '/api/skill-creator/drafts', headers: AUTH, payload: { brief: 'retry via route' },
     })).json())
+    expect(failedFirst.status).toBe('failed')
+    const retried = await app.inject({
+      method: 'POST', url: `/api/skill-creator/drafts/${failedFirst.id}/refine`, headers: AUTH, payload: { feedback: 'try again' },
+    })
+    expect(retried.statusCode).toBe(202)
+    const retriedDraft = SkillDraftSchema.parse(retried.json())
+    expect(retriedDraft.status).toBe('ready')
+    expect(retriedDraft.revision).toBe(0)
+
+    // The residual 409: contentless in a NON-failed status (forged — cannot
+    // arise from the public flows).
+    const anomalous = SkillDraftSchema.parse((await app.inject({
+      method: 'POST', url: '/api/skill-creator/drafts', headers: AUTH, payload: { brief: 'anomalous route' },
+    })).json())
+    db.prepare(`UPDATE skill_drafts SET skill_md = NULL WHERE id = ?`).run(anomalous.id)
     const conflict = await app.inject({
-      method: 'POST', url: `/api/skill-creator/drafts/${empty.id}/refine`, headers: AUTH, payload: { feedback: 'x' },
+      method: 'POST', url: `/api/skill-creator/drafts/${anomalous.id}/refine`, headers: AUTH, payload: { feedback: 'x' },
     })
     expect(conflict.statusCode).toBe(409)
   })

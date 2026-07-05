@@ -154,7 +154,14 @@ function guideSection(): string {
   return [`<authoring-guide>`, guide.trim(), `</authoring-guide>`, ``].join('\n')
 }
 
-export function buildAuthoringPrompt(opts: { brief: string; nameHint: string | null }): string {
+export function buildAuthoringPrompt(opts: {
+  brief: string
+  nameHint: string | null
+  /** Retry-of-initial only (refineDraft on a failed FIRST attempt): the
+   *  operator's retry message, appended as extra guidance to the SAME initial
+   *  authoring prompt. Absent for a plain createDraft dispatch. */
+  feedback?: string | null
+}): string {
   const parts = [
     `You are authoring a NEW K skill (a SKILL.md document) from an operator brief.`,
     ``,
@@ -167,6 +174,15 @@ export function buildAuthoringPrompt(opts: { brief: string; nameHint: string | n
   ]
   if (opts.nameHint) {
     parts.push(`Suggested skill name: "${opts.nameHint}" — use it (normalized to kebab-case) unless it misrepresents the skill.`, ``)
+  }
+  if (opts.feedback) {
+    parts.push(
+      `Operator guidance (a previous authoring attempt failed — take this into account):`,
+      `"""`,
+      opts.feedback,
+      `"""`,
+      ``,
+    )
   }
   parts.push(OUTPUT_CONTRACT)
   return parts.join('\n')
@@ -379,10 +395,22 @@ export function updateDraft(id: string, patch: { skillMd: string }): SkillDraft 
 
 /**
  * Refine: dispatch a new authoring run against the CURRENT skill_md + operator
- * feedback; the completion bumps the revision. Requires content to refine and no
- * live authoring run (DraftStateError → 409 at the route). A failed refine keeps
- * the prior skill_md (status 'failed' is honest about the last action; a manual
- * edit or a successful refine restores 'ready'). Returns null for an unknown id.
+ * feedback; the completion bumps the revision.
+ *
+ * RETRY-OF-INITIAL (cross-lane integration fix, conductor-verified): a draft
+ * whose FIRST authoring attempt failed (skill_md null + status 'failed') has
+ * nothing to refine, yet POST /refine is the UI's ONLY retry affordance — so
+ * that shape is treated as a FRESH authoring attempt: the initial prompt is
+ * rebuilt from the draft's brief/nameHint with the operator's message appended
+ * as guidance, and the completion keeps revision 0 (it lands the initial
+ * draft, not a refinement — the same bumpRevision:false as createDraft).
+ * A contentless draft in any OTHER status (a 'ready' row with null content
+ * cannot arise from the public flows) still throws.
+ *
+ * No live authoring run (DraftStateError → 409 at the route). A failed refine
+ * keeps the prior skill_md (status 'failed' is honest about the last action; a
+ * manual edit or a successful refine restores 'ready'). Returns null for an
+ * unknown id.
  */
 export async function refineDraft(id: string, feedback: string): Promise<SkillDraft | null> {
   const row = getDraftStmt.get(id) as Record<string, unknown> | undefined
@@ -392,7 +420,22 @@ export async function refineDraft(id: string, feedback: string): Promise<SkillDr
   }
   const skillMd = row.skill_md != null ? String(row.skill_md) : null
   if (!skillMd) {
-    throw new DraftStateError('draft has no content to refine yet')
+    if (String(row.status) !== 'failed') {
+      throw new DraftStateError('draft has no content to refine yet')
+    }
+    // Retry-of-initial: fresh authoring attempt from the brief + the operator's
+    // retry message. Revision semantics identical to createDraft (stays 0).
+    setDraftStatusStmt.run('drafting', Date.now(), id)
+    await dispatchAuthoringRun(
+      id,
+      buildAuthoringPrompt({
+        brief: String(row.brief),
+        nameHint: row.name_hint != null ? String(row.name_hint) : null,
+        feedback,
+      }),
+      { bumpRevision: false },
+    )
+    return getDraft(id)
   }
   setDraftStatusStmt.run('drafting', Date.now(), id)
   await dispatchAuthoringRun(id, buildRefinePrompt({ skillMd, feedback }), { bumpRevision: true })
