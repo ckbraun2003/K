@@ -54,7 +54,7 @@ export interface McpCallResult {
 
 export interface McpClient {
   readonly name: string
-  listTools(opts?: { timeoutMs?: number }): Promise<McpToolDef[]>
+  listTools(opts?: { timeoutMs?: number; signal?: AbortSignal }): Promise<McpToolDef[]>
   callTool(
     tool: string,
     args: Record<string, unknown>,
@@ -85,7 +85,7 @@ export const DEFAULT_MCP_INIT_TIMEOUT_MS = 15_000
 export async function connectStdioMcp(
   name: string,
   cfg: McpServerConfig,
-  opts: { initTimeoutMs?: number } = {},
+  opts: { initTimeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<McpClient> {
   const transport = new StdioClientTransport({
     command: cfg.command,
@@ -97,7 +97,12 @@ export async function connectStdioMcp(
   })
   const client = new Client({ name: 'k-ollama-agent', version: '0.0.1' }, { capabilities: {} })
   try {
-    await client.connect(transport, { timeout: opts.initTimeoutMs ?? DEFAULT_MCP_INIT_TIMEOUT_MS })
+    // `signal` (a kill landing mid-spawn) aborts the initialize handshake so an
+    // operator kill is honored promptly even against a slow-to-init server.
+    await client.connect(transport, {
+      timeout: opts.initTimeoutMs ?? DEFAULT_MCP_INIT_TIMEOUT_MS,
+      signal: opts.signal,
+    })
   } catch (err) {
     // Ensure a half-spawned child never outlives a failed handshake.
     try { await transport.close() } catch { /* already closed */ }
@@ -110,6 +115,7 @@ export async function connectStdioMcp(
     async listTools(o = {}) {
       const res = await client.listTools(undefined, {
         timeout: o.timeoutMs ?? DEFAULT_MCP_CALL_TIMEOUT_MS,
+        signal: o.signal,
       })
       return res.tools.map(t => ({
         name: t.name,
