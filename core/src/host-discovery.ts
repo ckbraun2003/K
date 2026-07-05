@@ -136,6 +136,20 @@ function sha256(text: string): string {
 }
 
 /**
+ * The RAW frontmatter block of a SKILL.md — from the opening `---` through the
+ * closing `---` INCLUSIVE — or null when there is no parseable block. This is the
+ * canonical est_tokens_meta measurement target (cross-lane convention): byte-for-
+ * byte the same slice the Wave-0 run-assets.ts::skillMetaText helper measures, so
+ * a discovered row's persisted estimate and a k-native skill's resolve-time
+ * estimate can never diverge for the same content.
+ */
+function rawFrontmatterBlock(text: string): string | null {
+  if (!text.startsWith('---')) return null
+  const end = text.indexOf('\n---', 3)
+  return end > 0 ? text.slice(0, end + 4) : null
+}
+
+/**
  * The canonical config hash for an MCP server definition (D-070 trust pin):
  * sha256 of the JSON of {command, args, env} with env keys SORTED, so key order
  * in the host file never fakes a drift. Exported — the A3 synth re-verify re-reads
@@ -257,6 +271,11 @@ function scanSkillsRoot(
     const fm = parseSkillFrontmatter(probe.content)
     const name = fm.name?.trim() ? fm.name.trim() : dir.name
     const description = fm.description ?? ''
+    // est_tokens_meta (cross-lane convention): the RAW frontmatter block, exactly
+    // as run-assets.ts::skillMetaText measures it. No parseable block → fall back
+    // to name+description (description is '' for malformed frontmatter, so this
+    // reduces to the bare name — skillMetaText's own fallback).
+    const metaBlock = rawFrontmatterBlock(probe.content)
     out.push({
       qualifiedKey: key,
       name,
@@ -268,7 +287,7 @@ function scanSkillsRoot(
       pluginVersion: opts.pluginVersion ?? null,
       contentHash: sha256(probe.content),
       estTokens: estimateTokens(probe.content),
-      estTokensMeta: estimateTokens(`${name}: ${description}`),
+      estTokensMeta: estimateTokens(metaBlock ?? `${name} ${description}`.trim()),
     })
   }
   for (const child of listChildDirs(root, opts.source, warnings)) collect(child, root, opts.nested)

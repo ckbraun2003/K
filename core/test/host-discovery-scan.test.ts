@@ -31,6 +31,7 @@ import {
   scanPluginSkills,
   scanHostMcpServers,
 } from '../src/host-discovery.js'
+import { estimateTokens } from '../src/token-estimate.js'
 
 const tmpDirs: string[] = []
 function tmpDir(prefix: string): string {
@@ -110,6 +111,22 @@ describe('scanUserSkills', () => {
     expect(s.contentHash).toBe(createHash('sha256').update(content).digest('hex'))
     expect(s.estTokens).toBeGreaterThan(0)
     expect(s.estTokensMeta).toBeGreaterThan(0)
+  })
+
+  it('est_tokens_meta convention: the RAW frontmatter block (Wave-0 skillMetaText slice); name+description fallback', () => {
+    const home = tmpDir('k-hd-user-')
+    const content = FM('Meta Skill', 'measures the block')
+    writeSkill(home, ['skills', 'meta-skill'], content)
+    writeSkill(home, ['skills', 'bare-skill'], 'no frontmatter here\n')
+
+    const { items } = scanUserSkills(home)
+    const byKey = new Map(items.map(s => [s.qualifiedKey, s]))
+    // Frontmatter present: measure the raw block, opening '---' through closing
+    // '---' INCLUSIVE — byte-identical to run-assets.ts::skillMetaText.
+    const block = content.slice(0, content.indexOf('\n---', 3) + 4)
+    expect(byKey.get('user:meta-skill')!.estTokensMeta).toBe(estimateTokens(block))
+    // No parseable block: name+description fallback (description '' → bare name).
+    expect(byKey.get('user:bare-skill')!.estTokensMeta).toBe(estimateTokens('bare-skill'))
   })
 
   it('defaults name=dirname, description="" for absent AND malformed frontmatter', () => {
