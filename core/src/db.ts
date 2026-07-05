@@ -1427,6 +1427,11 @@ const deleteProjectGithubCache = db.prepare(`DELETE FROM github_cache WHERE proj
 // project row or the delete throws a FK violation. Personal items (project_id NULL,
 // the run-scoped kstore tickets) are untouched.
 const deleteProjectWorkItems = db.prepare(`DELETE FROM work_items WHERE project_id = ?`)
+// Project-scoped discovered MCP servers (D-070, host-discovery.ts): project_id is a
+// NO-ACTION FK like work_items, so these rows must go before the project row or the
+// delete throws. (Discovered project SKILLS are a deliberately loose ref — no FK —
+// and degrade to status='missing' at the next rescan instead; see the skills DDL note.)
+const deleteProjectHostMcpServers = db.prepare(`DELETE FROM host_mcp_servers WHERE project_id = ?`)
 const deleteProjectRow = db.prepare(`DELETE FROM projects WHERE id = ?`)
 const deleteProject = db.transaction((id: string) => {
   deleteProjectRunEvents.run(id)
@@ -1434,6 +1439,7 @@ const deleteProject = db.transaction((id: string) => {
   deleteProjectReports.run(id)
   deleteProjectGithubCache.run(id)
   deleteProjectWorkItems.run(id) // project-scoped work_items: NO-ACTION FK, delete before the project row
+  deleteProjectHostMcpServers.run(id) // project-scoped discovered MCP servers: same NO-ACTION FK pattern
   deleteProjectRow.run(id) // cascades workflow_runs + project_graphs (project_tasks is gone — dropped in P5.1d2b)
 })
 

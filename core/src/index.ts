@@ -30,6 +30,7 @@ import { evalsRoutes } from './routes/evals.js'
 import { memoryRoutes } from './routes/memory.js'
 import { kRoutes } from './routes/k.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
+import { syncHostDiscovery } from './host-discovery.js'
 import { seedProfiles } from './profiles.js'
 import { seedWorkflowDefinitions } from './workflow-defs.js'
 import { seedEvalSystems } from './eval/store.js'
@@ -374,6 +375,19 @@ async function start() {
   await ensureHarnessBibleRegistered()
   await seedUiDemo()  // rebuilt every boot — deterministic HTML, git-tracked
   seedBuiltinSkills() // ensure the authored agent-config/skills/* appear in the Skills tab
+  // D-069 host discovery: refresh the capability catalog from the host layer (user/
+  // project/plugin skills + host MCP servers). Guarded — a broken host install must
+  // never brick boot; everything discovered lands default-DISABLED (enabled=0).
+  try {
+    const scan = syncHostDiscovery()
+    console.log(
+      `[discovery] host capability scan: skills +${scan.skills.discovered} ~${scan.skills.updated} -${scan.skills.missing}, ` +
+        `mcp +${scan.mcpServers.discovered} ~${scan.mcpServers.updated} -${scan.mcpServers.missing}` +
+        (scan.warnings.length ? ` (${scan.warnings.length} warning(s))` : ''),
+    )
+  } catch (e) {
+    console.warn('[discovery] host capability scan failed (continuing without host catalog):', e)
+  }
   seedProfiles()      // ensure the durable agent-org profiles (K, Chief, orchestrator + leads) exist
   seedWorkflowDefinitions() // ensure the built-in named workflow templates (code-wave, investigate, refactor) exist
   // Seed the eval registry (testing/eval/* → eval_* tables) so the Evals surface has systems to run.
