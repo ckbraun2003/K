@@ -33,8 +33,12 @@ import path from 'path'
 import { createRequire } from 'module'
 import { fileURLToPath, pathToFileURL } from 'url'
 import type { AgentProfile } from './profiles.js'
-import { assertMcpGrants, computeDisallowedTools, toolWithinCeiling } from './authority.js'
 import { isPathWithin } from './paths.js'
+// NOTE (A3): run-assets.ts imports THIS module's assertSafeSegment/KNOWN_CHARTERS/
+// resolveTsxLoader, so this import is a (benign) cycle — both module bodies are
+// inert; every cross-reference happens inside functions, at call time.
+import { resolveRunAssets } from './run-assets.js'
+import type { ProjectRef } from './host-discovery.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ASSETS_DIR = path.join(__dirname, '../../agent-config')
@@ -83,6 +87,16 @@ export interface SynthesizeOpts {
   // are stripped from settings.json, so nothing is ever written into the target repo.
   // Absent/false (every K-internal run — cwd inside the K repo) → gitnexus stays, as before.
   suppressGitnexus?: boolean
+  // D-069 (A3): the run's target project — claude-project discovered assets scoped
+  // to a DIFFERENT project are silently dropped from the mounts (run-assets.ts).
+  // Absent → no project scope (every project-scoped asset drops).
+  projectId?: string
+  // ── TEST SEAMS (additive-optional; the hostCredentialsPath precedent) — passed
+  //    through to resolveRunAssets for discovered-asset resolution. Production
+  //    callers omit them (real ~/.claude, ~/.claude.json, projects table).
+  claudeHome?: string
+  claudeJsonPath?: string
+  projects?: ProjectRef[]
 }
 
 // ── path guard ─────────────────────────────────────────────────────────────────
@@ -348,98 +362,25 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     throw new Error(`agent-config: unknown charter "${charter}" — not one of ${[...KNOWN_CHARTERS].join(', ')}`)
   }
 
-  // ── Profile-row resolution + fail-closed validation (B1) ─────────────────────
-  // Resolve the effective skills/servers/tools BEFORE any write (validate-before-
-  // mutate): a rejected profile row must throw HERE, so a bad row can never leave a
-  // partially materialized run dir behind on every dispatch attempt. An EMPTY
-  // profile array (rowToAgentProfile degrades garbled JSON to []) means "no
-  // override → the tier asset"; a NON-EMPTY array is the operator's narrowed grant,
-  // enforced against the tier assets as the CEILING.
-
-  // Skills: a non-empty profile.skills row narrows WITHIN the tier bundle (the
-  // bundle is the ceiling — fail-closed). Every name is segment-checked before it
-  // is ever interpolated into a read path (step 4).
-  const bundlePath = path.join(assetsDir, 'bundles', `${charter}.json`)
-  if (!fs.existsSync(bundlePath)) throw new Error(`agent-config: bundle for tier "${charter}" not found`)
-  const bundle = JSON.parse(fs.readFileSync(bundlePath, 'utf8')) as {
-    skills?: string[]
-    agents?: string[]
-  }
-  const bundleSkills = bundle.skills ?? []
-  const usedProfileSkills = profile.skills.length > 0
-  const skillsToMount = usedProfileSkills ? profile.skills : bundleSkills
-  for (const skill of skillsToMount) {
-    assertSafeSegment(skill, 'bundle skill')
-    if (usedProfileSkills && !bundleSkills.includes(skill)) {
-      throw new Error(
-        `agent-config: profile skill "${skill}" is not in the "${charter}" tier bundle — the tier bundle is the ceiling`,
-      )
-    }
-  }
-
-  // MCP servers: the tier's mcp template defines WHICH servers exist (the ceiling).
-  // A non-empty profile.mcpServers row mounts exactly those servers; a name with no
-  // tier definition is fail-closed (we cannot invent a server config). The parsed
-  // template is filtered down to the mounted set here (template key order preserved
-  // so the no-override output stays byte-identical).
-  const mcp = JSON.parse(
-    fs.readFileSync(path.join(assetsDir, 'mcp', `${charter}.json`), 'utf8'),
-  ) as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> }
-  // D-070: `allowDiscoveredServers` is AUTHORITY data (read by resolveEffectiveCeiling),
-  // not run config — strip it so the run's mcp.json stays byte-identical to the
-  // pre-D-069 output (the template's other root keys, e.g. _note, ride along as before).
-  delete (mcp as Record<string, unknown>).allowDiscoveredServers
-  const tierServerKeys = Object.keys(mcp.mcpServers ?? {})
-  const serversToMount = profile.mcpServers.length > 0 ? profile.mcpServers : tierServerKeys
-  for (const name of serversToMount) {
-    if (!mcp.mcpServers?.[name]) {
-      throw new Error(
-        `agent-config: profile mounts MCP server "${name}" but tier "${charter}" defines no such server — unknown servers are fail-closed`,
-      )
-    }
-  }
-  // F-068: an EXTERNAL-target run drops gitnexus from the mounted set here — dropping a
-  // mount is always safe (fewer grants), and it is validated BELOW (assertMcpGrants) and
-  // filtered into mcp.json (wantedServers) from this narrowed set, so no gitnexus server
-  // is ever written for that run. K-internal runs pass through unchanged.
-  const mountedServers = opts.suppressGitnexus
-    ? serversToMount.filter(name => name !== 'gitnexus')
-    : serversToMount
-  const wantedServers = new Set(mountedServers)
-  mcp.mcpServers = Object.fromEntries(
-    Object.entries(mcp.mcpServers ?? {}).filter(([k]) => wantedServers.has(k)),
-  )
-
-  // Allowed tools: a non-empty profile.allowedTools row is the operator's narrowed
-  // grant, enforced against the tier allowlist as the ceiling (toolWithinCeiling —
-  // exact / specifier-narrowed / per-tool-MCP forms). Deliberately INLINE rather
-  // than authority.ts::assertTierCeiling: the allowlist is already parsed in hand
-  // here; the helper would re-read the assets via resolveAuthority and could drift
-  // from the exact file this synthesis consumes.
-  const allowlist = JSON.parse(
-    fs.readFileSync(path.join(assetsDir, 'allowlists', `${charter}.json`), 'utf8'),
-  ) as { allowedTools: string[] }
-  const allowedTools = profile.allowedTools.length > 0 ? profile.allowedTools : allowlist.allowedTools
-  if (profile.allowedTools.length > 0) {
-    const ceiling = new Set(allowlist.allowedTools)
-    for (const tool of allowedTools) {
-      if (!toolWithinCeiling(tool, ceiling)) {
-        throw new Error(
-          `agent-config: profile tool "${tool}" exceeds the "${charter}" tier ceiling — the tier allowlist is the ceiling`,
-        )
-      }
-    }
-  }
-  // Mounting ≠ granting (D-034) holds at synth time too: every mounted server must
-  // be granted by the FINAL (possibly profile-narrowed) allowlist. Checked against the
-  // ACTUALLY-mounted set (gitnexus already dropped for an external-target run).
-  assertMcpGrants(profile.tier, allowedTools, mountedServers)
-  // The hard tool ceiling: --allowedTools is only an AUTO-APPROVAL list (under
-  // acceptEdits, Write/Edit are auto-approved for every tier and other built-ins
-  // stay invocable subject to prompts). The denylist — UNIVERSE minus the run's
-  // (possibly profile-narrowed) grant — is what makes the allowlist a real ceiling
-  // for built-ins at the CLI.
-  const disallowedTools = computeDisallowedTools(allowedTools)
+  // ── A3 (D-069): ALL validation + asset resolution lives in resolveRunAssets —
+  // the model-neutral seam. K-native narrowing (bundle/template/allowlist
+  // ceilings, D-034 grant guard, F-068 gitnexus drop) is byte-identical to the
+  // pre-A3 inline block (locked by run-assets-shim.test.ts + the existing
+  // synthesis suites); discovered-asset admission, live trust re-verify, and
+  // project-scope filtering run on top. It throws BEFORE any write below, so the
+  // validate-before-mutate discipline is preserved (a rejected profile never
+  // leaves a partially materialized run dir).
+  const assets = resolveRunAssets(profile, {
+    runId: opts.runId,
+    projectId: opts.projectId,
+    suppressGitnexus: opts.suppressGitnexus,
+    assetsDir,
+    dataDir,
+    claudeHome: opts.claudeHome,
+    claudeJsonPath: opts.claudeJsonPath,
+    projects: opts.projects,
+  })
+  const { allowedTools, disallowedTools } = assets
 
   // 1. run config dir (path-guarded root for every write below). A K-secretary ask
   //    passes a STABLE per-thread runDirOverride so its config + CLI session state
@@ -449,12 +390,11 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   const configDir = path.join(runDir, 'config')
   fs.mkdirSync(configDir, { recursive: true })
 
-  // 2. layered system prompt: L0 base operating prompt + L1 tier charter.
-  //    Written as ONE file (no config-dir CLAUDE.md) to avoid double injection.
-  const l0 = fs.readFileSync(path.join(assetsDir, 'base-operating-prompt.md'), 'utf8')
-  const l1 = fs.readFileSync(path.join(assetsDir, 'tiers', `${charter}.charter.md`), 'utf8')
+  // 2. layered system prompt: the RESOLVED L0 base + L1 tier charter (same reads,
+  //    same joiner — run-assets.ts; parity-locked). Written as ONE file (no
+  //    config-dir CLAUDE.md) to avoid double injection.
   const appendSystemPromptFile = path.join(configDir, 'system-prompt.md')
-  guardedWrite(configDir, appendSystemPromptFile, `${l0}\n\n---\n\n${l1}`)
+  guardedWrite(configDir, appendSystemPromptFile, assets.systemPrompt)
 
   // 3. settings: rewrite every __HOOK__ placeholder to the run's hooks dir
   //    (forward slashes so the JSON value is valid on Windows too). For an EXTERNAL-target
@@ -471,14 +411,28 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     opts.suppressGitnexus ? stripGitnexusHooks(settingsContent) : settingsContent,
   )
 
-  // 4. mount ONLY the skills + worker-agent defs resolved in the validation block
-  //    above (profile-narrowed or the tier bundle) — not the whole library. The
-  //    orchestrator bundle carries the full roster; chief and secretary carry no
-  //    coding agents. Skill names were segment-checked before any path use.
-  for (const skill of skillsToMount) {
-    const src = path.join(assetsDir, 'skills', skill)
-    if (!fs.existsSync(src)) throw new Error(`agent-config: bundle skill "${skill}" not found`)
-    copyDirGuarded(configDir, src, path.join(configDir, 'skills', skill))
+  // 4. mount ONLY the RESOLVED skills + worker-agent defs (profile-narrowed or the
+  //    tier bundle) — not the whole library. k-native skills vendor exactly as
+  //    before (copyDirGuarded from agent-config/skills, bare mount name);
+  //    DISCOVERED skills vendor via copyDirConfined — source-side symlink/realpath
+  //    guards + hard caps — from their confined host origin into their D-069
+  //    collision-safe mount dir. Host content is COPIED at synth time; a run never
+  //    reads host dirs live. Names/paths were validated at resolve.
+  for (const skill of assets.skills) {
+    const dest = path.join(configDir, 'skills', skill.mountDirName)
+    if (skill.sourceKind === 'k') {
+      copyDirGuarded(configDir, skill.srcDir, dest)
+    } else {
+      // srcRoot is always present on discovered rows (set by resolveRunAssets);
+      // fail loudly rather than fall back to an unconfined copy if it ever isn't.
+      if (!skill.srcRoot) throw new Error(`agent-config: discovered skill "${skill.qualifiedKey}" resolved without a confinement root`)
+      copyDirConfined(skill.srcRoot, skill.srcDir, configDir, dest)
+    }
+  }
+  // Worker-agent defs stay bundle-driven (agents are K-owned assets — not part of
+  // the D-069 catalog; chief/secretary bundles carry none).
+  const bundle = JSON.parse(fs.readFileSync(path.join(assetsDir, 'bundles', `${charter}.json`), 'utf8')) as {
+    agents?: string[]
   }
   for (const agent of bundle.agents ?? []) {
     assertSafeSegment(agent, 'bundle agent')
@@ -490,14 +444,24 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   // 5. vendor hooks/ into the run dir.
   copyDirGuarded(configDir, path.join(assetsDir, 'hooks'), path.join(configDir, 'hooks'))
 
-  // 6. MCP config → mcp.json from the (validated, possibly profile-narrowed)
-  //    template parsed above: resolve every RUN-SCOPED K server (kstore, logistics,
-  //    mgmt) — each placeholder command/args become THIS core's server launch (dev
-  //    runs the .ts via tsx; a build runs the .js), and its env gets the run's
-  //    K_DATA_DIR / K_RUN_ID so the child opens the right k.db and resolves the
-  //    right run. Other servers (gitnexus) pass through untouched. Behaviour for
-  //    kstore is unchanged from the single-server form (proven by the existing
-  //    synthesis tests).
+  // 6. MCP config → mcp.json. TIER servers keep the template-based construction
+  //    BYTE-IDENTICAL to the pre-A3 output (template root keys incl. _note ride
+  //    along; the D-070 allowDiscoveredServers flag is stripped — it is AUTHORITY
+  //    data, not run config; template key order preserved through the filter):
+  //    every RUN-SCOPED K server (kstore, logistics, mgmt) placeholder becomes
+  //    THIS core's server launch (dev runs the .ts via tsx; a build runs the .js)
+  //    with the run's K_DATA_DIR / K_RUN_ID env; gitnexus passes through
+  //    untouched. DISCOVERED servers are then APPENDED VERBATIM — the exact
+  //    trusted {command,args,env}, with NO K_DATA_DIR/K_RUN_ID injection (a host
+  //    server is not K's child; it gets nothing but what the operator trusted).
+  const mcp = JSON.parse(
+    fs.readFileSync(path.join(assetsDir, 'mcp', `${charter}.json`), 'utf8'),
+  ) as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> }
+  delete (mcp as Record<string, unknown>).allowDiscoveredServers
+  const kServerNames = new Set(assets.mcpServers.filter(s => s.sourceKind === 'k').map(s => s.name))
+  mcp.mcpServers = Object.fromEntries(
+    Object.entries(mcp.mcpServers ?? {}).filter(([k]) => kServerNames.has(k)),
+  )
   const runScopedServers: Array<[string, string]> = [
     ['kstore', 'k-store-server'],
     ['logistics', 'logistics-server'],
@@ -517,6 +481,14 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     // could load a malicious node_modules/tsx planted in the agent's project.
     srv.args = ext === '.ts' ? ['--import', resolveTsxLoader(), serverPath] : [serverPath]
     srv.env = { ...(srv.env ?? {}), K_DATA_DIR: dataDir, K_RUN_ID: opts.runId }
+  }
+  // Discovered servers append AFTER the run-scoped rewrite loop, so a host server
+  // that happens to share a run-scoped NAME (mountable only when the K server
+  // itself is narrowed out — the resolve-time collision guard forbids both) can
+  // never be rewritten into a K-launch.
+  for (const srv of assets.mcpServers) {
+    if (srv.sourceKind === 'k') continue
+    mcp.mcpServers[srv.name] = { command: srv.config.command, args: srv.config.args, env: srv.config.env }
   }
   const mcpConfigPath = path.join(configDir, 'mcp.json')
   guardedWrite(configDir, mcpConfigPath, JSON.stringify(mcp, null, 2))

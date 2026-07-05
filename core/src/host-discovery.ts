@@ -884,8 +884,9 @@ export interface SyncHostDiscoveryOpts {
   now?: number
 }
 
-/** The registered projects, as scanner refs. */
-function registeredProjects(): ProjectRef[] {
+/** The registered projects, as scanner refs. Exported for run-assets.ts — the
+ *  synth-time live-config re-verify + project skill roots share ONE source. */
+export function registeredProjects(): ProjectRef[] {
   return (projectsDb.listProjects.all() as Record<string, unknown>[]).map(r => ({
     id: String(r.id),
     localPath: String(r.local_path),

@@ -19,6 +19,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import { v4 as uuid } from 'uuid'
 import { db } from '../src/db.js'
 import {
@@ -26,6 +27,7 @@ import {
   resolveEffectiveCeiling,
   assertEffectiveGrants,
   GrantError,
+  K_NATIVE_SERVER_NAMES,
 } from '../src/authority.js'
 import { canonicalMcpConfigHash } from '../src/host-discovery.js'
 
@@ -51,8 +53,9 @@ function seedHostMcp(opts: {
   enabled: 0 | 1
   trust: 'pinned' | 'none' | 'stale'
   status?: 'ok' | 'missing'
+  name?: string
 }): { key: string; name: string } {
-  const name = `ceil-srv-${uuid().slice(0, 8)}`
+  const name = opts.name ?? `ceil-srv-${uuid().slice(0, 8)}`
   const key = `user:${name}`
   const hash = canonicalMcpConfigHash('node', ['x.js'], {})
   const trustedHash = opts.trust === 'pinned' ? hash : opts.trust === 'stale' ? 'stale-pin' : null
@@ -243,6 +246,36 @@ describe('assertEffectiveGrants', () => {
     expect(() =>
       assertEffectiveGrants('orchestrator', { ...granted, allowedTools: orch.allowedTools }),
     ).toThrow(/does not grant it/)
+  })
+
+  it('a discovered server with a K-RESERVED name is refused at admission — even fully trusted+enabled', () => {
+    // A3 review MEDIUM: the reserved-name refusal lives at ADMISSION (one source:
+    // PATCH and dispatch), so it can never depend on the run's mounted-name set.
+    const { key } = seedHostMcp({ enabled: 1, trust: 'pinned', name: 'kstore' })
+    expect(() =>
+      assertEffectiveGrants('orchestrator', {
+        allowedTools: orch.allowedTools,
+        mcpServers: [key],
+        skills: [],
+      }),
+    ).toThrow(/RESERVED for K's own servers/)
+  })
+
+  it('K_NATIVE_SERVER_NAMES covers EVERY tier-template server key (drift lock)', () => {
+    // If a future tier template adds a server, the reserved set must grow with it —
+    // otherwise a host server could impersonate the new K server.
+    const realAssets = fileURLToPath(new URL('../../agent-config', import.meta.url))
+    for (const tier of ['orchestrator', 'chief', 'secretary']) {
+      const template = JSON.parse(fs.readFileSync(path.join(realAssets, 'mcp', `${tier}.json`), 'utf8')) as {
+        mcpServers?: Record<string, unknown>
+      }
+      for (const name of Object.keys(template.mcpServers ?? {})) {
+        expect(
+          K_NATIVE_SERVER_NAMES.has(name),
+          `template server "${name}" (${tier}) must be in K_NATIVE_SERVER_NAMES`,
+        ).toBe(true)
+      }
+    }
   })
 
   it('untrusted / disabled / non-opted-in discovered MCP grants are actionable GrantErrors', () => {

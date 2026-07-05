@@ -304,6 +304,68 @@ export interface ProfileGrants {
 }
 
 /**
+ * Fail-closed admission check for ONE qualified skill grant (D-069): the key must
+ * parse (assertSafeSkillKey), the tier must opt in, and the asset must be admitted
+ * (enabled + status-ok). Throws GrantError with the asset-naming rejection detail.
+ * The shared primitive under BOTH assertEffectiveGrants (profile boundary) and
+ * resolveRunAssets (dispatch boundary) — one admission source, no drift.
+ */
+export function assertDiscoveredSkillGrant(tier: AgentTier, ceiling: EffectiveCeiling, key: string): void {
+  try {
+    assertSafeSkillKey(key)
+  } catch (e) {
+    if (!(e instanceof SkillKeyError)) throw e
+    throw new GrantError(`authority: skill grant "${key}" is not a valid catalog key — ${e.message}`)
+  }
+  if (!ceiling.base.allowDiscoveredSkills) {
+    throw new GrantError(
+      `authority: tier "${tier}" does not admit discovered skills — remove "${key}" or set allowDiscoveredSkills in bundles/${tier}.json`,
+    )
+  }
+  if (!ceiling.discoveredSkills.has(key)) throw new GrantError(describeSkillRejection(tier, key))
+}
+
+/**
+ * Server names RESERVED for K's OWN tier-template servers. A discovered host
+ * server carrying one of these names could IMPERSONATE a K server: it would
+ * mount under the exact mcp__<name> grant token agents associate with K's
+ * trusted store/intelligence servers (and, when the bare tier name is narrowed
+ * out of a profile, would dodge the run-time mount-collision guard entirely —
+ * A3 review MEDIUM). Admission refuses them unconditionally. Keep in sync with
+ * the union of every agent-config/mcp/<tier>.json server key — locked by an
+ * invariant test in authority-discovered-ceiling.test.ts.
+ */
+export const K_NATIVE_SERVER_NAMES: ReadonlySet<string> = new Set(['kstore', 'logistics', 'mgmt', 'gitnexus'])
+
+/**
+ * Fail-closed admission check for ONE qualified MCP grant (D-070): key grammar,
+ * tier opt-in, enabled+TRUSTED+ok admission, and a reserved-name refusal (a host
+ * server may never mount under a K-native server name). Returns the server NAME
+ * (the mcp__<name> grant token / mount key). Shared primitive — see above.
+ */
+export function assertDiscoveredServerGrant(tier: AgentTier, ceiling: EffectiveCeiling, key: string): string {
+  try {
+    assertSafeSkillKey(key) // same ONE canonical key grammar
+  } catch (e) {
+    if (!(e instanceof SkillKeyError)) throw e
+    throw new GrantError(`authority: MCP grant "${key}" is not a valid catalog key — ${e.message}`)
+  }
+  if (!ceiling.base.allowDiscoveredServers) {
+    throw new GrantError(
+      `authority: tier "${tier}" does not admit discovered MCP servers — remove "${key}" or set allowDiscoveredServers in mcp/${tier}.json`,
+    )
+  }
+  const name = ceiling.discoveredServers.get(key)
+  if (!name) throw new GrantError(describeServerRejection(tier, key))
+  if (K_NATIVE_SERVER_NAMES.has(name)) {
+    throw new GrantError(
+      `authority: discovered MCP server "${key}" mounts as "${name}" — that name is RESERVED for K's own servers (a host server may not impersonate it; rename it on the host)`,
+    )
+  }
+  return name
+}
+
+/**
  * Fail-closed validation of a profile's FINAL grant arrays against the tier's
  * EFFECTIVE ceiling. Replaces the assertTierCeiling+assertMcpGrants pair at the
  * profile boundary and is reused by run-asset resolution (one source, no drift).
@@ -336,18 +398,7 @@ export function assertEffectiveGrants(
   // not the derived tool-ceiling symptom.
   for (const entry of grants.skills) {
     if (!entry.includes(':')) continue // bare k-native name — the synth bundle ceiling covers it, exactly today
-    try {
-      assertSafeSkillKey(entry)
-    } catch (e) {
-      if (!(e instanceof SkillKeyError)) throw e
-      throw new GrantError(`authority: skill grant "${entry}" is not a valid catalog key — ${e.message}`)
-    }
-    if (!ceiling.base.allowDiscoveredSkills) {
-      throw new GrantError(
-        `authority: tier "${tier}" does not admit discovered skills — remove "${entry}" or set allowDiscoveredSkills in bundles/${tier}.json`,
-      )
-    }
-    if (!ceiling.discoveredSkills.has(entry)) throw new GrantError(describeSkillRejection(tier, entry))
+    assertDiscoveredSkillGrant(tier, ceiling, entry)
   }
 
   const mountedNames: string[] = []
@@ -356,20 +407,8 @@ export function assertEffectiveGrants(
       mountedNames.push(entry) // tier-template server — today's grant check below
       continue
     }
-    try {
-      assertSafeSkillKey(entry) // same ONE canonical key grammar
-    } catch (e) {
-      if (!(e instanceof SkillKeyError)) throw e
-      throw new GrantError(`authority: MCP grant "${entry}" is not a valid catalog key — ${e.message}`)
-    }
-    if (!ceiling.base.allowDiscoveredServers) {
-      throw new GrantError(
-        `authority: tier "${tier}" does not admit discovered MCP servers — remove "${entry}" or set allowDiscoveredServers in mcp/${tier}.json`,
-      )
-    }
-    const name = ceiling.discoveredServers.get(entry)
-    if (!name) throw new GrantError(describeServerRejection(tier, entry))
-    mountedNames.push(name) // the grant token keys on the server NAME, not the qualified key
+    // the grant token keys on the server NAME, not the qualified key
+    mountedNames.push(assertDiscoveredServerGrant(tier, ceiling, entry))
   }
 
   for (const tool of grants.allowedTools) {
