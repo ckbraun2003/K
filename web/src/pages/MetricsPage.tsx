@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import type { MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, RoutingStats, TimeseriesGroupBy } from '@k/shared'
 import { api } from '../lib/api'
-import { cn } from '../lib/cn'
 import { formatCompact, formatUsd, tileValue, weightedSuccessRate, weightedErrorRate, weightedAvgLatencyMs } from '../lib/format-metrics'
 import TimeseriesChart from '../components/TimeseriesChart'
 import QualityTrendChart from '../components/QualityTrendChart'
 import MetricCard from '../components/MetricCard'
+import SegControl from '../components/SegControl'
 import type { Metric } from '../lib/chart'
 
 /** Latency (ms) → '1.2s' for the KPI tiles. */
@@ -15,36 +15,6 @@ function fmtLatencySecs(ms: number): string {
 }
 
 type Days = 14 | 30 | 60
-
-function SegControl<T extends string>({
-  options,
-  value,
-  onChange,
-}: {
-  options: { label: string; value: T }[]
-  value: T
-  onChange: (v: T) => void
-}) {
-  return (
-    <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--raised)] p-0.5 gap-0.5">
-      {options.map(opt => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          aria-pressed={value === opt.value}
-          className={cn(
-            'rounded px-3 py-1 text-xs font-medium transition-colors duration-150',
-            value === opt.value
-              ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm'
-              : 'text-[var(--muted)] hover:text-[var(--text)]'
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 /** Bar colour for a series, keyed to its ORIGINAL position in `data.series` (the same
  *  index the stacked chart colours by) — so a series gets the SAME swatch here and in
