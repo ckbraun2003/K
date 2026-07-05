@@ -20,6 +20,7 @@ const KEYS = {
   enabled: 'ollama.enabled',
   baseUrl: 'ollama.baseUrl',
   model:   'ollama.model',
+  numCtx:  'ollama.numCtx',
 } as const
 
 const VOICE_KEYS = {
@@ -58,7 +59,24 @@ export function activeOllamaModel(): string {
   return readKey(KEYS.model, process.env.OLLAMA_MODEL ?? 'llama3.2')
 }
 
+export const DEFAULT_OLLAMA_NUM_CTX = 16_384
+
+/** The explicit num_ctx for ollama AGENT runs (D-072): app_config
+ *  `ollama.numCtx`, seeded from K_OLLAMA_NUM_CTX, defaulting to 16384. A
+ *  non-numeric / non-positive stored value degrades to the default. */
+export function ollamaNumCtx(): number {
+  const raw = readKey(KEYS.numCtx, process.env.K_OLLAMA_NUM_CTX ?? '')
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_OLLAMA_NUM_CTX
+}
+
 // ── Public setters ────────────────────────────────────────────────────────────
+
+export function setOllamaNumCtx(v: number): void {
+  const s = String(Math.floor(v))
+  configDb.set(KEYS.numCtx, s)
+  cache.set(KEYS.numCtx, s)
+}
 
 export function setOllamaEnabled(v: boolean): void {
   const s = v ? 'true' : 'false'

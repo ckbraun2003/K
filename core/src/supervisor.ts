@@ -27,8 +27,30 @@ import { isPathWithin } from './paths.js'
 import { synthesizeConfigDir, pruneOrphanAgentRuns, kSecretaryConfigPaths, type SynthesizedConfig } from './agent-config.js'
 import { DEFAULT_PROFILE } from './profiles.js'
 import { TERMINAL_RUN_STATUSES } from './run-lifecycle.js'
+import { startOllamaAgentRun, type OllamaAgentDeps } from './ollama-agent/loop.js'
+import { httpTransport, type OllamaChatTransport } from './ollama-agent/transport.js'
+import { ollamaBaseUrl, ollamaNumCtx } from './config-store.js'
 
 const PERMISSION_MODE = resolvePermissionMode(process.env.RUN_PERMISSION_MODE)
+
+/**
+ * D-072: the in-process AGENT loop (skills + MCP tools over /api/chat) is the
+ * DEFAULT engine for ollama runs; `K_OLLAMA_AGENT_MODE=legacy` reverts to the
+ * raw `ollama run <model> <prompt>` pipe. Read at dispatch time (never frozen
+ * at module load) so an operator/test can flip it without a restart. Pure +
+ * exported for unit-locking the gate.
+ */
+export function ollamaAgentModeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.K_OLLAMA_AGENT_MODE ?? '').trim().toLowerCase() !== 'legacy'
+}
+
+// Test-only overrides for the ollama agent loop (see __testHooks): there is no
+// production path that injects a fake daemon or a fake MCP connector, and the
+// integration tests must neither hit a live Ollama nor spawn REAL run-scoped
+// MCP children against the shared test SQLite (the documented K_DATA_DIR
+// flake source).
+let ollamaTransportOverride: OllamaChatTransport | null = null
+let ollamaMcpConnectorOverride: OllamaAgentDeps['connectMcp'] | null = null
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // core/src/* and core/dist/* are both two levels below the repo root
@@ -633,83 +655,131 @@ async function runAgent(
       )
     }
 
-    const proc = execa(
-      provider.binary,
-      provider.buildArgs(prompt, {
-        inWorktree, permissionMode: PERMISSION_MODE, model: run.model, interactive,
-        // Session flags (K only): establish (--session-id) or continue (--resume) the
-        // thread's stable CLI session. Absent for regular runs → no session flags.
-        sessionId: session?.sessionId,
-        resumeSession: session?.resume,
-        claudeConfig: synth
-          ? {
-              allowedTools: synth.allowedTools,
-              disallowedTools: synth.disallowedTools,
-              mcpConfigPath: synth.mcpConfigPath,
-              settingsPath: synth.settingsPath,
-              appendSystemPromptFile: synth.appendSystemPromptFile,
+    // Shared validated-ingest seam for BOTH engines: validate → accumulate →
+    // emit. The claude stdout handler feeds it PARSED lines; the ollama agent
+    // loop (D-072) feeds it pre-shaped events. Closes over this run's usage
+    // accumulators, so the terminal-status code below stays engine-agnostic.
+    const onEvent = (event: AgentEvent): void => {
+      const validated = validateAgentEvent(event, run.id, event.seq)
+      if (!validated) return
+      // Accumulate usage (F-057: sum per-turn `usage` events; cost last-wins with
+      // a real 0 a legitimate value — see accumulate)
+      ;({ tokensIn, tokensOut, costUsd } = accumulate({ tokensIn, tokensOut, costUsd }, validated))
+      // Best-effort interim-usage capture for the killed-run fallback: an `assistant`
+      // line carries THAT MESSAGE'S own usage before the turn-end `result`. Output is
+      // SUMMED across messages; input takes the MAX (see accumulateInterimUsage). Only
+      // assistant events feed this — never the `result` (type 'usage') event, whose
+      // totals accumulate above — so a completed run's accounting is untouched; only a
+      // mid-turn kill reads it back.
+      lastInterimUsage = accumulateInterimUsage(lastInterimUsage, validated)
+      eventBus.emitEvent(validated)
+    }
+
+    // Both engine paths produce a terminal-shaped `result`; the shared
+    // terminal-status/cleanup code below consumes ONLY `exitCode`.
+    let result: { exitCode?: number | null }
+
+    if (provider.name === 'ollama' && ollamaAgentModeEnabled()) {
+      // D-072: K-owned in-process tool loop — skills + MCP with full event
+      // parity — replaces the legacy `ollama run` pipe (K_OLLAMA_AGENT_MODE=
+      // legacy reverts). The supervisor stays the lifecycle owner: handle.kill
+      // (AbortController.abort — idempotent, tolerant of the SIGTERM/SIGKILL
+      // escalation's signal args) registers as the ActiveProc kill, and the
+      // same terminal-status path below finalizes the run.
+      const handle = startOllamaAgentRun(
+        {
+          runId: run.id,
+          model: run.model,
+          prompt,
+          cwd,
+          profile,
+          // Same F-068 predicate as the claude path: an external-target run
+          // must not mount gitnexus. A persistent session is claude-only, so
+          // `!!session` is always false here in practice.
+          suppressGitnexus: shouldSuppressGitnexus(run.cwd, !!session),
+          nextSeq: () => nextSeq(run.id),
+          onEvent,
+          numCtx: ollamaNumCtx(),
+        },
+        {
+          transport: ollamaTransportOverride ?? httpTransport(ollamaBaseUrl()),
+          ...(ollamaMcpConnectorOverride ? { connectMcp: ollamaMcpConnectorOverride } : {}),
+        },
+      )
+      activeProcesses.set(run.id, { kill: handle.kill, stdin: null, interactive: false })
+      // NB the interim-usage killed-run recovery below is a structural no-op for
+      // this branch: only claude `assistant` lines carry per-message tokens, so
+      // lastInterimUsage stays null here. Ollama totals are already summed from
+      // the per-ITERATION usage events, so a mid-iteration kill loses only the
+      // unsent current iteration — honestly unmeasured either way.
+      result = await handle.done
+    } else {
+      const proc = execa(
+        provider.binary,
+        provider.buildArgs(prompt, {
+          inWorktree, permissionMode: PERMISSION_MODE, model: run.model, interactive,
+          // Session flags (K only): establish (--session-id) or continue (--resume) the
+          // thread's stable CLI session. Absent for regular runs → no session flags.
+          sessionId: session?.sessionId,
+          resumeSession: session?.resume,
+          claudeConfig: synth
+            ? {
+                allowedTools: synth.allowedTools,
+                disallowedTools: synth.disallowedTools,
+                mcpConfigPath: synth.mcpConfigPath,
+                settingsPath: synth.settingsPath,
+                appendSystemPromptFile: synth.appendSystemPromptFile,
+              }
+            : undefined,
+        }),
+        // Point CLAUDE_CONFIG_DIR at the synthesized dir (+ resolved auth) for claude;
+        // K_RUN_ID identifies the run to the kstore MCP child (it also reads it from
+        // mcp.json env; the spawn env is the process-wide, defense-in-depth copy, and
+        // K_DATA_DIR already propagates via ...process.env). legacy ollama keeps
+        // today's env-free spawn options byte-for-byte unchanged.
+        synth
+          ? { cwd, reject: false, all: true, env: { ...process.env, CLAUDE_CONFIG_DIR: synth.configDir, K_RUN_ID: run.id, ...synth.authEnv } }
+          : { cwd, reject: false, all: true }
+      )
+
+      activeProcesses.set(run.id, { kill: proc.kill.bind(proc), stdin: proc.stdin, interactive })
+
+      // Interactive runs read EVERY turn from stdin (the prompt is not in argv), so
+      // seed the first turn here. EPIPE (process already gone) is handled by the exit path.
+      if (interactive && proc.stdin) {
+        try { proc.stdin.write(userTurnEnvelope(prompt)) } catch { /* exit path finalizes */ }
+      }
+
+      // Stream output line by line
+      if (proc.stdout) {
+        let buf = ''
+        proc.stdout.on('data', (chunk: Buffer) => {
+          buf += chunk.toString('utf8')
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? ''
+          for (const line of lines) {
+            if (!line.trim()) continue
+            const s = nextSeq(run.id)
+            // Parse with the ROUTED provider's parser, then feed the shared
+            // validated-ingest seam (validate → accumulate → emit) so malformed
+            // output can't poison the store or WS stream.
+            const parsed = provider.parseLine(line, run.id, s)
+            if (parsed) onEvent(parsed)
+            // Interactive: a `result` line ends a turn while the process stays alive
+            // on stdin. Park the run at awaiting_input (not done) and arm an idle
+            // timeout; sendInput() flips it back to running with the next turn.
+            if (interactive && !endingRuns.has(run.id) && isTurnEndLine(line)) {
+              emitStatusEvent(run.id, 'awaiting_input', nextSeq(run.id), Date.now())
+              eventBus.emitRunUpdate({ ...run, status: 'awaiting_input', tokensIn, tokensOut, costUsd })
+              clearIdleTimer(run.id)
+              idleTimers.set(run.id, setTimeout(() => { endSession(run.id) }, INTERACTIVE_IDLE_MS))
             }
-          : undefined,
-      }),
-      // Point CLAUDE_CONFIG_DIR at the synthesized dir (+ resolved auth) for claude;
-      // K_RUN_ID identifies the run to the kstore MCP child (it also reads it from
-      // mcp.json env; the spawn env is the process-wide, defense-in-depth copy, and
-      // K_DATA_DIR already propagates via ...process.env). ollama keeps today's
-      // env-free spawn options byte-for-byte unchanged.
-      synth
-        ? { cwd, reject: false, all: true, env: { ...process.env, CLAUDE_CONFIG_DIR: synth.configDir, K_RUN_ID: run.id, ...synth.authEnv } }
-        : { cwd, reject: false, all: true }
-    )
-
-    activeProcesses.set(run.id, { kill: proc.kill.bind(proc), stdin: proc.stdin, interactive })
-
-    // Interactive runs read EVERY turn from stdin (the prompt is not in argv), so
-    // seed the first turn here. EPIPE (process already gone) is handled by the exit path.
-    if (interactive && proc.stdin) {
-      try { proc.stdin.write(userTurnEnvelope(prompt)) } catch { /* exit path finalizes */ }
-    }
-
-    // Stream output line by line
-    if (proc.stdout) {
-      let buf = ''
-      proc.stdout.on('data', (chunk: Buffer) => {
-        buf += chunk.toString('utf8')
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.trim()) continue
-          const s = nextSeq(run.id)
-          // Parse with the ROUTED provider's parser, then validate at the ingest
-          // boundary so malformed output can't poison the store or WS stream.
-          const parsed = provider.parseLine(line, run.id, s)
-          const event = parsed ? validateAgentEvent(parsed, run.id, s) : null
-          if (event) {
-            // Accumulate usage (F-057: sum per-turn `usage` events; cost last-wins with
-            // a real 0 a legitimate value — see accumulate)
-            ;({ tokensIn, tokensOut, costUsd } = accumulate({ tokensIn, tokensOut, costUsd }, event))
-            // Best-effort interim-usage capture for the killed-run fallback: an `assistant`
-            // line carries THAT MESSAGE'S own usage before the turn-end `result`. Output is
-            // SUMMED across messages; input takes the MAX (see accumulateInterimUsage). Only
-            // assistant events feed this — never the `result` (type 'usage') event, whose
-            // totals accumulate above — so a completed run's accounting is untouched; only a
-            // mid-turn kill reads it back.
-            lastInterimUsage = accumulateInterimUsage(lastInterimUsage, event)
-            eventBus.emitEvent(event)
           }
-          // Interactive: a `result` line ends a turn while the process stays alive
-          // on stdin. Park the run at awaiting_input (not done) and arm an idle
-          // timeout; sendInput() flips it back to running with the next turn.
-          if (interactive && !endingRuns.has(run.id) && isTurnEndLine(line)) {
-            emitStatusEvent(run.id, 'awaiting_input', nextSeq(run.id), Date.now())
-            eventBus.emitRunUpdate({ ...run, status: 'awaiting_input', tokensIn, tokensOut, costUsd })
-            clearIdleTimer(run.id)
-            idleTimers.set(run.id, setTimeout(() => { endSession(run.id) }, INTERACTIVE_IDLE_MS))
-          }
-        }
-      })
-    }
+        })
+      }
 
-    const result = await proc
+      result = await proc
+    }
     const wasKilled = killedRuns.delete(run.id)
     const wasEnded = endingRuns.delete(run.id)
     // A gracefully-ended interactive session is 'done' regardless of the exit code
@@ -990,4 +1060,13 @@ export const __testHooks = {
   },
   /** Initialise the per-run seq counter so emit paths have a base. */
   initSeq(runId: string) { seqCounters.set(runId, 0) },
+  /** Override the ollama agent loop's chat transport (null restores the real
+   *  daemon transport). Test-only — the integration tests script /api/chat
+   *  without a live Ollama through this. */
+  setOllamaTransport(t: OllamaChatTransport | null) { ollamaTransportOverride = t },
+  /** Override the ollama agent loop's MCP connector (null restores the real
+   *  stdio client). Test-only — WITHOUT this, an integration run would spawn
+   *  the run-scoped kstore/logistics/mgmt servers as REAL children against the
+   *  shared test SQLite (the documented K_DATA_DIR flake source). */
+  setOllamaMcpConnector(c: OllamaAgentDeps['connectMcp'] | null) { ollamaMcpConnectorOverride = c },
 }
