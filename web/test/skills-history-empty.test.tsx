@@ -1,6 +1,7 @@
 /**
- * SkillsPage — F-051: expanding a skill's run history with 0 runs must render an
- * empty-state ("No runs yet."), not literally nothing. Regression lock.
+ * AutomationsTab (formerly the SkillsPage body — wave C2 extraction) — F-051:
+ * expanding a skill's run history with 0 runs must render an empty-state
+ * ("No runs yet."), not literally nothing. Regression lock; assertions unchanged.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
@@ -26,7 +27,7 @@ vi.mock('../src/lib/api', () => ({
 }))
 vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 
-import SkillsPage from '../src/pages/SkillsPage'
+import AutomationsTab from '../src/pages/skills/AutomationsTab'
 
 const skill: Skill = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -38,7 +39,7 @@ function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <SkillsPage />
+      <AutomationsTab />
     </QueryClientProvider>,
   )
 }
@@ -50,7 +51,7 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 
-describe('SkillsPage — F-051 empty run history', () => {
+describe('AutomationsTab — F-051 empty run history', () => {
   it('shows "No runs yet." when the expanded history has zero runs', async () => {
     renderPage()
     fireEvent.click(await screen.findByTestId('skill-history-toggle'))

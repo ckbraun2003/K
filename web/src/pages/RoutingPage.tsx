@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import type { MetricsTimeseries, RoutingStats } from '@k/shared'
 import { api } from '../lib/api'
-import { cn } from '../lib/cn'
 import TimeseriesChart from '../components/TimeseriesChart'
+import SegControl from '../components/SegControl'
 
 type Days = 14 | 30 | 60
 
@@ -38,36 +38,6 @@ export function formatCost(v: number): string {
 export function formatCostTotal(v: number): string {
   if (!Number.isFinite(v)) return '—'
   return `$${v.toFixed(2)}`
-}
-
-function SegControl<T extends string>({
-  options,
-  value,
-  onChange,
-}: {
-  options: { label: string; value: T }[]
-  value: T
-  onChange: (v: T) => void
-}) {
-  return (
-    <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--raised)] p-0.5 gap-0.5">
-      {options.map(opt => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          aria-pressed={value === opt.value}
-          className={cn(
-            'rounded px-3 py-1 text-xs font-medium transition-colors duration-150',
-            value === opt.value
-              ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm'
-              : 'text-[var(--muted)] hover:text-[var(--text)]'
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  )
 }
 
 export default function RoutingPage() {

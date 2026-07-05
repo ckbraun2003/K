@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Run } from '@k/shared'
 import { onWsMessage } from '../lib/ws'
 import { navigate } from '../lib/route'
-import { makeRunUpdateInvalidator, makeProjectListInvalidator } from '../lib/live-invalidate'
+import { makeRunUpdateInvalidator, makeProjectListInvalidator, makeCapabilitiesInvalidator } from '../lib/live-invalidate'
 import { RUNS_LIST_KEY, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
 import { cleanRunPrompt } from '../lib/prompt'
 
@@ -21,9 +21,13 @@ export default function ActivityStrip() {
     // github_update → refresh the projects list so an externally-registered
     // project's card appears live, without a manual reload (F-036).
     const projectListInvalidator = makeProjectListInvalidator(qc)
+    // capabilities_update → refresh the catalog; terminal run_update → refresh
+    // the skill draft it was authoring (wave C4).
+    const capabilitiesInvalidator = makeCapabilitiesInvalidator(qc)
     const unsubscribe = onWsMessage(msg => {
       invalidator.handler(msg)
       projectListInvalidator(msg)
+      capabilitiesInvalidator(msg)
     })
     return () => {
       unsubscribe()

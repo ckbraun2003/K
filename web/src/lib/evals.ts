@@ -169,7 +169,7 @@ export function discriminationStatus(
   return { label: 'n/a', colorClass: 'text-[var(--muted)]' }
 }
 
-/** Regression verdict → badge label + background-badge classes (SkillsPage EVAL_BADGE style). */
+/** Regression verdict → badge label + background-badge classes (AutomationsTab EVAL_BADGE style). */
 export function regressionBadge(
   c: BaselineCompare | undefined,
 ): { label: string; colorClass: string } {
@@ -181,7 +181,7 @@ export function regressionBadge(
   return { label: 'no baseline', colorClass: 'bg-[var(--raised)] text-[var(--muted)]' }
 }
 
-/** Run status → badge classes. Mirrors SkillsPage's RUN_STATUS_COLOR map (default muted). */
+/** Run status → badge classes. Mirrors AutomationsTab's RUN_STATUS_COLOR map (default muted). */
 const RUN_STATUS_COLOR: Record<string, string> = {
   queued: 'bg-amber/15 text-[var(--amber)]',
   running: 'bg-accent/15 text-[var(--accent-hover)]',
