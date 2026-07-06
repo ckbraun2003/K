@@ -2,7 +2,7 @@
 title: Workflows & Memory
 icon: "⟲"
 status: active
-updated: 2026-07-02
+updated: 2026-07-05
 ---
 
 > **Status — BUILT (Phase 5, finalized P5.7).** The single hardcoded delegation loop
@@ -106,6 +106,42 @@ no separate sub-run table (reused; see §13). The worker roles are now real **su
 role runs **every wave, no exceptions**; a separate whole-implementation review runs before merge. As
 it goes, the orchestrator marks each ticket, loop phase, review, and the CI gate through the kstore
 status-write tools so the run is visible as a live checklist (§13).
+
+## Skills — capability catalog vs automation registry (BUILT — host-integration program)
+
+The skills a run can mount and the skills the operator automates are **one store with two
+surfaces** (D-069/D-071):
+
+- **The capability catalog** (`GET /api/capabilities/skills`, the Skills-page Catalog tab — §08)
+  is every *mountable* skill with provenance: K-native rows **plus discovered host assets** (user /
+  project / plugin skills), keyed by **one canonical qualified-key grammar** (the wire `id` *is*
+  the key): bare `<name>` (k-native — zero migration for existing rows and profiles),
+  `user:<name>`, `project:<projectId>:<name>`, `plugin:<plugin>@<marketplace>:<name>`. A
+  discovered row is a **metadata snapshot** (source kind, origin path, content hash, est-tokens,
+  `status ok|missing`) — default-disabled behind the K-scoped overlay; its content stays on host
+  disk and is vendor-copied into the run config at synth time (§02).
+- **The automation registry** (the Automations tab) is the pre-existing K skills surface —
+  triggers, schedules, eval history — unchanged: `GET /api/skills` stays **byte-compatible**,
+  returning k-native rows only.
+
+**Est-token conventions.** Every figure comes from one heuristic seam
+(`core/src/token-estimate.ts`: `ceil(chars/4)`, documented ±25%, deliberately no tokenizer
+dependency — a one-module swap seam) and is labeled an *estimate*, never a billed figure:
+`est_tokens` = the full SKILL.md (the on-invocation cost); `est_tokens_meta` = the raw frontmatter
+block (the always-loaded index cost; name+description fallback when no block parses); an MCP
+server's `est_tokens` = its probed tool-schema JSON — **null until probed**.
+
+**The Skill Creator (D-071)** grows K's own library through a drafts lifecycle (`skill_drafts`
+table; UI at the hidden `#/skill-creator` route — §08): **brief → authoring run** (dispatched
+under the fail-closed `k-secretary` profile — a missing profile fails the draft rather than
+silently escalating; the authoring-guidance skill `agent-config/skills/skill-authoring` is
+embedded in the prompt) **→ ready | failed → manual edit / refine revisions** (a refine on a
+failed *first* draft is a fresh retry at revision 0) **→ evaluate** (the same eval harness skills
+use, over a parallel `skill_draft_evals` table, cascade-deleted with its draft) **→ save**. Save
+lands **exclusively in K's library** — `agent-config/skills/<slug>/SKILL.md` (slug guarded incl.
+Windows reserved device names; 409 on collision; crash-honest rollback) — and registers the
+catalog row with provenance `'k'`. A draft is never presented as a saved skill until `/save`
+lands it.
 
 ## Memory — layered, starting at A
 

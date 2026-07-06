@@ -2,14 +2,14 @@
 title: User Guide
 icon: "❔"
 status: active
-updated: 2026-06-27
+updated: 2026-07-05
 ---
 
 The mental model is **you direct an agent organization**: you talk to **K** (a friendly secretary),
 K handles logistics and hands engineering work to the **Chief**, and the Chief staffs it to
 **staff-engineer leads** who do the coding (§03). The org tiers, the K-home chat, and the
-Direct/Observe IA are **PLANNED for Phase 5** — so this guide covers **how you use the harness
-today** (dispatching runs, projects, verification, the graph) and notes where the org reshapes it.
+Direct/Observe IA **shipped with Phase 5** (§03, §08) — this guide covers the day-to-day basics
+(dispatching runs, projects, verification, the graph) and notes where the org reshapes them.
 It mirrors the README quick-start and stays consistent with §08 (Dashboard) and §11 (Operations) —
 those hold the design spec and the full operations reference; this is the *how do I actually use it*
 guide. Reach it any time from the **Help** entry in the sidebar.
@@ -46,7 +46,7 @@ The shell has four persistent zones: the icon **sidebar** (left), the **command 
 | ▦ | **Projects** | Register and manage projects |
 | ◉ | **Fleet Graph** | Every project as a node, sized by activity and colored by health |
 | ▶ | **Runs** | Live and past agent runs, with replayable consoles |
-| ⚒ | **Skills** | Author and trigger reusable skills (onboarding, verify-project, …) |
+| ⚒ | **Skills** | The four-tab **capability catalog** (Catalog · MCP · Hooks · Automations, see below) — host + K skills, MCP trust, and the automation registry (onboarding, verify-project, …) |
 | ⋔ | **Workflows** | The delegation loop as designed + a live sub-agent tree for a chosen run |
 | ∿ | **Metrics** | Tokens, cost, and run trends over time |
 | ⇄ | **Routing** | Model routing stats |
@@ -54,7 +54,7 @@ The shell has four persistent zones: the icon **sidebar** (left), the **command 
 | ⚙ | **Settings** *(footer)* | Provider/auth status (no secrets) + the guarded global CLAUDE.md editor |
 | ❔ | **Help** *(footer)* | Opens this bible |
 
-Each icon shows a tooltip on hover/focus; the active destination gets the accent pill. Keyboard `g` then a letter jumps (`g p` → Projects, `g w` → Workflows, `g ,` → Settings). **Phase 5** regroups these into **Direct** (K-home · Chief · Orchestrators · Workflows · Projects) and **Observe** (Runs · Graph · Metrics · Routing · Terminal), with K-home as the landing (§08).
+Each icon shows a tooltip on hover/focus; the active destination gets the accent pill. Keyboard `g` then a letter jumps (`g p` → Projects, `g w` → Workflows, `g ,` → Settings). **Phase 5** regrouped these into **Direct** (K-home · Chief · Orchestrators · Workflows · Projects · Skills · Memory) and **Observe** (Runs · Graph · Metrics · Routing · Evals · Terminal), with K-home as the landing (§08).
 
 **⌘K command bar** — one input, two behaviors ranked in a single result list:
 
@@ -98,6 +98,42 @@ Onboarding enforces the project invariants by **scaffolding** whatever is missin
 Open the project workspace's **Artifacts** tab (formerly "Bible"). The compiled bible renders in-app; each section has an **edit** action that opens the markdown source. Save your edit, then **recompile** — the tab triggers a fresh compile and re-renders. (Under the hood: sections live as markdown under the bible directory; the compiler regenerates the self-contained HTML. Never hand-edit the compiled HTML — it's regenerated and your changes would be lost.)
 
 The section **edit** and **Recompile** actions live **only** in this project-workspace Artifacts tab. The sidebar **Help** view — where the Help entry opens this guide — is **read-only** (it just renders compiled artifacts), so reach for the workspace Artifacts tab when you actually want to change a section.
+
+## Using host skills, MCP servers, and local models
+
+K discovers what your Claude Code install already has — global skills, project skills, plugin
+skills, and MCP servers — into a **capability catalog** (§04). Everything lands **disabled** until
+you opt it in, and K never modifies your `~/.claude`.
+
+1. **Browse the catalog.** Open **Skills** (the Catalog tab). Each row carries a **source badge**
+   (k · global · project · plugin — the plugin badge names the plugin), a **model-compat badge**
+   (universal / claude-only / mcp-dependent), and a **token chip**. The strip at the top totals
+   your enabled set — `Enabled skills … MCP … Total context overhead` — as **estimates, not
+   billed tokens** (chars/4, ±25%).
+2. **Enable a host skill.** Preview its SKILL.md, then flip the enable toggle. That is a K-scoped
+   overlay row — the file on disk is untouched, and the skill still mounts nowhere until a tier
+   admits it and a profile (or the org default) grants it.
+3. **Trust + enable a discovered MCP server.** On the MCP tab a host server starts untrusted.
+   **Trust & enable** opens a review dialog showing the exact command, args, and env **names**
+   (never values) — read it; you are authorizing code execution inside runs. If the host config
+   later changes, K auto-disables the server and clears trust until you re-review.
+4. **Probe its cost.** After trust+enable, **Probe** connects to the server for real (15s cap) and
+   fills in its tool count and token estimate — until then the chip reads unestimated.
+5. **Mount it on a lead.** Open **Orchestrators → a lead → Skills / MCP servers** (or **Settings →
+   Org-default authority**) and add the capability through the picker — discovered entries show
+   their badge + token chip, and anything disabled is grayed with a link back to the catalog.
+   K and the Chief take no discovered capabilities (read-only by design, §03).
+6. **Run on a local model.** Dispatch with an Ollama model routed/selected as usual — skills and
+   MCP now work there too. The run console badge tells you what engine you got: **"local ·
+   tools"** (full tool loop) or **"local · prompt-only"** (the model can't call tools, so skills
+   were inlined and the run is prompt-only — it never silently switches to claude).
+7. **Rescan when the host changes.** Installed a new plugin or edited `~/.claude.json`? Press
+   **Rescan** on the Skills page — your enables survive; vanished assets flag `missing`.
+8. **Create a skill.** From the catalog, open the **Skill Creator** (`#/skill-creator`): write a
+   brief → an authoring run drafts the SKILL.md → edit or **refine** with feedback → **evaluate**
+   it with the same eval harness real skills use → **save**, which lands it in K's own library
+   (`agent-config/skills/`) and registers it in the catalog. Until you save, the header honestly
+   reads "agent-generated draft — not saved".
 
 ## Troubleshooting
 

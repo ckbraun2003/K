@@ -5,6 +5,12 @@ directs AI agents to do real engineering work across a fleet of projects: managi
 maintaining code through GitHub pull requests, and running verification skills that keep the agents
 honest. Everything is visible on a high-clarity dashboard.
 
+K also integrates with an existing Claude Code install rather than replacing it: host skills, plugin
+skills, and MCP servers are discovered into a provenance-labeled **capability catalog** (everything
+default-disabled; MCP servers trust-gated behind an explicit review step, and your `~/.claude` is
+never modified), local Ollama models run skills and MCP with full parity through K's own tool loop,
+and a built-in **Skill Creator** drafts, evaluates, and saves new skills into K's library.
+
 This is a quick-start you can follow top to bottom in about five minutes. For the full reference, see
 the project bible (linked at the bottom).
 
@@ -80,7 +86,7 @@ The handful of vars that matter for local testing (real defaults shown):
 | `RUN_PERMISSION_MODE` | `acceptEdits` | `claude --permission-mode` for worktree runs. One of `default` \| `plan` \| `acceptEdits` \| `bypassPermissions` (invalid values fall back to `acceptEdits`). `bypassPermissions` is the explicit opt-in for fully-autonomous runs. |
 
 This is the short list. For the complete set (host binding, CORS, data dir, Ollama routing, GitHub
-polling, the web terminal, etc.) see bible §09 Operations.
+polling, the web terminal, etc.) see bible §11 Operations.
 
 ## Remote access
 
@@ -96,7 +102,7 @@ On first run, core generates a strong `HARNESS_TOKEN`, saves it to `data/auth-to
 `0600`), and prints it once — copy it then. Later boots only show a masked confirmation. Set
 `HARNESS_TOKEN` yourself to pin a specific token. Core **refuses to start** if `HOST` is non-loopback
 while the token is weak or empty. When you open the dashboard remotely it prompts for the token (stored
-in `sessionStorage`); on localhost it just works with no login. Full details: bible §09 Operations →
+in `sessionStorage`); on localhost it just works with no login. Full details: bible §11 Operations →
 Remote access.
 
 ## Common commands
@@ -126,5 +132,5 @@ pnpm typecheck    # type-check all workspaces
 
 The living documentation is the **project bible** — a self-contained page at
 `artifacts/project-bible.html`, built from the structured sources under `artifacts/bible/` and
-regenerated on core startup. It's also viewable in-app under **Docs**. Start with §09 Operations for the
-full configuration and operations reference.
+regenerated on core startup. It's also reachable in-app via the footer **Help** entry. Start with
+§11 Operations for the full configuration and operations reference.

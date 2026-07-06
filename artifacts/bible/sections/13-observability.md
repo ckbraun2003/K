@@ -2,7 +2,7 @@
 title: Observability
 icon: "👁"
 status: active
-updated: 2026-07-02
+updated: 2026-07-05
 ---
 
 Phase 4's Track D makes the harness **observable**: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard *surfaces* it powers. The *Implementation history* appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.
@@ -123,6 +123,27 @@ With loop-b b2 the org observability chain is COMPLETE: an engineering ask flows
 its result reports back up to K, and every tier — user, K, Chief, each lead, each sub-agent — is
 visible in one derived multi-tier tree over the same enrichment foundation, pairing helpers, and
 single-wire EventBus. No new table was added at any hop; the whole chain stays a derivation.
+
+## Capability + local-runtime observability (BUILT — host-integration program)
+
+The capability catalog (§04, §08) and the D-072 local runtime ride the same live wire:
+
+- **The `capabilities_update` WS event** broadcasts when a rescan completes or the enable/trust
+  overlay changes; `live-invalidate.ts` invalidates the `['capabilities']` queries so all four
+  Skills tabs (and the pickers) re-render live — the same throttled-invalidator wiring
+  `run_update` uses.
+- **Stat-strip methodology.** The CapabilityStatRow totals are `ceil(chars/4)` estimates (±25%,
+  `core/src/token-estimate.ts`), labeled `est`/`~` everywhere with an "estimates, not billed
+  tokens" tooltip; entries without an estimate (e.g. an unprobed MCP server) are **counted and
+  footnoted**, never silently dropped — the strip can under-state, but never hides.
+- **Local runs report real usage.** An ollama tool-loop run emits genuine token counts
+  (`prompt_eval_count` / `eval_count`) at `costUsd: 0` on the same per-turn usage events claude
+  runs use — so Metrics and Routing aggregate local runs on **real tokens at zero cost** instead
+  of fabricated zeros, and the provider grouping needed no change.
+- **The truthful run-start runtime event.** Every ollama-agent run opens with a `system` event
+  declaring the engine and its tool support, rendered as the RunConsole badge — **"local ·
+  tools"** vs **"local · prompt-only"** (§08). A degraded run is *visibly* degraded; it never
+  silently becomes a claude run.
 
 ## Implementation history (dashboard)
 

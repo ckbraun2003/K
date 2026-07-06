@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -234,9 +234,37 @@ running it) rather than floating on its own.
 > a **workflow-only run filter** (fed by the new `GET /api/workflows/runs`) with an all-runs
 > toggle; deep links default to all.
 
-Likewise, the standalone **Skills** destination folds into the orchestrator-detail **skills
-editor** above, where each skill is scoped to the lead that uses it rather than floating in a
-global list.
+### Skills — the capability catalog (BUILT — host-integration program, D-069..D-071)
+
+The **Skills** destination (D-024 originally planned to fold it away; the host-integration
+program made it first-class instead) is **one destination, four routed tabs**:
+
+| Tab | Content |
+|-----|---------|
+| **Catalog** (`#/skills`, default) | every mountable skill — K-native + discovered host assets — with a **source badge** (k · global · project · plugin; the plugin badge names the plugin), a **model-compat badge** (universal / claude-only / mcp-dependent), an **est-token chip**, the K-scoped **enable** toggle, a SKILL.md preview, and mountedBy chips; filters + search, a **Rescan** button, and a **warnings banner** (unreadable host dirs, malformed SKILL.md) |
+| **MCP** (`#/skills/mcp`) | tier-template servers (provenance `k`, born trusted, not toggleable) + discovered host servers behind the **TrustDialog** flow — review the full command / args / env **names** before "Trust & enable" — plus the explicit **probe** for tool-count/token estimates |
+| **Hooks** (`#/skills/hooks`) | read-only host-hook visibility with a not-executed-by-K banner (K runs execute only K's vendored hooks) |
+| **Automations** (`#/skills/automations`) | the pre-existing K automation registry (triggers, schedules, eval history), extracted verbatim as `AutomationsTab` |
+
+A **CapabilityStatRow** totals strip heads all four tabs — `Enabled skills: n · ~Xk tok — MCP: m
+servers · ~Yk tok — Total context overhead: ~Zk tok` — with an "estimates, not billed tokens"
+tooltip; entries without an estimate (e.g. an unprobed MCP server) are counted and footnoted,
+never silently dropped. The catalog invalidates live on the `capabilities_update` WS event (§13).
+
+**CapabilityPicker.** The orchestrator-detail **Skills** and **MCP servers** tabs and the Settings
+**org-default** panel assign discovered capabilities through a shared ARIA-combobox
+**CapabilityPicker** — source badge + token chip per item, a per-profile token subtotal, disabled
+entries grayed with a catalog deep-link. The **Tools** tab keeps `AuthorityList` (allowlist
+patterns, not catalog entries), and **K / Chief stay read-only by design** (§03).
+
+**Skill Creator** (`#/skill-creator`, a hidden route reached from the catalog): DraftList +
+BriefForm + a draft workspace — StatusHeader with run links, honestly labeled **"agent-generated
+draft — not saved"** vs **"saved to K library"** — SkillDraftEditor, RefinePanel, EvalPanel (the
+existing eval badges), SaveBar. Lifecycle in §04.
+
+**RunConsole runtime badge.** A run on a local model declares its engine honestly — **"local ·
+tools"** (the D-072 tool loop with tools advertised) vs **"local · prompt-only"** (degraded in
+place: no tool support, skills inlined) — fed by the truthful run-start system event (§13).
 
 ### Projects — workspace, 7 tabs
 
