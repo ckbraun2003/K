@@ -33,7 +33,7 @@ export const DESTINATIONS: Destination[] = [
   { id: 'orchestrators', icon: '❖', label: 'Orchestrators', hint: 'Domain leads — roster, charters & authority', enabled: true, section: 'primary', group: 'direct' },
   { id: 'workflows', icon: '⋔', label: 'Workflows', hint: 'Delegation workflow & live sub-agent trees', enabled: true, section: 'primary', group: 'direct' },
   { id: 'projects', icon: '▦', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary', group: 'direct' },
-  { id: 'skills', icon: '⚒', label: 'Skills', hint: 'Author & trigger reusable skills', enabled: true, section: 'primary', group: 'direct' },
+  { id: 'skills', icon: '⚒', label: 'Skills', hint: 'Skills, MCP & hooks — the capability catalog', enabled: true, section: 'primary', group: 'direct' },
   { id: 'memory', icon: '❋', label: 'Memory', hint: 'Review & approve proposed agent lessons', enabled: true, section: 'primary', group: 'direct' },
   // ── Observe: read-only telemetry ──
   { id: 'runs', icon: '▶', label: 'Runs', hint: 'Live & past agent runs', enabled: true, section: 'primary', group: 'observe' },
@@ -48,6 +48,9 @@ export const DESTINATIONS: Destination[] = [
   // Hidden: not a top-level destination (artifacts live in each project now), but kept
   // so TopBar/⌘K can resolve the "Docs" label for the view Help deep-links into.
   { id: 'docs', icon: '▤', label: 'Docs', hint: 'Harness bible & artifacts', enabled: true, view: 'docs', param: 'project-bible', section: 'hidden' },
+  // Hidden: the Skill Creator is reached from the catalog's "+ create with agent"
+  // button (D-071), not the rail — listed so TopBar can resolve its title.
+  { id: 'skill-creator', icon: '✎', label: 'Skill Creator', hint: 'Draft, refine & evaluate a skill with an agent', enabled: true, section: 'hidden' },
 ]
 
 /** Destinations reachable from ⌘K — everything enabled and not `hidden`. */

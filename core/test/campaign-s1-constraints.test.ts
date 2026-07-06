@@ -1,7 +1,7 @@
 /**
  * Campaign S1 — constraint behaviors (LOCK / characterization).
  *
- *  - UNIQUE collisions throw: projects.name, skills.name.
+ *  - UNIQUE collisions throw: projects.name, skills.qualified_key (v7 — k-native keys are the bare name, preserving per-name uniqueness for k rows).
  *  - events insert is `INSERT OR IGNORE` on UNIQUE(run_id, seq): a duplicate
  *    (run_id, seq) is silently dropped (changes=0) and the first row is kept —
  *    a stray duplicate seq in the live stream never aborts the run.
@@ -74,12 +74,13 @@ describe('S1 — UNIQUE constraint collisions throw', () => {
     expect(() => mkProject(name)).toThrow(/UNIQUE/i)
   })
 
-  it('skills.name UNIQUE rejects a duplicate name', () => {
+  it('skills qualified_key UNIQUE rejects a duplicate k-native name (v7: UNIQUE moved name → qualified_key; k-native keys ARE the name)', () => {
     const name = 'dup-skill-' + uuid()
     const insert = (id: string) => {
       skillsDb.insertSkill.run({
         id, name, description: null, type: 'skill', source: 'echo hi',
         triggerType: 'manual', schedule: null, eventTrigger: null, enabled: 1, createdAt: Date.now(),
+        qualifiedKey: name, // k-native rows: qualified_key = name (D-069)
       })
       skillIds.push(id)
     }

@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
-import type { RunStatus, WsMessage } from '@k/shared'
+import type { RunStatus, WsMessage, SkillDraft } from '@k/shared'
 
 /** The terminal run statuses (mirrors core's run-lifecycle) — a run in one of these
  *  will produce no further updates, so it is the settle point at which K-authored
@@ -101,6 +101,50 @@ export function makeProjectListInvalidator(
     if (msg.type !== 'github_update') return
     void qc.invalidateQueries({ queryKey: ['projects'] })
     void qc.invalidateQueries({ queryKey: ['github-fleet'] })
+  }
+}
+
+/**
+ * Live capability-catalog + skill-draft invalidation (wave C4).
+ *
+ *  - `capabilities_update` (a rescan completed / the enable overlay changed —
+ *    possibly in another tab) → invalidate the ['capabilities'] PREFIX, so the
+ *    catalog lists, the summary stat row and every CapabilityPicker refetch.
+ *  - `run_update` reaching a TERMINAL status → if that run is a skill draft's
+ *    authoring/refine run (matched against the cached ['skill-draft', id]
+ *    details and the ['skill-drafts'] list), invalidate that draft + the list,
+ *    so "drafting…" flips to ready/failed live instead of on manual reload.
+ *    Cache-miss runs invalidate nothing — every other run stays zero-cost here.
+ *
+ * Non-matching messages are ignored. Reads ONLY the react-query cache (no
+ * fetches of its own) — same composition pattern as the other invalidators.
+ */
+export function makeCapabilitiesInvalidator(
+  qc: Pick<QueryClient, 'invalidateQueries' | 'getQueriesData'>,
+): (msg: WsMessage) => void {
+  return (msg: WsMessage) => {
+    if (msg.type === 'capabilities_update') {
+      void qc.invalidateQueries({ queryKey: ['capabilities'] })
+      return
+    }
+    if (msg.type !== 'run_update' || !TERMINAL_RUN_STATUSES.has(msg.run.status)) return
+    const draftIds = new Set<string>()
+    for (const [, detail] of qc.getQueriesData({ queryKey: ['skill-draft'] })) {
+      const draft = detail as SkillDraft | undefined
+      if (draft?.runId === msg.run.id) draftIds.add(draft.id)
+    }
+    for (const [, list] of qc.getQueriesData({ queryKey: ['skill-drafts'] })) {
+      for (const draft of (list as SkillDraft[] | undefined) ?? []) {
+        if (draft.runId === msg.run.id) draftIds.add(draft.id)
+      }
+    }
+    for (const id of draftIds) {
+      void qc.invalidateQueries({ queryKey: ['skill-draft', id] })
+      // Draft evals ride the same authoring-run wire (an evaluate run landing
+      // terminal finalizes an eval row).
+      void qc.invalidateQueries({ queryKey: ['skill-draft-evals', id] })
+    }
+    if (draftIds.size > 0) void qc.invalidateQueries({ queryKey: ['skill-drafts'] })
   }
 }
 

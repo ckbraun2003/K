@@ -33,6 +33,13 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import type { AgentTier } from '@k/shared'
+import { assertSafeSkillKey, SkillKeyError } from './skill-roots.js'
+import {
+  getCatalogSkillRow,
+  getHostMcpServerRow,
+  listEnabledDiscoveredSkillKeys,
+  listEnabledTrustedHostMcpServers,
+} from './host-discovery.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // Mirrors agent-config.ts DEFAULT_ASSETS_DIR: repo-root agent-config/.
@@ -89,6 +96,12 @@ export interface TierAuthority {
   allowedTools: string[] // the claude --allowedTools allowlist for the tier
   mcpServers: string[] // MCP server keys the tier mounts
   skills: string[] // skill dir names the tier's bundle mounts
+  /** D-069 tier opt-in: may this tier be granted host-DISCOVERED skills (by
+   *  qualified key)? From bundles/<tier>.json; absent → false (fail-closed). */
+  allowDiscoveredSkills: boolean
+  /** D-070 tier opt-in: may this tier be granted host-discovered MCP servers?
+   *  From mcp/<tier>.json; absent → false (fail-closed). */
+  allowDiscoveredServers: boolean
 }
 
 /** Read + JSON.parse a required asset, with a tier-scoped error on a bad/missing file. */
@@ -148,7 +161,10 @@ export function toolWithinCeiling(tool: string, ceiling: ReadonlySet<string>): b
  *  TIER's asset allowlist — the tier is the ceiling, per-profile rows only narrow
  *  within it (so a row can never re-grant coding tools to a non-coding tier, nor the
  *  dead `Agent` token anywhere). Throws GrantError on the first violation — the
- *  typed signal the PATCH routes map to a 400. */
+ *  typed signal the PATCH routes map to a 400.
+ *  STATUS (D-069): profiles.ts moved to assertEffectiveGrants (which inherits this
+ *  guard's VERBATIM wording for tier-only rejections); kept exported as the
+ *  tier-asset-only primitive + its wording contract (authority-ceiling.test.ts). */
 export function assertTierCeiling(tier: AgentTier, allowedTools: string[], opts: { assetsDir?: string } = {}): void {
   const ceiling = new Set(resolveAuthority(tier, opts).allowedTools)
   for (const tool of allowedTools) {
@@ -173,13 +189,13 @@ export function resolveAuthority(tier: AgentTier, opts: { assetsDir?: string } =
   )
   const allowedTools = Array.isArray(allow.allowedTools) ? allow.allowedTools : []
 
-  const mcp = readJson<{ mcpServers?: Record<string, unknown> }>(
+  const mcp = readJson<{ mcpServers?: Record<string, unknown>; allowDiscoveredServers?: unknown }>(
     path.join(assetsDir, 'mcp', `${tier}.json`),
     `mcp config for tier "${tier}"`,
   )
   const mcpServers = Object.keys(mcp.mcpServers ?? {})
 
-  const bundle = readJson<{ skills?: string[] }>(
+  const bundle = readJson<{ skills?: string[]; allowDiscoveredSkills?: unknown }>(
     path.join(assetsDir, 'bundles', `${tier}.json`),
     `bundle for tier "${tier}"`,
   )
@@ -188,7 +204,231 @@ export function resolveAuthority(tier: AgentTier, opts: { assetsDir?: string } =
   // Fail-closed: a mounted-but-ungranted server would be silently denied in `-p`.
   assertMcpGrants(tier, allowedTools, mcpServers)
 
-  return { tier, allowedTools, mcpServers, skills }
+  return {
+    tier,
+    allowedTools,
+    mcpServers,
+    skills,
+    // D-069/D-070 tier opt-ins: STRICT `=== true` so a truthy-but-wrong value
+    // ("yes", 1) in a hand-edited asset can never widen the ceiling (fail-closed).
+    allowDiscoveredSkills: bundle.allowDiscoveredSkills === true,
+    allowDiscoveredServers: mcp.allowDiscoveredServers === true,
+  }
+}
+
+// ─── D-069/D-070: the EFFECTIVE ceiling (tier assets ∪ admitted discovered) ────
+
+/**
+ * The full grant ceiling for a tier once host-discovered assets are considered:
+ * the tier's asset authority PLUS — where the tier opts in — the operator-enabled
+ * discovered assets. Invariant (host-integration plan): operator ENABLEMENT is a
+ * precondition, tier OPT-IN is the ceiling, profile assignment NARROWS.
+ *
+ * ONE source for both consumers: profiles.ts create/updateProfile validation and
+ * the run-asset resolution (run-assets.ts) both call this — so what a PATCH
+ * accepts and what a dispatch mounts can never drift.
+ */
+export interface EffectiveCeiling {
+  tier: AgentTier
+  /** The tier's own asset authority (allowlist/template/bundle). */
+  base: TierAuthority
+  /** Enabled + status-ok discovered skill QUALIFIED KEYS the tier admits
+   *  (empty when the tier's bundle does not opt in). */
+  discoveredSkills: Set<string>
+  /** Admitted discovered MCP servers: qualified key → server NAME (the mcp__<name>
+   *  grant token / mount key). Enabled + TRUSTED (pin matches the current config
+   *  hash) + status-ok only; empty when the tier's template does not opt in. */
+  discoveredServers: Map<string, string>
+  /** The WIDENED allowedTools ceiling: the tier allowlist ∪ an `mcp__<name>` grant
+   *  per admitted discovered server (the ceiling widens in LOCKSTEP with the
+   *  server admission — a grant for a non-admitted server stays above-ceiling). */
+  allowedTools: Set<string>
+}
+
+/** Resolve the effective (tier ∪ admitted-discovered) ceiling. Reads the tier
+ *  assets from disk and the discovered catalog from the db. */
+export function resolveEffectiveCeiling(tier: AgentTier, opts: { assetsDir?: string } = {}): EffectiveCeiling {
+  const base = resolveAuthority(tier, opts)
+  const discoveredSkills = new Set<string>()
+  const discoveredServers = new Map<string, string>()
+  if (base.allowDiscoveredSkills) {
+    for (const key of listEnabledDiscoveredSkillKeys()) discoveredSkills.add(key)
+  }
+  if (base.allowDiscoveredServers) {
+    for (const srv of listEnabledTrustedHostMcpServers()) discoveredServers.set(srv.qualifiedKey, srv.name)
+  }
+  const allowedTools = new Set(base.allowedTools)
+  for (const name of discoveredServers.values()) allowedTools.add(`mcp__${name}`)
+  return { tier, base, discoveredSkills, discoveredServers, allowedTools }
+}
+
+/** Why a discovered-skill grant is rejected — looked up for an ACTIONABLE
+ *  GrantError (the 400 banner names the asset and the fix). */
+function describeSkillRejection(tier: AgentTier, key: string): string {
+  const row = getCatalogSkillRow(key)
+  if (!row) {
+    return `authority: discovered skill "${key}" is not in the capability catalog — rescan the host or correct the key`
+  }
+  if (row.status !== 'ok') {
+    return `authority: discovered skill "${key}" is missing on the host (status=${String(row.status)}) — restore it and rescan, or remove the grant`
+  }
+  if (Number(row.enabled) !== 1) {
+    return `authority: discovered skill "${key}" is disabled — enable it in the capability catalog first`
+  }
+  return `authority: discovered skill "${key}" is not admitted for tier "${tier}"`
+}
+
+/** Why a discovered-MCP grant is rejected (D-070: enable requires trust). */
+function describeServerRejection(tier: AgentTier, key: string): string {
+  const row = getHostMcpServerRow(key)
+  if (!row) {
+    return `authority: discovered MCP server "${key}" is not in the capability catalog — rescan the host or correct the key`
+  }
+  if (row.status !== 'ok') {
+    return `authority: discovered MCP server "${key}" is missing on the host (status=${String(row.status)}) — restore it and rescan, or remove the grant`
+  }
+  if (row.trusted_hash == null || row.trusted_hash !== row.config_hash) {
+    return `authority: discovered MCP server "${key}" is not trusted — review and trust it in the capability catalog first (enabling requires trust, D-070)`
+  }
+  if (Number(row.enabled) !== 1) {
+    return `authority: discovered MCP server "${key}" is disabled — enable it in the capability catalog first`
+  }
+  return `authority: discovered MCP server "${key}" is not admitted for tier "${tier}"`
+}
+
+/** The three grant arrays a profile row carries (profiles.ts) / a run resolves. */
+export interface ProfileGrants {
+  allowedTools: string[]
+  mcpServers: string[]
+  skills: string[]
+}
+
+/**
+ * Fail-closed admission check for ONE qualified skill grant (D-069): the key must
+ * parse (assertSafeSkillKey), the tier must opt in, and the asset must be admitted
+ * (enabled + status-ok). Throws GrantError with the asset-naming rejection detail.
+ * The shared primitive under BOTH assertEffectiveGrants (profile boundary) and
+ * resolveRunAssets (dispatch boundary) — one admission source, no drift.
+ */
+export function assertDiscoveredSkillGrant(tier: AgentTier, ceiling: EffectiveCeiling, key: string): void {
+  try {
+    assertSafeSkillKey(key)
+  } catch (e) {
+    if (!(e instanceof SkillKeyError)) throw e
+    throw new GrantError(`authority: skill grant "${key}" is not a valid catalog key — ${e.message}`)
+  }
+  if (!ceiling.base.allowDiscoveredSkills) {
+    throw new GrantError(
+      `authority: tier "${tier}" does not admit discovered skills — remove "${key}" or set allowDiscoveredSkills in bundles/${tier}.json`,
+    )
+  }
+  if (!ceiling.discoveredSkills.has(key)) throw new GrantError(describeSkillRejection(tier, key))
+}
+
+/**
+ * Server names RESERVED for K's OWN tier-template servers. A discovered host
+ * server carrying one of these names could IMPERSONATE a K server: it would
+ * mount under the exact mcp__<name> grant token agents associate with K's
+ * trusted store/intelligence servers (and, when the bare tier name is narrowed
+ * out of a profile, would dodge the run-time mount-collision guard entirely —
+ * A3 review MEDIUM). Admission refuses them unconditionally. Keep in sync with
+ * the union of every agent-config/mcp/<tier>.json server key — locked by an
+ * invariant test in authority-discovered-ceiling.test.ts.
+ */
+export const K_NATIVE_SERVER_NAMES: ReadonlySet<string> = new Set(['kstore', 'logistics', 'mgmt', 'gitnexus'])
+
+/**
+ * Fail-closed admission check for ONE qualified MCP grant (D-070): key grammar,
+ * tier opt-in, enabled+TRUSTED+ok admission, and a reserved-name refusal (a host
+ * server may never mount under a K-native server name). Returns the server NAME
+ * (the mcp__<name> grant token / mount key). Shared primitive — see above.
+ */
+export function assertDiscoveredServerGrant(tier: AgentTier, ceiling: EffectiveCeiling, key: string): string {
+  try {
+    assertSafeSkillKey(key) // same ONE canonical key grammar
+  } catch (e) {
+    if (!(e instanceof SkillKeyError)) throw e
+    throw new GrantError(`authority: MCP grant "${key}" is not a valid catalog key — ${e.message}`)
+  }
+  if (!ceiling.base.allowDiscoveredServers) {
+    throw new GrantError(
+      `authority: tier "${tier}" does not admit discovered MCP servers — remove "${key}" or set allowDiscoveredServers in mcp/${tier}.json`,
+    )
+  }
+  const name = ceiling.discoveredServers.get(key)
+  if (!name) throw new GrantError(describeServerRejection(tier, key))
+  // Case-folded: keys/grants/mount collisions are case-sensitive downstream, so
+  // a cased variant ("Kstore") can't truly impersonate kstore — but a reserved-
+  // NAME guard that admits a near-identical name would still confuse an operator
+  // scanning the MCP tab (SEAMS review MEDIUM). Refuse the whole case class.
+  if (K_NATIVE_SERVER_NAMES.has(name.toLowerCase())) {
+    throw new GrantError(
+      `authority: discovered MCP server "${key}" mounts as "${name}" — that name is RESERVED for K's own servers (a host server may not impersonate it; rename it on the host)`,
+    )
+  }
+  return name
+}
+
+/**
+ * Fail-closed validation of a profile's FINAL grant arrays against the tier's
+ * EFFECTIVE ceiling. Replaces the assertTierCeiling+assertMcpGrants pair at the
+ * profile boundary and is reused by run-asset resolution (one source, no drift).
+ * Throws the typed GrantError (→ the routes' existing 400 mapping) on the first
+ * violation. Semantics:
+ *   - allowedTools: every entry within the WIDENED ceiling (a strict superset of
+ *     the old tier-only check — every previously-valid grant stays valid, and the
+ *     assertTierCeiling message is kept verbatim for the tier-only rejections);
+ *   - skills: BARE names are deliberately NOT validated here — the synth bundle
+ *     ceiling handles them exactly as today (regression lock: the bare-name PATCH
+ *     flow stays byte-identical). QUALIFIED keys must parse (assertSafeSkillKey)
+ *     and resolve to an ADMITTED discovered skill (tier opt-in + enabled + ok);
+ *   - mcpServers: bare names keep today's assertMcpGrants path verbatim;
+ *     qualified keys must resolve to an ADMITTED discovered server (tier opt-in +
+ *     enabled + trusted + ok), and their mcp__<NAME> grant must be present in
+ *     allowedTools (D-034 "mounting ≠ granting" extended to discovered mounts).
+ * Returns the resolved EffectiveCeiling so callers can reuse it without a second
+ * resolve.
+ */
+export function assertEffectiveGrants(
+  tier: AgentTier,
+  grants: ProfileGrants,
+  opts: { assetsDir?: string } = {},
+): EffectiveCeiling {
+  const ceiling = resolveEffectiveCeiling(tier, opts)
+
+  // Asset-admission checks run FIRST: when a patch carries both a rejected
+  // discovered asset AND its (now-above-ceiling) mcp__<name> grant, the error
+  // that surfaces must NAME THE ASSET and its fix ("not trusted — trust it"),
+  // not the derived tool-ceiling symptom.
+  for (const entry of grants.skills) {
+    if (!entry.includes(':')) continue // bare k-native name — the synth bundle ceiling covers it, exactly today
+    assertDiscoveredSkillGrant(tier, ceiling, entry)
+  }
+
+  const mountedNames: string[] = []
+  for (const entry of grants.mcpServers) {
+    if (!entry.includes(':')) {
+      mountedNames.push(entry) // tier-template server — today's grant check below
+      continue
+    }
+    // the grant token keys on the server NAME, not the qualified key
+    mountedNames.push(assertDiscoveredServerGrant(tier, ceiling, entry))
+  }
+
+  for (const tool of grants.allowedTools) {
+    if (!toolWithinCeiling(tool, ceiling.allowedTools)) {
+      // Verbatim assertTierCeiling wording — the pre-D-069 rejections read identically.
+      throw new GrantError(
+        `authority: tool "${tool}" exceeds the "${tier}" tier ceiling — the tier allowlist is the ceiling; per-profile rows may only narrow within it`,
+      )
+    }
+  }
+
+  // D-034 for the whole mounted set: tier servers under their bare name, discovered
+  // servers under their resolved name — every mount needs its mcp__<name> grant.
+  assertMcpGrants(tier, grants.allowedTools, mountedNames)
+
+  return ceiling
 }
 
 /**

@@ -2,7 +2,7 @@
 title: Architecture
 icon: "⬡"
 status: stable
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 
 **Architecture A with B-seams** — a single monolithic core (Architecture A) with three deliberate **B-seams** built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected). A planned **fourth B-seam — TranscriptionProvider** (voice in, Phase 5.4) follows the same swap-without-rewrite contract (D-031).
@@ -69,8 +69,13 @@ getters, so a selection in Settings applies to the next run with **no restart**.
 sits over the Ollama HTTP API — `GET /api/tags` lists installed models, `POST /api/pull` streams a
 download (NDJSON `{status,total,completed}`) whose progress rides the **EventBus→WS** wire, and
 `DELETE /api/delete` frees disk — fronted by a curated catalog and an `fs.statfs` disk-fit check so a
-pull can't silently fill the disk. Generation itself is unchanged: `providers.ts` still dispatches
-via the `ollama run` CLI on the routed model name.
+pull can't silently fill the disk. **Generation itself is no longer the `ollama run` CLI pipe
+(D-072):** an ollama-routed run now executes K's own **in-process tool-calling loop** over the
+Ollama `/api/chat` API (`core/src/ollama-agent/`) — the same resolved assets, skills, MCP servers,
+and event shapes as a claude run, so local models get full agent parity. The supervisor still owns
+the lifecycle (kill = `AbortController.abort()`); `K_OLLAMA_AGENT_MODE=legacy` reverts to the old
+prompt pipe. A model without tool support **degrades in place** (prompt-only + inlined skills) and
+never silently falls back to claude — the routing-honesty contract above holds.
 
 ### TranscriptionProvider — voice in (PLANNED — Phase 5.4)
 
@@ -90,7 +95,8 @@ transcription is its own seam rather than a ModelRouter mode.
 
 The agent engine is the Claude Code CLI, but K never lets a managed run inherit the host's
 `~/.claude`. The boundary is split into **three ownership domains**: **D1** the host `~/.claude`
-(invoked, never depended on), **D2** the K repo (incl. the versioned `agent-config/` assets), and
+(invoked, never depended on — and, since the host-integration program, **catalogued under guard**:
+D-069/D-070 amend D-027), **D2** the K repo (incl. the versioned `agent-config/` assets), and
 **D3** the per-run **synthesized config dir**. Every managed claude run spawns into D3:
 `synthesizeConfigDir` (in `core/src/agent-config.ts`) builds an ephemeral `CLAUDE_CONFIG_DIR`
 — settings, a per-tier `--allowedTools`, `--mcp-config` + `--strict-mcp-config`, the **bundle-scoped
@@ -111,13 +117,30 @@ skills/plugins/MCP/credentials never load.
   mount the gitnexus MCP server or fire the analyze hook (`shouldSuppressGitnexus(cwd,
   isPersistentSession)`), so `.gitnexus/`, `.gitignore`, and `.claude/skills/gitnexus` stop leaking
   into the target repo's checkout. K's own + K-secretary sessions always keep gitnexus.
+- **Guarded host discovery (D-069/D-070 — amends D-027).** D1 stays invoked-never-depended-on,
+  but K now **catalogs** it: guarded scanners (`core/src/host-discovery.ts`) read host user skills
+  (`~/.claude/skills`), each **registered** project's `.claude/skills`, plugin skills via
+  `installed_plugins.json` (each `installPath` realpath-verified under `~/.claude/plugins/cache`),
+  and host MCP configs (`~/.claude.json` user + project scopes plus project `.mcp.json`; non-stdio
+  skipped v1) into the skills catalog with provenance — everything **default-disabled** behind a
+  **K-scoped enable/trust overlay** (host files are never mutated). An **enabled** host asset still
+  never loads live: `synthesizeConfigDir` is now `resolveRunAssets` + vendoring
+  (`core/src/run-assets.ts` — a no-discovered-assets run's config output stays **byte-identical**,
+  regression-locked), which **vendor-copies** a discovered skill into D3 via `copyDirConfined`
+  (source-side lstat symlink-skip, per-file realpath containment, 500-file/10 MB caps) and appends
+  a **trusted** MCP server's config verbatim only after **re-hashing the live host config**
+  (drift → fail-closed `GrantError`). Reads route through `core/src/skill-roots.ts` — an explicit
+  allowlisted-roots set with the two-gate string+realpath confinement applied **per root**,
+  extending F-069's single-root guard. Host hooks are **never copied** (visibility-only via
+  `GET /api/capabilities/hooks`).
 - **Auth:** K-token-first (`ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN`) with a guarded
   host-credential dogfooding fallback — now surfaced as a credential **posture** on `/api/status` and
   opt-out-able via `K_DISABLE_HOST_CREDENTIAL_FALLBACK` (§11, D-066).
 - **Profiles:** `core/src/profiles.ts` defines `AgentProfile` (tier `secretary | chief |
   orchestrator`) + the default `default-orchestrator` profile — the pre-Phase-5 bridge to the org
   model below.
-- **Key files:** `core/src/agent-config.ts`, `core/src/profiles.ts`, `core/src/mcp/k-store*.ts`,
+- **Key files:** `core/src/agent-config.ts`, `core/src/run-assets.ts`, `core/src/host-discovery.ts`,
+  `core/src/skill-roots.ts`, `core/src/profiles.ts`, `core/src/mcp/k-store*.ts`,
   `agent-config/` (`tiers/`, `allowlists/`, `mcp/`, `skills/`, `agents/`, `bundles/`).
 
 ## Agent substrate (PLANNED — Phase 5)

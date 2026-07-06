@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 
 ## Running locally
@@ -86,6 +86,46 @@ per-run config dir, the host `~/.claude` is only ever *invoked*, never depended 
 **dry-run by default** (prints what it would do), and `--apply` backs up first, then removes only
 what K now owns. It is deliberately **conservative** — personal plugins (superpowers / ecc / ui-ux)
 are left intact and the action is reversible.
+
+## Host capability catalog — rescan, trust, probe (D-069/D-070)
+
+- **Every boot** (first boot included), after `seedBuiltinSkills`, a **guarded host scan**
+  (`syncHostDiscovery`) refreshes the capability catalog from the host layer — user / project /
+  plugin skills + host MCP servers — and logs one summary line
+  (`[discovery] host capability scan: skills +a ~b -c, mcp +x ~y -z`). The scan is
+  try/catch-warned so a broken host install never bricks boot, and a malformed host artifact
+  (unreadable dir, bad SKILL.md, non-stdio server) becomes a structured warning, never a throw.
+  Everything discovered lands **default-disabled**.
+- **Rescan on demand:** `POST /api/capabilities/rescan` (the Skills-page **Rescan** button) →
+  `200` + a `RescanResult`, and a `capabilities_update` WS broadcast. A rescan upserts by
+  qualified key, **never touches your enable overlay**, flags vanished assets `status='missing'`
+  (fail-closed at PATCH and synth), and **auto-disables** an MCP server whose host config drifted.
+- **Discovery warnings** surface in the rescan response `warnings[]` and the Skills-page banner —
+  read them; a skipped source is invisible in the catalog until fixed.
+- **Granting trust:** before **Trust & enable** on a discovered MCP server, review the command,
+  args, and env **names** the TrustDialog shows — trusting a server authorizes code execution
+  inside every run that mounts it. Trust pins the config hash; a host-side config change
+  auto-disables + clears trust (re-review to re-enable). Env **values** never leave core.
+- **Probe** (`POST /api/capabilities/mcp/:id/probe`) is explicit-request-only, against
+  enabled+trusted servers: a real MCP `initialize` + `tools/list` with a 15s hard timeout.
+  Failure → `502` + `probe_status='failed'` — it never disables the server.
+- **Token estimates are estimates:** `ceil(chars/4)`, ±25% (`core/src/token-estimate.ts` is the
+  one swap seam) — relative UX signals, never billed figures. An MCP server's estimate is null
+  until probed.
+
+## Local-model agent runtime (D-072)
+
+Ollama-routed runs execute K's in-process tool loop by default (§02). Its knobs:
+
+| Var / config key | Default | Meaning |
+|------------------|---------|---------|
+| `K_OLLAMA_AGENT_MODE` | *(unset)* | `legacy` reverts ollama runs to the old `ollama run` prompt pipe (no tools/MCP) |
+| `K_OLLAMA_FS_SCOPE` | *(worktree)* | `any` widens the native tools' fs guard from the run worktree to the whole filesystem |
+| `K_OLLAMA_NUM_CTX` → `ollama.numCtx` | `16384` | the explicit `num_ctx` sent per chat call; the env var is the first-run **seed** for the `app_config` key `ollama.numCtx` (runtime-editable, seed-then-override like the other runtime config) |
+
+Built-in limits (constants, not env): 25 iterations, 10-minute run timeout, 60s per MCP tool call,
+a repeated-identical-call detector, and a context-pressure warning above 85% of the model's shown
+context length.
 
 ## Remote access (exposing K beyond localhost)
 
@@ -224,6 +264,13 @@ user → K → Chief → leads tree), and `workflow_runs` gained a `workflow_id`
 | `core/src/eval/` | the in-engine behavioral eval subsystem (F3): `dispatch`/`sandbox`/`graders`/`judge`/`metrics`/`runner` (the ported harness) + `service.ts` (`startEvalRun`, **dry-default**) + `store.ts` (DB-registry seed/load); see §07 |
 | `core/src/routes/evals.ts` | the Evals HTTP surface — 7 endpoints over the run service (dry-default `POST /api/evals/run`) |
 | `core/src/html.ts` · `core/src/paths.ts` | shared `escHtml` + path-containment guard (`isPathWithin`) — the F2 leaf-util dedup |
+| `core/src/host-discovery.ts` | D-069 guarded host scanners (user/project/plugin skills, host MCP) + `syncHostDiscovery` (transactional upsert preserving the K-scoped overlay) |
+| `core/src/skill-roots.ts` | allowlisted skill-source roots + `confineToRoots` (two-gate string+realpath check per root, extends F-069) + the qualified-key grammar guard |
+| `core/src/run-assets.ts` | `resolveRunAssets(profile, …)` — the model-neutral resolve seam (ceiling → narrowing → discovered resolution → trust re-verify → project-scope filter) both runtimes consume |
+| `core/src/token-estimate.ts` | `estimateTokens` — the one `ceil(chars/4)` heuristic seam (±25%, no tokenizer dep) |
+| `core/src/routes/capabilities.ts` | the capability catalog API — skills/mcp/hooks/summary GETs, rescan, enable PATCHes, trust/probe POSTs (env values never leave core) |
+| `core/src/ollama-agent/` · `core/src/mcp-client.ts` | the D-072 in-process tool loop (loop/transport/native-tools/tool-registry/capability) + the stdio MCP client wrapper |
+| `core/src/skill-creator.ts` · `core/src/routes/skill-creator.ts` | D-071 drafts lifecycle (authoring runs, refine, evaluate, save-to-library) + its HTTP surface |
 | `artifacts/bible/` | this document's source |
 
 ## Schema migrations

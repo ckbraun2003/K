@@ -12,6 +12,7 @@ import {
 } from '../lib/settings-status'
 import AutoTextarea from '../components/AutoTextarea'
 import ConfirmDialog from '../components/ConfirmDialog'
+import CapabilityPicker from '../components/CapabilityPicker'
 // P5.5 — self-contained model-management sections (Claude default + local Ollama).
 import { ClaudeModelSection, LocalModelsSection } from './SettingsModels'
 // P5.4 — self-contained voice (push-to-talk) status section.
@@ -156,8 +157,9 @@ export function SystemPromptSection() {
   )
 }
 
-/** One removable-list + add-by-name editor for an authority array (skills / tools / mcp).
- *  Mirrors the OrchestratorDetailPage list panels. `mono` for tool/mcp ids. */
+/** One removable-list + add-by-name editor for a free-text authority array — since C3
+ *  used ONLY for Tools (allowlist patterns, not catalog entries); skills/mcp moved to
+ *  the catalog-backed CapabilityPicker. `mono` for tool ids. */
 function AuthorityList({
   title,
   items,
@@ -256,7 +258,11 @@ function OrgDefaultSection() {
 
   const mutation = useMutation({
     mutationFn: (patch: OrchestratorPatch) => api.orgDefault.update(patch),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['org-default'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['org-default'] })
+      // Catalog mountedBy chips reflect org-default mounts too (C3).
+      void qc.invalidateQueries({ queryKey: ['capabilities'] })
+    },
   })
 
   const errorMsg = mutation.isError ? (mutation.error as Error).message : null
@@ -279,13 +285,16 @@ function OrgDefaultSection() {
         <p className="text-xs text-[var(--red)]">Failed to load the org default.</p>
       ) : (
         <div className="glass grid gap-4 rounded-xl border border-[var(--border)] p-4 sm:grid-cols-3">
-          <AuthorityList
+          {/* Skills/MCP are catalog-backed (C3) — qualified-key mounts with
+              provenance + token cost; Tools keeps the free-text AuthorityList
+              (tools are allowlist patterns, not catalog entries). */}
+          <CapabilityPicker
+            kind="skills"
             title="Skills"
-            items={data.skills}
+            profile={data}
             onChange={skills => mutation.mutate({ skills })}
             busy={mutation.isPending}
             testidPrefix="org-default-skills"
-            addPlaceholder="add skill by name"
           />
           <AuthorityList
             title="Tools"
@@ -296,13 +305,13 @@ function OrgDefaultSection() {
             testidPrefix="org-default-tools"
             addPlaceholder="add tool"
           />
-          <AuthorityList
+          <CapabilityPicker
+            kind="mcp"
             title="MCP · Authority"
-            items={data.mcpServers}
+            profile={data}
             onChange={mcpServers => mutation.mutate({ mcpServers })}
             busy={mutation.isPending}
             testidPrefix="org-default-mcp"
-            addPlaceholder="add MCP server"
           />
         </div>
       )}

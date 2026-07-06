@@ -191,7 +191,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-03 16:28</span><br>
+      compiled <span class="mono">2026-07-06 00:09</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -251,7 +251,7 @@ replaces the audit trail.</li>
         <span class="section-icon">⬡</span>
         <h1>Architecture</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-06-28</span>
+        <span class="section-updated mono">updated 2026-07-05</span>
       </header>
       <p><strong>Architecture A with B-seams</strong> — a single monolithic core (Architecture A) with three deliberate <strong>B-seams</strong> built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected). A planned <strong>fourth B-seam — TranscriptionProvider</strong> (voice in, Phase 5.4) follows the same swap-without-rewrite contract (D-031).</p>
 <pre><code>┌──────────────────────────────────────────────────────────────┐
@@ -338,8 +338,13 @@ getters, so a selection in Settings applies to the next run with <strong>no rest
 sits over the Ollama HTTP API — <code>GET /api/tags</code> lists installed models, <code>POST /api/pull</code> streams a
 download (NDJSON <code>{status,total,completed}</code>) whose progress rides the <strong>EventBus→WS</strong> wire, and
 <code>DELETE /api/delete</code> frees disk — fronted by a curated catalog and an <code>fs.statfs</code> disk-fit check so a
-pull can't silently fill the disk. Generation itself is unchanged: <code>providers.ts</code> still dispatches
-via the <code>ollama run</code> CLI on the routed model name.</p>
+pull can't silently fill the disk. <strong>Generation itself is no longer the <code>ollama run</code> CLI pipe
+(D-072):</strong> an ollama-routed run now executes K's own <strong>in-process tool-calling loop</strong> over the
+Ollama <code>/api/chat</code> API (<code>core/src/ollama-agent/</code>) — the same resolved assets, skills, MCP servers,
+and event shapes as a claude run, so local models get full agent parity. The supervisor still owns
+the lifecycle (kill = <code>AbortController.abort()</code>); <code>K_OLLAMA_AGENT_MODE=legacy</code> reverts to the old
+prompt pipe. A model without tool support <strong>degrades in place</strong> (prompt-only + inlined skills) and
+never silently falls back to claude — the routing-honesty contract above holds.</p>
 <h3>TranscriptionProvider — voice in (PLANNED — Phase 5.4)</h3>
 <p>A fourth B-seam mirrors ModelRouter for the <em>input</em> side of the K conversation:
 <code>transcribe(audio: Buffer, mime) → { text }</code> is the single decision point, and the default
@@ -355,7 +360,8 @@ transcription is its own seam rather than a ModelRouter mode.</p>
 <h2>Agent-engine boundary (the config synthesizer)</h2>
 <p>The agent engine is the Claude Code CLI, but K never lets a managed run inherit the host's
 <code>~/.claude</code>. The boundary is split into <strong>three ownership domains</strong>: <strong>D1</strong> the host <code>~/.claude</code>
-(invoked, never depended on), <strong>D2</strong> the K repo (incl. the versioned <code>agent-config/</code> assets), and
+(invoked, never depended on — and, since the host-integration program, <strong>catalogued under guard</strong>:
+D-069/D-070 amend D-027), <strong>D2</strong> the K repo (incl. the versioned <code>agent-config/</code> assets), and
 <strong>D3</strong> the per-run <strong>synthesized config dir</strong>. Every managed claude run spawns into D3:
 <code>synthesizeConfigDir</code> (in <code>core/src/agent-config.ts</code>) builds an ephemeral <code>CLAUDE_CONFIG_DIR</code>
 — settings, a per-tier <code>--allowedTools</code>, <code>--mcp-config</code> + <code>--strict-mcp-config</code>, the <strong>bundle-scoped
@@ -371,11 +377,33 @@ roster; chief/secretary mount no coding agents.</li>
 <li><strong>MCP wiring:</strong> the tier's <code>agent-config/mcp/&lt;tier&gt;.json</code> is rewritten per run — the <strong>kstore</strong>
 server's command/args become this core's launch of <code>k-store-server</code> and its env gets the run's
 <code>K_DATA_DIR</code> + <code>K_RUN_ID</code> so the child opens the right <code>k.db</code> and resolves the right run.</li>
+<li><strong>External-repo gitnexus suppression (F-068).</strong> A dispatched run whose cwd is an <strong>external</strong>
+registered project — not K's own repo, and not a K-secretary persistent session — does <strong>not</strong>
+mount the gitnexus MCP server or fire the analyze hook (<code>shouldSuppressGitnexus(cwd, isPersistentSession)</code>), so <code>.gitnexus/</code>, <code>.gitignore</code>, and <code>.claude/skills/gitnexus</code> stop leaking
+into the target repo's checkout. K's own + K-secretary sessions always keep gitnexus.</li>
+<li><strong>Guarded host discovery (D-069/D-070 — amends D-027).</strong> D1 stays invoked-never-depended-on,
+but K now <strong>catalogs</strong> it: guarded scanners (<code>core/src/host-discovery.ts</code>) read host user skills
+(<code>~/.claude/skills</code>), each <strong>registered</strong> project's <code>.claude/skills</code>, plugin skills via
+<code>installed_plugins.json</code> (each <code>installPath</code> realpath-verified under <code>~/.claude/plugins/cache</code>),
+and host MCP configs (<code>~/.claude.json</code> user + project scopes plus project <code>.mcp.json</code>; non-stdio
+skipped v1) into the skills catalog with provenance — everything <strong>default-disabled</strong> behind a
+<strong>K-scoped enable/trust overlay</strong> (host files are never mutated). An <strong>enabled</strong> host asset still
+never loads live: <code>synthesizeConfigDir</code> is now <code>resolveRunAssets</code> + vendoring
+(<code>core/src/run-assets.ts</code> — a no-discovered-assets run's config output stays <strong>byte-identical</strong>,
+regression-locked), which <strong>vendor-copies</strong> a discovered skill into D3 via <code>copyDirConfined</code>
+(source-side lstat symlink-skip, per-file realpath containment, 500-file/10 MB caps) and appends
+a <strong>trusted</strong> MCP server's config verbatim only after <strong>re-hashing the live host config</strong>
+(drift → fail-closed <code>GrantError</code>). Reads route through <code>core/src/skill-roots.ts</code> — an explicit
+allowlisted-roots set with the two-gate string+realpath confinement applied <strong>per root</strong>,
+extending F-069's single-root guard. Host hooks are <strong>never copied</strong> (visibility-only via
+<code>GET /api/capabilities/hooks</code>).</li>
 <li><strong>Auth:</strong> K-token-first (<code>ANTHROPIC_API_KEY</code> / <code>CLAUDE_CODE_OAUTH_TOKEN</code>) with a guarded
-host-credential dogfooding fallback.</li>
+host-credential dogfooding fallback — now surfaced as a credential <strong>posture</strong> on <code>/api/status</code> and
+opt-out-able via <code>K_DISABLE_HOST_CREDENTIAL_FALLBACK</code> (§11, D-066).</li>
 <li><strong>Profiles:</strong> <code>core/src/profiles.ts</code> defines <code>AgentProfile</code> (tier <code>secretary | chief | orchestrator</code>) + the default <code>default-orchestrator</code> profile — the pre-Phase-5 bridge to the org
 model below.</li>
-<li><strong>Key files:</strong> <code>core/src/agent-config.ts</code>, <code>core/src/profiles.ts</code>, <code>core/src/mcp/k-store*.ts</code>,
+<li><strong>Key files:</strong> <code>core/src/agent-config.ts</code>, <code>core/src/run-assets.ts</code>, <code>core/src/host-discovery.ts</code>,
+<code>core/src/skill-roots.ts</code>, <code>core/src/profiles.ts</code>, <code>core/src/mcp/k-store*.ts</code>,
 <code>agent-config/</code> (<code>tiers/</code>, <code>allowlists/</code>, <code>mcp/</code>, <code>skills/</code>, <code>agents/</code>, <code>bundles/</code>).</li>
 </ul>
 <h2>Agent substrate (PLANNED — Phase 5)</h2>
@@ -435,6 +463,12 @@ a given activation may touch, while the three B-seams remain how events, models,
 <li>Every stream-json line → normalized <code>AgentEvent</code> → EventBus → SQLite (immutable, replayable) + WS push (live console).</li>
 <li>Run completes → status/cost roll-ups on the <code>runs</code> row → artifacts saved → (Phase 1+) PR opened via GitHubProvider → CI status polls back onto the dashboard.</li>
 </ol>
+<p><strong>Opt-in carry-working-tree (D-067).</strong> By default a run's worktree is <code>git worktree add --detach HEAD</code>
+— a clean checkout at HEAD. An opt-in <code>carryWorkingTree</code> flag on <code>POST /api/runs</code> (threaded through
+<code>startRun</code> / <code>startAgentRun</code>, boolean-validated) instead seeds the worktree with the source repo's
+uncommitted <strong>tracked + staged</strong> changes (a non-destructive <code>git stash create</code> + apply; <strong>untracked
+not carried</strong>; the source repo is never mutated), so a run can start from your in-progress edits. The
+default path (no flag) is byte-identical to before.</p>
 
     </section>
 
@@ -443,7 +477,7 @@ a given activation may touch, while the three B-seams remain how events, models,
         <span class="section-icon">❖</span>
         <h1>Agent Organization</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-02</span>
+        <span class="section-updated mono">updated 2026-07-05</span>
       </header>
       <blockquote>
 <p><strong>Status — PARTIALLY BUILT (Phase 5).</strong> This section is the design of record for the agent
@@ -576,14 +610,18 @@ anywhere. (K's <em>tasks</em> stay the kstore <code>work_item_*</code> tools —
 non-ticket logistics data, not a second task store.) The Google Calendar/Gmail/Drive
 connectors are <strong>NOT wired</strong> — see <em>Reused connectors</em> below.</li>
 <li>the <strong>mgmt</strong> server (<strong>Chief, BUILT — P5.2a</strong>) — the Chief's management working store:
-<code>assign_lead</code> (hand a lead an objective), <code>pick_workflow</code>, <code>scope_projects</code>, and <code>report</code> (a
-status write up the chain), plus the execution tool <code>dispatch_lead</code> (below) and — <strong>P5.7,
-D-053 — two chief-READABLE tools, <code>assignment_list</code> / <code>report_list</code></strong>, durable <strong>across Chief
-activations</strong> (the enriched assignment list carries the dispatched lead run's live status), so
-a freshly-woken Chief can actually read the org state its charter tells it to review; writes
-keep run-scoped ownership. Same shape as kstore/logistics — an <strong>SDK-free</strong> store layer
+<code>assign_lead</code> (hand a lead an objective), <code>pick_workflow</code>, <code>scope_projects</code>, <code>report</code> (a status
+write up the chain), and the read-only <strong><code>lead_list</code></strong> roster tool (<strong>F-067, D-063</strong> — the valid
+lead identifiers: id · name · discipline · role), plus the execution tool <code>dispatch_lead</code>
+(below) and — <strong>P5.7, D-053 — two chief-READABLE tools, <code>assignment_list</code> / <code>report_list</code></strong>,
+durable <strong>across Chief activations</strong> (the enriched assignment list carries the dispatched lead
+run's live status), so a freshly-woken Chief can actually read the org state its charter tells
+it to review; writes keep run-scoped ownership. <strong><code>assign_lead</code> now VALIDATES the lead name</strong>
+(F-067, D-063) via the SAME <code>resolveLeadProfileId</code> <code>dispatch_lead</code> uses and REJECTS an unknown
+lead (e.g. "engineering") at assign time — no more accepted-then-dangling assignment the
+dispatch step later rejects. Same shape as kstore/logistics — an <strong>SDK-free</strong> store layer
 (<code>core/src/mcp/mgmt.ts</code>, unit-tested) under a thin stdio glue (<code>mgmt-server.ts</code>), mounted on
-the chief tier and granted via <code>mcp__mgmt</code>. The four storage tools stay <strong>STORAGE, not
+the chief tier and granted via <code>mcp__mgmt</code>. The storage tools stay <strong>STORAGE, not
 execution</strong> — assigning a lead does <strong>not</strong> dispatch it; the autonomous K→Chief→lead
 <strong>dispatch</strong> is BUILT (D-046 → D-051, below).</li>
 </ul>
@@ -604,6 +642,23 @@ synthesis is <strong>validate-before-mutate</strong> — every check runs before
 profile leaves no partial config dir. Before P5.7 the editors were cosmetic (the row was stored
 but the synthesizer read tier assets only); now the stored grant and the run's actual mount are
 the same fact.</p>
+</li>
+<li><p><strong>Discovered capabilities widen the ceiling only by explicit opt-in (D-069/D-070,
+host-integration program).</strong> <code>authority.ts::resolveEffectiveCeiling(tier)</code> = the tier's assets
+∪ — only when the tier's bundle sets <code>allowDiscoveredSkills</code> / its MCP template sets
+<code>allowDiscoveredServers</code> (<strong>orchestrator-only</strong> true; chief/secretary false) — the
+operator-<strong>enabled</strong>+<code>ok</code> discovered assets, with the <code>allowedTools</code> ceiling widening in
+lockstep (<code>mcp__&lt;server&gt;</code> for each admitted server). It is the <strong>one validator</strong> behind the
+profile PATCH and both runtimes (claude synthesis and the ollama tool loop), so the stored
+grant and the run's actual mount can never drift. A <strong>qualified key</strong> (<code>user:…</code> / <code>project:…</code> /
+<code>plugin:…</code>) fails closed at PATCH when its asset is disabled, missing, or untrusted; bare names
+keep the legacy k-native semantics unchanged. <strong>K-reserved server names</strong>
+(<code>kstore</code> / <code>logistics</code> / <code>mgmt</code> / <code>gitnexus</code> — <code>authority.ts::K_NATIVE_SERVER_NAMES</code>) are
+refused at admission, so a host server can never impersonate a K server. The invariant stacks:
+<strong>operator enablement is a precondition, tier opt-in is the ceiling, profile assignment
+narrows.</strong> K and the Chief stay <strong>read-only by design</strong> here — discovered-capability assignment
+is a lead-tier + org-default surface only (their tiers don't set the flags, and their editors
+expose no picker).</p>
 </li>
 </ol>
 <blockquote>
@@ -668,15 +723,24 @@ activate a profile:</p>
 autonomously (e.g. the Chief on a cron, a lead on <code>ci.failed</code>).</li>
 <li><strong>delegation</strong> — one tier activates the next (K → Chief → lead → role subagent).</li>
 </ul>
-<p><strong>As-built (P5.1c) — the "talk to K" front door.</strong> <code>POST /api/k/ask</code> activates K via
-<code>startAgentRun('k-secretary', { trigger: 'user-message', thread })</code> and streams over the <em>existing</em>
-supervisor/EventBus/WS wire (no bespoke chat channel). A <strong>durable K thread</strong> (<code>k_threads</code> /
-<code>k_thread_turns</code>) is the source of truth — it survives reload, and K's answers are captured back to
-it at each turn boundary so a reseed stays coherent. Execution is ephemeral: while you keep chatting,
-a <strong>warm interactive session</strong> (reusing the D-014 persistent-stdin loop) continues the <em>same</em> live
-run via <code>sendInput</code>; when the thread is cold/idle a <strong>fresh run</strong> is started, seeded from the durable
-thread. The route surfaced when composing is a deterministic <code>routeForMessage</code> <strong>preview</strong> (client
-and server agree via <code>@k/shared</code>); K's runtime tool/hand-up decision is authoritative.</p>
+<p><strong>As-built (P5.1c; K runtime redesigned W7a — D-062) — the "talk to K" front door.</strong>
+<code>POST /api/k/ask</code> activates K via <code>startAgentRun('k-secretary', { trigger: 'user-message', thread })</code>
+and streams over the <em>existing</em> supervisor/EventBus/WS wire (no bespoke chat channel). A <strong>durable K
+thread</strong> (<code>k_threads</code> / <code>k_thread_turns</code>) is the source of truth — it survives reload, and K's answers
+are captured back to it at each turn boundary so a reseed stays coherent. Execution is a <strong>resumable
+one-shot</strong> (D-062, superseding the old warm/fresh hybrid): each thread owns a stable Claude CLI
+session — <code>--session-id &lt;uuid&gt;</code> on the FIRST ask (seeded with the full <code>renderSeed</code> transcript),
+<code>--resume &lt;id&gt;</code> on every LATER ask sending <strong>only the new message</strong> — plus a stable per-thread config
+dir + cwd under <code>&lt;dataDir&gt;/k-secretary/&lt;threadId&gt;/</code> (<strong>no worktree</strong> — K writes no code). Continuity
+is a cheap cache-read of the resumed session, NOT a held warm process or a replayed transcript, so a
+cold ask no longer re-pays the ~24k system-prompt + tool-schema envelope. The run <strong>answers and
+exits</strong> (<code>done</code>) — it never parks at <code>awaiting_input</code> holding a live process (fixes the F-054
+cost/park leak, subsumes H10); <code>cli_session_id</code> is persisted only on the first ask's successful
+<code>done</code>, and undo (<code>POST /api/k/undo</code>) removes the dangling user turn so it is never replayed. This is
+<strong>GATED to <code>k-secretary</code></strong> — regular dispatch runs are byte-for-byte unchanged (fresh worktree,
+ephemeral config, interactive HITL park). The route surfaced when composing is a deterministic
+<code>routeForMessage</code> <strong>preview</strong> (client and server agree via <code>@k/shared</code>); K's runtime tool/hand-up
+decision is authoritative.</p>
 <h3>Autonomous wake — the Chief wakes itself (BUILT — P5.2b, D-044)</h3>
 <p>The Chief no longer waits to be spoken to: <strong><code>core/src/chief-wake.ts</code></strong> wires the reused Phase-3
 <strong>node-cron scheduler</strong> (a <code>*/15 * * * *</code> tick, <code>CHIEF_WAKE_CRON</code>) <strong>and</strong> the <strong>EventBus</strong>
@@ -712,6 +776,8 @@ streak), so the wake history stays the history of what actually fired.</li>
 <li><strong>Kill switch</strong> — <code>chief_wake_events_enabled</code> (<code>'1'</code> default, read lazily per event so the
 operator can flip it at runtime) gates the event path only; the cron heartbeat is unaffected.</li>
 </ul>
+<p>A <strong>successful</strong> wake logs one line (trigger / run / goal) so the loop is observable; debounced or
+suppressed ticks stay quiet (F-089).</p>
 <p>Per <strong>D-044</strong>, a "Chief wake" is not a new table — it <strong>reuses <code>agent_runs</code></strong>: a row with
 <code>profile_id='chief'</code> and <code>trigger ∈ {schedule,event}</code>, whose columns already carry the four wake
 facts (kind=<code>trigger</code>, time=<code>created_at</code>, resulting run=<code>run_id</code>, outcome=<code>status</code>). The Chief org
@@ -725,8 +791,10 @@ route is consulted <strong>before</strong> the warm/cold branch: when <code>rout
 named discipline lead), K <strong>delegates instead of running the message itself</strong> —
 <code>startAgentRun('chief', { trigger: 'delegation', goal })</code>, where the goal is K's ask verbatim plus,
 for a named-lead route, the discipline hint so the Chief can <code>assign_lead</code> the right lead. K's pure
-logistics/Q&amp;A path (<code>route.escalates === false</code>) is <strong>unchanged</strong> — it still continues a warm
-interactive session via <code>sendInput</code> or starts a fresh seeded k-secretary run.</p>
+logistics/Q&amp;A path (<code>route.escalates === false</code>) is <strong>unchanged in routing</strong> — K handles the message
+itself as the resumable one-shot above (establish-or-<code>--resume</code> the thread's CLI session), never
+delegating. The delegation check runs BEFORE the resumable path, so a hand-up is independent of K's
+own session.</p>
 <p>Three P5.7 refinements on the front door:</p>
 <ul>
 <li><p><strong>Logistics precedence (D-057).</strong> <code>routeForMessage</code> evaluates the personal-logistics rules
@@ -743,8 +811,9 @@ deliberately impossible). <code>routeForTarget</code> is the one shared mapping,
 preview and the server's actual routing are the same computation.</p>
 </li>
 <li><p><strong>Per-ask model override.</strong> <code>KAskBody.model</code> (validated against the known-model registry at the
-route boundary) wins over the profile override, which wins over the runtime default (D-056);
-<code>askK</code> skips the warm session on an explicit model so an override is never silently ignored.</p>
+route boundary) wins over the profile override, which wins over the runtime default (D-056). With
+the resumable one-shot (D-062) an override no longer forfeits continuity — there is no live process
+to keep, so the ask simply RESUMES the same session under the chosen model.</p>
 </li>
 <li><p><strong>Report-back up the chain.</strong> When the delegated Chief run reaches a <strong>terminal</strong> status, its
 outcome lands back on K's thread as a <code>k</code> turn — via <code>reportDelegationBack</code>, which rides the shared
@@ -752,7 +821,7 @@ outcome lands back on K's thread as a <code>k</code> turn — via <code>reportDe
 <code>startAgentRun</code>'s own tracking. The summary prefers the Chief's latest <strong>mgmt <code>report</code></strong> (the status
 written up the chain, read run-scoped via <code>mgmtDb.listReportsByRun</code>), falling back to the run's own
 assistant text, then to a bare status line — so the operator always sees a result <em>where they
-asked</em>. It never touches the thread's <code>active_run_id</code> (that belongs to K's own warm session).</p>
+asked</em>. It never touches the thread's <code>active_run_id</code> (that belongs to K's own run, a separate concern from a delegated run).</p>
 </li>
 <li><p><strong>Traceability — no new table, no new column.</strong> The delegation <strong>is</strong> the
 <code>startAgentRun('chief', { trigger:'delegation' })</code> row (<code>agent_runs.trigger='delegation'</code>,
@@ -788,6 +857,17 @@ workflow's <code>promptScaffold</code> via <code>renderWorkflowPrompt</code> —
 item</strong> — then appends a <strong>lead charter line</strong> instructing the lead to deliver the batch and <strong>open a
 PR</strong> (never push to a default branch). The lead is activated with
 <code>startAgentRun(leadProfileId, { trigger: 'delegation', goal, workflowId })</code>.</li>
+<li><strong>Fail-fast lead naming + injected roster (F-067, D-063).</strong> So the Chief always names a REAL lead,
+the AUTO paths — the Chief's wake-goal seed, its no-hint delegation seed, and its charter — INJECT
+the five lead identifiers, and <code>lead_list</code> remains the authoritative roster to call before
+assigning. <code>resolveLeadProfileId</code> gates <code>assign_lead</code> (at assign time) and <code>dispatch_lead</code>
+identically, so an unknown lead like "engineering" is rejected once — never accepted-then-dangling.</li>
+<li><strong>Bound checklist (F-070, D-063).</strong> A <strong>project-scoped</strong> lead dispatch binds a <code>workflow_runs</code> row +
+seeds its steps from the delegation workflow, so the lead's kstore status-write tools
+(<code>workflow_step_set</code> / <code>workflow_status_set</code>) RESOLVE against a real checklist instead of
+improvising. Seeding is isolated so a failure degrades to no-checklist without dropping the
+Chief/K report-back, and <code>finalizeWorkflowRun</code> reconciles lingering pending/in-progress steps to
+<code>blocked</code> so the checklist can't contradict a completed run.</li>
 <li><strong>Report-back up the chain.</strong> On the lead run's <strong>terminal</strong>, <code>reportLeadOutcomeToChief</code> rides the
 same <strong>run-lifecycle seam</strong> (<code>trackSupervisedRun</code>) — the downward twin of <code>reportDelegationBack</code> —
 and files a mgmt <code>report</code> scoped to the <strong>Chief's</strong> run summarizing the lead's assistant text
@@ -914,7 +994,7 @@ only (§04).</p>
         <span class="section-icon">⟲</span>
         <h1>Workflows &amp; Memory</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-02</span>
+        <span class="section-updated mono">updated 2026-07-05</span>
       </header>
       <blockquote>
 <p><strong>Status — BUILT (Phase 5, finalized P5.7).</strong> The single hardcoded delegation loop
@@ -1012,6 +1092,39 @@ no separate sub-run table (reused; see §13). The worker roles are now real <str
 role runs <strong>every wave, no exceptions</strong>; a separate whole-implementation review runs before merge. As
 it goes, the orchestrator marks each ticket, loop phase, review, and the CI gate through the kstore
 status-write tools so the run is visible as a live checklist (§13).</p>
+<h2>Skills — capability catalog vs automation registry (BUILT — host-integration program)</h2>
+<p>The skills a run can mount and the skills the operator automates are <strong>one store with two
+surfaces</strong> (D-069/D-071):</p>
+<ul>
+<li><strong>The capability catalog</strong> (<code>GET /api/capabilities/skills</code>, the Skills-page Catalog tab — §08)
+is every <em>mountable</em> skill with provenance: K-native rows <strong>plus discovered host assets</strong> (user /
+project / plugin skills), keyed by <strong>one canonical qualified-key grammar</strong> (the wire <code>id</code> <em>is</em>
+the key): bare <code>&lt;name&gt;</code> (k-native — zero migration for existing rows and profiles),
+<code>user:&lt;name&gt;</code>, <code>project:&lt;projectId&gt;:&lt;name&gt;</code>, <code>plugin:&lt;plugin&gt;@&lt;marketplace&gt;:&lt;name&gt;</code>. A
+discovered row is a <strong>metadata snapshot</strong> (source kind, origin path, content hash, est-tokens,
+<code>status ok|missing</code>) — default-disabled behind the K-scoped overlay; its content stays on host
+disk and is vendor-copied into the run config at synth time (§02).</li>
+<li><strong>The automation registry</strong> (the Automations tab) is the pre-existing K skills surface —
+triggers, schedules, eval history — unchanged: <code>GET /api/skills</code> stays <strong>byte-compatible</strong>,
+returning k-native rows only.</li>
+</ul>
+<p><strong>Est-token conventions.</strong> Every figure comes from one heuristic seam
+(<code>core/src/token-estimate.ts</code>: <code>ceil(chars/4)</code>, documented ±25%, deliberately no tokenizer
+dependency — a one-module swap seam) and is labeled an <em>estimate</em>, never a billed figure:
+<code>est_tokens</code> = the full SKILL.md (the on-invocation cost); <code>est_tokens_meta</code> = the raw frontmatter
+block (the always-loaded index cost; name+description fallback when no block parses); an MCP
+server's <code>est_tokens</code> = its probed tool-schema JSON — <strong>null until probed</strong>.</p>
+<p><strong>The Skill Creator (D-071)</strong> grows K's own library through a drafts lifecycle (<code>skill_drafts</code>
+table; UI at the hidden <code>#/skill-creator</code> route — §08): <strong>brief → authoring run</strong> (dispatched
+under the fail-closed <code>k-secretary</code> profile — a missing profile fails the draft rather than
+silently escalating; the authoring-guidance skill <code>agent-config/skills/skill-authoring</code> is
+embedded in the prompt) <strong>→ ready | failed → manual edit / refine revisions</strong> (a refine on a
+failed <em>first</em> draft is a fresh retry at revision 0) <strong>→ evaluate</strong> (the same eval harness skills
+use, over a parallel <code>skill_draft_evals</code> table, cascade-deleted with its draft) <strong>→ save</strong>. Save
+lands <strong>exclusively in K's library</strong> — <code>agent-config/skills/&lt;slug&gt;/SKILL.md</code> (slug guarded incl.
+Windows reserved device names; 409 on collision; crash-honest rollback) — and registers the
+catalog row with provenance <code>'k'</code>. A draft is never presented as a saved skill until <code>/save</code>
+lands it.</p>
 <h2>Memory — layered, starting at A</h2>
 <p>Every durable profile (K, Chief, each lead) carries a <strong>memory</strong>. Memory is <strong>layered</strong>, and Phase 5
 deliberately <strong>starts at layer A</strong> with storage shaped so B and C are a swap, not a rewrite — the
@@ -1178,17 +1291,19 @@ see §03 <em>Reused connectors</em>).</p>
         <span class="section-icon">▦</span>
         <h1>Project Model</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-06-17</span>
+        <span class="section-updated mono">updated 2026-07-04</span>
       </header>
       <p>K manages a <strong>fleet of projects</strong>. A project is a registry entry pointing at a local git repository with a GitHub remote (decision D-005).</p>
 <pre><code class="language-ts">Project {
   id: uuid
   name: string
-  localPath: string          // absolute path to the repo on disk
+  localPath: string          // absolute path to the repo on disk (unique — a duplicate is rejected 409, W5b)
   githubRemote?: string      // "owner/repo" — required for managed projects
   workspaceManaged: boolean  // true if K cloned it into the workspace dir
   bibleDir: string           // bible source dir, default "docs/bible"
-  healthScore?: number       // 0–100, written by verification runs
+  defaultBranch?: string     // detected + persisted at registration (W5b); web PR base prefers it over the CI-branch heuristic
+  healthScore?: number | null // 0–100, or null ("insufficient signal", D-064); written by verification runs
+  pathMissing?: boolean      // read-surface flag: the localPath no longer exists on disk (W5b/W10)
   lastVerifiedAt?: number    // unix ms
   createdAt: number
 }
@@ -1220,6 +1335,7 @@ see §03 <em>Reused connectors</em>).</p>
 </ol>
 <p>These three invariants are exactly what the verification system (§07) enforces, and what the health score measures.</p>
 <p>Onboarding now <strong>actively scaffolds</strong> the missing invariants rather than merely checking them. <code>POST /api/projects/:id/onboard</code> inspects the three invariants above (GitHub remote, <code>docs/bible/</code>, <code>.github/workflows/</code>) and scaffolds a starter bible (manifest + sections) and CI workflow for whatever is absent. It is idempotent — an existing bible (keyed on a real <code>manifest.json</code> sentinel, not just an empty dir) or workflow is left untouched, so re-running creates nothing. The GitHub remote is reported but not fabricated. The verification system then measures and enforces these same invariants on every run.</p>
+<p><strong>Registration guards (W5b).</strong> A <code>localPath</code> is normalized + case-folded and <strong>rejected <code>409</code></strong> if it duplicates an already-registered project — no two rows managing one repo (F-031). The repo's <strong>default branch</strong> is detected and persisted atomically at registration, and the web PR base prefers it over the CI-branch heuristic. If a registered project's path later <strong>vanishes</strong>, <code>onboard</code> / <code>verify</code> return a single server-side <strong><code>409</code></strong> ("project localPath is missing on disk … — restore it or remove the project") instead of silently <code>mkdir</code>-recreating the directory, and the read surface stamps <code>pathMissing</code> so the UI can disable actions and explain why (the GitHub poller also skips a missing path — §11) (F-033). <strong>Registration</strong> is stricter (F-037): it distinguishes the two failure modes with distinct <code>ClientError</code> messages — <em>path does not exist</em> vs. <em>path is not a git repository (no <code>.git</code> found)</em> — each surfaced as a <strong><code>400</code></strong>, so a caller learns exactly which invariant the folder failed.</p>
 <h2>Project zero</h2>
 <p>The harness applies its own rules to itself: this bible is compiled by the same <code>compileBible()</code> used for every other project, the harness gets a CI workflow, and verification runs against it like any fleet member. If the mechanism is annoying for project zero, it is annoying for everything — fix the mechanism.</p>
 <h2>Workflow runs</h2>
@@ -1228,6 +1344,7 @@ see §03 <em>Reused connectors</em>).</p>
   id: uuid
   projectId: uuid            // → projects, ON DELETE CASCADE
   runId?: uuid               // → runs, ON DELETE SET NULL (patched in after startRun)
+  workflowId?: uuid          // → the NamedWorkflow definition this run ran (guarded ALTER, SCHEMA_VERSION 3→4, F-074)
   taskIds: uuid[]            // JSON — the project_tasks selected for this batch
   mode: 'combined'           // one orchestrator run for the whole selection
   status: 'running' | 'completed' | 'failed'
@@ -1340,7 +1457,7 @@ see §03 <em>Reused connectors</em>).</p>
         <span class="section-icon">✓</span>
         <h1>Verification System</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-06-30</span>
+        <span class="section-updated mono">updated 2026-07-04</span>
       </header>
       <p>Verification is <strong>two-layer</strong> (decision D-004): machines check what machines are good at; agents judge what requires judgment.</p>
 <h2>Layer 1 — Deterministic CI (GitHub Actions)</h2>
@@ -1401,22 +1518,25 @@ org framing just gives the team a home in the roster rather than being a free-fl
 </code></pre>
 <p>Reports persist to SQLite, stream to the dashboard's Verification tab, and the score lands on the project card.</p>
 <h2>Health score</h2>
-<p><code>score = 40·CI + 20·coverage-trend + 20·bible-freshness + 20·findings</code></p>
+<p>The score <strong>PRORATES over only the dimensions it could actually MEASURE</strong> (F-032 / D-064):</p>
+<p><code>score = round( Σ earned(measured) / Σ weight(measured) · 100 )</code> over four weighted dimensions —
+<strong>CI 40 · coverage-trend 20 · bible 20 · findings 20</strong>.</p>
+<p>An <strong>unmeasured</strong> dimension is <strong>excluded from both the numerator and the denominator</strong> — it neither helps nor hurts, and renders as a <code>null</code> bar (never a 0-bar or a full bar). If <strong>no</strong> dimension is measured the score is <strong>null</strong> — "insufficient signal" — <strong>not 100</strong>: a freshly-onboarded project no longer reads 100/100 off scaffold files that never ran. A <strong>measured</strong> dimension still demerits exactly as before:</p>
 <ul>
-<li><strong>CI (40):</strong> latest default-branch run green = full marks; failing = 0; flaky (mixed last 5) = half.</li>
-<li><strong>Coverage trend (20):</strong> improving or stable (≥ baseline within tolerance) = full marks; declining = proportional (half). <code>unknown</code> (no coverage signal available for the project) = neutral / full marks (no penalty). The trend is a <strong>live signal</strong> — see below.</li>
-<li><strong>Bible freshness (20):</strong> all sections updated within 30 days of last significant commit = full.</li>
-<li><strong>Findings (20):</strong> no open critical = full; each open critical −10, each warn −2 (floor 0).</li>
+<li><strong>CI (40):</strong> classified (<code>classifyCi</code>) from the <strong>decisive</strong> runs — a <code>success</code> or a failure-class conclusion (<code>failure</code>/<code>timed_out</code>/<code>action_required</code>/<code>startup_failure</code>); neutral (<code>skipped</code>/<code>cancelled</code>/<code>neutral</code>/<code>stale</code>) and in-progress runs carry no signal and are ignored — among the last 10 CI runs (<code>gh run list --limit 10</code>) across <strong>all branches</strong> (there is <strong>no</strong> default-branch filter; <code>headBranch</code> is fetched but never used to filter). Latest decisive run green = full marks (40); latest decisive run failed = 0; <strong>flaky</strong> = at least one success <strong>and</strong> at least one failure among those decisive runs (no fixed "last N" window) = half (20). <strong>Unmeasured</strong> when there is no decisive CI signal at all — no workflow, or a workflow that has never produced a decisive run.</li>
+<li><strong>Coverage trend (20):</strong> improving or stable (≥ prior within tolerance) = full marks; declining = half. <strong>Unmeasured</strong> (no <code>coverage-summary.json</code>) → excluded, never penalised. It is a <strong>live signal</strong> — see below.</li>
+<li><strong>Bible (20):</strong> scored on <strong>AUTHORED content</strong>, not commit history — an authored bible (past the <code>BIBLE_SCAFFOLD_MARKER</code> sentinel), <strong>even uncommitted</strong> (D-028), earns full marks; a bare scaffold is <strong>unmeasured</strong>. Bible <em>quality</em> isn't machine-scorable, so a measured bible is simply full.</li>
+<li><strong>Findings (20):</strong> no open critical = full; each open critical −10, each warn −2 (floor 0). Measured only once at least one of CI / coverage / bible is measured — a zero-signal scaffold carries no findings dimension either.</li>
 </ul>
-<p>The formula is deliberately simple and documented here so agents and operator agree on what "healthy" means. Tune it by editing this section — the verification skill reads its weights from the bible.</p>
+<p>Because a score can now be absent, <code>verification_reports.score</code> and <code>score_breakdown</code> are <strong>nullable</strong> (a table rebuild, <code>SCHEMA_VERSION 4→5</code>), and every API + web consumer is null-safe. The formula is deliberately simple and documented here so agents and operator agree on what "healthy" means. Tune the weights by editing this section — the verification skill reads them from the bible.</p>
 <h2>What shipped — the deterministic spine vs. the agent layer</h2>
 <p>This milestone delivered the deterministic Layer-1 spine end-to-end and authored the Layer-2 skill + deep dispatch. The split below records exactly what is computed by code today versus what is deferred to the agent layer.</p>
 <h3>Deterministic spine (core owns it)</h3>
 <p>The health score and report are computed and persisted <strong>deterministically</strong> by <code>core/src/verify.ts</code> — no agent in the loop:</p>
 <ul>
-<li><code>computeHealthScore</code> implements the exact §07 formula above (<code>40·CI + 20·coverage-trend + 20·bible-freshness + 20·findings</code>), returning the clamped score plus a per-factor <code>breakdown</code> for the UI bars.</li>
+<li><code>computeHealthScore</code> implements the §07 <strong>prorated</strong> formula above — it earns points per MEASURED dimension over the measured weight, returning the clamped score (or <strong>null</strong> when no dimension is measured) plus a per-factor <code>breakdown</code> (each factor <code>null</code> when unmeasured) for the UI bars.</li>
 <li>The pure auditors — <strong>CI</strong> (<code>auditCi</code> / <code>classifyCi</code>), <strong>bible-freshness</strong> (<code>auditBible</code>), and <strong>invariants</strong> (<code>auditInvariants</code>) — take already-gathered facts and emit <code>Finding[]</code>. <code>composeFindings</code> dedupes them so each root cause is counted once (CI/bible auditors own the missing-workflow / missing-bible criticals; only the GitHub-remote invariant is kept from <code>auditInvariants</code>, avoiding a double penalty).</li>
-<li><code>runVerification</code> is the impure conductor: it gathers facts (cached GitHub CI status, <code>.github/workflows/</code> presence, bible git-freshness via <code>git log</code> on the bible dir), scores with the pure core, persists a <code>VerificationReport</code> (including <code>score_breakdown</code>) and updates project health <strong>atomically</strong> in one SQLite transaction, then broadcasts a <code>verification_update</code> event.</li>
+<li><code>runVerification</code> is the impure conductor: it gathers facts (cached GitHub CI status, <code>.github/workflows/</code> presence, the project's <code>coverage-summary.json</code>, and whether the bible is <strong>authored</strong> past the scaffold sentinel via <code>hasAuthoredBible</code> — which drives the <em>score</em> — while bible git-freshness via <code>git log</code> on the bible dir still feeds <code>auditBible</code>'s soft-staleness <em>finding</em>, not the score), scores with the pure core, persists a <code>VerificationReport</code> (including <code>score_breakdown</code>) and updates project health <strong>atomically</strong> in one SQLite transaction, then broadcasts a <code>verification_update</code> event.</li>
 </ul>
 <p>Exposed via <code>POST /api/projects/:id/verify</code> (synchronous, authoritative) and <code>GET /api/projects/:id/verifications</code> (report history, newest first).</p>
 <h3>Coverage trend — live signal</h3>
@@ -1467,7 +1587,10 @@ on the Skills page. If the eval run can't be dispatched the call degrades cleanl
 <h3>Routing outcomes (routing dashboard)</h3>
 <p>Every run already records its provider, model, cost, tokens, and status. The <strong>routing dashboard</strong>
 aggregates that run-outcome data — cost, latency, and success rate by provider+model (and task
-shape) — so the operator can see where spend goes and whether cheaper routing is paying off. The
+shape) — so the operator can see where spend goes and whether cheaper routing is paying off.
+<strong>Latency excludes</strong> the time a run sat <strong>parked</strong> at <code>awaiting_input</code> (the shared <code>activeLatencyMs</code>
+rule, W9a/F-082), so it measures processing time not operator think-time, and an operator-<strong>killed</strong>
+run counts as <strong>neither</strong> a success nor a failure (excluded from the terminal denominator). The
 same aggregates feed the <code>ModelRouter</code>'s cost-aware decisions (§02 Architecture). The view
 reuses the existing stacked-SVG charts and <code>buildTimeseries</code>, and renders a sane empty state
 before any runs exist. It is read-only insight today; <strong>learned/automatic routing tuning is a
@@ -1542,7 +1665,7 @@ agent org can be evaluated as it comes online.</p>
         <span class="section-icon">▣</span>
         <h1>Dashboard — Command Deck</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-02</span>
+        <span class="section-updated mono">updated 2026-07-05</span>
       </header>
       <p>The dashboard is the <strong>window into the agent organization</strong> (§03) — held to product quality, not
 internal-tool quality. It is re-framed from <em>an operator driving a deck of tools</em> to <em>a user
@@ -1824,9 +1947,48 @@ and renders <em>that</em> definition's scaffold through the existing <code>rende
 a <strong>workflow-only run filter</strong> (fed by the new <code>GET /api/workflows/runs</code>) with an all-runs
 toggle; deep links default to all.</p>
 </blockquote>
-<p>Likewise, the standalone <strong>Skills</strong> destination folds into the orchestrator-detail <strong>skills
-editor</strong> above, where each skill is scoped to the lead that uses it rather than floating in a
-global list.</p>
+<h3>Skills — the capability catalog (BUILT — host-integration program, D-069..D-071)</h3>
+<p>The <strong>Skills</strong> destination (D-024 originally planned to fold it away; the host-integration
+program made it first-class instead) is <strong>one destination, four routed tabs</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Catalog</strong> (<code>#/skills</code>, default)</td>
+<td>every mountable skill — K-native + discovered host assets — with a <strong>source badge</strong> (k · global · project · plugin; the plugin badge names the plugin), a <strong>model-compat badge</strong> (universal / claude-only / mcp-dependent), an <strong>est-token chip</strong>, the K-scoped <strong>enable</strong> toggle, a SKILL.md preview, and mountedBy chips; filters + search, a <strong>Rescan</strong> button, and a <strong>warnings banner</strong> (unreadable host dirs, malformed SKILL.md)</td>
+</tr>
+<tr>
+<td><strong>MCP</strong> (<code>#/skills/mcp</code>)</td>
+<td>tier-template servers (provenance <code>k</code>, born trusted, not toggleable) + discovered host servers behind the <strong>TrustDialog</strong> flow — review the full command / args / env <strong>names</strong> before "Trust &amp; enable" — plus the explicit <strong>probe</strong> for tool-count/token estimates</td>
+</tr>
+<tr>
+<td><strong>Hooks</strong> (<code>#/skills/hooks</code>)</td>
+<td>read-only host-hook visibility with a not-executed-by-K banner (K runs execute only K's vendored hooks)</td>
+</tr>
+<tr>
+<td><strong>Automations</strong> (<code>#/skills/automations</code>)</td>
+<td>the pre-existing K automation registry (triggers, schedules, eval history), extracted verbatim as <code>AutomationsTab</code></td>
+</tr>
+</tbody></table>
+<p>A <strong>CapabilityStatRow</strong> totals strip heads all four tabs — <code>Enabled skills: n · ~Xk tok — MCP: m servers · ~Yk tok — Total context overhead: ~Zk tok</code> — with an "estimates, not billed tokens"
+tooltip; entries without an estimate (e.g. an unprobed MCP server) are counted and footnoted,
+never silently dropped. The catalog invalidates live on the <code>capabilities_update</code> WS event (§13).</p>
+<p><strong>CapabilityPicker.</strong> The orchestrator-detail <strong>Skills</strong> and <strong>MCP servers</strong> tabs and the Settings
+<strong>org-default</strong> panel assign discovered capabilities through a shared ARIA-combobox
+<strong>CapabilityPicker</strong> — source badge + token chip per item, a per-profile token subtotal, disabled
+entries grayed with a catalog deep-link. The <strong>Tools</strong> tab keeps <code>AuthorityList</code> (allowlist
+patterns, not catalog entries), and <strong>K / Chief stay read-only by design</strong> (§03).</p>
+<p><strong>Skill Creator</strong> (<code>#/skill-creator</code>, a hidden route reached from the catalog): DraftList +
+BriefForm + a draft workspace — StatusHeader with run links, honestly labeled <strong>"agent-generated
+draft — not saved"</strong> vs <strong>"saved to K library"</strong> — SkillDraftEditor, RefinePanel, EvalPanel (the
+existing eval badges), SaveBar. Lifecycle in §04.</p>
+<p><strong>RunConsole runtime badge.</strong> A run on a local model declares its engine honestly — <strong>"local ·
+tools"</strong> (the D-072 tool loop with tools advertised) vs <strong>"local · prompt-only"</strong> (degraded in
+place: no tool support, skills inlined) — fed by the truthful run-start system event (§13).</p>
 <h3>Projects — workspace, 7 tabs</h3>
 <p>A project opens into its workspace (unchanged in shape):</p>
 <table>
@@ -1862,7 +2024,7 @@ global list.</p>
 </tr>
 <tr>
 <td><strong>Artifacts</strong></td>
-<td>this project's artifacts as a gallery, each in a sandboxed iframe; per-artifact markdown edit + bible recompile</td>
+<td>this project's OWN artifacts as a gallery (only <code>project-&lt;id&gt;-*</code>, not the harness globals — F-038), each in a sandboxed iframe; a regular artifact edits as markdown, a <strong>bible edits per SECTION</strong> with source-of-truth writeback + recompile, staying in the project's own dir (D-065)</td>
 </tr>
 </tbody></table>
 <h2>Observe — the watch surfaces (today)</h2>
@@ -1874,8 +2036,18 @@ the replayable per-seq event log. Interactive runs show an <strong>answer box</s
 with <strong>End session</strong> and <strong>Compact context</strong>, plus a <strong><code>ctx X / Y · Z%</code></strong> pressure meter. (Internals
 in §13.)</li>
 <li><strong>Graph (3D).</strong> Fleet + per-project knowledge graphs (below).</li>
-<li><strong>Metrics.</strong> Tokens / cost / run trends over time (stacked-SVG charts).</li>
-<li><strong>Routing.</strong> Model-routing outcomes — cost / latency / success by provider+model.</li>
+<li><strong>Metrics.</strong> Tokens / cost / run trends over time (stacked-SVG charts), plus KPI tiles and
+gap-audit breakdowns (W9): <strong>cost-by-lead</strong> (<code>groupBy=lead</code> — each run resolved to its lead via the
+latest orchestrator <code>agent_runs</code> activation; no-activation → <code>unassigned</code>), an <strong>error-rate</strong> KPI
+(the exact complement of success rate), <strong>latency p50 / p95</strong> (R-7 interpolation over the
+parked-excluded active latency), and <strong>success-rate + latency day trends</strong>
+(<code>GET /api/metrics/quality</code>; a day with no terminal/latency data is a null <strong>gap</strong>, never NaN).
+Latency everywhere <strong>excludes time a run sat parked</strong> at <code>awaiting_input</code> (the shared
+<code>activeLatencyMs</code> rule), so it reflects processing time, not operator think-time; an operator-<strong>killed</strong>
+run is <strong>excluded from the terminal denominator</strong> — neither a success nor a failure. (Retry-rate is
+documented UNAVAILABLE — no retry tracking exists; nothing fabricated.)</li>
+<li><strong>Routing.</strong> Model-routing outcomes — cost / latency / success by provider+model, over the same
+parked-excluded active latency and killed-excluded success rate.</li>
 <li><strong>Evals.</strong> The behavioral eval subsystem (§07): systems, runs with progress, a per-system pass-rate /
 discrimination / regression report, the raw results table, and a <strong>gated Run</strong> (dry by default — a real
 token-spending run requires an explicit opt-in that resets on every dialog open). (Internals in §07.)</li>
@@ -2040,7 +2212,7 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
         <span class="section-icon">➤</span>
         <h1>Roadmap</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-02</span>
+        <span class="section-updated mono">updated 2026-07-04</span>
       </header>
       <p>Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.</p>
 <div class="roadmap-progress"><div class="phase-row">
@@ -2289,7 +2461,10 @@ box over-claimed — the <strong>Google Calendar / Gmail / Drive connectors are 
 remain operator-side only; K's tier mounts kstore + logistics and nothing else — §03). Wiring the
 real connectors stays an open follow-up</li>
 <li><input checked disabled type="checkbox" /> Memory layer A: per-profile markdown lessons + gated end-of-run reflection (operator-approved)</li>
-<li><input checked disabled type="checkbox" /> K runtime (hybrid): durable thread + warm interactive session + fresh-seeded run on restart/idle/wake</li>
+<li><input checked disabled type="checkbox" /> K runtime (hybrid): durable thread + warm interactive session + fresh-seeded run on restart/idle/wake
+— <strong>runtime redesigned (2026-07-04, D-062):</strong> the warm/fresh hybrid became a <strong>resumable one-shot</strong>
+(a stable per-thread <code>--session-id</code>/<code>--resume</code> CLI session, answer-and-exit, no park); the durable
+thread stays the source of truth</li>
 <li><input checked disabled type="checkbox" /> <code>agent_tasks</code> (K-owned global checklists) distinct from <code>project_tasks</code> — <strong>delivered as the
 OPPOSITE design (2026-07-02 annotation):</strong> there is no <code>agent_tasks</code> table and no split — the
 as-built model is the <strong>unified <code>work_items</code> store with scopes</strong> (<code>run</code>/<code>personal</code>/<code>org</code>/<code>project</code>,
@@ -2448,7 +2623,7 @@ of invented numbers).</p>
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-02</span>
+        <span class="section-updated mono">updated 2026-07-05</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -2641,7 +2816,7 @@ of invented numbers).</p>
 <tr>
 <td>D-023</td>
 <td>2026-06-27</td>
-<td>K runtime</td>
+<td>K runtime <em>(K's warm-session hybrid superseded-by D-062)</em></td>
 <td><strong>Persistent identity, ephemeral execution</strong> — every tier is durable (charter + memory + thread) but only ever RUNS as a bounded <code>startAgentRun(profileId, { trigger, … })</code> activation; triggers = user-message (HITL), schedule/event (Phase-3 scheduler, reused), delegation (tier→tier). K specifically is HYBRID: the durable thread + memory is source of truth, a warm interactive session is kept while actively chatting, and a fresh seeded run is spun on restart/idle-timeout/scheduled wake</td>
 <td>A durable secretary you "talk to" can't be one never-ending process (cost/leak/restart-fragility), but re-seeding every message loses the feel of continuity; making identity durable and execution bounded gives both — continuity from stored thread+memory, robustness from short activations; reuses the supervisor/EventBus and the Phase-3 scheduler unchanged</td>
 <td>A single always-on K process (leaks, can't survive restart, unbounded cost); stateless re-seed per message (loses conversational continuity); a bespoke runtime outside the supervisor (re-implements what <code>startRun</code> already does)</td>
@@ -2793,7 +2968,7 @@ of invented numbers).</p>
 <tr>
 <td>D-042</td>
 <td>2026-07-01</td>
-<td>K front door + hybrid runtime (P5.1c) <em>(realizes D-023)</em></td>
+<td>K front door + hybrid runtime (P5.1c) <em>(realizes D-023; warm/fresh hybrid superseded-by D-062)</em></td>
 <td><code>POST /api/k/ask</code> activates K via <code>startAgentRun('k-secretary', {trigger:'user-message', thread})</code> over the existing supervisor/EventBus/WS stream; a durable K thread (<code>k_threads</code>/<code>k_thread_turns</code>) is the source of truth (persists across reload) while execution is ephemeral — a warm interactive session (reusing the D-014 persistent-stdin loop) continues the live run while chatting, and a fresh run is seeded from the durable thread when cold/idle; K's answers are captured back to the thread at each turn boundary so a reseed stays coherent; the surfaced route is a deterministic <code>routeForMessage</code> preview (client+server agree via <code>@k/shared</code>) while K's runtime tool/hand-up choice is authoritative</td>
 <td>Talking to K needed a real front door reusing the run-streaming wire (no bespoke channel) that honors D-023 "persistent identity, ephemeral execution"; the thread outlives any run so reload keeps continuity, and warm-vs-fresh reuses the proven interactive HITL loop instead of a new session manager; a shared heuristic lets the composer preview the route before send without pretending to know K's runtime decision</td>
 <td>A bespoke K chat channel (duplicates EventBus/WS); persisting only user turns (K forgets its own answers on reseed — so answers are captured on turn boundary); always fresh-seeding (loses warm continuity mid-chat); route computed only server-side (composer couldn't preview before send)</td>
@@ -2950,6 +3125,94 @@ of invented numbers).</p>
 <td>The live K→Chief→lead→PR proof failed at the Chief hop: <code>--allowedTools</code> is only an AUTO-APPROVAL list and <code>--permission-mode acceptEdits</code> auto-approved Write/Edit for the no-code chief tier, so the Chief — whose stale "PLANNED" charter gave it no tool procedure — improvised: spawned an inline <code>Agent</code> subagent and WROTE FILES in its worktree, with only headless permission denial stopping the git/PR steps. Separately, upgraded DBs still carried pre-B1 seed rows (the real DB's chief lacked <code>mcp__mgmt</code>), so B1's row enforcement would have stripped the Chief's management server on exactly the DBs that upgraded</td>
 <td>Prompt-only discipline (the incident IS the counter-example — D-021 again); switching tiers to permission-mode <code>default</code> (breaks every autonomous run for one tier's ceiling); denying the whole tool namespace (Skill/TodoWrite/etc. are conveniences, not capabilities — denying them regresses leads for zero authority gain); a recurring resync (would clobber operator customizations now that the editors are real — hence one-shot); leaving stale seed rows to hand-editing (the upgrade path must be code, not operator surgery)</td>
 </tr>
+<tr>
+<td>D-062</td>
+<td>2026-07-04</td>
+<td>K secretary lifecycle — resumable one-shot runs <em>(supersedes the D-023/D-042 warm/fresh hybrid FOR K)</em></td>
+<td><strong>A K ask is a RESUMABLE ONE-SHOT run, not a parked interactive process.</strong> Each K thread owns a stable Claude CLI session — <code>--session-id &lt;uuid&gt;</code> on the FIRST ask (seeded with the full <code>renderSeed</code> transcript), <code>--resume &lt;id&gt;</code> on every LATER ask sending <strong>only the new message</strong> — plus a stable per-thread config dir + cwd under <code>&lt;dataDir&gt;/k-secretary/&lt;threadId&gt;/</code> (<strong>no worktree</strong> — K writes no code). A cold ask no longer re-pays the ~24k system-prompt + MCP-tool-schema envelope or replays the 12-turn transcript; continuity is a cheap cache-read of the resumed CLI session, while the durable <code>k_threads</code>/<code>k_thread_turns</code> stays the <strong>source of truth</strong>. The run ANSWERS AND EXITS (<code>done</code>) — it never parks at <code>awaiting_input</code> holding a live process + worktree (fixes F-054 cost/park; subsumes H10 self-terminate). <code>cli_session_id</code> persists ONLY on the first ask's successful <code>done</code> (<code>SCHEMA_VERSION 5→6</code>); undo (<code>undoK</code> / <code>POST /api/k/undo</code>) removes the dangling user turn so an undone ask is never replayed (guarded against a late kill-flush resurrecting it). <strong>GATED to <code>k-secretary</code>:</strong> regular dispatch runs are byte-for-byte unchanged (fresh worktree, ephemeral config, interactive HITL park). <code>askK</code>'s <code>warm</code> flag is kept for API compatibility but is now always false; the <code>awaiting_input</code> branch remains only as belt-and-suspenders for any interactive reuse</td>
+<td>The D-023/D-042 hybrid kept a warm interactive process while chatting and re-seeded a fresh run when cold — but a parked K run held a live CLI process + worktree indefinitely (the F-054 cost/leak, the H10 self-terminate), and each cold re-seed re-paid the whole prompt/tool envelope AND replayed the transcript (a cost explosion on every ask). A resumable one-shot gets continuity AND boundedness for free: the CLI's own resumed session carries context cheaply, the durable thread survives reload/reset, and the run exits instead of squatting a process. Only K's lifetime changed — regular dispatch keeps interactive parking</td>
+<td>Holding a warm interactive K process (the D-023/D-042 model — the leak/cost bug this fixes); re-seeding a fresh run per cold ask (re-pays the envelope + replays the transcript — the cost explosion); giving K a worktree (it writes no code); dropping the durable thread in favor of the CLI session (the session is a cache, not the truth — reload/reset must recover from the thread); parking at <code>awaiting_input</code> (a one-shot has a single terminal boundary — the branch stays only for interactive reuse)</td>
+</tr>
+<tr>
+<td>D-063</td>
+<td>2026-07-04</td>
+<td>Org lead roster + fail-fast lead naming — unblock the autonomous K→Chief→lead chain</td>
+<td><strong>Give the Chief the authoritative lead roster and make lead-naming fail-fast at ASSIGN time.</strong> A new read-only <code>lead_list</code> mgmt tool returns the dispatchable leads (id · name · discipline · one-line role); the AUTO paths — the Chief's wake-goal seed, its no-hint delegation seed, and its charter — INJECT the five lead identifiers so the Chief always references a real lead and never invents a discipline like "engineering". <code>assign_lead</code> now VALIDATES the lead via <code>resolveLeadProfileId</code> — the SAME resolver <code>dispatch_lead</code> uses (by id, then name, then discipline slug, gated by <code>isLeadProfile</code>) — and REJECTS an unknown lead at assign time, so the two can never disagree. A project-scoped lead dispatch now BINDS a <code>workflow_runs</code> row + seeds its steps from the delegation workflow, so the lead's kstore status-write tools (<code>workflow_step_set</code>/<code>workflow_status_set</code>) RESOLVE against a real checklist; checklist seeding is isolated so a failure degrades to no-checklist without dropping the Chief/K report-back, and <code>finalizeWorkflowRun</code> reconciles lingering steps to <code>blocked</code> so the checklist can't contradict a completed run. (F-067/F-070/F-072/F-081)</td>
+<td>The live K→Chief→lead chain died at the lead-naming hop: the Chief, with no roster in its seed, invented a discipline that <code>assign_lead</code> ACCEPTED (storage) but <code>dispatch_lead</code> later REJECTED, so the objective stranded as a dangling assignment. Handing the Chief the authoritative roster + making <code>assign_lead</code> fail the same way <code>dispatch_lead</code> does makes the accept and the dispatch agree; binding a <code>workflow_runs</code> checklist gives the dispatched lead a real progress surface the status-write tools resolve against instead of improvising</td>
+<td>Leaving <code>assign_lead</code> permissive (the accepted-then-dangling assignment — the exact stall this fixes); a second, divergent resolver for assign vs. dispatch (they MUST agree — one <code>resolveLeadProfileId</code>); the lead improvising with no <code>workflow_runs</code> row (the status-write tools no-op with nothing to resolve); failing the whole dispatch when checklist seeding throws (degrade to no-checklist, keep the report-back)</td>
+</tr>
+<tr>
+<td>D-064</td>
+<td>2026-07-04</td>
+<td>Health score PRORATES over measured dimensions — no phantom 100</td>
+<td><strong><code>computeHealthScore</code> prorates over only the dimensions it could actually measure:</strong> <code>score = round( Σ earned(measured) / Σ weight(measured) · 100 )</code>. An UNMEASURED dimension is excluded from BOTH numerator and denominator — it neither helps nor hurts, never scored 0 nor full-credit. If NOTHING is measured the score is <strong>null</strong> (<code>insufficient signal</code>), NOT 100 — a freshly-onboarded project no longer reads 100/100 off scaffold files that never ran. The <strong>bible</strong> dimension is scored on <strong>AUTHORED content</strong> (the <code>BIBLE_SCAFFOLD_MARKER</code> sentinel: a bare scaffold is unmeasured; an authored bible — even uncommitted, per D-028 — is full marks), NOT git commit history, so an authored-but-uncommitted bible isn't punished. A MEASURED problem still demerits its own dimension exactly as before. <code>verification_reports.score</code> + <code>score_breakdown</code> become NULLABLE (a table rebuild, <code>SCHEMA_VERSION 4→5</code>), null-safe across the API and every web consumer. (F-032)</td>
+<td>The old fixed-weight <code>40·CI + 20·coverage + 20·bible + 20·findings</code> formula credited a bare project for dimensions that carried no real signal (an unmeasured factor scored as neutral full marks), so a scaffold-only project read ~100/100 — a health lie that made a never-run project look healthier than a real one with findings. Prorating over measured dimensions makes the score reflect only real evidence; a zero-signal project is honestly <code>null</code> (insufficient signal) rather than a fabricated 100</td>
+<td>Scoring an unmeasured dimension 0 (punishes a project for not emitting a signal — e.g. no coverage instrumentation); scoring it neutral/full (the phantom-100 bug); keeping <code>score</code> NOT NULL (can't represent "insufficient signal" — hence the nullable rebuild); scoring the bible on commit freshness (punishes an authored-but-uncommitted bible, which D-028 makes the norm for K's own gitignored bible)</td>
+</tr>
+<tr>
+<td>D-065</td>
+<td>2026-07-04</td>
+<td>A bible is edited per-SECTION with source-of-truth writeback <em>(refines D-002)</em></td>
+<td><strong>A project/harness bible is edited per SECTION, and Save writes back to the section SOURCE.</strong> <code>PUT /api/artifacts/:slug/sections/:sectionSlug</code> (<code>saveBibleSection</code>) writes the edited body back to its canonical <code>&lt;bibleDir&gt;/sections/&lt;slug&gt;.md</code> source (frontmatter preserved via a lossless <code>splitFrontmatter</code>) THEN recompiles — so the edit IS the source and survives every recompile. The old whole-markdown PUT against a bible slug is REJECTED (<code>400</code>, steering the caller to the section editor), closing the silent-data-loss path (F-029, HIGH). Path-traversal-safe (<code>SLUG_RE</code> + manifest allowlist + <code>isPathWithin</code>). A project bible save no longer writes <code>project-&lt;id&gt;-bible.*</code> into K's OWN <code>ARTIFACTS_DIR</code> or clobbers the row's <code>html_path</code> — everything stays in the project's own dir (F-030); a project's Artifacts tab lists only its own <code>project-&lt;id&gt;-*</code> artifacts, not the harness globals (F-038)</td>
+<td>Under D-002 a bible compiles from section sources to one HTML; but editing and saving the COMBINED markdown (or the compiled HTML) was silently discarded on the next recompile — a real data-loss path. Writing the edit back to the exact section source the compiler reads makes the round-trip lossless; scoping the write to the project's own bible dir stops a project edit from leaking into K's artifacts and clobbering the row's html_path</td>
+<td>Editing/saving the combined bible markdown or compiled HTML (lost on recompile — the data-loss bug); writing project bibles into K's <code>ARTIFACTS_DIR</code> (cross-repo leak + <code>html_path</code> clobber); a free-form section path (traversal — hence <code>SLUG_RE</code> + manifest allowlist + <code>isPathWithin</code>)</td>
+</tr>
+<tr>
+<td>D-066</td>
+<td>2026-07-04</td>
+<td>Terminal env scrub + prod-token exclusion + surfaced/opt-out credential posture</td>
+<td><strong>Three defense-in-depth hardenings around the browser terminal + host credentials.</strong> (a) The terminal's <code>node-pty</code> no longer inherits <code>process.env</code> — it runs a SCRUBBED env (denylist: vendor prefixes + <code>*_TOKEN</code>/<code>*_KEY</code>/<code>*_SECRET</code>/<code>*_PASSWORD</code> + connection-string <code>*_URL</code>/<code>*_URI</code>/<code>*_DSN</code>/<code>*_PASS</code>/<code>*_PWD</code>/<code>CONNECTION</code>; <code>PATH</code>/<code>HOME</code>/<code>PWD</code>/etc. survive), so a leaked/guessed terminal token can't <code>echo $ANTHROPIC_API_KEY</code>. (b) <code>VITE_TERMINAL_TOKEN</code> and <code>VITE_HARNESS_TOKEN</code> are emitted <code>undefined</code> in a PROD bundle (the dev literal only under <code>vite serve</code>) and <code>TerminalPage</code>'s fallback is dev-gated — prod fails CLOSED instead of shipping <code>dev-terminal-token</code>/<code>dev-token-change-me</code>. (c) A non-loopback + <code>ENABLE_TERMINAL</code> bind now REFUSES to boot without an explicit <code>TERMINAL_ALLOW_REMOTE=true</code>, even with a strong <code>TERMINAL_TOKEN</code> (was only refusing weak tokens). Plus the <strong>credential posture</strong> (<code>managed</code> | <code>host-fallback</code> | <code>disabled</code>) is SURFACED on <code>/api/status</code> + Settings + a boot summary (never the secret), so silent host-credential use is visible, and <code>K_DISABLE_HOST_CREDENTIAL_FALLBACK</code> opts a deployment OUT (fail-closed to unauthenticated). DEFAULT (no flag) is byte-identical — OOTB dogfooding unbroken. (F-084/F-064/F-090)</td>
+<td>The terminal ran with the full process env, so a guessed/leaked terminal token was a full credential-exfil channel; a prod build baked the dev terminal/harness tokens into client JS; a non-loopback terminal bind exposed a shell on the LAN behind only a token; and the D-027 host-credential dogfooding fallback copied host creds SILENTLY. Each is closed without moving the OOTB default — the scrub is additive, the prod-token exclusion only affects release builds, the remote-terminal gate is opt-in, and the posture is observable + opt-out-able</td>
+<td>Trusting the terminal token alone (one leak = full env exfil — hence the scrub); shipping the dev token literal in prod (fail closed instead); allowing a non-loopback terminal on a strong token alone (an accidental LAN bind exposes a shell — require <code>TERMINAL_ALLOW_REMOTE</code>); turning the host-fallback OFF by default (breaks OOTB dogfooding — make it VISIBLE + opt-out instead)</td>
+</tr>
+<tr>
+<td>D-067</td>
+<td>2026-07-04</td>
+<td>Opt-in carry-working-tree dispatch mode</td>
+<td><strong>An opt-in <code>carryWorkingTree</code> flag lets a dispatched run see the source repo's uncommitted work.</strong> Threaded <code>POST /api/runs</code> → <code>startRun</code> → <code>startAgentRun</code> (boolean-validated); when set, the run's worktree is seeded with the SOURCE repo's uncommitted <strong>tracked + staged</strong> changes via a non-destructive <code>git stash create</code> + apply (<strong>untracked NOT carried</strong> — documented; <code>stash push -u</code> avoided as it mutates the source). The DEFAULT (no flag) is BYTE-IDENTICAL — <code>worktree add --detach HEAD</code> unchanged, carry unreachable without the flag — locked by real-git tests incl. the persistent-session no-op interaction</td>
+<td>A dispatched run always started from a clean <code>HEAD</code>, so it could not see in-progress local edits — sometimes exactly the state you want an agent to start from. An opt-in carry lets a run observe the uncommitted tracked+staged tree without touching the default clean-worktree contract or mutating the source repo</td>
+<td>Carrying by default (changes the clean-worktree contract every run relies on); <code>git stash push -u</code> (mutates the source working tree — used the non-destructive <code>stash create</code>/apply); carrying untracked files (broader, unpredictable blast radius — tracked+staged only, documented)</td>
+</tr>
+<tr>
+<td>D-068</td>
+<td>2026-07-04</td>
+<td>Post-final-review follow-up hardenings — org-model warn, killed-run cost honesty, <code>/end</code> relay-run termination, undo CLI-session scrub, skill-source realpath</td>
+<td><strong>Five hardenings landed after the whole-implementation FINAL REVIEW (3 read-only agents — correctness / security / tests+docs — verdict STANDARDS HELD · SECURE · SOUND), each its own reviewable commit with a real regression test.</strong> (a) <strong>WARN-ONLY org model capability:</strong> <code>isOrgToolCapableModel</code> / <code>warnIfOrgRoleModelNotToolCapable</code> emit ONE clear warning at the Chief (<code>wakeChief</code>) and lead (<code>drainLeadDispatches</code>) dispatch choke-points when the role resolves to a haiku-tier model (which can't reliably drive the deferred MCP management tools, silently stalling the K→Chief→lead chain) — but still dispatch EXACTLY as configured (no upgrade, no refuse). (b) <strong>KILLED-RUN COST HONESTY:</strong> a run killed mid-turn never emits the authoritative turn-end <code>result</code> usage, so its 0s are UNMEASURED, not free — <code>accumulateInterimUsage</code> recovers per-<code>assistant</code> interim tokens (OUTPUT summed across messages, INPUT the conservative MAX so recovery can only under-count, never over-bill) via <code>reconcileKilledUsage</code> ONLY when no <code>result</code> was ever summed (never double-counts a completed turn); cost stays honestly unrecoverable (no interim cost signal); <code>isUnmeasuredKilledRun</code> keeps a genuinely-unmeasured killed run (0/0/$0) COUNTED as a run but OUT of the measured cost/token aggregates so it never reads as a $0 that drags an average. (c) <strong><code>/end</code> flips a relay-dispatched LEAD run</strong> (was a no-op for non-interactive runs) by routing a non-interactive live proc through the same <code>kill()</code> path <code>/kill</code> uses → honest <code>killed</code> terminal; the interactive graceful-EOF path stays byte-identical (change scoped to <code>!interactive</code>). (d) <strong><code>undoK</code> nulls the owning thread's <code>cli_session_id</code></strong> (keyed on thread PK, resolved BEFORE the turn-delete) so an undone RESUME ask can't survive in K's live <code>claude --resume</code> session — closes the F-054/F-060 taint on the common fast-one-shot-then-undo path (active_run_id is already NULL by then). (e) <strong><code>readSkillSource</code> realpath gate:</strong> a fail-safe <code>fs.realpathSync</code> check so a symlink planted inside <code>agent-config/skills</code> can't read THROUGH the F-069 confinement.</td>
+<td>The final review confirmed the 92-finding campaign did NOT diminish standards, but surfaced these five: one MEDIUM undo-session gap (undo removed durable turns but not the resumable CLI session), the three live-smoke follow-ups (haiku-Chief stall, killed-run $0, <code>/end</code> relay no-op), and a LOW skill-confinement symlink gap. Each strengthens an existing HIGH redesign or closes an honest accounting/termination gap WITHOUT changing default behavior</td>
+<td>(a) auto-upgrade to sonnet, or refuse the dispatch — both override operator intent; chose warn-only. (b) make <code>Run</code> cost/token fields nullable (shared-type ripple — kept honesty inside supervisor+metrics) or fabricate a cost estimate (rejected — no interim cost signal, would over-bill). (c) invent a distinct <code>ended</code> status (no graceful path exists for a non-PTY proc — <code>killed</code> is honest). (d) a new <code>cli_session_run_id</code> stamp column + keyed clear (schema 6→7 — thread-PK clear is simpler and errs safe by re-seeding). (e) also case-normalize <code>isPathWithin</code> on Windows (shared primitive, already fails safe — left a tracked follow-up rather than destabilize it pre-merge)</td>
+</tr>
+<tr>
+<td>D-069</td>
+<td>2026-07-05</td>
+<td>Guarded host discovery + K-scoped capability overlay <em>(amends D-027/D-029 — isolation widened deliberately, never accidentally)</em></td>
+<td><strong>K discovers the host Claude Code layer under guard and catalogs it behind a K-scoped enable overlay.</strong> Four scanners (<code>host-discovery.ts</code>) read host user skills (<code>~/.claude/skills</code>), each REGISTERED project's <code>.claude/skills</code>, plugin skills via <code>installed_plugins.json</code> (each <code>installPath</code> realpath-VERIFIED under <code>~/.claude/plugins/cache</code> — a poisoned index cannot point discovery at arbitrary disk), and host MCP configs (<code>~/.claude.json</code> user+project scopes — win32 case-insensitive project matching — plus project <code>.mcp.json</code>, which takes precedence; non-stdio servers skipped v1 with a warning). Discovered skills land as rows in the EXISTING <code>skills</code> table with provenance columns (<code>source_kind</code>, <code>qualified_key</code> UNIQUE — ONE canonical grammar, wire id == key: bare k-native · <code>user:&lt;name&gt;</code> · <code>project:&lt;projectId&gt;:&lt;name&gt;</code> · <code>plugin:&lt;plugin&gt;@&lt;marketplace&gt;:&lt;name&gt;</code> — <code>origin_path</code>, <code>content_hash</code>, <code>est_tokens</code>/<code>est_tokens_meta</code>, <code>status ok|missing</code>), ALWAYS default-DISABLED. Enable/disable is a <strong>K-scoped overlay — host files are never mutated</strong>; rescan (guarded boot scan + <code>POST /api/capabilities/rescan</code>) upserts by qualified key, PRESERVES the overlay, flags vanished assets <code>missing</code> (fail-closed at PATCH and synth), auto-disables an MCP server on config drift. An enabled asset is <strong>vendor-copied into the D3 run config at synth</strong> (<code>copyDirConfined</code>: source-side lstat symlink-skip, per-file realpath containment, 500-file/10MB hard caps) — a run never reads host dirs live; every read confines via <code>skill-roots.ts</code> (an explicit allowlisted-roots set × the two-gate string+realpath check per root, extending F-069). Mount collisions: k-native wins the bare name; discovered mounts <code>&lt;name&gt;--&lt;sourceKind&gt;</code></td>
+<td>D-027 made isolation the invariant, but the operator's host layer already holds real capability (plugins, skills, MCP) K couldn't see; guarded discovery makes K INCLUSIVE without surrendering the boundary — the catalog is a metadata snapshot, enablement is operator-scoped, and host content still enters a run only through the same vendoring gate as K's own assets</td>
+<td>Mounting host dirs live into runs (re-opens the exact D-027 leak — vendor-copy instead); a separate discovered-skills table (two catalogs drift — one table, one key grammar); auto-enabling discovered assets (prompt-injection-by-default — everything lands disabled, preview-before-enable); storing enable state in host <code>~/.claude</code> (K never writes the host layer)</td>
+</tr>
+<tr>
+<td>D-070</td>
+<td>2026-07-05</td>
+<td>Discovered-MCP trust gating — default-disabled, hash pinning, synth re-verify</td>
+<td><strong>A discovered host MCP server is code execution by design, so it is gated twice: operator TRUST, then ENABLE.</strong> New <code>host_mcp_servers</code> table (command/args/env, <code>config_hash</code>, <code>enabled</code> default 0, <code>trusted_hash</code>/<code>trusted_at</code>, <code>probe_status</code>, <code>status</code>). Trust pins <code>trusted_hash = config_hash</code> after the operator reviews the command/args/env <strong>NAMES</strong> in the TrustDialog (env <strong>VALUES</strong> never leave core — no API payload carries them); <strong>enable requires trust</strong>; config drift on rescan <strong>auto-disables + clears trust</strong> + clears the probed <code>est_tokens</code>; and synthesis <strong>re-reads + re-hashes the live host config at resolve time</strong> — a mismatch throws a fail-closed <code>GrantError</code> (closes the TOCTOU window between trust and dispatch). The token/tool-count <strong>probe</strong> (a real MCP <code>initialize</code> + <code>tools/list</code> via <code>@modelcontextprotocol/sdk</code>, 15s hard timeout) runs ONLY on explicit request against enabled+trusted servers; a probe failure answers <code>502</code> + <code>probe_status='failed'</code> and NEVER disables. <strong>K-reserved server names</strong> (<code>kstore</code>/<code>logistics</code>/<code>mgmt</code>/<code>gitnexus</code>) are refused at admission — a host server cannot impersonate a K server</td>
+<td>An MCP server's config is an arbitrary command K would execute inside runs; default-disabled + review-then-pin + drift auto-disable + synth re-hash means the exact bytes the operator reviewed are the only bytes that ever launch, and a host-side edit after trust silently REVOKES rather than silently escalates</td>
+<td>Trust-on-enable in one click (skips the review — the operator must SEE the command first); hashing at trust time only (TOCTOU — the host config can change between trust and dispatch, hence the synth re-verify); auto-probing at scan time (spawns untrusted processes unprompted); disabling on probe failure (a flaky server would flap the operator's enablement — probe failure is a status, not a revocation)</td>
+</tr>
+<tr>
+<td>D-071</td>
+<td>2026-07-05</td>
+<td>Skill Creator saves exclusively to K's library</td>
+<td><strong>The Skill Creator's drafts lifecycle lands skills ONLY in K's own library (<code>agent-config/skills/</code>), provenance <code>'k'</code>.</strong> A <code>skill_drafts</code> table + <code>/api/skill-creator/drafts</code> CRUD drive: brief → <strong>authoring run</strong> (dispatched under the fail-closed <code>k-secretary</code> profile — a missing profile fails the draft rather than silently escalating to the orchestrator default; the authoring-guidance skill <code>agent-config/skills/skill-authoring</code> is EMBEDDED in the prompt, since runs mount skills via tier bundles only) → <code>ready|failed</code> → manual edit / <strong>refine</strong> revisions (a refine on a failed FIRST draft is a fresh retry at revision 0) → <strong>evaluate</strong> (the SAME eval harness skills use, over a parallel <code>skill_draft_evals</code> table — cascade-deleted with its draft) → <strong>save</strong>: <code>agent-config/skills/&lt;slug&gt;/SKILL.md</code> (slug guarded incl. Windows reserved device names; <code>409</code> on collision with a library dir or registered key; crash-honest rollback removes a half-written dir) + a catalog row registered with provenance <code>'k'</code>. The UI stays honest — "agent-generated draft — not saved" until <code>/save</code> lands it</td>
+<td>The Creator must grow K's OWN versioned library, not the host layer (which K never mutates — D-069) and not a project repo (a skill is org capability, not project code); authoring under the secretary tier keeps the draft run codeless within its charter, and reusing the eval harness judges a draft by the same bar as a live skill</td>
+<td>Saving to host <code>~/.claude/skills</code> (violates never-mutate-host); a bespoke authoring runtime (the existing dispatch+track seam suffices); widening <code>skill_evals</code> with a nullable draft FK (its <code>skillId</code> is NOT-NULL FK'd — the parallel minimal table is the honest shape); auto-registering a draft as a skill (a draft must never masquerade as saved)</td>
+</tr>
+<tr>
+<td>D-072</td>
+<td>2026-07-05</td>
+<td>Ollama tool-loop parity — in-process engine, degrade-in-place, never silent fallback</td>
+<td><strong>Local models get FULL agent parity via K's own in-process tool-calling loop over the Ollama <code>/api/chat</code> API</strong> (<code>core/src/ollama-agent/</code>), branched inside the supervisor, which keeps owning lifecycle/kill/usage (kill = <code>AbortController.abort()</code>; the legacy <code>ollama run</code> pipe is retained behind <code>K_OLLAMA_AGENT_MODE=legacy</code>). The loop consumes the SAME <code>resolveRunAssets</code> as claude synthesis: <strong>native tools</strong> <code>Read/Write/Edit/Bash/Glob/Grep</code> + <code>read_skill</code> with claude-compatible names/schemas (tier allowlists + console rendering work unchanged; fs path-guarded to the run worktree — <code>K_OLLAMA_FS_SCOPE=any</code> widens; Bash runs a secret-stripped env with tree-kill on win32); <strong>MCP servers</strong> over <code>@modelcontextprotocol/sdk</code> (spawned at run start, reused across iterations, close-all in <code>finally</code>; tools advertised <code>mcp__&lt;server&gt;__&lt;tool&gt;</code>); <strong>skills</strong> delivered as an index + <code>read_skill</code> (full-body inlining only on the degrade path, char-budgeted). Capability is probed via <code>/api/show</code> (cached per model, invalidated on pull): a tool-less model <strong>DEGRADES IN PLACE</strong> (prompt-only + inlined skills) and NEVER silently falls back to claude; a truthful run-start system event + the RunConsole badge ("local · tools" / "local · prompt-only") declare the engine. <strong>Real token capture</strong> (<code>prompt_eval_count</code>/<code>eval_count</code>, <code>costUsd: 0</code>) rides the same usage events as claude runs; <code>num_ctx</code> is explicit (config <code>ollama.numCtx</code>, seeded from <code>K_OLLAMA_NUM_CTX</code>, default 16384). Limits: 25 iterations · 10-min run · 60s MCP tool calls · a repeated-identical-call detector · a &gt;85% context-pressure warning</td>
+<td>"Skills regardless of model" needs a tool loop the CLI provides only for claude; owning the loop in-process gives local runs the same assets, event shapes, and observability with zero UI change, while degrade-in-place + the truthful badge preserve the §02 routing-honesty contract (choosing ollama can never silently run claude)</td>
+<td>Keeping the <code>ollama run</code> prompt pipe as the only engine (no tools, no MCP — parity impossible); silently falling back to claude for tool-less models (violates routing honesty); a child-process loop runner (the supervisor already owns lifecycle — in-process + AbortController is simpler and kill-safe); content-JSON tool-call salvage (strict structured <code>tool_calls</code> v1 — salvage is a documented non-goal)</td>
+</tr>
 </tbody></table>
 
     </section>
@@ -2959,7 +3222,7 @@ of invented numbers).</p>
         <span class="section-icon">⌘</span>
         <h1>Operations</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-02</span>
+        <span class="section-updated mono">updated 2026-07-05</span>
       </header>
       <h2>Running locally</h2>
 <pre><code class="language-bash"># Prerequisites: Node 20, pnpm 10, claude CLI authenticated, gh CLI authenticated
@@ -3059,6 +3322,12 @@ K's own bible therefore lives on-disk as a living spec and is <strong>not</stron
 <li>Recompile: restart core, or <code>POST /api/bible/compile</code> (bearer auth), or wait for the next startup.</li>
 <li>The compiled HTML is self-contained — open it directly in a browser or via the dashboard Docs view.</li>
 <li>Registered projects follow the same flow with <code>&lt;repo&gt;/docs/bible/</code>.</li>
+<li><strong>In-dashboard editing is per-SECTION (D-065).</strong> The Bible/Artifacts tab edits one section at a
+time; Save (<code>PUT /api/artifacts/:slug/sections/:sectionSlug</code>, <code>saveBibleSection</code>) writes the edited
+body back to that <code>sections/&lt;slug&gt;.md</code> <strong>source</strong> (frontmatter preserved) then recompiles — so the
+edit IS the source and survives every recompile. Editing the <em>combined</em> markdown of a bible slug is
+rejected (<code>400</code> → the section editor), and a project-bible save stays in the project's own dir
+(never K's <code>ARTIFACTS_DIR</code>, never clobbering the row's <code>html_path</code>).</li>
 </ul>
 <h2>Onboard / verify scaffold-then-commit workflow</h2>
 <p>Onboarding (<code>POST /api/projects/:id/onboard</code>) and verification (<code>POST /api/projects/:id/verify</code>) may scaffold files into the <strong>working tree — uncommitted</strong>: a starter <code>.github/workflows/ci.yml</code> and/or a starter bible, written for operator review rather than pushed. Nothing is committed or pushed on your behalf. After running either, inspect the proposed changes with <code>git status</code> / <code>git diff</code>, then commit manually if you accept them. The score reflects the pre-fix state; the next verify observes the now-present files.</p>
@@ -3069,6 +3338,61 @@ per-run config dir, the host <code>~/.claude</code> is only ever <em>invoked</em
 <strong>dry-run by default</strong> (prints what it would do), and <code>--apply</code> backs up first, then removes only
 what K now owns. It is deliberately <strong>conservative</strong> — personal plugins (superpowers / ecc / ui-ux)
 are left intact and the action is reversible.</p>
+<h2>Host capability catalog — rescan, trust, probe (D-069/D-070)</h2>
+<ul>
+<li><strong>Every boot</strong> (first boot included), after <code>seedBuiltinSkills</code>, a <strong>guarded host scan</strong>
+(<code>syncHostDiscovery</code>) refreshes the capability catalog from the host layer — user / project /
+plugin skills + host MCP servers — and logs one summary line
+(<code>[discovery] host capability scan: skills +a ~b -c, mcp +x ~y -z</code>). The scan is
+try/catch-warned so a broken host install never bricks boot, and a malformed host artifact
+(unreadable dir, bad SKILL.md, non-stdio server) becomes a structured warning, never a throw.
+Everything discovered lands <strong>default-disabled</strong>.</li>
+<li><strong>Rescan on demand:</strong> <code>POST /api/capabilities/rescan</code> (the Skills-page <strong>Rescan</strong> button) →
+<code>200</code> + a <code>RescanResult</code>, and a <code>capabilities_update</code> WS broadcast. A rescan upserts by
+qualified key, <strong>never touches your enable overlay</strong>, flags vanished assets <code>status='missing'</code>
+(fail-closed at PATCH and synth), and <strong>auto-disables</strong> an MCP server whose host config drifted.</li>
+<li><strong>Discovery warnings</strong> surface in the rescan response <code>warnings[]</code> and the Skills-page banner —
+read them; a skipped source is invisible in the catalog until fixed.</li>
+<li><strong>Granting trust:</strong> before <strong>Trust &amp; enable</strong> on a discovered MCP server, review the command,
+args, and env <strong>names</strong> the TrustDialog shows — trusting a server authorizes code execution
+inside every run that mounts it. Trust pins the config hash; a host-side config change
+auto-disables + clears trust (re-review to re-enable). Env <strong>values</strong> never leave core.</li>
+<li><strong>Probe</strong> (<code>POST /api/capabilities/mcp/:id/probe</code>) is explicit-request-only, against
+enabled+trusted servers: a real MCP <code>initialize</code> + <code>tools/list</code> with a 15s hard timeout.
+Failure → <code>502</code> + <code>probe_status='failed'</code> — it never disables the server.</li>
+<li><strong>Token estimates are estimates:</strong> <code>ceil(chars/4)</code>, ±25% (<code>core/src/token-estimate.ts</code> is the
+one swap seam) — relative UX signals, never billed figures. An MCP server's estimate is null
+until probed.</li>
+</ul>
+<h2>Local-model agent runtime (D-072)</h2>
+<p>Ollama-routed runs execute K's in-process tool loop by default (§02). Its knobs:</p>
+<table>
+<thead>
+<tr>
+<th>Var / config key</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>K_OLLAMA_AGENT_MODE</code></td>
+<td><em>(unset)</em></td>
+<td><code>legacy</code> reverts ollama runs to the old <code>ollama run</code> prompt pipe (no tools/MCP)</td>
+</tr>
+<tr>
+<td><code>K_OLLAMA_FS_SCOPE</code></td>
+<td><em>(worktree)</em></td>
+<td><code>any</code> widens the native tools' fs guard from the run worktree to the whole filesystem</td>
+</tr>
+<tr>
+<td><code>K_OLLAMA_NUM_CTX</code> → <code>ollama.numCtx</code></td>
+<td><code>16384</code></td>
+<td>the explicit <code>num_ctx</code> sent per chat call; the env var is the first-run <strong>seed</strong> for the <code>app_config</code> key <code>ollama.numCtx</code> (runtime-editable, seed-then-override like the other runtime config)</td>
+</tr>
+</tbody></table>
+<p>Built-in limits (constants, not env): 25 iterations, 10-minute run timeout, 60s per MCP tool call,
+a repeated-identical-call detector, and a context-pressure warning above 85% of the model's shown
+context length.</p>
 <h2>Remote access (exposing K beyond localhost)</h2>
 <p>K defaults to a <strong>loopback-only</strong> posture (<code>HOST=127.0.0.1</code>). Exposing it on a
 network requires an authentication layer in front of it — never expose the raw
@@ -3111,11 +3435,38 @@ before subscribing them to the event bus. On loopback dev the dashboard uses the
 dev token transparently (no login). Accessed remotely, a REST <code>401</code> triggers a
 <strong>login screen</strong>: paste the harness token; it is stored in <code>sessionStorage</code> and
 attached to subsequent REST (<code>Authorization: Bearer …</code>) and WS (<code>?token=…</code>)
-calls. The real token is <strong>never</strong> baked into the built bundle — only the
-loopback-only dev token is.</p>
+calls. The real token is <strong>never</strong> baked into the built bundle, and since W10a
+(D-066) even the loopback-only dev terminal/harness tokens are emitted only under
+<code>vite serve</code> — a <strong>prod build ships none</strong>.</p>
+<h2>Security hardening — terminal + host credentials (W10a, D-066)</h2>
+<p>Three defense-in-depth hardenings on top of the loopback default:</p>
+<ul>
+<li><strong>Scrubbed terminal env (F-084).</strong> The browser terminal's <code>node-pty</code> no longer inherits
+<code>process.env</code>. It runs a <strong>scrubbed</strong> env — a denylist strips vendor prefixes and any
+<code>*_TOKEN</code> / <code>*_KEY</code> / <code>*_SECRET</code> / <code>*_PASSWORD</code> plus connection-string
+<code>*_URL</code> / <code>*_URI</code> / <code>*_DSN</code> / <code>*_PASS</code> / <code>*_PWD</code> / <code>CONNECTION</code> vars (while <code>PATH</code> / <code>HOME</code> / <code>PWD</code>
+and the like survive) — so even a leaked/guessed terminal token can't <code>echo $ANTHROPIC_API_KEY</code>.</li>
+<li><strong>No dev tokens in a prod bundle (F-084).</strong> <code>VITE_TERMINAL_TOKEN</code> and <code>VITE_HARNESS_TOKEN</code> are
+emitted <code>undefined</code> in a production build (the dev literal is injected only under <code>vite serve</code>), and
+<code>TerminalPage</code>'s token fallback is dev-gated — so <code>pnpm build</code> never ships <code>dev-terminal-token</code> /
+<code>dev-token-change-me</code>; prod fails <strong>closed</strong> instead.</li>
+<li><strong>Remote terminal is opt-in (F-084).</strong> A non-loopback <code>HOST</code> <strong>with</strong> <code>ENABLE_TERMINAL</code> now
+<strong>refuses to boot</strong> unless <code>TERMINAL_ALLOW_REMOTE=true</code> — even with a strong <code>TERMINAL_TOKEN</code>
+(previously only a weak/empty token was refused) — so an accidental LAN bind can't expose a shell.</li>
+</ul>
+<p><strong>Credential posture is surfaced + opt-out-able (F-064/F-090).</strong> The agent-engine boundary (§02) uses
+a K-token-first auth with a guarded host-credential dogfooding fallback (D-027). That fallback is now
+<strong>visible</strong>: <code>credentialPosture()</code> reports one of <code>managed</code> (a managed <code>ANTHROPIC_API_KEY</code> /
+<code>CLAUDE_CODE_OAUTH_TOKEN</code> is set) · <code>host-fallback</code> (no managed token, fallback ON — runs copy host
+creds) · <code>disabled</code>, surfaced on <strong><code>/api/status</code></strong>, the <strong>Settings</strong> auth card, and a <strong>one-line boot
+summary</strong> (never the secret itself), so silent host-credential use is no longer invisible. Setting
+<strong><code>K_DISABLE_HOST_CREDENTIAL_FALLBACK=true</code></strong> opts a deployment <strong>out</strong> — a run with no managed token
+is left unauthenticated rather than silently copying host credentials. The <strong>default (no flag) is
+unchanged</strong> — OOTB dogfooding is byte-identical; the fallback copy stays <code>chmod 0600</code> under the
+gitignored data dir.</p>
 <h2>Troubleshooting</h2>
 <ul>
-<li><strong>Stale worktree after a crash.</strong> A crashed or killed run can leave a <code>.worktrees/&lt;runId&gt;</code> directory behind. On boot, <code>reconcileOnBoot</code> (core/src/supervisor.ts, wired in index.ts) auto-reconciles runs stuck in <code>running</code>/<code>queued</code> to <code>interrupted</code>, runs <code>git worktree prune</code>, and removes orphaned <code>.worktrees/*</code> dirs — so a simple core restart usually cleans these up. On Windows a file lock can block removal (logged, non-fatal); if a stale dir persists, close any process holding it and run <code>git worktree prune</code> manually, then delete the directory.</li>
+<li><strong>Stale worktree after a crash.</strong> A crashed or killed run can leave a <code>.worktrees/&lt;runId&gt;</code> directory behind. On boot, <code>reconcileOnBoot</code> (core/src/supervisor.ts, wired in index.ts) auto-reconciles runs stuck in <code>running</code>/<code>queued</code> to <code>interrupted</code>, removes orphaned <code>.worktrees/*</code> dirs, <strong>then</strong> runs <code>git worktree prune</code> — the prune runs <strong>after</strong> dir removal (W10b/F-091) so a crash-orphaned worktree's metadata is reclaimed the same boot. On Windows, <code>removeWorktree</code> retries an <code>EBUSY</code> (3× backoff) before a best-effort swallow (the happy path adds no delay); a file lock that still blocks removal is logged non-fatal — if a stale dir persists, close any process holding it and run <code>git worktree prune</code> manually, then delete the directory.</li>
 <li><strong>SQLite "database is locked".</strong> <code>core/data/k.db</code> runs in WAL mode. A first boot after a new schema migration, or two core processes pointing at the same DB, can race and surface a lock. Run a single core process, and start the dev server <strong>stopped</strong> for the first boot after a migration (see Schema migrations). The <code>-wal</code>/<code>-shm</code> sidecar files are normal and are checkpointed automatically.</li>
 <li><strong>Port already in use.</strong> The core binds <code>PORT</code> (default 3001) and the web dev server binds 5173. If either is taken (<code>EADDRINUSE</code>), stop the other process or change <code>PORT</code> in <code>core/.env</code> (and <code>CORS_ORIGIN</code> to match the web origin). On Windows, find the holder with <code>netstat -ano | findstr :3001</code>.</li>
 <li><strong>A registered project's folder was moved/deleted.</strong> The GitHub poller <strong>skips</strong> a project whose <code>localPath</code> no longer exists instead of erroring every cycle (one warn per boot per project; the row is never deleted or mutated), and the read surface stamps an additive <code>Project.pathMissing</code> so the UI can say why (P5.7, D-058). Re-register or restore the path to resume polling.</li>
@@ -3149,7 +3500,18 @@ loopback-only dev token is.</p>
 <td><code>GET /api/runs?status=&amp;limit=</code></td>
 <td>server-side run filters (<code>status</code> validated; <code>limit</code> 1–500, default 100)</td>
 </tr>
+<tr>
+<td><code>GET /api/profiles[/:id]</code></td>
+<td><strong>read-only</strong> (W2, F-020) — exposes K / Chief / leads for inspection with <strong>no write path</strong>, so the authority ceiling stays intact</td>
+</tr>
 </tbody></table>
+<p><strong>API robustness (W2, F-015..F-028/F-074).</strong> The whole surface now shares one <strong>error envelope</strong> —
+<code>error</code> is <strong>always a string</strong> (<code>sendError</code> / <code>sendZodError</code>), fixing the UI's <code>[object Object]</code> on a
+validation error — and a consistent <strong>validate-body (<code>400</code>) → then existence (<code>404</code>)</strong> ordering, so
+<code>kill</code> / <code>events</code> on a nonexistent run <code>404</code> (were <code>200</code>) and a validation rejection names the
+offending field. <code>GET /api/chief/org</code> includes the <strong>K node</strong> above the Chief (F-023 — the full
+user → K → Chief → leads tree), and <code>workflow_runs</code> gained a <code>workflow_id</code> FK (guarded ALTER,
+<code>SCHEMA_VERSION 3→4</code>) so a run is traceable to the definition it ran.</p>
 <h2>Key files</h2>
 <table>
 <thead>
@@ -3200,7 +3562,7 @@ loopback-only dev token is.</p>
 </tr>
 <tr>
 <td><code>core/src/k-thread.ts</code></td>
-<td>K front-door runtime (D-023, P5.1c) — <code>askK</code> (warm-vs-fresh dispatch), durable K thread over <code>k_threads</code>/<code>k_thread_turns</code>, <code>renderSeed</code> (cold reseed), <code>captureAnswers</code> (K replies → thread at each turn boundary); SDK-free, reuses the D-014 persistent-stdin loop</td>
+<td>K front-door runtime (D-023/D-042, P5.1c; resumable one-shot W7a, D-062) — <code>askK</code> (establish-or-<code>--resume</code> a stable per-thread CLI session, answer-and-exit — no park), durable K thread over <code>k_threads</code>/<code>k_thread_turns</code> (source of truth), <code>renderSeed</code> (first-ask/reset transcript seed), <code>captureAnswers</code> (K replies → thread at each turn boundary, persists <code>cli_session_id</code> on first <code>done</code>), <code>undoK</code> (removes the dangling turn); SDK-free</td>
 </tr>
 <tr>
 <td><code>core/src/routes/k.ts</code></td>
@@ -3265,6 +3627,34 @@ loopback-only dev token is.</p>
 <tr>
 <td><code>core/src/html.ts</code> · <code>core/src/paths.ts</code></td>
 <td>shared <code>escHtml</code> + path-containment guard (<code>isPathWithin</code>) — the F2 leaf-util dedup</td>
+</tr>
+<tr>
+<td><code>core/src/host-discovery.ts</code></td>
+<td>D-069 guarded host scanners (user/project/plugin skills, host MCP) + <code>syncHostDiscovery</code> (transactional upsert preserving the K-scoped overlay)</td>
+</tr>
+<tr>
+<td><code>core/src/skill-roots.ts</code></td>
+<td>allowlisted skill-source roots + <code>confineToRoots</code> (two-gate string+realpath check per root, extends F-069) + the qualified-key grammar guard</td>
+</tr>
+<tr>
+<td><code>core/src/run-assets.ts</code></td>
+<td><code>resolveRunAssets(profile, …)</code> — the model-neutral resolve seam (ceiling → narrowing → discovered resolution → trust re-verify → project-scope filter) both runtimes consume</td>
+</tr>
+<tr>
+<td><code>core/src/token-estimate.ts</code></td>
+<td><code>estimateTokens</code> — the one <code>ceil(chars/4)</code> heuristic seam (±25%, no tokenizer dep)</td>
+</tr>
+<tr>
+<td><code>core/src/routes/capabilities.ts</code></td>
+<td>the capability catalog API — skills/mcp/hooks/summary GETs, rescan, enable PATCHes, trust/probe POSTs (env values never leave core)</td>
+</tr>
+<tr>
+<td><code>core/src/ollama-agent/</code> · <code>core/src/mcp-client.ts</code></td>
+<td>the D-072 in-process tool loop (loop/transport/native-tools/tool-registry/capability) + the stdio MCP client wrapper</td>
+</tr>
+<tr>
+<td><code>core/src/skill-creator.ts</code> · <code>core/src/routes/skill-creator.ts</code></td>
+<td>D-071 drafts lifecycle (authoring runs, refine, evaluate, save-to-library) + its HTTP surface</td>
 </tr>
 <tr>
 <td><code>artifacts/bible/</code></td>
@@ -3435,13 +3825,13 @@ flag for K's hybrid idle-timeout.</p>
         <span class="section-icon">❔</span>
         <h1>User Guide</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-06-27</span>
+        <span class="section-updated mono">updated 2026-07-05</span>
       </header>
       <p>The mental model is <strong>you direct an agent organization</strong>: you talk to <strong>K</strong> (a friendly secretary),
 K handles logistics and hands engineering work to the <strong>Chief</strong>, and the Chief staffs it to
 <strong>staff-engineer leads</strong> who do the coding (§03). The org tiers, the K-home chat, and the
-Direct/Observe IA are <strong>PLANNED for Phase 5</strong> — so this guide covers <strong>how you use the harness
-today</strong> (dispatching runs, projects, verification, the graph) and notes where the org reshapes it.
+Direct/Observe IA <strong>shipped with Phase 5</strong> (§03, §08) — this guide covers the day-to-day basics
+(dispatching runs, projects, verification, the graph) and notes where the org reshapes them.
 It mirrors the README quick-start and stays consistent with §08 (Dashboard) and §11 (Operations) —
 those hold the design spec and the full operations reference; this is the <em>how do I actually use it</em>
 guide. Reach it any time from the <strong>Help</strong> entry in the sidebar.</p>
@@ -3492,7 +3882,7 @@ pnpm dev          # core (http://localhost:3001) + dashboard (http://localhost:5
 <tr>
 <td>⚒</td>
 <td><strong>Skills</strong></td>
-<td>Author and trigger reusable skills (onboarding, verify-project, …)</td>
+<td>The four-tab <strong>capability catalog</strong> (Catalog · MCP · Hooks · Automations, see below) — host + K skills, MCP trust, and the automation registry (onboarding, verify-project, …)</td>
 </tr>
 <tr>
 <td>⋔</td>
@@ -3525,7 +3915,7 @@ pnpm dev          # core (http://localhost:3001) + dashboard (http://localhost:5
 <td>Opens this bible</td>
 </tr>
 </tbody></table>
-<p>Each icon shows a tooltip on hover/focus; the active destination gets the accent pill. Keyboard <code>g</code> then a letter jumps (<code>g p</code> → Projects, <code>g w</code> → Workflows, <code>g ,</code> → Settings). <strong>Phase 5</strong> regroups these into <strong>Direct</strong> (K-home · Chief · Orchestrators · Workflows · Projects) and <strong>Observe</strong> (Runs · Graph · Metrics · Routing · Terminal), with K-home as the landing (§08).</p>
+<p>Each icon shows a tooltip on hover/focus; the active destination gets the accent pill. Keyboard <code>g</code> then a letter jumps (<code>g p</code> → Projects, <code>g w</code> → Workflows, <code>g ,</code> → Settings). <strong>Phase 5</strong> regrouped these into <strong>Direct</strong> (K-home · Chief · Orchestrators · Workflows · Projects · Skills · Memory) and <strong>Observe</strong> (Runs · Graph · Metrics · Routing · Evals · Terminal), with K-home as the landing (§08).</p>
 <p><strong>⌘K command bar</strong> — one input, two behaviors ranked in a single result list:</p>
 <ul>
 <li><strong>Navigate</strong> — fuzzy-jump to any project, run, or destination.</li>
@@ -3556,6 +3946,41 @@ pnpm dev          # core (http://localhost:3001) + dashboard (http://localhost:5
 <h2>Editing a project's bible</h2>
 <p>Open the project workspace's <strong>Artifacts</strong> tab (formerly "Bible"). The compiled bible renders in-app; each section has an <strong>edit</strong> action that opens the markdown source. Save your edit, then <strong>recompile</strong> — the tab triggers a fresh compile and re-renders. (Under the hood: sections live as markdown under the bible directory; the compiler regenerates the self-contained HTML. Never hand-edit the compiled HTML — it's regenerated and your changes would be lost.)</p>
 <p>The section <strong>edit</strong> and <strong>Recompile</strong> actions live <strong>only</strong> in this project-workspace Artifacts tab. The sidebar <strong>Help</strong> view — where the Help entry opens this guide — is <strong>read-only</strong> (it just renders compiled artifacts), so reach for the workspace Artifacts tab when you actually want to change a section.</p>
+<h2>Using host skills, MCP servers, and local models</h2>
+<p>K discovers what your Claude Code install already has — global skills, project skills, plugin
+skills, and MCP servers — into a <strong>capability catalog</strong> (§04). Everything lands <strong>disabled</strong> until
+you opt it in, and K never modifies your <code>~/.claude</code>.</p>
+<ol>
+<li><strong>Browse the catalog.</strong> Open <strong>Skills</strong> (the Catalog tab). Each row carries a <strong>source badge</strong>
+(k · global · project · plugin — the plugin badge names the plugin), a <strong>model-compat badge</strong>
+(universal / claude-only / mcp-dependent), and a <strong>token chip</strong>. The strip at the top totals
+your enabled set — <code>Enabled skills … MCP … Total context overhead</code> — as <strong>estimates, not
+billed tokens</strong> (chars/4, ±25%).</li>
+<li><strong>Enable a host skill.</strong> Preview its SKILL.md, then flip the enable toggle. That is a K-scoped
+overlay row — the file on disk is untouched, and the skill still mounts nowhere until a tier
+admits it and a profile (or the org default) grants it.</li>
+<li><strong>Trust + enable a discovered MCP server.</strong> On the MCP tab a host server starts untrusted.
+<strong>Trust &amp; enable</strong> opens a review dialog showing the exact command, args, and env <strong>names</strong>
+(never values) — read it; you are authorizing code execution inside runs. If the host config
+later changes, K auto-disables the server and clears trust until you re-review.</li>
+<li><strong>Probe its cost.</strong> After trust+enable, <strong>Probe</strong> connects to the server for real (15s cap) and
+fills in its tool count and token estimate — until then the chip reads unestimated.</li>
+<li><strong>Mount it on a lead.</strong> Open <strong>Orchestrators → a lead → Skills / MCP servers</strong> (or <strong>Settings →
+Org-default authority</strong>) and add the capability through the picker — discovered entries show
+their badge + token chip, and anything disabled is grayed with a link back to the catalog.
+K and the Chief take no discovered capabilities (read-only by design, §03).</li>
+<li><strong>Run on a local model.</strong> Dispatch with an Ollama model routed/selected as usual — skills and
+MCP now work there too. The run console badge tells you what engine you got: <strong>"local ·
+tools"</strong> (full tool loop) or <strong>"local · prompt-only"</strong> (the model can't call tools, so skills
+were inlined and the run is prompt-only — it never silently switches to claude).</li>
+<li><strong>Rescan when the host changes.</strong> Installed a new plugin or edited <code>~/.claude.json</code>? Press
+<strong>Rescan</strong> on the Skills page — your enables survive; vanished assets flag <code>missing</code>.</li>
+<li><strong>Create a skill.</strong> From the catalog, open the <strong>Skill Creator</strong> (<code>#/skill-creator</code>): write a
+brief → an authoring run drafts the SKILL.md → edit or <strong>refine</strong> with feedback → <strong>evaluate</strong>
+it with the same eval harness real skills use → <strong>save</strong>, which lands it in K's own library
+(<code>agent-config/skills/</code>) and registers it in the catalog. Until you save, the header honestly
+reads "agent-generated draft — not saved".</li>
+</ol>
 <h2>Troubleshooting</h2>
 <p>Most first-run hiccups (dashboard errors on first load, <code>EADDRINUSE</code> port conflicts, SQLite "database is locked", stale worktrees after a crash) are covered in the <strong>README Troubleshooting</strong> section and, in depth, in <strong>§11 Operations</strong>. Start there.</p>
 
@@ -3566,7 +3991,7 @@ pnpm dev          # core (http://localhost:3001) + dashboard (http://localhost:5
         <span class="section-icon">👁</span>
         <h1>Observability</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-02</span>
+        <span class="section-updated mono">updated 2026-07-05</span>
       </header>
       <p>Phase 4's Track D makes the harness <strong>observable</strong>: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard <em>surfaces</em> it powers. The <em>Implementation history</em> appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.</p>
 <h2>Event-data enrichment foundation (D3, D-015)</h2>
@@ -3676,6 +4101,26 @@ event, so you can trace <em>why</em> a profile's memory changed back to the run 
 its result reports back up to K, and every tier — user, K, Chief, each lead, each sub-agent — is
 visible in one derived multi-tier tree over the same enrichment foundation, pairing helpers, and
 single-wire EventBus. No new table was added at any hop; the whole chain stays a derivation.</p>
+<h2>Capability + local-runtime observability (BUILT — host-integration program)</h2>
+<p>The capability catalog (§04, §08) and the D-072 local runtime ride the same live wire:</p>
+<ul>
+<li><strong>The <code>capabilities_update</code> WS event</strong> broadcasts when a rescan completes or the enable/trust
+overlay changes; <code>live-invalidate.ts</code> invalidates the <code>['capabilities']</code> queries so all four
+Skills tabs (and the pickers) re-render live — the same throttled-invalidator wiring
+<code>run_update</code> uses.</li>
+<li><strong>Stat-strip methodology.</strong> The CapabilityStatRow totals are <code>ceil(chars/4)</code> estimates (±25%,
+<code>core/src/token-estimate.ts</code>), labeled <code>est</code>/<code>~</code> everywhere with an "estimates, not billed
+tokens" tooltip; entries without an estimate (e.g. an unprobed MCP server) are <strong>counted and
+footnoted</strong>, never silently dropped — the strip can under-state, but never hides.</li>
+<li><strong>Local runs report real usage.</strong> An ollama tool-loop run emits genuine token counts
+(<code>prompt_eval_count</code> / <code>eval_count</code>) at <code>costUsd: 0</code> on the same per-turn usage events claude
+runs use — so Metrics and Routing aggregate local runs on <strong>real tokens at zero cost</strong> instead
+of fabricated zeros, and the provider grouping needed no change.</li>
+<li><strong>The truthful run-start runtime event.</strong> Every ollama-agent run opens with a <code>system</code> event
+declaring the engine and its tool support, rendered as the RunConsole badge — <strong>"local ·
+tools"</strong> vs <strong>"local · prompt-only"</strong> (§08). A degraded run is <em>visibly</em> degraded; it never
+silently becomes a claude run.</li>
+</ul>
 <h2>Implementation history (dashboard)</h2>
 <blockquote>
 <p>Moved here from §08 so that section stays a UI <em>spec</em>. These are the as-built milestone records

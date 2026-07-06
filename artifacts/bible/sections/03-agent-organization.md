@@ -2,7 +2,7 @@
 title: Agent Organization
 icon: "❖"
 status: active
-updated: 2026-07-04
+updated: 2026-07-05
 ---
 
 > **Status — PARTIALLY BUILT (Phase 5).** This section is the design of record for the agent
@@ -143,6 +143,23 @@ station even if a prompt asks it to:
    profile leaves no partial config dir. Before P5.7 the editors were cosmetic (the row was stored
    but the synthesizer read tier assets only); now the stored grant and the run's actual mount are
    the same fact.
+
+4. **Discovered capabilities widen the ceiling only by explicit opt-in (D-069/D-070,
+   host-integration program).** `authority.ts::resolveEffectiveCeiling(tier)` = the tier's assets
+   ∪ — only when the tier's bundle sets `allowDiscoveredSkills` / its MCP template sets
+   `allowDiscoveredServers` (**orchestrator-only** true; chief/secretary false) — the
+   operator-**enabled**+`ok` discovered assets, with the `allowedTools` ceiling widening in
+   lockstep (`mcp__<server>` for each admitted server). It is the **one validator** behind the
+   profile PATCH and both runtimes (claude synthesis and the ollama tool loop), so the stored
+   grant and the run's actual mount can never drift. A **qualified key** (`user:…` / `project:…` /
+   `plugin:…`) fails closed at PATCH when its asset is disabled, missing, or untrusted; bare names
+   keep the legacy k-native semantics unchanged. **K-reserved server names**
+   (`kstore` / `logistics` / `mgmt` / `gitnexus` — `authority.ts::K_NATIVE_SERVER_NAMES`) are
+   refused at admission, so a host server can never impersonate a K server. The invariant stacks:
+   **operator enablement is a precondition, tier opt-in is the ceiling, profile assignment
+   narrows.** K and the Chief stay **read-only by design** here — discovered-capability assignment
+   is a lead-tier + org-default surface only (their tiers don't set the flags, and their editors
+   expose no picker).
 
 > **"agent" (the concept) vs `Task` (the tool-id).** We keep **"agent"** as the org vocabulary
 > everywhere — orchestrators, worker agents, subagents. The only thing that must read `Task` is the

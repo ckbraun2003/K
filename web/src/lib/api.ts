@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -40,6 +40,11 @@ export interface BibleSectionView {
   updated: string
   body: string
 }
+
+/** The skill-draft patch (PATCH /api/skill-creator/drafts/:id) — the fields the
+ *  SkillDraftEditor mutates. Everything else on a draft is lifecycle-owned by the
+ *  backend (status/revision/runId move via refine/evaluate/save, never a PATCH). */
+export type SkillDraftPatch = Partial<Pick<SkillDraft, 'skillMd' | 'nameHint'>>
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
 export interface OnboardResult {
@@ -279,6 +284,88 @@ export const api = {
       req<{ evalId: string; runId: string }>(`/skills/${id}/test`, { method: 'POST' }),
     evals: (id: string) => req<SkillEval[]>(`/skills/${id}/evals`),
     runs: (id: string) => req<SkillRun[]>(`/skills/${id}/runs`),
+  },
+  // Capability catalog (D-069/D-070) — the unified host-discovered + K-native
+  // skills/MCP/hooks surface. Catalog ids ARE qualified keys and contain ':' and
+  // '@' (e.g. "plugin:superpowers@obra:brainstorming"), so every id path param is
+  // URL-encoded here — callers pass the raw id. Toggles are the K-scoped overlay
+  // (K never mutates host ~/.claude files); enabling an untrusted MCP server
+  // answers 400 with the trust-gate message (surfaced via req's thrown error).
+  capabilities: {
+    skills: () => req<CatalogSkillsResponse>('/capabilities/skills'),
+    mcp: () => req<CatalogMcpResponse>('/capabilities/mcp'),
+    hooks: () => req<CatalogHooksResponse>('/capabilities/hooks'),
+    rescan: () =>
+      req<RescanResult>('/capabilities/rescan', { method: 'POST' }),
+    summary: () => req<CapabilitySummary>('/capabilities/summary'),
+    toggleSkill: (id: string, enabled: boolean) =>
+      req<CatalogSkill>(`/capabilities/skills/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      }),
+    toggleMcp: (id: string, enabled: boolean) =>
+      req<CatalogMcpServer>(`/capabilities/mcp/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      }),
+    // Trust pins trusted_hash = config_hash (D-070). `enable: true` atomically
+    // enables in the same call — the TrustDialog's "Trust & enable".
+    trustMcp: (id: string, opts?: { enable?: boolean }) =>
+      req<CatalogMcpServer>(`/capabilities/mcp/${encodeURIComponent(id)}/trust`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opts ?? {}),
+      }),
+    // Token/tool-count probe — enabled+trusted servers only (server-enforced).
+    probeMcp: (id: string) =>
+      req<CatalogMcpServer>(`/capabilities/mcp/${encodeURIComponent(id)}/probe`, {
+        method: 'POST',
+      }),
+  },
+  // Skill Creator drafts (D-071) — build → refine → evaluate → save-to-K-library.
+  // A draft is NOT a saved skill until save() lands (201 {skill}); a name
+  // collision answers 409 (surfaced inline by the SaveBar via req's error).
+  skillCreator: {
+    list: () => req<SkillDraft[]>('/skill-creator/drafts'),
+    get: (id: string) => req<SkillDraft>(`/skill-creator/drafts/${encodeURIComponent(id)}`),
+    create: (body: { brief: string; nameHint?: string }) =>
+      req<SkillDraft>('/skill-creator/drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    update: (id: string, body: SkillDraftPatch) =>
+      req<SkillDraft>(`/skill-creator/drafts/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    // Refine = a NEW revision authoring run seeded with the operator's feedback.
+    refine: (id: string, feedback: string) =>
+      req<SkillDraft>(`/skill-creator/drafts/${encodeURIComponent(id)}/refine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedback }),
+      }),
+    // 202 — the eval runs async; progress arrives over the run wire.
+    evaluate: (id: string) =>
+      req<{ evalId: string; runId: string }>(`/skill-creator/drafts/${encodeURIComponent(id)}/evaluate`, {
+        method: 'POST',
+      }),
+    evals: (id: string) => req<DraftEval[]>(`/skill-creator/drafts/${encodeURIComponent(id)}/evals`),
+    // NOTE: the server returns the automation-registry Skill shape (the row
+    // registerSkill creates), NOT the extended CatalogSkill — only fields common
+    // to both (e.g. `id`) may be read off this response (SEAMS review MEDIUM).
+    save: (id: string, name: string) =>
+      req<{ skill: Skill }>(`/skill-creator/drafts/${encodeURIComponent(id)}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+    delete: (id: string) =>
+      req<void>(`/skill-creator/drafts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
   // Chief org surface — the ONE batched read behind the Chief overview page
   // (objectives · delegation tree · lead runs · wake history) plus the reassign

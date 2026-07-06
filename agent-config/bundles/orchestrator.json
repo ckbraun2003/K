@@ -1,5 +1,6 @@
 {
-  "_note": "orchestrator bundle — the skills + worker-agent definitions the synthesizer mounts for an orchestrator run. Full coding tier: every practice skill plus the complete delegation roster. Skill entries are dir names under skills/; agent entries are <name>.md under agents/. Every agent's `tools` must be a subset of allowlists/orchestrator.json.",
+  "_note": "orchestrator bundle — the skills + worker-agent definitions the synthesizer mounts for an orchestrator run. Full coding tier: every practice skill plus the complete delegation roster. Skill entries are dir names under skills/; agent entries are <name>.md under agents/. Every agent's `tools` must be a subset of allowlists/orchestrator.json. allowDiscoveredSkills (D-069): the orchestrator tier ADMITS enabled host-discovered skills — a profile may grant them by qualified key; the tier flag is the ceiling, operator enablement is the precondition.",
+  "allowDiscoveredSkills": true,
   "skills": [
     "gitnexus",
     "search-first",

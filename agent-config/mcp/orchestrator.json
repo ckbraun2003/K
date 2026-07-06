@@ -1,5 +1,6 @@
 {
-  "_note": "orchestrator tier — `claude --mcp-config` shape. Portable gitnexus stdio server (invoked via npx so it does not depend on any host install path) + the K-owned kstore working store (work-items, lessons, workflow status-write). The synthesizer rewrites the `__KSTORE__` command and the `__K_DATA_DIR__`/`__K_RUN_ID__` env placeholders at run time (Wave 6).",
+  "_note": "orchestrator tier — `claude --mcp-config` shape. Portable gitnexus stdio server (invoked via npx so it does not depend on any host install path) + the K-owned kstore working store (work-items, lessons, workflow status-write). The synthesizer rewrites the `__KSTORE__` command and the `__K_DATA_DIR__`/`__K_RUN_ID__` env placeholders at run time (Wave 6). allowDiscoveredServers (D-070): the orchestrator tier ADMITS enabled+trusted host-discovered MCP servers (granted by qualified key; trust-pinned, re-verified at synth).",
+  "allowDiscoveredServers": true,
   "mcpServers": {
     "gitnexus": {
       "command": "npx",
