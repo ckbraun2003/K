@@ -522,14 +522,19 @@ export function createNativeTools(allowedTools: string[], opts: NativeToolOption
         )
         // Timeout/abort kill the WHOLE process tree, not just the shell: execa's
         // own `timeout`/`cancelSignal` signal only the direct child (cmd.exe /
-        // sh), and on Windows a surviving grandchild keeps the output pipes open
-        // so the await would hang forever (observed in this suite).
+        // sh), and a surviving grandchild keeps the output pipes open so the
+        // await would hang forever (observed on Windows in this suite AND on
+        // linux CI). win32: taskkill /T walks the tree. POSIX: the shell is
+        // spawned `detached` (= its own process-group leader) so kill(-pid)
+        // takes the whole group; fall back to the bare pid if the group is gone.
         const killTree = (pid: number | undefined): void => {
           if (!pid) return
           if (process.platform === 'win32') {
             void execa('taskkill', ['/pid', String(pid), '/T', '/F'], { reject: false })
           } else {
-            try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+            try { process.kill(-pid, 'SIGKILL') } catch {
+              try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+            }
           }
         }
         const subprocess = execa(command, {
@@ -539,6 +544,9 @@ export function createNativeTools(allowedTools: string[], opts: NativeToolOption
           extendEnv: false,
           reject: false,
           all: true,
+          // POSIX only: group-leader so killTree can SIGKILL the whole tree.
+          // (On win32, detached would allocate a new console; taskkill covers it.)
+          detached: process.platform !== 'win32',
         })
         let timedOut = false
         let aborted = false
