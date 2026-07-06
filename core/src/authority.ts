@@ -357,7 +357,11 @@ export function assertDiscoveredServerGrant(tier: AgentTier, ceiling: EffectiveC
   }
   const name = ceiling.discoveredServers.get(key)
   if (!name) throw new GrantError(describeServerRejection(tier, key))
-  if (K_NATIVE_SERVER_NAMES.has(name)) {
+  // Case-folded: keys/grants/mount collisions are case-sensitive downstream, so
+  // a cased variant ("Kstore") can't truly impersonate kstore — but a reserved-
+  // NAME guard that admits a near-identical name would still confuse an operator
+  // scanning the MCP tab (SEAMS review MEDIUM). Refuse the whole case class.
+  if (K_NATIVE_SERVER_NAMES.has(name.toLowerCase())) {
     throw new GrantError(
       `authority: discovered MCP server "${key}" mounts as "${name}" — that name is RESERVED for K's own servers (a host server may not impersonate it; rename it on the host)`,
     )

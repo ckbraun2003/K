@@ -355,8 +355,11 @@ export const api = {
         method: 'POST',
       }),
     evals: (id: string) => req<DraftEval[]>(`/skill-creator/drafts/${encodeURIComponent(id)}/evals`),
+    // NOTE: the server returns the automation-registry Skill shape (the row
+    // registerSkill creates), NOT the extended CatalogSkill — only fields common
+    // to both (e.g. `id`) may be read off this response (SEAMS review MEDIUM).
     save: (id: string, name: string) =>
-      req<{ skill: CatalogSkill }>(`/skill-creator/drafts/${encodeURIComponent(id)}/save`, {
+      req<{ skill: Skill }>(`/skill-creator/drafts/${encodeURIComponent(id)}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
