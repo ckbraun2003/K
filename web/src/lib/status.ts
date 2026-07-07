@@ -10,10 +10,13 @@
  * "lacks ending return statement"), and web/test/status.test.ts iterates every
  * enum member at runtime.
  *
- * P0 label decision: labels keep today's exact strings ('error', 'killed',
- * 'interrupted', 'awaiting input') so no operator-visible text or e2e
- * selector drifts in P0 — the canonical AXES drive color/glow/grouping;
- * unified label wording is part of the P4 sweep.
+ * P0 label decision: labels come from the frozen P0 table below ('error',
+ * 'killed', 'interrupted', 'awaiting input') — the canonical AXES drive
+ * color/glow/grouping; unified label wording is part of the P4 sweep.
+ * Known P0 drift (deliberate): RunList/RunsTab previously rendered the RAW
+ * status string, so `awaiting_input` there becomes 'awaiting input' (and
+ * RunsTab's formerly-unstyled awaiting_input rows gain the amber treatment).
+ * Every other adopted surface keeps its exact prior labels and classes.
  */
 import type { AgentRunStatus, CanonicalStatus, DelegationNodeStatus, RunStatus } from '@k/shared'
 import {

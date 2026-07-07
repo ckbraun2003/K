@@ -60,29 +60,33 @@ export async function createCheckpoint(
 ): Promise<CheckpointInfo | null> {
   const tmpIndex = path.join(os.tmpdir(), `k-ckpt-${runId}-${wave}-${Date.now()}.idx`)
   // execa merges env over process.env by default, so git/gh auth etc. survive.
+  // Every call is time-bounded: the supervisor awaits this chain in BOTH
+  // terminal paths, so a wedged git child (FS/AV stall) must reject (caught +
+  // logged by scheduleCheckpoint) rather than block run finalization and kill.
   const env = { ...IDENT_ENV, GIT_INDEX_FILE: tmpIndex }
+  const bounded = { timeout: 30_000, killSignal: 'SIGKILL' as const }
   try {
     // Stage the CURRENT worktree state into the throwaway index (never the real one).
-    await execa('git', ['-C', worktree, 'read-tree', 'HEAD'], { env })
-    await execa('git', ['-C', worktree, 'add', '-A'], { env })
-    const tree = (await execa('git', ['-C', worktree, 'write-tree'], { env })).stdout.trim()
+    await execa('git', ['-C', worktree, 'read-tree', 'HEAD'], { env, ...bounded })
+    await execa('git', ['-C', worktree, 'add', '-A'], { env, ...bounded })
+    const tree = (await execa('git', ['-C', worktree, 'write-tree'], { env, ...bounded })).stdout.trim()
 
     // Skip identical snapshots.
     if (prev !== null && tree === prev.tree) return null
     if (prev === null) {
-      const headTree = (await execa('git', ['-C', worktree, 'rev-parse', 'HEAD^{tree}'])).stdout.trim()
+      const headTree = (await execa('git', ['-C', worktree, 'rev-parse', 'HEAD^{tree}'], bounded)).stdout.trim()
       if (tree === headTree) return null
     }
 
     const parent = prev !== null
       ? prev.sha
-      : (await execa('git', ['-C', worktree, 'rev-parse', 'HEAD'])).stdout.trim()
+      : (await execa('git', ['-C', worktree, 'rev-parse', 'HEAD'], bounded)).stdout.trim()
     const msg = `k-checkpoint: ${runId} wave ${wave}`
     const sha = (
-      await execa('git', ['-C', worktree, 'commit-tree', tree, '-p', parent, '-m', msg], { env })
+      await execa('git', ['-C', worktree, 'commit-tree', tree, '-p', parent, '-m', msg], { env, ...bounded })
     ).stdout.trim()
     const ref = `refs/k-checkpoints/${runId}`
-    await execa('git', ['-C', worktree, 'update-ref', ref, sha])
+    await execa('git', ['-C', worktree, 'update-ref', ref, sha], bounded)
     return { sha, tree, ref, wave }
   } finally {
     try { fs.unlinkSync(tmpIndex) } catch { /* best-effort */ }
