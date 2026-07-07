@@ -175,6 +175,31 @@ export function parseClaudeLine(
   }
 }
 
+/**
+ * Extract the CLI session id from a stream-json INIT line
+ * (`{"type":"system","subtype":"init","session_id":"…", …}`). Returns null for
+ * every other line shape, malformed JSON, or a missing/empty session_id.
+ * Pure + exported: the supervisor calls it per line until it hits (P0 Lane B —
+ * runs.cli_session_id, E-22 groundwork); tests and probes reuse the exact
+ * same extraction.
+ */
+export function extractInitSessionId(line: string): string | null {
+  try {
+    const obj = JSON.parse(line) as { type?: unknown; subtype?: unknown; session_id?: unknown }
+    if (
+      obj.type === 'system' &&
+      obj.subtype === 'init' &&
+      typeof obj.session_id === 'string' &&
+      obj.session_id.length > 0
+    ) {
+      return obj.session_id
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 export const claudeProvider: Provider = {
   name: 'claude',
   binary: 'claude',

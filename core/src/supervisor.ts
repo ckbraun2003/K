@@ -21,7 +21,7 @@ import { eventBus } from './events.js'
 import { db, runsDb, projectsDb } from './db.js'
 import { route } from './router.js'
 import { resolvePermissionMode } from './claude-args.js'
-import { getProvider, parseClaudeLine } from './providers.js'
+import { getProvider, parseClaudeLine, extractInitSessionId } from './providers.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
 import { isPathWithin } from './paths.js'
 import { synthesizeConfigDir, pruneOrphanAgentRuns, kSecretaryConfigPaths, type SynthesizedConfig } from './agent-config.js'
@@ -758,6 +758,9 @@ async function runAgent(
       // Stream output line by line
       if (proc.stdout) {
         let buf = ''
+        // P0 Lane B (E-22 groundwork): capture the CLI session id from the FIRST
+        // stream-json init line — once per run.
+        let sessionCaptured = false
         proc.stdout.on('data', (chunk: Buffer) => {
           buf += chunk.toString('utf8')
           const lines = buf.split('\n')
@@ -770,6 +773,18 @@ async function runAgent(
             // output can't poison the store or WS stream.
             const parsed = provider.parseLine(line, run.id, s)
             if (parsed) onEvent(parsed)
+            // P0 Lane B: persist the init line's session_id onto the run row and
+            // re-emit run_update so the wire (and any follow-up-run machinery)
+            // sees cliSessionId immediately — not only at terminal.
+            if (!sessionCaptured) {
+              const sid = extractInitSessionId(line)
+              if (sid !== null) {
+                sessionCaptured = true
+                run.cliSessionId = sid
+                runsDb.setRunCliSessionId.run(sid, run.id)
+                eventBus.emitRunUpdate({ ...run, status: 'running', tokensIn, tokensOut, costUsd })
+              }
+            }
             // Interactive: a `result` line ends a turn while the process stays alive
             // on stdin. Park the run at awaiting_input (not done) and arm an idle
             // timeout; sendInput() flips it back to running with the next turn.
@@ -836,6 +851,7 @@ function loadRun(runId: string): Run | null {
     tokensOut: Number(r.tokens_out ?? 0),
     costUsd: Number(r.cost_usd ?? 0),
     projectId: (r.project_id as string | null) ?? undefined,
+    cliSessionId: (r.cli_session_id as string | null) ?? undefined,
     createdAt: Number(r.created_at),
     endedAt: r.ended_at != null ? Number(r.ended_at) : undefined,
   }
