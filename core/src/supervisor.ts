@@ -21,7 +21,8 @@ import { eventBus } from './events.js'
 import { db, runsDb, projectsDb } from './db.js'
 import { route } from './router.js'
 import { resolvePermissionMode } from './claude-args.js'
-import { getProvider, parseClaudeLine } from './providers.js'
+import { getProvider, parseClaudeLine, extractInitSessionId } from './providers.js'
+import { createCheckpoint, type CheckpointInfo } from './checkpoints.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
 import { isPathWithin } from './paths.js'
 import { synthesizeConfigDir, pruneOrphanAgentRuns, kSecretaryConfigPaths, type SynthesizedConfig } from './agent-config.js'
@@ -621,6 +622,12 @@ async function runAgent(
   // real OBSERVED tokens. Cost is NOT recoverable — the stream reports cost only on `result`.
   let lastInterimUsage: { tokensIn: number; tokensOut: number } | null = null
 
+  // ── k-checkpoints (Lane B, E-03 groundwork) ────────────────────────────────
+  // Serialization chain for checkpoint git work — function-scoped so BOTH
+  // terminal paths can settle it before emitting terminal status / removing
+  // the worktree.
+  let ckptChain: Promise<void> = Promise.resolve()
+
   // Per-run K-owned config dir for managed claude runs (undefined for ollama).
   // Declared before the try so both terminal paths can clean it up.
   let synth: SynthesizedConfig | undefined
@@ -675,6 +682,41 @@ async function runAgent(
       // mid-turn kill reads it back.
       lastInterimUsage = accumulateInterimUsage(lastInterimUsage, validated)
       eventBus.emitEvent(validated)
+    }
+
+    // ── k-checkpoint scheduling (Lane B, E-03 groundwork) ──────────────────────
+    // A tool wave = ≥1 tool_result ingested since the last checkpoint; the wave
+    // COMPLETES at the next assistant or turn-end (`usage`) line, where we
+    // snapshot the worktree. `ckptBusy` drops boundaries that fire while one is
+    // in flight (take-latest — the next boundary re-snapshots everything), so
+    // the chain can never queue unboundedly. Claude worktree runs only: the
+    // ollama agent loop does not feed this seam in P0.
+    let lastCheckpoint: CheckpointInfo | null = null
+    let ckptBusy = false
+    let sawToolResultSinceCkpt = false
+
+    const scheduleCheckpoint = (): void => {
+      if (!inWorktree || ckptBusy) return
+      ckptBusy = true
+      ckptChain = ckptChain.then(async () => {
+        try {
+          const wave = (lastCheckpoint?.wave ?? 0) + 1
+          const res = await createCheckpoint(cwd, run.id, wave, lastCheckpoint)
+          if (res !== null) {
+            lastCheckpoint = res
+            eventBus.emitEvent({
+              id: uuid(), runId: run.id, seq: nextSeq(run.id), type: 'checkpoint', ts: Date.now(),
+              text: `checkpoint wave ${res.wave} (${res.sha.slice(0, 10)})`,
+              raw: JSON.stringify({ sha: res.sha, tree: res.tree, ref: res.ref, wave: res.wave }),
+            })
+          }
+        } catch (err) {
+          // A checkpoint failure must never kill the run — log and continue.
+          console.warn(`[supervisor] checkpoint failed (run ${run.id}):`, (err as Error).message)
+        } finally {
+          ckptBusy = false
+        }
+      })
     }
 
     // Both engine paths produce a terminal-shaped `result`; the shared
@@ -758,6 +800,9 @@ async function runAgent(
       // Stream output line by line
       if (proc.stdout) {
         let buf = ''
+        // P0 Lane B (E-22 groundwork): capture the CLI session id from the FIRST
+        // stream-json init line — once per run.
+        let sessionCaptured = false
         proc.stdout.on('data', (chunk: Buffer) => {
           buf += chunk.toString('utf8')
           const lines = buf.split('\n')
@@ -770,6 +815,29 @@ async function runAgent(
             // output can't poison the store or WS stream.
             const parsed = provider.parseLine(line, run.id, s)
             if (parsed) onEvent(parsed)
+            // P0 Lane B: persist the init line's session_id onto the run row and
+            // re-emit run_update so the wire (and any follow-up-run machinery)
+            // sees cliSessionId immediately — not only at terminal.
+            if (!sessionCaptured) {
+              const sid = extractInitSessionId(line)
+              if (sid !== null) {
+                sessionCaptured = true
+                run.cliSessionId = sid
+                runsDb.setRunCliSessionId.run(sid, run.id)
+                eventBus.emitRunUpdate({ ...run, status: 'running', tokensIn, tokensOut, costUsd })
+              }
+            }
+            // Lane B (E-03 groundwork): tool-wave boundary → checkpoint. A `user`
+            // event carrying a toolUseId is a tool_result; the wave completes at
+            // the next assistant or turn-end (`usage`) event.
+            if (inWorktree && parsed) {
+              if (parsed.type === 'user' && parsed.toolUseId != null) {
+                sawToolResultSinceCkpt = true
+              } else if (sawToolResultSinceCkpt && (parsed.type === 'assistant' || parsed.type === 'usage')) {
+                sawToolResultSinceCkpt = false
+                scheduleCheckpoint()
+              }
+            }
             // Interactive: a `result` line ends a turn while the process stays alive
             // on stdin. Park the run at awaiting_input (not done) and arm an idle
             // timeout; sendInput() flips it back to running with the next turn.
@@ -787,6 +855,10 @@ async function runAgent(
     }
     const wasKilled = killedRuns.delete(run.id)
     const wasEnded = endingRuns.delete(run.id)
+    // Settle in-flight checkpoint work BEFORE the terminal emits: the checkpoint
+    // event needs a sane seq (clearRunTracking resets the counter) and
+    // removeWorktree must not race live git plumbing inside the worktree.
+    await ckptChain
     // A gracefully-ended interactive session is 'done' regardless of the exit code
     // (a fallback SIGTERM may have stopped a process that ignored stdin EOF).
     const finalStatus: Run['status'] =
@@ -804,6 +876,7 @@ async function runAgent(
 
   } catch (err) {
     const wasKilled = killedRuns.delete(run.id)
+    await ckptChain // settle checkpoint git work before cleanup (see success path)
     // endingRuns is cleared by clearRunTracking below; no need to delete it here.
     // Same killed-run honesty as the success path: recover interim tokens for a mid-turn kill.
     ;({ tokensIn, tokensOut, costUsd } = reconcileKilledUsage({ tokensIn, tokensOut, costUsd }, wasKilled, lastInterimUsage))
@@ -836,6 +909,7 @@ function loadRun(runId: string): Run | null {
     tokensOut: Number(r.tokens_out ?? 0),
     costUsd: Number(r.cost_usd ?? 0),
     projectId: (r.project_id as string | null) ?? undefined,
+    cliSessionId: (r.cli_session_id as string | null) ?? undefined,
     createdAt: Number(r.created_at),
     endedAt: r.ended_at != null ? Number(r.ended_at) : undefined,
   }
