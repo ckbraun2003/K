@@ -32,6 +32,11 @@ db.exec(`
     tokens_out  INTEGER NOT NULL DEFAULT 0,
     cost_usd    REAL NOT NULL DEFAULT 0,
     project_id  TEXT REFERENCES projects(id),
+    -- The Claude CLI session id parsed from the run's stream-json init line
+    -- (SCHEMA_VERSION 8, P0 — E-22 groundwork). NULL until the init line is seen
+    -- (and always NULL for ollama runs); lets a follow-up run \`--resume\` this
+    -- run's session. Appended via guarded ALTER for migrated DBs (migrateSlow).
+    cli_session_id TEXT,
     created_at  INTEGER NOT NULL,
     ended_at    INTEGER
   );
@@ -85,6 +90,10 @@ db.exec(`
     -- The repo's real default branch (detected at register/clone). Nullable: pre-
     -- migration rows stay NULL and callers fall back to a heuristic (W4 follow-up).
     default_branch    TEXT,
+    -- Operator-authored verification recipe (SCHEMA_VERSION 8, P0 — E-04
+    -- groundwork): JSON matching @k/shared VerifyRecipeSchema. NULL = none
+    -- configured. Appended via guarded ALTER for migrated DBs (migrateSlow).
+    verify_recipe     TEXT,
     health_score      INTEGER,
     last_verified_at  INTEGER,
     created_at        INTEGER NOT NULL
@@ -614,7 +623,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1247,6 +1256,21 @@ function migrateSlow(d: Database.Database): void {
       updated_at     INTEGER NOT NULL
     );
   `)
+
+  // ── P0 foundations (SCHEMA_VERSION 8 — E-22/E-04 groundwork) ─────────────────
+  // runs.cli_session_id: the CLI session id parsed from the run's stream-json
+  // init line (the supervisor persists it; E-22 follow-up runs will `--resume`
+  // it). projects.verify_recipe: operator-authored verify-recipe JSON (E-04;
+  // the runner/badge land in P1). Both appended via guarded ALTERs so existing
+  // DBs gain them; fresh installs get them from the DDL above. Pre-migration
+  // rows read back NULL. hasTable guards keep migrate() safe against
+  // old-schema fixtures predating either table (db-migration.test.ts).
+  if (hasTable(d, 'runs')) {
+    addColumn(d, 'runs', 'cli_session_id', 'TEXT')
+  }
+  if (hasTable(d, 'projects')) {
+    addColumn(d, 'projects', 'verify_recipe', 'TEXT')
+  }
 }
 
 migrate(db)
@@ -1271,6 +1295,12 @@ const listRunsProject       = db.prepare(`SELECT * FROM runs WHERE project_id = 
 const listRunsProjectStatus = db.prepare(`SELECT * FROM runs WHERE project_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?`)
 const clearRunWorktree = db.prepare(`UPDATE runs SET worktree = NULL WHERE id = ?`)
 
+// Stamp the CLI session id parsed from the run's stream-json init line (P0 —
+// E-22 follow-up groundwork). Plain overwrite (last-wins): the CLI emits the
+// init line once per process, so a re-write within one run id can only carry
+// the current session.
+const setRunCliSessionId = db.prepare(`UPDATE runs SET cli_session_id = ? WHERE id = ?`)
+
 /** Filtered run list. Uses pre-compiled statements — never interpolates values into SQL. */
 function listRunsFiltered({ status, limit, projectId }: { status?: RunStatus; limit: number; projectId?: string }): Array<Record<string, unknown>> {
   if (projectId !== undefined && status !== undefined) {
@@ -1285,7 +1315,7 @@ function listRunsFiltered({ status, limit, projectId }: { status?: RunStatus; li
   return listRunsAll.all(limit) as Array<Record<string, unknown>>
 }
 
-export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, clearRunWorktree }
+export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, clearRunWorktree, setRunCliSessionId }
 
 // ─── Event helpers ───────────────────────────────────────────────────────────
 

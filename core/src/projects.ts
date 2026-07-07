@@ -9,7 +9,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { execa } from 'execa'
 import { v4 as uuid } from 'uuid'
-import type { Project } from '@k/shared'
+import { VerifyRecipeSchema, type Project } from '@k/shared'
 import { projectsDb } from './db.js'
 import { isPathWithin } from './paths.js'
 
@@ -81,12 +81,25 @@ export function remoteFromUrl(url: string): string | null {
   return m ? m[1] : null
 }
 
+/** Parse projects.verify_recipe (JSON TEXT) defensively: NULL / malformed JSON /
+ *  schema-invalid → undefined — a corrupt recipe must never 500 a project read. */
+function parseVerifyRecipe(v: unknown): Project['verifyRecipe'] {
+  if (v == null) return undefined
+  try {
+    const parsed = VerifyRecipeSchema.safeParse(JSON.parse(String(v)))
+    return parsed.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function rowToProject(r: Record<string, unknown>): Project {
   // pathMissing is derived at read time (never persisted): true when localPath no
   // longer exists on disk, so the UI can badge the project and the GitHub poller
   // skips it. Spread-conditional so the key is INCLUDED only when missing —
   // payloads for healthy projects stay byte-identical to before.
   const pathMissing = !fs.existsSync(String(r.local_path))
+  const verifyRecipe = parseVerifyRecipe(r.verify_recipe)
   return {
     id: String(r.id),
     name: String(r.name),
@@ -95,6 +108,7 @@ function rowToProject(r: Record<string, unknown>): Project {
     workspaceManaged: Boolean(r.workspace_managed),
     bibleDir: String(r.bible_dir),
     ...(r.default_branch == null ? {} : { defaultBranch: String(r.default_branch) }),
+    ...(verifyRecipe === undefined ? {} : { verifyRecipe }),
     healthScore: r.health_score == null ? undefined : Number(r.health_score),
     lastVerifiedAt: r.last_verified_at == null ? undefined : Number(r.last_verified_at),
     ...(pathMissing ? { pathMissing: true } : {}),
