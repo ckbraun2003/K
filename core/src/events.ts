@@ -9,7 +9,7 @@
  * file changes — every call site stays the same.
  */
 
-import type { AgentEvent, Run, WsMessage } from '@k/shared'
+import { canonicalizeRunStatus, type AgentEvent, type Run, type WsMessage } from '@k/shared'
 import { eventsDb, runsDb } from './db.js'
 
 type EventSubscriber = (e: AgentEvent) => void
@@ -77,8 +77,13 @@ export const eventBus = {
       costUsd: r.costUsd,
       endedAt: r.endedAt ?? null,
     })
+    // E-11 (P0): the emit boundary is where legacy status strings become
+    // canonical — every run_update pushed to subscribers (and therefore every
+    // run_update on the WS wire) carries the derived triple. Derived, never
+    // stored: `status` remains the storage/wire discriminator.
+    const enriched: Run = { ...r, canonical: canonicalizeRunStatus(r.status) }
     for (const sub of runSubs) {
-      try { sub(r) } catch { /* same */ }
+      try { sub(enriched) } catch { /* same */ }
     }
   },
 
