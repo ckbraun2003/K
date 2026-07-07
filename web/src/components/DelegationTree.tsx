@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '../lib/cn'
 import type { DelegationNode, DelegationNodeStatus } from '@k/shared'
+import { delegationStatusMeta } from '../lib/status'
 
 /**
  * Generic, reusable recursive delegation tree (P5.2a).
@@ -15,20 +16,9 @@ import type { DelegationNode, DelegationNodeStatus } from '@k/shared'
  * `<MotionConfig reducedMotion="user">`.
  */
 
-/** Border/text classes for each of the five node statuses (RunTree's CSS-var palette). */
+/** Border/text classes per node status — via the single E-11 mapping module. */
 function statusClasses(status: DelegationNodeStatus): string {
-  switch (status) {
-    case 'done':
-      return 'border-[var(--green)]/50 text-[var(--green)]'
-    case 'error':
-      return 'border-[var(--red)]/50 text-[var(--red)]'
-    case 'queued':
-      return 'border-[var(--amber)]/50 text-[var(--amber)]'
-    case 'running':
-      return 'border-[var(--accent)]/50 text-[var(--accent-hover)] glow-live'
-    default: // idle
-      return 'border-[var(--border)] text-[var(--muted)]'
-  }
+  return delegationStatusMeta(status).border
 }
 
 /** Depth-first lookup of a node by id (the inspector's source). */

@@ -73,6 +73,7 @@ export function rowToRun(r: Row): Run {
     tokensOut: Number(r.tokens_out),
     costUsd: Number(r.cost_usd),
     projectId: r.project_id != null ? String(r.project_id) : undefined,
+    cliSessionId: r.cli_session_id != null ? String(r.cli_session_id) : undefined,
     createdAt: Number(r.created_at),
     endedAt: r.ended_at != null ? Number(r.ended_at) : undefined,
   }

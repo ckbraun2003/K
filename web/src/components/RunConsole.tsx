@@ -10,6 +10,7 @@ import { pairToolCalls, groupConsoleItems } from '../lib/console'
 import { contextPressure, nextAutoCompact, type AutoCompactState } from '../lib/context'
 import { cleanRunPrompt } from '../lib/prompt'
 import { linkify } from '../lib/linkify'
+import { runStatusMeta } from '../lib/status'
 import RunTimeline from './RunTimeline'
 import ToolCall from './ToolCall'
 import ConfirmDialog from './ConfirmDialog'
@@ -294,6 +295,7 @@ export default function RunConsole({ runId }: Props) {
   // is NOT terminal — the CLI is live and a turn may still be in flight.
   const runEnded =
     run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted'
+  const statusMeta = runStatusMeta(run.status)
 
   return (
     <div className="flex flex-col h-full">
@@ -335,15 +337,8 @@ export default function RunConsole({ runId }: Props) {
               </button>
             ))}
           </div>
-          <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', {
-            'bg-accent/15 text-[var(--accent-hover)] glow-live': run.status === 'running',
-            'bg-amber/25 text-[var(--amber)] glow-live': run.status === 'awaiting_input',
-            'bg-green/15 text-[var(--green)]': run.status === 'done',
-            'bg-red/15 text-[var(--red)]': run.status === 'error' || run.status === 'interrupted',
-            'bg-amber/15 text-[var(--amber)]': run.status === 'queued',
-            'bg-muted/15 text-[var(--muted)]': run.status === 'killed',
-          })}>
-            {run.status === 'awaiting_input' ? 'awaiting input' : run.status}
+          <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', statusMeta.badge, statusMeta.live && 'glow-live')}>
+            {statusMeta.label}
           </span>
           {(run.status === 'running' || run.status === 'awaiting_input') && (
             <button

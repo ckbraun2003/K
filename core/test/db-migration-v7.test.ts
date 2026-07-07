@@ -140,9 +140,10 @@ describe('migrate() — SCHEMA_VERSION 7 on a v6-shaped DB (skills rebuild + new
       .all() as Array<{ id: string; rowid: number }>
     expect(rowidsAfter).toEqual(rowidsBefore)
 
-    // (e) user_version stamped to the CURRENT version — and that version is 7.
-    expect(SCHEMA_VERSION).toBe(7)
-    expect(tempDb.pragma('user_version', { simple: true })).toBe(7)
+    // (e) user_version stamped to the CURRENT version (7 when this wave landed;
+    // derived per the SCHEMA_VERSION doc comment so later bumps don't break this
+    // test — the current-version lock lives in the newest migration test).
+    expect(tempDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
   })
 
   it('UNIQUE genuinely moved: same name under two qualified keys OK; dup key throws', () => {

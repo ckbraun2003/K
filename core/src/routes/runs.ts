@@ -153,6 +153,7 @@ function dbRowToRun(r: Record<string, unknown>) {
     status: r.status, provider: r.provider, model: r.model,
     tokensIn: r.tokens_in, tokensOut: r.tokens_out, costUsd: r.cost_usd,
     projectId: r.project_id ?? undefined,
+    cliSessionId: r.cli_session_id ?? undefined,
     createdAt: r.created_at, endedAt: r.ended_at,
   }
 }
