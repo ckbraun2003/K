@@ -6,6 +6,7 @@ import { navigate } from '../lib/route'
 import { relativeTime } from '../lib/verify'
 import { useAskK } from '../lib/useAskK'
 import { fullOrgToDelegationTree } from '../lib/delegation'
+import { agentRunStatusMeta } from '../lib/status'
 import DelegationTree from '../components/DelegationTree'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Toast from '../components/Toast'
@@ -115,12 +116,7 @@ export function ObjectiveRow({
 
 /** One autonomous-wake row (an AgentRun). Links into the run when it reached one. */
 function WakeRow({ wake }: { wake: AgentRun }) {
-  const statusClass =
-    wake.status === 'completed'
-      ? 'text-[var(--green)]'
-      : wake.status === 'failed'
-        ? 'text-[var(--red)]'
-        : 'text-[var(--accent-hover)]'
+  const statusClass = agentRunStatusMeta(wake.status).text
   return (
     <li className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2 text-xs">
       <span className="flex-shrink-0 rounded bg-[var(--surface)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted)]">

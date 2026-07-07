@@ -4,28 +4,11 @@ import type { Run, WsMessage } from '@k/shared'
 import { api } from '../../lib/api'
 import { onWsMessage } from '../../lib/ws'
 import { cn } from '../../lib/cn'
+import { runStatusMeta } from '../../lib/status'
 import RunConsole from '../../components/RunConsole'
 
 interface Props {
   projectId: string
-}
-
-const STATUS_DOT: Record<string, string> = {
-  queued:      'bg-[var(--amber)]',
-  running:     'bg-[var(--accent)] glow-live',
-  done:        'bg-[var(--green)]',
-  error:       'bg-[var(--red)]',
-  killed:      'bg-[var(--muted)]',
-  interrupted: 'bg-[var(--red)]',
-}
-
-const STATUS_COLOR: Record<string, string> = {
-  queued:      'bg-amber/15 text-[var(--amber)]',
-  running:     'bg-accent/15 text-[var(--accent-hover)]',
-  done:        'bg-green/15 text-[var(--green)]',
-  error:       'bg-red/15 text-[var(--red)]',
-  killed:      'bg-muted/15 text-[var(--muted)]',
-  interrupted: 'bg-red/15 text-[var(--red)]',
 }
 
 export default function RunsTab({ projectId }: Props) {
@@ -85,9 +68,9 @@ export default function RunsTab({ projectId }: Props) {
               )}
             >
               <div className="flex items-center gap-2 mb-1">
-                <span className={cn('w-2 h-2 rounded-full flex-shrink-0', STATUS_DOT[run.status] ?? 'bg-[var(--muted)]')} />
-                <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', STATUS_COLOR[run.status])}>
-                  {run.status}
+                <span className={cn('w-2 h-2 rounded-full flex-shrink-0', runStatusMeta(run.status).dot)} />
+                <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', runStatusMeta(run.status).badge)}>
+                  {runStatusMeta(run.status).label}
                 </span>
                 <span className="font-mono text-xs text-[var(--muted)] ml-auto">
                   ${run.costUsd.toFixed(4)}
