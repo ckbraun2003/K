@@ -1,5 +1,31 @@
 import { z } from 'zod'
 
+// ─── E-11 unified status taxonomy (P0) ───────────────────────────────────────
+// THREE ORTHOGONAL AXES replacing per-surface ad-hoc status vocabularies:
+//   state     — WHERE the entity is in its lifecycle;
+//   attention — WHAT (if anything) it needs from the operator;
+//   health    — HOW WELL it is going / ended.
+// Legacy status strings (RunStatus, AgentRunStatus, …) remain the STORAGE and
+// wire discriminators; the canonicalize*() mappers (end of this file) derive
+// the canonical triple at the emit boundary (core events.ts) and the render
+// boundary (web lib/status.ts) — ONE mapping, shared, so they cannot drift.
+// P0 adopts this on the Runs + Chief surfaces only; the full sweep is P4.
+export const EntityStateSchema = z.enum(['idle', 'queued', 'running', 'waiting', 'done', 'failed', 'stopped'])
+export type EntityState = z.infer<typeof EntityStateSchema>
+
+export const AttentionSchema = z.enum(['none', 'input_needed', 'review_needed', 'blocked'])
+export type Attention = z.infer<typeof AttentionSchema>
+
+export const HealthSchema = z.enum(['ok', 'degraded', 'broken', 'unknown'])
+export type Health = z.infer<typeof HealthSchema>
+
+export const CanonicalStatusSchema = z.object({
+  state: EntityStateSchema,
+  attention: AttentionSchema,
+  health: HealthSchema,
+})
+export type CanonicalStatus = z.infer<typeof CanonicalStatusSchema>
+
 // ─── Run ────────────────────────────────────────────────────────────────────
 
 export const RunStatusSchema = z.enum([
@@ -27,6 +53,14 @@ export const RunSchema = z.object({
   tokensOut: z.number().int().default(0),
   costUsd: z.number().default(0),
   projectId: z.string().uuid().optional(),
+  // The Claude CLI session id parsed from the run's stream-json init line
+  // (P0 Lane B — E-22 follow-up groundwork). Absent until the init line is
+  // seen; always absent for ollama runs.
+  cliSessionId: z.string().optional(),
+  // Canonical E-11 triple DERIVED from `status` at the emit boundary
+  // (core events.ts::emitRunUpdate attaches it to every run_update). Optional:
+  // REST payloads may omit it — clients re-derive via canonicalizeRunStatus.
+  canonical: CanonicalStatusSchema.optional(),
   createdAt: z.number(), // unix ms
   endedAt: z.number().optional(),
 })
@@ -42,6 +76,7 @@ export const AgentEventTypeSchema = z.enum([
   'usage',       // token + cost snapshot
   'error',       // parse or process error
   'status',      // synthetic: queued | running | done | killed
+  'checkpoint',  // synthetic: a k-checkpoint worktree snapshot landed (P0 Lane B — raw carries {sha,tree,ref,wave})
 ])
 export type AgentEventType = z.infer<typeof AgentEventTypeSchema>
 
@@ -96,6 +131,26 @@ export type Artifact = z.infer<typeof ArtifactSchema>
 // A registry entry: local git repo + GitHub remote managed by the harness.
 // Invariants (enforced by verification): GitHub remote, docs/bible/, CI workflows.
 
+// ─── VerifyRecipe (E-04 groundwork, P0) ──────────────────────────────────────
+// Operator-authored per-project verification recipe, stored as JSON in
+// projects.verify_recipe (SCHEMA_VERSION 8). P0 lands ONLY the contract + the
+// column; the runner + badge UI are P1 (E-04).
+export const VerifyRecipeSchema = z.object({
+  // Ordered gate commands, each run from the project root (a shell string).
+  commands: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(100),
+        run: z.string().min(1).max(2000),
+      }),
+    )
+    .min(1)
+    .max(20),
+  // Per-command timeout; the P1 runner picks the default when absent.
+  timeoutMs: z.number().int().positive().optional(),
+})
+export type VerifyRecipe = z.infer<typeof VerifyRecipeSchema>
+
 export const ProjectSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
@@ -107,6 +162,9 @@ export const ProjectSchema = z.object({
   // registration/clone. Optional: pre-migration rows read back undefined and callers
   // fall back to a heuristic. Powers the PR-base default (W4 follow-up).
   defaultBranch: z.string().optional(),
+  // Operator-authored verify recipe (E-04 groundwork). Optional: a NULL
+  // column (or a malformed stored value) reads back as absent.
+  verifyRecipe: VerifyRecipeSchema.optional(),
   healthScore: z.number().min(0).max(100).optional(),
   lastVerifiedAt: z.number().optional(), // unix ms
   // derived at read time (never persisted) — true when localPath no longer exists
@@ -1443,3 +1501,46 @@ export const KAskResultSchema = z.object({
   warm: z.boolean(),
 })
 export type KAskResult = z.infer<typeof KAskResultSchema>
+
+// ─── E-11 canonicalizers (P0) ─────────────────────────────────────────────────
+// Legacy status → canonical triple: ONE mapping per entity family, shared by the
+// core emit boundary (events.ts) and the web presentation module (lib/status.ts)
+// so the two can never drift. Exhaustive switches with NO default: adding a new
+// legacy status is a compile error here until it is mapped.
+
+export function canonicalizeRunStatus(s: RunStatus): CanonicalStatus {
+  switch (s) {
+    case 'queued':         return { state: 'queued',  attention: 'none',         health: 'ok' }
+    case 'running':        return { state: 'running', attention: 'none',         health: 'ok' }
+    case 'awaiting_input': return { state: 'waiting', attention: 'input_needed', health: 'ok' }
+    case 'done':           return { state: 'done',    attention: 'none',         health: 'ok' }
+    case 'error':          return { state: 'failed',  attention: 'none',         health: 'broken' }
+    // killed = the OPERATOR chose to stop it — deliberate, not unhealthy.
+    case 'killed':         return { state: 'stopped', attention: 'none',         health: 'ok' }
+    // interrupted = a core restart tore it down mid-flight — stopped AND degraded.
+    case 'interrupted':    return { state: 'stopped', attention: 'none',         health: 'degraded' }
+  }
+}
+
+export function canonicalizeAgentRunStatus(s: AgentRunStatus): CanonicalStatus {
+  switch (s) {
+    case 'running':   return { state: 'running', attention: 'none', health: 'ok' }
+    case 'completed': return { state: 'done',    attention: 'none', health: 'ok' }
+    case 'failed':    return { state: 'failed',  attention: 'none', health: 'broken' }
+  }
+}
+
+/** workflow_runs rows share the running/completed/failed shape — same mapping. */
+export function canonicalizeWorkflowRunStatus(s: 'running' | 'completed' | 'failed'): CanonicalStatus {
+  return canonicalizeAgentRunStatus(s)
+}
+
+export function canonicalizeDelegationNodeStatus(s: DelegationNodeStatus): CanonicalStatus {
+  switch (s) {
+    case 'running': return { state: 'running', attention: 'none', health: 'ok' }
+    case 'done':    return { state: 'done',    attention: 'none', health: 'ok' }
+    case 'error':   return { state: 'failed',  attention: 'none', health: 'broken' }
+    case 'queued':  return { state: 'queued',  attention: 'none', health: 'ok' }
+    case 'idle':    return { state: 'idle',    attention: 'none', health: 'ok' }
+  }
+}
