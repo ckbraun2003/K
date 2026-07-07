@@ -28,3 +28,5 @@ AGENTS.md
 .claude/
 docs/
 .worktrees/
+# P0 live-probe transcripts (raw CLI output incl. host-hook noise) — never commit
+core/probes/out/
