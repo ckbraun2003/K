@@ -191,7 +191,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-06 00:09</span><br>
+      compiled <span class="mono">2026-07-07 21:15</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -238,11 +238,7 @@ redesign.</li>
 output still lands as a durable artifact, run record, or PR; the chat directs work, it never
 replaces the audit trail.</li>
 </ul>
-<div class="live-stats">
-      <div class="stat"><span class="stat-label">TOTAL RUNS</span><span class="stat-value">41</span></div>
-      <div class="stat"><span class="stat-label">TOKENS</span><span class="stat-value">1.7M</span></div>
-      <div class="stat"><span class="stat-label">COST</span><span class="stat-value">$3.74</span></div>
-    </div>
+<div class="live-empty">— no run data yet —</div>
 
     </section>
 
@@ -1359,11 +1355,7 @@ see §03 <em>Reused connectors</em>).</p>
 </ul>
 <h2>Lifecycle</h2>
 <p><code>registered → onboarded (invariants satisfied) → active (runs/PRs flowing) → idle (no activity N days) → archived (hidden from home, data retained)</code></p>
-<table><thead><tr><th>project</th><th>health</th><th>last verified</th></tr></thead><tbody><tr><td>jarvis-core</td>
-        <td><span class="dot dot-amber"></span><span class="mono">—</span></td>
-        <td>never</td></tr><tr><td>k</td>
-        <td><span class="dot dot-amber"></span><span class="mono">—</span></td>
-        <td>never</td></tr></tbody></table>
+<div class="live-empty">— no registered project data yet —</div>
 
     </section>
 
@@ -1626,37 +1618,7 @@ every open. Everything else — building, seeding, the dashboard, all tests — 
 this phase (rewiring it onto the behavioral subsystem is a deferred follow-on); the new subsystem stands
 alongside it. <strong>P5 extension:</strong> it is built to add <strong>DB-sourced <code>AgentProfile</code>s</strong> as eval systems, so the
 agent org can be evaluated as it comes online.</p>
-<table><thead><tr><th>run</th><th>prompt</th><th>status</th><th>cost</th><th>started</th></tr></thead><tbody><tr>
-      <td>8aba3186</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-amber"></span>interrupted</td>
-      <td>$0.000</td>
-      <td>2026-07-03 01:15</td>
-    </tr><tr>
-      <td>14b68c21</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-amber"></span>interrupted</td>
-      <td>$0.000</td>
-      <td>2026-07-03 01:15</td>
-    </tr><tr>
-      <td>813898ee</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.074</td>
-      <td>2026-07-03 01:00</td>
-    </tr><tr>
-      <td>acee1fa7</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.077</td>
-      <td>2026-07-03 01:00</td>
-    </tr><tr>
-      <td>9c9e404a</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-amber"></span>interrupted</td>
-      <td>$0.000</td>
-      <td>2026-07-03 00:45</td>
-    </tr></tbody></table>
+<div class="live-empty">— no run data yet —</div>
 
     </section>
 
@@ -2623,7 +2585,7 @@ of invented numbers).</p>
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-05</span>
+        <span class="section-updated mono">updated 2026-07-07</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -3212,6 +3174,22 @@ of invented numbers).</p>
 <td><strong>Local models get FULL agent parity via K's own in-process tool-calling loop over the Ollama <code>/api/chat</code> API</strong> (<code>core/src/ollama-agent/</code>), branched inside the supervisor, which keeps owning lifecycle/kill/usage (kill = <code>AbortController.abort()</code>; the legacy <code>ollama run</code> pipe is retained behind <code>K_OLLAMA_AGENT_MODE=legacy</code>). The loop consumes the SAME <code>resolveRunAssets</code> as claude synthesis: <strong>native tools</strong> <code>Read/Write/Edit/Bash/Glob/Grep</code> + <code>read_skill</code> with claude-compatible names/schemas (tier allowlists + console rendering work unchanged; fs path-guarded to the run worktree — <code>K_OLLAMA_FS_SCOPE=any</code> widens; Bash runs a secret-stripped env with tree-kill on win32); <strong>MCP servers</strong> over <code>@modelcontextprotocol/sdk</code> (spawned at run start, reused across iterations, close-all in <code>finally</code>; tools advertised <code>mcp__&lt;server&gt;__&lt;tool&gt;</code>); <strong>skills</strong> delivered as an index + <code>read_skill</code> (full-body inlining only on the degrade path, char-budgeted). Capability is probed via <code>/api/show</code> (cached per model, invalidated on pull): a tool-less model <strong>DEGRADES IN PLACE</strong> (prompt-only + inlined skills) and NEVER silently falls back to claude; a truthful run-start system event + the RunConsole badge ("local · tools" / "local · prompt-only") declare the engine. <strong>Real token capture</strong> (<code>prompt_eval_count</code>/<code>eval_count</code>, <code>costUsd: 0</code>) rides the same usage events as claude runs; <code>num_ctx</code> is explicit (config <code>ollama.numCtx</code>, seeded from <code>K_OLLAMA_NUM_CTX</code>, default 16384). Limits: 25 iterations · 10-min run · 60s MCP tool calls · a repeated-identical-call detector · a &gt;85% context-pressure warning</td>
 <td>"Skills regardless of model" needs a tool loop the CLI provides only for claude; owning the loop in-process gives local runs the same assets, event shapes, and observability with zero UI change, while degrade-in-place + the truthful badge preserve the §02 routing-honesty contract (choosing ollama can never silently run claude)</td>
 <td>Keeping the <code>ollama run</code> prompt pipe as the only engine (no tools, no MCP — parity impossible); silently falling back to claude for tool-less models (violates routing honesty); a child-process loop runner (the supervisor already owns lifecycle — in-process + AbortController is simpler and kill-safe); content-JSON tool-call salvage (strict structured <code>tool_calls</code> v1 — salvage is a documented non-goal)</td>
+</tr>
+<tr>
+<td>D-073 <em>(DRAFT — P0 probe verdict; finalize in P6/E-21)</em></td>
+<td>2026-07-07</td>
+<td>E-21 mid-run steering mechanism</td>
+<td><strong>Design X — interrupt steering</strong> <em>(pick iff scenario A showed control_response and/or an early result AND the post-interrupt turn answered)</em>: the supervisor keeps stream-json stdin open for ALL managed claude runs and exposes <code>interrupt(runId)</code> + <code>steer(runId, text)</code> — a steer during a turn = control_request interrupt then inject the operator turn. Evidence: core/probes/out/steering-{a,b}.jsonl — A: control_response=yes result_after_interrupt=yes post_interrupt_turn_answered=yes (interrupt ack subtype success; the aborted turn ends with an early error_during_execution result; the injected turn is answered STEER-ACK on the same stdin); B: results=2 queued_turn_answered=yes stream_survived=yes exit=0; measured $0.0423</td>
+<td>Probe-measured on the real CLI (2026-07-07, haiku) — the stdin wire behavior is a fact, not a guess; committing to the strongest mechanism the CLI actually supports keeps E-21 buildable in P6 without re-probing</td>
+<td>Design Y — queued-turn steering (its pick-criterion required scenario A to fail, but A succeeded on all three counts; B's queued_turn_answered=yes stays recorded as evidence that a non-abort soft steer also works under Design X); Design Z — park-and-steer fallback (disqualified: both stronger mechanisms work on the wire); rewriting dispatch onto the Agent SDK (out of scope — the CLI wrapper is the product)</td>
+</tr>
+<tr>
+<td>D-074 <em>(DRAFT — P0 probe verdict; finalize in P6/E-22)</em></td>
+<td>2026-07-07</td>
+<td>E-22 follow-up-run mechanism</td>
+<td><strong>Resume-based follow-ups</strong> <em>(pick iff same-cwd resume retained context)</em>: a follow-up run spawns <code>claude -p --resume &lt;runs.cli_session_id&gt;</code> (column landed in P0, v8); if different-cwd resume ALSO retained context (NO), follow-ups run in a fresh worktree, else E-22 must retain the original run cwd/worktree until follow-ups close. EITHER WAY managed runs synthesize a per-run CLAUDE_CONFIG_DIR that today is CLEANED at terminal (agent-config.ts synth.cleanup()) — E-22 must retain the config dir for resumable runs, mirroring the k-secretary persistentSession <code>persist:true</code> pattern. Evidence: core/probes/out/resume-*.jsonl — same-cwd retained: YES (answered "PLUM-42" verbatim); diff-cwd retained: NO (exit 1, stderr "No conversation found with session ID" — CLI session storage is keyed by project path); measured $0.0301</td>
+<td>Probe-measured on the real CLI; <code>--resume</code> (a cheap cache-read continuation, the proven F-054 K-thread mechanism) is strictly better than replaying transcripts when it works — the probe tells us if it does</td>
+<td>Transcript-reseed fallback (disqualified: same-cwd --resume retained the planted secret verbatim, so replaying stored events is unnecessary); holding warm processes per run (the rejected pre-F-054 pattern — resource-heavy, crash-fragile)</td>
 </tr>
 </tbody></table>
 
