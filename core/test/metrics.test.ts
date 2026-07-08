@@ -257,11 +257,12 @@ describe('activeRuns status set', () => {
     for (const id of seeded.splice(0)) db.prepare(`DELETE FROM runs WHERE id = ?`).run(id)
   })
 
-  it("counts running/queued/awaiting_input as active, excludes terminal statuses", () => {
+  it("counts running/queued/awaiting_input/awaiting_plan as active, excludes terminal statuses", () => {
     const ids = [
       seedRun('running'),
       seedRun('queued'),
       seedRun('awaiting_input'),
+      seedRun('awaiting_plan'), // P2 E-02: a parked plan is live work awaiting attention
       seedRun('done'),        // terminal — excluded
       seedRun('error'),       // terminal — excluded
       seedRun('killed'),      // terminal — excluded
@@ -270,9 +271,9 @@ describe('activeRuns status set', () => {
     // Same status set as routes/metrics.ts activeRunsStmt, scoped to our rows.
     const placeholders = ids.map(() => '?').join(',')
     const { n } = db.prepare(
-      `SELECT COUNT(*) AS n FROM runs WHERE id IN (${placeholders}) AND status IN ('running','queued','awaiting_input')`,
+      `SELECT COUNT(*) AS n FROM runs WHERE id IN (${placeholders}) AND status IN ('running','queued','awaiting_input','awaiting_plan')`,
     ).get(...ids) as { n: number }
-    expect(n).toBe(3) // running + queued + awaiting_input only
+    expect(n).toBe(4) // running + queued + awaiting_input + awaiting_plan
   })
 })
 

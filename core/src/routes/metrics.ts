@@ -19,7 +19,8 @@ const summaryWindowStmt = db.prepare(
   `SELECT created_at, status, tokens_in, tokens_out, cost_usd FROM runs WHERE created_at >= ?`
 )
 const totalRunsStmt = db.prepare(`SELECT COUNT(*) AS c FROM runs`)
-const activeRunsStmt = db.prepare(`SELECT COUNT(*) AS c FROM runs WHERE status IN ('running','queued','awaiting_input')`)
+// P2 E-02: awaiting_plan counts as an active run — a parked plan is live work awaiting attention, not a finished run.
+const activeRunsStmt = db.prepare(`SELECT COUNT(*) AS c FROM runs WHERE status IN ('running','queued','awaiting_input','awaiting_plan')`)
 // The `lead` subquery resolves each run's ORCHESTRATOR (discipline-lead) profile for the
 // groupBy=lead breakdown: per run_id, the LATEST tier='orchestrator' agent_runs activation
 // (ROW_NUMBER … rn=1). A run with no orchestrator activation (a plain UI run, or a
@@ -42,12 +43,15 @@ const timeseriesWindowStmt = db.prepare(`
   ) ld ON ld.run_id = r.id
   WHERE r.created_at >= ?
 `)
-// Per-run parked_ms = Σ(awaiting_input → next-status) intervals, from the run's
-// `status` events: each awaiting_input event opens a parked interval that the next
-// status event (a `running` on resume, or a terminal status if killed/ended while
-// parked) closes. LEAD walks the seq-ordered status events per run; we sum only the
-// intervals that START at awaiting_input. Subtracting this in aggregateRouting makes
-// avgLatencyMs active processing time, not wall-clock-with-operator-think-time (F-082).
+// Per-run parked_ms = Σ(park → next-status) intervals, from the run's `status`
+// events: each awaiting_input OR awaiting_plan event opens a parked interval that
+// the next status event (a `running` on resume, or a terminal status if
+// killed/ended while parked) closes. LEAD walks the seq-ordered status events per
+// run; we sum only the intervals that START at a park status. Subtracting this in
+// aggregateRouting makes avgLatencyMs active processing time, not
+// wall-clock-with-operator-think-time (F-082).
+// P2 E-02: awaiting_plan joins awaiting_input here — plan-review wall-time is
+// operator think-time, not agent latency.
 const routingWindowStmt = db.prepare(`
   SELECT r.created_at, r.ended_at, r.status, r.provider, r.model, r.cost_usd,
          COALESCE(p.parked_ms, 0) AS parked_ms
@@ -60,7 +64,7 @@ const routingWindowStmt = db.prepare(`
       FROM events
       WHERE type = 'status'
     )
-    WHERE text = 'awaiting_input' AND next_ts IS NOT NULL
+    WHERE text IN ('awaiting_input','awaiting_plan') AND next_ts IS NOT NULL
     GROUP BY run_id
   ) p ON p.run_id = r.id
   WHERE r.created_at >= ?

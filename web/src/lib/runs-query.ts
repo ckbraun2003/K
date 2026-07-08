@@ -25,10 +25,13 @@ export const runsListQueryFn = (): Promise<Run[]> => api.runs.list({ limit: RUNS
  * badge, RunList "active" filter) so they can't drift (F-055).
  *
  * - `isActiveRun`: the agent is doing work right now (running / queued).
- * - `isParkedRun`: the run is parked at `awaiting_input` — a LIVE CLI process
- *   holding a turn open, waiting on the operator. Parked runs are non-terminal
- *   and hold real resources, so they must read as "needs input / attention",
- *   never as "nothing happening" / idle.
+ * - `isParkedRun`: the run is parked on a HUMAN — `awaiting_input` (a LIVE CLI
+ *   process holding a turn open on stdin) or `awaiting_plan` (a process-dead plan
+ *   awaiting operator review, P2 E-02). Parked runs are non-terminal and need
+ *   attention, so they must read as "needs input", never as idle.
  */
 export const isActiveRun = (r: Run): boolean => r.status === 'running' || r.status === 'queued'
-export const isParkedRun = (r: Run): boolean => r.status === 'awaiting_input'
+// Parked = waiting on a HUMAN: awaiting_input (live process on stdin) or
+// awaiting_plan (process-dead plan park, P2 E-02). One predicate feeds the
+// Sidebar badge, the ActivityStrip attention strip, and RunList's 'active' filter.
+export const isParkedRun = (r: Run): boolean => r.status === 'awaiting_input' || r.status === 'awaiting_plan'

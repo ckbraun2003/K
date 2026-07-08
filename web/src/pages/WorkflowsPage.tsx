@@ -20,7 +20,8 @@ export function roleChain(roles: NamedWorkflow['roles']): string {
 
 // Non-terminal run statuses — while the run is live we poll the checklist so the
 // orchestrator's status-writes surface without a dedicated WS channel.
-const LIVE_STATUSES = new Set(['queued', 'running', 'awaiting_input'])
+// P2 E-02: awaiting_plan is non-terminal — keep polling the checklist while parked on plan review.
+const LIVE_STATUSES = new Set(['queued', 'running', 'awaiting_input', 'awaiting_plan'])
 
 /** Short, readable label for a run in the picker. */
 function runOptionLabel(run: Run): string {
