@@ -28,6 +28,7 @@ describe('E-11 canonical axes', () => {
     expect(canonicalizeRunStatus('queued')).toEqual({ state: 'queued', attention: 'none', health: 'ok' })
     expect(canonicalizeRunStatus('running')).toEqual({ state: 'running', attention: 'none', health: 'ok' })
     expect(canonicalizeRunStatus('awaiting_input')).toEqual({ state: 'waiting', attention: 'input_needed', health: 'ok' })
+    expect(canonicalizeRunStatus('awaiting_plan')).toEqual({ state: 'waiting', attention: 'review_needed', health: 'ok' })
     expect(canonicalizeRunStatus('done')).toEqual({ state: 'done', attention: 'none', health: 'ok' })
     expect(canonicalizeRunStatus('error')).toEqual({ state: 'failed', attention: 'none', health: 'broken' })
     expect(canonicalizeRunStatus('killed')).toEqual({ state: 'stopped', attention: 'none', health: 'ok' })

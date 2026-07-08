@@ -34,6 +34,11 @@ export const RunStatusSchema = z.enum([
   'awaiting_input', // non-terminal: an interactive run finished a turn and is waiting
                     // for the operator's next message (stdin held open). Swept to
                     // 'interrupted' at boot like running/queued (the child can't survive).
+  'awaiting_plan', // non-terminal: a plan-gated one-shot finished its PLAN TURN and the
+                   // process EXITED; the run waits for operator approval. Unlike
+                   // awaiting_input (live process on stdin) this park is process-DEAD and
+                   // RESUMABLE across reboots: worktree + per-run config dir (CLI session
+                   // state) are preserved and approve --resumes cli_session_id (D-079).
   'done',
   'error',
   'killed',
@@ -75,7 +80,7 @@ export const AgentEventTypeSchema = z.enum([
   'user',        // user turn (tool_result)
   'usage',       // token + cost snapshot
   'error',       // parse or process error
-  'status',      // synthetic: queued | running | done | killed
+  'status',      // synthetic: queued | running | awaiting_input | awaiting_plan | done | killed
   'checkpoint',  // synthetic: a k-checkpoint worktree snapshot landed (P0 Lane B — raw carries {sha,tree,ref,wave})
 ])
 export type AgentEventType = z.infer<typeof AgentEventTypeSchema>
@@ -165,6 +170,9 @@ export const ProjectSchema = z.object({
   // Operator-authored verify recipe (E-04 groundwork). Optional: a NULL
   // column (or a malformed stored value) reads back as absent.
   verifyRecipe: VerifyRecipeSchema.optional(),
+  // E-06: auto-merge a run's PR when K publishes a green k/verify status AND the
+  // PR's checks read green. Default OFF (absent/false) — one-click merge only.
+  autoMerge: z.boolean().optional(),
   healthScore: z.number().min(0).max(100).optional(),
   lastVerifiedAt: z.number().optional(), // unix ms
   // derived at read time (never persisted) — true when localPath no longer exists
@@ -271,6 +279,8 @@ export const PrInfoSchema = z.object({
   state: z.string(),               // OPEN | MERGED | CLOSED
   url: z.string(),
   checks: z.enum(['passing', 'failing', 'pending', 'none']),
+  // PR head branch (P2 E-06: matches k-review/<runId8> to link a PR to its run). Optional: pre-P2 github_cache payloads lack it.
+  headRefName: z.string().optional(),
 })
 export type PrInfo = z.infer<typeof PrInfoSchema>
 
@@ -548,6 +558,132 @@ export const RunImpactPayloadSchema = z.object({
 })
 export type RunImpactPayload = z.infer<typeof RunImpactPayloadSchema>
 
+// ─── P2 Human Gates (E-02/E-05/E-06/E-19) ────────────────────────────────────
+// The W0-frozen wire contracts for the Plan Gate, the Approvals Inbox, merge
+// gating, and notifications phase 1.
+
+// E-02 — the structured checklist plan the scaffold demands (steps/files/risk).
+export const PlanStepSchema = z.object({
+  title: z.string().min(1).max(500),
+  detail: z.string().max(4000).optional(),
+})
+export type PlanStep = z.infer<typeof PlanStepSchema>
+
+export const PlanDocSchema = z.object({
+  steps: z.array(PlanStepSchema).min(1).max(50),
+  files: z.array(z.string().min(1).max(1000)).max(200),
+  risk: z.enum(['low', 'medium', 'high']),
+  notes: z.string().max(10000).optional(),
+})
+export type PlanDoc = z.infer<typeof PlanDocSchema>
+
+// One CURRENT plan per run (run_plans row). plan is null when the model's plan
+// turn produced no parseable fenced json — raw always carries the turn text, so
+// the operator still sees (and can approve) a degraded plan honestly.
+export const RunPlanSchema = z.object({
+  runId: z.string().uuid(),
+  plan: PlanDocSchema.nullable(),
+  raw: z.string(),
+  edited: z.boolean(),
+  profileId: z.string().nullable(),      // dispatching profile; null = default orchestrator
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  approvedAt: z.number().nullable(),
+})
+export type RunPlan = z.infer<typeof RunPlanSchema>
+
+/** PATCH /api/runs/:id/plan — last-wins structured edit (sets edited=true). */
+export const UpdateRunPlanBodySchema = z.object({ plan: PlanDocSchema }).strict()
+export type UpdateRunPlanBody = z.infer<typeof UpdateRunPlanBodySchema>
+
+// E-19 — the five P2 event keys (every key the notify engine can hear today).
+export const NotificationEventKeySchema = z.enum([
+  'run_awaiting_input', 'run_awaiting_plan', 'run_review_ready', 'run_failed', 'verify_fail',
+])
+export type NotificationEventKey = z.infer<typeof NotificationEventKeySchema>
+
+// NOTE (web): alias this type as `KNotification` in web imports — the browser
+// global `Notification` (the Notification API constructor) must stay reachable.
+export const NotificationSchema = z.object({
+  id: z.string().uuid(),
+  eventKey: NotificationEventKeySchema,
+  title: z.string(),
+  body: z.string().nullable(),
+  runId: z.string().nullable(),
+  projectId: z.string().nullable(),
+  createdAt: z.number(),
+  readAt: z.number().nullable(),
+})
+export type Notification = z.infer<typeof NotificationSchema>
+
+export const NotificationRuleSchema = z.object({
+  eventKey: NotificationEventKeySchema,
+  inapp: z.boolean(),
+  browser: z.boolean(),
+})
+export type NotificationRule = z.infer<typeof NotificationRuleSchema>
+
+export const UpdateNotificationRuleBodySchema = z
+  .object({ inapp: z.boolean().optional(), browser: z.boolean().optional() })
+  .strict()
+  .refine(v => v.inapp !== undefined || v.browser !== undefined, { message: 'provide inapp or browser' })
+export type UpdateNotificationRuleBody = z.infer<typeof UpdateNotificationRuleBodySchema>
+
+// E-05 — the typed inbox card union. `id` is the kind-scoped stable id
+// `<kind>:<entity id>`; `ts` is the sort key (park/creation/discovery time).
+export const InboxItemKindSchema = z.enum([
+  'plan_pending', 'input_needed', 'lesson_pending', 'mcp_trust', 'review_ready',
+])
+export type InboxItemKind = z.infer<typeof InboxItemKindSchema>
+
+const inboxCommon = {
+  id: z.string(),
+  ts: z.number(),
+  projectId: z.string().nullable(),
+  projectName: z.string().nullable(),
+  title: z.string(),
+} as const
+
+export const InboxItemSchema = z.discriminatedUnion('kind', [
+  // actions: review/edit/approve via the plan routes (navigate to the run console)
+  z.object({ ...inboxCommon, kind: z.literal('plan_pending'), runId: z.string(),
+    risk: z.enum(['low', 'medium', 'high']).nullable(), steps: z.number().int().nullable(), edited: z.boolean() }),
+  // actions: reply (POST /api/runs/:id/input) / end — navigate to the run console
+  z.object({ ...inboxCommon, kind: z.literal('input_needed'), runId: z.string(), model: z.string() }),
+  // actions: approve / reject (POST /api/memory/lessons/:id/approve|reject) — inline
+  z.object({ ...inboxCommon, kind: z.literal('lesson_pending'), lessonId: z.string(), profileName: z.string().nullable() }),
+  // actions: trust (POST /api/capabilities/mcp/:id/trust) / dismiss (POST /api/inbox/mcp/:id/dismiss) — inline
+  z.object({ ...inboxCommon, kind: z.literal('mcp_trust'), qualifiedKey: z.string(),
+    sourceKind: z.enum(['claude-user', 'claude-project']), command: z.string() }),
+  // actions: open review (run console review view) / dismiss (POST /api/inbox/runs/:id/dismiss-review)
+  z.object({ ...inboxCommon, kind: z.literal('review_ready'), runId: z.string(),
+    verifyStatus: VerifyStatusSchema.nullable() }),
+])
+export type InboxItem = z.infer<typeof InboxItemSchema>
+
+export const InboxCountsSchema = z.object({
+  plan_pending: z.number().int(),
+  input_needed: z.number().int(),
+  lesson_pending: z.number().int(),
+  mcp_trust: z.number().int(),
+  review_ready: z.number().int(),
+})
+export type InboxCounts = z.infer<typeof InboxCountsSchema>
+
+export const InboxPayloadSchema = z.object({
+  items: z.array(InboxItemSchema),   // ts DESC; review_ready capped at 20 items
+  counts: InboxCountsSchema,         // TRUE (uncapped) per-kind counts
+  total: z.number().int(),           // sum of counts = the needs-YOU rail badge
+})
+export type InboxPayload = z.infer<typeof InboxPayloadSchema>
+
+// E-06 — one-click merge + auto-merge toggle.
+export const MergePrResultSchema = z.object({ merged: z.boolean(), number: z.number().int() })
+export type MergePrResult = z.infer<typeof MergePrResultSchema>
+
+export const SetAutoMergeBodySchema = z.object({ enabled: z.boolean() }).strict()
+export type SetAutoMergeBody = z.infer<typeof SetAutoMergeBodySchema>
+
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
 export const WsMessageSchema = z.discriminatedUnion('type', [
@@ -564,6 +700,10 @@ export const WsMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('verification_update'), report: VerificationReportSchema }),
   // E-04: a run's verify result changed (running → pass/fail/skipped/error).
   z.object({ type: z.literal('verify_update'), result: VerifyResultSchema }),
+  // E-19: a notification fired (rules-gated). `browser` = the matching rule wants
+  // a browser Notification raised client-side. Transient on the wire; the in-app
+  // center reads the durable notifications table.
+  z.object({ type: z.literal('notification'), notification: NotificationSchema, browser: z.boolean() }),
   // Knowledge-graph build state transition (building → ready/error) + reindex marks
   z.object({ type: z.literal('graph_update'), projectId: z.string(), meta: ProjectGraphMetaSchema }),
   // A task-workflow run finalized (F-076) — a nudge to REVIEW + CLOSE the tasks it locked
@@ -629,6 +769,9 @@ export const StartRunBodySchema = z.object({
   // tracked+staged changes instead of clean committed HEAD. Default false/absent →
   // byte-identical clean-HEAD checkout. Untracked/ignored files are NOT carried.
   carryWorkingTree: z.boolean().optional(),
+  // E-02: gate this dispatch behind an operator-approved plan turn. Absent = the
+  // tier default (agent_profiles.plan_gate of the resolving profile) applies.
+  planGate: z.boolean().optional(),
 })
 export type StartRunBody = z.infer<typeof StartRunBodySchema>
 
@@ -708,6 +851,9 @@ export const AgentProfileSchema = z.object({
   allowedTools: z.array(z.string()), // claude --allowedTools allowlist (tier-gated)
   mcpServers: z.array(z.string()), // tier-scoped MCP servers this profile mounts
   skills: z.array(z.string()), // skill dir names this profile mounts
+  // E-02 tier default: dispatches resolved through this profile are plan-gated
+  // unless the dispatch body says otherwise. Optional — absent = false.
+  planGate: z.boolean().optional(),
 })
 export type AgentProfile = z.infer<typeof AgentProfileSchema>
 
@@ -1694,6 +1840,8 @@ export function canonicalizeRunStatus(s: RunStatus): CanonicalStatus {
     case 'queued':         return { state: 'queued',  attention: 'none',         health: 'ok' }
     case 'running':        return { state: 'running', attention: 'none',         health: 'ok' }
     case 'awaiting_input': return { state: 'waiting', attention: 'input_needed', health: 'ok' }
+    // awaiting_plan = parked on OPERATOR REVIEW of the plan (process-dead park).
+    case 'awaiting_plan': return { state: 'waiting', attention: 'review_needed', health: 'ok' }
     case 'done':           return { state: 'done',    attention: 'none',         health: 'ok' }
     case 'error':          return { state: 'failed',  attention: 'none',         health: 'broken' }
     // killed = the OPERATOR chose to stop it — deliberate, not unhealthy.
