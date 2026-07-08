@@ -191,7 +191,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-07 22:04</span><br>
+      compiled <span class="mono">2026-07-08 12:59</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -251,7 +251,7 @@ replaces the audit trail.</li>
         <span class="section-icon">⬡</span>
         <h1>Architecture</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-05</span>
+        <span class="section-updated mono">updated 2026-07-08</span>
       </header>
       <p><strong>Architecture A with B-seams</strong> — a single monolithic core (Architecture A) with three deliberate <strong>B-seams</strong> built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected). A planned <strong>fourth B-seam — TranscriptionProvider</strong> (voice in, Phase 5.4) follows the same swap-without-rewrite contract (D-031).</p>
 <pre><code>┌──────────────────────────────────────────────────────────────┐
@@ -469,6 +469,49 @@ a given activation may touch, while the three B-seams remain how events, models,
 uncommitted <strong>tracked + staged</strong> changes (a non-destructive <code>git stash create</code> + apply; <strong>untracked
 not carried</strong>; the source repo is never mutated), so a run can start from your in-progress edits. The
 default path (no flag) is byte-identical to before.</p>
+<h2>Trust Core — the checkpoint-derived review loop (Phase 1)</h2>
+<p>One durable source — the per-run <strong>k-checkpoint chain</strong> — feeds every review surface: <strong>diff</strong>
+(E-01), <strong>verify</strong> (E-04), <strong>impact</strong> (E-07), and <strong>rewind</strong> (E-03). None of them need the run's
+worktree, which is removed at terminal.</p>
+<ul>
+<li><strong>The chain is THE durable review source.</strong> After each completed tool wave the supervisor
+snapshots the run worktree as a plumbing-built commit chained under one ref,
+<code>refs/k-checkpoints/&lt;runId&gt;</code> (<code>core/src/checkpoints.ts</code>; HEAD, the real index, and every branch
+untouched — a checkpoint can never reach a PR). Each snapshot is also persisted as a
+<code>checkpoint</code> event, so a finished run's chain is listable from the DB; the refs live in the
+shared <code>.git</code> of the run's source repo and deliberately outlive the run and its worktree.</li>
+<li><strong>Terminal-snapshot guarantee.</strong> The extracted scheduler (<code>makeCheckpointScheduler</code>) is
+take-latest per wave; <code>finalize()</code> settles in-flight work and takes ONE terminal snapshot
+before the terminal status emits, so the run's final state is always reachable even when the
+last boundary was dropped or the run was killed mid-wave (identical-tree dedup makes the
+terminal snapshot commit-free when the last boundary already captured it).</li>
+<li><strong>Accepted cost (P0 carry-in #3).</strong> Every wave snapshot re-hashes the worktree through a
+temp-index <code>add -A</code>, plus the one extra terminal hash per worktree run — accepted:
+plumbing-only, no HEAD/index contention, and dedup skips the commit when nothing changed.</li>
+<li><strong>Diffs (E-01, D-075).</strong> A run diff = <code>git diff</code> from the first checkpoint's parent (the HEAD
+the run started from) to the chain tip — durable and deterministic; mid-run it lags the live
+tree by at most one wave. PR diffs come from <code>gh pr diff</code>. BOTH normalize through one parser
+(<code>diff-parse.ts::parseUnifiedDiff</code>) into one <code>DiffPayload</code>, so the Review Deck renders one shape.</li>
+<li><strong>Verify (E-04, D-076).</strong> A terminal <code>done</code> run whose project carries a verify recipe gets a
+command battery executed in a FRESH temp worktree materialized from the run's final
+checkpoint — verification never blocks (or races) run cleanup and is re-runnable anytime.
+Recipes are operator-authored shell strings at <strong>CI-config trust level</strong> — the operator writes
+them, K executes them verbatim. No recipe → no row; results upsert one current row per run
+(<code>verify_results</code>, PK <code>run_id</code>).</li>
+<li><strong>Impact (E-07, D-078) — the OFFLINE gitnexus-scope leg.</strong> Changed files map to indexed
+symbols by reading the project's exported <code>.gitnexus/graph.json</code> (<code>gitnexus-scope.ts</code>) — no
+MCP and no CLI in the hot path (the installed CLI has no detect-changes subcommand).
+Structural risk thresholds live in <code>riskForScope</code>; unindexed projects degrade to
+<code>indexed:false</code>, a missing/garbled artifact to <code>null</code>.</li>
+<li><strong>Rewind (E-03, D-077).</strong> Rewind never mutates the original run: it dispatches a NEW run
+whose worktree is created AT the chosen checkpoint via <code>StartRunOptions.baseCommit</code>. Review
+fix runs (request-changes) ride the same seam with baseCommit = the reviewed run's final
+checkpoint. <code>baseCommit</code> and <code>carryWorkingTree</code> are mutually exclusive by explicit guard.</li>
+<li><strong>Retention.</strong> A boot sweep deletes <code>refs/k-checkpoints/*</code> refs whose run rows are gone,
+under a documented <strong>single-core-per-repo</strong> assumption: ref existence is checked against this
+instance's DB only, so a second core sharing the same repo checkout could sweep live chains
+(recoverable; no committed work touched). A cross-instance guard lands with the fleet work (P7).</li>
+</ul>
 
     </section>
 
@@ -2623,7 +2666,7 @@ of invented numbers).</p>
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-07</span>
+        <span class="section-updated mono">updated 2026-07-08</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -3228,6 +3271,38 @@ of invented numbers).</p>
 <td><strong>Resume-based follow-ups</strong> <em>(pick iff same-cwd resume retained context)</em>: a follow-up run spawns <code>claude -p --resume &lt;runs.cli_session_id&gt;</code> (column landed in P0, v8); if different-cwd resume ALSO retained context (NO), follow-ups run in a fresh worktree, else E-22 must retain the original run cwd/worktree until follow-ups close. EITHER WAY managed runs synthesize a per-run CLAUDE_CONFIG_DIR that today is CLEANED at terminal (agent-config.ts synth.cleanup()) — E-22 must retain the config dir for resumable runs, mirroring the k-secretary persistentSession <code>persist:true</code> pattern. Evidence: core/probes/out/resume-*.jsonl — same-cwd retained: YES (answered "PLUM-42" verbatim); diff-cwd retained: NO (exit 1, stderr "No conversation found with session ID" — CLI session storage is keyed by project path); measured $0.0301</td>
 <td>Probe-measured on the real CLI; <code>--resume</code> (a cheap cache-read continuation, the proven F-054 K-thread mechanism) is strictly better than replaying transcripts when it works — the probe tells us if it does</td>
 <td>Transcript-reseed fallback (disqualified: same-cwd --resume retained the planted secret verbatim, so replaying stored events is unnecessary); holding warm processes per run (the rejected pre-F-054 pattern — resource-heavy, crash-fragile)</td>
+</tr>
+<tr>
+<td>D-075</td>
+<td>2026-07-08</td>
+<td>Run diffs derive from the k-checkpoint chain</td>
+<td><strong>A run's reviewable diff is computed from its k-checkpoint chain — base = the first checkpoint's parent (the HEAD the run started from), head = the chain tip — durable and DETERMINISTIC: the refs live in the shared <code>.git</code> of the run's source repo and survive worktree removal, so a finished run's diff is always recomputable; mid-run the diff lags the live tree by at most ONE wave (the take-latest scheduler). PR diffs come from <code>gh pr diff</code>. BOTH producers normalize through ONE parser (<code>diff-parse.ts::parseUnifiedDiff</code>, pure, byte-capped at the last complete file boundary) into ONE <code>DiffPayload</code>, so the Review Deck renders one shape</strong></td>
+<td>The run worktree is removed at terminal, so any diff computed from it dies with the run; the checkpoint chain is the only durable, replayable record of what the run changed — and one parser/one payload means the checkpoint path and the PR path cannot drift apart in rendering</td>
+<td>Diffing the live worktree (gone at terminal; racy mid-run); separate parsers/shapes for checkpoint vs PR diffs (two renderers drift); persisting diff text in the DB (the chain already holds it in git — recompute is deterministic and cheaper than storing megabytes)</td>
+</tr>
+<tr>
+<td>D-076</td>
+<td>2026-07-08</td>
+<td>E-04 verify — one current row per run, fresh checkpoint worktree, operator-authored recipes</td>
+<td><strong><code>verify_results</code> holds ONE current row per run (PK <code>run_id</code>, upsert — the chip reflects the latest battery, not a history). The E-04 battery executes in a FRESH temp worktree materialized from the run's FINAL checkpoint: it never blocks (or races) run cleanup and is re-runnable anytime. Recipes are operator-authored shell strings — CI-config trust level: the operator writes them, K executes them verbatim (bounded timeouts + kill-tree). No recipe → NO row (the chip stays absent — never a fabricated pass)</strong></td>
+<td>The run worktree is already gone when a terminal <code>done</code> emits, and the final checkpoint is guaranteed by the terminal snapshot — a fresh tree from it is always available, isolated, and disposable; operator-authored recipes carry exactly the trust an operator already places in their own CI config, so K adds no new execution authority</td>
+<td>A verify-history table (the chip is a current-state signal; history = re-run); verifying inside the run worktree (races terminal cleanup); auto-detected or agent-authored recipes (recipes are arbitrary shell — authorship must stay with the operator); blocking terminal status on the battery (async, never in the run's critical path)</td>
+</tr>
+<tr>
+<td>D-077</td>
+<td>2026-07-08</td>
+<td>Rewind = a NEW run via <code>baseCommit</code>; the original run is immutable</td>
+<td><strong>Rewind dispatches a NEW run whose worktree is created AT the chosen checkpoint via <code>StartRunOptions.baseCommit</code> — the original run, its chain, and its events are never mutated. Review fix runs (request-changes) use the SAME seam with baseCommit = the reviewed run's final checkpoint; <code>baseCommit</code> and <code>carryWorkingTree</code> are mutually exclusive by explicit guard (both dictate the worktree's starting tree). Conversation rewind is OUT of scope — this is code-state rewind only. Retention: a boot sweep deletes <code>refs/k-checkpoints/*</code> refs whose run rows are gone, under a documented SINGLE-CORE-PER-REPO assumption (ref existence is checked against this instance's DB only; cross-instance guard deferred to P7 fleet work)</strong></td>
+<td>Immutability is the trust property — a review surface you can rewind FROM must never be rewritten BY the rewind; reusing the one dispatch seam means rewind and fix runs inherit every existing lifecycle guarantee (checkpointing, events, cleanup) for free</td>
+<td>Resetting the original run's worktree/chain in place (destroys the reviewed record); conversation rewind (a transcript concern, not a code-state one — deferred); eager ref deletion at run terminal (the review surfaces read finished runs — refs must outlive them); a cross-instance ref guard now (the instance lock is per-data-dir; deferred to P7 rather than half-built)</td>
+</tr>
+<tr>
+<td>D-078</td>
+<td>2026-07-08</td>
+<td>Verify/impact GitNexus leg reads the exported graph OFFLINE</td>
+<td><strong>E-04's change-scope and E-07's impact panel map changed files to indexed symbols by reading the project's exported <code>.gitnexus/graph.json</code> (written by <code>graph.ts::exportGraphJson</code>) — deliberately NO MCP and NO CLI in the hot path: the installed gitnexus CLI has no detect-changes subcommand, and the exported artifact is the already-built source of truth. Structural risk thresholds live in <code>riskForScope</code> (<code>gitnexus-scope.ts</code>); unindexed projects degrade to <code>indexed:false</code>, a missing/garbled artifact to <code>null</code> — never a blocked verify or panel</strong></td>
+<td>The verify battery and the impact panel are post-run/read paths that must stay fast and non-blocking; a file read of an existing artifact is orders cheaper and failure-isolated compared to spawning a server or shelling out per call</td>
+<td>The gitnexus CLI in the hot path (no detect-changes subcommand exists); an MCP round-trip per verify/impact call (spawns a server process — slow, blocking, failure-coupled); re-analyzing the repo at verify time (heavy; the exported graph is the indexed truth until the next analyze)</td>
 </tr>
 </tbody></table>
 

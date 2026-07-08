@@ -2,7 +2,7 @@
 title: Architecture
 icon: "⬡"
 status: stable
-updated: 2026-07-05
+updated: 2026-07-08
 ---
 
 **Architecture A with B-seams** — a single monolithic core (Architecture A) with three deliberate **B-seams** built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected). A planned **fourth B-seam — TranscriptionProvider** (voice in, Phase 5.4) follows the same swap-without-rewrite contract (D-031).
@@ -214,3 +214,47 @@ Monorepo (pnpm workspaces)
 uncommitted **tracked + staged** changes (a non-destructive `git stash create` + apply; **untracked
 not carried**; the source repo is never mutated), so a run can start from your in-progress edits. The
 default path (no flag) is byte-identical to before.
+
+## Trust Core — the checkpoint-derived review loop (Phase 1)
+
+One durable source — the per-run **k-checkpoint chain** — feeds every review surface: **diff**
+(E-01), **verify** (E-04), **impact** (E-07), and **rewind** (E-03). None of them need the run's
+worktree, which is removed at terminal.
+
+- **The chain is THE durable review source.** After each completed tool wave the supervisor
+  snapshots the run worktree as a plumbing-built commit chained under one ref,
+  `refs/k-checkpoints/<runId>` (`core/src/checkpoints.ts`; HEAD, the real index, and every branch
+  untouched — a checkpoint can never reach a PR). Each snapshot is also persisted as a
+  `checkpoint` event, so a finished run's chain is listable from the DB; the refs live in the
+  shared `.git` of the run's source repo and deliberately outlive the run and its worktree.
+- **Terminal-snapshot guarantee.** The extracted scheduler (`makeCheckpointScheduler`) is
+  take-latest per wave; `finalize()` settles in-flight work and takes ONE terminal snapshot
+  before the terminal status emits, so the run's final state is always reachable even when the
+  last boundary was dropped or the run was killed mid-wave (identical-tree dedup makes the
+  terminal snapshot commit-free when the last boundary already captured it).
+- **Accepted cost (P0 carry-in #3).** Every wave snapshot re-hashes the worktree through a
+  temp-index `add -A`, plus the one extra terminal hash per worktree run — accepted:
+  plumbing-only, no HEAD/index contention, and dedup skips the commit when nothing changed.
+- **Diffs (E-01, D-075).** A run diff = `git diff` from the first checkpoint's parent (the HEAD
+  the run started from) to the chain tip — durable and deterministic; mid-run it lags the live
+  tree by at most one wave. PR diffs come from `gh pr diff`. BOTH normalize through one parser
+  (`diff-parse.ts::parseUnifiedDiff`) into one `DiffPayload`, so the Review Deck renders one shape.
+- **Verify (E-04, D-076).** A terminal `done` run whose project carries a verify recipe gets a
+  command battery executed in a FRESH temp worktree materialized from the run's final
+  checkpoint — verification never blocks (or races) run cleanup and is re-runnable anytime.
+  Recipes are operator-authored shell strings at **CI-config trust level** — the operator writes
+  them, K executes them verbatim. No recipe → no row; results upsert one current row per run
+  (`verify_results`, PK `run_id`).
+- **Impact (E-07, D-078) — the OFFLINE gitnexus-scope leg.** Changed files map to indexed
+  symbols by reading the project's exported `.gitnexus/graph.json` (`gitnexus-scope.ts`) — no
+  MCP and no CLI in the hot path (the installed CLI has no detect-changes subcommand).
+  Structural risk thresholds live in `riskForScope`; unindexed projects degrade to
+  `indexed:false`, a missing/garbled artifact to `null`.
+- **Rewind (E-03, D-077).** Rewind never mutates the original run: it dispatches a NEW run
+  whose worktree is created AT the chosen checkpoint via `StartRunOptions.baseCommit`. Review
+  fix runs (request-changes) ride the same seam with baseCommit = the reviewed run's final
+  checkpoint. `baseCommit` and `carryWorkingTree` are mutually exclusive by explicit guard.
+- **Retention.** A boot sweep deletes `refs/k-checkpoints/*` refs whose run rows are gone,
+  under a documented **single-core-per-repo** assumption: ref existence is checked against this
+  instance's DB only, so a second core sharing the same repo checkout could sweep live chains
+  (recoverable; no committed work touched). A cross-instance guard lands with the fleet work (P7).
