@@ -21,7 +21,8 @@
  * Refs deliberately OUTLIVE the run (the worktree is removed at terminal, the
  * shared object DB + refs live in the main repo): the P1 scrubber lists a
  * finished run's checkpoints from its events and can still `git show` them.
- * Pruning old checkpoint refs is future work (P1 owns the retention policy).
+ * Retention: the boot sweep (`sweepCheckpointRefs`, below) deletes refs whose
+ * run rows are gone — see its single-core-per-repo assumption.
  */
 import { execa } from 'execa'
 import fs from 'fs'
