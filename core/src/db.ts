@@ -1448,10 +1448,14 @@ const updateReviewComment = db.prepare(`UPDATE review_comments SET body = @body,
 const deleteReviewComment = db.prepare(`DELETE FROM review_comments WHERE id = ? AND run_id = ?`)
 // Flip every draft to 'sent' when a fix run is dispatched (request-changes).
 const markDraftCommentsSent = db.prepare(`UPDATE review_comments SET status = 'sent' WHERE run_id = ? AND status = 'draft'`)
+// Flip ONE bundled draft to 'sent' — id-scoped, status-only, still-draft-guarded:
+// never replays a body snapshot, so a PATCH landing during the fix-run dispatch
+// await is not clobbered (and a mid-await resolve wins over the flip).
+const markReviewCommentSent = db.prepare(`UPDATE review_comments SET status = 'sent' WHERE id = ? AND status = 'draft'`)
 
 export const reviewCommentsDb = {
   insertReviewComment, listReviewComments, getReviewComment,
-  updateReviewComment, deleteReviewComment, markDraftCommentsSent,
+  updateReviewComment, deleteReviewComment, markDraftCommentsSent, markReviewCommentSent,
 }
 
 // ─── Verify result helpers (P1 E-04) ─────────────────────────────────────────

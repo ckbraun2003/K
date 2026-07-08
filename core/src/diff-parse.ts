@@ -11,6 +11,50 @@ import type { DiffFile, DiffHunk } from '@k/shared'
 // diffs) — a cheap guard against pathological output, not an exact byte count.
 export const MAX_DIFF_BYTES = 5 * 1024 * 1024
 
+/**
+ * Split a `diff --git ` header remainder into its two paths. Git quotes a side
+ * ONLY when it contains control/non-ASCII bytes — plain spaces stay UNQUOTED
+ * (`diff --git a/has space.txt b/has space.txt`), so a `\S+` match cannot span
+ * them (integration-review MAJOR). Both-unquoted splits prefer the ` b/`
+ * candidate where both halves are equal (always true for non-renames); a rename
+ * header with pathological names may mis-split, but the later `rename from` /
+ * `rename to` lines override both fields anyway.
+ */
+function parseGitHeaderPaths(rest: string): { oldPath: string; newPath: string } {
+  let old = ''
+  let rem = rest
+  if (rem.startsWith('"')) {
+    const close = rem.indexOf('"', 1)
+    if (close < 0) return { oldPath: '', newPath: '' }
+    old = rem.slice(1, close)
+    rem = rem.slice(close + 1).startsWith(' ') ? rem.slice(close + 2) : rem.slice(close + 1)
+  } else {
+    const qIdx = rem.indexOf(' "b/')
+    if (qIdx >= 0) {
+      old = rem.slice(0, qIdx)
+      rem = rem.slice(qIdx + 1)
+    } else {
+      let split = -1
+      for (let i = rem.indexOf(' b/'); i >= 0; i = rem.indexOf(' b/', i + 1)) {
+        if (rem.startsWith('a/') && rem.slice(2, i) === rem.slice(i + 3)) { split = i; break }
+      }
+      if (split < 0) split = rem.lastIndexOf(' b/')
+      if (split < 0) return { oldPath: '', newPath: '' }
+      old = rem.slice(0, split)
+      rem = rem.slice(split + 1)
+    }
+  }
+  let nw = ''
+  if (rem.startsWith('"')) {
+    const close = rem.indexOf('"', 1)
+    nw = close > 0 ? rem.slice(1, close) : ''
+  } else {
+    nw = rem
+  }
+  const strip = (p: string, pfx: string): string => (p.startsWith(pfx) ? p.slice(pfx.length) : p)
+  return { oldPath: strip(old, 'a/'), newPath: strip(nw, 'b/') }
+}
+
 export function parseUnifiedDiff(raw: string): { files: DiffFile[]; truncated: boolean } {
   let truncated = false
   let text = raw
@@ -38,10 +82,7 @@ export function parseUnifiedDiff(raw: string): { files: DiffFile[]; truncated: b
     const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
     if (line.startsWith('diff --git ')) {
       push()
-      // `diff --git a/<old> b/<new>` — git quotes paths containing spaces.
-      const m = /^diff --git (?:"a\/(.+?)"|a\/(\S+)) (?:"b\/(.+?)"|b\/(\S+))$/.exec(line)
-      const oldPath = m ? (m[1] ?? m[2]) : ''
-      const newPath = m ? (m[3] ?? m[4]) : ''
+      const { oldPath, newPath } = parseGitHeaderPaths(line.slice('diff --git '.length))
       cur = {
         path: newPath || oldPath,
         oldPath: null,

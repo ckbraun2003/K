@@ -182,10 +182,11 @@ export async function reviewRoutes(app: FastifyInstance) {
         baseCommit,
       })
       // Flip ONLY the comments actually bundled into the prompt (quality-review
-      // HIGH): a comment POSTed while startRun awaited its worktree would be
-      // caught by a blanket run-scoped UPDATE and silently marked sent unbundled.
+      // HIGH), via a status-only + still-draft-guarded statement (integration
+      // review): a comment POSTed while startRun awaited must not be swept up,
+      // and one PATCHed mid-await must keep its edit (no body-snapshot replay).
       for (const c of drafts) {
-        reviewCommentsDb.updateReviewComment.run({ id: c.id, body: c.body, status: 'sent' })
+        reviewCommentsDb.markReviewCommentSent.run(c.id)
       }
       return reply.status(201).send({ run, commentsSent: drafts.length })
     } catch (e) {

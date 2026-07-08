@@ -65,6 +65,14 @@ describe('parseUnifiedDiff', () => {
     expect(files[0].path).toBe('has space.txt')
   })
 
+  it('handles UNQUOTED paths with spaces — git does not quote plain spaces (integration-review fix)', () => {
+    const { files } = parseUnifiedDiff('diff --git a/has space.txt b/has space.txt\n@@ -1 +1 @@\n-a\n+b')
+    expect(files[0].path).toBe('has space.txt')
+    // Deeper nesting with a ` b/`-looking segment still splits on equal halves.
+    const tricky = parseUnifiedDiff('diff --git a/x b/y c.txt b/x b/y c.txt\n@@ -1 +1 @@\n-a\n+b')
+    expect(tricky.files[0].path).toBe('x b/y c.txt')
+  })
+
   it('truncates at the byte cap on a file boundary', () => {
     const one = MODIFY + '\n'
     const big = one.repeat(Math.ceil((5 * 1024 * 1024) / one.length) + 10)

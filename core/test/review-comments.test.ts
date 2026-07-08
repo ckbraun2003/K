@@ -113,6 +113,27 @@ describe('request-changes', () => {
     const after = reviewCommentsDb.listReviewComments.all(rid) as Array<{ status: string }>
     expect(after[0].status).toBe('sent')
   })
+
+  it('a body edit landing during the dispatch await is not clobbered (status-only flip)', async () => {
+    const rid = randomUUID()
+    runsDb.insertRun.run({ id: rid, prompt: 'p', cwd: process.cwd(), worktree: null, status: 'done',
+      provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: null, createdAt: Date.now() })
+    const cid = randomUUID()
+    reviewCommentsDb.insertReviewComment.run({ id: cid, runId: rid, file: 'a.ts', line: 1,
+      side: 'new', body: 'original wording', status: 'draft', createdAt: Date.now() })
+    // Simulate a PATCH landing while startRun awaits (integration-review finding):
+    // the flip must be status-only — replaying the pre-dispatch body snapshot
+    // would silently revert the operator's edit.
+    vi.mocked(startRun).mockImplementationOnce(async (prompt, opts) => {
+      reviewCommentsDb.updateReviewComment.run({ id: cid, body: 'edited mid-flight', status: 'draft' })
+      return { id: 'mock-mid-edit', prompt, cwd: opts?.cwd ?? '', status: 'queued',
+        provider: 'claude', model: 'mock', tokensIn: 0, tokensOut: 0, costUsd: 0, createdAt: Date.now() }
+    })
+    expect((await app.inject({ method: 'POST', url: `/api/runs/${rid}/request-changes`, headers: JSON_H, payload: {} })).statusCode).toBe(201)
+    const after = reviewCommentsDb.getReviewComment.get(cid, rid) as { body: string; status: string }
+    expect(after.body).toBe('edited mid-flight')   // the operator's edit survives
+    expect(after.status).toBe('sent')              // the flip still lands
+  })
 })
 
 describe('approve guards', () => {
