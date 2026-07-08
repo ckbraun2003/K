@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'
-import { addDetachedWorktree } from '../src/supervisor.js'
+import { addDetachedWorktree, startRun } from '../src/supervisor.js'
 
 const bases: string[] = []
 let repo: string
@@ -34,5 +34,12 @@ describe('addDetachedWorktree', () => {
   it('throws for a non-git cwd (caller falls back to cwd)', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-nogit-')); bases.push(dir)
     await expect(addDetachedWorktree(dir, path.join(dir, 'wt'))).rejects.toThrow()
+  })
+})
+
+describe('startRun seam exclusivity (P1 SEAMS L6)', () => {
+  it('rejects baseCommit + carryWorkingTree together — guard fires before any side effect', async () => {
+    await expect(startRun('x', { cwd: repo, baseCommit: 'f'.repeat(40), carryWorkingTree: true }))
+      .rejects.toThrow(/mutually exclusive/)
   })
 })

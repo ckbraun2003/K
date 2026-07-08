@@ -197,6 +197,14 @@ export function makeCheckpointScheduler(opts: {
  * a DELETED run needs none — without this they accumulate forever. Best-effort +
  * bounded: any git failure logs-and-continues; a non-repo root is skipped;
  * duplicate roots (case-folded) are visited once. Returns refs deleted.
+ *
+ * ASSUMPTION (single core per repo — P1 SEAMS M1): ref existence is checked
+ * against THIS instance's DB only. Two cores with separate K_DATA_DIRs sharing
+ * one repo (a dev second instance, e2e swarms) could sweep each other's LIVE
+ * chains at boot — losing diff/rewind/verify bases (recoverable by re-running;
+ * no committed work is touched). The instance lock is per-data-dir, so this is
+ * not mechanically prevented; a cross-instance guard lands with the fleet work
+ * (P7). Until then: one core per repo checkout.
  */
 export async function sweepCheckpointRefs(
   repoRoots: string[],

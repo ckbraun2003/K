@@ -95,4 +95,17 @@ describe('VerifyChip', () => {
     const chip = await screen.findByTestId('verify-chip')
     expect(chip.textContent).toBe('Verify failed')
   })
+
+  it('aria-expanded reflects popover state and Escape closes it (P1 SEAMS L2)', async () => {
+    mockVerifyResult.mockResolvedValue(passResult)
+    renderChip()
+    const chip = await screen.findByTestId('verify-chip')
+    expect(chip.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(chip)
+    expect(screen.getByTestId('verify-popover')).toBeTruthy()
+    expect(chip.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByTestId('verify-popover')).toBeNull())
+    expect(chip.getAttribute('aria-expanded')).toBe('false')
+  })
 })

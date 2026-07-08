@@ -169,6 +169,13 @@ export function shouldSuppressGitnexus(runCwd: string, isPersistentSession: bool
 }
 
 export async function startRun(prompt: string, opts: StartRunOptions = {}): Promise<Run> {
+  // baseCommit (rewind / review fix runs) and carryWorkingTree (H8 dirty-state
+  // carry) are mutually exclusive BY CONTRACT — a carried tree replayed onto a
+  // rewound base would silently mix states (stash-apply failures are swallowed).
+  // No caller passes both today; keep it that way explicitly. (P1 SEAMS L6)
+  if (opts.baseCommit && opts.carryWorkingTree) {
+    throw new Error('startRun: baseCommit and carryWorkingTree are mutually exclusive')
+  }
   // An explicitly-named model is always a Claude model id (validated at the route
   // boundary), so it overrides any local-model preference — never route an
   // explicit `claude-*` id to `ollama run <id>`.

@@ -70,11 +70,18 @@ export async function rewindRoutes(app: FastifyInstance) {
     }
     const ckpts = listRunCheckpoints(req.params.id)
     if (ckpts.length === 0) return reply.send(empty(true))
+    let changed: string[]
     try {
       const baseSha = (await execa('git', ['-C', project.localPath, 'rev-parse', `${ckpts[0].sha}^`], GIT_BOUND)).stdout.trim()
       const head = ckpts[ckpts.length - 1].sha
       const names = (await execa('git', ['-C', project.localPath, 'diff', '--name-only', baseSha, head], GIT_BOUND)).stdout
-      const changed = names.split('\n').map(s => s.trim()).filter(Boolean)
+      changed = names.split('\n').map(s => s.trim()).filter(Boolean)
+    } catch {
+      // A GC'd/pruned checkpoint commit (e.g. swept refs) is an ABSENCE, not an
+      // error — honor the route's "never an error" degrade promise. (P1 SEAMS M2)
+      return reply.send(empty(true))
+    }
+    try {
       const graph = loadGraphJson(project.localPath)
       if (!graph) return reply.send(empty(true))
       const scopes = scopeForFiles(graph, changed)

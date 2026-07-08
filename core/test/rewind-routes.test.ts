@@ -170,4 +170,21 @@ describe('GET /api/runs/:id/impact', () => {
     expect(body.totalSymbols).toBe(1)
     expect(body.risk).toBe('low')
   })
+
+  it('degrades to empty (not 500) when the checkpoint base commit is gone (P1 SEAMS M2)', async () => {
+    const pid = randomUUID()
+    projectsDb.insertProject.run({ id: pid, name: `imp-gc-${pid.slice(0, 8)}`, localPath: repo,
+      githubRemote: null, workspaceManaged: 0, bibleDir: 'artifacts/bible', createdAt: Date.now() })
+    fs.mkdirSync(path.join(repo, '.gitnexus'), { recursive: true })
+    fs.writeFileSync(path.join(repo, '.gitnexus', 'meta.json'), '{}')
+    fs.writeFileSync(path.join(repo, '.gitnexus', 'graph.json'), JSON.stringify({ nodes: [], links: [] }))
+    const rid = randomUUID()
+    runsDb.insertRun.run({ id: rid, prompt: 'x', cwd: repo, worktree: null, status: 'done',
+      provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: pid, createdAt: Date.now() })
+    // A checkpoint whose commit no longer exists in the repo (GC'd / swept refs).
+    insertCkptEvent(rid, 2, { sha: 'e'.repeat(40), tree: 'f'.repeat(40), ref: `refs/k-checkpoints/${rid}`, wave: 1 })
+    const res = await app.inject({ method: 'GET', url: `/api/runs/${rid}/impact`, headers: AUTH })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ indexed: true, projectId: pid, files: [], risk: null })
+  })
 })
