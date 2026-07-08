@@ -59,8 +59,10 @@ describe('migrate() — SCHEMA_VERSION 8 on a v7-shaped DB', () => {
     expect(
       (tempDb.prepare(`SELECT cli_session_id FROM runs WHERE id = 'r-1'`).get() as { cli_session_id: unknown }).cli_session_id,
     ).toBeNull()
-    expect(SCHEMA_VERSION).toBe(8)
-    expect(tempDb.pragma('user_version', { simple: true })).toBe(8)
+    // Stamped to the CURRENT version (8 when this wave landed; derived per the
+    // v7-test precedent so later bumps don't break this — the exact v9+ pins
+    // live in their own migration tests).
+    expect(tempDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
   })
 
   it('double-migrate is idempotent (no duplicate columns, rows intact)', () => {

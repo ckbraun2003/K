@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { GithubStatus, PrInfo, CiRunInfo, Project } from '@k/shared'
+import type { GithubStatus, PrInfo, CiRunInfo, Project, DiffPayload } from '@k/shared'
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
+import DiffViewer from '../../components/DiffViewer'
 
 interface Props {
   projectId: string
@@ -59,32 +60,70 @@ function ciLabel(run: CiRunInfo): string {
   return run.conclusion ?? run.status
 }
 
-function PrRow({ pr }: { pr: PrInfo }) {
+/** A PR row that expands to a lazily-fetched, read-only side-by-side diff
+ *  (`gh pr diff` → the ONE DiffPayload shape). The diff query stays disabled until
+ *  the row is first expanded, so an unopened PR costs nothing. The external ↗ anchor
+ *  stops propagation so opening GitHub never toggles the panel. */
+function PrRow({ pr, projectId }: { pr: PrInfo; projectId: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const { data: diff, isLoading, error } = useQuery<DiffPayload>({
+    queryKey: ['pr-diff', projectId, pr.number],
+    queryFn: () => api.projects.prDiff(projectId, pr.number),
+    enabled: expanded,
+  })
   return (
-    <div className="flex items-start gap-3 px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--surface)] transition-colors">
-      {/* Check dot */}
-      <span className={cn('mt-1 w-2 h-2 rounded-full flex-shrink-0', CHECK_DOT[pr.checks] ?? 'bg-[var(--muted)]')} />
+    <div className="border-b border-[var(--border)]">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        data-testid={`pr-row-${pr.number}`}
+        onClick={() => setExpanded(e => !e)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(v => !v) } }}
+        className="flex items-start gap-3 px-4 py-3 hover:bg-[var(--surface)] transition-colors cursor-pointer"
+      >
+        {/* Expand chevron */}
+        <span className={cn('mt-1 flex-shrink-0 text-[10px] text-[var(--muted)] transition-transform', expanded && 'rotate-90')} aria-hidden>▶</span>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-[var(--muted)]">#{pr.number}</span>
-          <p className="text-sm text-[var(--text)] truncate">{pr.title}</p>
+        {/* Check dot */}
+        <span className={cn('mt-1 w-2 h-2 rounded-full flex-shrink-0', CHECK_DOT[pr.checks] ?? 'bg-[var(--muted)]')} />
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-[var(--muted)]">#{pr.number}</span>
+            <p className="text-sm text-[var(--text)] truncate">{pr.title}</p>
+          </div>
+          <p className="font-mono text-[10px] text-[var(--muted)] mt-0.5">checks: {pr.checks}</p>
         </div>
-        <p className="font-mono text-[10px] text-[var(--muted)] mt-0.5">checks: {pr.checks}</p>
+
+        {/* External link */}
+        <a
+          href={pr.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()}
+          title="Open on GitHub"
+          className="flex-shrink-0 text-[var(--muted)] hover:text-[var(--accent-hover)] transition-colors text-xs mt-0.5"
+          aria-label="Open PR on GitHub"
+        >
+          ↗
+        </a>
       </div>
 
-      {/* External link */}
-      <a
-        href={pr.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={e => e.stopPropagation()}
-        title="Open on GitHub"
-        className="flex-shrink-0 text-[var(--muted)] hover:text-[var(--accent-hover)] transition-colors text-xs mt-0.5"
-        aria-label="Open PR on GitHub"
-      >
-        ↗
-      </a>
+      {/* Lazily-fetched read-only diff panel */}
+      {expanded && (
+        <div className="border-t border-[var(--border)] bg-[var(--bg)]">
+          {isLoading && <p className="px-4 py-3 text-xs text-[var(--muted)]">Loading diff…</p>}
+          {error != null && <p className="px-4 py-3 text-xs text-[var(--red)]">{String((error as Error).message)}</p>}
+          {diff != null && (
+            <div className="overflow-x-auto" data-testid={`pr-diff-${pr.number}`}>
+              {diff.files.length === 0
+                ? <p className="px-4 py-3 text-xs text-[var(--muted)]">No file changes.</p>
+                : <DiffViewer files={diff.files} comments={[]} readOnly />}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -258,7 +297,7 @@ export default function PrsCiTab({ projectId }: Props) {
             {openPrs.length === 0 ? (
               <div className="px-4 py-4 text-xs text-[var(--muted)]">No open PRs.</div>
             ) : (
-              openPrs.map(pr => <PrRow key={pr.number} pr={pr} />)
+              openPrs.map(pr => <PrRow key={pr.number} pr={pr} projectId={projectId} />)
             )}
           </div>
 
@@ -270,7 +309,7 @@ export default function PrsCiTab({ projectId }: Props) {
                   Merged / Closed · {closedPrs.length}
                 </h3>
               </div>
-              {closedPrs.map(pr => <PrRow key={pr.number} pr={pr} />)}
+              {closedPrs.map(pr => <PrRow key={pr.number} pr={pr} projectId={projectId} />)}
             </div>
           )}
 

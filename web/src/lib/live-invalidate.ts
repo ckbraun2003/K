@@ -148,6 +148,14 @@ export function makeCapabilitiesInvalidator(
   }
 }
 
+/** verify_update → refresh the one chip cache for that run. */
+export function makeVerifyInvalidator(qc: QueryClient): (msg: WsMessage) => void {
+  return (msg) => {
+    if (msg.type !== 'verify_update') return
+    void qc.invalidateQueries({ queryKey: ['run-verify', msg.result.runId] })
+  }
+}
+
 /**
  * Live refresh on a task-workflow completion (F-076). When core broadcasts
  * `workflow_complete` (a finalized task-workflow, naming the tasks it locked to

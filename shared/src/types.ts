@@ -369,6 +369,185 @@ export const DispatchTasksBodySchema = z.object({
 })
 export type DispatchTasksBody = z.infer<typeof DispatchTasksBodySchema>
 
+// ─── P1 Trust Core (E-01/E-03/E-04/E-07) ─────────────────────────────────────
+// The W0-frozen wire contracts for the Review Deck, replay/rewind, the verify
+// badge, and the impact panel. Diffs from BOTH producers (checkpoint-chain
+// `git diff` and `gh pr diff`) normalize to the ONE DiffPayload shape.
+
+export const DiffLineSchema = z.object({
+  kind: z.enum(['ctx', 'add', 'del']),
+  text: z.string(),
+  oldLine: z.number().int().nullable(),
+  newLine: z.number().int().nullable(),
+})
+export type DiffLine = z.infer<typeof DiffLineSchema>
+
+export const DiffHunkSchema = z.object({
+  header: z.string(),
+  lines: z.array(DiffLineSchema),
+})
+export type DiffHunk = z.infer<typeof DiffHunkSchema>
+
+export const DiffFileSchema = z.object({
+  path: z.string(),
+  oldPath: z.string().nullable(),        // renamed files only
+  status: z.enum(['added', 'modified', 'deleted', 'renamed']),
+  binary: z.boolean(),
+  additions: z.number().int(),
+  deletions: z.number().int(),
+  hunks: z.array(DiffHunkSchema),
+})
+export type DiffFile = z.infer<typeof DiffFileSchema>
+
+export const DiffPayloadSchema = z.object({
+  // 'checkpoint' = derived from the run's k-checkpoint chain (durable — survives
+  // worktree removal; mid-run it lags the live tree by at most one wave);
+  // 'pr' = `gh pr diff` for PR-backed entities on the PRs & CI mount.
+  source: z.enum(['checkpoint', 'pr']),
+  baseRef: z.string().nullable(),
+  headRef: z.string().nullable(),
+  files: z.array(DiffFileSchema),
+  truncated: z.boolean(),                // payload was cut at the parser byte cap
+})
+export type DiffPayload = z.infer<typeof DiffPayloadSchema>
+
+export const ReviewCommentSchema = z.object({
+  id: z.string().uuid(),
+  runId: z.string().uuid(),
+  file: z.string(),
+  line: z.number().int().nullable(),     // new-side (or old-side) line anchor; null = file-level
+  side: z.enum(['old', 'new']),
+  body: z.string(),
+  status: z.enum(['draft', 'sent', 'resolved']),
+  createdAt: z.number(),
+})
+export type ReviewComment = z.infer<typeof ReviewCommentSchema>
+
+export const CreateReviewCommentBodySchema = z.object({
+  file: z.string().min(1).max(1000),
+  line: z.number().int().positive().nullable().optional(),
+  side: z.enum(['old', 'new']).default('new'),
+  body: z.string().min(1).max(10000),
+})
+export type CreateReviewCommentBody = z.infer<typeof CreateReviewCommentBodySchema>
+
+export const UpdateReviewCommentBodySchema = z
+  .object({
+    body: z.string().min(1).max(10000).optional(),
+    status: z.enum(['draft', 'sent', 'resolved']).optional(),
+  })
+  .strict()
+  .refine(v => v.body !== undefined || v.status !== undefined, { message: 'provide body or status' })
+export type UpdateReviewCommentBody = z.infer<typeof UpdateReviewCommentBodySchema>
+
+export const RequestChangesBodySchema = z.object({
+  model: z.string().min(1).max(200).optional(),
+})
+export type RequestChangesBody = z.infer<typeof RequestChangesBodySchema>
+
+export const RequestChangesResultSchema = z.object({
+  run: RunSchema,
+  commentsSent: z.number().int(),
+})
+export type RequestChangesResult = z.infer<typeof RequestChangesResultSchema>
+
+export const ApproveRunBodySchema = z.object({
+  title: z.string().min(1).max(255).optional(),
+  body: z.string().max(65535).optional(),
+  base: z.string().min(1).max(255).optional(),
+})
+export type ApproveRunBody = z.infer<typeof ApproveRunBodySchema>
+
+export const ApproveRunResultSchema = z.object({
+  branch: z.string(),
+  pr: z.object({ number: z.number().int(), url: z.string(), title: z.string(), state: z.string() }),
+})
+export type ApproveRunResult = z.infer<typeof ApproveRunResultSchema>
+
+// E-03 — one persisted checkpoint event, projected for the scrubber/rewind UI.
+export const RunCheckpointSchema = z.object({
+  sha: z.string(),
+  tree: z.string(),
+  ref: z.string(),
+  wave: z.number().int(),
+  seq: z.number().int(),                 // the checkpoint event's seq (scrubber position)
+  ts: z.number(),
+})
+export type RunCheckpoint = z.infer<typeof RunCheckpointSchema>
+
+export const RewindBodySchema = z.object({
+  sha: z.string().regex(/^[0-9a-f]{40}$/i, 'must be a full 40-char commit sha'),
+  prompt: z.string().min(1).max(100000),
+  model: z.string().min(1).max(200).optional(),
+})
+export type RewindBody = z.infer<typeof RewindBodySchema>
+
+// E-04 — structured verify result (the badge chip's data).
+export const VerifyCommandResultSchema = z.object({
+  label: z.string(),
+  run: z.string(),
+  exitCode: z.number().int().nullable(), // null = spawn failure / timeout kill
+  ok: z.boolean(),
+  durationMs: z.number(),
+  outputTail: z.string(),                // last 2000 chars of combined output
+})
+export type VerifyCommandResult = z.infer<typeof VerifyCommandResultSchema>
+
+export const VerifyScopeSchema = z.object({
+  files: z.array(z.string()),            // changed files (checkpoint base → final)
+  symbols: z.number().int().nullable(),  // indexed symbols in those files; null = graph unavailable
+  indexed: z.boolean(),
+})
+export type VerifyScope = z.infer<typeof VerifyScopeSchema>
+
+export const VerifyStatusSchema = z.enum(['running', 'pass', 'fail', 'skipped', 'error'])
+export type VerifyStatus = z.infer<typeof VerifyStatusSchema>
+
+export const VerifyResultSchema = z.object({
+  runId: z.string().uuid(),
+  status: VerifyStatusSchema,
+  reason: z.string().nullable(),         // skipped/error explanation; null otherwise
+  commands: z.array(VerifyCommandResultSchema),
+  scope: VerifyScopeSchema.nullable(),
+  startedAt: z.number(),
+  completedAt: z.number().nullable(),
+})
+export type VerifyResult = z.infer<typeof VerifyResultSchema>
+
+/** PATCH /api/projects/:id/verify-recipe — null clears the recipe. */
+export const UpdateVerifyRecipeBodySchema = z.object({
+  recipe: VerifyRecipeSchema.nullable(),
+})
+export type UpdateVerifyRecipeBody = z.infer<typeof UpdateVerifyRecipeBodySchema>
+
+// E-07 — blast radius for a run's changed files (graph.json-derived, offline).
+export const ImpactSymbolSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.string().nullable(),
+  dependents: z.number().int(),          // inbound graph edges (direct dependents)
+})
+export type ImpactSymbol = z.infer<typeof ImpactSymbolSchema>
+
+export const ImpactFileSchema = z.object({
+  file: z.string(),
+  symbols: z.array(ImpactSymbolSchema),
+})
+export type ImpactFile = z.infer<typeof ImpactFileSchema>
+
+export const ImpactRiskSchema = z.enum(['low', 'medium', 'high'])
+export type ImpactRisk = z.infer<typeof ImpactRiskSchema>
+
+export const RunImpactPayloadSchema = z.object({
+  indexed: z.boolean(),
+  projectId: z.string().nullable(),
+  files: z.array(ImpactFileSchema),
+  totalSymbols: z.number().int(),
+  totalDependents: z.number().int(),
+  risk: ImpactRiskSchema.nullable(),     // null = no symbols matched / unindexed
+})
+export type RunImpactPayload = z.infer<typeof RunImpactPayloadSchema>
+
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
 export const WsMessageSchema = z.discriminatedUnion('type', [
@@ -383,6 +562,8 @@ export const WsMessageSchema = z.discriminatedUnion('type', [
   }),
   // Verification skill progress + final report
   z.object({ type: z.literal('verification_update'), report: VerificationReportSchema }),
+  // E-04: a run's verify result changed (running → pass/fail/skipped/error).
+  z.object({ type: z.literal('verify_update'), result: VerifyResultSchema }),
   // Knowledge-graph build state transition (building → ready/error) + reindex marks
   z.object({ type: z.literal('graph_update'), projectId: z.string(), meta: ProjectGraphMetaSchema }),
   // A task-workflow run finalized (F-076) — a nudge to REVIEW + CLOSE the tasks it locked

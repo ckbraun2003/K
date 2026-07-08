@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Run } from '@k/shared'
 import { onWsMessage } from '../lib/ws'
 import { navigate } from '../lib/route'
-import { makeRunUpdateInvalidator, makeProjectListInvalidator, makeCapabilitiesInvalidator } from '../lib/live-invalidate'
+import { makeRunUpdateInvalidator, makeProjectListInvalidator, makeCapabilitiesInvalidator, makeVerifyInvalidator } from '../lib/live-invalidate'
 import { RUNS_LIST_KEY, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
 import { cleanRunPrompt } from '../lib/prompt'
 
@@ -24,10 +24,13 @@ export default function ActivityStrip() {
     // capabilities_update → refresh the catalog; terminal run_update → refresh
     // the skill draft it was authoring (wave C4).
     const capabilitiesInvalidator = makeCapabilitiesInvalidator(qc)
+    // verify_update → refresh that run's verify-chip cache (E-04).
+    const verifyInvalidator = makeVerifyInvalidator(qc)
     const unsubscribe = onWsMessage(msg => {
       invalidator.handler(msg)
       projectListInvalidator(msg)
       capabilitiesInvalidator(msg)
+      verifyInvalidator(msg)
     })
     return () => {
       unsubscribe()
