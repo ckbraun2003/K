@@ -22,6 +22,7 @@ vi.mock('../src/lib/live-invalidate', () => ({
   makeRunUpdateInvalidator: () => ({ handler: () => {}, dispose: () => {} }),
   makeProjectListInvalidator: () => () => {},
   makeCapabilitiesInvalidator: () => () => {},
+  makeVerifyInvalidator: () => () => {},
 }))
 vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 
