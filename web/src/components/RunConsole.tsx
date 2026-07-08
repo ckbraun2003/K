@@ -359,7 +359,7 @@ export default function RunConsole({ runId }: Props) {
         <ReviewDeck runId={runId} projectId={run.projectId ?? null} />
       ) : view === 'timeline' ? (
         // key={runId} remounts on run switch so per-seq raw cache never leaks across runs
-        <RunTimeline key={runId} events={events} runId={runId} />
+        <RunTimeline key={runId} events={events} runId={runId} terminal={runEnded} />
       ) : (
         /* Event stream — tool calls rendered richly & collapsed, grouped when consecutive */
         <div className="flex-1 overflow-y-auto px-5 py-4 font-mono text-sm space-y-1">
