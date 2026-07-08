@@ -37,6 +37,9 @@ db.exec(`
     -- (and always NULL for ollama runs); lets a follow-up run \`--resume\` this
     -- run's session. Appended via guarded ALTER for migrated DBs (migrateSlow).
     cli_session_id TEXT,
+    -- P2 (SCHEMA_VERSION 10): review-acknowledged timestamp (E-05). NULL = unreviewed
+    -- (belongs in the Inbox); stamped once via approve / request-changes / inbox-dismiss.
+    reviewed_at INTEGER,
     created_at  INTEGER NOT NULL,
     ended_at    INTEGER
   );
@@ -94,6 +97,8 @@ db.exec(`
     -- groundwork): JSON matching @k/shared VerifyRecipeSchema. NULL = none
     -- configured. Appended via guarded ALTER for migrated DBs (migrateSlow).
     verify_recipe     TEXT,
+    -- P2 (SCHEMA_VERSION 10): per-project auto-merge toggle (E-06). Default OFF.
+    auto_merge        INTEGER NOT NULL DEFAULT 0,
     health_score      INTEGER,
     last_verified_at  INTEGER,
     created_at        INTEGER NOT NULL
@@ -139,6 +144,43 @@ db.exec(`
     scope        TEXT,
     started_at   INTEGER NOT NULL,
     completed_at INTEGER
+  );
+
+  -- ── P2 Human Gates (SCHEMA_VERSION 10) ──────────────────────────────────────
+  -- E-02: one CURRENT plan per plan-gated run (last-wins edits; no history table —
+  -- the verify_results rationale). plan = PlanDoc JSON, NULL when the model's plan
+  -- turn produced no parseable fenced json (raw still carries the turn text).
+  CREATE TABLE IF NOT EXISTS run_plans (
+    run_id      TEXT PRIMARY KEY REFERENCES runs(id),
+    plan        TEXT,
+    raw         TEXT NOT NULL,
+    edited      INTEGER NOT NULL DEFAULT 0,
+    profile_id  TEXT,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    approved_at INTEGER
+  );
+
+  -- E-19: the durable in-app notification center. run_id/project_id are LOOSE refs
+  -- (no FK): notifications are history that outlives runs/projects.
+  CREATE TABLE IF NOT EXISTS notifications (
+    id         TEXT PRIMARY KEY,
+    event_key  TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    body       TEXT,
+    run_id     TEXT,
+    project_id TEXT,
+    created_at INTEGER NOT NULL,
+    read_at    INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+
+  -- E-19: event key → channels. Seeded in migrateSlow (INSERT OR IGNORE); the
+  -- notify engine also carries in-code defaults so a missing row never crashes it.
+  CREATE TABLE IF NOT EXISTS notification_rules (
+    event_key TEXT PRIMARY KEY,
+    inapp     INTEGER NOT NULL DEFAULT 1,
+    browser   INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS github_cache (
@@ -258,6 +300,9 @@ db.exec(`
     enabled         INTEGER NOT NULL DEFAULT 0,
     trusted_hash    TEXT,
     trusted_at      INTEGER,
+    -- P2 (SCHEMA_VERSION 10): inbox card dismissal pinned to config_hash (E-05) — config
+    -- drift auto-resurfaces the card (the trusted_hash pinning idiom).
+    inbox_dismissed_hash TEXT,
     est_tokens      INTEGER,
     probe_status    TEXT,
     status          TEXT NOT NULL DEFAULT 'ok',
@@ -564,6 +609,8 @@ db.exec(`
     allowed_tools TEXT NOT NULL DEFAULT '[]',   -- JSON array
     mcp_servers   TEXT NOT NULL DEFAULT '[]',   -- JSON array
     skills        TEXT NOT NULL DEFAULT '[]',   -- JSON array
+    -- P2 (SCHEMA_VERSION 10): tier default — dispatches through this profile plan-gate (E-02).
+    plan_gate     INTEGER NOT NULL DEFAULT 0,
     created_at    INTEGER NOT NULL
   );
 
@@ -651,7 +698,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 9
+export const SCHEMA_VERSION = 10
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1329,6 +1376,68 @@ function migrateSlow(d: Database.Database): void {
       );
     `)
   }
+
+  // ── P2 Human Gates (SCHEMA_VERSION 10 — E-02 plans, E-19 notifications, E-05
+  // dismissal columns, E-06 auto-merge, E-02 tier default). New tables use
+  // CREATE TABLE IF NOT EXISTS (fresh installs get them from the DDL above);
+  // columns use guarded addColumn. reviewed_at backfills pre-existing done runs
+  // ONLY when the column is freshly added — re-running this block must never
+  // stamp runs that finished after v10 (they belong in the Inbox).
+  if (hasTable(d, 'runs')) {
+    const reviewedAtFresh = !hasColumn(d, 'runs', 'reviewed_at')
+    addColumn(d, 'runs', 'reviewed_at', 'INTEGER')
+    // Backfill reads ended_at/created_at — guard on their presence so migrate() is
+    // safe against minimal old-schema fixtures that predate them (real runs tables
+    // always carry both; degenerate fixtures have no done runs to backfill anyway).
+    if (reviewedAtFresh && hasColumn(d, 'runs', 'ended_at') && hasColumn(d, 'runs', 'created_at')) {
+      d.prepare(`UPDATE runs SET reviewed_at = COALESCE(ended_at, created_at) WHERE status = 'done' AND reviewed_at IS NULL`).run()
+    }
+    d.exec(`
+      CREATE TABLE IF NOT EXISTS run_plans (
+        run_id      TEXT PRIMARY KEY REFERENCES runs(id),
+        plan        TEXT,
+        raw         TEXT NOT NULL,
+        edited      INTEGER NOT NULL DEFAULT 0,
+        profile_id  TEXT,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        approved_at INTEGER
+      );
+    `)
+  }
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id         TEXT PRIMARY KEY,
+      event_key  TEXT NOT NULL,
+      title      TEXT NOT NULL,
+      body       TEXT,
+      run_id     TEXT,
+      project_id TEXT,
+      created_at INTEGER NOT NULL,
+      read_at    INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+    CREATE TABLE IF NOT EXISTS notification_rules (
+      event_key TEXT PRIMARY KEY,
+      inapp     INTEGER NOT NULL DEFAULT 1,
+      browser   INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT OR IGNORE INTO notification_rules (event_key, inapp, browser) VALUES
+      ('run_awaiting_input', 1, 1),
+      ('run_awaiting_plan',  1, 1),
+      ('run_review_ready',   1, 0),
+      ('run_failed',         1, 0),
+      ('verify_fail',        1, 0);
+  `)
+  if (hasTable(d, 'projects')) {
+    addColumn(d, 'projects', 'auto_merge', 'INTEGER NOT NULL DEFAULT 0')
+  }
+  if (hasTable(d, 'agent_profiles')) {
+    addColumn(d, 'agent_profiles', 'plan_gate', 'INTEGER NOT NULL DEFAULT 0')
+  }
+  if (hasTable(d, 'host_mcp_servers')) {
+    addColumn(d, 'host_mcp_servers', 'inbox_dismissed_hash', 'TEXT')
+  }
 }
 
 migrate(db)
@@ -1359,6 +1468,10 @@ const clearRunWorktree = db.prepare(`UPDATE runs SET worktree = NULL WHERE id = 
 // the current session.
 const setRunCliSessionId = db.prepare(`UPDATE runs SET cli_session_id = ? WHERE id = ?`)
 
+// P2 E-05: stamp a run as review-acknowledged (approve / request-changes / inbox
+// dismiss all funnel here). reviewed_at IS NULL guard = idempotent + stamp-once.
+const markRunReviewed = db.prepare(`UPDATE runs SET reviewed_at = ? WHERE id = ? AND reviewed_at IS NULL`)
+
 /** Filtered run list. Uses pre-compiled statements — never interpolates values into SQL. */
 function listRunsFiltered({ status, limit, projectId }: { status?: RunStatus; limit: number; projectId?: string }): Array<Record<string, unknown>> {
   if (projectId !== undefined && status !== undefined) {
@@ -1373,7 +1486,7 @@ function listRunsFiltered({ status, limit, projectId }: { status?: RunStatus; li
   return listRunsAll.all(limit) as Array<Record<string, unknown>>
 }
 
-export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, clearRunWorktree, setRunCliSessionId }
+export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, clearRunWorktree, setRunCliSessionId, markRunReviewed }
 
 // ─── Event helpers ───────────────────────────────────────────────────────────
 
@@ -1434,7 +1547,13 @@ const latestAssistantEvent = db.prepare(
   `SELECT seq, text FROM events WHERE run_id = ? AND type = 'assistant' AND text IS NOT NULL AND length(text) > 0 ORDER BY seq DESC LIMIT 1`,
 )
 
-export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listCheckpointEvents, listAssistantEvents, listAssistantEventsAfterSeq, latestAssistantEvent }
+// P2 E-02: re-seed the in-memory seq counter on plan resume (a reboot cleared it;
+// events INSERT OR IGNORE would silently drop colliding seqs otherwise).
+const nextEventSeq = db.prepare(`SELECT COALESCE(MAX(seq) + 1, 0) AS next FROM events WHERE run_id = ?`)
+// P2 E-05/E-19: SQL-only "has reviewable changes" predicate (checkpoint events).
+const hasCheckpointEvents = db.prepare(`SELECT EXISTS(SELECT 1 FROM events WHERE run_id = ? AND type = 'checkpoint') AS n`)
+
+export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listCheckpointEvents, listAssistantEvents, listAssistantEventsAfterSeq, latestAssistantEvent, nextEventSeq, hasCheckpointEvents }
 
 // ─── Review comment helpers (P1 E-01) ────────────────────────────────────────
 
@@ -1470,6 +1589,46 @@ const upsertVerifyResult = db.prepare(`
 const getVerifyResult = db.prepare(`SELECT * FROM verify_results WHERE run_id = ?`)
 
 export const verifyResultsDb = { upsertVerifyResult, getVerifyResult }
+
+// ─── Run plan helpers (P2 E-02) ───────────────────────────────────────────────
+
+const insertRunPlan = db.prepare(`
+  INSERT INTO run_plans (run_id, plan, raw, edited, profile_id, created_at, updated_at)
+  VALUES (@runId, @plan, @raw, @edited, @profileId, @createdAt, @updatedAt)
+`)
+const getRunPlan = db.prepare(`SELECT * FROM run_plans WHERE run_id = ?`)
+// Last-wins structured edit — always flips edited=1 (the approve continuation
+// tells the agent its plan was revised).
+const updateRunPlanDoc = db.prepare(
+  `UPDATE run_plans SET plan = @plan, edited = 1, updated_at = @updatedAt WHERE run_id = @runId`,
+)
+const stampRunPlanApproved = db.prepare(`UPDATE run_plans SET approved_at = ? WHERE run_id = ?`)
+
+export const runPlansDb = { insertRunPlan, getRunPlan, updateRunPlanDoc, stampRunPlanApproved }
+
+// ─── Notification helpers (P2 E-19) ──────────────────────────────────────────
+
+const insertNotification = db.prepare(`
+  INSERT INTO notifications (id, event_key, title, body, run_id, project_id, created_at, read_at)
+  VALUES (@id, @eventKey, @title, @body, @runId, @projectId, @createdAt, @readAt)
+`)
+const listNotifications = db.prepare(`SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?`)
+const countUnreadNotifications = db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL`)
+// read_at IS NULL guard makes mark-read idempotent (changes===0 on a re-read).
+const markNotificationRead = db.prepare(`UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL`)
+const markAllNotificationsRead = db.prepare(`UPDATE notifications SET read_at = ? WHERE read_at IS NULL`)
+const getNotificationRule = db.prepare(`SELECT * FROM notification_rules WHERE event_key = ?`)
+const listNotificationRules = db.prepare(`SELECT * FROM notification_rules ORDER BY event_key`)
+const upsertNotificationRule = db.prepare(`
+  INSERT INTO notification_rules (event_key, inapp, browser) VALUES (@eventKey, @inapp, @browser)
+  ON CONFLICT(event_key) DO UPDATE SET inapp = excluded.inapp, browser = excluded.browser
+`)
+
+export const notificationsDb = {
+  insertNotification, listNotifications, countUnreadNotifications,
+  markNotificationRead, markAllNotificationsRead,
+  getNotificationRule, listNotificationRules, upsertNotificationRule,
+}
 
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
@@ -1507,6 +1666,9 @@ const setProjectDefaultBranch = db.prepare(`UPDATE projects SET default_branch =
 // P1 E-04: set/clear the operator verify recipe (route-validated JSON, or NULL).
 const setProjectVerifyRecipe = db.prepare(`UPDATE projects SET verify_recipe = ? WHERE id = ?`)
 
+// P2 E-06: per-project auto-merge toggle (default OFF).
+const setProjectAutoMerge = db.prepare(`UPDATE projects SET auto_merge = ? WHERE id = ?`)
+
 // Atomic registration (MEDIUM-1): the row insert + its detected default_branch write
 // land together or not at all, so a crash between them can't strand a row with the
 // branch lost. Mirrors persistReport's both-or-neither transaction.
@@ -1530,7 +1692,7 @@ const listProjects = db.prepare(`SELECT * FROM projects ORDER BY name`)
 // interactive run parked on stdin — still live (holds a worktree, writes events),
 // so it counts as active too.
 const countActiveProjectRuns = db.prepare(
-  `SELECT COUNT(*) AS n FROM runs WHERE project_id = ? AND status IN ('running','queued','awaiting_input')`,
+  `SELECT COUNT(*) AS n FROM runs WHERE project_id = ? AND status IN ('running','queued','awaiting_input','awaiting_plan')`,
 )
 
 // Hard-delete a project and everything hanging off it. workflow_runs and
@@ -1557,6 +1719,9 @@ const deleteProjectRunComments = db.prepare(
 const deleteProjectVerifyResults = db.prepare(
   `DELETE FROM verify_results WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 )
+const deleteProjectRunPlans = db.prepare(
+  `DELETE FROM run_plans WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+)
 const deleteProjectRuns = db.prepare(`DELETE FROM runs WHERE project_id = ?`)
 const deleteProjectReports = db.prepare(`DELETE FROM verification_reports WHERE project_id = ?`)
 const deleteProjectGithubCache = db.prepare(`DELETE FROM github_cache WHERE project_id = ?`)
@@ -1572,6 +1737,7 @@ const deleteProjectWorkItems = db.prepare(`DELETE FROM work_items WHERE project_
 const deleteProjectHostMcpServers = db.prepare(`DELETE FROM host_mcp_servers WHERE project_id = ?`)
 const deleteProjectRow = db.prepare(`DELETE FROM projects WHERE id = ?`)
 const deleteProject = db.transaction((id: string) => {
+  deleteProjectRunPlans.run(id)      // P2: FK on runs(id) — before deleteProjectRuns
   deleteProjectRunComments.run(id)   // P1: FK on runs(id) — before deleteProjectRuns
   deleteProjectVerifyResults.run(id) // P1: same FK ordering
   deleteProjectRunEvents.run(id)
@@ -1587,6 +1753,7 @@ export const projectsDb = {
   insertProject,
   setProjectDefaultBranch,
   setProjectVerifyRecipe,
+  setProjectAutoMerge,
   insertProjectWithDefaultBranch,
   updateProjectHealth,
   getProject,
@@ -2407,12 +2574,16 @@ const updateProfileRow = db.prepare(`
   WHERE id = @id
 `)
 
+// P2 E-02: tier default — dispatches resolved through this profile plan-gate by default.
+const setProfilePlanGate = db.prepare(`UPDATE agent_profiles SET plan_gate = ? WHERE id = ?`)
+
 export const agentProfilesDb = {
   insertProfile,
   getProfileRow,
   getProfileByNameRow,
   listProfileRows,
   updateProfileRow,
+  setProfilePlanGate,
 }
 
 /** Map an agent_profiles DB row → the canonical AgentProfile shape (@k/shared).
@@ -2441,6 +2612,7 @@ export function rowToAgentProfile(r: Record<string, unknown>): AgentProfile {
     allowedTools: parseStrArr(r.allowed_tools),
     mcpServers: parseStrArr(r.mcp_servers),
     skills: parseStrArr(r.skills),
+    planGate: r.plan_gate === 1 ? true : undefined,
   }
 }
 

@@ -109,6 +109,7 @@ function rowToProject(r: Record<string, unknown>): Project {
     bibleDir: String(r.bible_dir),
     ...(r.default_branch == null ? {} : { defaultBranch: String(r.default_branch) }),
     ...(verifyRecipe === undefined ? {} : { verifyRecipe }),
+    autoMerge: r.auto_merge === 1 ? true : undefined,
     healthScore: r.health_score == null ? undefined : Number(r.health_score),
     lastVerifiedAt: r.last_verified_at == null ? undefined : Number(r.last_verified_at),
     ...(pathMissing ? { pathMissing: true } : {}),

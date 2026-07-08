@@ -83,7 +83,12 @@ describe('migrate() — seed-profile authority resync one-shot', () => {
       `INSERT INTO agent_profiles (id, name, tier, charter, default_model, allowed_tools, mcp_servers, skills, created_at)
        VALUES ('custom-op-1', 'Custom', 'orchestrator', 'orchestrator', '', '["Read","Grep"]', '[]', '[]', ?)`,
     ).run(Date.now())
-    const customBefore = d.prepare(`SELECT * FROM agent_profiles WHERE id = 'custom-op-1'`).get()
+    // Compare the AUTHORED columns only (not SELECT *): later migrations add
+    // structural columns with defaults (e.g. plan_gate in v10) that widen the row
+    // without touching authority — the resync one-shot must leave these authored
+    // fields byte-for-byte identical.
+    const AUTHORED_COLS = `id, name, tier, charter, default_model, allowed_tools, mcp_servers, skills, created_at`
+    const customBefore = d.prepare(`SELECT ${AUTHORED_COLS} FROM agent_profiles WHERE id = 'custom-op-1'`).get()
 
     migrate(d)
 
@@ -94,8 +99,8 @@ describe('migrate() — seed-profile authority resync one-shot', () => {
     expect(JSON.parse(row.mcp_servers)).toEqual(expected.mcpServers)
     expect(JSON.parse(row.mcp_servers)).toContain('mgmt')
     expect(JSON.parse(row.skills)).toEqual(expected.skills)
-    // The operator-created row is untouched, byte for byte.
-    expect(d.prepare(`SELECT * FROM agent_profiles WHERE id = 'custom-op-1'`).get()).toEqual(customBefore)
+    // The operator-created row's authored fields are untouched, byte for byte.
+    expect(d.prepare(`SELECT ${AUTHORED_COLS} FROM agent_profiles WHERE id = 'custom-op-1'`).get()).toEqual(customBefore)
     d.close()
   })
 
