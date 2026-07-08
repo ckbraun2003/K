@@ -7,7 +7,7 @@ export type Route = { view: string; param?: string; subParam?: string }
 export const KNOWN_VIEWS = new Set([
   'home', 'chief', 'orchestrators', 'orchestrator', 'runs', 'docs', 'projects', 'metrics', 'routing',
   'verify', 'project', 'graph', 'skills', 'terminal', 'settings', 'workflows', 'workflow-detail', 'evals', 'memory',
-  'skill-creator',
+  'skill-creator', 'inbox',
 ])
 
 export function isKnownView(view: string): boolean {

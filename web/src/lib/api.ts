@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -112,7 +112,7 @@ export const api = {
     // Lazy per-event raw fetch — called only when the user expands a timeline row.
     eventRaw: (id: string, seq: number): Promise<string> =>
       req<{ raw: string }>(`/runs/${id}/events/${seq}/raw`).then(r => r.raw),
-    start: (prompt: string, opts?: { cwd?: string; projectId?: string; model?: string; preferLocal?: boolean; interactive?: boolean }) =>
+    start: (prompt: string, opts?: { cwd?: string; projectId?: string; model?: string; preferLocal?: boolean; interactive?: boolean; planGate?: boolean }) =>
       req<Run>('/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -159,6 +159,15 @@ export const api = {
       }),
     verifyResult: (id: string) => req<VerifyResult>(`/runs/${id}/verify-result`),
     impact: (id: string) => req<RunImpactPayload>(`/runs/${id}/impact`),
+    // ── P2 Human Gates ───────────────────────────────────────────────────────
+    plan: (id: string) => req<RunPlan>(`/runs/${id}/plan`),
+    updatePlan: (id: string, plan: PlanDoc) =>
+      req<RunPlan>(`/runs/${id}/plan`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan }),
+      }),
+    approvePlan: (id: string) => req<{ run: Run }>(`/runs/${id}/approve-plan`, { method: 'POST' }),
+    discardPlan: (id: string) => req<{ run: Run }>(`/runs/${id}/discard-plan`, { method: 'POST' }),
+    verify: (id: string) => req<{ started: boolean }>(`/runs/${id}/verify`, { method: 'POST' }),
   },
   artifacts: {
     list: () => req<Omit<Artifact, 'md' | 'html'>[]>('/artifacts'),
@@ -276,6 +285,13 @@ export const api = {
     setVerifyRecipe: (id: string, recipe: VerifyRecipe | null) =>
       req<Project>(`/projects/${id}/verify-recipe`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipe }),
+      }),
+    // ── P2 Human Gates ───────────────────────────────────────────────────────
+    mergePr: (id: string, number: number) =>
+      req<MergePrResult>(`/projects/${id}/prs/${number}/merge`, { method: 'POST' }),
+    setAutoMerge: (id: string, enabled: boolean) =>
+      req<Project>(`/projects/${id}/auto-merge`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }),
       }),
   },
   skills: {
@@ -498,6 +514,29 @@ export const api = {
     },
     approve: (id: string) => req<MemoryLesson>(`/memory/lessons/${id}/approve`, { method: 'POST' }),
     reject: (id: string) => req<MemoryLesson>(`/memory/lessons/${id}/reject`, { method: 'POST' }),
+  },
+  // ── P2 E-05 Approvals Inbox — the union of everything waiting on the operator
+  // (plan-pending / input-needed / lesson-pending / mcp-trust / review-ready).
+  // One batched read behind the rail badge + InboxPage; dismissals are per-item.
+  inbox: {
+    list: () => req<InboxPayload>(`/inbox`),
+    dismissReview: (runId: string) => req<void>(`/inbox/runs/${runId}/dismiss-review`, { method: 'POST' }),
+    dismissMcp: (qualifiedKey: string) =>
+      req<void>(`/inbox/mcp/${encodeURIComponent(qualifiedKey)}/dismiss`, { method: 'POST' }),
+  },
+  // ── P2 E-19 notification center + per-event delivery rules.
+  notifications: {
+    list: (opts?: { limit?: number }) => {
+      const qs = opts?.limit !== undefined ? `?limit=${opts.limit}` : ''
+      return req<{ notifications: KNotification[]; unread: number }>(`/notifications${qs}`)
+    },
+    markRead: (id: string) => req<void>(`/notifications/${id}/read`, { method: 'POST' }),
+    markAllRead: () => req<{ marked: number }>(`/notifications/read-all`, { method: 'POST' }),
+    rules: () => req<NotificationRule[]>(`/notifications/rules`),
+    updateRule: (eventKey: string, patch: { inapp?: boolean; browser?: boolean }) =>
+      req<NotificationRule>(`/notifications/rules/${eventKey}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+      }),
   },
   // Local models (Ollama) — model management over the core routes/ollama.ts surface.
   // Pull is fire-and-forget (202): progress arrives as `ollama_pull` WS messages,
