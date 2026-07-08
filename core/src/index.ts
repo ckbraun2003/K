@@ -31,6 +31,11 @@ import { voiceRoutes } from './routes/voice.js'
 import { evalsRoutes } from './routes/evals.js'
 import { memoryRoutes } from './routes/memory.js'
 import { kRoutes } from './routes/k.js'
+import { reviewRoutes } from './routes/review.js'
+import { verifyRoutes } from './routes/verify.js'
+import { rewindRoutes } from './routes/rewind.js'
+import { registerRunVerify } from './run-verify.js'
+import { sweepCheckpointRefs } from './checkpoints.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { syncHostDiscovery } from './host-discovery.js'
 import { seedProfiles } from './profiles.js'
@@ -41,11 +46,11 @@ import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
-import { getProject, warnStaleProjectPaths } from './projects.js'
-import { reconcileOnBoot } from './supervisor.js'
+import { getProject, listProjects, warnStaleProjectPaths } from './projects.js'
+import { reconcileOnBoot, REPO_ROOT } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
 import { acquireInstanceLock } from './instance-lock.js'
-import { DATA_DIR } from './db.js'
+import { DATA_DIR, runsDb } from './db.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
 import { startGithubPoller, stopGithubPoller } from './github.js'
 import {
@@ -81,6 +86,8 @@ let stopGraphAutoReindex: (() => void) | undefined
 let stopChiefWake: (() => void) | undefined
 // Same, for the MAIN-process lead-dispatch relay (drains the child-recorded intent queue).
 let stopLeadDispatchRelay: (() => void) | undefined
+// Same, for the E-04 run-verify engine (terminal-'done' → recipe battery; W0 stub).
+let stopRunVerify: (() => void) | null = null
 // Releases the single-instance lock file (set in start(); undefined in tests).
 let releaseInstanceLock: (() => void) | undefined
 
@@ -141,6 +148,9 @@ export async function buildApp() {
   await app.register(evalsRoutes)
   await app.register(memoryRoutes)
   await app.register(kRoutes)
+  await app.register(reviewRoutes)
+  await app.register(verifyRoutes)
+  await app.register(rewindRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 
@@ -266,6 +276,7 @@ export async function buildApp() {
   app.addHook('onClose', () => {
     stopGithubPoller()
     stopGraphAutoReindex?.()
+    stopRunVerify?.()
     stopChiefWake?.()
     stopLeadDispatchRelay?.()
     releaseInstanceLock?.()
@@ -368,6 +379,14 @@ async function start() {
   // Crash recovery: mark runs left `running`/`queued` by a prior crash as
   // interrupted and prune orphaned worktrees, before serving traffic.
   reconcileOnBoot()
+  // P1: prune checkpoint refs for runs whose rows were deleted (best-effort, async;
+  // roots = the harness repo + every registered project).
+  void sweepCheckpointRefs(
+    [REPO_ROOT, ...listProjects().map(p => p.localPath)],
+    (runId) => runsDb.getRun.get(runId) !== undefined,
+  )
+    .then(n => { if (n > 0) console.log(`[checkpoints] pruned ${n} orphaned checkpoint ref(s)`) })
+    .catch(() => { /* best-effort */ })
   // F-033: warn once per registered project whose localPath has vanished on disk, so
   // a silently-broken project surfaces in the boot log (its workspace actions are
   // disabled in the UI). CLAIM-11-9: one warn/boot.
@@ -409,6 +428,8 @@ async function start() {
   // Auto-reindex a project's knowledge graph after a run touching it completes
   // (debounced + guarded). Default ON; set GRAPH_AUTO_REINDEX=0 to disable.
   stopGraphAutoReindex = registerGraphAutoReindex(getProject)
+  // E-04 run-verify engine seam (W0 stub — Lane B lands the real trigger).
+  stopRunVerify = registerRunVerify(getProject)
   // Wake the Chief autonomously on a schedule tick + on subscribed run-completion
   // events (debounced + already-running/self-wake guarded). Default ON; CHIEF_WAKE=0.
   stopChiefWake = startChiefWake()

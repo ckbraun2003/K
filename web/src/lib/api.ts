@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -131,6 +131,34 @@ export const api = {
     // Gracefully end an interactive session (close stdin → run completes 'done').
     end: (id: string) =>
       req<{ ended: boolean }>(`/runs/${id}/end`, { method: 'POST' }),
+    // ── P1 Trust Core ────────────────────────────────────────────────────────
+    diff: (id: string) => req<DiffPayload>(`/runs/${id}/diff`),
+    comments: (id: string) => req<ReviewComment[]>(`/runs/${id}/comments`),
+    createComment: (id: string, body: { file: string; line?: number | null; side?: 'old' | 'new'; body: string }) =>
+      req<ReviewComment>(`/runs/${id}/comments`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }),
+    updateComment: (id: string, commentId: string, patch: { body?: string; status?: 'draft' | 'sent' | 'resolved' }) =>
+      req<ReviewComment>(`/runs/${id}/comments/${commentId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+      }),
+    deleteComment: (id: string, commentId: string) =>
+      req<void>(`/runs/${id}/comments/${commentId}`, { method: 'DELETE' }),
+    requestChanges: (id: string, body: { model?: string } = {}) =>
+      req<{ run: Run; commentsSent: number }>(`/runs/${id}/request-changes`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }),
+    approve: (id: string, body: { title?: string; body?: string; base?: string } = {}) =>
+      req<{ branch: string; pr: { number: number; url: string; title: string; state: string } }>(`/runs/${id}/approve`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }),
+    checkpoints: (id: string) => req<RunCheckpoint[]>(`/runs/${id}/checkpoints`),
+    rewind: (id: string, body: { sha: string; prompt: string; model?: string }) =>
+      req<Run>(`/runs/${id}/rewind`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }),
+    verifyResult: (id: string) => req<VerifyResult>(`/runs/${id}/verify-result`),
+    impact: (id: string) => req<RunImpactPayload>(`/runs/${id}/impact`),
   },
   artifacts: {
     list: () => req<Omit<Artifact, 'md' | 'html'>[]>('/artifacts'),
@@ -243,6 +271,12 @@ export const api = {
           body: JSON.stringify(opts),
         },
       ),
+    // ── P1 Trust Core ────────────────────────────────────────────────────────
+    prDiff: (id: string, number: number) => req<DiffPayload>(`/projects/${id}/prs/${number}/diff`),
+    setVerifyRecipe: (id: string, recipe: VerifyRecipe | null) =>
+      req<Project>(`/projects/${id}/verify-recipe`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipe }),
+      }),
   },
   skills: {
     list: () => req<Skill[]>('/skills'),

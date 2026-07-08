@@ -12,6 +12,8 @@ import { cleanRunPrompt } from '../lib/prompt'
 import { linkify } from '../lib/linkify'
 import { runStatusMeta } from '../lib/status'
 import RunTimeline from './RunTimeline'
+import ReviewDeck from './ReviewDeck'
+import VerifyChip from './VerifyChip'
 import ToolCall from './ToolCall'
 import ConfirmDialog from './ConfirmDialog'
 import AutoTextarea from './AutoTextarea'
@@ -120,7 +122,7 @@ function EventLine({ event: e }: { event: AgentEvent }) {
 export default function RunConsole({ runId }: Props) {
   const qc = useQueryClient()
   const [events, setEvents] = useState<AgentEvent[]>([])
-  const [view, setView] = useState<'console' | 'timeline'>('console')
+  const [view, setView] = useState<'console' | 'timeline' | 'review'>('console')
   const [confirmKill, setConfirmKill] = useState(false)
   const [killing, setKilling] = useState(false)
   // Operator's reply while the run is parked at awaiting_input (interactive HITL).
@@ -320,9 +322,9 @@ export default function RunConsole({ runId }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Console | Timeline toggle */}
+          {/* Console | Timeline | Review toggle */}
           <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--raised)] p-0.5 gap-0.5">
-            {(['console', 'timeline'] as const).map(v => (
+            {(['console', 'timeline', 'review'] as const).map(v => (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -337,6 +339,7 @@ export default function RunConsole({ runId }: Props) {
               </button>
             ))}
           </div>
+          <VerifyChip runId={runId} />
           <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', statusMeta.badge, statusMeta.live && 'glow-live')}>
             {statusMeta.label}
           </span>
@@ -352,7 +355,9 @@ export default function RunConsole({ runId }: Props) {
         </div>
       </div>
 
-      {view === 'timeline' ? (
+      {view === 'review' ? (
+        <ReviewDeck runId={runId} projectId={run.projectId ?? null} />
+      ) : view === 'timeline' ? (
         // key={runId} remounts on run switch so per-seq raw cache never leaks across runs
         <RunTimeline key={runId} events={events} runId={runId} />
       ) : (
