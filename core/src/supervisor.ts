@@ -22,7 +22,7 @@ import { db, runsDb, projectsDb } from './db.js'
 import { route } from './router.js'
 import { resolvePermissionMode } from './claude-args.js'
 import { getProvider, parseClaudeLine, extractInitSessionId } from './providers.js'
-import { createCheckpoint, type CheckpointInfo } from './checkpoints.js'
+import { makeCheckpointScheduler } from './checkpoints.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
 import { isPathWithin } from './paths.js'
 import { synthesizeConfigDir, pruneOrphanAgentRuns, kSecretaryConfigPaths, type SynthesizedConfig } from './agent-config.js'
@@ -146,6 +146,11 @@ export type StartRunOptions = {
    *  committed HEAD, BYTE-IDENTICAL to the prior behavior. Ignored for a persistent
    *  session (no worktree) and for a non-git cwd (falls back to running in cwd). */
   carryWorkingTree?: boolean
+  /** P1 (E-03 rewind + E-01 fix runs): create the run's detached worktree AT this
+   *  commit instead of the repo's current HEAD. Must exist in the repo of `cwd`
+   *  (k-checkpoint refs keep run snapshots reachable). Ignored for a persistent
+   *  session / non-git cwd (the existing fallbacks apply unchanged). */
+  baseCommit?: string
 }
 
 /**
@@ -238,8 +243,7 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   } else {
     try {
       // Only create worktree if cwd is inside a git repo
-      await execa('git', ['-C', cwd, 'rev-parse', '--git-dir'], { reject: true })
-      await execa('git', ['-C', cwd, 'worktree', 'add', '--detach', worktreePath], { reject: true })
+      await addDetachedWorktree(cwd, worktreePath, opts.baseCommit)
       effectiveCwd = worktreePath
       // H8 (opt-in): replay the source's uncommitted tracked+staged WIP into the fresh
       // worktree so the run sees the dirty state. Guarded by the flag, so when it is
@@ -341,6 +345,18 @@ export async function applyWorkingTreeInto(sourceCwd: string, worktreePath: stri
     console.warn('[supervisor] carryWorkingTree failed — run starts from clean HEAD:', (err as Error).message)
     return false
   }
+}
+
+/**
+ * Add the run's detached worktree, optionally AT a specific commit (P1 rewind /
+ * fix-run seam). Throws when cwd is not a git repo or the add fails — startRun
+ * catches and falls back to running in cwd, exactly as before.
+ */
+export async function addDetachedWorktree(cwd: string, worktreePath: string, baseCommit?: string): Promise<void> {
+  await execa('git', ['-C', cwd, 'rev-parse', '--git-dir'], { reject: true })
+  const args = ['-C', cwd, 'worktree', 'add', '--detach', worktreePath]
+  if (baseCommit) args.push(baseCommit)
+  await execa('git', args, { reject: true })
 }
 
 // ── Private ──────────────────────────────────────────────────────────────────
@@ -622,11 +638,19 @@ async function runAgent(
   // real OBSERVED tokens. Cost is NOT recoverable — the stream reports cost only on `result`.
   let lastInterimUsage: { tokensIn: number; tokensOut: number } | null = null
 
-  // ── k-checkpoints (Lane B, E-03 groundwork) ────────────────────────────────
-  // Serialization chain for checkpoint git work — function-scoped so BOTH
-  // terminal paths can settle it before emitting terminal status / removing
-  // the worktree.
-  let ckptChain: Promise<void> = Promise.resolve()
+  // ── k-checkpoints (P1: extracted scheduler + terminal snapshot) ────────────
+  let sawToolResultSinceCkpt = false
+  const ckpt = makeCheckpointScheduler({
+    worktree: cwd,
+    runId: run.id,
+    emit: (res) => {
+      eventBus.emitEvent({
+        id: uuid(), runId: run.id, seq: nextSeq(run.id), type: 'checkpoint', ts: Date.now(),
+        text: `checkpoint wave ${res.wave} (${res.sha.slice(0, 10)})`,
+        raw: JSON.stringify({ sha: res.sha, tree: res.tree, ref: res.ref, wave: res.wave }),
+      })
+    },
+  })
 
   // Per-run K-owned config dir for managed claude runs (undefined for ollama).
   // Declared before the try so both terminal paths can clean it up.
@@ -682,41 +706,6 @@ async function runAgent(
       // mid-turn kill reads it back.
       lastInterimUsage = accumulateInterimUsage(lastInterimUsage, validated)
       eventBus.emitEvent(validated)
-    }
-
-    // ── k-checkpoint scheduling (Lane B, E-03 groundwork) ──────────────────────
-    // A tool wave = ≥1 tool_result ingested since the last checkpoint; the wave
-    // COMPLETES at the next assistant or turn-end (`usage`) line, where we
-    // snapshot the worktree. `ckptBusy` drops boundaries that fire while one is
-    // in flight (take-latest — the next boundary re-snapshots everything), so
-    // the chain can never queue unboundedly. Claude worktree runs only: the
-    // ollama agent loop does not feed this seam in P0.
-    let lastCheckpoint: CheckpointInfo | null = null
-    let ckptBusy = false
-    let sawToolResultSinceCkpt = false
-
-    const scheduleCheckpoint = (): void => {
-      if (!inWorktree || ckptBusy) return
-      ckptBusy = true
-      ckptChain = ckptChain.then(async () => {
-        try {
-          const wave = (lastCheckpoint?.wave ?? 0) + 1
-          const res = await createCheckpoint(cwd, run.id, wave, lastCheckpoint)
-          if (res !== null) {
-            lastCheckpoint = res
-            eventBus.emitEvent({
-              id: uuid(), runId: run.id, seq: nextSeq(run.id), type: 'checkpoint', ts: Date.now(),
-              text: `checkpoint wave ${res.wave} (${res.sha.slice(0, 10)})`,
-              raw: JSON.stringify({ sha: res.sha, tree: res.tree, ref: res.ref, wave: res.wave }),
-            })
-          }
-        } catch (err) {
-          // A checkpoint failure must never kill the run — log and continue.
-          console.warn(`[supervisor] checkpoint failed (run ${run.id}):`, (err as Error).message)
-        } finally {
-          ckptBusy = false
-        }
-      })
     }
 
     // Both engine paths produce a terminal-shaped `result`; the shared
@@ -835,7 +824,7 @@ async function runAgent(
                 sawToolResultSinceCkpt = true
               } else if (sawToolResultSinceCkpt && (parsed.type === 'assistant' || parsed.type === 'usage')) {
                 sawToolResultSinceCkpt = false
-                scheduleCheckpoint()
+                ckpt.onBoundary()
               }
             }
             // Interactive: a `result` line ends a turn while the process stays alive
@@ -858,7 +847,7 @@ async function runAgent(
     // Settle in-flight checkpoint work BEFORE the terminal emits: the checkpoint
     // event needs a sane seq (clearRunTracking resets the counter) and
     // removeWorktree must not race live git plumbing inside the worktree.
-    await ckptChain
+    if (inWorktree) await ckpt.finalize()
     // A gracefully-ended interactive session is 'done' regardless of the exit code
     // (a fallback SIGTERM may have stopped a process that ignored stdin EOF).
     const finalStatus: Run['status'] =
@@ -876,7 +865,7 @@ async function runAgent(
 
   } catch (err) {
     const wasKilled = killedRuns.delete(run.id)
-    await ckptChain // settle checkpoint git work before cleanup (see success path)
+    if (inWorktree) await ckpt.finalize() // settle checkpoint git work before cleanup (see success path)
     // endingRuns is cleared by clearRunTracking below; no need to delete it here.
     // Same killed-run honesty as the success path: recover interim tokens for a mid-turn kill.
     ;({ tokensIn, tokensOut, costUsd } = reconcileKilledUsage({ tokensIn, tokensOut, costUsd }, wasKilled, lastInterimUsage))

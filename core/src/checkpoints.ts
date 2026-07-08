@@ -27,6 +27,7 @@ import { execa } from 'execa'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { eventsDb } from './db.js'
 
 export interface CheckpointInfo {
   sha: string
@@ -91,4 +92,136 @@ export async function createCheckpoint(
   } finally {
     try { fs.unlinkSync(tmpIndex) } catch { /* best-effort */ }
   }
+}
+
+// ─── P1: durable checkpoint listing (scrubber / diff / verify / rewind) ───────
+
+export interface StoredCheckpoint {
+  sha: string
+  tree: string
+  ref: string
+  wave: number
+  seq: number
+  ts: number
+}
+
+/**
+ * List a run's checkpoints from its persisted `checkpoint` events (seq order).
+ * The events table is the DURABLE source — worktrees are removed at terminal,
+ * but the events (and the refs in the shared .git) live on. Defensive: an event
+ * with malformed/missing raw is skipped, never a throw.
+ */
+export function listRunCheckpoints(runId: string): StoredCheckpoint[] {
+  const rows = eventsDb.listCheckpointEvents.all(runId) as Array<{ seq: number; ts: number; raw: string | null }>
+  const out: StoredCheckpoint[] = []
+  for (const r of rows) {
+    if (r.raw == null) continue
+    try {
+      const raw = JSON.parse(r.raw) as { sha?: unknown; tree?: unknown; ref?: unknown; wave?: unknown }
+      if (typeof raw.sha !== 'string' || typeof raw.wave !== 'number') continue
+      out.push({
+        sha: raw.sha,
+        tree: typeof raw.tree === 'string' ? raw.tree : '',
+        ref: typeof raw.ref === 'string' ? raw.ref : `refs/k-checkpoints/${runId}`,
+        wave: raw.wave,
+        seq: Number(r.seq),
+        ts: Number(r.ts),
+      })
+    } catch { /* skip malformed */ }
+  }
+  return out
+}
+
+// ─── P1: tool-wave scheduler + terminal snapshot (P0 carry-in #1) ─────────────
+
+/**
+ * The supervisor's checkpoint scheduling, extracted so the boundary/terminal
+ * logic is unit-testable without spawning a CLI. Semantics preserved from P0:
+ * `onBoundary` is take-latest (a boundary while a snapshot is in flight is
+ * dropped — the next snapshot re-captures everything). NEW: `finalize()` settles
+ * the chain then takes ONE terminal snapshot, so the run's FINAL state is always
+ * reachable even when the last boundary was dropped or the run was killed
+ * mid-wave. Identical-tree dedup (createCheckpoint → null) makes the terminal
+ * snapshot commit-free when the last boundary already captured it. Cost: one
+ * extra `add -A` tree hash per worktree run at terminal — the accepted re-hash
+ * posture (P0 carry-in #3), documented as accepted.
+ */
+export function makeCheckpointScheduler(opts: {
+  worktree: string
+  runId: string
+  emit: (info: CheckpointInfo) => void
+  create?: typeof createCheckpoint
+}): { onBoundary: () => void; finalize: () => Promise<CheckpointInfo | null>; last: () => CheckpointInfo | null } {
+  const create = opts.create ?? createCheckpoint
+  let lastCheckpoint: CheckpointInfo | null = null
+  let busy = false
+  let chain: Promise<void> = Promise.resolve()
+
+  const snapshot = async (): Promise<void> => {
+    try {
+      const wave = (lastCheckpoint?.wave ?? 0) + 1
+      const res = await create(opts.worktree, opts.runId, wave, lastCheckpoint)
+      if (res !== null) {
+        lastCheckpoint = res
+        opts.emit(res)
+      }
+    } catch (err) {
+      // A checkpoint failure must never kill the run — log and continue.
+      console.warn(`[checkpoints] snapshot failed (run ${opts.runId}):`, (err as Error).message)
+    } finally {
+      busy = false
+    }
+  }
+
+  return {
+    onBoundary(): void {
+      if (busy) return // take-latest; finalize() recovers anything dropped here
+      busy = true
+      chain = chain.then(snapshot)
+    },
+    async finalize(): Promise<CheckpointInfo | null> {
+      await chain // settle in-flight work first
+      busy = true
+      await (chain = chain.then(snapshot)) // terminal snapshot (dedup no-ops when clean)
+      return lastCheckpoint
+    },
+    last: () => lastCheckpoint,
+  }
+}
+
+// ─── P1: checkpoint-ref retention (P0 carry-in #2) ────────────────────────────
+
+/**
+ * Boot sweep: delete `refs/k-checkpoints/<runId>` refs whose runs row no longer
+ * exists. Refs deliberately OUTLIVE runs (the scrubber reads finished runs), but
+ * a DELETED run needs none — without this they accumulate forever. Best-effort +
+ * bounded: any git failure logs-and-continues; a non-repo root is skipped;
+ * duplicate roots (case-folded) are visited once. Returns refs deleted.
+ */
+export async function sweepCheckpointRefs(
+  repoRoots: string[],
+  runExists: (runId: string) => boolean,
+): Promise<number> {
+  const bounded = { timeout: 30_000, killSignal: 'SIGKILL' as const }
+  const seen = new Set<string>()
+  let deleted = 0
+  for (const root of repoRoots) {
+    const key = path.resolve(root).toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    try {
+      const { stdout } = await execa(
+        'git', ['-C', root, 'for-each-ref', '--format=%(refname)', 'refs/k-checkpoints/'], bounded,
+      )
+      for (const ref of stdout.split('\n').map(s => s.trim()).filter(Boolean)) {
+        const runId = ref.slice('refs/k-checkpoints/'.length)
+        if (runId === '' || runExists(runId)) continue
+        try {
+          await execa('git', ['-C', root, 'update-ref', '-d', ref], bounded)
+          deleted++
+        } catch { /* best-effort per ref */ }
+      }
+    } catch { /* not a git repo / git unavailable — skip this root */ }
+  }
+  return deleted
 }
