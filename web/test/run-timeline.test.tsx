@@ -6,14 +6,25 @@
  */
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { AgentEvent } from '@k/shared'
 
-vi.mock('../src/lib/api', () => ({ api: { runs: { eventRaw: async () => null } } }))
+vi.mock('../src/lib/api', () => ({ api: { runs: { eventRaw: async () => null, checkpoints: async () => [] } } }))
 
 import RunTimeline from '../src/components/RunTimeline'
 
 function ev(seq: number): AgentEvent {
   return { id: `e${seq}`, runId: 'r', seq, type: 'assistant', ts: seq * 1000, text: `#${seq}` }
+}
+
+// C2: RunTimeline fetches the checkpoint chain via useQuery, so renders need a provider.
+function renderTimeline(events: AgentEvent[]) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RunTimeline events={events} runId="r" />
+    </QueryClientProvider>,
+  )
 }
 
 beforeAll(() => {
@@ -24,7 +35,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks() })
 describe('RunTimeline — cursor autoscroll', () => {
   it('scrolls the cursor row into view when the scrubber seeks', () => {
     const events = [ev(0), ev(1), ev(2), ev(3)]
-    render(<RunTimeline events={events} runId="r" />)
+    renderTimeline(events)
     const spy = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>
     spy.mockClear() // ignore the initial mount scroll-to-end
 
@@ -40,7 +51,7 @@ describe('RunTimeline — cursor autoscroll', () => {
     vi.useFakeTimers()
     try {
       const events = [ev(0), ev(1), ev(2)]
-      render(<RunTimeline events={events} runId="r" />)
+      renderTimeline(events)
       const spy = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>
       // Restart-from-start then play (cursor begins at the last index on mount).
       fireEvent.click(screen.getByText('Play'))

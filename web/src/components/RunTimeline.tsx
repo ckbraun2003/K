@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AgentEvent } from '@k/shared'
+import { useQuery } from '@tanstack/react-query'
+import type { AgentEvent, RunCheckpoint } from '@k/shared'
 import { cn } from '../lib/cn'
 import { EVENT_COLOR } from './RunConsole'
 import { api } from '../lib/api'
+import RewindDialog from './RewindDialog'
 
 interface Props {
   events: AgentEvent[]
   runId: string
+  /** Gates the "Rewind here" affordance (visible for terminal runs only) —
+   *  RunConsole threads its already-computed terminal predicate here. */
+  terminal?: boolean
 }
 
 // Format a unix-ms timestamp as HH:MM:SS.mmm
@@ -46,10 +51,18 @@ export function shouldFetchRaw(
   return !hasRawInline && !(seq in cache) && !inflight.has(seq)
 }
 
-export default function RunTimeline({ events, runId }: Props) {
+export default function RunTimeline({ events, runId, terminal = false }: Props) {
   const [cursor, setCursor] = useState(Math.max(0, events.length - 1))
   const [playing, setPlaying] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  // C2 — checkpoint chain (full shas live here, NOT in event text) + the
+  // rewind dialog's target. Keyed by the checkpoint event's seq.
+  const [rewindTarget, setRewindTarget] = useState<{ sha: string; wave: number } | null>(null)
+  const { data: checkpoints } = useQuery<RunCheckpoint[]>({
+    queryKey: ['run-checkpoints', runId],
+    queryFn: () => api.runs.checkpoints(runId),
+  })
+  const ckptBySeq = new Map((checkpoints ?? []).map(c => [c.seq, c]))
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Per-row refs so play/seek can scroll the cursor row into view (F-080) — the
   // replay was blind: it dimmed future rows + moved the counter but never scrolled,
@@ -188,6 +201,42 @@ export default function RunTimeline({ events, runId }: Props) {
           const isExpanded = expanded.has(e.id)
           const dimmed = idx > cursor
 
+          // C2 — checkpoint events render as accent-tinted marker rows. The
+          // wave/sha chip comes from the checkpoints endpoint (full sha), never
+          // parsed out of event text; without a chain entry (still loading /
+          // pruned) fall back to the event's display text, no rewind button.
+          if (e.type === 'checkpoint') {
+            const ckpt = ckptBySeq.get(e.seq)
+            return (
+              <div
+                key={e.id}
+                ref={el => { rowRefs.current[idx] = el }}
+                data-testid={ckpt ? `ckpt-marker-${ckpt.wave}` : 'ckpt-marker'}
+                className={cn(
+                  'py-1.5 pl-2 border-b border-[var(--border)] last:border-0 border-l-2 border-l-[var(--accent)] bg-accent/5 transition-opacity duration-150',
+                  dimmed ? 'opacity-25' : 'opacity-100',
+                )}
+              >
+                <div className="flex items-center gap-2 font-mono text-xs">
+                  <span className="text-[var(--muted)] w-6 text-right flex-shrink-0">{e.seq}</span>
+                  <span className="text-[var(--muted)] flex-shrink-0">{formatAbsTime(e.ts)}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/15 text-[var(--accent-hover)] font-semibold flex-shrink-0">
+                    {ckpt ? `wave ${ckpt.wave} · ${ckpt.sha.slice(0, 10)}` : (e.text ?? 'checkpoint')}
+                  </span>
+                  {terminal && ckpt && (
+                    <button
+                      data-testid={`ckpt-rewind-${ckpt.wave}`}
+                      onClick={() => setRewindTarget({ sha: ckpt.sha, wave: ckpt.wave })}
+                      className="text-xs px-2 py-0.5 rounded bg-accent/15 text-[var(--accent-hover)] hover:bg-accent/25 transition-colors font-medium flex-shrink-0"
+                    >
+                      Rewind here
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          }
+
           let rawContent: React.ReactNode = null
           if (isExpanded) {
             // Prefer inline raw (live events); fall back to lazily-fetched cache.
@@ -288,6 +337,9 @@ export default function RunTimeline({ events, runId }: Props) {
           />
         </div>
       </div>
+
+      {/* C2 — rewind-and-redispatch dialog (opened from a checkpoint marker) */}
+      <RewindDialog runId={runId} checkpoint={rewindTarget} onClose={() => setRewindTarget(null)} />
     </div>
   )
 }
