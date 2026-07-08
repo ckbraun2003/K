@@ -113,6 +113,34 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_verification_project ON verification_reports(project_id, started_at);
 
+  -- ── P1 Trust Core (SCHEMA_VERSION 9) ────────────────────────────────────────
+  -- Inline review comments on a run's diff (E-01). Anchored file+line+side against
+  -- the DETERMINISTIC checkpoint diff (immutable shas), so no hunk-id indirection.
+  -- status: draft (composed) → sent (bundled into a fix run) → resolved.
+  CREATE TABLE IF NOT EXISTS review_comments (
+    id         TEXT PRIMARY KEY,
+    run_id     TEXT NOT NULL REFERENCES runs(id),
+    file       TEXT NOT NULL,
+    line       INTEGER,
+    side       TEXT NOT NULL DEFAULT 'new' CHECK(side IN ('old','new')),
+    body       TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','sent','resolved')),
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_review_comments_run ON review_comments(run_id, created_at);
+
+  -- ONE current verify result per run (E-04) — upserted on re-verify. Its own
+  -- table (not a runs column): keeps the hot runs row narrow + FK-cleanable.
+  CREATE TABLE IF NOT EXISTS verify_results (
+    run_id       TEXT PRIMARY KEY REFERENCES runs(id),
+    status       TEXT NOT NULL CHECK(status IN ('running','pass','fail','skipped','error')),
+    reason       TEXT,
+    commands     TEXT NOT NULL DEFAULT '[]',
+    scope        TEXT,
+    started_at   INTEGER NOT NULL,
+    completed_at INTEGER
+  );
+
   CREATE TABLE IF NOT EXISTS github_cache (
     project_id  TEXT NOT NULL,
     kind        TEXT NOT NULL,            -- 'pr' | 'ci'
@@ -623,7 +651,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 8
+export const SCHEMA_VERSION = 9
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1271,6 +1299,36 @@ function migrateSlow(d: Database.Database): void {
   if (hasTable(d, 'projects')) {
     addColumn(d, 'projects', 'verify_recipe', 'TEXT')
   }
+
+  // ── P1 Trust Core (SCHEMA_VERSION 9 — E-01 review comments + E-04 verify
+  // results). Both are NEW tables: CREATE TABLE IF NOT EXISTS covers fresh
+  // installs (main DDL) AND migrated DBs (here). No ALTERs — idempotent by
+  // construction. hasTable(runs) guard keeps migrate() safe against minimal
+  // old-schema fixtures predating the runs table.
+  if (hasTable(d, 'runs')) {
+    d.exec(`
+      CREATE TABLE IF NOT EXISTS review_comments (
+        id         TEXT PRIMARY KEY,
+        run_id     TEXT NOT NULL REFERENCES runs(id),
+        file       TEXT NOT NULL,
+        line       INTEGER,
+        side       TEXT NOT NULL DEFAULT 'new' CHECK(side IN ('old','new')),
+        body       TEXT NOT NULL,
+        status     TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','sent','resolved')),
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_review_comments_run ON review_comments(run_id, created_at);
+      CREATE TABLE IF NOT EXISTS verify_results (
+        run_id       TEXT PRIMARY KEY REFERENCES runs(id),
+        status       TEXT NOT NULL CHECK(status IN ('running','pass','fail','skipped','error')),
+        reason       TEXT,
+        commands     TEXT NOT NULL DEFAULT '[]',
+        scope        TEXT,
+        started_at   INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+    `)
+  }
 }
 
 migrate(db)
@@ -1350,6 +1408,12 @@ const listDelegateEvents = db.prepare(`
 // Fetch the raw JSON line for a single event — used by the lazy per-event endpoint.
 const getEventRaw = db.prepare(`SELECT raw FROM events WHERE run_id = ? AND seq = ?`)
 
+// P1: a run's checkpoint events only (raw carries {sha,tree,ref,wave}) — the
+// durable checkpoint-chain listing (worktrees are gone at terminal; events persist).
+const listCheckpointEvents = db.prepare(
+  `SELECT seq, ts, raw FROM events WHERE run_id = ? AND type = 'checkpoint' ORDER BY seq ASC`,
+)
+
 // Bounded, pre-filtered assistant-event scan (oldest→newest) — the lead report-back
 // (chief-dispatch.ts::concatLeadAssistantText) reads only enough assistant text to fill
 // its output cap, so a long lead run never materializes its whole event log.
@@ -1370,7 +1434,38 @@ const latestAssistantEvent = db.prepare(
   `SELECT seq, text FROM events WHERE run_id = ? AND type = 'assistant' AND text IS NOT NULL AND length(text) > 0 ORDER BY seq DESC LIMIT 1`,
 )
 
-export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listAssistantEvents, listAssistantEventsAfterSeq, latestAssistantEvent }
+export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listCheckpointEvents, listAssistantEvents, listAssistantEventsAfterSeq, latestAssistantEvent }
+
+// ─── Review comment helpers (P1 E-01) ────────────────────────────────────────
+
+const insertReviewComment = db.prepare(`
+  INSERT INTO review_comments (id, run_id, file, line, side, body, status, created_at)
+  VALUES (@id, @runId, @file, @line, @side, @body, @status, @createdAt)
+`)
+const listReviewComments = db.prepare(`SELECT * FROM review_comments WHERE run_id = ? ORDER BY created_at ASC`)
+const getReviewComment = db.prepare(`SELECT * FROM review_comments WHERE id = ? AND run_id = ?`)
+const updateReviewComment = db.prepare(`UPDATE review_comments SET body = @body, status = @status WHERE id = @id`)
+const deleteReviewComment = db.prepare(`DELETE FROM review_comments WHERE id = ? AND run_id = ?`)
+// Flip every draft to 'sent' when a fix run is dispatched (request-changes).
+const markDraftCommentsSent = db.prepare(`UPDATE review_comments SET status = 'sent' WHERE run_id = ? AND status = 'draft'`)
+
+export const reviewCommentsDb = {
+  insertReviewComment, listReviewComments, getReviewComment,
+  updateReviewComment, deleteReviewComment, markDraftCommentsSent,
+}
+
+// ─── Verify result helpers (P1 E-04) ─────────────────────────────────────────
+
+const upsertVerifyResult = db.prepare(`
+  INSERT INTO verify_results (run_id, status, reason, commands, scope, started_at, completed_at)
+  VALUES (@runId, @status, @reason, @commands, @scope, @startedAt, @completedAt)
+  ON CONFLICT(run_id) DO UPDATE SET
+    status = excluded.status, reason = excluded.reason, commands = excluded.commands,
+    scope = excluded.scope, started_at = excluded.started_at, completed_at = excluded.completed_at
+`)
+const getVerifyResult = db.prepare(`SELECT * FROM verify_results WHERE run_id = ?`)
+
+export const verifyResultsDb = { upsertVerifyResult, getVerifyResult }
 
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
@@ -1404,6 +1499,9 @@ const insertProject = db.prepare(`
 // widely-used insertProject param shape unchanged across ~40 call sites). NULL until
 // set — callers then fall back to a heuristic (W4 follow-up).
 const setProjectDefaultBranch = db.prepare(`UPDATE projects SET default_branch = ? WHERE id = ?`)
+
+// P1 E-04: set/clear the operator verify recipe (route-validated JSON, or NULL).
+const setProjectVerifyRecipe = db.prepare(`UPDATE projects SET verify_recipe = ? WHERE id = ?`)
 
 // Atomic registration (MEDIUM-1): the row insert + its detected default_branch write
 // land together or not at all, so a crash between them can't strand a row with the
@@ -1449,6 +1547,12 @@ const countActiveProjectRuns = db.prepare(
 const deleteProjectRunEvents = db.prepare(
   `DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 )
+const deleteProjectRunComments = db.prepare(
+  `DELETE FROM review_comments WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+)
+const deleteProjectVerifyResults = db.prepare(
+  `DELETE FROM verify_results WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+)
 const deleteProjectRuns = db.prepare(`DELETE FROM runs WHERE project_id = ?`)
 const deleteProjectReports = db.prepare(`DELETE FROM verification_reports WHERE project_id = ?`)
 const deleteProjectGithubCache = db.prepare(`DELETE FROM github_cache WHERE project_id = ?`)
@@ -1464,6 +1568,8 @@ const deleteProjectWorkItems = db.prepare(`DELETE FROM work_items WHERE project_
 const deleteProjectHostMcpServers = db.prepare(`DELETE FROM host_mcp_servers WHERE project_id = ?`)
 const deleteProjectRow = db.prepare(`DELETE FROM projects WHERE id = ?`)
 const deleteProject = db.transaction((id: string) => {
+  deleteProjectRunComments.run(id)   // P1: FK on runs(id) — before deleteProjectRuns
+  deleteProjectVerifyResults.run(id) // P1: same FK ordering
   deleteProjectRunEvents.run(id)
   deleteProjectRuns.run(id)
   deleteProjectReports.run(id)
@@ -1476,6 +1582,7 @@ const deleteProject = db.transaction((id: string) => {
 export const projectsDb = {
   insertProject,
   setProjectDefaultBranch,
+  setProjectVerifyRecipe,
   insertProjectWithDefaultBranch,
   updateProjectHealth,
   getProject,
