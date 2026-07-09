@@ -55,4 +55,22 @@ describe('RunList active filter includes parked runs (F-055)', () => {
     expect(screen.getByText('live run')).toBeTruthy()
     expect(screen.queryByText('finished run')).toBeNull()
   })
+
+  // P2 E-02: awaiting_plan is the OTHER parked flavor (process-dead plan review) —
+  // the shared isParkedRun predicate must count it under "active" too.
+  it('counts an awaiting_plan run under "active" and shows it when filtered (P2 E-02)', async () => {
+    runsRef.current = [
+      makeRun({ id: 'run', status: 'running', prompt: 'live run' }),
+      makeRun({ id: 'plan', status: 'awaiting_plan', prompt: 'parked on plan review' }),
+      makeRun({ id: 'done', status: 'done', prompt: 'finished run' }),
+    ]
+    renderList()
+
+    await waitFor(() => expect(screen.getByTestId('run-filter-active').textContent).toContain('2'))
+
+    fireEvent.click(screen.getByTestId('run-filter-active'))
+    expect(screen.getByText('parked on plan review')).toBeTruthy()
+    expect(screen.getByText('live run')).toBeTruthy()
+    expect(screen.queryByText('finished run')).toBeNull()
+  })
 })

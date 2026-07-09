@@ -23,8 +23,10 @@ function tables(d: Database.Database): string[] {
 }
 
 describe('SCHEMA_VERSION 9', () => {
-  it('is 9 and the live DB has both new tables', () => {
-    expect(SCHEMA_VERSION).toBe(9)
+  it('schema is >= 9 and the live DB has both new tables', () => {
+    // v9 features exist from v9 onward; the exact current-version pin lives in the
+    // latest migration test (db-migration-v10.test.ts), so later bumps don't break this.
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(9)
     expect(tables(db as unknown as Database.Database)).toEqual(
       expect.arrayContaining(['review_comments', 'verify_results']),
     )
@@ -47,7 +49,8 @@ describe('SCHEMA_VERSION 9', () => {
     `)
     migrate(d)
     expect(tables(d)).toEqual(expect.arrayContaining(['review_comments', 'verify_results']))
-    expect(d.pragma('user_version', { simple: true })).toBe(9)
+    // Stamped to the CURRENT version (derived, per the v8-test precedent, so later bumps don't break this).
+    expect(d.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
     migrate(d) // idempotent — no duplicate-table throw
     expect(tables(d).filter(t => t === 'review_comments')).toHaveLength(1)
     d.close()

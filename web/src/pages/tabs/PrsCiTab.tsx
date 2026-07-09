@@ -4,6 +4,7 @@ import type { GithubStatus, PrInfo, CiRunInfo, Project, DiffPayload } from '@k/s
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
 import DiffViewer from '../../components/DiffViewer'
+import MergeButton from '../../components/MergeButton'
 
 interface Props {
   projectId: string
@@ -95,6 +96,9 @@ function PrRow({ pr, projectId }: { pr: PrInfo; projectId: string }) {
           </div>
           <p className="font-mono text-[10px] text-[var(--muted)] mt-0.5">checks: {pr.checks}</p>
         </div>
+
+        {/* One-click merge (renders only for OPEN + green PRs) — stops propagation itself */}
+        <MergeButton projectId={projectId} pr={pr} />
 
         {/* External link */}
         <a
@@ -200,6 +204,13 @@ export default function PrsCiTab({ projectId }: Props) {
     },
   })
 
+  // E-06 auto-merge toggle — seeded from the cached project record; on toggle it
+  // persists via setAutoMerge and re-reads the ['projects'] list the tab holds.
+  const autoMergeMutation = useMutation({
+    mutationFn: (enabled: boolean) => api.projects.setAutoMerge(projectId, enabled),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['projects'] }) },
+  })
+
   useEffect(() => {
     if (!showModal) return
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowModal(false) }
@@ -238,6 +249,19 @@ export default function PrsCiTab({ projectId }: Props) {
             <span data-testid="prs-no-remote" className="text-[11px] text-[var(--muted)]">
               No GitHub remote — PRs unavailable
             </span>
+          )}
+          {/* Auto-merge greens — only meaningful when the project has a remote to push to */}
+          {hasRemote && (
+            <label className="flex items-center gap-1.5 text-[11px] text-[var(--muted)] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                data-testid="automerge-toggle"
+                checked={!!project?.autoMerge}
+                onChange={e => autoMergeMutation.mutate(e.target.checked)}
+                className="accent-[var(--accent)]"
+              />
+              Auto-merge greens (k/verify + checks)
+            </label>
           )}
         </div>
         <span className="font-mono text-[10px] text-[var(--muted)]">

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Status, AgentProfile } from '@k/shared'
+import type { Status, AgentProfile, NotificationRule, NotificationEventKey } from '@k/shared'
 import { api, type OrchestratorPatch } from '../lib/api'
+import { ensureNotificationPermission } from '../lib/notifications'
 import {
   claudeVerdict,
   ollamaVerdict,
@@ -13,6 +14,7 @@ import {
 import AutoTextarea from '../components/AutoTextarea'
 import ConfirmDialog from '../components/ConfirmDialog'
 import CapabilityPicker from '../components/CapabilityPicker'
+import Toast from '../components/Toast'
 // P5.5 — self-contained model-management sections (Claude default + local Ollama).
 import { ClaudeModelSection, LocalModelsSection } from './SettingsModels'
 // P5.4 — self-contained voice (push-to-talk) status section.
@@ -328,6 +330,102 @@ function OrgDefaultSection() {
   )
 }
 
+// E-19 — per-event delivery rules (in-app center + optional background browser alert).
+const EVENT_LABELS: Record<NotificationEventKey, string> = {
+  run_awaiting_input: 'Run needs your reply',
+  run_awaiting_plan: 'Plan ready for review',
+  run_review_ready: 'Run ready for review',
+  run_failed: 'Run failed',
+  verify_fail: 'Verification failed',
+}
+
+/** Notification delivery rules (E-19). One row per event: an In-app toggle (the bell +
+ *  toasts) and a Browser toggle (a background OS notification). The browser toggle first
+ *  secures Notification permission from THIS user gesture — a blocked/denied prompt keeps
+ *  the checkbox off and explains why, rather than silently enabling a channel that can't fire. */
+function NotificationsSection() {
+  const qc = useQueryClient()
+  const [toast, setToast] = useState<string | null>(null)
+
+  const { data: rules, isLoading, error } = useQuery<NotificationRule[]>({
+    queryKey: ['notification-rules'],
+    queryFn: () => api.notifications.rules(),
+  })
+
+  const updateRule = useMutation({
+    mutationFn: ({ eventKey, patch }: { eventKey: string; patch: { inapp?: boolean; browser?: boolean } }) =>
+      api.notifications.updateRule(eventKey, patch),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['notification-rules'] }) },
+    onError: (e: unknown) => setToast(`Couldn't update the rule: ${(e as Error).message}`),
+  })
+
+  async function toggleBrowser(rule: NotificationRule, next: boolean) {
+    if (next && !(await ensureNotificationPermission())) {
+      setToast('Browser notifications are blocked for this site — allow them in the browser first.')
+      return
+    }
+    updateRule.mutate({ eventKey: rule.eventKey, patch: { browser: next } })
+  }
+
+  return (
+    <div>
+      <div className="mb-2">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Notifications</h2>
+        <p className="mt-1 text-[11px] text-[var(--muted)]">
+          How each event reaches you — an <span className="font-medium text-[var(--text)]">in-app</span> alert in
+          the bell, and/or a <span className="font-medium text-[var(--text)]">browser</span> notification while the
+          tab is backgrounded. Browser alerts need one-time permission.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <p className="text-xs text-[var(--muted)]">Loading notification rules…</p>
+      ) : error || !rules ? (
+        <p className="text-xs text-[var(--red)]">Failed to load notification rules.</p>
+      ) : (
+        <div className="glass rounded-xl border border-[var(--border)] p-4">
+          <div className="mb-1 grid grid-cols-[1fr_3.5rem_3.5rem] items-center gap-x-4 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+            <span>Event</span>
+            <span className="text-center">In-app</span>
+            <span className="text-center">Browser</span>
+          </div>
+          <div className="flex flex-col divide-y divide-[var(--border)]">
+            {rules.map(rule => (
+              <div key={rule.eventKey} className="grid grid-cols-[1fr_3.5rem_3.5rem] items-center gap-x-4 py-2 text-xs">
+                <span className="text-[var(--text)]">{EVENT_LABELS[rule.eventKey] ?? rule.eventKey}</span>
+                <div className="flex justify-center">
+                  <input
+                    type="checkbox"
+                    aria-label={`${EVENT_LABELS[rule.eventKey] ?? rule.eventKey} — in-app`}
+                    data-testid={`notif-rule-${rule.eventKey}-inapp`}
+                    checked={rule.inapp}
+                    disabled={updateRule.isPending}
+                    onChange={e => updateRule.mutate({ eventKey: rule.eventKey, patch: { inapp: e.target.checked } })}
+                    className="h-4 w-4 accent-[var(--accent)]"
+                  />
+                </div>
+                <div className="flex justify-center">
+                  <input
+                    type="checkbox"
+                    aria-label={`${EVENT_LABELS[rule.eventKey] ?? rule.eventKey} — browser`}
+                    data-testid={`notif-rule-${rule.eventKey}-browser`}
+                    checked={rule.browser}
+                    disabled={updateRule.isPending}
+                    onChange={e => toggleBrowser(rule, e.target.checked)}
+                    className="h-4 w-4 accent-[var(--accent)]"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Toast open={toast !== null} testid="notif-settings-toast" message={toast ?? ''} onDismiss={() => setToast(null)} />
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -355,6 +453,11 @@ export default function SettingsPage() {
       {/* P5.3b — org-default orchestrator authority (leads inherit unless overridden). */}
       <section className="mb-8">
         <OrgDefaultSection />
+      </section>
+
+      {/* P2 E-19 — per-event notification delivery rules. */}
+      <section className="mb-8">
+        <NotificationsSection />
       </section>
 
       <section>

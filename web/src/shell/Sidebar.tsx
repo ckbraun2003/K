@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import type { Run } from '@k/shared'
+import type { Run, InboxPayload } from '@k/shared'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
 import { RUNS_LIST_KEY, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
+import { INBOX_KEY, inboxQueryFn } from '../lib/inbox-query'
 
 export interface Destination {
   id: string
@@ -29,6 +30,7 @@ export interface Destination {
 export const DESTINATIONS: Destination[] = [
   // ── Direct: talk to / drive the org ──
   { id: 'home', icon: '⌂', label: 'K', hint: 'Talk to K — your front door to the org', enabled: true, section: 'primary', group: 'direct' },
+  { id: 'inbox', icon: '☑', label: 'Inbox', hint: 'Everything waiting on you — approve, reply, review', enabled: true, section: 'primary', group: 'direct' },
   { id: 'chief', icon: '♛', label: 'Chief', hint: 'Org overview — objectives & delegation tree', enabled: true, section: 'primary', group: 'direct' },
   { id: 'orchestrators', icon: '❖', label: 'Orchestrators', hint: 'Domain leads — roster, charters & authority', enabled: true, section: 'primary', group: 'direct' },
   { id: 'workflows', icon: '⋔', label: 'Workflows', hint: 'Delegation workflow & live sub-agent trees', enabled: true, section: 'primary', group: 'direct' },
@@ -79,6 +81,11 @@ export default function Sidebar({
   const parkedRuns = runs.filter(isParkedRun).length
   const badgeCount = activeRuns + parkedRuns
 
+  // Inbox needs-YOU badge — shares the ONE inbox query (lib/inbox-query.ts) with
+  // the page + invalidators, so this adds zero fetches (the Runs-badge pattern).
+  const { data: inbox } = useQuery<InboxPayload>({ queryKey: INBOX_KEY, queryFn: inboxQueryFn })
+  const inboxCount = inbox?.total ?? 0
+
   // Uppercase tracked group label — only rendered when the rail is expanded.
   const groupLabel = (text: string) => (
     <div className="mb-0.5 mt-1 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
@@ -116,6 +123,15 @@ export default function Sidebar({
           {d.icon}
         </span>
         {!collapsed && <span className="truncate">{d.label}</span>}
+        {!collapsed && d.id === 'inbox' && inboxCount > 0 && (
+          <span
+            data-testid="sidebar-inbox-badge"
+            title={`${inboxCount} item${inboxCount > 1 ? 's' : ''} waiting on you`}
+            className="ml-auto rounded px-1.5 text-[10px] font-semibold bg-amber/20 text-[var(--amber)]"
+          >
+            {inboxCount}
+          </span>
+        )}
         {!collapsed && d.id === 'runs' && badgeCount > 0 && (
           <span
             data-testid="sidebar-runs-badge"

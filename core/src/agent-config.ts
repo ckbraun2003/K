@@ -50,6 +50,18 @@ const DEFAULT_DATA_DIR = path.join(__dirname, '../../data')
 // run-assets shim (run-assets.ts) gates on the SAME set — one source, no drift.
 export const KNOWN_CHARTERS = new Set(['orchestrator', 'chief', 'secretary'])
 
+/** The per-run agent dir (config + CLI session state) for a managed run — the
+ *  default synthesizeConfigDir target. P2 E-02: plan parks PRESERVE this dir
+ *  (session transcripts are the resume substrate); approve resumes against it
+ *  via runDirOverride. One function so the two paths can never diverge. The
+ *  dataDir expression mirrors synthesizeConfigDir's line-388 default AND
+ *  pruneOrphanAgentRuns' base — process.env.K_DATA_DIR ?? repo-root data/ — for a
+ *  regular dispatch (which never passes opts.dataDir); a caller that overrides
+ *  opts.dataDir keeps its own runDir under that guard, unchanged. */
+export function agentRunDir(runId: string): string {
+  return path.join(process.env.K_DATA_DIR ?? DEFAULT_DATA_DIR, 'agent-runs', runId)
+}
+
 export interface SynthesizedConfig {
   configDir: string                 // → CLAUDE_CONFIG_DIR for the spawn
   allowedTools: string[]            // → claude --allowedTools

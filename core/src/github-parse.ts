@@ -13,17 +13,17 @@ function safeHttpUrl(raw: unknown): string {
   return /^https?:\/\//i.test(s) ? s : ''
 }
 
-function rollupChecks(rollup: unknown): PrInfo['checks'] {
+export function rollupChecks(rollup: unknown): PrInfo['checks'] {
   if (!Array.isArray(rollup) || rollup.length === 0) return 'none'
   let pending = false
   for (const c of rollup) {
-    const conclusion = (c as Record<string, unknown>)?.conclusion
-    if (conclusion == null || conclusion === '') pending = true
-    else if (
-      String(conclusion).toUpperCase() !== 'SUCCESS' &&
-      String(conclusion).toUpperCase() !== 'SKIPPED' &&
-      String(conclusion).toUpperCase() !== 'NEUTRAL'
-    ) return 'failing'
+    const rec = c as Record<string, unknown>
+    // CheckRun rows carry `conclusion`; StatusContext rows (commit statuses —
+    // e.g. K's k/verify) carry `state`. Read whichever is present (P2 E-06).
+    const verdict = rec?.conclusion ?? rec?.state
+    const v = verdict == null ? '' : String(verdict).toUpperCase()
+    if (v === '' || v === 'PENDING' || v === 'EXPECTED') pending = true
+    else if (v !== 'SUCCESS' && v !== 'SKIPPED' && v !== 'NEUTRAL') return 'failing'
   }
   return pending ? 'pending' : 'passing'
 }
@@ -40,6 +40,7 @@ export function parsePrList(json: unknown): PrInfo[] {
       state: String(r.state ?? 'OPEN'),
       url: safeHttpUrl(r.url),
       checks: rollupChecks(r.statusCheckRollup),
+      headRefName: typeof r.headRefName === 'string' ? r.headRefName : undefined,
     })
   }
   return out

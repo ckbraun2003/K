@@ -68,6 +68,7 @@ const RUN_LABELS: Record<RunStatus, string> = {
   queued: 'queued',
   running: 'running',
   awaiting_input: 'awaiting input',
+  awaiting_plan: 'plan ready',
   done: 'done',
   error: 'error',
   killed: 'killed',

@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
-import { db, agentRunsDb } from '../src/db.js'
+import { db, agentRunsDb, agentProfilesDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { startRun } from '../src/supervisor.js'
 import { createProfile } from '../src/profiles.js'
@@ -108,6 +108,37 @@ describe('startAgentRun', () => {
     } finally {
       db.prepare(`DELETE FROM agent_runs WHERE profile_id = ?`).run(modelProfileId)
       db.prepare(`DELETE FROM agent_profiles WHERE id = ?`).run(modelProfileId)
+    }
+  })
+
+  it('E-02 (D-084): a plan_gate profile plan-gates a plain dispatch but NOT an interactive/persistent one', async () => {
+    // Harden the tier default's interactive/persistentSession exemption. A plan_gate
+    // profile's ON flag must reach startRun only for a plain org dispatch; an
+    // interactive (stdin-alive) or persistent-session dispatch is EXEMPT (planGate x
+    // those composes to the startRun one-shot throw), so planGate must resolve to
+    // undefined — and the dispatch must not throw.
+    const gateProfileId = 'p50-ar-gate-orch'
+    createProfile({ id: gateProfileId, name: gateProfileId, tier: 'orchestrator' })
+    agentProfilesDb.setProfilePlanGate.run(1, gateProfileId) // plan_gate ON
+    const lastPlanGate = () => (vi.mocked(startRun).mock.calls.at(-1)![1] as { planGate?: boolean }).planGate
+    try {
+      // (persistent session) → EXEMPT: planGate undefined, no throw
+      await expect(startAgentRun(gateProfileId, {
+        trigger: 'user-message', goal: 'gated + persistent',
+        persistentSession: { key: 'k', sessionId: 's', resume: false },
+      })).resolves.toBeTruthy()
+      expect(lastPlanGate()).toBeUndefined()
+
+      // (interactive) → likewise EXEMPT
+      await startAgentRun(gateProfileId, { trigger: 'user-message', goal: 'gated + interactive', interactive: true })
+      expect(lastPlanGate()).toBeUndefined()
+
+      // (plain org dispatch) → the ON case still applies: planGate true
+      await startAgentRun(gateProfileId, { trigger: 'user-message', goal: 'gated plain' })
+      expect(lastPlanGate()).toBe(true)
+    } finally {
+      db.prepare(`DELETE FROM agent_runs WHERE profile_id = ?`).run(gateProfileId)
+      db.prepare(`DELETE FROM agent_profiles WHERE id = ?`).run(gateProfileId)
     }
   })
 

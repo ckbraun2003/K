@@ -15,7 +15,8 @@ vi.mock('../src/lib/runs-query', () => ({
   RUNS_LIST_KEY: ['runs', 'list', 'default'],
   runsListQueryFn: async () => runsRef.current,
   isActiveRun: (r: Run) => r.status === 'running' || r.status === 'queued',
-  isParkedRun: (r: Run) => r.status === 'awaiting_input',
+  // P2 E-02: mirror the real predicate — both park flavors read as "needs input".
+  isParkedRun: (r: Run) => r.status === 'awaiting_input' || r.status === 'awaiting_plan',
 }))
 vi.mock('../src/lib/ws', () => ({ onWsMessage: () => () => {} }))
 vi.mock('../src/lib/live-invalidate', () => ({
@@ -23,6 +24,8 @@ vi.mock('../src/lib/live-invalidate', () => ({
   makeProjectListInvalidator: () => () => {},
   makeCapabilitiesInvalidator: () => () => {},
   makeVerifyInvalidator: () => () => {},
+  // P2 B3: ActivityStrip now also wires the inbox invalidator into the WS handler.
+  makeInboxInvalidator: () => () => {},
 }))
 vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 
@@ -65,6 +68,17 @@ describe('ActivityStrip', () => {
     expect(needsInput.textContent).toMatch(/needs input/i)
     expect(needsInput.textContent).toContain('answer me')
     // The idle message must NOT show while a run needs attention.
+    expect(screen.queryByText(/idle — no agents running/i)).toBeNull()
+  })
+
+  // P2 E-02: awaiting_plan (process-dead plan review) is the other parked flavor —
+  // it must surface as "needs input" too, never as idle.
+  it('surfaces an awaiting_plan run as a non-zero "needs input" indicator (P2 E-02)', async () => {
+    runsRef.current = [makeRun({ id: 'pl', status: 'awaiting_plan', prompt: 'review my plan' })]
+    renderStrip()
+    const needsInput = await screen.findByTestId('activity-needs-input')
+    expect(needsInput.textContent).toMatch(/needs input/i)
+    expect(needsInput.textContent).toContain('review my plan')
     expect(screen.queryByText(/idle — no agents running/i)).toBeNull()
   })
 })

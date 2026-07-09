@@ -34,7 +34,12 @@ import { kRoutes } from './routes/k.js'
 import { reviewRoutes } from './routes/review.js'
 import { verifyRoutes } from './routes/verify.js'
 import { rewindRoutes } from './routes/rewind.js'
+import { planRoutes } from './routes/plan.js'
+import { inboxRoutes } from './routes/inbox.js'
+import { notificationsRoutes } from './routes/notifications.js'
+import { mergeRoutes } from './routes/merge.js'
 import { registerRunVerify } from './run-verify.js'
+import { registerNotifications } from './notify.js'
 import { sweepCheckpointRefs } from './checkpoints.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { syncHostDiscovery } from './host-discovery.js'
@@ -88,6 +93,8 @@ let stopChiefWake: (() => void) | undefined
 let stopLeadDispatchRelay: (() => void) | undefined
 // Same, for the E-04 run-verify engine (terminal-'done' → recipe battery; W0 stub).
 let stopRunVerify: (() => void) | null = null
+// Same, for the E-19 notification engine (rules-gated run/verify → notifications; W0 stub).
+let stopNotifications: (() => void) | null = null
 // Releases the single-instance lock file (set in start(); undefined in tests).
 let releaseInstanceLock: (() => void) | undefined
 
@@ -151,6 +158,10 @@ export async function buildApp() {
   await app.register(reviewRoutes)
   await app.register(verifyRoutes)
   await app.register(rewindRoutes)
+  await app.register(planRoutes)
+  await app.register(inboxRoutes)
+  await app.register(notificationsRoutes)
+  await app.register(mergeRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 
@@ -277,6 +288,7 @@ export async function buildApp() {
     stopGithubPoller()
     stopGraphAutoReindex?.()
     stopRunVerify?.()
+    stopNotifications?.()
     stopChiefWake?.()
     stopLeadDispatchRelay?.()
     releaseInstanceLock?.()
@@ -430,6 +442,8 @@ async function start() {
   stopGraphAutoReindex = registerGraphAutoReindex(getProject)
   // E-04 run-verify engine seam (W0 stub — Lane B lands the real trigger).
   stopRunVerify = registerRunVerify(getProject)
+  // E-19 notification engine seam (W0 stub — Lane B lands the real pipeline).
+  stopNotifications = registerNotifications()
   // Wake the Chief autonomously on a schedule tick + on subscribed run-completion
   // events (debounced + already-running/self-wake guarded). Default ON; CHIEF_WAKE=0.
   stopChiefWake = startChiefWake()

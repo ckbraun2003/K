@@ -32,7 +32,8 @@ export const ASSIGNMENT_LIMIT = 50
 export const AGENT_RUN_SCAN = 100
 
 // A lead counts as "active" when its latest run is in a non-terminal state.
-export const LIVE_RUN_STATUSES = new Set(['queued', 'running', 'awaiting_input'])
+// P2 E-02: awaiting_plan is live — a lead parked on plan approval is active, not idle.
+export const LIVE_RUN_STATUSES = new Set(['queued', 'running', 'awaiting_input', 'awaiting_plan'])
 
 /** Parse a JSON DB column defensively: null/undefined → undefined; malformed →
  *  undefined (a single corrupt row must not 500 the whole payload). Mirrors

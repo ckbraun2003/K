@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import path from 'path'
 import { StartRunBodySchema, RunsQuerySchema, SendInputBodySchema, isKnownModel } from '@k/shared'
 import { startRun, kill, sendInput, endSession, REPO_ROOT } from '../supervisor.js'
+import { orgDefaultPlanGate } from '../plan-gate.js'
 import { runsDb, eventsDb, projectsDb, workflowStepsDb } from '../db.js'
 import { matchProjectByCwd, type ProjectPathRow } from '../project-match.js'
 import { sendError, sendZodError } from './http-errors.js'
@@ -25,7 +26,7 @@ export async function runsRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return sendZodError(reply, parsed.error)
     }
-    const { prompt, cwd, model, projectId, preferLocal, interactive, carryWorkingTree } = parsed.data
+    const { prompt, cwd, model, projectId, preferLocal, interactive, carryWorkingTree, planGate } = parsed.data
     // Validate the model at the boundary (lessons.md): reject anything not in the
     // known registry so a typo can't silently fall through to the CLI/router.
     if (model !== undefined && !isKnownModel(model)) {
@@ -41,8 +42,22 @@ export async function runsRoutes(app: FastifyInstance) {
     if (cwd !== undefined && !isCwdAllowed(cwd)) {
       return sendError(reply, 400, 'cwd not under a registered project')
     }
+    // E-02: planGate is a one-shot process-dead park; it cannot compose with an
+    // interactive (stdin-alive) dispatch. Reject the combo at the boundary with a
+    // 400 (client contract error) instead of letting startRun throw -> a 500.
+    if (planGate === true && interactive === true) {
+      return sendError(reply, 400, 'planGate is not compatible with interactive dispatch')
+    }
     try {
-      const run = await startRun(prompt, { cwd, model, projectId, preferLocal, interactive, carryWorkingTree })
+      const run = await startRun(prompt, {
+        cwd, model, projectId, preferLocal, interactive, carryWorkingTree,
+        // E-02 (D-084): explicit per-dispatch toggle wins; absent = the org-default
+        // orchestrator profile's tier flag. INTERACTIVE dispatches are EXEMPT from the
+        // tier default (a default of ON must not gate every interactive dispatch). The
+        // explicit planGate:true + interactive combo is rejected with a 400 by the guard
+        // above, so it never reaches startRun here. (Conductor plan-review MAJOR-2.)
+        planGate: interactive ? planGate : (planGate ?? orgDefaultPlanGate()),
+      })
       return reply.status(201).send(run)
     } catch (e) {
       // The only FK on the runs INSERT is project_id → projects(id), so a SQLite

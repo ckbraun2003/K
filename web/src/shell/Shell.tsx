@@ -25,6 +25,7 @@ import OrchestratorsPage from '../pages/OrchestratorsPage'
 import OrchestratorDetailPage from '../pages/OrchestratorDetailPage'
 import EvalsPage from '../pages/EvalsPage'
 import MemoryPage from '../pages/MemoryPage'
+import InboxPage from '../pages/InboxPage'
 import NotFound from '../pages/NotFound'
 import { useHashRoute, isKnownView } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
@@ -90,6 +91,7 @@ export default function Shell() {
             exit="exit"
           >
             {route.view === 'home' && <KHome />}
+            {route.view === 'inbox' && <InboxPage />}
             {route.view === 'chief' && <ChiefPage />}
             {route.view === 'orchestrators' && <OrchestratorsPage />}
             {route.view === 'orchestrator' && <OrchestratorDetailPage id={route.param} />}

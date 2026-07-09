@@ -21,13 +21,16 @@ import { eventsToWorkflowTree, type WorkflowChild } from './workflow'
  * (leadNode) in P5.3.
  */
 
-/** Collapse a raw RunStatus to the tree's colour states. running/awaiting_input →
- *  running; queued stays queued; done → done; error/killed/interrupted → error;
- *  anything else (unknown) → idle. */
+/** Collapse a raw RunStatus to the tree's colour states. running/awaiting_input/
+ *  awaiting_plan → running; queued stays queued; done → done;
+ *  error/killed/interrupted → error; anything else (unknown) → idle. */
 function runStatusToDelegationStatus(status: string): DelegationNodeStatus {
   switch (status) {
     case 'running':
     case 'awaiting_input':
+    // P2 E-02: explicit (not via default) — a lead parked on plan approval renders
+    // as active work needing attention, never silently idle.
+    case 'awaiting_plan':
       return 'running'
     case 'queued':
       return 'queued'

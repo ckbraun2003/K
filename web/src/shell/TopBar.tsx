@@ -3,6 +3,7 @@ import type { ChiefOrgLead, NamedWorkflow, Project } from '@k/shared'
 import { DESTINATIONS } from './Sidebar'
 import { api } from '../lib/api'
 import { isKnownView, navigate } from '../lib/route'
+import NotificationBell from '../components/NotificationBell'
 
 interface Props {
   view: string
@@ -57,7 +58,7 @@ export default function TopBar({ view, param, connected, onOpenCommand }: Props)
   const title = dest?.label.split(' ·')[0] ?? (isKnownView(view) ? 'Home' : 'Not found')
   const icon = dest?.icon ?? (parent ? parent.icon : isKnownView(view) ? '⌂' : '⌀')
   return (
-    <header className="relative z-10 flex items-center gap-4 border-b border-[var(--border)] px-5 py-3">
+    <header className="relative z-20 flex items-center gap-4 border-b border-[var(--border)] px-5 py-3">
       <h1 data-testid="topbar-title" className="text-sm font-semibold tracking-wide text-[var(--text)]">
         <span className="mr-2 text-[var(--accent)]">{icon}</span>
         {parent ? (
@@ -89,6 +90,7 @@ export default function TopBar({ view, param, connected, onOpenCommand }: Props)
         <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px]">⌘K</kbd>
         <span>Ask K or jump anywhere…</span>
       </button>
+      <NotificationBell />
       <span
         data-testid="ws-dot"
         data-ws-status={connected ? 'connected' : 'connecting'}
