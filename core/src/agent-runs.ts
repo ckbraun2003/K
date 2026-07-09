@@ -120,6 +120,8 @@ export async function startAgentRun(
       interactive: opts.interactive,
       persistentSession: opts.persistentSession,
       carryWorkingTree: opts.carryWorkingTree,
+      // E-02 (D-084): tier default — a plan_gate profile plan-gates its org dispatches.
+      planGate: profile.planGate === true ? true : undefined,
     })
   } catch (e) {
     agentRunsDb.updateAgentRunStatus.run('failed', Date.now(), agentRunId)
