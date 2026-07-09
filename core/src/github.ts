@@ -22,7 +22,7 @@ async function ghJson(args: string[], cwd: string): Promise<unknown> {
 
 export async function fetchGithubStatus(remote: string, cwd: string): Promise<{ prs: PrInfo[]; ci: CiRunInfo[] }> {
   const [prsRaw, ciRaw] = await Promise.all([
-    ghJson(['pr', 'list', '--repo', remote, '--json', 'number,title,state,url,statusCheckRollup'], cwd),
+    ghJson(['pr', 'list', '--repo', remote, '--json', 'number,title,state,url,statusCheckRollup,headRefName'], cwd),
     ghJson(['run', 'list', '--repo', remote, '--limit', '10', '--json', 'databaseId,workflowName,headBranch,status,conclusion,createdAt'], cwd),
   ])
   return { prs: parsePrList(prsRaw), ci: parseCiRuns(ciRaw) }
@@ -241,6 +241,34 @@ export async function createPR(
     url: match[0],
     title: opts.title,
     state: 'open',
+  }
+}
+
+// ─── P2 E-06: verification as a GitHub-native commit status ─────────────────
+
+export type CommitStatusState = 'pending' | 'success' | 'failure' | 'error'
+
+/**
+ * POST a commit status onto `sha` (context defaults to k/verify — the ONE
+ * context K owns; branch protection can require it, bible §06). Errors are
+ * URL-sanitized exactly like createPR: gh stderr may echo remote URLs.
+ */
+export async function publishCommitStatus(
+  remote: string,
+  sha: string,
+  opts: { state: CommitStatusState; description: string; context?: string },
+): Promise<void> {
+  try {
+    await execa('gh', [
+      'api', `repos/${remote}/statuses/${sha}`,
+      '-f', `state=${opts.state}`,
+      '-f', `context=${opts.context ?? 'k/verify'}`,
+      '-f', `description=${opts.description.slice(0, 140)}`,
+    ], { timeout: 30_000 })
+  } catch (e) {
+    const err = e as { stderr?: string }
+    const sanitized = (err.stderr ?? '').replace(/https?:\/\/\S+/g, '[url]').trim()
+    throw new Error(sanitized || 'gh api commit-status failed')
   }
 }
 
