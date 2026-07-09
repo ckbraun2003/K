@@ -8,7 +8,7 @@
  */
 import type { Project, VerifyResult, PrInfo } from '@k/shared'
 import { runsDb } from './db.js'
-import { getGithubStatus, publishCommitStatus, type CommitStatusState } from './github.js'
+import { getGithubStatus, publishCommitStatus, fetchPrMergeReadiness, mergePr, type CommitStatusState } from './github.js'
 import { listRunCheckpoints } from './checkpoints.js'
 
 export function reviewBranchFor(runId: string): string {
@@ -46,5 +46,27 @@ export async function publishVerifyStatusIfLinked(
   const ckpts = listRunCheckpoints(result.runId)
   if (ckpts.length === 0) return false
   await publishCommitStatus(project.githubRemote, ckpts[ckpts.length - 1].sha, mapped)
+  // E-06 auto-merge (default OFF): after a green verify, opt-in projects merge
+  // automatically — fire-and-forget so the publish path never blocks on gh, and
+  // the guarded readback inside means it NEVER merges around a red/pending check.
+  if (mapped.state === 'success' && project.autoMerge === true) {
+    void attemptAutoMerge(project, result.runId).catch(err => console.warn('[auto-merge] failed:', (err as Error).message))
+  }
   return true
+}
+
+/** E-06 auto-merge (default OFF): same green-readback guard as the route — the
+ *  flag never bypasses the check, it only removes the click. */
+async function attemptAutoMerge(project: Project, runId: string): Promise<void> {
+  const branch = reviewBranchFor(runId)
+  const pr = (getGithubStatus(project.id).prs as PrInfo[])
+    .find(p => p.headRefName === branch && String(p.state).toUpperCase() === 'OPEN')
+  if (!pr || !project.githubRemote) return
+  const ready = await fetchPrMergeReadiness(project.githubRemote, pr.number, project.localPath)
+  if (String(ready.state).toUpperCase() !== 'OPEN' || ready.checks !== 'passing') {
+    console.log(`[auto-merge] PR #${pr.number} not green yet (${ready.checks}) — skipped`)
+    return
+  }
+  await mergePr(project.githubRemote, pr.number)
+  console.log(`[auto-merge] merged PR #${pr.number} (${project.name})`)
 }

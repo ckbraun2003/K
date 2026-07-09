@@ -7,7 +7,7 @@
 import { execa } from 'execa'
 import { randomUUID } from 'crypto'
 import type { GithubStatus, PrInfo, CiRunInfo, IssueInfo, Project } from '@k/shared'
-import { parsePrList, parseCiRuns, parseIssueList } from './github-parse.js'
+import { parsePrList, parseCiRuns, parseIssueList, rollupChecks } from './github-parse.js'
 import { githubDb, projectWorkItemsDb } from './db.js'
 import { eventBus } from './events.js'
 import { listProjects } from './projects.js'
@@ -269,6 +269,36 @@ export async function publishCommitStatus(
     const err = e as { stderr?: string }
     const sanitized = (err.stderr ?? '').replace(/https?:\/\/\S+/g, '[url]').trim()
     throw new Error(sanitized || 'gh api commit-status failed')
+  }
+}
+
+// ─── P2 E-06: one-click merge readback + merge ──────────────────────────────
+
+/** Merge readiness readback — state + the SAME checks projection the poller uses. */
+export async function fetchPrMergeReadiness(
+  remote: string, number: number, cwd: string,
+): Promise<{ state: string; checks: PrInfo['checks'] }> {
+  try {
+    const raw = await ghJson(['pr', 'view', String(number), '--repo', remote, '--json', 'state,statusCheckRollup'], cwd) as Record<string, unknown>
+    return { state: String(raw.state ?? ''), checks: rollupChecks(raw.statusCheckRollup) }
+  } catch (e) {
+    // Same URL-sanitize idiom as createPR/mergePr/publishCommitStatus: gh stderr may
+    // echo remote URLs or auth-hint links, and this helper's error surfaces to the
+    // client as a 502 (routes/merge.ts) — the other ghJson callers only log + degrade.
+    const err = e as { stderr?: string }
+    const sanitized = (err.stderr ?? '').replace(/https?:\/\/\S+/g, '[url]').trim()
+    throw new Error(sanitized || 'gh pr view failed')
+  }
+}
+
+/** Merge-commit merge (matches the repo's own --no-ff history). */
+export async function mergePr(remote: string, number: number): Promise<void> {
+  try {
+    await execa('gh', ['pr', 'merge', String(number), '--repo', remote, '--merge'], { timeout: 60_000 })
+  } catch (e) {
+    const err = e as { stderr?: string }
+    const sanitized = (err.stderr ?? '').replace(/https?:\/\/\S+/g, '[url]').trim()
+    throw new Error(sanitized || 'gh pr merge failed')
   }
 }
 

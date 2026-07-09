@@ -13,13 +13,18 @@ import type { PrInfo, VerifyResult } from '@k/shared'
 // here imports index.js, but set it defensively (the review-comments.test.ts seam).
 vi.hoisted(() => { process.env.K_SKIP_BOOTSTRAP = '1' })
 
-// Spy on publishCommitStatus only; keep getGithubStatus (and the rest) REAL so the
-// link gate exercises a genuinely-seeded github_cache. vi.hoisted lifts the spy
-// above the hoisted vi.mock factory so the factory may close over it.
-const { publishSpy } = vi.hoisted(() => ({ publishSpy: vi.fn(async () => {}) }))
+// Spy on publishCommitStatus + the two gh-invoking merge helpers; keep
+// getGithubStatus (and the rest) REAL so the link gate exercises a
+// genuinely-seeded github_cache. vi.hoisted lifts the spies above the hoisted
+// vi.mock factory so the factory may close over them.
+const { publishSpy, readinessSpy, mergeSpy } = vi.hoisted(() => ({
+  publishSpy: vi.fn(async () => {}),
+  readinessSpy: vi.fn(),
+  mergeSpy: vi.fn(async () => {}),
+}))
 vi.mock('../src/github.js', async () => {
   const actual = await vi.importActual<typeof import('../src/github.js')>('../src/github.js')
-  return { ...actual, publishCommitStatus: publishSpy }
+  return { ...actual, publishCommitStatus: publishSpy, fetchPrMergeReadiness: readinessSpy, mergePr: mergeSpy }
 })
 
 import { runsDb, githubDb, eventsDb, projectsDb } from '../src/db.js'
@@ -135,5 +140,34 @@ describe('publishVerifyStatusIfLinked — link gate', () => {
     seedPrCache(projectId, [{ number: 4, title: 't', state: 'OPEN', url: 'u', checks: 'none', headRefName: reviewBranchFor(runId) }])
     expect(await publishVerifyStatusIfLinked(mkResult(runId, 'skipped'), getProject)).toBe(false)
     expect(publishSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('publishVerifyStatusIfLinked — E-06 auto-merge gating', () => {
+  it('merges via mergePr on a green success ONLY when project.autoMerge is ON', async () => {
+    publishSpy.mockClear(); readinessSpy.mockReset(); mergeSpy.mockClear()
+    // green readback: OPEN + passing (the same guard the route enforces)
+    readinessSpy.mockResolvedValue({ state: 'OPEN', checks: 'passing' })
+
+    // (ON) auto_merge=1 → attemptAutoMerge fires and merges
+    const pOn = seedProject('acme/on'); projectsDb.setProjectAutoMerge.run(1, pOn)
+    const rOn = uuid(); seedRun(rOn, pOn)
+    seedCheckpoint(rOn, 1, 'a'.repeat(40), 1)
+    seedPrCache(pOn, [{ number: 11, title: 't', state: 'OPEN',
+      url: 'https://github.com/acme/on/pull/11', checks: 'passing', headRefName: reviewBranchFor(rOn) }])
+    expect(await publishVerifyStatusIfLinked(mkResult(rOn, 'pass'), getProject)).toBe(true)
+    await new Promise(r => setImmediate(r)) // flush the fire-and-forget void attemptAutoMerge
+    expect(mergeSpy).toHaveBeenCalledWith('acme/on', 11)
+
+    // (OFF) default auto_merge=0 → attemptAutoMerge never runs
+    mergeSpy.mockClear()
+    const pOff = seedProject('acme/off') // no setProjectAutoMerge → default OFF
+    const rOff = uuid(); seedRun(rOff, pOff)
+    seedCheckpoint(rOff, 1, 'a'.repeat(40), 1)
+    seedPrCache(pOff, [{ number: 12, title: 't', state: 'OPEN',
+      url: 'https://github.com/acme/off/pull/12', checks: 'passing', headRefName: reviewBranchFor(rOff) }])
+    expect(await publishVerifyStatusIfLinked(mkResult(rOff, 'pass'), getProject)).toBe(true)
+    await new Promise(r => setImmediate(r))
+    expect(mergeSpy).not.toHaveBeenCalled()
   })
 })
