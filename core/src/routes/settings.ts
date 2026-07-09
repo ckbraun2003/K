@@ -32,6 +32,8 @@ import { credentialPosture, type CredentialPosture } from '../agent-config.js'
 import { probeWhisper } from '../transcription.js'
 import { GrantError, resolveAuthority } from '../authority.js'
 import { getProfile, updateProfile } from '../profiles.js'
+import { agentProfilesDb } from '../db.js'
+import { ORG_DEFAULT_PROFILE_ID } from '../plan-gate.js'
 import { sendError, sendZodError, describePatchRejection } from './http-errors.js'
 
 // ── System-prompt file location ───────────────────────────────────────────────
@@ -211,6 +213,11 @@ const OrgDefaultPatchSchema = z
     allowedTools: z.array(z.string()).optional(),
     mcpServers: z.array(z.string()).optional(),
     defaultModel: z.string().nullable().optional(), // null = clear to runtime default
+    // E-02 (D-084): the org-default tier plan-gate flag — an optional passthrough that
+    // mirrors defaultModel. Applied via agentProfilesDb.setProfilePlanGate below
+    // (updateProfile owns skills/tools/mcp/model only); the org-default authority is
+    // the ONE profile that carries the tier default the operator's dispatches resolve.
+    planGate: z.boolean().optional(),
   })
   .strict()
 
@@ -358,8 +365,20 @@ export async function settingsRoutes(app: FastifyInstance) {
       }
     }
     try {
-      const updated = updateProfile(ORG_DEFAULT_ID, parsed.data)
+      // E-02 (D-084): updateProfile owns skills/tools/mcp/model only; the plan_gate
+      // column is written by its dedicated setter. Write it ONLY AFTER updateProfile
+      // succeeds — updateProfile validates authority (assertEffectiveGrants) and
+      // throws GrantError → 400 on a rejected patch; writing plan_gate first would
+      // flip the org-wide plan-gate default even though the API tells the operator the
+      // request was rejected. Reflect the new flag on the returned payload so it still
+      // matches a fresh rowToAgentProfile read (0 → undefined).
+      const { planGate, ...profilePatch } = parsed.data
+      const updated = updateProfile(ORG_DEFAULT_ID, profilePatch)
       if (!updated) return sendError(reply, 404, 'not found')
+      if (planGate !== undefined) {
+        agentProfilesDb.setProfilePlanGate.run(planGate ? 1 : 0, ORG_DEFAULT_PROFILE_ID)
+        updated.planGate = planGate ? true : undefined
+      }
       return reply.send(updated)
     } catch (e) {
       // Typed guard signal → 400 with the message verbatim; anything else → 500.

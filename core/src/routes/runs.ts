@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import path from 'path'
 import { StartRunBodySchema, RunsQuerySchema, SendInputBodySchema, isKnownModel } from '@k/shared'
 import { startRun, kill, sendInput, endSession, REPO_ROOT } from '../supervisor.js'
+import { orgDefaultPlanGate } from '../plan-gate.js'
 import { runsDb, eventsDb, projectsDb, workflowStepsDb } from '../db.js'
 import { matchProjectByCwd, type ProjectPathRow } from '../project-match.js'
 import { sendError, sendZodError } from './http-errors.js'
@@ -25,7 +26,7 @@ export async function runsRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return sendZodError(reply, parsed.error)
     }
-    const { prompt, cwd, model, projectId, preferLocal, interactive, carryWorkingTree } = parsed.data
+    const { prompt, cwd, model, projectId, preferLocal, interactive, carryWorkingTree, planGate } = parsed.data
     // Validate the model at the boundary (lessons.md): reject anything not in the
     // known registry so a typo can't silently fall through to the CLI/router.
     if (model !== undefined && !isKnownModel(model)) {
@@ -42,7 +43,16 @@ export async function runsRoutes(app: FastifyInstance) {
       return sendError(reply, 400, 'cwd not under a registered project')
     }
     try {
-      const run = await startRun(prompt, { cwd, model, projectId, preferLocal, interactive, carryWorkingTree })
+      const run = await startRun(prompt, {
+        cwd, model, projectId, preferLocal, interactive, carryWorkingTree,
+        // E-02 (D-084): explicit per-dispatch toggle wins; absent = the org-default
+        // orchestrator profile's tier flag. INTERACTIVE dispatches are EXEMPT from
+        // the tier default (planGate x interactive throws in startRun — a tier
+        // default of ON must not 500 every interactive dispatch; an EXPLICIT
+        // planGate:true on an interactive dispatch still reaches the throw, which
+        // is the honest contract violation signal). (Conductor plan-review MAJOR-2.)
+        planGate: interactive ? planGate : (planGate ?? orgDefaultPlanGate()),
+      })
       return reply.status(201).send(run)
     } catch (e) {
       // The only FK on the runs INSERT is project_id → projects(id), so a SQLite
