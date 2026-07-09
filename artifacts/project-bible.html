@@ -191,7 +191,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-08 12:59</span><br>
+      compiled <span class="mono">2026-07-09 08:04</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -251,7 +251,7 @@ replaces the audit trail.</li>
         <span class="section-icon">⬡</span>
         <h1>Architecture</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-08</span>
+        <span class="section-updated mono">updated 2026-07-09</span>
       </header>
       <p><strong>Architecture A with B-seams</strong> — a single monolithic core (Architecture A) with three deliberate <strong>B-seams</strong> built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected). A planned <strong>fourth B-seam — TranscriptionProvider</strong> (voice in, Phase 5.4) follows the same swap-without-rewrite contract (D-031).</p>
 <pre><code>┌──────────────────────────────────────────────────────────────┐
@@ -512,6 +512,51 @@ under a documented <strong>single-core-per-repo</strong> assumption: ref existen
 instance's DB only, so a second core sharing the same repo checkout could sweep live chains
 (recoverable; no committed work touched). A cross-instance guard lands with the fleet work (P7).</li>
 </ul>
+<h2>Human gates — the plan gate &amp; the two park flavors (Phase 2)</h2>
+<p>Phase 2 adds a <strong>plan gate</strong>: a run can pause and hand its plan to the operator to approve, edit,
+or discard before it touches code. A parked run is one of <strong>two distinct flavors</strong> — they look
+similar in the UI but differ in the one property that matters, <em>is the process still alive?</em></p>
+<ul>
+<li><strong><code>awaiting_input</code> — the process-ALIVE park (D-014).</strong> An interactive HITL run keeps its claude
+CLI child alive with stdin held open; the operator's next turn is written straight to the running
+process, preserving its context and cost state in memory. Because a live process cannot outlive a
+restart, this park is <strong>NOT reboot-survivable</strong>, and an idle interactive park <strong>auto-ends</strong> (the
+idle timer closes stdin → <code>done</code>) so a forgotten conversation never squats a process forever.</li>
+<li><strong><code>awaiting_plan</code> — the process-DEAD park (D-079).</strong> At the plan gate the CLI child <strong>exits</strong>;
+nothing is held in memory. Resuming is a <code>claude -p --resume &lt;runs.cli_session_id&gt;</code> <strong>continuation
+in the SAME worktree</strong> with the <strong>SAME preserved per-run config dir</strong> — it composes directly with
+the D-074 same-cwd resume finding (a diff-cwd resume loses the CLI session, so the worktree and
+its synthesized <code>CLAUDE_CONFIG_DIR</code> are retained, not cleaned, while the run is parked). Because
+nothing is in memory and everything needed to resume lives in git + the DB + the config dir on
+disk, this park <strong>survives a reboot</strong> and carries <strong>NO idle timer</strong> — a plan can wait as long as
+the operator needs.</li>
+</ul>
+<p><strong>Park → approve / edit / discard (the state machine).</strong> A run reaching the plan gate parks at
+<code>awaiting_plan</code> (canonical review state <code>waiting/review_needed</code>). Every transition off that state is
+a <strong>compare-and-swap</strong> guarded on <code>status = 'awaiting_plan'</code>, so a double-click or a race between two
+tabs can only fire once:</p>
+<ul>
+<li><strong>Approve</strong> → the run resumes (<code>--resume</code>) in its retained worktree/config dir and proceeds to code.</li>
+<li><strong>Edit then approve</strong> → the operator's edited plan is what gets approved (see plan storage below).</li>
+<li><strong>Discard</strong> → the run terminates without resuming; its worktree and config dir are cleaned.</li>
+</ul>
+<p><strong>Boot sweep.</strong> On startup the sweep distinguishes a <em>healthy</em> parked run from a <em>broken</em> one:
+<strong>only runs whose substrate is broken</strong> (missing worktree, missing config dir, or a dead
+<code>cli_session_id</code>) flip to <code>interrupted</code>. A healthy <code>awaiting_plan</code> park — worktree present, config
+dir retained, session resumable — <strong>survives the reboot untouched</strong>, which is the whole point of the
+process-dead flavor.</p>
+<p><strong>Plan storage (D-080).</strong> The plan lives in <strong><code>run_plans</code> — ONE current row per run</strong> (an upsert,
+mirroring the <code>verify_results</code> current-row shape), so the plan chip always reflects the plan the
+operator is looking at, never a history. Operator edits are <strong>last-wins</strong> and set an <code>edited</code> flag;
+the model's original <code>raw</code> plan turn is <strong>always kept</strong> alongside. A plan turn the CLI emits that
+does not parse into a structured plan <strong>parks honestly with <code>plan = NULL</code></strong> (the <code>raw</code> text is
+retained) rather than fabricating a plan or dropping the run — the operator still gets the gate.</p>
+<p><strong>The plan-turn scaffold is a runtime argument, never stored prompt.</strong> The scaffold that instructs a
+run to produce a plan first is passed as a <strong><code>runAgent</code> argument</strong>, never written into <code>run.prompt</code>
+— so a resumed or rewound run never re-inherits a stale scaffold, and the stored prompt stays the
+operator's actual request. The scaffold deliberately <strong>names no tools, servers, or skills</strong> (those
+are the authority layer's job, D-021); it only asks for a plan, keeping the gate orthogonal to what
+a tier is allowed to do.</p>
 
     </section>
 
@@ -1415,7 +1460,7 @@ see §03 <em>Reused connectors</em>).</p>
         <span class="section-icon">⎇</span>
         <h1>GitHub Integration</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-06-17</span>
+        <span class="section-updated mono">updated 2026-07-09</span>
       </header>
       <p>All projects work <strong>through GitHub</strong>: agents branch, commit, and open PRs; deterministic CI gates merges; the dashboard mirrors PR and CI state. Connection mechanism: the authenticated <strong><code>gh</code> CLI + polling</strong> (decision D-003) — zero extra infrastructure, works behind any network, and the seam allows webhook push later.</p>
 <h2>GitHubProvider (the seam)</h2>
@@ -1492,6 +1537,31 @@ see §03 <em>Reused connectors</em>).</p>
 <td>project flagged <code>attention</code>; verification reports the broken invariant</td>
 </tr>
 </tbody></table>
+<h2>Branch protection — requiring <code>k/verify</code> (Phase 2, D-083)</h2>
+<p>Verification is <strong>GitHub-native</strong>: when a run's E-04 battery runs, K publishes its result as a
+commit status named <strong><code>k/verify</code></strong> onto the run's <strong>final checkpoint sha</strong>, which is the head of the
+run's review branch (<code>k-review/&lt;runId8&gt;</code>). So on the PR that branch opens, <code>k/verify</code> shows up as an
+ordinary <strong>commit status on the PR head</strong> — visible in the PR checks list and usable in <strong>branch
+protection</strong> like any CI context. The state maps straight through: <code>running → pending</code>,
+<code>pass → success</code>, <code>fail → failure</code>, <code>error → error</code>, and a <strong>skipped</strong> verify (no recipe) publishes
+<strong>nothing at all</strong> — there is never a fabricated pass.</p>
+<p><strong>Making <code>k/verify</code> a required check.</strong> To require it on a repo's default branch:</p>
+<pre><code>gh api -X PUT repos/&lt;owner&gt;/&lt;repo&gt;/branches/&lt;default&gt;/protection \
+  -H "Accept: application/vnd.github+json" \
+  --input - &lt;&lt;'JSON'
+{ "required_status_checks": { "strict": false, "contexts": ["k/verify"] },
+  "enforce_admins": false, "required_pull_request_reviews": null, "restrictions": null }
+JSON
+</code></pre>
+<p><strong>Require <code>k/verify</code> ONLY on recipe-configured projects.</strong> Because a skipped verify (a project with
+no operator-authored recipe) publishes <strong>no status at all</strong>, making <code>k/verify</code> a <em>required</em> context
+on such a repo would <strong>block every PR forever by design</strong> — the required check can never arrive.
+Require it only where a verify recipe actually exists.</p>
+<p><strong>K's merge does not depend on branch protection.</strong> K's one-click merge (<code>gh pr merge --merge</code>)
+<strong>re-checks the checks rollup server-side</strong> before it merges — guarded on the PR being OPEN with
+checks green — so a required <code>k/verify</code> context is a belt-and-suspenders convenience on the GitHub
+side, not the thing K relies on. <strong>Auto-merge defaults OFF</strong> and never bypasses that server-side
+readback.</p>
 
     </section>
 
@@ -1708,7 +1778,7 @@ agent org can be evaluated as it comes online.</p>
         <span class="section-icon">▣</span>
         <h1>Dashboard — Command Deck</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-05</span>
+        <span class="section-updated mono">updated 2026-07-09</span>
       </header>
       <p>The dashboard is the <strong>window into the agent organization</strong> (§03) — held to product quality, not
 internal-tool quality. It is re-framed from <em>an operator driving a deck of tools</em> to <em>a user
@@ -2095,6 +2165,29 @@ parked-excluded active latency and killed-excluded success rate.</li>
 discrimination / regression report, the raw results table, and a <strong>gated Run</strong> (dry by default — a real
 token-spending run requires an explicit opt-in that resets on every dialog open). (Internals in §07.)</li>
 <li><strong>Terminal.</strong> A guarded <code>node-pty</code> web terminal (default-off; scoped <code>TERMINAL_TOKEN</code>).</li>
+</ul>
+<h2>Approvals Inbox + notifications (Human Gates — Phase 2)</h2>
+<ul>
+<li><strong>The Approvals Inbox is THE "needs-YOU" surface.</strong> One place that answers "what is waiting on
+<em>me</em>?" It is a <strong>UNION over five sources</strong> — <strong>plan approvals</strong> (runs parked at <code>awaiting_plan</code>),
+<strong><code>awaiting_input</code> parks</strong> (interactive runs waiting on your turn), <strong>pending lessons</strong> (the
+memory-review queue of §04), <strong>untrusted MCP</strong> (servers awaiting a trust decision), and
+<strong>review-ready runs</strong> (finished runs with a diff to review). It is <strong>a query, never a table</strong>
+(D-081): each item is read live from its own authoritative source, so the Inbox can never drift
+out of sync with the surfaces it aggregates.</li>
+<li><strong>Dismissal semantics.</strong> A review-ready run is dismissed by a <strong>stamp-once <code>runs.reviewed_at</code></strong>
+(backfilled at schema v10) — once you have reviewed it, the card stays gone. An untrusted-MCP card
+is dismissed by an <strong><code>inbox_dismissed_hash</code> pinned to the server's <code>config_hash</code></strong>: dismissing pins
+the hash you saw, and if the MCP config later <strong>drifts</strong> (a new <code>config_hash</code>), the card
+<strong>re-surfaces</strong> so a changed server is re-reviewed rather than silently trusted.</li>
+<li><strong>Notifications — rules and channels.</strong> A seeded <strong><code>notification_rules</code></strong> table maps an <strong>event
+key → channel</strong> (in-app and/or browser). The <strong>in-app center</strong> is the <strong>durable</strong> log — it persists
+what happened so nothing is missed while you were away. The <strong>browser leg is transient</strong>: the
+engine dedupes on <strong>status transitions</strong> (not on every event), and a browser notification <strong>raises
+only when the tab is hidden AND permission has been granted</strong> (the permission prompt is
+<strong>gesture-requested</strong>, since browsers reject un-gestured permission requests). With permission
+denied or the tab focused, the in-app center still records everything — the browser leg is purely
+an optional attention-grab.</li>
 </ul>
 <h2>Settings + Help</h2>
 <ul>
@@ -2666,7 +2759,7 @@ of invented numbers).</p>
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-08</span>
+        <span class="section-updated mono">updated 2026-07-09</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -3303,6 +3396,54 @@ of invented numbers).</p>
 <td><strong>E-04's change-scope and E-07's impact panel map changed files to indexed symbols by reading the project's exported <code>.gitnexus/graph.json</code> (written by <code>graph.ts::exportGraphJson</code>) — deliberately NO MCP and NO CLI in the hot path: the installed gitnexus CLI has no detect-changes subcommand, and the exported artifact is the already-built source of truth. Structural risk thresholds live in <code>riskForScope</code> (<code>gitnexus-scope.ts</code>); unindexed projects degrade to <code>indexed:false</code>, a missing/garbled artifact to <code>null</code> — never a blocked verify or panel</strong></td>
 <td>The verify battery and the impact panel are post-run/read paths that must stay fast and non-blocking; a file read of an existing artifact is orders cheaper and failure-isolated compared to spawning a server or shelling out per call</td>
 <td>The gitnexus CLI in the hot path (no detect-changes subcommand exists); an MCP round-trip per verify/impact call (spawns a server process — slow, blocking, failure-coupled); re-analyzing the repo at verify time (heavy; the exported graph is the indexed truth until the next analyze)</td>
+</tr>
+<tr>
+<td>D-079</td>
+<td>2026-07-09</td>
+<td>Plan gate — the <code>awaiting_plan</code> process-dead park (Phase 2)</td>
+<td><strong><code>awaiting_plan</code> is a DISTINCT process-dead park (canonical <code>waiting/review_needed</code>); resume = <code>--resume runs.cli_session_id</code> in the SAME worktree with the SAME preserved per-run config dir (D-074 composes); boot sweep flips only broken substrates to <code>interrupted</code>.</strong></td>
+<td>A plan gate must survive a reboot and cost nothing while it waits — which a live-stdin <code>awaiting_input</code> park (D-014) cannot — so the process EXITS and the plan turn is replayed cheaply via the proven <code>--resume</code> continuation (D-062/D-074) in the same cwd + preserved config dir; a healthy parked run must never be swept to <code>interrupted</code> on boot</td>
+<td>Holding a live process at the plan gate (the D-014 cost/park, not reboot-survivable); resuming in a fresh worktree or config dir (D-074 proved diff-cwd resume loses the CLI session); a blanket boot sweep that interrupts every parked run (would destroy reboot-survivable plan parks — only BROKEN substrates flip)</td>
+</tr>
+<tr>
+<td>D-080</td>
+<td>2026-07-09</td>
+<td>Plan storage — <code>run_plans</code>, one current row per run</td>
+<td><strong>Plan storage = <code>run_plans</code>, ONE current row per run; last-wins operator edits (<code>edited</code> flag); <code>raw</code> always kept; unparseable plan turns park honestly with <code>plan = NULL</code>.</strong></td>
+<td>The plan chip reflects the CURRENT plan the operator is approving, not a history — so one upsert row per run mirrors the <code>verify_results</code> current-row shape (D-076); keeping <code>raw</code> and honoring last-wins operator edits means what is approved is exactly what is shown, and a plan turn the CLI did not emit parseably must never fabricate a plan</td>
+<td>A plan-history table (the gate reads current state, not a log — matches D-076); discarding <code>raw</code> after parsing (loses the honest record when parsing degrades); dropping or blocking a run whose plan turn is unparseable (parking with <code>plan = NULL</code> keeps the operator in control instead)</td>
+</tr>
+<tr>
+<td>D-081</td>
+<td>2026-07-09</td>
+<td>Approvals Inbox — a union query, never a table</td>
+<td><strong>The Approvals Inbox is a UNION QUERY over five sources, never a table; dismissals: <code>runs.reviewed_at</code> stamp-once (backfilled at v10) and MCP <code>inbox_dismissed_hash</code> pinned to <code>config_hash</code> (drift re-surfaces).</strong></td>
+<td>Every needs-YOU item already lives in its own authoritative source (plan approvals, <code>awaiting_input</code> parks, pending lessons, untrusted MCP, review-ready runs), so a derived union stays truthful with zero sync; a stamp-once <code>reviewed_at</code> and a <code>config_hash</code>-pinned MCP dismissal keep a dismissed card gone only until the underlying config actually changes</td>
+<td>A materialized inbox table (duplicates the five sources, drifts, needs sync); a permanent MCP dismissal not keyed to <code>config_hash</code> (a later config change would stay silently hidden — pinning re-surfaces the card)</td>
+</tr>
+<tr>
+<td>D-082</td>
+<td>2026-07-09</td>
+<td>Notifications phase 1 — seeded rules + durable center + transient browser leg</td>
+<td><strong>Notifications phase 1 = seeded <code>notification_rules</code> (event key -&gt; in-app/browser) + a durable in-app center + a transient WS <code>notification</code> member carrying the rule's <code>browser</code> flag; engine dedupes on STATUS TRANSITIONS; the browser leg raises only when hidden + permission granted (gesture-requested).</strong></td>
+<td>Operators need a durable record plus an optional attention-grab, but a browser toast on every event is noise — so a seeded rules table maps event key to channel, the in-app center is the durable log, and the browser leg fires only on a real status transition while the tab is hidden and permission has been granted</td>
+<td>Firing a browser notification on every event (noise — dedupe on transitions instead); a browser-only scheme with no durable center (misses everything while the tab is closed); requesting notification permission unprompted (browsers reject un-gestured prompts — request on an operator gesture)</td>
+</tr>
+<tr>
+<td>D-083</td>
+<td>2026-07-09</td>
+<td>Verification is GitHub-native — the <code>k/verify</code> commit status</td>
+<td><strong>Verification is GitHub-native: context <code>k/verify</code> published onto the run's final checkpoint sha; <code>running-&gt;pending . pass-&gt;success . fail-&gt;failure . error-&gt;error . skipped-&gt;NOT published</code>; publish at approve (with a fresh-PR cache upsert) + republish on verify updates for PR-linked runs (<code>headRefName === k-review/&lt;runId8&gt;</code>); merge = <code>gh pr merge --merge</code> guarded by an OPEN + checks-green readback; auto-merge defaults OFF and never bypasses the readback.</strong></td>
+<td>The delivery path already lives on GitHub (D-003/D-004), so publishing verify as a native commit status makes it visible on the PR, in branch protection, and to any other tool with no new plumbing; a skipped recipe publishes nothing (never a fabricated pass — D-076), and a merge proceeds only after a fresh server-side OPEN + green readback so a stale UI can never merge a red PR</td>
+<td>A K-private verify signal invisible to GitHub branch protection (D-004 is GitHub-native gating); publishing a status for a skipped recipe (fabricates a pass — D-076 forbids it); merging on cached UI state without a readback (races a red rollup); auto-merge on by default (removes the human gate)</td>
+</tr>
+<tr>
+<td>D-084</td>
+<td>2026-07-09</td>
+<td>Plan-gate tier default rides <code>agent_profiles.plan_gate</code></td>
+<td><strong>Plan-gate tier default rides <code>agent_profiles.plan_gate</code> (the org-default orchestrator row is the operator default; org dispatches inherit their profile's flag); an explicit per-dispatch <code>planGate</code> always wins.</strong></td>
+<td>Whether a run stops at a plan gate is a policy that belongs on the same profile row that already carries a tier's tools/MCP/authority (D-021/D-047), so the org-default orchestrator row is the one operator-editable default and org dispatches inherit their profile's flag — while a specific dispatch can always force the gate on or off</td>
+<td>A single global on/off flag (cannot vary the gate per tier/lead); the gate always on or always off (removes operator control over routine vs. risky work); a per-dispatch flag a profile default could override (an explicit request must win)</td>
 </tr>
 </tbody></table>
 

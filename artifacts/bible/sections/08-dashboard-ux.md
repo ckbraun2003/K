@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-05
+updated: 2026-07-09
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -305,6 +305,29 @@ A project opens into its workspace (unchanged in shape):
   discrimination / regression report, the raw results table, and a **gated Run** (dry by default — a real
   token-spending run requires an explicit opt-in that resets on every dialog open). (Internals in §07.)
 - **Terminal.** A guarded `node-pty` web terminal (default-off; scoped `TERMINAL_TOKEN`).
+
+## Approvals Inbox + notifications (Human Gates — Phase 2)
+
+- **The Approvals Inbox is THE "needs-YOU" surface.** One place that answers "what is waiting on
+  *me*?" It is a **UNION over five sources** — **plan approvals** (runs parked at `awaiting_plan`),
+  **`awaiting_input` parks** (interactive runs waiting on your turn), **pending lessons** (the
+  memory-review queue of §04), **untrusted MCP** (servers awaiting a trust decision), and
+  **review-ready runs** (finished runs with a diff to review). It is **a query, never a table**
+  (D-081): each item is read live from its own authoritative source, so the Inbox can never drift
+  out of sync with the surfaces it aggregates.
+- **Dismissal semantics.** A review-ready run is dismissed by a **stamp-once `runs.reviewed_at`**
+  (backfilled at schema v10) — once you have reviewed it, the card stays gone. An untrusted-MCP card
+  is dismissed by an **`inbox_dismissed_hash` pinned to the server's `config_hash`**: dismissing pins
+  the hash you saw, and if the MCP config later **drifts** (a new `config_hash`), the card
+  **re-surfaces** so a changed server is re-reviewed rather than silently trusted.
+- **Notifications — rules and channels.** A seeded **`notification_rules`** table maps an **event
+  key → channel** (in-app and/or browser). The **in-app center** is the **durable** log — it persists
+  what happened so nothing is missed while you were away. The **browser leg is transient**: the
+  engine dedupes on **status transitions** (not on every event), and a browser notification **raises
+  only when the tab is hidden AND permission has been granted** (the permission prompt is
+  **gesture-requested**, since browsers reject un-gestured permission requests). With permission
+  denied or the tab focused, the in-app center still records everything — the browser leg is purely
+  an optional attention-grab.
 
 ## Settings + Help
 

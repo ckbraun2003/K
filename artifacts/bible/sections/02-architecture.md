@@ -2,7 +2,7 @@
 title: Architecture
 icon: "⬡"
 status: stable
-updated: 2026-07-08
+updated: 2026-07-09
 ---
 
 **Architecture A with B-seams** — a single monolithic core (Architecture A) with three deliberate **B-seams** built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected). A planned **fourth B-seam — TranscriptionProvider** (voice in, Phase 5.4) follows the same swap-without-rewrite contract (D-031).
@@ -258,3 +258,52 @@ worktree, which is removed at terminal.
   under a documented **single-core-per-repo** assumption: ref existence is checked against this
   instance's DB only, so a second core sharing the same repo checkout could sweep live chains
   (recoverable; no committed work touched). A cross-instance guard lands with the fleet work (P7).
+
+## Human gates — the plan gate & the two park flavors (Phase 2)
+
+Phase 2 adds a **plan gate**: a run can pause and hand its plan to the operator to approve, edit,
+or discard before it touches code. A parked run is one of **two distinct flavors** — they look
+similar in the UI but differ in the one property that matters, *is the process still alive?*
+
+- **`awaiting_input` — the process-ALIVE park (D-014).** An interactive HITL run keeps its claude
+  CLI child alive with stdin held open; the operator's next turn is written straight to the running
+  process, preserving its context and cost state in memory. Because a live process cannot outlive a
+  restart, this park is **NOT reboot-survivable**, and an idle interactive park **auto-ends** (the
+  idle timer closes stdin → `done`) so a forgotten conversation never squats a process forever.
+- **`awaiting_plan` — the process-DEAD park (D-079).** At the plan gate the CLI child **exits**;
+  nothing is held in memory. Resuming is a `claude -p --resume <runs.cli_session_id>` **continuation
+  in the SAME worktree** with the **SAME preserved per-run config dir** — it composes directly with
+  the D-074 same-cwd resume finding (a diff-cwd resume loses the CLI session, so the worktree and
+  its synthesized `CLAUDE_CONFIG_DIR` are retained, not cleaned, while the run is parked). Because
+  nothing is in memory and everything needed to resume lives in git + the DB + the config dir on
+  disk, this park **survives a reboot** and carries **NO idle timer** — a plan can wait as long as
+  the operator needs.
+
+**Park → approve / edit / discard (the state machine).** A run reaching the plan gate parks at
+`awaiting_plan` (canonical review state `waiting/review_needed`). Every transition off that state is
+a **compare-and-swap** guarded on `status = 'awaiting_plan'`, so a double-click or a race between two
+tabs can only fire once:
+
+- **Approve** → the run resumes (`--resume`) in its retained worktree/config dir and proceeds to code.
+- **Edit then approve** → the operator's edited plan is what gets approved (see plan storage below).
+- **Discard** → the run terminates without resuming; its worktree and config dir are cleaned.
+
+**Boot sweep.** On startup the sweep distinguishes a *healthy* parked run from a *broken* one:
+**only runs whose substrate is broken** (missing worktree, missing config dir, or a dead
+`cli_session_id`) flip to `interrupted`. A healthy `awaiting_plan` park — worktree present, config
+dir retained, session resumable — **survives the reboot untouched**, which is the whole point of the
+process-dead flavor.
+
+**Plan storage (D-080).** The plan lives in **`run_plans` — ONE current row per run** (an upsert,
+mirroring the `verify_results` current-row shape), so the plan chip always reflects the plan the
+operator is looking at, never a history. Operator edits are **last-wins** and set an `edited` flag;
+the model's original `raw` plan turn is **always kept** alongside. A plan turn the CLI emits that
+does not parse into a structured plan **parks honestly with `plan = NULL`** (the `raw` text is
+retained) rather than fabricating a plan or dropping the run — the operator still gets the gate.
+
+**The plan-turn scaffold is a runtime argument, never stored prompt.** The scaffold that instructs a
+run to produce a plan first is passed as a **`runAgent` argument**, never written into `run.prompt`
+— so a resumed or rewound run never re-inherits a stale scaffold, and the stored prompt stays the
+operator's actual request. The scaffold deliberately **names no tools, servers, or skills** (those
+are the authority layer's job, D-021); it only asks for a plan, keeping the gate orthogonal to what
+a tier is allowed to do.
