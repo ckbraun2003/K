@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Run } from '@k/shared'
 import { onWsMessage } from '../lib/ws'
 import { navigate } from '../lib/route'
-import { makeRunUpdateInvalidator, makeProjectListInvalidator, makeCapabilitiesInvalidator, makeVerifyInvalidator } from '../lib/live-invalidate'
+import { makeRunUpdateInvalidator, makeProjectListInvalidator, makeCapabilitiesInvalidator, makeVerifyInvalidator, makeInboxInvalidator } from '../lib/live-invalidate'
+import { raiseBrowserNotification } from '../lib/notifications'
 import { RUNS_LIST_KEY, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
 import { cleanRunPrompt } from '../lib/prompt'
 
@@ -26,11 +27,14 @@ export default function ActivityStrip() {
     const capabilitiesInvalidator = makeCapabilitiesInvalidator(qc)
     // verify_update → refresh that run's verify-chip cache (E-04).
     const verifyInvalidator = makeVerifyInvalidator(qc)
+    const inboxInvalidator = makeInboxInvalidator(qc)
     const unsubscribe = onWsMessage(msg => {
       invalidator.handler(msg)
       projectListInvalidator(msg)
       capabilitiesInvalidator(msg)
       verifyInvalidator(msg)
+      inboxInvalidator(msg)
+      raiseBrowserNotification(msg) // E-19 browser leg (visibility- + permission-gated)
     })
     return () => {
       unsubscribe()

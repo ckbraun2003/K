@@ -24,6 +24,8 @@ vi.mock('../src/lib/live-invalidate', () => ({
   makeProjectListInvalidator: () => () => {},
   makeCapabilitiesInvalidator: () => () => {},
   makeVerifyInvalidator: () => () => {},
+  // P2 B3: ActivityStrip now also wires the inbox invalidator into the WS handler.
+  makeInboxInvalidator: () => () => {},
 }))
 vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 
