@@ -18,6 +18,7 @@ import { verifyResultsDb } from './db.js'
 import { eventBus } from './events.js'
 import { listRunCheckpoints } from './checkpoints.js'
 import { isProjectIndexed, loadGraphJson, scopeForFiles } from './gitnexus-scope.js'
+import { publishVerifyStatusIfLinked } from './verify-status.js'
 
 const DEFAULT_CMD_TIMEOUT_MS = 5 * 60_000
 const OUTPUT_TAIL_CHARS = 2000
@@ -25,6 +26,11 @@ const GIT_BOUND = { timeout: 60_000, killSignal: 'SIGKILL' as const }
 
 // Runs currently being verified — dedups duplicate terminal emits.
 const inFlight = new Set<string>()
+
+// E-06: how to resolve a run's project → Project (for the PR-link commit-status
+// publish). Set by registerRunVerify (production passes getProject); left null in
+// tests that never register, so persistAndBroadcast keeps its pre-E-06 behavior.
+let statusResolver: ((id: string) => Project | null) | null = null
 
 /** verify_results row → wire shape (defensive JSON columns). */
 export function rowToVerifyResult(r: Record<string, unknown>): VerifyResult {
@@ -54,6 +60,12 @@ function persistAndBroadcast(result: VerifyResult): void {
     completedAt: result.completedAt,
   })
   eventBus.broadcast({ type: 'verify_update', result })
+  // E-06: re-publish the k/verify commit status when this run is PR-linked
+  // (fire-and-forget — a gh failure must never break verify persistence).
+  if (statusResolver) {
+    void publishVerifyStatusIfLinked(result, statusResolver)
+      .catch(err => console.warn(`[verify-status] publish failed (run ${result.runId}):`, (err as Error).message))
+  }
 }
 
 /** Kill a spawned shell AND its descendants. execa's own `timeout` signals only
@@ -169,6 +181,7 @@ export async function verifyRun(run: { id: string }, project: Project): Promise<
  * Returns the unsubscribe.
  */
 export function registerRunVerify(resolveProject: (id: string) => Project | null): () => void {
+  statusResolver = resolveProject
   return eventBus.onRunUpdate((run: Run) => {
     if (run.status !== 'done' || !run.projectId) return
     if (inFlight.has(run.id)) return
@@ -179,4 +192,14 @@ export function registerRunVerify(resolveProject: (id: string) => Project | null
       .catch(err => console.warn(`[run-verify] verify failed (run ${run.id}):`, (err as Error).message))
       .finally(() => inFlight.delete(run.id))
   })
+}
+
+/** E-06: on-demand re-verify (POST /api/runs/:id/verify). False = already in flight. */
+export function triggerVerify(runId: string, project: Project): boolean {
+  if (inFlight.has(runId)) return false
+  inFlight.add(runId)
+  void verifyRun({ id: runId }, project)
+    .catch(err => console.warn(`[run-verify] re-verify failed (run ${runId}):`, (err as Error).message))
+    .finally(() => inFlight.delete(runId))
+  return true
 }

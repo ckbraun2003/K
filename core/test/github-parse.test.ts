@@ -41,6 +41,50 @@ describe('parsePrList', () => {
   })
 })
 
+// P2 E-06 — the rollup now also reads StatusContext rows, which carry `state`
+// (SUCCESS | PENDING | EXPECTED | FAILURE | ERROR) rather than a CheckRun's
+// `conclusion`. K's own k/verify commit status is a StatusContext. The CheckRun
+// row below was captured live (ckbraun2003/KAT PR#2, `gh pr view 2 --json
+// statusCheckRollup`); the StatusContext shape is the documented GraphQL
+// StatusContext union member (a live write to capture one was sandbox-blocked as
+// an external mutation — this documented shape is the sanctioned fallback).
+describe('parsePrList — StatusContext rollup (P2 E-06)', () => {
+  // REAL CheckRun row (captured live from ckbraun2003/KAT PR#2).
+  const checkRunOk = { __typename: 'CheckRun', name: 'Engine + Tests', status: 'COMPLETED', conclusion: 'SUCCESS', workflowName: 'Terminal Build CI' }
+  const statusCtx = (state: string) => ({ __typename: 'StatusContext', context: 'k/verify', state })
+  const rollup = (entries: unknown[]) =>
+    parsePrList([{ number: 1, title: 't', state: 'OPEN', url: 'u', statusCheckRollup: entries }])[0].checks
+
+  it('CheckRun SUCCESS + StatusContext k/verify SUCCESS → passing', () => {
+    expect(rollup([checkRunOk, statusCtx('SUCCESS')])).toBe('passing')
+  })
+  it('a PENDING StatusContext → pending', () => {
+    expect(rollup([checkRunOk, statusCtx('PENDING')])).toBe('pending')
+  })
+  it('an EXPECTED StatusContext → pending', () => {
+    expect(rollup([checkRunOk, statusCtx('EXPECTED')])).toBe('pending')
+  })
+  it('a FAILURE StatusContext → failing', () => {
+    expect(rollup([checkRunOk, statusCtx('FAILURE')])).toBe('failing')
+  })
+  it('an ERROR StatusContext → failing', () => {
+    expect(rollup([checkRunOk, statusCtx('ERROR')])).toBe('failing')
+  })
+})
+
+describe('parsePrList — headRefName mapping (P2 E-06)', () => {
+  it('maps a string headRefName; absent/non-string → undefined', () => {
+    const prs = parsePrList([
+      { number: 1, title: 'linked', state: 'OPEN', url: 'u', headRefName: 'k-review/abcdef01' },
+      { number: 2, title: 'no-ref', state: 'OPEN', url: 'u' },
+      { number: 3, title: 'bad-ref', state: 'OPEN', url: 'u', headRefName: 42 },
+    ])
+    expect(prs[0].headRefName).toBe('k-review/abcdef01')
+    expect(prs[1].headRefName).toBeUndefined()
+    expect(prs[2].headRefName).toBeUndefined()
+  })
+})
+
 describe('parseIssueList', () => {
   it('maps gh issue list --json output', () => {
     const gh = [

@@ -3,14 +3,16 @@ import type { FastifyInstance } from 'fastify'
 import { execa } from 'execa'
 import fs from 'fs'
 import { v4 as uuid } from 'uuid'
-import type { DiffPayload } from '@k/shared'
+import type { DiffPayload, PrInfo } from '@k/shared'
 import { CreateReviewCommentBodySchema, UpdateReviewCommentBodySchema, RequestChangesBodySchema, ApproveRunBodySchema, isKnownModel, type ReviewComment } from '@k/shared'
-import { runsDb, reviewCommentsDb } from '../db.js'
+import { runsDb, reviewCommentsDb, verifyResultsDb, githubDb } from '../db.js'
 import { listRunCheckpoints } from '../checkpoints.js'
 import { parseUnifiedDiff } from '../diff-parse.js'
 import { getProject } from '../projects.js'
 import { startRun } from '../supervisor.js'
-import { createPR } from '../github.js'
+import { createPR, getGithubStatus } from '../github.js'
+import { rowToVerifyResult } from '../run-verify.js'
+import { publishVerifyStatusIfLinked, reviewBranchFor } from '../verify-status.js'
 import { sendError, sendZodError } from './http-errors.js'
 
 const GIT_BOUND = { timeout: 60_000, killSignal: 'SIGKILL' as const }
@@ -188,6 +190,8 @@ export async function reviewRoutes(app: FastifyInstance) {
       for (const c of drafts) {
         reviewCommentsDb.markReviewCommentSent.run(c.id)
       }
+      // P2 E-05: a fix dispatch acknowledges the review — drop the inbox card.
+      runsDb.markRunReviewed.run(Date.now(), req.params.id)
       return reply.status(201).send({ run, commentsSent: drafts.length })
     } catch (e) {
       req.log.error(e)
@@ -210,7 +214,7 @@ export async function reviewRoutes(app: FastifyInstance) {
     const ckpts = listRunCheckpoints(req.params.id)
     if (ckpts.length === 0) return sendError(reply, 409, 'run has no checkpointed changes to approve')
     const head = ckpts[ckpts.length - 1].sha
-    const branch = `k-review/${req.params.id.slice(0, 8)}`
+    const branch = reviewBranchFor(req.params.id)
     // Two catch scopes (quality-review HIGH): raw git/execa failure text can echo
     // the remote URL (credentials-in-remote setups), so it degrades to a fixed
     // message; createPR errors are already URL-sanitized at source (github.ts).
@@ -229,6 +233,28 @@ export async function reviewRoutes(app: FastifyInstance) {
         head: branch,
         base: parsed.data.base ?? project.defaultBranch ?? 'main',
       })
+      // P2 E-05/E-06: approve acknowledges the review AND publishes the current
+      // verify verdict onto the PR head (absent/skipped verify → nothing published).
+      // Best-effort: createPR ALREADY succeeded, so a stamp/cache/publish throw must
+      // never surface as a 500 (the PR exists — a retry would hit "PR already exists"
+      // and read as broken). Log the bookkeeping failure and still return 201.
+      try {
+        runsDb.markRunReviewed.run(Date.now(), req.params.id)
+        // The 60s poller has NOT cached this just-created PR yet, so the link gate
+        // would skip. Upsert it now (headRefName === branch) so the ONE publish path
+        // sees an OPEN linked PR — and the fresh PR is immediately mergeable-aware in
+        // the UI. Dedup by number keeps re-approve idempotent.
+        const freshPr: PrInfo = { number: pr.number, title: pr.title, state: 'OPEN', url: pr.url, checks: 'none', headRefName: branch }
+        const list = [...getGithubStatus(project.id).prs.filter(p => p.number !== freshPr.number), freshPr]
+        githubDb.upsertGithubCache.run({ projectId: project.id, kind: 'pr', payload: JSON.stringify(list), fetchedAt: Date.now() })
+        const vRow = verifyResultsDb.getVerifyResult.get(req.params.id) as Record<string, unknown> | undefined
+        if (vRow) {
+          void publishVerifyStatusIfLinked(rowToVerifyResult(vRow), () => project)
+            .catch(err => req.log.warn({ err }, 'verify-status publish failed'))
+        }
+      } catch (bookkeepingErr) {
+        req.log.warn({ err: bookkeepingErr }, 'approve bookkeeping failed (PR already created)')
+      }
       return reply.status(201).send({ branch, pr })
     } catch (e) {
       // The pushed k-review/* branch stays on origin if createPR fails — safe:
