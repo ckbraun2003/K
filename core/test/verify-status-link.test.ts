@@ -5,7 +5,7 @@
  * seeded github_cache row. Seeds runs + checkpoint events + github_cache directly.
  * DB is isolated to os.tmpdir() via vitest.config.ts K_DATA_DIR env.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import type { PrInfo, VerifyResult } from '@k/shared'
 
@@ -27,16 +27,38 @@ vi.mock('../src/github.js', async () => {
   return { ...actual, publishCommitStatus: publishSpy, fetchPrMergeReadiness: readinessSpy, mergePr: mergeSpy }
 })
 
-import { runsDb, githubDb, eventsDb, projectsDb } from '../src/db.js'
+import { runsDb, githubDb, eventsDb, projectsDb, db } from '../src/db.js'
 import { getProject } from '../src/projects.js'
 import { reviewBranchFor, verifyStatusFor, publishVerifyStatusIfLinked } from '../src/verify-status.js'
 
 const RUN_ID = uuid()
 
+// Every seeded run is status='done' + reviewed_at=NULL with real checkpoints — i.e.
+// exactly the inbox `review_ready` predicate. Track and scrub them (and their FK
+// children) in afterAll so they don't leak into the shared serial K_DATA_DIR and
+// poison a future bare counts.review_ready assertion. FK-safe order: children first.
+const seededRunIds: string[] = []
+const seededProjectIds: string[] = []
+
 function seedRun(runId: string, projectId: string | null): void {
+  seededRunIds.push(runId)
   runsDb.insertRun.run({ id: runId, prompt: 'p', cwd: process.cwd(), worktree: null, status: 'done',
     provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, projectId, createdAt: Date.now() })
 }
+
+afterAll(() => {
+  for (const runId of seededRunIds) {
+    try { db.prepare('DELETE FROM events WHERE run_id = ?').run(runId) } catch { /* not present */ }
+    try { db.prepare('DELETE FROM review_comments WHERE run_id = ?').run(runId) } catch { /* not present */ }
+    try { db.prepare('DELETE FROM verify_results WHERE run_id = ?').run(runId) } catch { /* not present */ }
+    try { db.prepare('DELETE FROM run_plans WHERE run_id = ?').run(runId) } catch { /* not present */ }
+    try { db.prepare('DELETE FROM runs WHERE id = ?').run(runId) } catch { /* not present */ }
+  }
+  for (const projectId of seededProjectIds) {
+    try { db.prepare('DELETE FROM github_cache WHERE project_id = ?').run(projectId) } catch { /* not present */ }
+    try { db.prepare('DELETE FROM projects WHERE id = ?').run(projectId) } catch { /* not present */ }
+  }
+})
 
 function seedCheckpoint(runId: string, seq: number, sha: string, wave: number): void {
   eventsDb.insertEvent.run({
@@ -50,6 +72,7 @@ function seedCheckpoint(runId: string, seq: number, sha: string, wave: number): 
 
 function seedProject(githubRemote: string | null): string {
   const id = uuid()
+  seededProjectIds.push(id)
   projectsDb.insertProject.run({ id, name: `vsl-${id.slice(0, 8)}`, localPath: process.cwd(),
     githubRemote, workspaceManaged: 0, bibleDir: 'docs/bible', createdAt: Date.now() })
   return id

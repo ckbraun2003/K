@@ -120,8 +120,10 @@ export async function startAgentRun(
       interactive: opts.interactive,
       persistentSession: opts.persistentSession,
       carryWorkingTree: opts.carryWorkingTree,
-      // E-02 (D-084): tier default — a plan_gate profile plan-gates its org dispatches.
-      planGate: profile.planGate === true ? true : undefined,
+      // E-02 (D-084): tier default — a plan_gate profile plan-gates its org dispatches,
+      // but NEVER an interactive or persistent-session dispatch (those compose to the
+      // startRun one-shot throw). Mirrors the routes/runs.ts interactive exemption.
+      planGate: profile.planGate === true && !opts.interactive && !opts.persistentSession ? true : undefined,
     })
   } catch (e) {
     agentRunsDb.updateAgentRunStatus.run('failed', Date.now(), agentRunId)

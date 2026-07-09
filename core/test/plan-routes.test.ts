@@ -127,6 +127,16 @@ describe('POST /api/runs planGate resolution (D-084)', () => {
       expect((await dispatch({ planGate: false })).planGate).toBe(false)
     }
   })
+
+  // E-02 (LOW-3): planGate (a one-shot process-dead park) cannot compose with an
+  // interactive (stdin-alive) dispatch. The boundary rejects the combo with a 400
+  // client-contract error rather than letting startRun throw → a 500.
+  it('rejects planGate:true + interactive:true at the boundary with a 400 (not a 500)', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/runs', headers: JSON_HEADERS,
+      payload: JSON.stringify({ prompt: 'x', planGate: true, interactive: true }) })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toBe('planGate is not compatible with interactive dispatch')
+  })
 })
 
 // Review fix (quality-review BLOCKER): the PATCH /api/org-default plan-gate write

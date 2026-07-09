@@ -42,15 +42,20 @@ export async function runsRoutes(app: FastifyInstance) {
     if (cwd !== undefined && !isCwdAllowed(cwd)) {
       return sendError(reply, 400, 'cwd not under a registered project')
     }
+    // E-02: planGate is a one-shot process-dead park; it cannot compose with an
+    // interactive (stdin-alive) dispatch. Reject the combo at the boundary with a
+    // 400 (client contract error) instead of letting startRun throw -> a 500.
+    if (planGate === true && interactive === true) {
+      return sendError(reply, 400, 'planGate is not compatible with interactive dispatch')
+    }
     try {
       const run = await startRun(prompt, {
         cwd, model, projectId, preferLocal, interactive, carryWorkingTree,
         // E-02 (D-084): explicit per-dispatch toggle wins; absent = the org-default
-        // orchestrator profile's tier flag. INTERACTIVE dispatches are EXEMPT from
-        // the tier default (planGate x interactive throws in startRun — a tier
-        // default of ON must not 500 every interactive dispatch; an EXPLICIT
-        // planGate:true on an interactive dispatch still reaches the throw, which
-        // is the honest contract violation signal). (Conductor plan-review MAJOR-2.)
+        // orchestrator profile's tier flag. INTERACTIVE dispatches are EXEMPT from the
+        // tier default (a default of ON must not gate every interactive dispatch). The
+        // explicit planGate:true + interactive combo is rejected with a 400 by the guard
+        // above, so it never reaches startRun here. (Conductor plan-review MAJOR-2.)
         planGate: interactive ? planGate : (planGate ?? orgDefaultPlanGate()),
       })
       return reply.status(201).send(run)

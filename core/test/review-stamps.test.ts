@@ -58,6 +58,11 @@ const AUTH = { authorization: 'Bearer dev-token-change-me' }
 const JSON_H = { ...AUTH, 'content-type': 'application/json' }
 let app: Awaited<ReturnType<typeof buildApp>>
 const projectIds: string[] = []
+// Track EVERY seeded run (real-projectId AND projectId:null) so afterAll can scrub
+// each run's FK-children + the run BEFORE the projects delete. Without this the
+// runs.project_id → projects(id) FK makes DELETE FROM projects throw (swallowed) and
+// the project leaks into the shared serial K_DATA_DIR (the FIX 3 leak class).
+const runIds: string[] = []
 
 function seedCheckpoint(runId: string, seq: number, sha: string, wave: number): void {
   eventsDb.insertEvent.run({
@@ -74,6 +79,15 @@ beforeAll(async () => {
   app = await buildApp()
 })
 afterAll(async () => {
+  // FK-safe order: each run's children → the run → github_cache → projects. Deleting
+  // runs first is what lets the subsequent DELETE FROM projects actually succeed.
+  for (const id of runIds) {
+    try { db.prepare('DELETE FROM events WHERE run_id = ?').run(id) } catch { /* not present */ }
+    try { db.prepare('DELETE FROM review_comments WHERE run_id = ?').run(id) } catch { /* not present */ }
+    try { db.prepare('DELETE FROM verify_results WHERE run_id = ?').run(id) } catch { /* not present */ }
+    try { db.prepare('DELETE FROM run_plans WHERE run_id = ?').run(id) } catch { /* not present */ }
+    try { db.prepare('DELETE FROM runs WHERE id = ?').run(id) } catch { /* not present */ }
+  }
   for (const id of projectIds) {
     try { db.prepare('DELETE FROM github_cache WHERE project_id = ?').run(id) } catch { /* ignore */ }
     try { db.prepare('DELETE FROM projects WHERE id = ?').run(id) } catch { /* ignore */ }
@@ -83,7 +97,7 @@ afterAll(async () => {
 
 describe('request-changes stamps reviewed_at (E-05)', () => {
   it('stamps runs.reviewed_at after bundling drafts into a fix run', async () => {
-    const rid = randomUUID()
+    const rid = randomUUID(); runIds.push(rid)
     runsDb.insertRun.run({ id: rid, prompt: 'original ask', cwd: process.cwd(), worktree: null, status: 'done',
       provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: null, createdAt: Date.now() })
     reviewCommentsDb.insertReviewComment.run({ id: randomUUID(), runId: rid, file: 'a.ts', line: 1,
@@ -105,7 +119,7 @@ describe('approve stamps reviewed_at + caches the fresh PR + publishes (E-05/E-0
       id: pid, name: `rs-approve-${pid.slice(0, 8)}`, localPath: process.cwd(),
       githubRemote: 'owner/repo', workspaceManaged: 0, bibleDir: 'artifacts/bible', createdAt: Date.now(),
     }, 'main')
-    const rid = randomUUID()
+    const rid = randomUUID(); runIds.push(rid)
     runsDb.insertRun.run({ id: rid, prompt: 'ship the widget', cwd: process.cwd(), worktree: null, status: 'done',
       provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: pid, createdAt: Date.now() })
     seedCheckpoint(rid, 1, 'a'.repeat(40), 1)
@@ -146,7 +160,7 @@ describe('approve stamps reviewed_at + caches the fresh PR + publishes (E-05/E-0
       id: pid, name: `rs-noverify-${pid.slice(0, 8)}`, localPath: process.cwd(),
       githubRemote: 'owner/repo', workspaceManaged: 0, bibleDir: 'artifacts/bible', createdAt: Date.now(),
     }, 'main')
-    const rid = randomUUID()
+    const rid = randomUUID(); runIds.push(rid)
     runsDb.insertRun.run({ id: rid, prompt: 'no verify', cwd: process.cwd(), worktree: null, status: 'done',
       provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: pid, createdAt: Date.now() })
     seedCheckpoint(rid, 1, 'a'.repeat(40), 1)

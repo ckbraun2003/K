@@ -62,6 +62,51 @@ describe('MergeButton', () => {
     expect(await screen.findByText('PR #7 merged')).toBeTruthy()
   })
 
+  it('a click inside the confirm dialog does not bubble to the parent PR row (MED-1)', async () => {
+    // The dialog is a fixed overlay but a CHILD (React tree) of PrsCiTab's clickable
+    // role="button" PR row; a Cancel/backdrop/Merge click must NOT bubble up to the
+    // row's onClick (which would toggle expand → a stray `gh pr diff` fetch).
+    mockMergePr.mockResolvedValue({ merged: true, number: 7 })
+    const parentSpy = vi.fn()
+    const user = userEvent.setup()
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <div onClick={parentSpy}>
+          <MergeButton projectId="p1" pr={pr()} />
+        </div>
+      </QueryClientProvider>,
+    )
+    // open the confirm dialog, then click its Cancel control
+    await user.click(screen.getByTestId('pr-merge-7'))
+    await screen.findByTestId('pr-merge-dialog')
+    await user.click(screen.getByTestId('pr-merge-dialog-cancel'))
+    // neither the merge-button click nor the dialog Cancel click reached the parent row
+    expect(parentSpy).not.toHaveBeenCalled()
+  })
+
+  it('a click on the success Toast dismiss does not bubble to the parent PR row (MAJOR-1)', async () => {
+    // After a merge the Toast (a fixed overlay, still a React-tree CHILD of the PR
+    // row) shows a ✕ dismiss; its click must also be stopped at the tree boundary,
+    // else it reaches PrRow.onClick and toggles expand (a stray `gh pr diff` fetch).
+    mockMergePr.mockResolvedValue({ merged: true, number: 7 })
+    const parentSpy = vi.fn()
+    const user = userEvent.setup()
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <div onClick={parentSpy}>
+          <MergeButton projectId="p1" pr={pr()} />
+        </div>
+      </QueryClientProvider>,
+    )
+    await user.click(screen.getByTestId('pr-merge-7'))
+    await user.click(await screen.findByTestId('pr-merge-dialog-confirm'))
+    await screen.findByText('PR #7 merged')
+    await user.click(screen.getByLabelText('Dismiss'))
+    expect(parentSpy).not.toHaveBeenCalled()
+  })
+
   it('disables the button with a blocked title when checks are not green', () => {
     renderButton(pr({ checks: 'pending' }))
     const btn = screen.getByTestId('pr-merge-7') as HTMLButtonElement

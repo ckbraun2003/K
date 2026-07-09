@@ -37,18 +37,26 @@ export default function MergeButton({ projectId, pr }: { projectId: string; pr: 
       >
         Merge
       </button>
-      <ConfirmDialog
-        open={confirmOpen}
-        title={`Merge PR #${pr.number}`}
-        message={`Merge "${pr.title}" into the default branch? Checks are green.`}
-        confirmLabel="Merge"
-        busy={merge.isPending}
-        error={error ?? undefined}
-        testid="pr-merge-dialog"
-        onConfirm={() => merge.mutate()}
-        onCancel={() => setConfirmOpen(false)}
-      />
-      <Toast open={toast != null} message={toast ?? ''} resetKey={toast ?? undefined} onDismiss={() => setToast(null)} />
+      {/* Both overlays render as fixed-position boxes but are CHILDREN in the React
+          tree of PrsCiTab's clickable role="button" PR row. React events bubble along
+          the TREE, not the DOM box, so a click on the dialog's Cancel/backdrop/Merge —
+          or the Toast's dismiss button (visible after a merge, before the row refetches) —
+          would otherwise reach PrRow.onClick and toggle its expand (a stray
+          `gh pr diff` fetch). Stop both at the tree boundary. */}
+      <span onClick={e => e.stopPropagation()}>
+        <ConfirmDialog
+          open={confirmOpen}
+          title={`Merge PR #${pr.number}`}
+          message={`Merge "${pr.title}" into the default branch? Checks are green.`}
+          confirmLabel="Merge"
+          busy={merge.isPending}
+          error={error ?? undefined}
+          testid="pr-merge-dialog"
+          onConfirm={() => merge.mutate()}
+          onCancel={() => setConfirmOpen(false)}
+        />
+        <Toast open={toast != null} message={toast ?? ''} resetKey={toast ?? undefined} onDismiss={() => setToast(null)} />
+      </span>
     </>
   )
 }
