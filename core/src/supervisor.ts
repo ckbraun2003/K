@@ -16,17 +16,18 @@ import { v4 as uuid } from 'uuid'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { AgentEventSchema, type AgentEvent, type Run, type AgentProfile } from '@k/shared'
+import { AgentEventSchema, PlanDocSchema, type AgentEvent, type Run, type AgentProfile, type PlanDoc } from '@k/shared'
 import { eventBus } from './events.js'
-import { db, runsDb, projectsDb } from './db.js'
+import { db, runsDb, projectsDb, runPlansDb, eventsDb } from './db.js'
 import { route } from './router.js'
 import { resolvePermissionMode } from './claude-args.js'
 import { getProvider, parseClaudeLine, extractInitSessionId } from './providers.js'
 import { makeCheckpointScheduler } from './checkpoints.js'
 import { matchProjectByCwd, type ProjectPathRow } from './project-match.js'
 import { isPathWithin } from './paths.js'
-import { synthesizeConfigDir, pruneOrphanAgentRuns, kSecretaryConfigPaths, type SynthesizedConfig } from './agent-config.js'
-import { DEFAULT_PROFILE } from './profiles.js'
+import { synthesizeConfigDir, pruneOrphanAgentRuns, kSecretaryConfigPaths, agentRunDir, type SynthesizedConfig } from './agent-config.js'
+import { DEFAULT_PROFILE, getProfile } from './profiles.js'
+import { buildPlanScaffold, buildPlanContinuation, parsePlanDoc } from './plan-gate.js'
 import { TERMINAL_RUN_STATUSES } from './run-lifecycle.js'
 import { startOllamaAgentRun, type OllamaAgentDeps } from './ollama-agent/loop.js'
 import { httpTransport, type OllamaChatTransport } from './ollama-agent/transport.js'
@@ -118,6 +119,17 @@ const claimAwaitingTurn = db.prepare(
   `UPDATE runs SET status = 'running' WHERE id = ? AND status = 'awaiting_input'`,
 )
 
+// E-02 (D-050 idiom): only the caller whose UPDATE flips the parked row proceeds.
+const claimPlanApproval = db.prepare(
+  `UPDATE runs SET status = 'running' WHERE id = ? AND status = 'awaiting_plan'`,
+)
+const discardPlanClaim = db.prepare(
+  `UPDATE runs SET status = 'killed', ended_at = ? WHERE id = ? AND status = 'awaiting_plan'`,
+)
+const sweepBrokenPlanParkStmt = db.prepare(
+  `UPDATE runs SET status = 'interrupted', worktree = NULL, ended_at = ? WHERE id = ? AND status = 'awaiting_plan'`,
+)
+
 export type StartRunOptions = {
   cwd?: string
   model?: string
@@ -151,6 +163,15 @@ export type StartRunOptions = {
    *  (k-checkpoint refs keep run snapshots reachable). Ignored for a persistent
    *  session / non-git cwd (the existing fallbacks apply unchanged). */
   baseCommit?: string
+  /** E-02: gate this dispatch behind an operator-approved plan turn. The spawn
+   *  prompt is scaffolded to demand ONE fenced json PlanDoc; a clean exit PARKS
+   *  the run at awaiting_plan (worktree + config dir preserved for the resume)
+   *  instead of finishing. Mutually exclusive with interactive/persistentSession
+   *  (each owns its own session semantics); silently degrades to an ungated
+   *  one-shot when routing picks a non-claude provider (the interactive-fallback
+   *  precedent above) OR when the worktree fallback fires (non-git cwd / failed
+   *  worktree add): a park without run.worktree is permanently unapprovable. */
+  planGate?: boolean
 }
 
 /**
@@ -175,6 +196,14 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   // No caller passes both today; keep it that way explicitly. (P1 SEAMS L6)
   if (opts.baseCommit && opts.carryWorkingTree) {
     throw new Error('startRun: baseCommit and carryWorkingTree are mutually exclusive')
+  }
+  // E-02: a plan-gated run is a one-shot that PARKS on a clean exit; interactive
+  // and persistentSession each own their own session semantics (live stdin / a
+  // stable K-secretary session), which the park model would silently break — so
+  // the combination is an explicit contract error (the baseCommit×carryWorkingTree
+  // precedent above), not a silent degrade.
+  if (opts.planGate && (opts.interactive || opts.persistentSession)) {
+    throw new Error('startRun: planGate is one-shot only — interactive/persistentSession runs own their session semantics')
   }
   // An explicitly-named model is always a Claude model id (validated at the route
   // boundary), so it overrides any local-model preference — never route an
@@ -268,11 +297,26 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
 
   const inWorktree = effectiveCwd === worktreePath
 
+  // E-02: the plan gate engages ONLY for a claude run in a real worktree. Two
+  // degrades to an honest ungated one-shot (the interactive-fallback precedent):
+  //   - a non-claude route (ollama has no scaffold/session-resume story);
+  //   - the worktree fallback fired (non-git cwd / failed `worktree add` left
+  //     run.worktree undefined) — a park there would be permanently unapprovable
+  //     (approvePlanRun 410s on the missing substrate), so we run it ungated.
+  const planGate = !!opts.planGate && routeResult.provider === 'claude' && inWorktree
+  if (opts.planGate && !planGate) {
+    console.warn(
+      `[supervisor] planGate requested but degraded to an ungated one-shot for run ${run.id} ` +
+        `(provider=${routeResult.provider}, inWorktree=${inWorktree}) — a park needs a claude run in a worktree`,
+    )
+  }
+
   // Launch in background — don't await. The profile (default: orchestrator) drives
   // per-tier config synthesis inside runAgent. A persistent session (K only) threads the
-  // stable run dir + session id/resume through.
+  // stable run dir + session id/resume through. planGate scaffolds the spawn prompt to
+  // demand a PlanDoc and arms the clean-exit park inside runAgent.
   const session = ps ? { runDir: kPaths!.runDir, sessionId: ps.sessionId, resume: ps.resume } : undefined
-  void runAgent(run, prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE, session)
+  void runAgent(run, planGate ? buildPlanScaffold(prompt) : prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE, session, planGate)
 
   return run
 }
@@ -522,8 +566,11 @@ export function reconcileStaleKThreads(d: import('better-sqlite3').Database = db
  * longer map to an active run. Never throws — Windows file locks can make removal
  * fail, so every step is guarded and logged. Call after reconcileStaleRuns().
  */
-export function pruneOrphanWorktrees(): void {
-  sweepOrphanWorktrees(REPO_ROOT, WORKTREES_DIR, new Set(activeProcesses.keys()))
+export function pruneOrphanWorktrees(keepRunIds: Set<string> = new Set()): void {
+  // E-02: surviving plan parks (awaiting_plan) hold their worktree until approve/
+  // discard, so their run ids are added to the active-process keep set. The default
+  // empty set keeps every existing caller byte-identical.
+  sweepOrphanWorktrees(REPO_ROOT, WORKTREES_DIR, new Set([...activeProcesses.keys(), ...keepRunIds]))
 }
 
 /**
@@ -576,6 +623,15 @@ export function reconcileOnBoot(): void {
   } catch (err) {
     console.warn('[supervisor] reconcileStaleRuns failed:', (err as Error).message)
   }
+  // E-02: awaiting_plan parks SURVIVE restarts by design (process-dead park; the
+  // resume is --resume in the preserved worktree). reconcileStaleRuns above does NOT
+  // touch awaiting_plan; this flips only parks whose substrate is GONE to interrupted.
+  try {
+    const pp = reconcileParkedPlanRuns()
+    if (pp > 0) console.log(`[supervisor] boot sweep: ${pp} broken plan park(s) marked interrupted`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileParkedPlanRuns failed:', (err as Error).message)
+  }
   // After reconcileStaleRuns so runs it just flipped 'interrupted' are covered.
   try {
     const k = reconcileStaleKThreads()
@@ -601,10 +657,14 @@ export function reconcileOnBoot(): void {
   } catch (err) {
     console.warn('[supervisor] reconcileOrphanedLeadDispatches failed:', (err as Error).message)
   }
-  pruneOrphanWorktrees()
+  // E-02: surviving plan parks hold their worktree + config dir until approve/discard.
+  const parkedPlanIds = new Set(
+    (db.prepare(`SELECT id FROM runs WHERE status = 'awaiting_plan'`).all() as Array<{ id: string }>).map(r => r.id),
+  )
+  pruneOrphanWorktrees(parkedPlanIds)
   // Sweep per-run config dirs orphaned by a crash — same key space (run id) as
-  // worktrees, so anything not held by an active process is stale.
-  pruneOrphanAgentRuns(new Set(activeProcesses.keys()))
+  // worktrees, so anything not held by an active process (or a surviving park) is stale.
+  pruneOrphanAgentRuns(new Set([...activeProcesses.keys(), ...parkedPlanIds]))
 }
 
 // Interactive runs whose session the operator gracefully ended (stdin closed) —
@@ -629,13 +689,30 @@ async function runAgent(
   // the CLI session flags. Undefined for every regular run → ephemeral per-run config +
   // no session flags, exactly as before.
   session?: { runDir: string; sessionId: string; resume: boolean },
+  // E-02: planGate arms the clean-exit PARK (this is the plan TURN — its assistant
+  // text is captured for parsePlanDoc). planResume marks the APPROVED continuation
+  // spawn (a re-targeted persisted session) so its TRUE terminal removes the dir and
+  // it is NOT granted the persistent-session gitnexus exemption. Both default false →
+  // every other caller is byte-identical.
+  planGate = false,
+  planResume = false,
 ) {
   emitStatusEvent(run.id, 'running', nextSeq(run.id), Date.now())
   eventBus.emitRunUpdate({ ...run, status: 'running' })
 
-  let tokensIn = 0
-  let tokensOut = 0
+  // E-02 cost/usage carry across the plan PARK boundary: a planResume is a SECOND
+  // runAgent invocation on the SAME run row that already persisted the plan-turn's
+  // tokens/cost at park time. Seed the additive token accumulators from the parked
+  // run (0 for every non-resume caller — byte-identical) and keep the parked cost as
+  // an additive BASE (accumulate REPLACES costUsd with the per-invocation
+  // total_cost_usd, so a seed would be overwritten — the terminal adds priorCostBase
+  // so the row reflects plan-turn + continuation, not continuation only). Verified
+  // live in the P2 approve→continue smoke (units can't reach the resumed accumulation
+  // — the machinery test's synthesizeConfigDir-throw seam stops before the stream).
+  let tokensIn = planResume ? run.tokensIn : 0
+  let tokensOut = planResume ? run.tokensOut : 0
   let costUsd = 0
+  const priorCostBase = planResume ? run.costUsd : 0
   // F-… killed-run honesty: the AUTHORITATIVE usage carrier is the turn-end `result`
   // (type 'usage') line, which a run KILLED mid-turn never emits — leaving tokens at 0
   // (a misleading "0 tokens / $0" for real work). The claude stream DOES carry per-message
@@ -644,6 +721,10 @@ async function runAgent(
   // summed a `result`, fall back to it (reconcileKilledUsage) so the killed run records its
   // real OBSERVED tokens. Cost is NOT recoverable — the stream reports cost only on `result`.
   let lastInterimUsage: { tokensIn: number; tokensOut: number } | null = null
+
+  // E-02: accumulate the plan turn's assistant text (bounded) so parsePlanDoc can
+  // read the LAST fenced json from it at park time. Only fed when planGate is set.
+  let planTextBuf = ''
 
   // ── k-checkpoints (P1: extracted scheduler + terminal snapshot) ────────────
   let sawToolResultSinceCkpt = false
@@ -684,7 +765,12 @@ async function runAgent(
       // the target checkout. Suppress the gitnexus bootstrap for it. K's own runs keep
       // gitnexus — including a K-secretary persistent session, which is NEVER external even
       // when K_DATA_DIR (its stable cwd's root) is relocated outside the repo (MEDIUM-1).
-      const suppressGitnexus = shouldSuppressGitnexus(run.cwd, !!session)
+      // E-02: a plan RESUME (planResume) is NOT a K-secretary persistent session —
+      // its cwd can be an EXTERNAL project repo, so inheriting the session gitnexus
+      // exemption would write .gitnexus/.claude residue into the target checkout
+      // (exactly what F-068 prevents). With !planResume, suppression is computed from
+      // the run's cwd like any ordinary run (conductor plan-review MAJOR-1).
+      const suppressGitnexus = shouldSuppressGitnexus(run.cwd, !!session && !planResume)
       synth = synthesizeConfigDir(
         profile,
         // projectId (D-069/A3): the run's target project scopes which discovered
@@ -713,6 +799,11 @@ async function runAgent(
       // mid-turn kill reads it back.
       lastInterimUsage = accumulateInterimUsage(lastInterimUsage, validated)
       eventBus.emitEvent(validated)
+      // E-02: accumulate the plan turn's assistant text (bounded) — parsePlanDoc
+      // reads the LAST fenced json from it at park time.
+      if (planGate && validated.type === 'assistant' && validated.text) {
+        planTextBuf = (planTextBuf + '\n' + validated.text).slice(-100_000)
+      }
     }
 
     // Both engine paths produce a terminal-shaped `result`; the shared
@@ -820,7 +911,7 @@ async function runAgent(
                 sessionCaptured = true
                 run.cliSessionId = sid
                 runsDb.setRunCliSessionId.run(sid, run.id)
-                eventBus.emitRunUpdate({ ...run, status: 'running', tokensIn, tokensOut, costUsd })
+                eventBus.emitRunUpdate({ ...run, status: 'running', tokensIn, tokensOut, costUsd: priorCostBase + costUsd })
               }
             }
             // Lane B (E-03 groundwork): tool-wave boundary → checkpoint. A `user`
@@ -851,6 +942,17 @@ async function runAgent(
     }
     const wasKilled = killedRuns.delete(run.id)
     const wasEnded = endingRuns.delete(run.id)
+    // E-02: a plan-gated phase that exited cleanly PARKS instead of finishing.
+    // No checkpoint finalize (the chain finalizes at the TRUE terminal after the
+    // approved continuation), no worktree removal, no synth.cleanup() (the CLI
+    // session transcripts under the config dir are the resume substrate), no
+    // clearRunTracking (the seq counter stays warm for a same-process approve) —
+    // only the dead process handle is dropped.
+    if (planGate && !wasKilled && !wasEnded && result.exitCode === 0) {
+      activeProcesses.delete(run.id)
+      parkPlanRun({ ...run, tokensIn, tokensOut, costUsd }, planTextBuf, profile)
+      return
+    }
     // Settle in-flight checkpoint work BEFORE the terminal emits: the checkpoint
     // event needs a sane seq (clearRunTracking resets the counter) and
     // removeWorktree must not race live git plumbing inside the worktree.
@@ -863,12 +965,17 @@ async function runAgent(
     // last observed interim tokens so the run isn't recorded as a misleading 0 (no-op for a
     // run that saw a `result`, and for a non-killed terminal).
     ;({ tokensIn, tokensOut, costUsd } = reconcileKilledUsage({ tokensIn, tokensOut, costUsd }, wasKilled, lastInterimUsage))
-    const finalRun: Run = { ...run, status: finalStatus, tokensIn, tokensOut, costUsd, endedAt: Date.now() }
+    const finalRun: Run = { ...run, status: finalStatus, tokensIn, tokensOut, costUsd: priorCostBase + costUsd, endedAt: Date.now() }
     emitStatusEvent(run.id, finalStatus, nextSeq(run.id), Date.now())
     eventBus.emitRunUpdate(finalRun)
     clearRunTracking(run.id)
     await removeWorktree(run)
     try { synth?.cleanup() } catch { /* best-effort */ }
+    // E-02: a plan resume synthesized persist:true (session state had to survive
+    // the park) so cleanup() above was a no-op — remove the dir at TRUE terminal.
+    if (planResume && session) {
+      try { fs.rmSync(session.runDir, { recursive: true, force: true }) } catch { /* best-effort */ }
+    }
 
   } catch (err) {
     const wasKilled = killedRuns.delete(run.id)
@@ -876,7 +983,7 @@ async function runAgent(
     // endingRuns is cleared by clearRunTracking below; no need to delete it here.
     // Same killed-run honesty as the success path: recover interim tokens for a mid-turn kill.
     ;({ tokensIn, tokensOut, costUsd } = reconcileKilledUsage({ tokensIn, tokensOut, costUsd }, wasKilled, lastInterimUsage))
-    const errRun: Run = { ...run, status: wasKilled ? 'killed' : 'error', tokensIn, tokensOut, costUsd, endedAt: Date.now() }
+    const errRun: Run = { ...run, status: wasKilled ? 'killed' : 'error', tokensIn, tokensOut, costUsd: priorCostBase + costUsd, endedAt: Date.now() }
     const errEvent: AgentEvent = {
       id: uuid(), runId: run.id, seq: nextSeq(run.id), type: 'error',
       ts: Date.now(), text: String(err),
@@ -886,6 +993,11 @@ async function runAgent(
     clearRunTracking(run.id)
     await removeWorktree(run)
     try { synth?.cleanup() } catch { /* best-effort */ }
+    // E-02: a plan resume synthesized persist:true (session state had to survive
+    // the park) so cleanup() above was a no-op — remove the dir at TRUE terminal.
+    if (planResume && session) {
+      try { fs.rmSync(session.runDir, { recursive: true, force: true }) } catch { /* best-effort */ }
+    }
   }
 }
 
@@ -941,6 +1053,129 @@ export function sendInput(runId: string, text: string): boolean {
   emitStatusEvent(runId, 'running', nextSeq(runId), Date.now())
   if (run) eventBus.emitRunUpdate({ ...run, status: 'running' })
   return true
+}
+
+// ── E-02 Plan Gate: park / approve / discard / boot-sweep ─────────────────────
+
+/** E-02: park a plan-gated run at awaiting_plan. Pure DB + emit — the caller
+ *  (runAgent's exit path) already dropped the dead process handle and preserved
+ *  worktree/config-dir/seq state. Exported for direct unit testing; the exit-path
+ *  wiring itself is exercised live in the P2 smoke. */
+export function parkPlanRun(run: Run, planText: string, profile: AgentProfile): void {
+  const doc = parsePlanDoc(planText)
+  const now = Date.now()
+  runPlansDb.insertRunPlan.run({
+    runId: run.id,
+    plan: doc ? JSON.stringify(doc) : null,
+    raw: planText.slice(-100_000),
+    edited: 0,
+    profileId: profile.id === DEFAULT_PROFILE.id ? null : profile.id,
+    createdAt: now,
+    updatedAt: now,
+  })
+  emitStatusEvent(run.id, 'awaiting_plan', nextSeq(run.id), now)
+  eventBus.emitRunUpdate({ ...run, status: 'awaiting_plan' })
+}
+
+export type PlanGateActionResult =
+  | { ok: true; run: Run }
+  | { ok: false; code: 404 | 409 | 410; error: string }
+
+function sweepBrokenPlanPark(runId: string): void {
+  if (sweepBrokenPlanParkStmt.run(Date.now(), runId).changes > 0) {
+    emitStatusEvent(runId, 'interrupted', nextSeq(runId), Date.now())
+    const run = loadRun(runId)
+    if (run) eventBus.emitRunUpdate(run)
+    // Drop the run's seq counter like every other terminal path (discardPlanRun,
+    // the runAgent terminals) — otherwise a same-process sweep leaks its seqCounters
+    // entry for the life of the process. (nextSeq above already stamped the event.)
+    clearRunTracking(runId)
+  }
+}
+
+/**
+ * E-02 approve: atomically claim the park (CAS awaiting_plan → running; the
+ * D-050 claim idiom — the double-send loser sees changes===0 and 409s), then
+ * resume the SAME CLI session in the SAME worktree (D-074) with a continuation
+ * prompt carrying the (possibly operator-edited) plan. A missing substrate
+ * (session id / worktree / config dir) flips the run to interrupted and 410s.
+ */
+export async function approvePlanRun(runId: string): Promise<PlanGateActionResult> {
+  const run = loadRun(runId)
+  if (!run) return { ok: false, code: 404, error: 'not found' }
+  const planRow = runPlansDb.getRunPlan.get(runId) as Record<string, unknown> | undefined
+  if (run.status !== 'awaiting_plan' || !planRow) {
+    return { ok: false, code: 409, error: 'run is not awaiting plan approval' }
+  }
+  const configDir = agentRunDir(runId)
+  if (!run.cliSessionId || !run.worktree || !fs.existsSync(run.worktree) || !fs.existsSync(configDir)) {
+    sweepBrokenPlanPark(runId)
+    return { ok: false, code: 410, error: 'parked plan state is gone — re-dispatch the run' }
+  }
+  if (claimPlanApproval.run(runId).changes === 0) {
+    return { ok: false, code: 409, error: 'plan already approved' }
+  }
+  runPlansDb.stampRunPlanApproved.run(Date.now(), runId)
+  // Re-seed the seq counter — a reboot cleared it, and events' INSERT OR IGNORE
+  // would silently drop colliding seqs otherwise.
+  const next = (eventsDb.nextEventSeq.get(runId) as { next: number }).next
+  seqCounters.set(runId, Math.max(seqCounters.get(runId) ?? 0, next))
+  let doc: PlanDoc | null = null
+  if (planRow.plan != null) {
+    try {
+      const parsed = PlanDocSchema.safeParse(JSON.parse(String(planRow.plan)))
+      doc = parsed.success ? parsed.data : null
+    } catch { doc = null }
+  }
+  const continuation = buildPlanContinuation(doc, planRow.edited === 1)
+  // Persist the operator hand-off turn so the console shows it.
+  eventBus.emitEvent({ id: uuid(), runId, seq: nextSeq(runId), type: 'user', ts: Date.now(), text: continuation })
+  const profile = (planRow.profile_id != null ? getProfile(String(planRow.profile_id)) : null) ?? DEFAULT_PROFILE
+  void runAgent(
+    { ...run, status: 'running' }, continuation, run.worktree, true, false, profile,
+    { runDir: configDir, sessionId: run.cliSessionId, resume: true },
+    false, true,
+  )
+  return { ok: true, run: { ...run, status: 'running' } }
+}
+
+/** E-02 discard: kill the parked plan — CAS to killed, remove worktree + config
+ *  dir; the run_plans row stays as history. */
+export async function discardPlanRun(runId: string): Promise<PlanGateActionResult> {
+  const before = loadRun(runId)
+  if (!before) return { ok: false, code: 404, error: 'not found' }
+  if (discardPlanClaim.run(Date.now(), runId).changes === 0) {
+    return { ok: false, code: 409, error: 'run is not awaiting plan approval' }
+  }
+  emitStatusEvent(runId, 'killed', nextSeq(runId), Date.now())
+  const run: Run = { ...before, status: 'killed', endedAt: Date.now() }
+  eventBus.emitRunUpdate(run)
+  await removeWorktree(run)
+  try { fs.rmSync(agentRunDir(runId), { recursive: true, force: true }) } catch { /* best-effort */ }
+  clearRunTracking(runId)
+  return { ok: true, run }
+}
+
+/**
+ * Boot sweep (E-02): awaiting_plan parks SURVIVE restarts by design (process-dead
+ * park; the resume is --resume cli_session_id in the preserved worktree). Flip
+ * only parks whose substrate is GONE to the honest terminal 'interrupted'.
+ */
+export function reconcileParkedPlanRuns(d: import('better-sqlite3').Database = db): number {
+  const rows = d.prepare(
+    `SELECT id, worktree, cli_session_id FROM runs WHERE status = 'awaiting_plan'`,
+  ).all() as Array<{ id: string; worktree: string | null; cli_session_id: string | null }>
+  let swept = 0
+  for (const r of rows) {
+    const intact = r.cli_session_id != null && r.worktree != null
+      && fs.existsSync(r.worktree) && fs.existsSync(agentRunDir(r.id))
+    if (!intact) {
+      d.prepare(`UPDATE runs SET status = 'interrupted', worktree = NULL, ended_at = ? WHERE id = ? AND status = 'awaiting_plan'`)
+        .run(Date.now(), r.id)
+      swept++
+    }
+  }
+  return swept
 }
 
 /**
