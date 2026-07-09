@@ -184,3 +184,56 @@ describe('makeWorkflowCompleteInvalidator (F-076)', () => {
     expect(invalidateQueries).not.toHaveBeenCalled()
   })
 })
+
+// ── makeInboxInvalidator (P2 B3 — E-05/E-19) ──────────────────────────────────
+// Appended by Lane B: any needs-YOU source may have changed → refresh the ONE
+// ['inbox'] query (badge + page share it); a `notification` also refreshes the
+// ['notifications'] center. Reuses the module-scope keyCounts / message fixtures.
+import { makeInboxInvalidator } from '../src/lib/live-invalidate'
+
+const notificationMsg = { type: 'notification', notification: {} as never, browser: false } as WsMessage
+const capabilitiesUpdate = { type: 'capabilities_update', scannedAt: 0 } as WsMessage
+
+describe('makeInboxInvalidator (E-05/E-19)', () => {
+  it('a run_update refreshes the inbox query only (not the notification center)', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeInboxInvalidator({ invalidateQueries })
+
+    handler(runUpdate)
+
+    const counts = keyCounts(invalidateQueries)
+    expect(counts.inbox).toBe(1)
+    expect(counts.notifications).toBeUndefined()
+  })
+
+  it('a notification refreshes BOTH the inbox query and the notification center', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeInboxInvalidator({ invalidateQueries })
+
+    handler(notificationMsg)
+
+    const counts = keyCounts(invalidateQueries)
+    expect(counts.inbox).toBe(1)
+    expect(counts.notifications).toBe(1)
+  })
+
+  it('a capabilities_update refreshes the inbox query only', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeInboxInvalidator({ invalidateQueries })
+
+    handler(capabilitiesUpdate)
+
+    const counts = keyCounts(invalidateQueries)
+    expect(counts.inbox).toBe(1)
+    expect(counts.notifications).toBeUndefined()
+  })
+
+  it('ignores unrelated messages (e.g. pong)', () => {
+    const invalidateQueries = vi.fn()
+    const handler = makeInboxInvalidator({ invalidateQueries })
+
+    handler(otherMsg)
+
+    expect(invalidateQueries).not.toHaveBeenCalled()
+  })
+})

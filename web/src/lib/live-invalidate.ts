@@ -173,3 +173,18 @@ export function makeWorkflowCompleteInvalidator(
     void qc.invalidateQueries({ queryKey: ['workflow-runs'] })
   }
 }
+
+/** P2 E-05/E-19: any needs-YOU source may have changed → refresh the ONE inbox
+ *  query (badge + page share it); a notification also refreshes the center. */
+export function makeInboxInvalidator(
+  qc: Pick<QueryClient, 'invalidateQueries'>,
+): (msg: WsMessage) => void {
+  return (msg: WsMessage) => {
+    if (msg.type === 'run_update' || msg.type === 'notification' || msg.type === 'capabilities_update') {
+      void qc.invalidateQueries({ queryKey: ['inbox'] })
+    }
+    if (msg.type === 'notification') {
+      void qc.invalidateQueries({ queryKey: ['notifications'] })
+    }
+  }
+}
