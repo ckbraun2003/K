@@ -53,6 +53,10 @@ export default function CommandBar({ open, onClose }: Props) {
   // Interactive (multi-turn): keep the agent's stdin open so the operator can
   // answer its questions / send follow-ups. Claude-only; ignored for local runs.
   const [interactive, setInteractive] = useState(false)
+  // Plan-first (E-02): park a plan for review/approve before it implements.
+  // One-shot-only (the server throws on the interactive combo), so it's mutually
+  // exclusive with interactive in the UI (disabled + coerced off below).
+  const [planGate, setPlanGate] = useState(false)
   // Plain-ask power controls (C2): an explicit model override + a forced route for
   // the ask-k path. 'default' / '' = no override (K's normal resolution/classifier).
   // Distinct from the @project dispatch card's `model` state above.
@@ -79,7 +83,7 @@ export default function CommandBar({ open, onClose }: Props) {
   const { data: claudeModel } = useQuery({ queryKey: ['claude-model'], queryFn: () => api.claudeModel.get(), enabled: open })
 
   useEffect(() => {
-    if (open) { setQuery(''); setSelected(0); setError(null); ask.setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setPromptDraft(''); setInteractive(false); setAskModel('default'); setAskForceRoute(''); setTimeout(() => inputRef.current?.focus(), 50) }
+    if (open) { setQuery(''); setSelected(0); setError(null); ask.setError(null); setConfirm(null); setModeOverride(null); setModel('auto'); setPromptDraft(''); setInteractive(false); setPlanGate(false); setAskModel('default'); setAskForceRoute(''); setTimeout(() => inputRef.current?.focus(), 50) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -239,7 +243,12 @@ export default function CommandBar({ open, onClose }: Props) {
     if (!prompt) { composeRef.current?.focus(); return }
     busyRef.current = true; setBusy(true); setError(null)
     try {
-      const run = await api.runs.start(prompt, { cwd: item.project.localPath, projectId: item.project.id, ...modelChoiceToOpts(model), interactive })
+      const run = await api.runs.start(prompt, {
+        cwd: item.project.localPath, projectId: item.project.id, ...modelChoiceToOpts(model),
+        interactive,
+        // E-02: send only an explicit ON — absent lets the tier default apply.
+        ...(planGate && !interactive ? { planGate: true } : {}),
+      })
       onClose()
       navigate('runs', run.id)
     } catch (e) {
@@ -508,7 +517,11 @@ export default function CommandBar({ open, onClose }: Props) {
                         type="checkbox"
                         data-testid="dispatch-interactive"
                         checked={interactive}
-                        onChange={e => setInteractive(e.target.checked)}
+                        // Turning Interactive ON actually CLEARS plan-gate (not just masks
+                        // its display) — planGate is one-shot-only, so the combo can never
+                        // dispatch; clearing state keeps "coerced off" honest if the operator
+                        // toggles Interactive back off.
+                        onChange={e => { setInteractive(e.target.checked); if (e.target.checked) setPlanGate(false) }}
                         className="accent-[var(--accent)]"
                       />
                       <span>Interactive — answer the agent&apos;s questions mid-run</span>
@@ -516,6 +529,17 @@ export default function CommandBar({ open, onClose }: Props) {
                     {interactive && (
                       <span className="ml-1 block text-[10px] text-[var(--muted)]">Claude only · keeps the session open for follow-ups</span>
                     )}
+                    <label className="mt-1 inline-flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        data-testid="dispatch-plan-gate"
+                        checked={planGate && !interactive}
+                        disabled={interactive}
+                        onChange={e => setPlanGate(e.target.checked)}
+                        className="accent-[var(--accent)]"
+                      />
+                      <span>Plan first — review &amp; approve a plan before it implements</span>
+                    </label>
                   </dd>
                 </dl>
                 <p className="border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted)]">
