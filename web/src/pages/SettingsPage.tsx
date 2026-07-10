@@ -19,6 +19,8 @@ import Toast from '../components/Toast'
 import { ClaudeModelSection, LocalModelsSection } from './SettingsModels'
 // P5.4 — self-contained voice (push-to-talk) status section.
 import { VoiceSection } from './SettingsVoice'
+// Wave 2 — self-contained host-prerequisite "doctor" section.
+import { SystemRequirementsSection } from './SettingsDoctor'
 
 function StatusCard({ title, verdict }: { title: string; verdict: StatusVerdict }) {
   return (
@@ -435,6 +437,11 @@ export default function SettingsPage() {
 
       <section className="mb-8">
         <StatusSection />
+      </section>
+
+      {/* Wave 2 — host prerequisite readiness (the "system doctor"). */}
+      <section className="mb-8">
+        <SystemRequirementsSection />
       </section>
 
       {/* P5.5 — model management (additive; P5.4's voice card can slot alongside). */}

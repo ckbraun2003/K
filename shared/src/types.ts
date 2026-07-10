@@ -1644,6 +1644,29 @@ export const StatusSchema = z.object({
 })
 export type Status = z.infer<typeof StatusSchema>
 
+// ─── System doctor: host prerequisite readiness (Wave 2) ─────────────────────
+// GET /api/system/doctor — detects the host tools the desktop app relies on. The
+// `claude` CLI is the agent engine K drives and is NOT bundled; git/node are hard
+// prerequisites; gh/ollama are optional (K degrades gracefully without them). No
+// secrets: a report carries only presence + a one-line version string per tool.
+
+export const DoctorToolSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  required: z.boolean(),
+  present: z.boolean(),
+  version: z.string().nullable(), // the probed `--version` line, or null when absent
+  purpose: z.string(),            // why the desktop app needs it (operator guidance)
+  installUrl: z.string(),         // where to get it
+})
+export type DoctorTool = z.infer<typeof DoctorToolSchema>
+
+export const DoctorReportSchema = z.object({
+  tools: z.array(DoctorToolSchema),
+  ok: z.boolean(), // true iff every REQUIRED tool is present (optional-absent never fails it)
+})
+export type DoctorReport = z.infer<typeof DoctorReportSchema>
+
 // PUT /api/system-prompt body — replaces only the human-editable region of the
 // repo-root CLAUDE.md. Schema-locked: extra keys / oversize → 400.
 export const SystemPromptBodySchema = z
