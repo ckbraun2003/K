@@ -13,6 +13,10 @@
  */
 import { compileBible, compileProjectBible } from '../bible.js'
 import { listProjects } from '../projects.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import { ARTIFACTS_DIR } from '../artifacts.js'
+import { extractGlossary, renderGlossaryModule } from '../glossary.js'
 
 async function main(): Promise<void> {
   // Harness's own bible (writeHtml defaults true → rewrites the tracked HTML).
@@ -21,6 +25,17 @@ async function main(): Promise<void> {
     console.log(res ? `[bible] harness ✓ (${res.sections.length} sections) → ${res.htmlPath}` : '[bible] harness — no manifest, skipped')
   } catch (e) {
     console.error('[bible] harness compile failed:', e)
+  }
+
+  try {
+    const sectionPath = path.join(ARTIFACTS_DIR, 'bible', 'sections', '14-glossary.md')
+    const genPath = path.join(ARTIFACTS_DIR, '..', 'web', 'src', 'generated', 'glossary.ts') // repo-root/web/src/...
+    const terms = extractGlossary(fs.readFileSync(sectionPath, 'utf8'))
+    fs.mkdirSync(path.dirname(genPath), { recursive: true })
+    fs.writeFileSync(genPath, renderGlossaryModule(terms), 'utf8')
+    console.log(`[bible] wrote glossary module (${terms.length} terms)`)
+  } catch (e) {
+    console.error('[bible] glossary extraction failed:', e)
   }
 
   for (const p of listProjects()) {

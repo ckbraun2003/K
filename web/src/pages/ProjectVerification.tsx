@@ -13,17 +13,11 @@ import {
   formatTimeAgo,
   latestReport,
   trendIndicator,
+  scoreColor,
   BREAKDOWN_BARS,
   BREAKDOWN_MAX,
   SEVERITY_DOT,
 } from '../lib/verify'
-
-function scoreColor(score: number | null): string {
-  if (score == null) return 'text-[var(--muted)]' // insufficient signal — no measured dimension
-  if (score >= 75) return 'text-[var(--green)]'
-  if (score >= 50) return 'text-[var(--amber)]'
-  return 'text-[var(--red)]'
-}
 
 export default function ProjectVerification({ projectId }: { projectId?: string }) {
   const qc = useQueryClient()

@@ -6,14 +6,12 @@ import { api } from '../lib/api'
 import GraphErrorBoundary from '../components/GraphErrorBoundary'
 import { navigate } from '../lib/route'
 import { GRAPH_BG, configureGraphForces } from '../lib/graph'
+import { healthRubric } from '../lib/health'
 
 type FGNode = { id?: string | number; color?: string; [key: string]: unknown }
 
 function healthColor(healthScore: number | undefined | null): string {
-  if (healthScore == null) return '#a99bc4'
-  if (healthScore >= 75) return '#34d399'
-  if (healthScore >= 50) return '#fbbf24'
-  return '#f87171'
+  return healthRubric(healthScore ?? null).hex
 }
 
 const FLEET_LEGEND: { color: string; label: string }[] = [

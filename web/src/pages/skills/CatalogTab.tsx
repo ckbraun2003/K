@@ -6,6 +6,7 @@ import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { filterCatalog } from '../../lib/catalog-filter'
 import { formatCompact } from '../../lib/format-metrics'
+import { weightBand } from '../../lib/capability-tokens'
 import SegControl from '../../components/SegControl'
 import SourceBadge from '../../components/SourceBadge'
 import WarningsBanner from '../../components/WarningsBanner'
@@ -65,6 +66,7 @@ export default function CatalogTab() {
   })
 
   const skills = data?.skills ?? []
+  const refMax = skills.reduce((m, s) => Math.max(m, s.estTokens ?? 0), 1)
   const warnings = data?.warnings ?? []
   const filtered = filterCatalog(skills, {
     sourceKind: source === 'all' ? undefined : source,
@@ -178,6 +180,7 @@ export default function CatalogTab() {
             <CatalogRow
               key={skill.id}
               skill={skill}
+              refMax={refMax}
               highlighted={skill.id === highlightId}
               onToggle={enabled => toggleMutation.mutate({ id: skill.id, enabled })}
               togglePending={toggleMutation.isPending && toggleMutation.variables?.id === skill.id}
@@ -196,12 +199,14 @@ export default function CatalogTab() {
 
 function CatalogRow({
   skill,
+  refMax,
   highlighted,
   onToggle,
   togglePending,
   toggleError,
 }: {
   skill: CatalogSkill
+  refMax: number
   /** One-shot emphasis for a row just saved by the Skill Creator. */
   highlighted?: boolean
   onToggle: (enabled: boolean) => void
@@ -246,10 +251,21 @@ function CatalogRow({
             >
               {skill.modelCompat}
             </span>
-            {/* Token chip — full-body estimate (cost when invoked); honest about absence. */}
-            <span className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
-              {skill.estTokens !== null ? `~${formatCompact(skill.estTokens)} tok` : 'tok n/a'}
-            </span>
+            {/* Relative context-weight band — a token-count fraction of the catalog's
+                heaviest entry (E-13); never a dollar cost. Honest about absence. */}
+            {(() => {
+              const band = weightBand(skill.estTokens, refMax)
+              const tone = band === 'heavy' ? 'text-[var(--amber)]' : band === 'medium' ? 'text-[var(--text)]' : 'text-[var(--muted)]'
+              return (
+                <span
+                  data-testid="catalog-weight-band"
+                  title={band ? `relative context weight: ${band}` : 'context weight not measured'}
+                  className={`rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] ${tone}`}
+                >
+                  {band ? `${band} weight` : 'weight n/a'}
+                </span>
+              )
+            })()}
             {missing && (
               <span
                 data-testid={`catalog-missing-${skill.id}`}
