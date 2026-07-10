@@ -11,9 +11,13 @@
  * origin (navigation + window.open to anything else is denied); the renderer runs
  * with contextIsolation + sandbox + no nodeIntegration; a strict CSP is applied to
  * the core's responses. The token rides IPC, never argv or the URL.
+ *
+ * The window closes to a system tray, and a `ws` subscriber to core's /ws gateway
+ * raises native notifications for run-lifecycle events while the window is hidden.
  */
-import { app, BrowserWindow, ipcMain, dialog, shell, session } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, session, Tray, Menu, Notification, nativeImage } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
+import WebSocket from 'ws'
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
@@ -27,13 +31,23 @@ import {
   isAllowedNavigation,
   sanitizeExternalTarget,
 } from './core-launcher'
+import { notificationFromEnvelope, buildTrayMenu, coreWsUrl } from './notifications'
 
 const isDev = !app.isPackaged
 
 let coreProc: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let wsClient: WebSocket | null = null
+let wsReconnectTimer: NodeJS.Timeout | null = null
+let isQuitting = false
 let harnessToken = ''
 let corePort = 0
+
+/** Absolute path to the bundled app icon (window + tray + notifications). */
+function iconPath(): string {
+  return path.join(__dirname, '..', 'assets', 'icon.png')
+}
 
 /** Resources root holding core/dist + web/dist. Dev: repo root (two up from
  *  desktop/dist/main.js). Packaged: process.resourcesPath (Wave 5 stages them there). */
@@ -139,6 +153,7 @@ function createWindow(): void {
     show: false,
     backgroundColor: '#0b0e14',
     autoHideMenuBar: true,
+    icon: iconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -149,8 +164,100 @@ function createWindow(): void {
   hardenWindow(mainWindow)
   mainWindow.once('ready-to-show', () => mainWindow?.show())
   void mainWindow.loadURL(`http://127.0.0.1:${corePort}/`)
+  // Close-to-tray: the window hides instead of quitting the app (agent runs keep
+  // going in the background). Real quit goes through the tray or before-quit, which
+  // set isQuitting first.
+  mainWindow.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault()
+      mainWindow?.hide()
+    }
+  })
   mainWindow.on('closed', () => {
     mainWindow = null
+  })
+}
+
+/** Show + focus the window (from the tray or a notification click). */
+function showWindow(): void {
+  if (!mainWindow) {
+    createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+/** System tray: click toggles the window; the menu offers Show/Hide + Quit. */
+function createTray(): void {
+  const img = nativeImage.createFromPath(iconPath()).resize({ width: 16, height: 16 })
+  tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img)
+  tray.setToolTip('K — Agentic Harness')
+  const refreshMenu = () => {
+    const visible = !!mainWindow?.isVisible()
+    const template = buildTrayMenu(visible).map((item) => ({
+      label: item.label,
+      click: () => {
+        if (item.action === 'quit') {
+          isQuitting = true
+          app.quit()
+        } else {
+          visible ? mainWindow?.hide() : showWindow()
+        }
+      },
+    }))
+    tray?.setContextMenu(Menu.buildFromTemplate(template))
+  }
+  refreshMenu()
+  tray.on('click', () => (mainWindow?.isVisible() ? mainWindow.focus() : showWindow()))
+  // Keep the menu's Show/Hide label in sync with the window state.
+  const sync = () => refreshMenu()
+  app.on('browser-window-focus', sync)
+  app.on('browser-window-blur', sync)
+}
+
+/** Subscribe to core's /ws as another client and raise native notifications for the
+ *  run-lifecycle transitions worth interrupting for. No core change — the gateway
+ *  already broadcasts every update. Reconnects if the socket drops. */
+function startNotifications(): void {
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer)
+    wsReconnectTimer = null
+  }
+  const ws = new WebSocket(coreWsUrl(corePort, harnessToken))
+  wsClient = ws
+  ws.on('open', () => console.log('[notify] connected to core event stream'))
+  ws.on('message', (data) => {
+    let msg: unknown
+    try {
+      msg = JSON.parse(data.toString())
+    } catch {
+      return
+    }
+    const n = notificationFromEnvelope(msg)
+    if (!n || !Notification.isSupported()) return
+    // Mirror E-19's foreground rule: only raise a native toast when the app isn't in
+    // the foreground (the in-app notification center owns the foreground).
+    if (mainWindow?.isVisible() && mainWindow.isFocused()) return
+    const notice = new Notification({ title: n.title, body: n.body, icon: iconPath() })
+    notice.on('click', showWindow)
+    notice.show()
+  })
+  ws.on('close', () => {
+    if (wsClient === ws) wsClient = null
+    // Reconnect while the app is alive (core outlives the socket). Fixed 3s is fine on
+    // loopback — core is local and comes back fast; no exponential backoff needed.
+    if (!isQuitting && !wsReconnectTimer) {
+      wsReconnectTimer = setTimeout(startNotifications, 3000)
+    }
+  })
+  ws.on('error', () => {
+    try {
+      ws.close()
+    } catch {
+      /* already closing */
+    }
   })
 }
 
@@ -198,6 +305,22 @@ function killCore(): void {
   }
 }
 
+/** Tear down the shell's own resources (WS subscriber, reconnect timer, tray) on quit. */
+function teardownShell(): void {
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer)
+    wsReconnectTimer = null
+  }
+  try {
+    wsClient?.close()
+  } catch {
+    /* already closing */
+  }
+  wsClient = null
+  tray?.destroy()
+  tray = null
+}
+
 // Synchronous config handoff for the preload (before page scripts). Token only —
 // the port is already in the same-origin window URL; the token stays off argv/URL.
 ipcMain.on('k:config:sync', (e) => {
@@ -207,18 +330,20 @@ ipcMain.on('k:config:sync', (e) => {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
-  })
+  // A second launch focuses the running app (restoring it from the tray if hidden).
+  app.on('second-instance', () => showWindow())
+
+  // Windows toast notifications need a stable AppUserModelID or they show as
+  // "electron.app.…" / may not display. Set it before any Notification.
+  app.setAppUserModelId('com.k.desktop')
 
   app.whenReady().then(async () => {
     applyCsp()
     try {
       await startCore()
       createWindow()
+      createTray()
+      startNotifications()
     } catch (err) {
       console.error('[main] core failed to start:', err)
       dialog.showErrorBox(
@@ -231,9 +356,14 @@ if (!app.requestSingleInstanceLock()) {
     }
   })
 
-  // Wave 4 replaces this with close-to-tray; for now, closing the window quits.
-  app.on('window-all-closed', () => app.quit())
-  app.on('before-quit', killCore)
+  // The window closes to the tray (see createWindow), so the app stays alive with no
+  // window — do NOT quit on window-all-closed. Quitting goes through the tray's Quit
+  // or before-quit, which set isQuitting first.
+  app.on('before-quit', () => {
+    isQuitting = true
+    killCore()
+    teardownShell()
+  })
   app.on('will-quit', killCore)
   process.on('exit', killCore)
 }

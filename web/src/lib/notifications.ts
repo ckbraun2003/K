@@ -6,6 +6,15 @@
  */
 import type { WsMessage } from '@k/shared'
 
+/** True when the SPA is running inside the K desktop (Electron) shell — the preload
+ *  sets `window.__K_DESKTOP__`. In that case the shell's main process is the single
+ *  native-notification authority (it consumes the same `type:'notification'` events
+ *  from core's main process, which stays alive even when the window is tray-hidden),
+ *  so the renderer leg stands down to avoid double toasts. */
+export function isDesktopShell(): boolean {
+  return typeof window !== 'undefined' && !!(window as { __K_DESKTOP__?: { isDesktop?: boolean } }).__K_DESKTOP__?.isDesktop
+}
+
 export function browserNotificationsSupported(): boolean {
   return typeof window !== 'undefined' && 'Notification' in window
 }
@@ -19,6 +28,9 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 
 export function raiseBrowserNotification(msg: WsMessage): void {
   if (msg.type !== 'notification' || !msg.browser) return
+  // In the desktop shell the main process raises native toasts (reliable even when
+  // the window is tray-hidden) — stand down so the operator never gets two.
+  if (isDesktopShell()) return
   if (!browserNotificationsSupported() || window.Notification.permission !== 'granted') return
   if (document.visibilityState === 'visible') return
   try {

@@ -92,10 +92,17 @@ importers:
         version: 8.21.0
 
   desktop:
+    dependencies:
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
     devDependencies:
       '@types/node':
         specifier: ^20.14.0
         version: 20.19.43
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       electron:
         specifier: ^38.8.6
         version: 38.8.6
