@@ -2,6 +2,7 @@ import type { Project, GithubStatus, Run } from '@k/shared'
 import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
 import { formatTimeAgo, relativeTime } from '../lib/verify'
+import HealthRubric from './HealthRubric'
 
 // A health score below this flags the card for attention alongside failing CI.
 const LOW_HEALTH_THRESHOLD = 50
@@ -81,7 +82,9 @@ export default function ProjectCard({
         />
         <span className="truncate text-sm font-semibold text-[var(--text)]">{project.name}</span>
         {project.healthScore != null && (
-          <span className="mono ml-auto text-xs text-[var(--muted)]">{project.healthScore}/100</span>
+          <span className="ml-auto">
+            <HealthRubric score={project.healthScore} showScore />
+          </span>
         )}
       </div>
       <p className="mt-1.5 text-xs text-[var(--muted)]">

@@ -1,4 +1,5 @@
 import type { Finding, VerificationReport } from '@k/shared'
+import { healthRubric } from './health'
 
 // Severity render order: most-urgent first.
 export const SEVERITY_ORDER = ['critical', 'warn', 'info'] as const
@@ -57,10 +58,7 @@ export function formatTimeAgo(ts: number | undefined, now: number = Date.now()):
 // Score → Tailwind color class. null (insufficient signal — no dimension measured)
 // renders muted, matching the "—" the UI shows for a null score.
 export function scoreColor(score: number | null): string {
-  if (score == null) return 'text-[var(--muted)]'
-  if (score >= 75) return 'text-[var(--green)]'
-  if (score >= 50) return 'text-[var(--amber)]'
-  return 'text-[var(--red)]'
+  return healthRubric(score).text
 }
 
 // Color token suffix per severity (named tokens — safe with Tailwind alpha).

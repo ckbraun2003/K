@@ -155,7 +155,7 @@ describe('SkillsPage — CapabilityStatRow on every tab', () => {
     expect(row.textContent).toContain('~12.0k tok')
     expect(row.textContent).toContain('2 servers')
     expect(row.textContent).toContain('~6.2k tok')
-    expect(row.textContent).toContain('Total context overhead:')
+    expect(row.textContent).toContain('Total context weight:')
     expect(row.textContent).toContain('~18.2k tok')
     // 1 skill has no estimate — footnoted, never silently summed
     expect(row.textContent).toContain('1 not yet measured')

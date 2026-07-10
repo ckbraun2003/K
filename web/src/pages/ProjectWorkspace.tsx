@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
 import { fade } from '../lib/motion'
+import { healthRubric } from '../lib/health'
 import OverviewTab from './tabs/OverviewTab'
 import VerificationTab from './tabs/VerificationTab'
 import ArtifactsTab from './tabs/ArtifactsTab'
@@ -131,16 +132,7 @@ export default function ProjectWorkspace({
           </span>
         )}
         {project?.healthScore != null && (
-          <span
-            className={cn(
-              'mono ml-auto text-xs',
-              project.healthScore >= 75
-                ? 'text-[var(--green)]'
-                : project.healthScore >= 50
-                  ? 'text-[var(--amber)]'
-                  : 'text-[var(--red)]',
-            )}
-          >
+          <span className={cn('mono ml-auto text-xs', healthRubric(project.healthScore).text)}>
             {project.healthScore}/100
           </span>
         )}

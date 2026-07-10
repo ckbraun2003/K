@@ -87,3 +87,17 @@ export function profileSubtotal(
     notInCatalog,
   }
 }
+
+export type WeightBand = 'light' | 'medium' | 'heavy'
+
+/**
+ * E-13: a RELATIVE context-weight band derived from token COUNTS (never dollars,
+ * never a price). Position within the catalog is what matters, so the band is a
+ * fraction of the catalog's heaviest entry (refMax). null estTokens => null band.
+ */
+export function weightBand(estTokens: number | null, refMax: number): WeightBand | null {
+  if (estTokens == null) return null
+  if (refMax <= 0) return 'light'
+  const frac = estTokens / refMax
+  return frac < 1 / 3 ? 'light' : frac < 2 / 3 ? 'medium' : 'heavy'
+}
