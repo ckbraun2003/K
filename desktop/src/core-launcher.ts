@@ -38,6 +38,11 @@ export interface CoreEnvInput {
   port: number
   dataDir: string
   webDist: string
+  /** Writable repo-root override for the packaged app. When set, core's writable
+   *  repo-relative paths (.worktrees / artifacts / workspace) follow it instead of
+   *  the read-only install; unset (dev) → core's in-repo default. See K_REPO_ROOT in
+   *  core/src/supervisor.ts. */
+  repoRoot?: string
   /** Base env to extend (defaults to process.env). PATH etc. must carry through so
    *  core can spawn claude/git/gh. */
   baseEnv?: NodeJS.ProcessEnv
@@ -50,7 +55,7 @@ export interface CoreEnvInput {
  * never inheriting a stray token from the desktop process.
  */
 export function buildCoreEnv(input: CoreEnvInput): NodeJS.ProcessEnv {
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...(input.baseEnv ?? process.env),
     PORT: String(input.port),
     HOST: '127.0.0.1',
@@ -67,6 +72,10 @@ export function buildCoreEnv(input: CoreEnvInput): NodeJS.ProcessEnv {
     // first-run token to stdout (the shell forwards it to a terminal / future log).
     K_SUPPRESS_TOKEN_PRINT: '1',
   }
+  // Only pin K_REPO_ROOT when the packaged shell provides a writable runtime; in dev
+  // it stays unset so core keeps its in-repo default (see core/src/supervisor.ts).
+  if (input.repoRoot) env.K_REPO_ROOT = input.repoRoot
+  return env
 }
 
 /** Absolute path to core's compiled entry under the app resources root. */

@@ -53,6 +53,22 @@ describe('buildCoreEnv', () => {
     expect(env.PATH).toBe('/usr/bin')
     expect(env.FOO).toBe('bar')
   })
+
+  it('leaves K_REPO_ROOT unset when no repoRoot is given (dev → core in-repo default)', () => {
+    // baseEnv has no K_REPO_ROOT, so it must be absent — core falls back to its default.
+    expect(env.K_REPO_ROOT).toBeUndefined()
+  })
+
+  it('pins K_REPO_ROOT to the writable runtime when packaged (repoRoot given)', () => {
+    const packed = buildCoreEnv({
+      port: 4321,
+      dataDir: '/data/k',
+      webDist: '/app/web/dist',
+      repoRoot: '/user/runtime',
+      baseEnv: { PATH: '/usr/bin' },
+    })
+    expect(packed.K_REPO_ROOT).toBe('/user/runtime')
+  })
 })
 
 describe('path helpers', () => {

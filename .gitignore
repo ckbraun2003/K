@@ -35,3 +35,7 @@ core/probes/out/
 desktop/release/
 desktop/out/
 desktop/node_modules/
+# prepackage staging (deployed core + bundled node + copied web/agent-config/bible)
+desktop/staging/
+# generated multi-size icon (prepackage rebuilds it from assets/icon.png each build)
+desktop/assets/icon.ico

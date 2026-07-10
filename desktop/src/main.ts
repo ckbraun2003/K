@@ -16,6 +16,7 @@
  * raises native notifications for run-lifecycle events while the window is hidden.
  */
 import { app, BrowserWindow, ipcMain, dialog, shell, session, Tray, Menu, Notification, nativeImage } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { spawn, type ChildProcess } from 'node:child_process'
 import WebSocket from 'ws'
 import fs from 'node:fs'
@@ -59,6 +60,42 @@ function coreDataDir(): string {
   return path.join(app.getPath('userData'), 'data')
 }
 
+/** Writable repo-root for the packaged app (K_REPO_ROOT). The install is read-only,
+ *  so core's writable repo-relative paths (.worktrees / artifacts / workspace) are
+ *  redirected here, under the per-user data dir. Dev: undefined → core keeps its
+ *  in-repo default (see core/src/supervisor.ts REPO_ROOT). */
+function runtimeRepoRoot(): string | undefined {
+  return isDev ? undefined : path.join(app.getPath('userData'), 'runtime')
+}
+
+/**
+ * Seed the writable runtime with the read-only assets core reads from K_REPO_ROOT.
+ * Only the bible SOURCE is repo-root-relative on the read path (core compiles it from
+ * `<K_REPO_ROOT>/artifacts/bible`); agent-config stays read `__dirname`-relative from
+ * `<resources>/agent-config`, so it is NOT seeded. Idempotent + versioned: re-seed
+ * only when the marker is missing or the app version changed (so an upgrade refreshes
+ * the bundled sections), never clobbering a user's runtime on every launch.
+ */
+function seedRuntime(resourcesDir: string, runtimeDir: string): void {
+  const bibleSrc = path.join(resourcesDir, 'artifacts', 'bible')
+  const bibleDest = path.join(runtimeDir, 'artifacts', 'bible')
+  const markerPath = path.join(runtimeDir, '.seed-version')
+  const version = app.getVersion()
+  let seeded = ''
+  try {
+    seeded = fs.readFileSync(markerPath, 'utf8').trim()
+  } catch {
+    /* first run — marker absent */
+  }
+  if (seeded === version && fs.existsSync(bibleDest)) return
+  fs.mkdirSync(path.dirname(bibleDest), { recursive: true })
+  // Refresh the seeded copy wholesale so a removed/renamed section can't linger.
+  fs.rmSync(bibleDest, { recursive: true, force: true })
+  fs.cpSync(bibleSrc, bibleDest, { recursive: true })
+  fs.writeFileSync(markerPath, version)
+  console.log(`[seed] bible seeded into runtime (${version}) → ${bibleDest}`)
+}
+
 /** Poll GET /health (auth-exempt) until the core is ready or the deadline passes. */
 async function waitForHealth(port: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
@@ -85,12 +122,21 @@ async function startCore(): Promise<void> {
   const dataDir = coreDataDir()
   fs.mkdirSync(dataDir, { recursive: true })
   const root = resourcesRoot()
-  const env = buildCoreEnv({ port: corePort, dataDir, webDist: webDistPath(root) })
+  const repoRoot = runtimeRepoRoot()
+  // Packaged install is read-only: seed the writable runtime with the bible source so
+  // core (pointed there via K_REPO_ROOT) can compile + serve it. Dev: no repoRoot, no seed.
+  if (repoRoot) {
+    fs.mkdirSync(repoRoot, { recursive: true })
+    seedRuntime(root, repoRoot)
+  }
+  const env = buildCoreEnv({ port: corePort, dataDir, webDist: webDistPath(root), repoRoot })
   const entry = coreEntryPath(root)
 
   // Node-20/ABI-115 runtime, NOT Electron's (ABI 130). Dev: system `node`. Packaged:
-  // K_NODE_BIN points at the bundled Node-20 runtime (Wave 5). The seam is one env var.
-  const nodeBin = process.env.K_NODE_BIN || 'node'
+  // the bundled Node-20 runtime at <resources>/node/node.exe. An explicit K_NODE_BIN
+  // env override wins in either case (CI / debugging). The seam is one env var.
+  const bundledNode = isDev ? undefined : path.join(process.resourcesPath, 'node', 'node.exe')
+  const nodeBin = process.env.K_NODE_BIN || bundledNode || 'node'
   const proc = spawn(nodeBin, [entry], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
   coreProc = proc
   proc.stdout?.on('data', (d: Buffer) => process.stdout.write(`[core] ${d}`))
@@ -285,6 +331,35 @@ function applyCsp(): void {
   })
 }
 
+/** Check GitHub Releases for a newer build and, if found, download it + notify the
+ *  user (electron-updater shows a native toast and installs on next quit — no custom
+ *  UI). Packaged-only (dev has no update feed) and best-effort: any failure (offline,
+ *  no release, unsigned-build quirk) is logged, never fatal.
+ *
+ *  TRUST MODEL (unsigned build, by design): the feed (owner/repo) is hardcoded at
+ *  build time in electron-builder.yml — not runtime/attacker-influenceable — and
+ *  electron-updater verifies the installer's sha512 against latest.yml. But because
+ *  the build is unsigned, latest.yml itself is trusted only via HTTPS-to-GitHub;
+ *  anyone able to publish a Release on the source repo could ship a matching-hash
+ *  malicious build. Protecting that GitHub account/Actions pipeline (2FA, branch
+ *  protection, no direct-push releases) IS the update channel's security perimeter.
+ *  Documented in the bible + README. */
+function checkForUpdates(): void {
+  if (!app.isPackaged) return
+  try {
+    autoUpdater.autoDownload = true
+    autoUpdater.on('error', (err) => console.warn('[updater] check failed:', err?.message ?? err))
+    // checkForUpdatesAndNotify returns a promise that can reject INDEPENDENTLY of the
+    // 'error' listener (missing app-update.yml, network/GitHub errors) — catch it so a
+    // routine offline launch can never surface as an unhandled rejection / crash.
+    autoUpdater
+      .checkForUpdatesAndNotify()
+      .catch((err) => console.warn('[updater] check failed:', err?.message ?? err))
+  } catch (err) {
+    console.warn('[updater] could not start update check:', err)
+  }
+}
+
 /** Kill the core process tree so quitting never leaves an orphan node.exe. */
 function killCore(): void {
   const proc = coreProc
@@ -344,6 +419,9 @@ if (!app.requestSingleInstanceLock()) {
       createWindow()
       createTray()
       startNotifications()
+      // Auto-update runs only for a packaged build, after the window is up so a
+      // download never blocks first paint. Best-effort — see checkForUpdates.
+      checkForUpdates()
     } catch (err) {
       console.error('[main] core failed to start:', err)
       dialog.showErrorBox(

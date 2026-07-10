@@ -1,0 +1,54 @@
+# electron-builder config (Wave 5). Windows-only, unsigned. Run `pnpm dist` to build
+# the NSIS installer or `pnpm pack` for an unpacked dir; both run scripts/prepackage.mjs
+# first to stage extraResources (see that script for the staging layout).
+appId: com.k.desktop
+productName: K
+directories:
+  output: release
+
+# The Electron main process uses NO native modules — better-sqlite3 / node-pty live in
+# the STAGED core (extraResources), which runs under the bundled Node-20 runtime, not
+# Electron. So skip @electron/rebuild (it also mis-walks the pnpm store and fails).
+npmRebuild: false
+
+# App code packed into the asar: compiled main/preload (dist) + icons (assets).
+# Source maps are dropped from the shipped build.
+files:
+  - dist/**/*
+  - assets/**/*
+  - '!**/*.map'
+
+# Staged runtime resources → <install>/resources/<to>. process.resourcesPath resolves
+# here at run time (main.ts resourcesRoot()). The bundled node runs the deployed core.
+extraResources:
+  - from: staging/core
+    to: core
+  - from: staging/web/dist
+    to: web/dist
+  - from: staging/agent-config
+    to: agent-config
+  - from: staging/artifacts
+    to: artifacts
+  - from: staging/node
+    to: node
+
+win:
+  target: nsis
+  icon: assets/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  # A Start Menu shortcut is REQUIRED for Windows toast notifications to render under
+  # the AppUserModelID com.k.desktop (see main.ts setAppUserModelId).
+  shortcutName: K
+
+# Auto-update feed (electron-updater checkForUpdatesAndNotify). Unsigned builds still
+# update; releases are published to GitHub.
+publish:
+  provider: github
+  owner: ckbraun2003
+  repo: K
