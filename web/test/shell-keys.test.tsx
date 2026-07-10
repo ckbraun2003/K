@@ -37,13 +37,16 @@ beforeEach(() => mockNavigate.mockClear())
 afterEach(() => cleanup())
 
 describe('useShellKeys — g-chord', () => {
-  it('g then g resolves to Fleet Graph (does NOT re-arm) — F-001', () => {
+  it('g then g resolves (disarms) and does NOT re-arm — F-001', () => {
     render(<Harness />)
     key({ key: 'g' })
     expect(screen.getByTestId('chord-pending')).toBeTruthy() // armed
     key({ key: 'g' })
-    expect(mockNavigate).toHaveBeenCalledTimes(1)
-    expect(mockNavigate).toHaveBeenCalledWith('graph')
+    // The armed branch runs BEFORE the arming branch, so a second `g` RESOLVES the
+    // chord instead of re-arming it (the actual F-001 guard). Post-P4 the `g` key is
+    // no longer a chord target (Fleet Graph folded into Org's graph segment), so it
+    // clears WITHOUT navigating — the regression guarded here is the no-re-arm.
+    expect(mockNavigate).not.toHaveBeenCalled()
     // resolved → no longer armed
     expect(screen.queryByTestId('chord-pending')).toBeNull()
   })

@@ -2,7 +2,8 @@ import RunList from '../components/RunList'
 import RunConsole from '../components/RunConsole'
 import { navigate } from '../lib/route'
 
-export default function RunsPage({ runId }: { runId?: string }) {
+export default function RunsPage({ runId, sub }: { runId?: string; sub?: string }) {
+  void sub // W0 stub — Lane C removes this line when it wires the Workflows fold view
   return (
     <div className="flex h-full">
       <aside className="w-72 flex-shrink-0 overflow-hidden border-r border-[var(--border)]">

@@ -12,23 +12,16 @@ export interface Chord {
   label: string
 }
 
-// Mnemonics chosen to avoid colliding with each other. `g g` → Fleet Graph is
-// intentional (the prefix key is also a valid target once the chord is armed).
+// Mnemonics chosen to avoid colliding with each other. Every primary rail destination
+// plus Settings has a chord; the merged Org / Insights surfaces get `g o` / `g n`.
 export const CHORDS: Chord[] = [
   { key: 'h', view: 'home', label: 'K' },
   { key: 'i', view: 'inbox', label: 'Inbox' },
-  { key: 'c', view: 'chief', label: 'Chief' },
-  { key: 'o', view: 'orchestrators', label: 'Orchestrators' },
+  { key: 'o', view: 'org', label: 'Org' },
   { key: 'p', view: 'projects', label: 'Projects' },
-  { key: 'g', view: 'graph', label: 'Fleet Graph' },
-  { key: 'r', view: 'runs', label: 'Runs' },
   { key: 's', view: 'skills', label: 'Skills' },
-  { key: 'm', view: 'metrics', label: 'Metrics' },
-  { key: 'x', view: 'routing', label: 'Routing' },
-  { key: 'e', view: 'evals', label: 'Evals' },
-  { key: 'y', view: 'memory', label: 'Memory' },
-  { key: 't', view: 'terminal', label: 'Terminal' },
-  { key: 'w', view: 'workflows', label: 'Workflows' },
+  { key: 'r', view: 'runs', label: 'Runs' },
+  { key: 'n', view: 'insights', label: 'Insights' },
   { key: 'd', view: 'docs', label: 'Docs' },
   { key: ',', view: 'settings', label: 'Settings' },
 ]

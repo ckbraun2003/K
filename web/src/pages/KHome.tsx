@@ -164,7 +164,7 @@ export default function KHome() {
           <button
             data-testid="khome-glance-link"
             type="button"
-            onClick={() => navigate('chief')}
+            onClick={() => navigate('org', 'tree')}
             className="text-[var(--accent-hover)] transition-colors duration-150 hover:text-[var(--text)]"
           >
             Chief →
