@@ -1,11 +1,20 @@
 import type { FastifyInstance } from 'fastify'
 import path from 'path'
 import { StartRunBodySchema, RunsQuerySchema, SendInputBodySchema, isKnownModel } from '@k/shared'
+import type { RunStatus, VerifyStatus } from '@k/shared'
 import { startRun, kill, sendInput, endSession, REPO_ROOT } from '../supervisor.js'
 import { orgDefaultPlanGate } from '../plan-gate.js'
-import { runsDb, eventsDb, projectsDb, workflowStepsDb } from '../db.js'
+import { runsDb, eventsDb, projectsDb, workflowStepsDb, verifyResultsDb } from '../db.js'
 import { matchProjectByCwd, type ProjectPathRow } from '../project-match.js'
 import { sendError, sendZodError } from './http-errors.js'
+import { deriveNarrative, narrativeBullets } from '../narrative.js'
+import { httpTransport } from '../ollama-agent/transport.js'
+import { isOllamaReachable } from '../router.js'
+import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel } from '../config-store.js'
+
+// E-08: cap the on-GET local-model bullet call so a stuck/looping model can't hang
+// the request; on timeout the card degrades to 'unavailable' (never blocks/500s).
+const NARRATIVE_BULLETS_TIMEOUT_MS = 20_000
 
 /**
  * A client-supplied `cwd` must resolve under a registered project's localPath
@@ -127,6 +136,57 @@ export async function runsRoutes(app: FastifyInstance) {
     if (!wf) return reply.send({ workflowRun: null, steps: [] })
     const steps = workflowStepsDb.listWorkflowSteps.all(wf.id) as Array<Record<string, unknown>>
     return reply.send({ workflowRun: dbRowToWorkflowRun(wf), steps: steps.map(dbRowToWorkflowStep) })
+  })
+
+  // E-08: the Run Narrative card data - deterministic fields always; local-model
+  // Decisions/Risks bullets auto-attempted with graceful degrade (never blocks/500s).
+  app.get<{ Params: { id: string } }>('/api/runs/:id/narrative', async (req, reply) => {
+    const row = runsDb.getRun.get(req.params.id) as Record<string, unknown> | undefined
+    if (!row) return sendError(reply, 404, 'not found')
+    const run = dbRowToRun(row)
+
+    // Verification projection (map the verify_results row -> NarrativeVerify). Read the
+    // row ONCE and reuse it for both the verify field and the changed-file scope.
+    const vr = verifyResultsDb.getVerifyResult.get(run.id) as
+      | { status: VerifyStatus; reason: string | null; commands: string; scope: string | null } | undefined
+    let verify: { status: VerifyStatus; reason: string | null; commandCount: number } | null = null
+    let files: string[] = []
+    if (vr) {
+      let commandCount = 0
+      try { const cmds = JSON.parse(vr.commands); commandCount = Array.isArray(cmds) ? cmds.length : 0 } catch { commandCount = 0 }
+      verify = { status: vr.status, reason: vr.reason, commandCount }
+      // changed files come from the verify scope when present (same row - no re-query)
+      if (vr.scope) { try { files = (JSON.parse(vr.scope) as { files?: string[] }).files ?? [] } catch { files = [] } }
+    }
+
+    const deterministic = deriveNarrative({
+      runId: run.id as string, prompt: run.prompt as string, status: run.status as RunStatus,
+      createdAt: run.createdAt as number, endedAt: (run.endedAt as number | null) ?? null,
+      costUsd: run.costUsd as number, tokensIn: run.tokensIn as number, tokensOut: run.tokensOut as number,
+      verify, files,
+    })
+
+    if (!ollamaEnabled()) return reply.send({ ...deterministic, bulletsState: 'disabled' })
+    if (!isOllamaReachable()) return reply.send({ ...deterministic, bulletsState: 'unavailable' })
+    // Bound the local-model call so a stuck/looping model can't hang the GET
+    // indefinitely (Fastify sets no request timeout): abort after the cap and
+    // degrade to 'unavailable'. Mirrors the AbortController+setTimeout pattern
+    // used across core (router.ts:94-95).
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), NARRATIVE_BULLETS_TIMEOUT_MS)
+    try {
+      const bullets = await narrativeBullets(
+        httpTransport(ollamaBaseUrl()), activeOllamaModel(), deterministic, ctrl.signal,
+      )
+      return bullets
+        ? reply.send({ ...deterministic, bullets, bulletsState: 'ok' })
+        : reply.send({ ...deterministic, bulletsState: 'error' })
+    } catch {
+      // transport failure OR the timeout abort - either way the card degrades, never 500s.
+      return reply.send({ ...deterministic, bulletsState: 'unavailable' })
+    } finally {
+      clearTimeout(timer)
+    }
   })
 
   // POST /api/runs/:id/kill — kill a running agent. 404 unknown · 200 { killed } (false when

@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -168,6 +168,8 @@ export const api = {
     approvePlan: (id: string) => req<{ run: Run }>(`/runs/${id}/approve-plan`, { method: 'POST' }),
     discardPlan: (id: string) => req<{ run: Run }>(`/runs/${id}/discard-plan`, { method: 'POST' }),
     verify: (id: string) => req<{ started: boolean }>(`/runs/${id}/verify`, { method: 'POST' }),
+    // ── P3 Visibility ─────────────────────────────────────────────────────────
+    narrative: (id: string) => req<RunNarrative>(`/runs/${id}/narrative`),
   },
   artifacts: {
     list: () => req<Omit<Artifact, 'md' | 'html'>[]>('/artifacts'),
@@ -201,6 +203,21 @@ export const api = {
     // Per-day success-rate + active-latency trend (the time-series companion to the
     // Success/Avg-latency KPIs). Same killed-/parked-excluded definitions (W9b).
     quality: (days = 30) => req<MetricsQualityTimeseries>(`/metrics/quality?days=${days}`),
+    // ── P3 Visibility (E-13 measured cost lens) ─────────────────────────────────
+    recentActuals: (opts?: { profileId?: string; projectId?: string }) => {
+      const qs = new URLSearchParams()
+      if (opts?.profileId) qs.set('profileId', opts.profileId)
+      if (opts?.projectId) qs.set('projectId', opts.projectId)
+      const s = qs.toString()
+      return req<RecentActuals>(`/metrics/recent-actuals${s ? `?${s}` : ''}`)
+    },
+    costRollup: (opts?: { days?: number; groupBy?: 'lead' | 'project' | 'day' }) => {
+      const qs = new URLSearchParams()
+      if (opts?.days !== undefined) qs.set('days', String(opts.days))
+      if (opts?.groupBy) qs.set('groupBy', opts.groupBy)
+      const s = qs.toString()
+      return req<CostRollup>(`/metrics/cost-rollup${s ? `?${s}` : ''}`)
+    },
   },
   projects: {
     list: () => req<Project[]>('/projects'),
@@ -537,6 +554,15 @@ export const api = {
       req<NotificationRule>(`/notifications/rules/${eventKey}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
       }),
+  },
+  feed: {
+    list: (opts?: { limit?: number; kinds?: string[] }) => {
+      const qs = new URLSearchParams()
+      if (opts?.limit !== undefined) qs.set('limit', String(opts.limit))
+      if (opts?.kinds?.length) qs.set('kinds', opts.kinds.join(','))
+      const s = qs.toString()
+      return req<FeedPayload>(`/feed${s ? `?${s}` : ''}`)
+    },
   },
   // Local models (Ollama) — model management over the core routes/ollama.ts surface.
   // Pull is fire-and-forget (202): progress arrives as `ollama_pull` WS messages,

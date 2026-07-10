@@ -189,9 +189,14 @@
       <span class="nav-title">Observability</span>
       <span class="dot dot-accent" title="active"></span>
     </a>
+    <a class="nav-item" href="#14-glossary" data-section="14-glossary">
+      <span class="nav-icon">📖</span>
+      <span class="nav-title">Glossary</span>
+      <span class="dot dot-green" title="stable"></span>
+    </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-09 08:04</span><br>
+      compiled <span class="mono">2026-07-10 10:37</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -239,9 +244,9 @@ output still lands as a durable artifact, run record, or PR; the chat directs wo
 replaces the audit trail.</li>
 </ul>
 <div class="live-stats">
-      <div class="stat"><span class="stat-label">TOTAL RUNS</span><span class="stat-value">41</span></div>
-      <div class="stat"><span class="stat-label">TOKENS</span><span class="stat-value">1.7M</span></div>
-      <div class="stat"><span class="stat-label">COST</span><span class="stat-value">$3.74</span></div>
+      <div class="stat"><span class="stat-label">TOTAL RUNS</span><span class="stat-value">43</span></div>
+      <div class="stat"><span class="stat-label">TOKENS</span><span class="stat-value">1.9M</span></div>
+      <div class="stat"><span class="stat-label">COST</span><span class="stat-value">$4.00</span></div>
     </div>
 
     </section>
@@ -1740,6 +1745,18 @@ this phase (rewiring it onto the behavioral subsystem is a deferred follow-on); 
 alongside it. <strong>P5 extension:</strong> it is built to add <strong>DB-sourced <code>AgentProfile</code>s</strong> as eval systems, so the
 agent org can be evaluated as it comes online.</p>
 <table><thead><tr><th>run</th><th>prompt</th><th>status</th><th>cost</th><th>started</th></tr></thead><tbody><tr>
+      <td>066cccd0</td>
+      <td>Autonomous org check-in: review active leads and open objectives…</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.139</td>
+      <td>2026-07-10 10:30</td>
+    </tr><tr>
+      <td>4e8a2b87</td>
+      <td>Autonomous org check-in: review active leads and open objectives…</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.117</td>
+      <td>2026-07-10 10:00</td>
+    </tr><tr>
       <td>8aba3186</td>
       <td>Autonomous org check-in: review active leads and open objectives…</td>
       <td><span class="dot dot-amber"></span>interrupted</td>
@@ -1757,18 +1774,6 @@ agent org can be evaluated as it comes online.</p>
       <td><span class="dot dot-green"></span>done</td>
       <td>$0.074</td>
       <td>2026-07-03 01:00</td>
-    </tr><tr>
-      <td>acee1fa7</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.077</td>
-      <td>2026-07-03 01:00</td>
-    </tr><tr>
-      <td>9c9e404a</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-amber"></span>interrupted</td>
-      <td>$0.000</td>
-      <td>2026-07-03 00:45</td>
     </tr></tbody></table>
 
     </section>
@@ -1778,7 +1783,7 @@ agent org can be evaluated as it comes online.</p>
         <span class="section-icon">▣</span>
         <h1>Dashboard — Command Deck</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-09</span>
+        <span class="section-updated mono">updated 2026-07-10</span>
       </header>
       <p>The dashboard is the <strong>window into the agent organization</strong> (§03) — held to product quality, not
 internal-tool quality. It is re-framed from <em>an operator driving a deck of tools</em> to <em>a user
@@ -2166,6 +2171,42 @@ discrimination / regression report, the raw results table, and a <strong>gated R
 token-spending run requires an explicit opt-in that resets on every dialog open). (Internals in §07.)</li>
 <li><strong>Terminal.</strong> A guarded <code>node-pty</code> web terminal (default-off; scoped <code>TERMINAL_TOKEN</code>).</li>
 </ul>
+<h2>Visibility (P3)</h2>
+<p>Phase 3 makes the org's <em>history</em> legible without adding a write path — every surface below is a
+<strong>derivation</strong> over data the harness already stores (the read-time discipline of the D-081 Inbox).</p>
+<h3>Run Narrative card (E-08, D-086)</h3>
+<p>Every run gets a <strong>Run Narrative</strong> — a "what this run did" card that <strong>mounts in the run console</strong>.
+Its <strong>deterministic fields</strong> — goal, outcome, files touched, verification, cost — are derived from
+the run's own events and <strong>always render</strong>. Below them, physically separated, sit <strong>at most three
+Decisions and three Risks bullets</strong> from the <strong>local model</strong>, auto-attempted on open and <strong>labeled
+"generated"</strong> so model prose can never read as measured fact. If the local model is unreachable or
+its output won't parse, the bullets <strong>gracefully omit</strong> with a subtle note (facts-only); a bounded
+20 s abort guarantees the card's GET never blocks on a stuck stream.</p>
+<h3>Org Timeline (E-09, D-085)</h3>
+<p>A single <strong>Org Timeline</strong> — <strong>one feed</strong>, rendered as git-log-style <strong>iconographic rows</strong> — is the
+org's activity history. <strong>Kind filter chips carry counts</strong> and narrow the view in place. An
+<strong>opt-in digest</strong> inlines the Run Narrative card per event (<strong>capped at 12</strong> so the fan-out stays
+bounded), and an honest <strong>"showing N of M events"</strong> signal never hides truncation. <strong>K-home's
+"recent" reads the same feed</strong>, so the home glance and the Timeline view cannot disagree. The
+<strong>ActivityStrip is deliberately NOT re-pointed</strong> — it stays the <strong>live-runs widget</strong> (complete,
+uncapped coverage of every non-terminal run), because the capped historical feed would silently
+drop parked runs. (Feed architecture + the measured cost lens are in §13.)</p>
+<h3>Relative weight bands (E-13, D-087)</h3>
+<p>The capability-catalog <strong>token chips become relative light / medium / heavy weight bands</strong> — a
+context-cost hint derived from token counts, <strong>never a dollar figure</strong>. The measured cost roll-ups
+that consume real <code>cost_usd</code> live on Metrics and in §13.</p>
+<h3>Single HealthRubric (E-12, D-088)</h3>
+<p>The ~5 drifting copies of health-score → color/label logic fold into <strong>one <code>healthRubric</code></strong> — the
+canonical thresholds <strong>≥75 healthy / ≥50 warn / else critical / null unknown</strong> — consumed by every
+web health surface (ProjectCard, FleetGraph, ProjectVerification, ProjectWorkspace, verify). As an
+<strong>intended</strong> consequence, <strong>ProjectCard now shows a colored health dot / band</strong> in place of the old
+flat numeric score. (The server-side <code>bible.ts liveHealth</code> 80-threshold is a separate concern, left
+unchanged.)</p>
+<h3>Glossary tooltips (E-12, D-088)</h3>
+<p>Terms defined in the <strong>§14 Glossary</strong> render an inline <strong><code>GlossaryTerm</code> tooltip</strong> wherever they
+appear in the UI. The term dictionary is <strong>extracted at <code>pnpm bible</code> compile time</strong> into a committed
+generated module (<code>web/src/generated/glossary.ts</code>), so tooltips stay in lockstep with the living
+spec at zero runtime cost, guarded by a drift test.</p>
 <h2>Approvals Inbox + notifications (Human Gates — Phase 2)</h2>
 <ul>
 <li><strong>The Approvals Inbox is THE "needs-YOU" surface.</strong> One place that answers "what is waiting on
@@ -2759,7 +2800,7 @@ of invented numbers).</p>
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-09</span>
+        <span class="section-updated mono">updated 2026-07-10</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -3444,6 +3485,38 @@ of invented numbers).</p>
 <td><strong>Plan-gate tier default rides <code>agent_profiles.plan_gate</code> (the org-default orchestrator row is the operator default; org dispatches inherit their profile's flag); an explicit per-dispatch <code>planGate</code> always wins.</strong></td>
 <td>Whether a run stops at a plan gate is a policy that belongs on the same profile row that already carries a tier's tools/MCP/authority (D-021/D-047), so the org-default orchestrator row is the one operator-editable default and org dispatches inherit their profile's flag — while a specific dispatch can always force the gate on or off</td>
 <td>A single global on/off flag (cannot vary the gate per tier/lead); the gate always on or always off (removes operator control over routine vs. risky work); a per-dispatch flag a profile default could override (an explicit request must win)</td>
+</tr>
+<tr>
+<td>D-085</td>
+<td>2026-07-10</td>
+<td>Org Timeline feed is a read-time union projection, not a table</td>
+<td><strong>E-09 Org Timeline is a read-time UNION PROJECTION over existing tables (run heads + review-ready notifications + verify_results + open-PR github_cache), never a persisted feed table; ONE <code>['feed']</code> query key (with a <code>['feed',500]</code> timeline variant) powers K-home recent + the Timeline view; ActivityStrip is deliberately NOT re-pointed and stays the live-runs widget.</strong></td>
+<td>A projection reuses the existing sources with no schema/write-path and cannot drift from them (mirrors the E-05 Inbox union); one shared key keeps the two historical surfaces consistent. ActivityStrip needs COMPLETE, uncapped coverage of every non-terminal run plus rich Run fields (prompt/agent) for its cards, which a capped lean historical feed cannot honestly provide, so forcing it onto the feed would silently drop parked runs under the item cap.</td>
+<td>A persisted org_events table (a schema bump + a write at every transition + a second source of truth that can drift); re-pointing ActivityStrip onto the capped feed (drops active/parked runs beyond the cap, a live-monitoring regression); three separate recent-activity queries (drift).</td>
+</tr>
+<tr>
+<td>D-086</td>
+<td>2026-07-10</td>
+<td>Run Narrative = deterministic fields always + auto/degrade local-model bullets</td>
+<td><strong>E-08 Run Narrative renders deterministic fields (goal/outcome/files/verification/cost) derived from a run's events on every open; &lt;=3 Decisions / &lt;=3 Risks bullets come from the LOCAL model, auto-attempted on open, labeled "generated", physically separated from the deterministic fields, and gracefully OMITTED (with a subtle note) when the model is unreachable/unparseable; a bounded 20s abort guarantees the endpoint never blocks.</strong></td>
+<td>The card must be trustworthy and always useful: measured/derived facts can never be confused with model prose (labeling + separation), and an unavailable local model degrades to facts-only rather than blocking or erroring; the abort bounds a stuck /api/chat stream so the GET honours its own never-blocks contract.</td>
+<td>Mixing generated bullets into the deterministic fields (confuses fact and inference); requiring the local model (blocks the card when Ollama is down); an on-demand-only button (loses the auto glance); an unbounded model call (a stuck stream hangs the request).</td>
+</tr>
+<tr>
+<td>D-087</td>
+<td>2026-07-10</td>
+<td>Cost lens is measured-only; token chips become relative weight bands</td>
+<td><strong>E-13 rolls up MEASURED <code>cost_usd</code> (run-&gt;lead-&gt;project-&gt;day) and computes dispatch recent-actuals (median/p90 $/run, recency-windowed, <code>cost_usd&gt;0</code> pool, scope agent-profile-&gt;project-&gt;global fallback at n&lt;5); catalog capability token chips become RELATIVE light/medium/heavy weight bands (derived from token counts, never a price); a committed no-price-tables grep gate enforces the no-price-coupling rule.</strong></td>
+<td>The program bans price-coupled estimation (measured actuals only): recent-actuals are real historical costs, not price*tokens, and the agent-&gt;project-&gt;global ladder gives the most relevant number with a graceful thin-history fallback; weight bands convey relative context cost without implying a dollar figure; the grep gate makes the rule mechanically enforced.</td>
+<td>A price-per-token table or price*token estimate (confidently-wrong, banned); a single global actuals number (mixes cheap and expensive agents); dollar-denominated capability chips (implies billing the user does not incur).</td>
+</tr>
+<tr>
+<td>D-088</td>
+<td>2026-07-10</td>
+<td>Single HealthRubric + compile-time glossary</td>
+<td><strong>E-12 folds the ~5 drifting health-score-&gt;color/label copies into ONE <code>healthRubric</code> (canonical thresholds &gt;=75 healthy / &gt;=50 warn / else critical / null unknown) consumed by every web health surface; glossary terms are extracted from the bible glossary section at <code>pnpm bible</code> COMPILE time into a committed generated module feeding a <code>GlossaryTerm</code> tooltip, guarded by a core-side drift test. The server <code>bible.ts liveHealth</code> 80-threshold is intentionally left unchanged.</strong></td>
+<td>One rubric means a threshold or palette change lands in a single place instead of drifting across ProjectCard/FleetGraph/ProjectVerification/ProjectWorkspace/verify; compile-time glossary extraction keeps tooltips in lockstep with the living spec at zero runtime cost with a drift guard; the server's distinct liveHealth threshold is a separate concern not swept in, to avoid changing server behavior.</td>
+<td>Per-site health color logic (drifts); a runtime glossary fetch (latency + another endpoint); silently changing the server 80 threshold to match web's 75 (an unrelated behavior change).</td>
 </tr>
 </tbody></table>
 
@@ -4223,7 +4296,7 @@ reads "agent-generated draft — not saved".</li>
         <span class="section-icon">👁</span>
         <h1>Observability</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-05</span>
+        <span class="section-updated mono">updated 2026-07-10</span>
       </header>
       <p>Phase 4's Track D makes the harness <strong>observable</strong>: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard <em>surfaces</em> it powers. The <em>Implementation history</em> appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.</p>
 <h2>Event-data enrichment foundation (D3, D-015)</h2>
@@ -4353,6 +4426,44 @@ declaring the engine and its tool support, rendered as the RunConsole badge — 
 tools"</strong> vs <strong>"local · prompt-only"</strong> (§08). A degraded run is <em>visibly</em> degraded; it never
 silently becomes a claude run.</li>
 </ul>
+<h2>Org Timeline feed — a read-time union projection (P3, E-09, D-085)</h2>
+<p>The Org Timeline (§08) is <strong>not a persisted feed table</strong> — it is a <strong>read-time UNION PROJECTION</strong>
+(<code>GET /api/feed</code>, <code>core/src/routes/feed.ts</code>) computed on demand over four sources the harness
+already writes:</p>
+<ul>
+<li><strong>run heads</strong> — each run's current state, mapped to a milestone kind by its status
+(<code>running/queued</code>→dispatch, <code>awaiting_plan</code>→plan_gate, <code>awaiting_input</code>→park, <code>done</code>→done,
+<code>error/killed/interrupted</code>→failure),</li>
+<li><strong>review-ready notifications</strong> — the <code>run_review_ready</code> rows (runs that finished with a diff to review),</li>
+<li><strong><code>verify_results</code></strong> — completed <code>pass</code>/<code>fail</code> verification outcomes, and</li>
+<li><strong>open-PR <code>github_cache</code></strong> — the PRs currently open.</li>
+</ul>
+<p>Each source contributes only these <strong>curated milestone kinds</strong> — not every event, just the ones
+worth a timeline row. The projection is read under <strong>one shared query key, <code>['feed']</code></strong>, with a
+<strong><code>['feed', 500]</code> timeline variant</strong> for the deeper history view, so K-home's "recent" and the
+Timeline page read the <em>same</em> projection and cannot drift. Each source is <strong>capped</strong>
+(<code>SOURCE_CAP = 500</code>); the endpoint clamps the display <code>limit</code> to <code>1..500</code> (default 100), returns
+per-kind <code>counts</code> and the pre-slice <code>total</code>, and the UI surfaces the overflow honestly as
+<strong>"showing N of M events"</strong> rather than hiding it. Because there is no feed table there is no write
+path to keep in sync and nothing that can diverge from the sources (the same discipline as the
+D-081 read-time Inbox). The live <strong>ActivityStrip is intentionally left pointed at running runs</strong> —
+it needs complete, uncapped coverage of non-terminal runs plus richer Run fields, which a capped
+historical feed cannot provide.</p>
+<h2>Measured cost lens (P3, E-13, D-087)</h2>
+<p>The cost lens is <strong>measured-only</strong> — it never multiplies a token count by a price. Two things are
+derived, both from the stored <code>cost_usd</code>:</p>
+<ul>
+<li><strong>Roll-ups</strong> — measured <code>cost_usd</code> summed <strong>run → lead → project → day</strong>.</li>
+<li><strong>Dispatch recent-actuals</strong> — the <strong>median and p90 <code>$/run</code></strong> over a recency window, computed from
+the pool of runs with <strong><code>cost_usd &gt; 0</code></strong>, scoped <strong>agent-profile → project → global</strong> with a
+fallback when a scope has fewer than 5 samples (thin history degrades to the broader scope rather
+than reporting a noisy number).</li>
+</ul>
+<p>There is <strong>no price-per-token table and no <code>price × tokens</code> estimate</strong> anywhere in the cost path —
+the program bans price-coupled estimation (measured actuals only). The rule is <strong>mechanically
+enforced</strong> by a committed <strong>no-price-tables grep gate</strong> (<code>core/test/no-price-tables.test.ts</code>) that
+fails if a price table reappears. The catalog's relative <strong>weight bands</strong> (§08) convey <em>context</em>
+cost without implying a dollar figure.</p>
 <h2>Implementation history (dashboard)</h2>
 <blockquote>
 <p>Moved here from §08 so that section stays a UI <em>spec</em>. These are the as-built milestone records
@@ -4422,6 +4533,29 @@ CLAUDE.md editor.</li>
 <li><strong>Force-graph surfaces → 3D</strong> — all three force-graph surfaces moved to <code>react-force-graph-3d</code> with
 a collision force + per-surface error boundary; the renderer-subpackage rule still holds.</li>
 </ul>
+
+    </section>
+
+    <section id="14-glossary" class="bible-section">
+      <header class="section-head">
+        <span class="section-icon">📖</span>
+        <h1>Glossary</h1>
+        <span class="badge badge-green">stable</span>
+        <span class="section-updated mono">updated 2026-07-10</span>
+      </header>
+      <h1>Glossary</h1>
+<p>Canonical definitions for the terms K's UI surfaces. Extracted at compile time into the
+live tooltip component — edit here, then run <code>pnpm bible</code>.</p>
+<p><strong>Wave</strong> — one implementer plus separate spec and quality reviewers producing a single reviewable commit.</p>
+<p><strong>Park</strong> — a run paused awaiting the operator: <code>awaiting_input</code> (process alive on stdin) or <code>awaiting_plan</code> (process dead, resumable).</p>
+<p><strong>Plan gate</strong> — a dispatch that runs a plan turn, parks at <code>awaiting_plan</code>, and continues only after the operator approves the (optionally edited) plan.</p>
+<p><strong>Lead</strong> — the orchestrator profile a run was dispatched through; roll-ups group runs by their latest orchestrator activation.</p>
+<p><strong>Recent actuals</strong> — median and p90 of measured <code>$/run</code> over a recency window, scoped to the agent profile, then project, then global.</p>
+<p><strong>Weight band</strong> — a relative light/medium/heavy indicator of a capability's context cost, derived from token counts (never a price).</p>
+<p><strong>Review-ready</strong> — a finished project run that has reviewable changes (a checkpoint chain) and has not yet been reviewed.</p>
+<p><strong>Run Narrative</strong> — a per-run card whose deterministic goal, outcome, files, verification, and cost always render, plus up to three "generated" local-model Decisions and Risks bullets that are omitted when the model is unavailable.</p>
+<p><strong>Org Timeline</strong> — the org's activity history as one read-time union projection over run heads, review-ready notifications, verification results, and open PRs; a query, never a persisted feed table.</p>
+<p><strong>HealthRubric</strong> — the single canonical health-score rubric shared by every web surface: &gt;=75 healthy, &gt;=50 warn, else critical, null unknown.</p>
 
     </section>
   </main>

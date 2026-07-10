@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-09
+updated: 2026-07-10
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -305,6 +305,54 @@ A project opens into its workspace (unchanged in shape):
   discrimination / regression report, the raw results table, and a **gated Run** (dry by default — a real
   token-spending run requires an explicit opt-in that resets on every dialog open). (Internals in §07.)
 - **Terminal.** A guarded `node-pty` web terminal (default-off; scoped `TERMINAL_TOKEN`).
+
+## Visibility (P3)
+
+Phase 3 makes the org's *history* legible without adding a write path — every surface below is a
+**derivation** over data the harness already stores (the read-time discipline of the D-081 Inbox).
+
+### Run Narrative card (E-08, D-086)
+
+Every run gets a **Run Narrative** — a "what this run did" card that **mounts in the run console**.
+Its **deterministic fields** — goal, outcome, files touched, verification, cost — are derived from
+the run's own events and **always render**. Below them, physically separated, sit **at most three
+Decisions and three Risks bullets** from the **local model**, auto-attempted on open and **labeled
+"generated"** so model prose can never read as measured fact. If the local model is unreachable or
+its output won't parse, the bullets **gracefully omit** with a subtle note (facts-only); a bounded
+20 s abort guarantees the card's GET never blocks on a stuck stream.
+
+### Org Timeline (E-09, D-085)
+
+A single **Org Timeline** — **one feed**, rendered as git-log-style **iconographic rows** — is the
+org's activity history. **Kind filter chips carry counts** and narrow the view in place. An
+**opt-in digest** inlines the Run Narrative card per event (**capped at 12** so the fan-out stays
+bounded), and an honest **"showing N of M events"** signal never hides truncation. **K-home's
+"recent" reads the same feed**, so the home glance and the Timeline view cannot disagree. The
+**ActivityStrip is deliberately NOT re-pointed** — it stays the **live-runs widget** (complete,
+uncapped coverage of every non-terminal run), because the capped historical feed would silently
+drop parked runs. (Feed architecture + the measured cost lens are in §13.)
+
+### Relative weight bands (E-13, D-087)
+
+The capability-catalog **token chips become relative light / medium / heavy weight bands** — a
+context-cost hint derived from token counts, **never a dollar figure**. The measured cost roll-ups
+that consume real `cost_usd` live on Metrics and in §13.
+
+### Single HealthRubric (E-12, D-088)
+
+The ~5 drifting copies of health-score → color/label logic fold into **one `healthRubric`** — the
+canonical thresholds **≥75 healthy / ≥50 warn / else critical / null unknown** — consumed by every
+web health surface (ProjectCard, FleetGraph, ProjectVerification, ProjectWorkspace, verify). As an
+**intended** consequence, **ProjectCard now shows a colored health dot / band** in place of the old
+flat numeric score. (The server-side `bible.ts liveHealth` 80-threshold is a separate concern, left
+unchanged.)
+
+### Glossary tooltips (E-12, D-088)
+
+Terms defined in the **§14 Glossary** render an inline **`GlossaryTerm` tooltip** wherever they
+appear in the UI. The term dictionary is **extracted at `pnpm bible` compile time** into a committed
+generated module (`web/src/generated/glossary.ts`), so tooltips stay in lockstep with the living
+spec at zero runtime cost, guarded by a drift test.
 
 ## Approvals Inbox + notifications (Human Gates — Phase 2)
 

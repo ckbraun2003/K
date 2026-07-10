@@ -6,21 +6,21 @@ import { api } from '../lib/api'
 import GraphErrorBoundary from '../components/GraphErrorBoundary'
 import { navigate } from '../lib/route'
 import { GRAPH_BG, configureGraphForces } from '../lib/graph'
+import { healthRubric } from '../lib/health'
 
 type FGNode = { id?: string | number; color?: string; [key: string]: unknown }
 
 function healthColor(healthScore: number | undefined | null): string {
-  if (healthScore == null) return '#a99bc4'
-  if (healthScore >= 75) return '#34d399'
-  if (healthScore >= 50) return '#fbbf24'
-  return '#f87171'
+  return healthRubric(healthScore ?? null).hex
 }
 
+// Swatches derive from the single healthRubric (SEAMS LOW-6) so a threshold/hex
+// change lands in one place; labels name the canonical 75/50 bands.
 const FLEET_LEGEND: { color: string; label: string }[] = [
-  { color: '#34d399', label: 'Healthy (≥75)' },
-  { color: '#fbbf24', label: 'At risk (≥50)' },
-  { color: '#f87171', label: 'Failing (<50)' },
-  { color: '#a99bc4', label: 'Unverified' },
+  { color: healthRubric(75).hex, label: 'Healthy (≥75)' },
+  { color: healthRubric(50).hex, label: 'At risk (≥50)' },
+  { color: healthRubric(0).hex, label: 'Failing (<50)' },
+  { color: healthRubric(null).hex, label: 'Unverified' },
 ]
 
 export default function FleetGraphPage() {
@@ -132,7 +132,7 @@ export default function FleetGraphPage() {
                 height={dims.height}
                 backgroundColor={GRAPH_BG}
                 nodeLabel="label"
-                nodeColor={(n: FGNode) => (n.color as string) ?? '#a99bc4'}
+                nodeColor={(n: FGNode) => (n.color as string) ?? healthRubric(null).hex}
                 nodeVal={7}
                 nodeOpacity={0.9}
                 nodeResolution={16}

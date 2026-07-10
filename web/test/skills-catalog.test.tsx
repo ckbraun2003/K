@@ -94,13 +94,14 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('CatalogTab — rows', () => {
-  it('renders name, provenance badge, compat badge and token chip', async () => {
+  it('renders name, provenance badge, compat badge and relative weight band', async () => {
     renderTab()
     const row = await screen.findByTestId('catalog-row-deep-research')
     expect(row.textContent).toContain('deep-research')
     expect(row.textContent).toContain('K') // source badge
     expect(row.textContent).toContain('universal')
-    expect(row.textContent).toContain('~4.2k tok')
+    // deep-research is the only measured skill, so it is the catalog's refMax -> heavy band.
+    expect(row.textContent).toContain('heavy weight')
     expect(row.textContent).toContain('fan-out research harness')
   })
 
@@ -110,10 +111,10 @@ describe('CatalogTab — rows', () => {
     expect(row.textContent).toContain('superpowers')
   })
 
-  it('a null estTokens renders an honest "tok n/a" chip', async () => {
+  it('a null estTokens renders an honest "weight n/a" band', async () => {
     renderTab()
     const row = await screen.findByTestId('catalog-row-plugin:superpowers@obra:brainstorming')
-    expect(row.textContent).toContain('tok n/a')
+    expect(row.textContent).toContain('weight n/a')
   })
 
   it('status=missing is rendered clearly and blocks enabling', async () => {

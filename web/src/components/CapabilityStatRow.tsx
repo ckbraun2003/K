@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { CapabilitySummary } from '@k/shared'
 import { api } from '../lib/api'
 import { formatCompact } from '../lib/format-metrics'
+import GlossaryTerm from './GlossaryTerm'
 
 /**
  * Slim capability-cost strip shown on ALL Skills tabs — the enabled set's
@@ -21,7 +22,7 @@ export default function CapabilityStatRow() {
   return (
     <div
       data-testid="capability-stat-row"
-      title={`Estimates of prompt-context cost, not billed tokens${
+      title={`Estimates of prompt-context weight, not billed tokens${
         unestimated > 0 ? `; ${unestimated} not yet measured excluded` : ''
       }`}
       className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-2 text-[11px] text-[var(--muted)]"
@@ -40,7 +41,7 @@ export default function CapabilityStatRow() {
           </span>
           <span aria-hidden>—</span>
           <span>
-            Total context overhead:{' '}
+            Total <GlossaryTerm term="Weight band">context weight</GlossaryTerm>:{' '}
             <span className="mono text-[var(--accent-hover)]">~{formatCompact(data.totalEstTokens)}</span> tok
           </span>
           {unestimated > 0 && (
@@ -51,7 +52,7 @@ export default function CapabilityStatRow() {
         </>
       ) : (
         // Loading/error: never fake a zero — an em-dash strip until the read lands.
-        <span>Enabled skills: — · MCP: — · Total context overhead: —</span>
+        <span>Enabled skills: — · MCP: — · Total context weight: —</span>
       )}
     </div>
   )
