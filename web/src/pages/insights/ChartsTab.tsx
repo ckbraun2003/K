@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import type { MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, RoutingStats, TimeseriesGroupBy } from '@k/shared'
-import { api } from '../lib/api'
-import { formatCompact, formatUsd, tileValue, weightedSuccessRate, weightedErrorRate, weightedAvgLatencyMs } from '../lib/format-metrics'
-import TimeseriesChart from '../components/TimeseriesChart'
-import QualityTrendChart from '../components/QualityTrendChart'
-import MetricCard from '../components/MetricCard'
-import SegControl from '../components/SegControl'
-import type { Metric } from '../lib/chart'
+import { api } from '../../lib/api'
+import { formatCompact, formatUsd, tileValue, weightedSuccessRate, weightedErrorRate, weightedAvgLatencyMs } from '../../lib/format-metrics'
+import TimeseriesChart from '../../components/TimeseriesChart'
+import QualityTrendChart from '../../components/QualityTrendChart'
+import MetricCard from '../../components/MetricCard'
+import SegControl from '../../components/SegControl'
+import type { Metric } from '../../lib/chart'
 
 /** Latency (ms) → '1.2s' for the KPI tiles. */
 function fmtLatencySecs(ms: number): string {
@@ -122,11 +122,15 @@ function TrendCard({
   )
 }
 
-export default function MetricsPage() {
+/**
+ * P4 E-10 Charts tab (extracted verbatim from the former MetricsPage). The time window is
+ * now a SHARED prop driven by the Insights shell's window control (cross-filter); `groupBy`
+ * and `metric` stay Charts-local pickers. Renders the full 10-visualization set: the main
+ * stacked TimeseriesChart, 3 CostBreakdown panels (model/project/lead), 2 QualityTrendCharts
+ * (success rate / latency per day), and 4 Sparkline KPI tiles. No chart dropped.
+ */
+export default function ChartsTab({ days }: { days: Days }) {
   const [groupBy, setGroupBy] = useState<TimeseriesGroupBy>('project')
-  // Default 14d so the chart window matches the pinned "14d · Cost" KPI + the 14-day
-  // summary rollup — one consistent default period across the page (F-083).
-  const [days, setDays] = useState<Days>(14)
   const [metric, setMetric] = useState<Metric>('tokens')
 
   const { data, isLoading, error } = useQuery<MetricsTimeseries>({
@@ -211,12 +215,7 @@ export default function MetricsPage() {
   const latencyP95Ms = routing?.latencyP95Ms ?? 0
 
   return (
-    <div className="h-full overflow-y-auto p-5">
-      {/* page header */}
-      <div className="mb-5 flex items-center justify-between">
-        <h1 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Metrics</h1>
-      </div>
-
+    <>
       {/* KPI tile row — summary rollups + weighted routing aggregates */}
       <div className="mb-4 flex flex-wrap gap-3">
         <MetricCard label="Today · Cost" value={tileValue(summaryLoading, formatUsd(todayCost))} spark={daily.map(d => d.costUsd)} />
@@ -237,7 +236,7 @@ export default function MetricsPage() {
         <MetricCard label="Error rate" value={tileValue(routingLoading, `${(errorRate * 100).toFixed(1)}%`)} />
       </div>
 
-      {/* controls row */}
+      {/* controls row — groupBy + metric pickers (the shared window lives in the Insights shell) */}
       <div className="mb-4 flex flex-wrap gap-3">
         <SegControl<TimeseriesGroupBy>
           options={[
@@ -247,15 +246,6 @@ export default function MetricsPage() {
           ]}
           value={groupBy}
           onChange={setGroupBy}
-        />
-        <SegControl<string>
-          options={[
-            { label: '14d', value: '14' },
-            { label: '30d', value: '30' },
-            { label: '60d', value: '60' },
-          ]}
-          value={String(days)}
-          onChange={v => setDays(Number(v) as Days)}
         />
         <SegControl<Metric>
           options={[
@@ -314,6 +304,6 @@ export default function MetricsPage() {
           format={fmtLatencySecs}
         />
       </div>
-    </div>
+    </>
   )
 }

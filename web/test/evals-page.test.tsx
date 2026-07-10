@@ -5,7 +5,7 @@ import {
   EvalResultsTable,
   RunSummaryRow,
   FreezeBaselinesButton,
-} from '../src/pages/EvalsPage'
+} from '../src/pages/insights/EvalsTab'
 import type {
   SystemMetrics,
   BaselineCompare,

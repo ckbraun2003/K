@@ -1,9 +1,7 @@
-import { useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import type { MetricsTimeseries, RoutingStats } from '@k/shared'
-import { api } from '../lib/api'
-import TimeseriesChart from '../components/TimeseriesChart'
-import SegControl from '../components/SegControl'
+import { api } from '../../lib/api'
+import TimeseriesChart from '../../components/TimeseriesChart'
 
 type Days = 14 | 30 | 60
 
@@ -40,9 +38,13 @@ export function formatCostTotal(v: number): string {
   return `$${v.toFixed(2)}`
 }
 
-export default function RoutingPage() {
-  const [days, setDays] = useState<Days>(30)
-
+/**
+ * P4 E-10 Routing tab (extracted verbatim from the former RoutingPage). The time window is
+ * now a SHARED prop from the Insights shell (was a page-local default of 30d — the window is
+ * unified across Overview/Charts/Routing). Preserves the recommendation banner, the per-model
+ * table, and the cost-trend-by-model chart.
+ */
+export default function RoutingTab({ days }: { days: Days }) {
   const { data, isLoading, error } = useQuery<RoutingStats>({
     queryKey: ['routing', days],
     queryFn: () => api.metrics.routing(days),
@@ -60,21 +62,7 @@ export default function RoutingPage() {
   const groups = data?.groups ?? []
 
   return (
-    <div className="h-full overflow-y-auto p-5">
-      {/* page header */}
-      <div className="mb-5 flex items-center justify-between">
-        <h1 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Routing</h1>
-        <SegControl<string>
-          options={[
-            { label: '14d', value: '14' },
-            { label: '30d', value: '30' },
-            { label: '60d', value: '60' },
-          ]}
-          value={String(days)}
-          onChange={v => setDays(Number(v) as Days)}
-        />
-      </div>
-
+    <>
       {isLoading && !data && (
         <div className="flex h-[180px] items-center justify-center text-sm text-[var(--muted)]">
           loading…
@@ -149,6 +137,6 @@ export default function RoutingPage() {
           )}
         </>
       )}
-    </div>
+    </>
   )
 }

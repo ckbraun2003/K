@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { api } from '../lib/api'
-import { cn } from '../lib/cn'
-import { relativeTime } from '../lib/verify'
-import { useFocusTrap } from '../lib/useFocusTrap'
-import Toast from '../components/Toast'
+import { api } from '../../lib/api'
+import { cn } from '../../lib/cn'
+import { relativeTime } from '../../lib/verify'
+import { useFocusTrap } from '../../lib/useFocusTrap'
+import Toast from '../../components/Toast'
 import {
   formatPct,
   formatScore,
@@ -21,7 +21,7 @@ import {
   type SystemMetrics,
   type BaselineCompare,
   type EvalResultRow,
-} from '../lib/evals'
+} from '../../lib/evals'
 
 function Badge({ label, className }: { label: string; className: string }) {
   return (
@@ -31,9 +31,9 @@ function Badge({ label, className }: { label: string; className: string }) {
   )
 }
 
-// ─── Page ────────────────────────────────────────────────────────────────────
+// ─── Tab ───────────────────────────────────────────────────────────────────────
 
-export default function EvalsPage() {
+export default function EvalsTab() {
   const qc = useQueryClient()
   const { data: systems = [], isLoading: systemsLoading } = useQuery<EvalSystemRow[]>({
     queryKey: ['evals', 'systems'],
@@ -59,7 +59,7 @@ export default function EvalsPage() {
   })
 
   return (
-    <div className="h-full overflow-y-auto p-5">
+    <>
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
@@ -156,7 +156,7 @@ export default function EvalsPage() {
         }}
         onDismiss={() => setStarted(null)}
       />
-    </div>
+    </>
   )
 }
 
