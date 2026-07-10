@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ChiefOrgPayload, Assignment, AgentRun, DelegationNode } from '@k/shared'
-import { api } from '../lib/api'
-import { navigate } from '../lib/route'
-import { relativeTime } from '../lib/verify'
-import { useAskK } from '../lib/useAskK'
-import { fullOrgToDelegationTree } from '../lib/delegation'
-import { agentRunStatusMeta } from '../lib/status'
-import DelegationTree from '../components/DelegationTree'
-import ConfirmDialog from '../components/ConfirmDialog'
-import Toast from '../components/Toast'
+import { api } from '../../lib/api'
+import { navigate } from '../../lib/route'
+import { relativeTime } from '../../lib/verify'
+import { useAskK } from '../../lib/useAskK'
+import { fullOrgToDelegationTree } from '../../lib/delegation'
+import { agentRunStatusMeta } from '../../lib/status'
+import DelegationTree from '../../components/DelegationTree'
+import ConfirmDialog from '../../components/ConfirmDialog'
+import Toast from '../../components/Toast'
 
 /**
  * Chief org home (P5.2a read → C2 actuation) — objectives · delegation tree ·
@@ -140,7 +140,7 @@ function WakeRow({ wake }: { wake: AgentRun }) {
   )
 }
 
-export default function ChiefPage() {
+export default function TreeView() {
   const qc = useQueryClient()
   const { data, isLoading, isError } = useQuery<ChiefOrgPayload>({
     queryKey: ['chief-org'],
@@ -254,12 +254,9 @@ export default function ChiefPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-          Chief — org overview
-        </h1>
         {/* THIN health line (payload.health) — leads active, not a full strip. */}
         {data && (
-          <div className="flex items-center gap-2 text-[11px] text-[var(--muted)]" data-testid="chief-health">
+          <div className="ml-auto flex items-center gap-2 text-[11px] text-[var(--muted)]" data-testid="chief-health">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--green)]" aria-hidden />
             <span className="text-[var(--text)]">{data.health.leadsActive}</span>
             <span>lead{data.health.leadsActive === 1 ? '' : 's'} active</span>

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import type { OrchestratorRosterPayload, OrchestratorRosterEntry } from '@k/shared'
-import { api } from '../lib/api'
-import { navigate } from '../lib/route'
+import { api } from '../../lib/api'
+import { navigate } from '../../lib/route'
 
 /**
  * Orchestrators roster (P5.3a) — the five discipline leads as slim cards. ONE batched
@@ -68,7 +68,7 @@ export function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) 
   )
 }
 
-export default function OrchestratorsPage() {
+export default function RosterView() {
   const { data, isLoading, isError } = useQuery<OrchestratorRosterPayload>({
     queryKey: ['orchestrators'],
     queryFn: () => api.orchestrators.list(),
@@ -77,12 +77,9 @@ export default function OrchestratorsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-          Orchestrators — domain leads
-        </h1>
         {data && (
           <div
-            className="flex items-center gap-2 text-[11px] text-[var(--muted)]"
+            className="ml-auto flex items-center gap-2 text-[11px] text-[var(--muted)]"
             data-testid="orchestrators-active"
           >
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--green)]" aria-hidden />

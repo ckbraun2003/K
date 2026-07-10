@@ -94,7 +94,7 @@ vi.mock('../src/lib/route', () => ({
   useHashRoute: () => ({ view: 'chief' }),
 }))
 
-import ChiefPage from '../src/pages/ChiefPage'
+import ChiefPage from '../src/pages/org/TreeView'
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
