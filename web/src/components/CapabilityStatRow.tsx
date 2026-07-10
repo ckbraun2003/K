@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { CapabilitySummary } from '@k/shared'
 import { api } from '../lib/api'
 import { formatCompact } from '../lib/format-metrics'
+import GlossaryTerm from './GlossaryTerm'
 
 /**
  * Slim capability-cost strip shown on ALL Skills tabs — the enabled set's
@@ -40,7 +41,7 @@ export default function CapabilityStatRow() {
           </span>
           <span aria-hidden>—</span>
           <span>
-            Total context weight:{' '}
+            Total <GlossaryTerm term="Weight band">context weight</GlossaryTerm>:{' '}
             <span className="mono text-[var(--accent-hover)]">~{formatCompact(data.totalEstTokens)}</span> tok
           </span>
           {unestimated > 0 && (
