@@ -1,6 +1,7 @@
 import type { WsMessage } from '@k/shared'
 import { effectiveToken, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
+import { coreWsBase } from './core-origin'
 
 type MessageHandler = (msg: WsMessage) => void
 type StatusHandler = (connected: boolean) => void
@@ -25,14 +26,14 @@ export function connectWs() {
   // remotely it's the operator's session token. Absent → core closes with 4401.
   const token = effectiveToken()
   const qs = token ? `?token=${encodeURIComponent(token)}` : ''
-  // Core port defaults to 3001; the e2e harness injects VITE_CORE_PORT to point
-  // each isolated web stack at its own core. The /ws upgrade is direct (not
-  // proxied through Vite), so the port must be explicit here.
-  const corePort = import.meta.env.VITE_CORE_PORT ?? '3001'
-  // Mirror the page protocol: wss:// when the dashboard is served over HTTPS,
-  // ws:// otherwise. A mixed-content ws:// on an https page is blocked.
-  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const url = `${scheme}://${window.location.hostname}:${corePort}/ws${qs}`
+  // PROD: core serves the SPA same-origin, so /ws is on the page's own host:port
+  // (no build-frozen port — the desktop app's dynamic core port just works). DEV:
+  // Vite serves the SPA and the /ws upgrade is NOT proxied, so dial core directly
+  // on VITE_CORE_PORT (the e2e swarm overrides it per isolated stack).
+  const url = `${coreWsBase(window.location, {
+    isDev: import.meta.env.DEV,
+    corePort: import.meta.env.VITE_CORE_PORT ?? '3001',
+  })}/ws${qs}`
   socket = new WebSocket(url)
 
   socket.onopen = () => {

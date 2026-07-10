@@ -9,21 +9,26 @@ import {
 } from '../src/lib/terminal'
 
 describe('terminalWsUrl', () => {
-  it('targets core /ws/terminal with an encoded token', () => {
-    expect(terminalWsUrl('localhost', 'dev-token-change-me', '3001')).toBe(
+  it('appends /ws/terminal + an encoded token to the ws base', () => {
+    expect(terminalWsUrl('ws://localhost:3001', 'dev-token-change-me')).toBe(
       'ws://localhost:3001/ws/terminal?token=dev-token-change-me',
     )
   })
 
   it('url-encodes tokens with special characters', () => {
-    expect(terminalWsUrl('host', 'a b/c?d', '3001')).toBe(
+    expect(terminalWsUrl('ws://host:3001', 'a b/c?d')).toBe(
       'ws://host:3001/ws/terminal?token=a%20b%2Fc%3Fd',
     )
   })
 
-  it('honors a non-default core port (multi-stack / VITE_CORE_PORT)', () => {
-    expect(terminalWsUrl('localhost', 't', '7790')).toBe(
+  it('honors whatever base the caller computed (same-origin prod / wss / non-default port)', () => {
+    // prod same-origin: base is the page host:port (no dead literal 3001)
+    expect(terminalWsUrl('ws://localhost:7790', 't')).toBe(
       'ws://localhost:7790/ws/terminal?token=t',
+    )
+    // https page → wss base carries through
+    expect(terminalWsUrl('wss://k.example', 't')).toBe(
+      'wss://k.example/ws/terminal?token=t',
     )
   })
 })

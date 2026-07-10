@@ -11,6 +11,11 @@
       "@k/shared": ["../shared/src/types.ts"]
     }
   },
-  "include": ["src", "../shared/src"],
+  // Only compile core's own sources so the emitted entry is a stable
+  // `dist/index.js` (previously `../shared/src` was included, which pushed the
+  // common rootDir up and emitted the nested `dist/core/src/index.js` that broke
+  // `start`). `@k/shared` is type-checked via the `paths` mapping above and
+  // resolved at runtime from its own built `dist` (see shared/package.json).
+  "include": ["src"],
   "exclude": ["node_modules", "dist"]
 }
