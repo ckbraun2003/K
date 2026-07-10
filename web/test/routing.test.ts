@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatLatency, formatSuccessRate, formatCost, formatCostTotal } from '../src/pages/RoutingPage'
+import { formatLatency, formatSuccessRate, formatCost, formatCostTotal } from '../src/pages/insights/RoutingTab'
 
 describe('formatLatency', () => {
   it('formats sub-second as ms (rounded)', () => {
