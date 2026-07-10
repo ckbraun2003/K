@@ -2,11 +2,11 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import ForceGraph3D from 'react-force-graph-3d'
 import type { Project } from '@k/shared'
-import { api } from '../lib/api'
-import GraphErrorBoundary from '../components/GraphErrorBoundary'
-import { navigate } from '../lib/route'
-import { GRAPH_BG, configureGraphForces } from '../lib/graph'
-import { healthRubric } from '../lib/health'
+import { api } from '../../lib/api'
+import GraphErrorBoundary from '../../components/GraphErrorBoundary'
+import { navigate } from '../../lib/route'
+import { GRAPH_BG, configureGraphForces } from '../../lib/graph'
+import { healthRubric } from '../../lib/health'
 
 type FGNode = { id?: string | number; color?: string; [key: string]: unknown }
 
@@ -23,7 +23,7 @@ const FLEET_LEGEND: { color: string; label: string }[] = [
   { color: healthRubric(null).hex, label: 'Unverified' },
 ]
 
-export default function FleetGraphPage() {
+export default function GraphView() {
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: api.projects.list,
@@ -94,12 +94,6 @@ export default function FleetGraphPage() {
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border)] px-5 py-3">
-        <button
-          onClick={() => navigate('home')}
-          className="text-xs text-[var(--muted)] transition-colors duration-150 hover:text-[var(--text)]"
-        >
-          ← Home
-        </button>
         <h2 className="text-sm font-semibold text-[var(--text)]">Fleet Graph</h2>
         <span className="font-mono ml-2 text-[11px] text-[var(--muted)]">
           {projects.length} project{projects.length === 1 ? '' : 's'}

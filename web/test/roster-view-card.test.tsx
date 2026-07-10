@@ -7,7 +7,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import type { AgentProfile, OrchestratorRosterEntry } from '@k/shared'
-import { OrchestratorCard } from '../src/pages/OrchestratorsPage'
+import { OrchestratorCard } from '../src/pages/org/RosterView'
 
 function profile(over: Partial<AgentProfile> = {}): AgentProfile {
   return {

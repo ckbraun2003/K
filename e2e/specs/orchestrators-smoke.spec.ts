@@ -20,9 +20,11 @@ let sink: ConsoleSink
 test.beforeEach(({ page }) => { sink = captureConsole(page) })
 
 test('Orchestrators roster renders the five seeded leads', async ({ page }) => {
-  await gotoApp(page, '#/orchestrators')
+  await gotoApp(page, '#/org')
   await expect(page.locator('#root')).not.toBeEmpty()
-  await expect(page.getByRole('heading', { name: 'Orchestrators — domain leads' })).toBeVisible()
+  // P4 E-29: the Orchestrators grid is now the Org page's Roster segment (default).
+  await expect(page.getByRole('heading', { name: 'Org' })).toBeVisible()
+  await expect(page.getByTestId('seg-roster')).toHaveAttribute('aria-pressed', 'true')
   for (const id of ['lead-frontend', 'lead-backend', 'lead-systems', 'lead-security', 'lead-network']) {
     await expect(page.getByTestId(`orchestrator-card-${id}`)).toBeVisible({ timeout: 15_000 })
   }
@@ -30,13 +32,14 @@ test('Orchestrators roster renders the five seeded leads', async ({ page }) => {
 })
 
 test('Orchestrator detail opens with tabs + the reused DelegationTree', async ({ page }) => {
-  await gotoApp(page, '#/orchestrators')
+  await gotoApp(page, '#/org')
   await page.getByTestId('orchestrator-open-lead-frontend').click()
-  // Detail loaded: the tabbed editor + the reused tree root (leadNode → root id = profile.id).
-  await expect(page.getByTestId('orchestrator-tab-mcp')).toBeVisible({ timeout: 15_000 })
+  // Detail loaded: the canonical SegControl authority row + the reused tree root
+  // (leadNode → root id = profile.id). P4 E-30: tab testids are now seg-${value}.
+  await expect(page.getByTestId('seg-mcp')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('delegation-tree-node-lead-frontend')).toBeVisible()
   // The MCP · Authority panel (per-lead authority editor) mounts.
-  await page.getByTestId('orchestrator-tab-mcp').click()
+  await page.getByTestId('seg-mcp').click()
   await expect(page.getByTestId('orchestrator-panel-mcp')).toBeVisible()
   await screenshot(page, 'p53a-orchestrator-detail')
 })

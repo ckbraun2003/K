@@ -6,6 +6,7 @@ import { navigate } from '../lib/route'
 import { leadNode } from '../lib/delegation'
 import DelegationTree from '../components/DelegationTree'
 import CapabilityPicker from '../components/CapabilityPicker'
+import SegControl from '../components/SegControl'
 import type { MemoryLesson } from '../lib/memory'
 
 /**
@@ -33,7 +34,7 @@ function NotFound({ id }: { id?: string }) {
     <div className="h-full overflow-y-auto p-5">
       <button
         type="button"
-        onClick={() => navigate('orchestrators')}
+        onClick={() => navigate('org', 'roster')}
         className="text-[11px] text-[var(--accent-hover)] hover:underline"
       >
         ← Orchestrators
@@ -110,7 +111,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
       <div className="mb-4 flex items-center gap-3">
         <button
           type="button"
-          onClick={() => navigate('orchestrators')}
+          onClick={() => navigate('org', 'roster')}
           className="text-[11px] text-[var(--accent-hover)] hover:underline"
         >
           ← Orchestrators
@@ -146,23 +147,13 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left — tabbed authority editor. */}
         <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-          <div className="mb-3 flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] p-1 text-xs">
-            {TABS.map(t => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTab(t.id)}
-                data-testid={`orchestrator-tab-${t.id}`}
-                aria-pressed={tab === t.id}
-                className={
-                  tab === t.id
-                    ? 'flex-1 rounded-md bg-[var(--accent)] px-2 py-1.5 text-center font-semibold text-[var(--on-accent)]'
-                    : 'flex-1 rounded-md px-2 py-1.5 text-center font-semibold text-[var(--muted)] transition-colors hover:text-[var(--text)]'
-                }
-              >
-                {t.label}
-              </button>
-            ))}
+          <div className="mb-3">
+            <SegControl<Tab>
+              ariaLabel="Authority"
+              options={TABS.map(t => ({ label: t.label, value: t.id }))}
+              value={tab}
+              onChange={setTab}
+            />
           </div>
 
           {/* Charter — read-only (tier-bound prompt). */}
@@ -311,7 +302,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                 <button
                   type="button"
                   data-testid="orchestrator-memory-link"
-                  onClick={() => navigate('memory')}
+                  onClick={() => navigate('lessons')}
                   className="text-[var(--accent-hover)] hover:underline"
                 >
                   Memory page
