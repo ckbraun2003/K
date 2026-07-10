@@ -684,6 +684,117 @@ export type MergePrResult = z.infer<typeof MergePrResultSchema>
 export const SetAutoMergeBodySchema = z.object({ enabled: z.boolean() }).strict()
 export type SetAutoMergeBody = z.infer<typeof SetAutoMergeBodySchema>
 
+// ─── P3 Visibility (E-08/E-09/E-13) ──────────────────────────────────────────
+// The W0-frozen wire contracts for the Run Narrative card, the Org Timeline
+// feed, and the measured cost lens. All read-side (no schema, no WS member).
+
+// E-08 — deterministic verification summary (a projection of VerifyResult).
+export const NarrativeVerifySchema = z.object({
+  status: VerifyStatusSchema.nullable(),
+  reason: z.string().nullable(),
+  commandCount: z.number().int(),
+})
+export type NarrativeVerify = z.infer<typeof NarrativeVerifySchema>
+
+// E-08 — the LOCAL-model bullets. `generated` is the literal true (a permanent
+// "generated" label the card renders); decisions/risks are HARD-capped at 3 so a
+// runaway model can never flood the deterministic card.
+export const NarrativeBulletsSchema = z.object({
+  decisions: z.array(z.string().min(1).max(500)).max(3),
+  risks: z.array(z.string().min(1).max(500)).max(3),
+  generated: z.literal(true),
+  model: z.string(),
+})
+export type NarrativeBullets = z.infer<typeof NarrativeBulletsSchema>
+
+// 'ok' => render bullets; 'unavailable' => Ollama unreachable/no model (omit +
+// note); 'disabled' => operator turned Ollama off; 'error' => the model answered
+// but unparseably (omit + note). The card NEVER blocks on any of these.
+export const NarrativeBulletsStateSchema = z.enum(['ok', 'unavailable', 'disabled', 'error'])
+export type NarrativeBulletsState = z.infer<typeof NarrativeBulletsStateSchema>
+
+export const RunNarrativeSchema = z.object({
+  runId: z.string().uuid(),
+  goal: z.string(),
+  outcome: z.object({
+    status: RunStatusSchema,
+    endedAt: z.number().nullable(),
+    durationMs: z.number().int().nullable(),
+  }),
+  files: z.array(z.string()),
+  verification: NarrativeVerifySchema.nullable(),
+  cost: z.object({
+    costUsd: z.number(),
+    tokensIn: z.number().int(),
+    tokensOut: z.number().int(),
+  }),
+  bullets: NarrativeBulletsSchema.nullable(),
+  bulletsState: NarrativeBulletsStateSchema,
+})
+export type RunNarrative = z.infer<typeof RunNarrativeSchema>
+
+// E-09 — the curated MILESTONE set the feed projects (filter chips key off these).
+export const FeedKindSchema = z.enum([
+  'dispatch', 'park', 'plan_gate', 'review_ready', 'pr', 'merge',
+  'verify_pass', 'verify_fail', 'failure', 'done',
+])
+export type FeedKind = z.infer<typeof FeedKindSchema>
+
+// One projected feed row. `runStatus` is the run's CURRENT status (a live join),
+// NOT the status at event time — informational only (a timeline row can show its
+// run's present state). runId/runStatus are null for notification rows with no run
+// linkage. (Contract stays lean: no prompt/agent field, no `heads` on FeedPayload.)
+export const FeedItemSchema = z.object({
+  id: z.string(),
+  kind: FeedKindSchema,
+  ts: z.number(),
+  runId: z.string().nullable(),
+  runStatus: RunStatusSchema.nullable(),
+  projectId: z.string().nullable(),
+  projectName: z.string().nullable(),
+  title: z.string(),
+  detail: z.string().nullable(),
+})
+export type FeedItem = z.infer<typeof FeedItemSchema>
+
+export const FeedPayloadSchema = z.object({
+  items: z.array(FeedItemSchema),                          // ts DESC, capped (default 100)
+  counts: z.record(FeedKindSchema, z.number().int()),      // per-kind counts across the window
+  total: z.number().int(),
+})
+export type FeedPayload = z.infer<typeof FeedPayloadSchema>
+
+// E-13 — measured cost roll-ups (run->lead->project->day). costUsd is billed actuals
+// summed from runs.cost_usd; NO price*token math anywhere (grep-gated).
+export const CostRollupBucketSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  costUsd: z.number(),
+  runs: z.number().int(),
+})
+export const CostRollupSchema = z.object({
+  windowDays: z.number().int(),
+  groupBy: z.enum(['lead', 'project', 'day']),
+  buckets: z.array(CostRollupBucketSchema),
+  totalCostUsd: z.number(),
+})
+export type CostRollup = z.infer<typeof CostRollupSchema>
+
+// E-13 — dispatch-time "recent actuals". scope records WHICH fallback tier produced
+// the numbers: the selected agent profile's recent runs, else the project's, else
+// global; 'none' when even global has zero runs in the window.
+export const RecentActualsScopeSchema = z.enum(['profile', 'project', 'global', 'none'])
+export type RecentActualsScope = z.infer<typeof RecentActualsScopeSchema>
+
+export const RecentActualsSchema = z.object({
+  scope: RecentActualsScopeSchema,
+  n: z.number().int(),
+  windowDays: z.number().int(),
+  medianCostUsd: z.number().nullable(),   // null iff n === 0
+  p90CostUsd: z.number().nullable(),
+})
+export type RecentActuals = z.infer<typeof RecentActualsSchema>
+
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
 export const WsMessageSchema = z.discriminatedUnion('type', [
