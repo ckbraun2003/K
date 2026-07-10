@@ -496,7 +496,12 @@ async function start() {
  */
 function logTokenStatus(t: ResolvedToken) {
   const last4 = t.token.slice(-4)
-  if (t.firstRun) {
+  // When launched by the desktop shell, the launcher reads the token straight from
+  // the persisted file and seeds it into the app — it never needs (and must not
+  // print) the full token, since the shell forwards core's stdout to a terminal /
+  // future log. Print the masked confirmation instead.
+  const suppressFullToken = process.env.K_SUPPRESS_TOKEN_PRINT === '1'
+  if (t.firstRun && !suppressFullToken) {
     console.log('\n┌─────────────────────────────────────────────────────────────┐')
     console.log('│  FIRST-RUN SETUP — a strong harness token was generated.     │')
     console.log('└─────────────────────────────────────────────────────────────┘')
@@ -504,6 +509,8 @@ function logTokenStatus(t: ResolvedToken) {
     console.log(`   Saved : ${t.file}`)
     console.log('   Use this token to log in when accessing the dashboard remotely.')
     console.log('   It will NOT be printed again — copy it now if you need it.\n')
+  } else if (t.firstRun) {
+    console.log(`   Bearer token       → generated + persisted (…${last4}) at ${t.file}\n`)
   } else if (t.source === 'env') {
     console.log(`   Bearer token       → set via HARNESS_TOKEN (…${last4})\n`)
   } else {
