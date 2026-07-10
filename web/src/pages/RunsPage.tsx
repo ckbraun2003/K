@@ -1,16 +1,17 @@
+import SegControl from '../components/SegControl'
+import { navigate } from '../lib/route'
 import RunList from '../components/RunList'
 import RunConsole from '../components/RunConsole'
-import { navigate } from '../lib/route'
+import WorkflowsView from './runs/WorkflowsView'
 
-export default function RunsPage({ runId, sub }: { runId?: string; sub?: string }) {
-  void sub // W0 stub — Lane C removes this line when it wires the Workflows fold view
+function RunsMasterDetail({ runId }: { runId?: string }) {
   return (
-    <div className="flex h-full">
+    <div className="flex h-full overflow-hidden">
       <aside className="w-72 flex-shrink-0 overflow-hidden border-r border-[var(--border)]">
         <RunList selectedId={runId ?? null} onSelect={id => navigate('runs', id)} />
       </aside>
       {/* section, not main — the shell already provides the page's <main> landmark */}
-      <section className="flex-1 overflow-hidden">
+      <section className="min-w-0 flex-1 overflow-hidden">
         {runId ? (
           <RunConsole runId={runId} />
         ) : (
@@ -20,6 +21,25 @@ export default function RunsPage({ runId, sub }: { runId?: string; sub?: string 
           </div>
         )}
       </section>
+    </div>
+  )
+}
+
+export default function RunsPage({ runId, sub }: { runId?: string; sub?: string }) {
+  const workflows = runId === 'workflows'
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-2">
+        <SegControl<'runs' | 'workflows'>
+          ariaLabel="Runs view"
+          options={[{ label: 'Runs', value: 'runs' }, { label: 'Workflows', value: 'workflows' }]}
+          value={workflows ? 'workflows' : 'runs'}
+          onChange={v => navigate('runs', v === 'workflows' ? 'workflows' : undefined)}
+        />
+      </header>
+      <div className="min-h-0 flex-1">
+        {workflows ? <WorkflowsView defId={sub} /> : <RunsMasterDetail runId={runId} />}
+      </div>
     </div>
   )
 }

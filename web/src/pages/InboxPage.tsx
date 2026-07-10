@@ -112,6 +112,16 @@ export default function InboxPage() {
                   <span className="rounded-full bg-[var(--raised)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
                     {count}
                   </span>
+                  {kind === 'lesson_pending' && (
+                    <button
+                      type="button"
+                      data-testid="inbox-lessons-history"
+                      onClick={() => navigate('lessons')}
+                      className="ml-auto text-[10px] font-semibold text-[var(--accent-hover)] hover:underline"
+                    >
+                      review full history →
+                    </button>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2">
                   {items.map(item => (
