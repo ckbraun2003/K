@@ -20,7 +20,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor, fireEvent, within, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MotionGlobalConfig } from 'framer-motion'
-import { routeForMessage, routeForTarget, type Status, type ChiefOrgPayload, type Run, type Note, type KSchedule, type WorkItem, type KThread, type KThreadTurn } from '@k/shared'
+import { routeForMessage, routeForTarget, type Status, type ChiefOrgPayload, type Note, type KSchedule, type WorkItem, type KThread, type KThreadTurn, type FeedItem, type FeedPayload } from '@k/shared'
 
 // framer-motion's rAF frameloop stalls after a sibling test uses vi.useFakeTimers (the
 // "second send" test), which would otherwise leave AnimatePresence exits hanging — e.g.
@@ -47,10 +47,16 @@ const orgPayload: ChiefOrgPayload = {
   health: { leadsActive: 3 },
 }
 
-const runsList: Run[] = [
-  { id: 'run-1', prompt: 'added focus ring to the cmd bar', cwd: '/x', status: 'done', provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, createdAt: Date.now() - 60_000 },
-  { id: 'run-2', prompt: 'auth refactor — diff +120 −44', cwd: '/x', status: 'running', provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, createdAt: Date.now() - 120_000 },
+// The recent list now reads the shared ['feed'] key (api.feed.list), not api.runs.list.
+const feedItems: FeedItem[] = [
+  { id: 'f1', kind: 'done', ts: Date.now() - 60_000, runId: 'run-1', runStatus: 'done', projectId: null, projectName: 'web', title: 'added focus ring to the cmd bar', detail: null },
+  { id: 'f2', kind: 'dispatch', ts: Date.now() - 120_000, runId: 'run-2', runStatus: 'running', projectId: null, projectName: 'core', title: 'auth refactor dispatched', detail: null },
 ]
+const feedPayload: FeedPayload = {
+  items: feedItems,
+  counts: { dispatch: 1, park: 0, plan_gate: 0, review_ready: 0, pr: 0, merge: 0, verify_pass: 0, verify_fail: 0, failure: 0, done: 1 },
+  total: 2,
+}
 
 const notesList: Note[] = [
   { id: 'n1', runId: null, body: 'call re: API rate limits', done: false, createdAt: 1, updatedAt: 1 },
@@ -79,13 +85,12 @@ const threadTurns: KThreadTurn[] = [
 ]
 
 const {
-  mockAsk, mockUndo, mockKill, mockList, mockOrg, mockStatus, mockNavigate,
+  mockAsk, mockUndo, mockFeed, mockOrg, mockStatus, mockNavigate,
   mockNotes, mockSchedule, mockWiList, mockWiCreate, mockWiSetStatus, mockClaudeModel, mockThread,
 } = vi.hoisted(() => ({
   mockAsk: vi.fn(),
   mockUndo: vi.fn(async () => ({ undone: true })),
-  mockKill: vi.fn(async () => ({ killed: true })),
-  mockList: vi.fn(),
+  mockFeed: vi.fn(),
   mockOrg: vi.fn(),
   mockStatus: vi.fn(),
   mockNavigate: vi.fn(),
@@ -108,7 +113,7 @@ vi.mock('../src/lib/api', () => ({
       schedule: mockSchedule,
       workItems: { list: mockWiList, create: mockWiCreate, setStatus: mockWiSetStatus },
     },
-    runs: { list: mockList, kill: mockKill },
+    feed: { list: mockFeed },
     chief: { org: mockOrg },
     claudeModel: { get: mockClaudeModel },
     status: mockStatus,
@@ -145,11 +150,10 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   mockAsk.mockReset()
   mockUndo.mockClear()
-  mockKill.mockClear()
   mockNavigate.mockClear()
   mockWiCreate.mockReset()
   mockWiSetStatus.mockReset()
-  mockList.mockResolvedValue(runsList)
+  mockFeed.mockResolvedValue(feedPayload)
   mockOrg.mockResolvedValue(orgPayload)
   mockStatus.mockResolvedValue(statusValue)
   mockNotes.mockResolvedValue(notesList)
@@ -459,14 +463,16 @@ describe('KHome', () => {
 
   // ── Recent feed + degrades ────────────────────────────────────────────────
 
-  it('renders the recent feed with View-run links that navigate', async () => {
+  it('renders the recent feed (from the shared feed key) and a row navigates to its run', async () => {
     renderHome()
     const section = await screen.findByTestId('khome-recent')
-    // Wait for the runs query to populate the feed rows.
+    // Wait for the feed query to populate the rows.
     expect(await within(section).findByText(/added focus ring/)).toBeTruthy()
 
-    const links = within(section).getAllByText(/View run/)
-    fireEvent.click(links[0])
+    // A FeedRow is itself the clickable target now (no separate "View run" link) —
+    // clicking the first row opens its run.
+    const rows = within(section).getAllByTestId('feed-row')
+    fireEvent.click(rows[0])
     expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-1')
   })
 
@@ -480,9 +486,12 @@ describe('KHome', () => {
     expect(mockNavigate).toHaveBeenCalledWith('chief')
   })
 
-  it('a runs failure surfaces the recent-feed error state', async () => {
-    mockList.mockRejectedValue(new Error('runs down'))
+  it('a feed failure degrades the recent list to its empty state (feedQueryFn swallows errors — no error row)', async () => {
+    mockFeed.mockRejectedValue(new Error('feed down'))
     renderHome()
-    expect(await screen.findByTestId('khome-recent-error')).toBeTruthy()
+    const section = await screen.findByTestId('khome-recent')
+    expect(await within(section).findByText('No recent activity.')).toBeTruthy()
+    // The error branch was removed with the runs query — there is never a khome-recent-error.
+    expect(screen.queryByTestId('khome-recent-error')).toBeNull()
   })
 })
