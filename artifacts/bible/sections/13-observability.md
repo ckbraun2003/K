@@ -2,7 +2,7 @@
 title: Observability
 icon: "👁"
 status: active
-updated: 2026-07-05
+updated: 2026-07-10
 ---
 
 Phase 4's Track D makes the harness **observable**: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard *surfaces* it powers. The *Implementation history* appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.
@@ -144,6 +144,48 @@ The capability catalog (§04, §08) and the D-072 local runtime ride the same li
   declaring the engine and its tool support, rendered as the RunConsole badge — **"local ·
   tools"** vs **"local · prompt-only"** (§08). A degraded run is *visibly* degraded; it never
   silently becomes a claude run.
+
+## Org Timeline feed — a read-time union projection (P3, E-09, D-085)
+
+The Org Timeline (§08) is **not a persisted feed table** — it is a **read-time UNION PROJECTION**
+(`GET /api/feed`, `core/src/routes/feed.ts`) computed on demand over four sources the harness
+already writes:
+
+- **run heads** — each run's current state, mapped to a milestone kind by its status
+  (`running/queued`→dispatch, `awaiting_plan`→plan_gate, `awaiting_input`→park, `done`→done,
+  `error/killed/interrupted`→failure),
+- **review-ready notifications** — the `run_review_ready` rows (runs that finished with a diff to review),
+- **`verify_results`** — completed `pass`/`fail` verification outcomes, and
+- **open-PR `github_cache`** — the PRs currently open.
+
+Each source contributes only these **curated milestone kinds** — not every event, just the ones
+worth a timeline row. The projection is read under **one shared query key, `['feed']`**, with a
+**`['feed', 500]` timeline variant** for the deeper history view, so K-home's "recent" and the
+Timeline page read the *same* projection and cannot drift. Each source is **capped**
+(`SOURCE_CAP = 500`); the endpoint clamps the display `limit` to `1..500` (default 100), returns
+per-kind `counts` and the pre-slice `total`, and the UI surfaces the overflow honestly as
+**"showing N of M events"** rather than hiding it. Because there is no feed table there is no write
+path to keep in sync and nothing that can diverge from the sources (the same discipline as the
+D-081 read-time Inbox). The live **ActivityStrip is intentionally left pointed at running runs** —
+it needs complete, uncapped coverage of non-terminal runs plus richer Run fields, which a capped
+historical feed cannot provide.
+
+## Measured cost lens (P3, E-13, D-087)
+
+The cost lens is **measured-only** — it never multiplies a token count by a price. Two things are
+derived, both from the stored `cost_usd`:
+
+- **Roll-ups** — measured `cost_usd` summed **run → lead → project → day**.
+- **Dispatch recent-actuals** — the **median and p90 `$/run`** over a recency window, computed from
+  the pool of runs with **`cost_usd > 0`**, scoped **agent-profile → project → global** with a
+  fallback when a scope has fewer than 5 samples (thin history degrades to the broader scope rather
+  than reporting a noisy number).
+
+There is **no price-per-token table and no `price × tokens` estimate** anywhere in the cost path —
+the program bans price-coupled estimation (measured actuals only). The rule is **mechanically
+enforced** by a committed **no-price-tables grep gate** (`core/test/no-price-tables.test.ts`) that
+fails if a price table reappears. The catalog's relative **weight bands** (§08) convey *context*
+cost without implying a dollar figure.
 
 ## Implementation history (dashboard)
 

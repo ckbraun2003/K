@@ -1,6 +1,8 @@
 ---
 title: Glossary
-slug: glossary
+icon: "📖"
+status: stable
+updated: 2026-07-10
 ---
 
 # Glossary
@@ -21,3 +23,9 @@ live tooltip component — edit here, then run `pnpm bible`.
 **Weight band** — a relative light/medium/heavy indicator of a capability's context cost, derived from token counts (never a price).
 
 **Review-ready** — a finished project run that has reviewable changes (a checkpoint chain) and has not yet been reviewed.
+
+**Run Narrative** — a per-run card whose deterministic goal, outcome, files, verification, and cost always render, plus up to three "generated" local-model Decisions and Risks bullets that are omitted when the model is unavailable.
+
+**Org Timeline** — the org's activity history as one read-time union projection over run heads, review-ready notifications, verification results, and open PRs; a query, never a persisted feed table.
+
+**HealthRubric** — the single canonical health-score rubric shared by every web surface: >=75 healthy, >=50 warn, else critical, null unknown.
