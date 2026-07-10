@@ -188,3 +188,20 @@ export function makeInboxInvalidator(
     }
   }
 }
+
+/**
+ * P3 E-09: the Org Timeline feed reflects run lifecycle, notifications, and verify
+ * results -- invalidate the ONE shared ['feed'] key on any of that traffic. Mirrors
+ * makeInboxInvalidator; wired in KHome (the always-landing historical surface), NOT
+ * in ActivityStrip (which stays on the live runs query). A ['feed'] prefix-key
+ * invalidation also covers the timeline's ['feed', 500] entry.
+ */
+export function makeFeedInvalidator(
+  qc: Pick<QueryClient, 'invalidateQueries'>,
+): (msg: WsMessage) => void {
+  return (msg: WsMessage) => {
+    if (msg.type === 'run_update' || msg.type === 'notification' || msg.type === 'verify_update') {
+      void qc.invalidateQueries({ queryKey: ['feed'] })
+    }
+  }
+}

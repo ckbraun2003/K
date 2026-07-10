@@ -1,14 +1,15 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ChiefOrgPayload, Run, Status, Note, KSchedule, WorkItem, KForceRoute, KThreadTurn } from '@k/shared'
+import type { ChiefOrgPayload, Status, Note, KSchedule, WorkItem, KForceRoute, KThreadTurn, FeedPayload } from '@k/shared'
 import { routeForMessage, routeForTarget } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
-import { relativeTime } from '../lib/verify'
 import { useAskK } from '../lib/useAskK'
 import { FORCE_ROUTE_OPTIONS } from '../lib/force-route-options'
-import { RUNS_LIST_KEY, runsListQueryFn } from '../lib/runs-query'
-import { cleanRunPrompt } from '../lib/prompt'
+import { FEED_KEY, feedQueryFn } from '../lib/feed-query'
+import { makeFeedInvalidator } from '../lib/live-invalidate'
+import { onWsMessage } from '../lib/ws'
+import FeedRow from '../components/FeedRow'
 import MicButton from '../components/MicButton'
 import Toast from '../components/Toast'
 
@@ -22,21 +23,13 @@ import Toast from '../components/Toast'
  * opens the run console immediately.
  *
  * Reads (all on shared/batched cache keys, no per-item fan-out): `chief-org` (glance),
- * the shared runs default-list (recent feed), `status` (mic gate), `claude-model`
+ * the shared `feed` (recent list — same key the timeline reads), `status` (mic gate), `claude-model`
  * (the model-override picker, same key as SettingsModels), `k-thread` (the durable
  * conversation — operator asks + K's replies/report-backs), and the three glance
  * reads `k-notes` / `k-schedule` / `k-work-items` (one query per card). Query
  * failures render VISIBLE error states — the front door never disguises an outage
  * as an empty org.
  */
-
-/** Run status → pill text color (shared mapping with RunList). */
-function statusColor(status: string): string {
-  if (status === 'done') return 'text-[var(--green)]'
-  if (status === 'running') return 'text-[var(--accent-hover)]'
-  if (status === 'error' || status === 'killed') return 'text-[var(--red)]'
-  return 'text-[var(--muted)]'
-}
 
 function greetingFor(hour: number): string {
   if (hour < 12) return 'Good morning'
@@ -65,7 +58,7 @@ export default function KHome() {
   const ask = useAskK({ navigateOnSend: false })
 
   const { data: org, isError: orgError } = useQuery<ChiefOrgPayload>({ queryKey: ['chief-org'], queryFn: () => api.chief.org() })
-  const { data: runs = [], isError: runsError } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn })
+  const { data: feed } = useQuery<FeedPayload>({ queryKey: FEED_KEY, queryFn: feedQueryFn, refetchInterval: 15_000 })
   const { data: status } = useQuery<Status>({ queryKey: ['status'], queryFn: () => api.status() })
   // Same cache key as SettingsModels so react-query dedupes the model registry read.
   const { data: claudeModel } = useQuery({ queryKey: ['claude-model'], queryFn: () => api.claudeModel.get() })
@@ -79,6 +72,14 @@ export default function KHome() {
     queryKey: ['k-work-items'],
     queryFn: () => api.k.workItems.list('personal'),
   })
+
+  // The landing page is where the operator always returns, so wire the live feed
+  // invalidator HERE (not in ActivityStrip): run / notification / verify traffic
+  // refreshes the shared ['feed'] key backing the recent list AND the timeline (E-09).
+  useEffect(() => {
+    const feedInv = makeFeedInvalidator(qc)
+    return onWsMessage(feedInv)
+  }, [qc])
 
   const toggleItem = useMutation({
     mutationFn: (item: WorkItem) =>
@@ -108,7 +109,7 @@ export default function KHome() {
 
   const leadsActive = org?.health.leadsActive ?? 0
   const objectives = org?.assignments.length ?? 0
-  const recent = runs.slice(0, 6)
+  const recent = (feed?.items ?? []).slice(0, 6)
   const now = Date.now()
   const turns: KThreadTurn[] = threadData?.turns ?? []
 
@@ -422,35 +423,27 @@ export default function KHome() {
         </section>
       </div>
 
-      {/* ── Recent from your org ── */}
+      {/* ── Recent from your org ── (the shared ['feed'] key; "See all" opens the timeline).
+          The feed query swallows a dead core into EMPTY_FEED, so there is no error branch —
+          an outage degrades to the empty state, never a phantom or an error row. */}
       <section data-testid="khome-recent" className="mt-7">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Recent from your org</h2>
-        {runsError ? (
-          <p data-testid="khome-recent-error" className="mt-3 text-xs italic text-[var(--red)]">
-            Failed to load recent runs.
-          </p>
-        ) : recent.length === 0 ? (
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Recent from your org</h2>
+          <button
+            type="button"
+            data-testid="khome-recent-seeall"
+            onClick={() => navigate('timeline')}
+            className="text-[11px] text-[var(--accent-hover)] transition-colors hover:text-[var(--text)]"
+          >
+            See all →
+          </button>
+        </div>
+        {recent.length === 0 ? (
           <p className="mt-3 text-sm italic text-[var(--muted)]">No recent activity.</p>
         ) : (
-          <div className="mt-3 space-y-2">
-            {recent.map(r => (
-              <div
-                key={r.id}
-                className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2 text-sm"
-              >
-                <span className="min-w-0 flex-1 truncate text-[var(--text)]">{cleanRunPrompt(r.prompt)}</span>
-                <span className={`flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide ${statusColor(r.status)}`}>
-                  {r.status}
-                </span>
-                <span className="flex-shrink-0 text-[10px] text-[var(--muted)]">{relativeTime(r.createdAt)}</span>
-                <button
-                  type="button"
-                  onClick={() => navigate('runs', r.id)}
-                  className="flex-shrink-0 text-[var(--accent-hover)] transition-colors hover:underline"
-                >
-                  View run
-                </button>
-              </div>
+          <div className="mt-3 space-y-1">
+            {recent.map(item => (
+              <FeedRow key={item.id} item={item} />
             ))}
           </div>
         )}
