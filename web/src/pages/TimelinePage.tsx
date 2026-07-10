@@ -7,6 +7,11 @@ import NarrativeCard from '../components/NarrativeCard'
 
 const ALL_KINDS: FeedKind[] = ['dispatch', 'park', 'plan_gate', 'review_ready', 'pr', 'merge', 'verify_pass', 'verify_fail', 'failure', 'done']
 const TIMELINE_LIMIT = 500
+// Digest mounts one NarrativeCard per eligible row, and each card fires
+// GET /runs/:id/narrative (a bounded local-model call when Ollama is up). Cap the
+// mounted cards so a single toggle can't stampede the local model across a long
+// history (SEAMS MED-1). The cap bounds the fan-out; the rest of the rows still show.
+const DIGEST_CAP = 12
 
 export default function TimelinePage() {
   const { data: feed = EMPTY_FEED } = useQuery<FeedPayload>({
@@ -21,6 +26,14 @@ export default function TimelinePage() {
     const next = new Set(prev); next.has(k) ? next.delete(k) : next.add(k); return next
   })
   const shown = active.size ? feed.items.filter(i => active.has(i.kind)) : feed.items
+  // Bound the digest fan-out: only the first DIGEST_CAP eligible rows mount a card.
+  const digestIds = digest
+    ? new Set(shown.filter(i => i.runId && (i.kind === 'done' || i.kind === 'review_ready')).slice(0, DIGEST_CAP).map(i => i.id))
+    : null
+  // Honest "showing N of M": M is the per-kind count across the whole window
+  // (counts survive the display slice), summed over the active filter — or `total`
+  // when unfiltered. Surfaces the display-cap truncation instead of hiding it (SEAMS MED-2).
+  const windowTotal = active.size ? [...active].reduce((s, k) => s + (feed.counts[k] ?? 0), 0) : feed.total
 
   return (
     <div data-testid="timeline-page" className="flex-1 overflow-y-auto p-4">
@@ -32,10 +45,11 @@ export default function TimelinePage() {
               key={k}
               type="button"
               onClick={() => toggle(k)}
+              aria-pressed={active.has(k)}
               data-testid={`feed-chip-${k}`}
               className={`rounded px-1.5 py-0.5 text-[10px] ${active.has(k) ? 'bg-[var(--accent)] text-[var(--on-accent)]' : 'bg-[var(--raised)] text-[var(--muted)]'}`}
             >
-              {FEED_ICON[k]} {k.replace('_', ' ')} {feed.counts[k] ?? 0}
+              <span aria-hidden="true">{FEED_ICON[k]}</span> {k.replace('_', ' ')} {feed.counts[k] ?? 0}
             </button>
           ))}
           <label className="ml-2 flex items-center gap-1 text-[10px] text-[var(--muted)]">
@@ -49,12 +63,17 @@ export default function TimelinePage() {
         {shown.map(item => (
           <div key={item.id}>
             <FeedRow item={item} />
-            {digest && item.runId && (item.kind === 'done' || item.kind === 'review_ready') && (
+            {digestIds?.has(item.id) && item.runId && (
               <div data-testid="feed-digest-card" className="ml-6 my-1"><NarrativeCard runId={item.runId} /></div>
             )}
           </div>
         ))}
       </div>
+      {windowTotal > shown.length && (
+        <p data-testid="feed-truncation" className="mt-2 px-2 text-[10px] text-[var(--muted)]">
+          showing {shown.length} of {windowTotal}{active.size ? ' matching' : ''} events
+        </p>
+      )}
     </div>
   )
 }

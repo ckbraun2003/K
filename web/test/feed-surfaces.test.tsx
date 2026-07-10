@@ -33,14 +33,42 @@ describe('TimelinePage', () => {
     await waitFor(() => expect(screen.getAllByTestId('feed-row').length).toBe(1))
   })
   it('digest toggle mounts the narrative slot for terminal run rows', async () => {
-    // NarrativeCard is still the W0 stub in THIS worktree (renders null, no fetch), so
-    // neither a rendered `narrative-card` testid NOR an api.runs.narrative call is
-    // observable. Assert the DIGEST SLOT — the wrapper that mounts NarrativeCard for
-    // done/review_ready rows — appears on toggle. Forward-compatible with Lane A's card.
+    // Assert the DIGEST SLOT — the wrapper that mounts NarrativeCard for done/review_ready
+    // rows — appears on toggle.
     renderPage()
     await screen.findAllByTestId('feed-row')
     expect(screen.queryByTestId('feed-digest-card')).toBeNull()
     fireEvent.click(screen.getByTestId('feed-digest-toggle'))
     await waitFor(() => expect(screen.getByTestId('feed-digest-card')).toBeTruthy())
+  })
+  it('surfaces "showing N of M" when the window holds more than is shown (SEAMS MED-2)', async () => {
+    mockFeed.mockResolvedValue({ items, counts, total: 50 })
+    renderPage()
+    await screen.findAllByTestId('feed-row')
+    expect(screen.getByTestId('feed-truncation').textContent).toContain('showing 2 of 50')
+  })
+  it('no truncation signal when the whole window is shown', async () => {
+    renderPage() // total: 2, shown: 2
+    await screen.findAllByTestId('feed-row')
+    expect(screen.queryByTestId('feed-truncation')).toBeNull()
+  })
+  it('a kind chip exposes its pressed state to assistive tech (SEAMS LOW-8)', async () => {
+    renderPage()
+    await screen.findAllByTestId('feed-row')
+    const chip = screen.getByTestId('feed-chip-done')
+    expect(chip.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(chip)
+    await waitFor(() => expect(chip.getAttribute('aria-pressed')).toBe('true'))
+  })
+  it('caps the digest fan-out at 12 mounted cards over a long window (SEAMS MED-1)', async () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      id: `run:${i}:done`, kind: 'done', ts: 100 - i, runId: `run-${i}`,
+      runStatus: 'done', projectId: null, projectName: 'proj', title: `work ${i}`, detail: null,
+    }))
+    mockFeed.mockResolvedValue({ items: many, counts: { ...counts, done: 20, verify_fail: 0 }, total: 20 })
+    renderPage()
+    await screen.findAllByTestId('feed-row')
+    fireEvent.click(screen.getByTestId('feed-digest-toggle'))
+    await waitFor(() => expect(screen.getAllByTestId('feed-digest-card').length).toBe(12))
   })
 })
