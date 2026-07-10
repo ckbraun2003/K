@@ -16,10 +16,10 @@ describe('parseHash', () => {
     expect(parseHash('#/project/abc/tasks')).toEqual({ view: 'project', param: 'abc', subParam: 'tasks' })
   })
 
-  it('strips a query suffix in the hash so #/metrics?query is not a 404 (F-083)', () => {
-    const r = parseHash('#/metrics?foo=bar')
-    expect(r.view).toBe('metrics')          // NOT 'metrics?foo=bar'
-    expect(isKnownView(r.view)).toBe(true)  // resolves to the real view, not NotFound
+  it('strips a query suffix in the hash so #/projects?query is not a 404 (F-083)', () => {
+    const r = parseHash('#/projects?foo=bar')
+    expect(r.view).toBe('projects')          // NOT 'projects?foo=bar'
+    expect(isKnownView(r.view)).toBe(true)   // resolves to the real view, not NotFound
   })
 
   it('strips a query suffix while preserving param/subParam', () => {

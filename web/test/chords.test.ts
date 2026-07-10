@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { CHORDS, CHORD_MAP } from '../src/lib/chords'
 import { DESTINATIONS } from '../src/shell/Sidebar'
-import { KNOWN_VIEWS } from '../src/lib/route'
+import { KNOWN_VIEWS, resolveRoute, parseHash } from '../src/lib/route'
 
 describe('keyboard chords', () => {
   it('covers every enabled, routable Sidebar destination', () => {
@@ -34,8 +34,12 @@ describe('keyboard chords', () => {
     for (const reserved of ['?', 'Escape']) expect(keys.has(reserved)).toBe(false)
   })
 
-  it('routes the Workflows view (known view + `g w` chord)', () => {
-    expect(KNOWN_VIEWS.has('workflows')).toBe(true)
+  it('the Workflows chord folds into Runs (workflows is now a redirect, not a standalone view)', () => {
+    // P4 W0a: 'workflows' is no longer a standalone KNOWN_VIEW — it folds into Runs. The g-w
+    // chord target still resolves correctly via VIEW_REDIRECTS; W0c (Task 3) rewrites the chord
+    // config to the 9-item rail. This asserts the fold + redirect, not a stale known-view.
     expect(CHORD_MAP['w']).toBe('workflows')
+    expect(KNOWN_VIEWS.has('workflows')).toBe(false)
+    expect(resolveRoute(parseHash('#/workflows')).view).toBe('runs')
   })
 })

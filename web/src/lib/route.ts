@@ -2,16 +2,41 @@ import { useEffect, useState } from 'react'
 
 export type Route = { view: string; param?: string; subParam?: string }
 
-/** Views Shell can render. An unrouted hash (e.g. #/nonsense) is a 404 — see
- *  Shell's default branch and TopBar's title fallback. */
+/** Views Shell can render AFTER the P4 IA restructure. Merged/folded pages own their old
+ *  deep links via VIEW_REDIRECTS below; an unrouted hash is a 404 (Shell default branch). */
 export const KNOWN_VIEWS = new Set([
-  'home', 'chief', 'orchestrators', 'orchestrator', 'runs', 'docs', 'projects', 'metrics', 'routing',
-  'verify', 'project', 'graph', 'skills', 'terminal', 'settings', 'workflows', 'workflow-detail', 'evals', 'memory',
-  'skill-creator', 'inbox', 'timeline',
+  'home', 'org', 'orchestrator', 'projects', 'skills', 'runs', 'insights',
+  'inbox', 'timeline', 'docs', 'verify', 'project', 'skill-creator', 'settings', 'lessons',
 ])
 
 export function isKnownView(view: string): boolean {
   return KNOWN_VIEWS.has(view)
+}
+
+/** A legacy hash's raw Route → its canonical P4 Route. */
+export type ViewRedirect = (r: Route) => Route
+
+/** P4 IA restructure (E-29/E-10/E-30): every removed rail entry redirects to the page that
+ *  absorbed it, deep-linked to the right segment/tab. Params flow through where the
+ *  destination consumes them (workflow id → runs). */
+export const VIEW_REDIRECTS: Record<string, ViewRedirect> = {
+  chief: () => ({ view: 'org', param: 'tree' }),          // former Chief page content is the Tree segment
+  orchestrators: () => ({ view: 'org', param: 'roster' }),
+  graph: () => ({ view: 'org', param: 'graph' }),
+  metrics: () => ({ view: 'insights', param: 'charts' }),
+  routing: () => ({ view: 'insights', param: 'routing' }),
+  evals: () => ({ view: 'insights', param: 'evals' }),
+  workflows: (r) => (r.param ? { view: 'runs', param: r.param } : { view: 'runs', param: 'workflows' }),
+  'workflow-detail': (r) => ({ view: 'runs', param: 'workflows', subParam: r.param }),
+  memory: () => ({ view: 'inbox' }),
+  terminal: () => ({ view: 'settings' }),
+}
+
+/** Apply a legacy-hash redirect if one exists; canonical routes pass through unchanged
+ *  (idempotent — canonical view strings are never redirect keys). */
+export function resolveRoute(raw: Route): Route {
+  const redirect = VIEW_REDIRECTS[raw.view]
+  return redirect ? redirect(raw) : raw
 }
 
 /** Parse a raw location.hash into a Route. Exported (pure) for testing; `parse`
@@ -35,11 +60,17 @@ export function navigate(view: string, param?: string, subParam?: string) {
 }
 
 export function useHashRoute(): Route {
-  const [route, setRoute] = useState<Route>(parse)
+  const [raw, setRaw] = useState<Route>(parse)
   useEffect(() => {
-    const onChange = () => setRoute(parse())
+    const onChange = () => setRaw(parse())
     window.addEventListener('hashchange', onChange)
     return () => window.removeEventListener('hashchange', onChange)
   }, [])
+  const route = resolveRoute(raw)
+  useEffect(() => {
+    // If a legacy hash redirected, rewrite the address bar to the canonical hash once.
+    if (VIEW_REDIRECTS[raw.view]) navigate(route.view, route.param, route.subParam)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raw.view, raw.param, raw.subParam])
   return route
 }
