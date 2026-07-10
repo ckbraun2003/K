@@ -4,6 +4,7 @@ import type { Run, VerificationReport, GithubStatus, Project } from '@k/shared'
 import { api, type OnboardResult } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { cn } from '../../lib/cn'
+import { runStatusMeta } from '../../lib/status'
 import {
   scoreColor,
   barPct,
@@ -12,17 +13,6 @@ import {
   BREAKDOWN_BARS,
   BREAKDOWN_MAX,
 } from '../../lib/verify'
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const STATUS_DOT: Record<string, string> = {
-  queued:      'bg-[var(--amber)]',
-  running:     'bg-[var(--accent)]',
-  done:        'bg-[var(--green)]',
-  error:       'bg-[var(--red)]',
-  killed:      'bg-[var(--muted)]',
-  interrupted: 'bg-[var(--red)]',
-}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -205,7 +195,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
                   <span
                     className={cn(
                       'h-2 w-2 flex-shrink-0 rounded-full',
-                      STATUS_DOT[run.status] ?? 'bg-[var(--muted)]',
+                      runStatusMeta(run.status).dot,
                     )}
                   />
                   <span className="flex-1 truncate text-[var(--text)]">

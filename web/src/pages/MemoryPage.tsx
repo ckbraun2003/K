@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { LessonStatus, AgentProfile } from '@k/shared'
 import { api } from '../lib/api'
-import { cn } from '../lib/cn'
 import { relativeTime } from '../lib/verify'
 import type { MemoryLesson } from '../lib/memory'
 import ConfirmDialog from '../components/ConfirmDialog'
+import SegControl from '../components/SegControl'
 import Toast from '../components/Toast'
 
 const STATUS_TABS: { id: LessonStatus; label: string }[] = [
@@ -105,23 +105,13 @@ export default function MemoryPage() {
 
       {/* Status tabs + the proposing-profile filter (server-side ?profileId). */}
       <div className="mt-4 flex items-center gap-2">
-        <div className="flex flex-1 gap-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] p-1 text-xs">
-          {STATUS_TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setStatus(t.id)}
-              data-testid={`memory-tab-${t.id}`}
-              aria-pressed={status === t.id}
-              className={cn(
-                'flex-1 rounded-md px-3 py-1.5 font-semibold transition-colors',
-                status === t.id
-                  ? 'bg-[var(--accent)] text-[var(--bg)]'
-                  : 'text-[var(--muted)] hover:text-[var(--text)]',
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="flex-1">
+          <SegControl<LessonStatus>
+            ariaLabel="Lesson status"
+            options={STATUS_TABS.map(t => ({ label: t.label, value: t.id }))}
+            value={status}
+            onChange={setStatus}
+          />
         </div>
         <select
           data-testid="memory-profile-filter"

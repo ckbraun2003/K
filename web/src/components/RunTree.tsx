@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
+import type { RunStatus } from '@k/shared'
 import { cn } from '../lib/cn'
-import type { WorkflowTree, WorkflowChild, WorkflowNodeStatus } from '../lib/workflow'
+import { runStatusMeta } from '../lib/status'
+import type { WorkflowTree, WorkflowChild } from '../lib/workflow'
 
 /**
  * Live runtime tree for a run (Wave D5): root = the run, one child per delegated
@@ -13,27 +15,6 @@ import type { WorkflowTree, WorkflowChild, WorkflowNodeStatus } from '../lib/wor
  * the side panel. Reveal uses framer-motion so it honours the app-wide
  * `<MotionConfig reducedMotion="user">`.
  */
-
-/** Border/text classes for a child's three-state status. */
-function childStatusClasses(status: WorkflowNodeStatus): string {
-  switch (status) {
-    case 'done':
-      return 'border-[var(--green)]/50 text-[var(--green)]'
-    case 'error':
-      return 'border-[var(--red)]/50 text-[var(--red)]'
-    default: // running
-      return 'border-[var(--accent)]/50 text-[var(--accent-hover)] glow-live'
-  }
-}
-
-/** Border/text classes for the root, mapped from the raw RunStatus. */
-function rootStatusClasses(status: string): string {
-  if (status === 'done') return 'border-[var(--green)]/50 text-[var(--green)]'
-  if (status === 'error' || status === 'interrupted' || status === 'killed')
-    return 'border-[var(--red)]/50 text-[var(--red)]'
-  // running / queued / awaiting_input / unknown → live
-  return 'border-[var(--accent)]/50 text-[var(--accent-hover)] glow-live'
-}
 
 function NodeButton({
   selected,
@@ -139,7 +120,7 @@ export default function RunTree({ tree }: { tree: WorkflowTree }) {
         <NodeButton
           selected={selected === 'root'}
           onSelect={() => setSelected('root')}
-          statusClasses={rootStatusClasses(root.status)}
+          statusClasses={runStatusMeta(root.status as RunStatus).border}
           badge={root.status}
           title={root.label}
           subtitle="run"
@@ -158,7 +139,7 @@ export default function RunTree({ tree }: { tree: WorkflowTree }) {
                 <NodeButton
                   selected={selected === c.id}
                   onSelect={() => setSelected(c.id)}
-                  statusClasses={childStatusClasses(c.status)}
+                  statusClasses={runStatusMeta(c.status as RunStatus).border}
                   badge={c.status}
                   title={c.agentType}
                   subtitle={c.label}
