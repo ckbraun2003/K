@@ -87,24 +87,24 @@ afterEach(() => cleanup())
 describe('SkillsPage — routed tabs', () => {
   it('defaults to the Catalog tab with no param', async () => {
     renderPage(undefined)
-    expect(screen.getByTestId('skills-tab-catalog').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('tab-catalog').getAttribute('aria-selected')).toBe('true')
     await screen.findByText(/Capability catalog/)
   })
 
   it('an unknown param also lands on the Catalog (no dead route)', () => {
     renderPage('nonsense')
-    expect(screen.getByTestId('skills-tab-catalog').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('tab-catalog').getAttribute('aria-selected')).toBe('true')
   })
 
   it('deep link #/skills/mcp renders the MCP tab', async () => {
     renderPage('mcp')
-    expect(screen.getByTestId('skills-tab-mcp').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('tab-mcp').getAttribute('aria-selected')).toBe('true')
     await screen.findByText(/MCP servers ·/)
   })
 
   it('deep link #/skills/hooks renders the read-only hooks view + scope banner', async () => {
     renderPage('hooks')
-    expect(screen.getByTestId('skills-tab-hooks').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('tab-hooks').getAttribute('aria-selected')).toBe('true')
     expect(screen.getByTestId('hooks-info-banner').textContent).toContain(
       'K never executes host hooks',
     )
@@ -112,7 +112,7 @@ describe('SkillsPage — routed tabs', () => {
 
   it('deep link #/skills/automations renders the extracted automation registry', async () => {
     renderPage('automations')
-    expect(screen.getByTestId('skills-tab-automations').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('tab-automations').getAttribute('aria-selected')).toBe('true')
     // Regression-locked affordances from the pre-catalog SkillsPage body:
     await screen.findByText(/Skills · 0 registered/)
     expect(screen.getByText('+ add skill')).toBeTruthy()
@@ -120,18 +120,19 @@ describe('SkillsPage — routed tabs', () => {
 
   it('clicking a tab NAVIGATES (hash-routed), rather than flipping local state', () => {
     renderPage(undefined)
-    fireEvent.click(screen.getByTestId('skills-tab-mcp'))
+    fireEvent.click(screen.getByTestId('tab-mcp'))
     expect(mockNavigate).toHaveBeenCalledWith('skills', 'mcp')
-    fireEvent.click(screen.getByTestId('skills-tab-catalog'))
+    fireEvent.click(screen.getByTestId('tab-catalog'))
     expect(mockNavigate).toHaveBeenCalledWith('skills', undefined)
   })
 
-  it('exposes the tablist pattern (roles + aria-controls)', () => {
+  it('exposes the tablist pattern (roles)', () => {
     renderPage(undefined)
+    // The canonical Tabs (E-30) exposes the tablist/tab roles but intentionally
+    // emits no aria-controls (it renders no element id to point at).
     expect(screen.getByRole('tablist')).toBeTruthy()
-    const tab = screen.getByTestId('skills-tab-mcp')
+    const tab = screen.getByTestId('tab-mcp')
     expect(tab.getAttribute('role')).toBe('tab')
-    expect(tab.getAttribute('aria-controls')).toBe('tabpanel-mcp')
   })
 })
 

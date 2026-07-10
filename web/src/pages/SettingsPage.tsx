@@ -19,6 +19,8 @@ import Toast from '../components/Toast'
 import { ClaudeModelSection, LocalModelsSection } from './SettingsModels'
 // P5.4 — self-contained voice (push-to-talk) status section.
 import { VoiceSection } from './SettingsVoice'
+// P4 E-30 — the embedded diagnostics shell (the #/terminal redirect lands here).
+import TerminalPage from './TerminalPage'
 
 function StatusCard({ title, verdict }: { title: string; verdict: StatusVerdict }) {
   return (
@@ -460,8 +462,19 @@ export default function SettingsPage() {
         <NotificationsSection />
       </section>
 
-      <section>
+      <section className="mb-8">
         <SystemPromptSection />
+      </section>
+
+      {/* P4 E-30 — Diagnostics: an embedded shell (node-pty · /ws/terminal); the #/terminal redirect lands here. */}
+      <section className="mb-8">
+        <div className="mb-2">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Diagnostics</h2>
+          <p className="mt-1 text-[11px] text-[var(--muted)]">An embedded shell (node-pty · /ws/terminal) — the #/terminal redirect lands here.</p>
+        </div>
+        <div className="h-96 overflow-hidden rounded-xl border border-[var(--border)]">
+          <TerminalPage />
+        </div>
       </section>
     </div>
   )

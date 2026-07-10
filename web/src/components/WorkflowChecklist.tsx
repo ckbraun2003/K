@@ -5,10 +5,10 @@ import { linkify } from '../lib/linkify'
 /** Glyph + colour per step status — the at-a-glance checklist state. */
 const STATUS: Record<WorkflowStep['status'], { icon: string; cls: string }> = {
   pending: { icon: '○', cls: 'text-[var(--muted)]' },
-  in_progress: { icon: '◐', cls: 'text-[color:rgba(56,189,248,0.95)]' },
-  done: { icon: '●', cls: 'text-[color:rgba(34,197,94,0.95)]' },
-  blocked: { icon: '◼', cls: 'text-[color:rgba(234,179,8,0.95)]' },
-  failed: { icon: '✕', cls: 'text-[color:rgba(248,113,113,0.95)]' },
+  in_progress: { icon: '◐', cls: 'text-[var(--accent-hover)]' },
+  done: { icon: '●', cls: 'text-[var(--green)]' },
+  blocked: { icon: '◼', cls: 'text-[var(--amber)]' },
+  failed: { icon: '✕', cls: 'text-[var(--red)]' },
 }
 
 // Neutral glyph/colour for an out-of-enum status (enum-drift forward-compat):

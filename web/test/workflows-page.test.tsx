@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { DELEGATION_WORKFLOW, type Run } from '@k/shared'
 import WorkflowDiagram from '../src/components/WorkflowDiagram'
 import RunTree from '../src/components/RunTree'
-import { filterPickerRuns } from '../src/pages/WorkflowsPage'
+import { filterPickerRuns } from '../src/pages/runs/WorkflowsView'
 import type { WorkflowTree } from '../src/lib/workflow'
 
 // jsdom has no matchMedia; framer-motion may probe it. Provide an inert stub.
