@@ -13,6 +13,7 @@ import { linkify } from '../lib/linkify'
 import { runStatusMeta } from '../lib/status'
 import RunTimeline from './RunTimeline'
 import PlanCard from './PlanCard'
+import NarrativeCard from './NarrativeCard'
 import ReviewDeck from './ReviewDeck'
 import VerifyChip from './VerifyChip'
 import ToolCall from './ToolCall'
@@ -384,6 +385,9 @@ export default function RunConsole({ runId }: Props) {
 
       {/* E-02 plan park — render/edit/approve surface (Lane A fills PlanCard). */}
       {run.status === 'awaiting_plan' && <PlanCard runId={runId} />}
+
+      {/* E-08 run narrative — deterministic fields + auto/degrade local-model bullets (Lane A fills NarrativeCard). */}
+      <NarrativeCard runId={runId} />
 
       {/* HITL answer box — shown while the interactive run is waiting on the operator */}
       {run.status === 'awaiting_input' && (

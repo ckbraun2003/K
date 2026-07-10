@@ -38,6 +38,7 @@ import { planRoutes } from './routes/plan.js'
 import { inboxRoutes } from './routes/inbox.js'
 import { notificationsRoutes } from './routes/notifications.js'
 import { mergeRoutes } from './routes/merge.js'
+import { feedRoutes } from './routes/feed.js'
 import { registerRunVerify } from './run-verify.js'
 import { registerNotifications } from './notify.js'
 import { sweepCheckpointRefs } from './checkpoints.js'
@@ -162,6 +163,7 @@ export async function buildApp() {
   await app.register(inboxRoutes)
   await app.register(notificationsRoutes)
   await app.register(mergeRoutes)
+  await app.register(feedRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 
