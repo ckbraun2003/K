@@ -53,10 +53,14 @@ function parse(): Route {
   return parseHash(window.location.hash)
 }
 
-export function navigate(view: string, param?: string, subParam?: string) {
+export function navigate(view: string, param?: string, subParam?: string, replace = false) {
   let hash = param ? `/${view}/${param}` : `/${view}`
   if (subParam) hash += `/${subParam}`
-  window.location.hash = hash
+  // `replace` rewrites the current history entry instead of pushing a new one — used by the
+  // legacy-hash redirect so a redirected URL leaves no spurious Back-button stop (a push there
+  // would let Back return to the legacy hash, which re-redirects → a forward-bounce trap).
+  if (replace) window.history.replaceState(null, '', `#${hash}`)
+  else window.location.hash = hash
 }
 
 export function useHashRoute(): Route {
@@ -68,8 +72,13 @@ export function useHashRoute(): Route {
   }, [])
   const route = resolveRoute(raw)
   useEffect(() => {
-    // If a legacy hash redirected, rewrite the address bar to the canonical hash once.
-    if (VIEW_REDIRECTS[raw.view]) navigate(route.view, route.param, route.subParam)
+    // If a legacy hash redirected, REPLACE the address bar with the canonical hash (no history
+    // push → no Back-trap) and sync `raw` to canonical so a later revisit of the same legacy
+    // hash re-fires this effect (replaceState alone fires no hashchange, so `raw` would go stale).
+    if (VIEW_REDIRECTS[raw.view]) {
+      navigate(route.view, route.param, route.subParam, true)
+      setRaw(route)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raw.view, raw.param, raw.subParam])
   return route

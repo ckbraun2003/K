@@ -132,9 +132,13 @@ function RunTreeSection({ initialRunId }: { initialRunId?: string }) {
     refetchInterval: run && LIVE_STATUSES.has(run.status) ? 4000 : false,
   })
 
+  // Update the tree IN PLACE — WorkflowsView stays mounted so the operator can browse
+  // any run's sub-agent tree without leaving the view. (navigate('runs', id) would set
+  // #/runs/<id>, which RunsPage renders as the plain run CONSOLE — unmounting this view.
+  // Deep-linking a specific run to the console is the redirect contract's job, not the
+  // in-view picker's; see route-redirects.test.ts '#/workflows/<runId> → that run'.)
   function pick(id: string) {
     setSelectedRunId(id)
-    navigate('runs', id)
   }
 
   return (
