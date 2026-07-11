@@ -218,6 +218,42 @@ describe('MessageDock', () => {
     expect(input.value).toBe('this will fail')
   })
 
+  it('a failed thread-create (new-chat send) surfaces dock-error and keeps the draft', async () => {
+    // Review fix: the lazy create on a null-selection send is a distinct failure
+    // point BEFORE ask.send — unwrapped, it was an unhandled rejection with no
+    // user feedback (dock-error never shown, draft apparently swallowed).
+    mockThreadsCreate.mockRejectedValueOnce(new Error('create blew up'))
+    renderDock('bar')
+
+    const input = screen.getByTestId('dock-input') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'first message' } })
+    fireEvent.click(screen.getByTestId('dock-send'))
+
+    await screen.findByTestId('dock-error')
+    expect(screen.getByTestId('dock-error').textContent).toMatch(/create blew up/)
+    expect(input.value).toBe('first message')
+    expect(mockAsk).not.toHaveBeenCalled()
+  })
+
+  it('clicking a picker thread row switches the selection (float overlay)', async () => {
+    const { getSelectedThread } = await import('../src/lib/thread-select')
+    mockThreadsList.mockResolvedValue({
+      threads: [thread({ id: 'kt-a', title: 'Alpha' }), thread({ id: 'kt-b', title: 'Beta' })],
+    })
+    renderDock('float')
+    fireEvent.click(screen.getByTestId('dock-fab'))
+    await screen.findByTestId('dock-thread-picker')
+
+    fireEvent.click(await screen.findByTestId('dock-picker-thread-kt-b'))
+    await waitFor(() => expect(screen.getByTestId('dock-target').textContent).toBe('→ Beta'))
+    expect(getSelectedThread()).toBe('kt-b')
+
+    // And the picker's New-chat row resets it back to a new-chat draft.
+    fireEvent.click(screen.getByTestId('dock-picker-new-chat'))
+    await waitFor(() => expect(screen.getByTestId('dock-target').textContent).toBe('→ New chat'))
+    expect(getSelectedThread()).toBeNull()
+  })
+
   it('the expander reveals the model + force-route selects', async () => {
     renderDock('bar')
     expect(screen.queryByTestId('dock-model-select')).toBeNull()

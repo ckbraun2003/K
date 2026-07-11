@@ -213,9 +213,18 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     if (!msg || ask.busy) return
     let threadId = selected
     if (threadId === null) {
-      const created = await api.threads.create()
-      selectThread(created.id)
-      threadId = created.id
+      // The lazy create is a failure point BEFORE ask.send — both call sites are
+      // fire-and-forget (`void submit()`), so an unwrapped rejection here would be
+      // silent: no dock-error, no busy toggle, dock appears to do nothing. Route it
+      // through the same inline error surface ask failures use; the draft stays put.
+      try {
+        const created = await api.threads.create()
+        selectThread(created.id)
+        threadId = created.id
+      } catch (e) {
+        ask.setError(e instanceof Error ? e.message : String(e))
+        return
+      }
     }
     const sent = await ask.send(msg, {
       threadId,
@@ -332,7 +341,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                     t.id === selected ? 'bg-[var(--raised)] text-[var(--text)]' : 'text-[var(--text)]'
                   }`}
                 >
-                  {t.title ?? 'Untitled'}
+                  {t.title ?? 'New chat'}
                 </button>
               ))}
             </div>
