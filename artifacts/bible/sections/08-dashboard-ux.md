@@ -8,7 +8,7 @@ updated: 2026-07-11
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
 internal-tool quality. It is re-framed from *an operator driving a deck of tools* to *a user
 directing an org*: the home is a friendly conversation with **K**, and everything else once split
-into **Direct** (shape the org and its work) and **Observe** (watch what it did). **P4 (D-090) then
+into **Direct** (shape the org and its work) and **Observe** (watch what it did). **P4 (D-096) then
 flattens those two groups into a single 9-item rail** (Sidebar IA below), consolidating the org and
 insight surfaces. IA decision **D-024** (evolve-visual + Direct/Observe IA) supersedes the *IA* of
 D-006 and D-013 while keeping their density, hero-only-glass, and mono-numeral discipline; decision
@@ -48,7 +48,7 @@ The shell stays: a collapsible **labeled sidebar**, the **⌘K command bar**, a 
 and an always-visible **activity strip**. What changes is the sidebar's grouping and the default
 landing.
 
-### Sidebar IA — the 9-item rail (P4 · D-090)
+### Sidebar IA — the 9-item rail (P4 · D-096)
 
 **P4 (IA Restructure) flattens** the Direct/Observe two-group rail into a single **9-item flat
 rail** — no group labels — superseding the *grouping* of D-024 while keeping its "direct an org,
@@ -86,11 +86,11 @@ destination** — the bible stays reachable via footer Help and now **edits in p
   section-write API (`PUT /api/artifacts/:slug/sections/:sectionSlug` → source-of-truth writeback +
   recompile), no separate editor surface. A `key={slug}` remount prevents an in-flight draft from
   being saved into a newly-selected bible.
-- **One Tabs + one SegControl (D-093)** — a single new **`Tabs`** (underline, `role=tab` /
+- **One Tabs + one SegControl (D-099)** — a single new **`Tabs`** (underline, `role=tab` /
   `aria-selected`) and the single extended **`SegControl`** (pill group, `aria-pressed`) replace
   every ad-hoc tab/segmented copy across the app (Insights tabs, Org / Runs segments, Skills tabs,
   orchestrator-detail, memory).
-- **E-11 canonical run-status (D-094)** — run-status surfaces adopt `web/src/lib/status.ts`
+- **E-11 canonical run-status (D-100)** — run-status surfaces adopt `web/src/lib/status.ts`
   (`runStatusMeta` / `agentRunStatusMeta` / `delegationStatusMeta`, all **default-less**); every
   adoption site **guards membership** so an unknown status degrades to muted, never crashes.
   Non-canonicalized vocabularies (ProjectTask / WorkflowStep / SkillDraft / SkillEval / CI checks)

@@ -196,7 +196,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-11 05:58</span><br>
+      compiled <span class="mono">2026-07-11 06:32</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -1788,7 +1788,7 @@ agent org can be evaluated as it comes online.</p>
       <p>The dashboard is the <strong>window into the agent organization</strong> (§03) — held to product quality, not
 internal-tool quality. It is re-framed from <em>an operator driving a deck of tools</em> to <em>a user
 directing an org</em>: the home is a friendly conversation with <strong>K</strong>, and everything else once split
-into <strong>Direct</strong> (shape the org and its work) and <strong>Observe</strong> (watch what it did). <strong>P4 (D-090) then
+into <strong>Direct</strong> (shape the org and its work) and <strong>Observe</strong> (watch what it did). <strong>P4 (D-096) then
 flattens those two groups into a single 9-item rail</strong> (Sidebar IA below), consolidating the org and
 insight surfaces. IA decision <strong>D-024</strong> (evolve-visual + Direct/Observe IA) supersedes the <em>IA</em> of
 D-006 and D-013 while keeping their density, hero-only-glass, and mono-numeral discipline; decision
@@ -1824,7 +1824,7 @@ Routing, Terminal, Settings, the 7 project tabs) <strong>exist today</strong>; t
 <p>The shell stays: a collapsible <strong>labeled sidebar</strong>, the <strong>⌘K command bar</strong>, a <strong>swappable stage</strong>,
 and an always-visible <strong>activity strip</strong>. What changes is the sidebar's grouping and the default
 landing.</p>
-<h3>Sidebar IA — the 9-item rail (P4 · D-090)</h3>
+<h3>Sidebar IA — the 9-item rail (P4 · D-096)</h3>
 <p><strong>P4 (IA Restructure) flattens</strong> the Direct/Observe two-group rail into a single <strong>9-item flat
 rail</strong> — no group labels — superseding the <em>grouping</em> of D-024 while keeping its "direct an org,
 then observe it" intent and all density / mono-numeral / hero-only-glass discipline. Merged and
@@ -1909,11 +1909,11 @@ destination</strong> — the bible stays reachable via footer Help and now <stro
 section-write API (<code>PUT /api/artifacts/:slug/sections/:sectionSlug</code> → source-of-truth writeback +
 recompile), no separate editor surface. A <code>key={slug}</code> remount prevents an in-flight draft from
 being saved into a newly-selected bible.</li>
-<li><strong>One Tabs + one SegControl (D-093)</strong> — a single new <strong><code>Tabs</code></strong> (underline, <code>role=tab</code> /
+<li><strong>One Tabs + one SegControl (D-099)</strong> — a single new <strong><code>Tabs</code></strong> (underline, <code>role=tab</code> /
 <code>aria-selected</code>) and the single extended <strong><code>SegControl</code></strong> (pill group, <code>aria-pressed</code>) replace
 every ad-hoc tab/segmented copy across the app (Insights tabs, Org / Runs segments, Skills tabs,
 orchestrator-detail, memory).</li>
-<li><strong>E-11 canonical run-status (D-094)</strong> — run-status surfaces adopt <code>web/src/lib/status.ts</code>
+<li><strong>E-11 canonical run-status (D-100)</strong> — run-status surfaces adopt <code>web/src/lib/status.ts</code>
 (<code>runStatusMeta</code> / <code>agentRunStatusMeta</code> / <code>delegationStatusMeta</code>, all <strong>default-less</strong>); every
 adoption site <strong>guards membership</strong> so an unknown status degrades to muted, never crashes.
 Non-canonicalized vocabularies (ProjectTask / WorkflowStep / SkillDraft / SkillEval / CI checks)
@@ -3541,15 +3541,7 @@ of invented numbers).</p>
 <td>Per-site health color logic (drifts); a runtime glossary fetch (latency + another endpoint); silently changing the server 80 threshold to match web's 75 (an unrelated behavior change).</td>
 </tr>
 <tr>
-<td>D-089</td>
-<td>2026-07-10</td>
-<td><em>(reserved — intentionally unused)</em></td>
-<td><strong>Reserved as a spare during P3; P4's decisions begin at D-090. No decision occupies this ID.</strong></td>
-<td>Keeps the P4 anchors (D-093 = E-30, D-094 = E-11) stable across the plan, ledger, and the §08 cross-references that were already written against them.</td>
-<td>Renumbering P4 to close the gap (would break cross-references already committed).</td>
-</tr>
-<tr>
-<td>D-090</td>
+<td>D-096</td>
 <td>2026-07-11</td>
 <td>Rail flattened 14-&gt;9; legacy hashes soft-redirect (E-29, P4)</td>
 <td><strong>P4 flattens the Direct/Observe rail into ONE 9-item flat rail (K · Org · Projects · Skills · Runs · Insights · Inbox + footer Help · Settings); merged/folded view strings are removed from <code>KNOWN_VIEWS</code>; a <code>VIEW_REDIRECTS</code> map + <code>resolveRoute</code> soft-redirect every legacy hash to its new home and <code>useHashRoute</code> canonicalizes the address bar via <code>history.replaceState</code> (no Back-trap). Schema-neutral — no migration, no new table, no <code>WsMessage</code> change; K-home stays the default landing.</strong></td>
@@ -3557,7 +3549,7 @@ of invented numbers).</p>
 <td>Keeping the two-group 14-entry rail (choice overload); hard-404ing removed hashes (breaks bookmarks + e2e); adopting a router library (the hand-rolled hash router already suffices); pushing the canonical hash on redirect (leaves a Back-trap — replaceState instead).</td>
 </tr>
 <tr>
-<td>D-091</td>
+<td>D-097</td>
 <td>2026-07-11</td>
 <td>Insights merges Metrics + Routing + Evals under 4 tabs (E-10)</td>
 <td><strong>Insights = 4 tabs — Overview (DETERMINISTIC deltas + z-score anomaly threshold math over measured <code>timeseries(days)</code> + <code>quality(days)</code>, earlier-half vs later-half baseline, null-filtered, NO LLM, no price*tokens), Charts (all 9 charts preserved + a shared <code>days</code> window that cross-filters Overview/Charts/Routing), Routing (preserved), Evals (preserved run/dry-real + freeze baselines); metrics/routing/evals redirect in to the matching tab.</strong></td>
@@ -3565,7 +3557,7 @@ of invented numbers).</p>
 <td>Three separate rail entries (fragmented one question); an LLM-written summary (non-deterministic, unmeasured — banned); per-tab independent windows (silent divergence when switching tabs); a price*token Overview (price-coupled estimation is banned).</td>
 </tr>
 <tr>
-<td>D-092</td>
+<td>D-098</td>
 <td>2026-07-11</td>
 <td>One Org surface — Roster/Tree/Graph SegControl (E-29)</td>
 <td><strong>One Org surface merges Orchestrators + Chief + Fleet Graph behind a SegControl — Roster (default) · Tree · Graph; orchestrator detail is preserved as a drill-in (back-nav -&gt; org/roster); chief/orchestrators/graph redirect to the matching segment; the force graph keeps the <code>react-force-graph-3d</code> subpackage import (never the aggregate).</strong></td>
@@ -3573,7 +3565,7 @@ of invented numbers).</p>
 <td>Three rail entries for one org (fragmented); collapsing detail into the roster (loses the per-lead editors); importing the <code>react-force-graph</code> aggregate (references a non-existent global AFRAME → blanks the route).</td>
 </tr>
 <tr>
-<td>D-093</td>
+<td>D-099</td>
 <td>2026-07-11</td>
 <td>E-30 — contextual terminal, edit-in-place docs, one Tabs/SegControl, Workflows-&gt;Runs, Memory demotion</td>
 <td><strong>E-30 bundle: the guarded terminal relocates to WHERE a shell is used — a ProjectWorkspace tab + a Settings diagnostics panel (<code>#/terminal</code> -&gt; settings); DocsPage edits the bible IN PLACE per section via the EXISTING section-write API (<code>PUT /api/artifacts/:slug/sections/:sectionSlug</code>, <code>key={slug}</code> remount guards cross-bible draft bleed); ONE new <code>Tabs</code> (underline, role=tab/aria-selected) + ONE extended <code>SegControl</code> (pill, aria-pressed) replace every ad-hoc tab/segmented copy; Workflows fold into Runs (<code>#/runs/workflows[/:defId]</code>, in-view run-tree picker); Memory is demoted to ⌘K-only (<code>#/lessons</code>) with <code>#/memory</code>-&gt;inbox — lessons were ALREADY an Inbox union source, so no new source is added.</strong></td>
@@ -3581,7 +3573,7 @@ of invented numbers).</p>
 <td>A standalone Terminal rail entry (no project context; default-off dead weight); a separate bible-editor surface (a second source of truth); per-page bespoke tab/segment markup (drift — one component each); a standalone Workflows rail entry (divorced from its runs); a Memory rail entry (duplicates the Inbox lessons source).</td>
 </tr>
 <tr>
-<td>D-094</td>
+<td>D-100</td>
 <td>2026-07-11</td>
 <td>E-11 — canonical run-status adoption completes (<code>lib/status.ts</code>)</td>
 <td><strong>E-11 completes for canonical run-status surfaces: they adopt <code>web/src/lib/status.ts</code> (<code>runStatusMeta</code> / <code>agentRunStatusMeta</code> / <code>delegationStatusMeta</code>, all DEFAULT-LESS), and every adoption site GUARDS membership so an unknown status degrades to muted rather than throwing (skill_run rows use agent-run vocab -&gt; <code>agentRunStatusMeta</code>, not <code>runStatusMeta</code>). Non-canonicalized vocabularies (ProjectTask / WorkflowStep / SkillDraft / SkillEval / CI checks) get token-drift fixes only; dedicated canonicalizers for them are DEFERRED.</strong></td>
