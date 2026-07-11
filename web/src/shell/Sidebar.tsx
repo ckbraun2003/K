@@ -22,28 +22,29 @@ export interface Destination {
   section: 'primary' | 'footer' | 'hidden'
 }
 
+// UI Simplification Task 10 — the 6-rail IA: Home/Personal/Agents/Runs/Insights/
+// Projects replace the prior 7-primary/2-footer/5-hidden 14-item rail. Personal
+// absorbs the Inbox; Agents absorbs Org + Skills + Runs' workflows sub-tab.
 export const DESTINATIONS: Destination[] = [
-  { id: 'home', icon: '⌂', label: 'K', hint: 'Talk to K — your front door to the org', enabled: true, section: 'primary' },
-  { id: 'org', icon: '♛', label: 'Org', hint: 'Chief, orchestrators & fleet — roster, tree & graph', enabled: true, section: 'primary' },
-  { id: 'projects', icon: '▦', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary' },
-  { id: 'skills', icon: '⚒', label: 'Skills', hint: 'Skills, MCP & hooks — the capability catalog', enabled: true, section: 'primary' },
-  { id: 'runs', icon: '▶', label: 'Runs', hint: 'Live & past agent runs, delegation workflows', enabled: true, section: 'primary' },
+  { id: 'home', icon: '⌂', label: 'K', hint: 'Home — chat with K & your overview', enabled: true, section: 'primary' },
+  { id: 'personal', icon: '☑', label: 'Personal', hint: 'Your inbox, tasks, chats & memories', enabled: true, section: 'primary' },
+  { id: 'agents', icon: '♛', label: 'Agents', hint: 'Org, skills & pipelines — the agent organization', enabled: true, section: 'primary' },
+  { id: 'runs', icon: '▶', label: 'Runs', hint: 'Live & past agent runs', enabled: true, section: 'primary' },
   { id: 'insights', icon: '∿', label: 'Insights', hint: 'Overview, charts, routing & evals', enabled: true, section: 'primary' },
-  { id: 'inbox', icon: '☑', label: 'Inbox', hint: 'Everything waiting on you — approve, reply, review', enabled: true, section: 'primary' },
+  { id: 'projects', icon: '▦', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary' },
   // Footer cluster — below the spacer.
   { id: 'help', icon: '❔', label: 'Help', hint: 'How to use K — the user guide', enabled: true, view: 'docs', param: 'project-bible', section: 'footer' },
   { id: 'settings', icon: '⚙', label: 'Settings', hint: 'Provider/auth status, diagnostics & global system prompt', enabled: true, section: 'footer' },
   // Hidden: not rail destinations, kept so TopBar/command-palette resolve a label for indirectly-reached views.
   { id: 'docs', icon: '▤', label: 'Docs', hint: 'Harness bible & artifacts', enabled: true, view: 'docs', param: 'project-bible', section: 'hidden' },
   { id: 'skill-creator', icon: '✎', label: 'Skill Creator', hint: 'Draft, refine & evaluate a skill with an agent', enabled: true, section: 'hidden' },
-  // Demoted from the rail: reachable via command palette only. Memory folded its approvals into Inbox.
-  { id: 'lessons', icon: '❋', label: 'Memory', hint: 'Review & approve proposed agent lessons', enabled: true, view: 'lessons', section: 'hidden' },
-  { id: 'terminal', icon: '>_', label: 'Terminal', hint: 'Embedded shell (also in project workspace & Settings diagnostics)', enabled: true, section: 'hidden' },
+  { id: 'timeline', icon: '≡', label: 'Timeline', hint: 'Org activity feed', enabled: true, section: 'hidden' },
 ]
 
-/** Command-palette source: the enabled rail items PLUS the two deliberately-demoted
- *  deep-links (Memory->lessons, Terminal) which are reachable via the palette only. */
-const COMMAND_ONLY = new Set(['lessons', 'terminal'])
+/** Command-palette source: the enabled rail items. CommandBar itself is retired in
+ *  Task 18 (dead/unmounted since Task 10) — kept as an empty set so NAV_DESTINATIONS
+ *  (and CommandBar's import of it) still compile until that retirement sweep. */
+const COMMAND_ONLY = new Set<string>()
 export const NAV_DESTINATIONS = DESTINATIONS.filter(d => d.enabled && (d.section !== 'hidden' || COMMAND_ONLY.has(d.id)))
 
 export default function Sidebar({
@@ -102,9 +103,9 @@ export default function Sidebar({
           {d.icon}
         </span>
         {!collapsed && <span className="truncate">{d.label}</span>}
-        {!collapsed && d.id === 'inbox' && inboxCount > 0 && (
+        {!collapsed && d.id === 'personal' && inboxCount > 0 && (
           <span
-            data-testid="sidebar-inbox-badge"
+            data-testid="sidebar-personal-badge"
             title={`${inboxCount} item${inboxCount > 1 ? 's' : ''} waiting on you`}
             className="ml-auto rounded px-1.5 text-[10px] font-semibold bg-amber/20 text-[var(--amber)]"
           >

@@ -69,7 +69,11 @@ describe('CommandBar @ empty-state (F-005)', () => {
 describe('CommandBar listbox semantics (F-006)', () => {
   it('the results list is a listbox and rows are options with aria-selected', async () => {
     renderBar()
-    type('m') // matches several nav labels + the ask-k row
+    // UI Simplification Task 10: the 6-rail DESTINATIONS content changed (home's
+    // label is now 'K', and the old 'Memory'/'Home' labels are gone) — 's' is the
+    // letter that still matches several current nav labels (Personal/Agents/Runs/
+    // Insights/Projects/Settings) + the ask-k row, preserving this test's intent.
+    type('s') // matches several nav labels + the ask-k row
     await screen.findByRole('listbox')
     // Wait for the async queries (projects/runs/status) to settle — each can
     // re-fire CommandBar's "reset selection to 0" effect, so assert the resting

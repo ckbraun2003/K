@@ -1,4 +1,5 @@
-/** P2 W0d — Inbox rail destination + needs-YOU badge (the ONE sanctioned new rail slot). */
+/** UI Simplification Task 10 — the inbox needs-YOU badge moved from its own rail
+ *  slot onto the merged `personal` destination (Personal hub owns the inbox now). */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -29,10 +30,15 @@ function renderSidebar() {
   )
 }
 
-describe('Inbox rail entry', () => {
-  it('renders the destination and the needs-YOU badge count', async () => {
+describe('Personal rail entry (inbox badge)', () => {
+  it('renders the Personal destination and the needs-YOU badge count', async () => {
     renderSidebar()
-    expect(await screen.findByRole('button', { name: /Inbox/ })).toBeTruthy()
-    expect((await screen.findByTestId('sidebar-inbox-badge')).textContent).toBe('3')
+    expect(await screen.findByRole('button', { name: /Personal/ })).toBeTruthy()
+    expect((await screen.findByTestId('sidebar-personal-badge')).textContent).toBe('3')
+  })
+
+  it('there is no standalone Inbox rail entry any more', () => {
+    renderSidebar()
+    expect(screen.queryByRole('button', { name: /^Inbox$/ })).toBeNull()
   })
 })

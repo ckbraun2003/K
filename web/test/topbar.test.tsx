@@ -1,25 +1,31 @@
 /**
- * TopBar — titles + detail-view breadcrumbs (wave C1). The contract:
+ * TopBar — titles + detail-view breadcrumbs (wave C1; DETAIL_PARENTS retargeted
+ * to the 6-rail hubs in UI Simplification Task 10). The contract:
  *   - a Sidebar destination view renders its plain label (e.g. 'Runs')
- *   - a detail view ('orchestrator' / 'workflow-detail' / 'project') renders a
- *     "Parent › EntityName" breadcrumb: the parent segment navigates to the list
- *     view, and the entity name resolves from the SAME query key+fn the detail
- *     page owns (react-query dedupe — TopBar adds zero fetches elsewhere)
+ *   - a detail view ('orchestrator' / 'project') renders a "Parent › EntityName"
+ *     breadcrumb: the parent segment navigates to the list view, and the entity
+ *     name resolves from the SAME query key+fn the detail page owns (react-query
+ *     dedupe — TopBar adds zero fetches elsewhere)
+ *   - a parent-less detail view with no async entity name ('timeline') still
+ *     names itself in the breadcrumb tail, via its own Sidebar destination label
  *   - an unknown view surfaces 'Not found' (never masquerades as Home)
- * api + route.navigate are mocked (vi.hoisted, mirroring the sibling suites).
+ *   - the ⌘K launcher no longer opens a command palette — it calls focusDock()
+ * api + route.navigate + dock-bus.focusDock are mocked (vi.hoisted, mirroring
+ * the sibling suites).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { AgentProfile, ChiefOrgLead } from '@k/shared'
 
-const { mockNavigate, mockOrchGet, mockWorkflowGet, mockProjectsList, KNOWN } = vi.hoisted(() => ({
+const { mockNavigate, mockFocusDock, mockOrchGet, mockWorkflowGet, mockProjectsList, KNOWN } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
+  mockFocusDock: vi.fn(),
   mockOrchGet: vi.fn(),
   mockWorkflowGet: vi.fn(),
   mockProjectsList: vi.fn(async () => []),
   // Inside vi.hoisted so the (hoisted) route mock factory below can reference it.
-  KNOWN: new Set(['home', 'runs', 'orchestrator', 'org', 'project']),
+  KNOWN: new Set(['home', 'runs', 'orchestrator', 'agents', 'projects', 'project', 'timeline']),
 }))
 
 vi.mock('../src/lib/api', () => ({
@@ -36,6 +42,8 @@ vi.mock('../src/lib/route', () => ({
   isKnownView: (v: string) => KNOWN.has(v),
   useHashRoute: () => ({ view: 'home' }),
 }))
+
+vi.mock('../src/lib/dock-bus', () => ({ focusDock: mockFocusDock }))
 
 import TopBar from '../src/shell/TopBar'
 
@@ -61,13 +69,14 @@ function renderBar(view: string, param?: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <TopBar view={view} param={param} connected onOpenCommand={() => {}} />
+      <TopBar view={view} param={param} connected />
     </QueryClientProvider>,
   )
 }
 
 beforeEach(() => {
   mockNavigate.mockClear()
+  mockFocusDock.mockClear()
   mockOrchGet.mockReset()
   mockOrchGet.mockResolvedValue(detail())
 })
@@ -80,23 +89,46 @@ describe('TopBar', () => {
     expect(screen.queryByTestId('topbar-parent')).toBeNull()
   })
 
-  it('renders the Org › <lead name> breadcrumb and navigates via the parent segment', async () => {
+  it('renders the Agents › <lead name> breadcrumb and navigates via the parent segment', async () => {
     renderBar('orchestrator', 'lead-frontend')
 
     // Parent label renders immediately (no dangling '›' before the name resolves)…
     const parent = screen.getByTestId('topbar-parent')
-    expect(parent.textContent).toBe('Org')
+    expect(parent.textContent).toBe('Agents')
 
     // …then the lead name resolves from the shared ['orchestrator', id] query.
     expect(await screen.findByText('Frontend')).toBeTruthy()
     expect(screen.getByTestId('topbar-title').textContent).toContain('›')
 
     fireEvent.click(parent)
-    expect(mockNavigate).toHaveBeenCalledWith('org', 'roster')
+    expect(mockNavigate).toHaveBeenCalledWith('agents')
+  })
+
+  it('renders the Projects breadcrumb for a project detail view and navigates via the parent segment', () => {
+    renderBar('project', 'p1')
+    const parent = screen.getByTestId('topbar-parent')
+    expect(parent.textContent).toBe('Projects')
+    fireEvent.click(parent)
+    expect(mockNavigate).toHaveBeenCalledWith('projects')
+  })
+
+  it('a parent-less detail view (timeline) names itself in the breadcrumb tail', () => {
+    renderBar('timeline')
+    const parent = screen.getByTestId('topbar-parent')
+    expect(parent.textContent).toBe('K')
+    expect(screen.getByTestId('topbar-title').textContent).toContain('Timeline')
+    fireEvent.click(parent)
+    expect(mockNavigate).toHaveBeenCalledWith('home')
   })
 
   it('surfaces Not found for an unknown view (never masquerades as Home)', () => {
     renderBar('nonsense')
     expect(screen.getByTestId('topbar-title').textContent).toContain('Not found')
+  })
+
+  it('the ⌘K launcher calls focusDock(), not a command palette', () => {
+    renderBar('home')
+    fireEvent.click(screen.getByTestId('topbar-dock-launcher'))
+    expect(mockFocusDock).toHaveBeenCalledTimes(1)
   })
 })
