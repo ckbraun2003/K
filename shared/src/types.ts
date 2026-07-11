@@ -2020,6 +2020,7 @@ export const HomeWidgetPlacementSchema = z.object({
   w: z.union([z.literal(1), z.literal(2)]),
   h: z.union([z.literal(1), z.literal(2)]),
 }).strict()
+export type HomeWidgetPlacement = z.infer<typeof HomeWidgetPlacementSchema>
 
 export const HomeLayoutSchema = z.object({
   widgets: z.array(HomeWidgetPlacementSchema).max(9),

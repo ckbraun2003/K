@@ -9,9 +9,10 @@ type HomeView = 'chat' | 'overview'
 /**
  * Home hub (UI Simplification Task 11) — replaces the Task-10 stub as the
  * routed `home` view. A top-of-page `Chat | Overview` SegControl (spec 5):
- * Chat is the two-pane thread list + transcript (ChatView, this task);
- * Overview stays the Task-10 placeholder until the widget grid lands
- * (Tasks 12-13). The last-used tab is remembered per device (localStorage
+ * Chat is the two-pane thread list + transcript (ChatView, Task 11);
+ * Overview is the 3x3 widget-grid framework (OverviewView, Task 12 — Task 13
+ * fleshes out the 9-widget catalog's real bodies). The last-used tab is
+ * remembered per device (localStorage
  * `'k.home.view'`) — S-6: a fresh install with nothing stored lands on
  * `'chat'` so a first boot faces K, not an empty widget grid. The composer
  * itself is NOT here — the MessageDock bar variant is mounted at Shell level
