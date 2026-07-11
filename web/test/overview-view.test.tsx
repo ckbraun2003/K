@@ -123,4 +123,39 @@ describe('OverviewView', () => {
     expect(await screen.findByTestId('widget-error-org_glance')).toBeTruthy()
     expect(await screen.findByText('Notes')).toBeTruthy()
   })
+
+  it('a crashed widget keeps its customize chrome alive and can still be removed', async () => {
+    mockGet.mockResolvedValueOnce({ layout: THROW_LAYOUT })
+    renderOverview()
+    expect(await screen.findByTestId('widget-error-org_glance')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('overview-customize'))
+    fireEvent.click(await screen.findByTestId('widget-remove-org_glance'))
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1))
+    const putLayout = mockPut.mock.calls[0][0] as HomeLayout
+    expect(HomeLayoutSchema.safeParse(putLayout).success).toBe(true)
+    expect(putLayout.widgets.some(w => w.id === 'org_glance')).toBe(false)
+    expect(putLayout.widgets).toHaveLength(1)
+  })
+
+  it('resize via the SegControl chrome disables non-fitting sizes and PUTs the resized placement', async () => {
+    // One widget at the right edge: 2-wide sizes are out of bounds (disabled),
+    // 1x2 fits downward. Single shell => the seg-<value> testids are unique.
+    mockGet.mockResolvedValueOnce({ layout: { widgets: [{ id: 'needs_you', x: 2, y: 0, w: 1, h: 1 }] } })
+    renderOverview()
+    fireEvent.click(await screen.findByTestId('overview-customize'))
+
+    const seg2x2 = await screen.findByTestId('seg-2x2')
+    expect(seg2x2.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(seg2x2)
+    expect(mockPut).not.toHaveBeenCalled()
+
+    expect(screen.getByTestId('seg-1x1').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByTestId('seg-1x2'))
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1))
+    const putLayout = mockPut.mock.calls[0][0] as HomeLayout
+    expect(HomeLayoutSchema.safeParse(putLayout).success).toBe(true)
+    expect(putLayout.widgets).toContainEqual({ id: 'needs_you', x: 2, y: 0, w: 1, h: 2 })
+  })
 })

@@ -1,7 +1,14 @@
 import type { HomeLayout, HomeWidgetPlacement } from '@k/shared'
+import SegControl from '../../components/SegControl'
 import { fits } from '../../lib/home-layout'
 
-const SIZES: Array<[1 | 2, 1 | 2]> = [[1, 1], [2, 1], [1, 2], [2, 2]]
+type SizeKey = '1x1' | '2x1' | '1x2' | '2x2'
+const SIZES: Array<{ key: SizeKey; w: 1 | 2; h: 1 | 2 }> = [
+  { key: '1x1', w: 1, h: 1 },
+  { key: '2x1', w: 2, h: 1 },
+  { key: '1x2', w: 1, h: 2 },
+  { key: '2x2', w: 2, h: 2 },
+]
 
 interface Props {
   placement: HomeWidgetPlacement
@@ -17,7 +24,9 @@ interface Props {
  * stays the single write path. Size/move options are pre-filtered through
  * `fits` (ignoring this widget's OWN current footprint via `ignoreId`), so a
  * click can never construct a layout the server's `HomeLayoutSchema` would
- * reject.
+ * reject. Sizing uses the canonical SegControl (per-option `disabled` for
+ * non-fitting sizes, accent activeTone) — testids are SegControl's own
+ * `seg-<size>`.
  */
 export default function WidgetShell({ placement, layout, onChange }: Props) {
   function replace(next: HomeWidgetPlacement) {
@@ -36,25 +45,20 @@ export default function WidgetShell({ placement, layout, onChange }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-1 border-b border-[var(--border)] bg-[var(--bg)]/70 p-1 text-[10px]">
       <span className="mr-auto truncate font-medium text-[var(--text)]">{placement.id}</span>
-      {SIZES.map(([w, h]) => {
-        const active = placement.w === w && placement.h === h
-        const ok = active || fits(layout, { ...placement, w, h }, placement.id)
-        return (
-          <button
-            key={`${w}x${h}`}
-            type="button"
-            data-testid={`widget-resize-${placement.id}-${w}x${h}`}
-            aria-pressed={active}
-            disabled={!ok}
-            onClick={() => replace({ ...placement, w, h })}
-            className={`rounded px-1 py-0.5 transition-colors ${
-              active ? 'bg-[var(--accent)] text-[var(--bg)]' : 'text-[var(--muted)] hover:text-[var(--text)]'
-            } disabled:opacity-30`}
-          >
-            {w}x{h}
-          </button>
-        )
-      })}
+      <SegControl<SizeKey>
+        size="sm"
+        activeTone="accent"
+        ariaLabel={`Resize ${placement.id}`}
+        options={SIZES.map(({ key, w, h }) => {
+          const active = placement.w === w && placement.h === h
+          return { label: key, value: key, disabled: !active && !fits(layout, { ...placement, w, h }, placement.id) }
+        })}
+        value={`${placement.w}x${placement.h}` as SizeKey}
+        onChange={(v) => {
+          const s = SIZES.find(s => s.key === v)!
+          replace({ ...placement, w: s.w, h: s.h })
+        }}
+      />
       <select
         aria-label={`Move ${placement.id}`}
         data-testid={`widget-move-${placement.id}`}

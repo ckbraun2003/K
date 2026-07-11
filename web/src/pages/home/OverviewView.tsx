@@ -9,9 +9,11 @@ import WidgetShell from './WidgetShell'
  * OverviewView — Home's Overview tab (UI Simplification Task 12), replacing
  * the Task-10/11 stub. Renders the operator's saved 3x3 widget grid
  * (`useHomeLayout`, lib/home-layout.ts), falling back to DEFAULT_LAYOUT
- * before the first save. Every cell — including its optional customize
- * chrome (WidgetShell) — is wrapped in its OWN `WidgetErrorBoundary` so one
- * throwing widget body can never take the rest of the grid down.
+ * before the first save. Each cell's BODY is wrapped in its own
+ * `WidgetErrorBoundary` so one throwing widget can never take the rest of
+ * the grid down — while the customize chrome (WidgetShell) sits OUTSIDE the
+ * boundary, so a permanently-crashed widget can still be resized/moved/
+ * removed from the UI.
  *
  * Customize mode (toggle, testid `overview-customize`) reveals: per-widget
  * chrome (resize/move/remove, WidgetShell) on placed cells, and a `+` add
@@ -68,8 +70,8 @@ export default function OverviewView() {
               style={{ gridColumn: `${w.x + 1} / span ${w.w}`, gridRow: `${w.y + 1} / span ${w.h}` }}
               className="glass-tint rounded-panel min-h-0 overflow-hidden"
             >
+              {customize ? <WidgetShell placement={w} layout={layout} onChange={save} /> : null}
               <WidgetErrorBoundary id={w.id}>
-                {customize ? <WidgetShell placement={w} layout={layout} onChange={save} /> : null}
                 <Def.component />
               </WidgetErrorBoundary>
             </div>
