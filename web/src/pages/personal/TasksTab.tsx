@@ -116,30 +116,38 @@ export default function TasksTab() {
             ))}
           </div>
         )}
-        {/* Inline add composer — Enter (IME-guarded) or the add button. Always POSTs
-            scope:'personal' (api.k.workItems.create's contract) regardless of the
-            filter above — matches org-scope items are operator-global and are
-            created through the kstore MCP tool, not this composer. */}
-        <div className="mt-3 flex items-center gap-2">
-          <input
-            data-testid="tasks-workitem-add-input"
-            value={newItemTitle}
-            onChange={e => setNewItemTitle(e.target.value)}
-            onKeyDown={onAddItemKeyDown}
-            placeholder="add a work item…"
-            aria-label="New work item title"
-            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] placeholder-[var(--muted)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
-          />
-          <button
-            data-testid="tasks-workitem-add"
-            type="button"
-            disabled={!newItemTitle.trim() || addItem.isPending}
-            onClick={() => addItem.mutate(newItemTitle.trim())}
-            className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)] disabled:opacity-50"
-          >
-            add
-          </button>
-        </div>
+        {/* Inline add composer — Enter (IME-guarded) or the add button. create()
+            always POSTs scope:'personal' (api.k.workItems.create's contract), so the
+            composer only renders under the Personal filter: under Org an add would
+            succeed but file into the (hidden) personal list — a silent misfile. Org
+            items are operator-global and are created through the kstore MCP tool,
+            so Org shows an honest hint instead (review fix, Task 14). */}
+        {scope === 'personal' ? (
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              data-testid="tasks-workitem-add-input"
+              value={newItemTitle}
+              onChange={e => setNewItemTitle(e.target.value)}
+              onKeyDown={onAddItemKeyDown}
+              placeholder="add a work item…"
+              aria-label="New work item title"
+              className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] placeholder-[var(--muted)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+            />
+            <button
+              data-testid="tasks-workitem-add"
+              type="button"
+              disabled={!newItemTitle.trim() || addItem.isPending}
+              onClick={() => addItem.mutate(newItemTitle.trim())}
+              className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)] disabled:opacity-50"
+            >
+              add
+            </button>
+          </div>
+        ) : (
+          <p data-testid="tasks-workitem-add-org-hint" className="mt-3 text-[11px] italic text-[var(--muted)]">
+            Org items are created by the org — switch to Personal to add one.
+          </p>
+        )}
         {/* Mutation failures surface inline — never a silently-lost toggle/add. */}
         {(toggleItem.isError || addItem.isError) && (
           <p data-testid="tasks-workitem-error" className="mt-2 text-[11px] text-[var(--red)]">

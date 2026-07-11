@@ -142,6 +142,26 @@ describe('TasksTab — work items (personal/org scope)', () => {
     expect(input.value).toBe('will fail')
   })
 
+  it('org scope hides the add composer and shows the switch-to-Personal hint (review fix)', async () => {
+    renderTab()
+    // Personal (default): composer present, no hint.
+    expect(await screen.findByTestId('tasks-workitem-add-input')).toBeTruthy()
+    expect(screen.queryByTestId('tasks-workitem-add-org-hint')).toBeNull()
+
+    // Org: composer gone (create() always files scope:'personal' — an add here
+    // would vanish from the visible list), honest hint shown instead.
+    fireEvent.click(screen.getByTestId('seg-org'))
+    await screen.findByTestId('tasks-workitem-add-org-hint')
+    expect(screen.queryByTestId('tasks-workitem-add-input')).toBeNull()
+    expect(screen.queryByTestId('tasks-workitem-add')).toBeNull()
+    expect(screen.getByTestId('tasks-workitem-add-org-hint').textContent).toMatch(/switch to Personal/i)
+
+    // Back to Personal: composer returns.
+    fireEvent.click(screen.getByTestId('seg-personal'))
+    expect(await screen.findByTestId('tasks-workitem-add-input')).toBeTruthy()
+    expect(screen.queryByTestId('tasks-workitem-add-org-hint')).toBeNull()
+  })
+
   it('work items: empty and error states', async () => {
     mockWiList.mockResolvedValue([])
     renderTab()
