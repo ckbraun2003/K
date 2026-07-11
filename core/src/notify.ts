@@ -16,7 +16,7 @@ import { eventBus } from './events.js'
 import { eventsDb, notificationsDb } from './db.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
 
-// Mirrors the SCHEMA_VERSION 10 seeds — a missing row can never crash or silence
+// Mirrors the SCHEMA_VERSION 11 seeds — a missing row can never crash or silence
 // the engine differently than its seed.
 const DEFAULT_RULES: Record<NotificationEventKey, { inapp: boolean; browser: boolean }> = {
   run_awaiting_input: { inapp: true, browser: true },
@@ -24,6 +24,7 @@ const DEFAULT_RULES: Record<NotificationEventKey, { inapp: boolean; browser: boo
   run_review_ready:   { inapp: true, browser: false },
   run_failed:         { inapp: true, browser: false },
   verify_fail:        { inapp: true, browser: false },
+  memory_saved:       { inapp: true, browser: false },
 }
 
 function ruleFor(key: NotificationEventKey): { inapp: boolean; browser: boolean } {

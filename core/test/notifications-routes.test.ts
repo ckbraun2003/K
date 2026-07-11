@@ -78,13 +78,13 @@ describe('POST /api/notifications/read-all', () => {
 })
 
 describe('GET /api/notifications/rules', () => {
-  it('returns all five seeded rules with boolean channels', async () => {
+  it('returns all six seeded rules with boolean channels', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/notifications/rules', headers: AUTH })
     expect(res.statusCode).toBe(200)
     const rules = res.json() as NotificationRule[]
-    expect(rules).toHaveLength(5)
+    expect(rules).toHaveLength(6)
     expect(rules.map(r => r.eventKey).sort()).toEqual(
-      ['run_awaiting_input', 'run_awaiting_plan', 'run_failed', 'run_review_ready', 'verify_fail'])
+      ['memory_saved', 'run_awaiting_input', 'run_awaiting_plan', 'run_failed', 'run_review_ready', 'verify_fail'])
     expect(rules.every(r => typeof r.inapp === 'boolean' && typeof r.browser === 'boolean')).toBe(true)
   })
 })

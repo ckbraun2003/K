@@ -596,9 +596,10 @@ export type RunPlan = z.infer<typeof RunPlanSchema>
 export const UpdateRunPlanBodySchema = z.object({ plan: PlanDocSchema }).strict()
 export type UpdateRunPlanBody = z.infer<typeof UpdateRunPlanBodySchema>
 
-// E-19 — the five P2 event keys (every key the notify engine can hear today).
+// E-19 — the notify engine's event keys.
 export const NotificationEventKeySchema = z.enum([
   'run_awaiting_input', 'run_awaiting_plan', 'run_review_ready', 'run_failed', 'verify_fail',
+  'memory_saved',
 ])
 export type NotificationEventKey = z.infer<typeof NotificationEventKeySchema>
 
@@ -1012,6 +1013,22 @@ export const LessonSchema = z.object({
   reviewedAt: z.number().nullable(),
 })
 export type Lesson = z.infer<typeof LessonSchema>
+
+// ─── UserMemory (operator memory, UI Simplification) ───────────────────────
+// The operator's own durable memory store — distinct from Lesson (agent memory,
+// layer A, gated by accept/reject). A UserMemory is saved directly (by the
+// operator or K's memory_save tool), no review gate.
+export const UserMemorySchema = z.object({
+  id: z.string(),
+  content: z.string().min(1).max(2000),
+  sourceThreadId: z.string().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+export type UserMemory = z.infer<typeof UserMemorySchema>
+
+export const UserMemoryCreateBodySchema = z.object({ content: z.string().min(1).max(2000) }).strict()
+export const UserMemoryPatchBodySchema = z.object({ content: z.string().min(1).max(2000) }).strict()
 
 // ─── WorkflowStep (status / progress checklist) ────────────────────────────
 // One checklist line the orchestrator reports through the kstore status-write
@@ -1896,6 +1913,7 @@ export const KAskBodySchema = z.object({
   message: z.string().min(1).max(20000),
   forceRoute: KForceRouteSchema.optional(),
   model: z.string().min(1).max(200).optional(),
+  threadId: z.string().optional(),
 })
 export type KAskBody = z.infer<typeof KAskBodySchema>
 
@@ -1940,16 +1958,39 @@ export const KThreadTurnSchema = z.object({
 export type KThreadTurn = z.infer<typeof KThreadTurnSchema>
 
 /** The durable K conversation — the source of truth that survives reload. `status`
- *  is a display hint; `activeRunId` is the warm interactive run (null when cold). */
+ *  is a display hint; `activeRunId` is the warm interactive run (null when cold);
+ *  `archivedAt` hides a thread from the default list without deleting it (null =
+ *  active/unarchived). */
 export const KThreadSchema = z.object({
   id: z.string(),
   title: z.string().nullable(),
   status: z.enum(['active', 'idle']),
   activeRunId: z.string().nullable(),
+  archivedAt: z.number().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 })
 export type KThread = z.infer<typeof KThreadSchema>
+
+/** A thread plus its list-view preview fields (latest turn text/time) — the shape
+ *  GET /api/k/threads returns per row, so the thread list never needs a turns
+ *  fetch per row just to render a snippet. */
+export const KThreadSummarySchema = KThreadSchema.extend({
+  snippet: z.string().nullable(),
+  lastTurnAt: z.number().nullable(),
+})
+export type KThreadSummary = z.infer<typeof KThreadSummarySchema>
+
+/** Body for POST /api/k/threads — creating a thread takes no fields (title is
+ *  backfilled from the first turn; see the v11 migration's one-shot backfill). */
+export const KThreadCreateBodySchema = z.object({}).strict()
+
+/** Body for PATCH /api/k/threads/:id — rename and/or archive/unarchive. At least
+ *  one field must be present. */
+export const KThreadPatchBodySchema = z.object({
+  title: z.string().min(1).max(120).optional(),
+  archived: z.boolean().optional(),
+}).strict().refine(b => b.title !== undefined || b.archived !== undefined, { message: 'empty patch' })
 
 /** Result of POST /api/k/ask. `warm` = true when the message continued a live
  *  interactive run; false when a fresh run was started (seeded from the thread).
@@ -1962,6 +2003,44 @@ export const KAskResultSchema = z.object({
   warm: z.boolean(),
 })
 export type KAskResult = z.infer<typeof KAskResultSchema>
+
+// ─── Home layout (UI Simplification, spec §5.2/§8.3) ───────────────────────
+// The operator-arranged widget grid on the Home surface: a fixed 3x3 cell grid,
+// each widget spanning 1 or 2 cells per axis, in-bounds and non-overlapping.
+export const HomeWidgetIdSchema = z.enum([
+  'active_runs', 'needs_you', 'org_glance', 'recent_activity', 'cost_today',
+  'personal_tasks', 'notes', 'schedule', 'project_health',
+])
+export type HomeWidgetId = z.infer<typeof HomeWidgetIdSchema>
+
+export const HomeWidgetPlacementSchema = z.object({
+  id: HomeWidgetIdSchema,
+  x: z.number().int().min(0).max(2),
+  y: z.number().int().min(0).max(2),
+  w: z.union([z.literal(1), z.literal(2)]),
+  h: z.union([z.literal(1), z.literal(2)]),
+}).strict()
+
+export const HomeLayoutSchema = z.object({
+  widgets: z.array(HomeWidgetPlacementSchema).max(9),
+}).strict().superRefine((layout, ctx) => {
+  const ids = new Set<string>()
+  const cells = new Set<string>()
+  for (const wgt of layout.widgets) {
+    if (ids.has(wgt.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate widget: ${wgt.id}` })
+    ids.add(wgt.id)
+    if (wgt.x + wgt.w > 3 || wgt.y + wgt.h > 3) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `out of bounds: ${wgt.id}` })
+      continue
+    }
+    for (let dx = 0; dx < wgt.w; dx++) for (let dy = 0; dy < wgt.h; dy++) {
+      const cell = `${wgt.x + dx},${wgt.y + dy}`
+      if (cells.has(cell)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `overlap at cell ${cell}` })
+      cells.add(cell)
+    }
+  }
+})
+export type HomeLayout = z.infer<typeof HomeLayoutSchema>
 
 // ─── E-11 canonicalizers (P0) ─────────────────────────────────────────────────
 // Legacy status → canonical triple: ONE mapping per entity family, shared by the
