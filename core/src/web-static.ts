@@ -50,12 +50,19 @@ export function resolveWebDist(env: NodeJS.ProcessEnv = process.env): string | n
 export function isPublicAssetPath(method: string, url: string): boolean {
   const m = method.toUpperCase()
   if (m !== 'GET' && m !== 'HEAD') return false
-  let pathname: string
+  let parsed: URL
   try {
-    pathname = new URL(url, 'http://localhost').pathname
+    parsed = new URL(url, 'http://localhost')
   } catch {
     return false
   }
+  // Fail closed on a NETWORK-PATH REFERENCE. `//api/x` (and its `/\api/x` variant,
+  // which the http-scheme parser folds to `//api/x`) parse with the first segment
+  // as the AUTHORITY, so `.pathname` would drop the `/api` prefix and misclassify a
+  // gated route as a public asset. A genuine same-origin asset path keeps the base
+  // host, so any other host means the request target was an authority-form trick.
+  if (parsed.host !== 'localhost') return false
+  const pathname = parsed.pathname
   // Lowercase before the prefix check (like the method casing above). Fastify's
   // router is case-sensitive, so a mixed-case `/API/x` never reaches a real handler
   // anyway — this just keeps the "is this on the sensitive side of the line?" answer

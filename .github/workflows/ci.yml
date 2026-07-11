@@ -45,8 +45,19 @@ jobs:
           node-version: 20                # the runner's Node 20 is what prepackage bundles (ABI 115)
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build                   # shared/core/web — prepackage stages core/dist + web/dist
+      - run: pnpm build                   # shared/core/web/desktop — prepackage reuses these
       - run: pnpm --filter @k/desktop run pack   # prepackage (pnpm deploy + node bundle) + electron-builder --dir
+        env:
+          K_SKIP_BUILD: '1'               # reuse the `pnpm build` above; don't rebuild the whole workspace again
+      # Heavy, hard-to-reproduce-locally Windows path — on failure, keep the staged
+      # output for post-hoc inspection (builder logs already land in the Actions log).
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-packaging-output
+          path: desktop/release/
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Non-gating: the rigorous-testing campaign's confirmed-fault quarantine.
   # Tests here are RED by design (one per open fault) and MUST NOT block merges —

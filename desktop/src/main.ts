@@ -307,6 +307,19 @@ function startNotifications(): void {
   })
 }
 
+/** Deny-by-default permission policy. The window only ever loads the trusted,
+ *  same-origin local SPA, which needs exactly one privileged capability: the
+ *  microphone, for in-app voice capture (useVoiceRecorder / MicButton → whisper).
+ *  Allowlist 'media' and refuse every other permission request (geolocation,
+ *  clipboard-read, MIDI, etc.) — standard Electron hardening so a future renderer
+ *  compromise can't reach capabilities the app never uses. Native toasts are raised
+ *  by THIS main process, not the renderer's Notification API, so 'notifications' is
+ *  intentionally NOT allowlisted. */
+function applyPermissionPolicy(): void {
+  const ALLOWED = new Set(['media'])
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(ALLOWED.has(permission)))
+}
+
 /** CSP for the core's own responses — the SPA needs inline styles (Tailwind/Framer)
  *  + data: fonts/images, and connects same-origin over http/ws. connect-src is
  *  pinned to core's ACTUAL port (not any loopback port) to minimize the
@@ -399,6 +412,13 @@ function teardownShell(): void {
 // Synchronous config handoff for the preload (before page scripts). Token only —
 // the port is already in the same-origin window URL; the token stays off argv/URL.
 ipcMain.on('k:config:sync', (e) => {
+  // Defense-in-depth: the main window's preload is the only legitimate caller. Once
+  // a window exists, reject any other webContents (a future second window / webview)
+  // so the token is never handed to an unexpected frame.
+  if (mainWindow && e.sender !== mainWindow.webContents) {
+    e.returnValue = null
+    return
+  }
   e.returnValue = buildDesktopConfig(harnessToken)
 })
 
@@ -414,6 +434,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     applyCsp()
+    applyPermissionPolicy()
     try {
       await startCore()
       createWindow()

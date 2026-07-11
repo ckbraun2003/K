@@ -12,7 +12,13 @@ const PUBLIC_PATHS = new Set(['/ws', '/ws/terminal', '/health'])
 
 export function isAuthExempt(url: string): boolean {
   try {
-    return PUBLIC_PATHS.has(new URL(url, 'http://localhost').pathname)
+    const parsed = new URL(url, 'http://localhost')
+    // Fail closed on a network-path reference: `//ws` (and its `/\ws` variant, which
+    // the http-scheme parser folds to `//ws`) parse with the first segment as the
+    // AUTHORITY, so `.pathname` would not match a real exempt route. A genuine path
+    // keeps the base host — any other host means an authority-form trick, so gate it.
+    if (parsed.host !== 'localhost') return false
+    return PUBLIC_PATHS.has(parsed.pathname)
   } catch {
     return false
   }

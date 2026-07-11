@@ -31,6 +31,9 @@ describe('isAuthExempt', () => {
   // so decoding here would open an exempt path to encoded protected routes
   it('/%77s (encoded /ws) → false', () => expect(isAuthExempt('/%77s')).toBe(false))
   it('//ws (network-path form) → false', () => expect(isAuthExempt('//ws')).toBe(false))
+  // the http-scheme URL parser folds `\`→`/`, so `/\health` also becomes a
+  // network-path reference — it must fail closed like `//ws`, not exempt
+  it('/\\health (backslash network-path form) → false', () => expect(isAuthExempt('/\\health')).toBe(false))
 })
 
 describe('generateToken', () => {

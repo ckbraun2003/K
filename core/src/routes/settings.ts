@@ -24,7 +24,6 @@ import { fileURLToPath } from 'url'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { type Status, SystemPromptBodySchema, isKnownModel } from '@k/shared'
-import { REPO_ROOT } from '../supervisor.js'
 import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
@@ -38,15 +37,26 @@ import { sendError, sendZodError, describePatchRejection } from './http-errors.j
 
 // ── System-prompt file location ───────────────────────────────────────────────
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// agent-config is READ-ONLY bundled assets, resolved __dirname-relative so it
+// survives packaging (like skills.ts / run-assets.ts). This file lives one level
+// deeper than those (core/src/routes → core/dist/routes), so three `..` reach the
+// parent of `core` — the repo root in dev, `<resources>/` in the packaged app,
+// where prepackage stages `agent-config/`. It must NOT resolve off supervisor's
+// REPO_ROOT: under a desktop install that is the WRITABLE per-user runtime dir,
+// which seeds no `agent-config/`, so reads would return a blank prompt and writes
+// would ENOENT — while the real dispatch path (run-assets.ts) keeps reading the
+// bundled file, silently splitting the source of truth.
+const ASSETS_ROOT = path.join(__dirname, '../../../')
+
 /** The fixed, global system prompt = the L0 base operating prompt injected into
  *  every K-managed run (agent-config/base-operating-prompt.md). Overridable ONLY
  *  via SYSTEM_PROMPT_PATH so tests can target a temp file (the real path is the
  *  default). No request input ever influences this — no traversal is possible. */
 export function systemPromptPath(): string {
-  return process.env.SYSTEM_PROMPT_PATH ?? path.join(REPO_ROOT, 'agent-config', 'base-operating-prompt.md')
+  return process.env.SYSTEM_PROMPT_PATH ?? path.join(ASSETS_ROOT, 'agent-config', 'base-operating-prompt.md')
 }
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // Mirror auth.ts / db.ts: backups live under the gitignored data dir.
 const DATA_DIR = process.env.K_DATA_DIR ?? path.join(__dirname, '../../data')
 const BACKUP_DIR = path.join(DATA_DIR, 'system-prompt-backups')

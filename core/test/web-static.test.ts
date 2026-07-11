@@ -44,6 +44,14 @@ describe('isPublicAssetPath', () => {
     // keeping the "sensitive side of the line" answer consistent
     expect(isPublicAssetPath('GET', '/API/runs')).toBe(false)
     expect(isPublicAssetPath('GET', '/Ws/terminal')).toBe(false)
+    // network-path reference: `//api/x` parses with `api` as the AUTHORITY, so a
+    // naive `.pathname` (`/x`) would drop the `/api` prefix and mis-serve the public
+    // shell — must fail closed. Same for the `/\api/x` backslash variant (the http
+    // parser folds `\`→`/`) and a bare `//ws`.
+    expect(isPublicAssetPath('GET', '//api/runs')).toBe(false)
+    expect(isPublicAssetPath('GET', '/\\api/runs')).toBe(false)
+    expect(isPublicAssetPath('GET', '//ws')).toBe(false)
+    expect(isPublicAssetPath('GET', '//health')).toBe(false)
   })
 
   it('never exempts write methods (only GET/HEAD are static reads)', () => {
@@ -102,6 +110,13 @@ describe('same-origin static serving (buildApp)', () => {
   it('an unknown /api path is a 401 (auth) not an index.html fallback', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/does-not-exist' })
     expect(res.statusCode).toBe(401)
+  })
+
+  it('a //api network-path reference does not bypass auth (fails closed, not the public shell)', async () => {
+    // `//api/...` parses with `api` as the authority — the exemption classifier must
+    // NOT treat it as a public asset. Before the fix this returned 200 (index.html).
+    const res = await app.inject({ method: 'GET', url: '//api/metrics/summary' })
+    expect(res.statusCode).not.toBe(200)
   })
 
   it('/health stays public and JSON (not shadowed by the static wildcard)', async () => {
