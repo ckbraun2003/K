@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { KThreadSummary } from '@k/shared'
 import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
-import { useSelectedThread, selectThread } from '../../lib/thread-select'
+import { useSelectedThread, selectThread, getSelectedThread } from '../../lib/thread-select'
 import { relativeTime } from '../../lib/verify'
 
 /**
@@ -18,18 +18,27 @@ import { relativeTime } from '../../lib/verify'
  *   - `null` if the store holds `null` (an intentional "new chat" draft —
  *     MessageDock's `+ New chat` and this view's own `chat-new` both set it;
  *     it must NOT be silently overridden the moment threads exist), else
- *   - the stored selection, if the (settled) thread list still contains it —
- *     or optimistically while the list is still loading, so a valid
- *     persisted selection never flashes to empty while `['k-threads']` is
- *     in flight (its turns come from an independent `['k-thread', id]`
- *     read), else
- *   - once the list has SETTLED and the selection is confirmed missing
- *     (archived/deleted elsewhere) the newest remaining thread, or `null`
- *     if none remain.
- * The fallback is only ever WRITTEN BACK (`selectThread`) once the list read
- * has succeeded — a transient list-fetch failure degrades the render to the
- * empty state (spec 9: "chat never hard-blocks") without clobbering a real
- * persisted selection that a retry/reload could still recover.
+ *   - the stored selection, trusted optimistically while the list is loading
+ *     AND while it is settled-but-possibly-stale (see the probe below) — its
+ *     turns come from an independent `['k-thread', id]` read, so a valid
+ *     selection never flashes to empty, else
+ *   - on a FAILED list read only, the degraded render `threads[0] ?? null`
+ *     (spec 9: "chat never hard-blocks") — never written back.
+ *
+ * A selection is only ever DEMOTED (`selectThread` written back) when the
+ * list AFFIRMATIVELY invalidates it — i.e. a list fetched AFTER the selection
+ * was made does not contain the id (the server's default list already
+ * excludes archived threads, so archived and deleted both surface as
+ * "absent"). A settled-but-STALE cached list is not evidence: MessageDock's
+ * submit on a new chat runs `threads.create()` -> `selectThread(created.id)`
+ * milliseconds before its ask-side `['k-threads']` invalidation lands, so the
+ * just-created id is legitimately missing from the cached list for the whole
+ * ask round-trip. When the selected id is absent from settled data the
+ * fallback therefore PROBES: one `['k-threads']` refetch per unknown id
+ * (ref-guarded, no loops), demoting to the newest remaining thread (or null)
+ * only if the REFRESHED list still lacks it. A pending or failed read never
+ * writes — a transient fetch failure degrades the render without clobbering
+ * a persisted selection that a retry/reload could still recover.
  */
 export default function ChatView() {
   const qc = useQueryClient()
@@ -38,22 +47,45 @@ export default function ChatView() {
   const [renameText, setRenameText] = useState('')
   const tailRef = useRef<HTMLDivElement>(null)
 
-  const { data: threadsData, isPending: threadsPending, isSuccess: threadsLoaded } = useQuery({
+  const { data: threadsData, isError: threadsFailed, isSuccess: threadsLoaded } = useQuery({
     queryKey: ['k-threads'],
     queryFn: () => api.threads.list(),
   })
   const threads: KThreadSummary[] = threadsData?.threads ?? []
 
-  const selectedStillValid =
-    selected !== null && (threadsPending || threads.some(t => t.id === selected))
+  const selectedListed = selected !== null && threads.some(t => t.id === selected)
   const effectiveId: string | null =
-    selected === null ? null : selectedStillValid ? selected : (threads[0]?.id ?? null)
+    selected === null ? null
+    : selectedListed ? selected
+    : threadsFailed ? (threads[0]?.id ?? null) // degraded RENDER only — never written back (spec 9)
+    : selected // loading, or settled-but-possibly-stale: trust the store until the probe below rules
 
+  // §5.1 demotion probe (see the selection-fallback note above): a selection
+  // absent from SETTLED list data is only demoted after ONE fresh refetch —
+  // fetched after the selection was made — confirms the id is really gone
+  // (archived/deleted elsewhere), never off a stale cache that may simply
+  // predate a dock-created thread. `probeRef` holds the id currently being
+  // probed so each unknown id triggers at most one refetch (no loops).
+  const probeRef = useRef<string | null>(null)
   useEffect(() => {
-    // Only commit a fallback once the list read has genuinely settled — never
-    // on a still-pending or failed read (see the selection-fallback note above).
-    if (threadsLoaded && effectiveId !== selected) selectThread(effectiveId)
-  }, [threadsLoaded, effectiveId, selected])
+    if (!threadsLoaded || selected === null || threads.some(t => t.id === selected)) {
+      probeRef.current = null // nothing unknown to probe (also re-arms after a failed read settles)
+      return
+    }
+    if (probeRef.current === selected) return // probe for this id already issued
+    probeRef.current = selected
+    void qc.invalidateQueries({ queryKey: ['k-threads'] }).then(() => {
+      // Re-check against the FRESH cache — and only act if this probe is still
+      // the live one and the user hasn't already re-selected something else.
+      if (probeRef.current !== selected || getSelectedThread() !== selected) return
+      const state = qc.getQueryState<{ threads: KThreadSummary[] }>(['k-threads'])
+      if (state?.status !== 'success') return // failed refetch: degrade render only, never write
+      const fresh = state.data?.threads ?? []
+      if (fresh.some(t => t.id === selected)) return // the list caught up — selection was real
+      probeRef.current = null
+      selectThread(fresh[0]?.id ?? null) // affirmatively gone → newest remaining, or the empty draft
+    })
+  }, [threadsLoaded, selected, threads, qc])
 
   const { data: threadDetail } = useQuery({
     queryKey: ['k-thread', effectiveId],

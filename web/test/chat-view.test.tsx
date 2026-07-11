@@ -8,7 +8,7 @@
  * don't leak selection into each other.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, fireEvent, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { KThreadSummary, KThreadTurn } from '@k/shared'
 
@@ -183,6 +183,61 @@ describe('ChatView', () => {
     renderChat()
     await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeTruthy())
     expect(screen.queryAllByTestId(/^chat-thread-row-/).length).toBe(0)
+  })
+
+  it('dock create race: a selection missing from a stale settled list is NOT demoted — one refetch confirms it first', async () => {
+    // Repro of the reviewer-verified Critical: MessageDock.submit() on a new
+    // chat does threads.create() -> selectThread(created.id) -> ask.send(...),
+    // and the ['k-threads'] invalidation only lands AFTER the ask round-trip.
+    // In that window ChatView's cached list is settled-and-stale (no such id):
+    // the fallback must NOT demote the just-created selection — it probes with
+    // ONE list refetch (fetched after the create, so it includes the id) and
+    // keeps the selection.
+    const t1 = thread({ id: 'kt-1', title: 'Existing chat' })
+    const tNew = thread({ id: 'kt-new', title: 'New chat' })
+    mockThreadsList
+      .mockResolvedValueOnce({ threads: [t1] }) // pre-create snapshot
+      .mockResolvedValue({ threads: [tNew, t1] }) // any fetch after the create sees it
+    mockThreadsGet.mockImplementation(async (id: string) => ({
+      thread: id === 'kt-new' ? tNew : t1,
+      turns: id === 'kt-new'
+        ? [turn({ id: 'tn-new', threadId: 'kt-new', role: 'user', text: 'first message' })]
+        : [],
+    }))
+    renderChat()
+    await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-1')).toBeTruthy())
+
+    // What the dock does milliseconds after threads.create() resolves.
+    act(() => { selectThread('kt-new') })
+
+    // The stale settled list must not overwrite the selection...
+    expect(getSelectedThread()).toBe('kt-new')
+    // ...it triggers exactly one probe refetch of ['k-threads'] instead...
+    await waitFor(() => expect(mockThreadsList).toHaveBeenCalledTimes(2))
+    expect(getSelectedThread()).toBe('kt-new')
+    // ...and once the refreshed list includes the id it stays selected, with
+    // its transcript query enabled (turns render).
+    await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-new')).toBeTruthy())
+    expect(getSelectedThread()).toBe('kt-new')
+    expect(mockThreadsGet).toHaveBeenCalledWith('kt-new')
+    await waitFor(() => expect(screen.getByTestId('chat-turn-user').textContent).toContain('first message'))
+    expect(mockThreadsList).toHaveBeenCalledTimes(2) // exactly one probe — no refetch loop
+  })
+
+  it('a selection absent even from a fresh refetch IS demoted to the newest remaining thread', async () => {
+    // The genuinely-unknown-id case (deleted elsewhere): the probe refetch
+    // lands AFTER the selection was made and still lacks the id — only now
+    // does the fallback demote to the most recent non-archived thread.
+    const t1 = thread({ id: 'kt-1', title: 'Existing chat' })
+    mockThreadsList.mockResolvedValue({ threads: [t1] }) // never contains kt-ghost
+    renderChat()
+    await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-1')).toBeTruthy())
+
+    act(() => { selectThread('kt-ghost') })
+
+    await waitFor(() => expect(mockThreadsList).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(getSelectedThread()).toBe('kt-1'))
+    expect(mockThreadsList).toHaveBeenCalledTimes(2) // one probe, then it settles
   })
 
   it('a failing threads query degrades to the empty state — chat never hard-blocks (spec §9)', async () => {
