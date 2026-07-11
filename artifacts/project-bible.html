@@ -196,7 +196,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-10 10:37</span><br>
+      compiled <span class="mono">2026-07-11 05:58</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -244,9 +244,9 @@ output still lands as a durable artifact, run record, or PR; the chat directs wo
 replaces the audit trail.</li>
 </ul>
 <div class="live-stats">
-      <div class="stat"><span class="stat-label">TOTAL RUNS</span><span class="stat-value">43</span></div>
-      <div class="stat"><span class="stat-label">TOKENS</span><span class="stat-value">1.9M</span></div>
-      <div class="stat"><span class="stat-label">COST</span><span class="stat-value">$4.00</span></div>
+      <div class="stat"><span class="stat-label">TOTAL RUNS</span><span class="stat-value">79</span></div>
+      <div class="stat"><span class="stat-label">TOKENS</span><span class="stat-value">3.0M</span></div>
+      <div class="stat"><span class="stat-label">COST</span><span class="stat-value">$5.47</span></div>
     </div>
 
     </section>
@@ -1745,35 +1745,35 @@ this phase (rewiring it onto the behavioral subsystem is a deferred follow-on); 
 alongside it. <strong>P5 extension:</strong> it is built to add <strong>DB-sourced <code>AgentProfile</code>s</strong> as eval systems, so the
 agent org can be evaluated as it comes online.</p>
 <table><thead><tr><th>run</th><th>prompt</th><th>status</th><th>cost</th><th>started</th></tr></thead><tbody><tr>
-      <td>066cccd0</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.139</td>
-      <td>2026-07-10 10:30</td>
-    </tr><tr>
-      <td>4e8a2b87</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.117</td>
-      <td>2026-07-10 10:00</td>
-    </tr><tr>
-      <td>8aba3186</td>
+      <td>aa6d8129</td>
       <td>Autonomous org check-in: review active leads and open objectives…</td>
       <td><span class="dot dot-amber"></span>interrupted</td>
       <td>$0.000</td>
-      <td>2026-07-03 01:15</td>
+      <td>2026-07-10 19:30</td>
     </tr><tr>
-      <td>14b68c21</td>
+      <td>42e10b2e</td>
+      <td>Autonomous org check-in: review active leads and open objectives…</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.163</td>
+      <td>2026-07-10 19:15</td>
+    </tr><tr>
+      <td>1a3d890c</td>
       <td>Autonomous org check-in: review active leads and open objectives…</td>
       <td><span class="dot dot-amber"></span>interrupted</td>
       <td>$0.000</td>
-      <td>2026-07-03 01:15</td>
+      <td>2026-07-10 19:00</td>
     </tr><tr>
-      <td>813898ee</td>
+      <td>4b23f3e2</td>
       <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.074</td>
-      <td>2026-07-03 01:00</td>
+      <td><span class="dot dot-amber"></span>interrupted</td>
+      <td>$0.000</td>
+      <td>2026-07-10 18:45</td>
+    </tr><tr>
+      <td>43cf4acd</td>
+      <td>Autonomous org check-in: review active leads and open objectives…</td>
+      <td><span class="dot dot-amber"></span>interrupted</td>
+      <td>$0.000</td>
+      <td>2026-07-10 18:30</td>
     </tr></tbody></table>
 
     </section>
@@ -1783,14 +1783,16 @@ agent org can be evaluated as it comes online.</p>
         <span class="section-icon">▣</span>
         <h1>Dashboard — Command Deck</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-10</span>
+        <span class="section-updated mono">updated 2026-07-11</span>
       </header>
       <p>The dashboard is the <strong>window into the agent organization</strong> (§03) — held to product quality, not
 internal-tool quality. It is re-framed from <em>an operator driving a deck of tools</em> to <em>a user
-directing an org</em>: the home is a friendly conversation with <strong>K</strong>, and everything else is grouped
-into <strong>Direct</strong> (shape the org and its work) and <strong>Observe</strong> (watch what it did). IA decision
-<strong>D-024</strong> (evolve-visual + Direct/Observe IA) supersedes the <em>IA</em> of D-006 and D-013 while keeping
-their density, hero-only-glass, and mono-numeral discipline; decision <strong>D-026</strong> then <em>refines</em> D-024
+directing an org</em>: the home is a friendly conversation with <strong>K</strong>, and everything else once split
+into <strong>Direct</strong> (shape the org and its work) and <strong>Observe</strong> (watch what it did). <strong>P4 (D-090) then
+flattens those two groups into a single 9-item rail</strong> (Sidebar IA below), consolidating the org and
+insight surfaces. IA decision <strong>D-024</strong> (evolve-visual + Direct/Observe IA) supersedes the <em>IA</em> of
+D-006 and D-013 while keeping their density, hero-only-glass, and mono-numeral discipline; decision
+<strong>D-026</strong> then <em>refines</em> D-024
 with a UX-simplification pass — <strong>one front door</strong> (K is the only dispatch surface; per-screen <code>⚡</code> =
 a scoped prefill of the K composer), <strong>one org-status home</strong> (Chief), <strong>compose-is-confirm + undo</strong>
 (a full confirm-card only on escalation), a <strong>unified scoped work-item model</strong>, and de-duplicated
@@ -1822,101 +1824,109 @@ Routing, Terminal, Settings, the 7 project tabs) <strong>exist today</strong>; t
 <p>The shell stays: a collapsible <strong>labeled sidebar</strong>, the <strong>⌘K command bar</strong>, a <strong>swappable stage</strong>,
 and an always-visible <strong>activity strip</strong>. What changes is the sidebar's grouping and the default
 landing.</p>
-<h3>Sidebar IA — two groups + footer</h3>
-<p>The flat destination list is regrouped into <strong>Direct</strong> and <strong>Observe</strong>, with Settings/Help in the
-footer. <strong>K-home is the default landing.</strong></p>
+<h3>Sidebar IA — the 9-item rail (P4 · D-090)</h3>
+<p><strong>P4 (IA Restructure) flattens</strong> the Direct/Observe two-group rail into a single <strong>9-item flat
+rail</strong> — no group labels — superseding the <em>grouping</em> of D-024 while keeping its "direct an org,
+then observe it" intent and all density / mono-numeral / hero-only-glass discipline. Merged and
+folded view strings are removed from <code>KNOWN_VIEWS</code>; a <strong><code>VIEW_REDIRECTS</code> map + <code>resolveRoute</code></strong>
+soft-redirect every legacy hash and <strong><code>useHashRoute</code> canonicalizes the address bar</strong> (schema-neutral
+— no migration, no new table, no <code>WsMessage</code> change). <strong>K-home stays the default landing.</strong></p>
 <table>
 <thead>
 <tr>
-<th>Group</th>
-<th>Destination</th>
+<th>Rail</th>
+<th>Route</th>
+<th>Absorbs</th>
 <th>Purpose</th>
 </tr>
 </thead>
 <tbody><tr>
-<td><strong>Direct</strong></td>
 <td>☺ <strong>K — home</strong> <em>(landing)</em></td>
-<td>the friendly chat with K: ask, schedule, capture notes/tasks, kick off engineering work</td>
+<td><code>#/</code></td>
+<td>—</td>
+<td>the friendly chat with K: ask, schedule, notes/tasks, kick off work</td>
 </tr>
 <tr>
-<td></td>
-<td>♚ <strong>Chief</strong></td>
-<td>the single org-status home: objectives, one whole-org delegation tree, autonomous-wake history, and a thin health line linking to Metrics / Projects</td>
+<td>♚ <strong>Org</strong></td>
+<td><code>#/org</code></td>
+<td>Chief · Orchestrators · Fleet Graph</td>
+<td><strong>one org surface</strong> — <strong>Roster</strong> (default) · <strong>Tree</strong> · <strong>Graph</strong> behind a SegControl; orchestrator <strong>detail is a drill-in</strong> (back → org/roster)</td>
 </tr>
 <tr>
-<td></td>
-<td>❖ <strong>Orchestrators</strong></td>
-<td>the roster of leads (Frontend · Backend · Systems · Security · Network) as <strong>slim cards</strong> (name · hue · status · health · Open)</td>
-</tr>
-<tr>
-<td></td>
-<td>❖ <strong>Orchestrator detail</strong></td>
-<td>one lead: charter + skills + tools + MCP + memory <strong>editors</strong>, the <strong>per-lead authority override</strong> panel (inherits the org default unless overridden), and the one-lead delegation tree</td>
-</tr>
-<tr>
-<td></td>
-<td>⟲ <strong>Workflows</strong></td>
-<td>the named workflow definitions (implement+review, …)</td>
-</tr>
-<tr>
-<td></td>
-<td>⟲ <strong>Workflow detail</strong></td>
-<td>one definition: its role sequence, prompt scaffold, scope flag</td>
-</tr>
-<tr>
-<td></td>
 <td>▦ <strong>Projects</strong></td>
+<td><code>#/projects</code></td>
+<td>—</td>
 <td>the fleet; each opens its 7-tab workspace</td>
 </tr>
 <tr>
-<td><strong>Observe</strong></td>
+<td>◈ <strong>Skills</strong></td>
+<td><code>#/skills</code></td>
+<td>—</td>
+<td>the capability catalog (Catalog · MCP · Hooks · Automations)</td>
+</tr>
+<tr>
 <td>▶ <strong>Runs</strong></td>
-<td>live + past runs with the rich console</td>
+<td><code>#/runs</code></td>
+<td>Workflows</td>
+<td>live + past runs with the rich console; <strong>Workflows fold in</strong> behind a Runs/Workflows SegControl (<code>#/runs/workflows[/:defId]</code>)</td>
 </tr>
 <tr>
-<td></td>
-<td>◉ <strong>Graph</strong></td>
-<td>fleet + per-project 3D knowledge graphs</td>
+<td>∿ <strong>Insights</strong></td>
+<td><code>#/insights</code></td>
+<td>Metrics · Routing · Evals</td>
+<td><strong>4 tabs</strong> — <strong>Overview</strong> (deterministic deltas + z-score anomalies, measured-only) · <strong>Charts</strong> · <strong>Routing</strong> · <strong>Evals</strong></td>
 </tr>
 <tr>
-<td></td>
-<td>∿ <strong>Metrics</strong></td>
-<td>tokens / cost / run trends</td>
-</tr>
-<tr>
-<td></td>
-<td>⇄ <strong>Routing</strong></td>
-<td>model-routing outcomes</td>
-</tr>
-<tr>
-<td></td>
-<td>⊨ <strong>Evals</strong></td>
-<td>agent &amp; skill behavioral evals + baselines (pass-rate / discrimination / regression; gated Run)</td>
-</tr>
-<tr>
-<td></td>
-<td><code>&gt;_</code> <strong>Terminal</strong></td>
-<td>the guarded web terminal (default-off)</td>
+<td>✉ <strong>Inbox</strong></td>
+<td><code>#/inbox</code></td>
+<td>Memory</td>
+<td>the approvals <strong>union</strong> (§ below); <strong>Memory demoted</strong> to ⌘K-only (<code>#/lessons</code>) — lessons were <em>already</em> an Inbox source, so no new source</td>
 </tr>
 <tr>
 <td><strong>Footer</strong></td>
-<td>⚙ <strong>Settings</strong> · ❔ <strong>Help</strong></td>
-<td>auth/status + CLAUDE.md editor + the <strong>org-default</strong> authority/MCP panel (per-lead overrides live on Orchestrator detail); help opens this bible</td>
+<td>❔ <strong>Help</strong> · ⚙ <strong>Settings</strong></td>
+<td>Terminal</td>
+<td>Help opens this bible; Settings hosts the <strong>diagnostics terminal</strong> (<code>#/terminal</code> → settings), CLAUDE.md editor, and the org-default authority/MCP panel</td>
 </tr>
 </tbody></table>
-<p>The active destination sits on a translucent-blush glass pill; <code>g</code> + first letter jumps; the rail
-collapses to icons-only (state persisted). <strong>Docs is not a top-level destination</strong> — artifacts live
-per-project in the workspace Artifacts tab, and the bible stays reachable via footer Help.</p>
+<p>Every removed rail entry keeps its deep links via the redirect map: <code>chief → org/tree</code>,
+<code>orchestrators → org/roster</code>, <code>graph → org/graph</code>, <code>metrics → insights/charts</code>,
+<code>routing → insights/routing</code>, <code>evals → insights/evals</code>, <code>workflows → runs/workflows</code>,
+<code>workflow-detail/:id → runs/workflows/:id</code>, <code>memory → inbox</code>, <code>terminal → settings</code>. The redirect
+<strong>replaces</strong> the history entry (no Back-trap), and an unrouted hash is still a 404 (Shell default
+branch). The active destination sits on a translucent-blush glass pill (<code>aria-current="page"</code>); <code>g</code></p>
+<ul>
+<li>first letter jumps; the rail collapses to icons-only (state persisted). <strong>Docs is not a top-level
+destination</strong> — the bible stays reachable via footer Help and now <strong>edits in place</strong> per section
+(below).</li>
+</ul>
+<p><strong>E-30 consolidations that ship with the rail:</strong></p>
+<ul>
+<li><strong>Contextual terminal</strong> — the guarded <code>node-pty</code> terminal moves from a standalone rail entry to
+<strong>where a shell is actually used</strong>: a <strong>project-workspace tab</strong> (scoped to that project) and a
+<strong>Settings diagnostics</strong> panel (the non-project home). <code>#/terminal</code> → Settings.</li>
+<li><strong>Edit-in-place docs</strong> — the bible DocsPage edits <strong>one section at a time</strong> through the existing
+section-write API (<code>PUT /api/artifacts/:slug/sections/:sectionSlug</code> → source-of-truth writeback +
+recompile), no separate editor surface. A <code>key={slug}</code> remount prevents an in-flight draft from
+being saved into a newly-selected bible.</li>
+<li><strong>One Tabs + one SegControl (D-093)</strong> — a single new <strong><code>Tabs</code></strong> (underline, <code>role=tab</code> /
+<code>aria-selected</code>) and the single extended <strong><code>SegControl</code></strong> (pill group, <code>aria-pressed</code>) replace
+every ad-hoc tab/segmented copy across the app (Insights tabs, Org / Runs segments, Skills tabs,
+orchestrator-detail, memory).</li>
+<li><strong>E-11 canonical run-status (D-094)</strong> — run-status surfaces adopt <code>web/src/lib/status.ts</code>
+(<code>runStatusMeta</code> / <code>agentRunStatusMeta</code> / <code>delegationStatusMeta</code>, all <strong>default-less</strong>); every
+adoption site <strong>guards membership</strong> so an unknown status degrades to muted, never crashes.
+Non-canonicalized vocabularies (ProjectTask / WorkflowStep / SkillDraft / SkillEval / CI checks)
+got token-drift fixes only; dedicated canonicalizers for them are deferred.</li>
+</ul>
 <blockquote>
-<p><strong>As-built (P5.1f).</strong> The regroup ships in <code>web/src/shell/Sidebar.tsx</code>: a <code>group?: 'direct' | 'observe'</code> field is added <strong>orthogonally to</strong> the existing <code>section</code> field (<code>primary</code>/<code>footer</code>/
-<code>hidden</code>), which stays the source of truth for <code>NAV_DESTINATIONS</code>, <code>TopBar</code> label resolution, and
-the <strong>destination↔chord invariant test</strong> (<code>web/test/chords.test.ts</code>, unchanged). <strong>Direct</strong> = K ·
-Chief · Orchestrators · Workflows · Projects · Skills · Memory; <strong>Observe</strong> = Runs · Graph · Metrics
-· Routing · Evals · Terminal; <strong>footer</strong> = Settings · Help. (Skills + Memory — authoring/governance
-surfaces not tabled in D-024 — sit in Direct as "shape the org"; Evals sits in Observe per this
-section's table.) Expanded rail shows "Direct"/"Observe" labels; collapsed rail shows a hairline
-divider between the clusters. <strong>K-home is the default <code>home</code> view</strong> — the <code>home</code> route id is kept
-(so every chord/route/test that references it is unchanged) and the destination is relabeled "K".</p>
+<p><strong>As-built (P4).</strong> <code>web/src/shell/Sidebar.tsx</code> is a <strong>flat <code>DESTINATIONS</code> array</strong> (the old
+<code>group?: 'direct' | 'observe'</code> partition is gone). <code>web/src/lib/route.ts</code> owns <code>KNOWN_VIEWS</code> +
+<code>VIEW_REDIRECTS</code> + <code>resolveRoute</code> + a <code>useHashRoute</code> that redirects via <code>history.replaceState</code>;
+<code>Shell.tsx</code> routes <code>org → OrgPage(seg)</code>, <code>insights → InsightsPage(tab)</code>, <code>runs → RunsPage(sub)</code>,
+<code>lessons → MemoryPage</code>, and drops the Chief / Orchestrators / Metrics / Routing / FleetGraph /
+Terminal / Workflows / Evals top-level branches. The <code>home</code> route id is unchanged, so every
+chord / route / test that references it still holds.</p>
 </blockquote>
 <h3>⌘K / K — the one front door</h3>
 <p><strong>K (⌘K) is the only dispatch surface.</strong> One input, two behaviors ranked in a single result list:</p>
@@ -1943,9 +1953,15 @@ There is exactly one place work is dispatched.</p>
 <h3>Activity strip</h3>
 <p><strong>Live-only</strong> — what is <strong>running right now</strong> across all tiers, with pulsing status dots, one-line
 progress, last completed action, and pause-all. Click any entry → its full run console. <strong>Day totals
-($ / runs / tokens) live only in Metrics</strong> — the strip never prints aggregates (metric uniqueness:
+($ / runs / tokens) live only in Insights</strong> — the strip never prints aggregates (metric uniqueness:
 every number appears in exactly one place).</p>
-<h2>Direct — the org surfaces (BUILT — Phase 5, parity P5.7)</h2>
+<h2>The org surfaces (BUILT — Phase 5, parity P5.7)</h2>
+<blockquote>
+<p><strong>P4 reach.</strong> These surfaces are unchanged in content but now reached through the flat rail:
+<strong>Chief</strong> is the <strong>Org · Tree</strong> segment, <strong>Orchestrators</strong> the <strong>Org · Roster</strong> (detail is a
+drill-in), and <strong>Workflows</strong> fold under <strong>Runs</strong>. The as-built blocks below describe what each
+surface contains; the rail/redirect mapping is in Sidebar IA above.</p>
+</blockquote>
 <h3>K — home (the landing)</h3>
 <p>The friendly face, kept <strong>calm</strong> — <strong>no metrics bar</strong>. The layout is just:</p>
 <ul>
@@ -2145,7 +2161,13 @@ place: no tool support, skills inlined) — fed by the truthful run-start system
 <td>this project's OWN artifacts as a gallery (only <code>project-&lt;id&gt;-*</code>, not the harness globals — F-038), each in a sandboxed iframe; a regular artifact edits as markdown, a <strong>bible edits per SECTION</strong> with source-of-truth writeback + recompile, staying in the project's own dir (D-065)</td>
 </tr>
 </tbody></table>
-<h2>Observe — the watch surfaces (today)</h2>
+<h2>The watch surfaces (today)</h2>
+<blockquote>
+<p><strong>P4 reach.</strong> <strong>Runs</strong> keeps its own rail entry (Workflows fold in behind a SegControl). <strong>Graph</strong>
+is the <strong>Org · Graph</strong> segment; <strong>Metrics</strong>, <strong>Routing</strong>, and <strong>Evals</strong> are the <strong>Insights</strong> tabs
+<strong>Charts / Routing / Evals</strong>, joined by a new deterministic <strong>Overview</strong> tab (measured deltas +
+z-score anomalies, no LLM); <strong>Terminal</strong> relocates to a project tab + Settings diagnostics.</p>
+</blockquote>
 <ul>
 <li><strong>Runs + rich run console.</strong> Runs render as <strong>structured, collapsed-by-default</strong> items — commands
 (<code>$ …</code> with output on expand), file ops (Write preview, Edit/MultiEdit diff hunks), and delegated
@@ -2271,7 +2293,7 @@ shown inline and a <strong>5 s undo</strong> toast — no confirm step for the c
 the thing it created (the run console, the PR, the report) — no result has to be hunted for, and no
 action fires silently (the undo toast is the confirmation for the low-friction path).</li>
 <li><strong>Metric uniqueness.</strong> Every metric is printed in <strong>exactly one place</strong> — live state in the
-activity strip, day totals and trends in Metrics, health on Chief's thin line / project Overview.
+activity strip, day totals and trends in Insights, health on Org's thin line / project Overview.
 No surface re-prints another's numbers.</li>
 <li>Live state always streams over the existing WebSocket; the UI never blocks on a poll. <strong>The org
 views are live too (P5.7 C1):</strong> <code>run_update</code> WS events also invalidate the chief-org /
@@ -2800,7 +2822,7 @@ of invented numbers).</p>
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-10</span>
+        <span class="section-updated mono">updated 2026-07-11</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -3517,6 +3539,54 @@ of invented numbers).</p>
 <td><strong>E-12 folds the ~5 drifting health-score-&gt;color/label copies into ONE <code>healthRubric</code> (canonical thresholds &gt;=75 healthy / &gt;=50 warn / else critical / null unknown) consumed by every web health surface; glossary terms are extracted from the bible glossary section at <code>pnpm bible</code> COMPILE time into a committed generated module feeding a <code>GlossaryTerm</code> tooltip, guarded by a core-side drift test. The server <code>bible.ts liveHealth</code> 80-threshold is intentionally left unchanged.</strong></td>
 <td>One rubric means a threshold or palette change lands in a single place instead of drifting across ProjectCard/FleetGraph/ProjectVerification/ProjectWorkspace/verify; compile-time glossary extraction keeps tooltips in lockstep with the living spec at zero runtime cost with a drift guard; the server's distinct liveHealth threshold is a separate concern not swept in, to avoid changing server behavior.</td>
 <td>Per-site health color logic (drifts); a runtime glossary fetch (latency + another endpoint); silently changing the server 80 threshold to match web's 75 (an unrelated behavior change).</td>
+</tr>
+<tr>
+<td>D-089</td>
+<td>2026-07-10</td>
+<td><em>(reserved — intentionally unused)</em></td>
+<td><strong>Reserved as a spare during P3; P4's decisions begin at D-090. No decision occupies this ID.</strong></td>
+<td>Keeps the P4 anchors (D-093 = E-30, D-094 = E-11) stable across the plan, ledger, and the §08 cross-references that were already written against them.</td>
+<td>Renumbering P4 to close the gap (would break cross-references already committed).</td>
+</tr>
+<tr>
+<td>D-090</td>
+<td>2026-07-11</td>
+<td>Rail flattened 14-&gt;9; legacy hashes soft-redirect (E-29, P4)</td>
+<td><strong>P4 flattens the Direct/Observe rail into ONE 9-item flat rail (K · Org · Projects · Skills · Runs · Insights · Inbox + footer Help · Settings); merged/folded view strings are removed from <code>KNOWN_VIEWS</code>; a <code>VIEW_REDIRECTS</code> map + <code>resolveRoute</code> soft-redirect every legacy hash to its new home and <code>useHashRoute</code> canonicalizes the address bar via <code>history.replaceState</code> (no Back-trap). Schema-neutral — no migration, no new table, no <code>WsMessage</code> change; K-home stays the default landing.</strong></td>
+<td>A 15-entry two-group rail buried the handful of surfaces an operator actually uses; folding related surfaces (Org, Insights, Runs) into one destination each with in-page segments/tabs cuts the choice overload while every old deep link keeps working via redirects, so no bookmark or test breaks and the data model is untouched.</td>
+<td>Keeping the two-group 14-entry rail (choice overload); hard-404ing removed hashes (breaks bookmarks + e2e); adopting a router library (the hand-rolled hash router already suffices); pushing the canonical hash on redirect (leaves a Back-trap — replaceState instead).</td>
+</tr>
+<tr>
+<td>D-091</td>
+<td>2026-07-11</td>
+<td>Insights merges Metrics + Routing + Evals under 4 tabs (E-10)</td>
+<td><strong>Insights = 4 tabs — Overview (DETERMINISTIC deltas + z-score anomaly threshold math over measured <code>timeseries(days)</code> + <code>quality(days)</code>, earlier-half vs later-half baseline, null-filtered, NO LLM, no price*tokens), Charts (all 9 charts preserved + a shared <code>days</code> window that cross-filters Overview/Charts/Routing), Routing (preserved), Evals (preserved run/dry-real + freeze baselines); metrics/routing/evals redirect in to the matching tab.</strong></td>
+<td>The three cost/quality surfaces answered one question ("how is the org performing?") from three rail entries; one destination with a shared window unifies them, and a deterministic Overview gives a glanceable delta/anomaly summary with no model and no price coupling (measured-only, per the program rule).</td>
+<td>Three separate rail entries (fragmented one question); an LLM-written summary (non-deterministic, unmeasured — banned); per-tab independent windows (silent divergence when switching tabs); a price*token Overview (price-coupled estimation is banned).</td>
+</tr>
+<tr>
+<td>D-092</td>
+<td>2026-07-11</td>
+<td>One Org surface — Roster/Tree/Graph SegControl (E-29)</td>
+<td><strong>One Org surface merges Orchestrators + Chief + Fleet Graph behind a SegControl — Roster (default) · Tree · Graph; orchestrator detail is preserved as a drill-in (back-nav -&gt; org/roster); chief/orchestrators/graph redirect to the matching segment; the force graph keeps the <code>react-force-graph-3d</code> subpackage import (never the aggregate).</strong></td>
+<td>The roster, the whole-org delegation tree, and the structural fleet graph are three views of ONE thing (the org), so one destination with a segment switch matches the mental model; detail stays a drill-in so the roster is the stable home; keeping the <code>-3d</code> subpackage avoids the AFRAME blank-screen trap.</td>
+<td>Three rail entries for one org (fragmented); collapsing detail into the roster (loses the per-lead editors); importing the <code>react-force-graph</code> aggregate (references a non-existent global AFRAME → blanks the route).</td>
+</tr>
+<tr>
+<td>D-093</td>
+<td>2026-07-11</td>
+<td>E-30 — contextual terminal, edit-in-place docs, one Tabs/SegControl, Workflows-&gt;Runs, Memory demotion</td>
+<td><strong>E-30 bundle: the guarded terminal relocates to WHERE a shell is used — a ProjectWorkspace tab + a Settings diagnostics panel (<code>#/terminal</code> -&gt; settings); DocsPage edits the bible IN PLACE per section via the EXISTING section-write API (<code>PUT /api/artifacts/:slug/sections/:sectionSlug</code>, <code>key={slug}</code> remount guards cross-bible draft bleed); ONE new <code>Tabs</code> (underline, role=tab/aria-selected) + ONE extended <code>SegControl</code> (pill, aria-pressed) replace every ad-hoc tab/segmented copy; Workflows fold into Runs (<code>#/runs/workflows[/:defId]</code>, in-view run-tree picker); Memory is demoted to ⌘K-only (<code>#/lessons</code>) with <code>#/memory</code>-&gt;inbox — lessons were ALREADY an Inbox union source, so no new source is added.</strong></td>
+<td>Each piece removes a standalone surface whose function belongs somewhere with context — a terminal next to the project it shells into, doc editing on the doc itself, one standardized control instead of many copies, workflows beside the runs they spawn — and Memory needed no rail entry because the Inbox already surfaces pending lessons.</td>
+<td>A standalone Terminal rail entry (no project context; default-off dead weight); a separate bible-editor surface (a second source of truth); per-page bespoke tab/segment markup (drift — one component each); a standalone Workflows rail entry (divorced from its runs); a Memory rail entry (duplicates the Inbox lessons source).</td>
+</tr>
+<tr>
+<td>D-094</td>
+<td>2026-07-11</td>
+<td>E-11 — canonical run-status adoption completes (<code>lib/status.ts</code>)</td>
+<td><strong>E-11 completes for canonical run-status surfaces: they adopt <code>web/src/lib/status.ts</code> (<code>runStatusMeta</code> / <code>agentRunStatusMeta</code> / <code>delegationStatusMeta</code>, all DEFAULT-LESS), and every adoption site GUARDS membership so an unknown status degrades to muted rather than throwing (skill_run rows use agent-run vocab -&gt; <code>agentRunStatusMeta</code>, not <code>runStatusMeta</code>). Non-canonicalized vocabularies (ProjectTask / WorkflowStep / SkillDraft / SkillEval / CI checks) get token-drift fixes only; dedicated canonicalizers for them are DEFERRED.</strong></td>
+<td>A single default-less status source with membership guards makes an unknown status impossible to render as a wrong color and impossible to crash on, converging the ~5 drifting status-&gt;color/label copies; the non-run vocabularies run different state machines, so forcing them through the run canonicalizer would mislabel them — better to defer real canonicalizers than fake one.</td>
+<td>A status helper with a silent default fallback (renders an unknown status as a plausible-but-wrong color); routing agent-run vocab (completed/failed) through <code>runStatusMeta</code> (throws on normal terminal states — a real crash the sweep fixed); canonicalizing the non-run vocabularies now (different state machines — misleading; deferred).</td>
 </tr>
 </tbody></table>
 

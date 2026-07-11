@@ -577,28 +577,21 @@
       <button class="collapse" data-action="rail" title="Collapse sidebar" aria-label="Collapse sidebar">«</button>
     </div>
 
-    <div class="grouplabel">Direct</div>
     <nav class="nav" id="nav">
       <button data-action="route" data-arg="k-home"><svg class="gi"><use href="#i-home"></use></svg><span class="lbl">K</span></button>
-      <button data-action="route" data-arg="chief"><svg class="gi"><use href="#i-crown"></use></svg><span class="lbl">Chief</span></button>
-      <button data-action="route" data-arg="orchestrators"><svg class="gi"><use href="#i-net"></use></svg><span class="lbl">Orchestrators</span></button>
-      <button data-action="route" data-arg="workflows"><svg class="gi"><use href="#i-flow"></use></svg><span class="lbl">Workflows</span></button>
+      <button data-action="route" data-arg="org"><svg class="gi"><use href="#i-crown"></use></svg><span class="lbl">Org</span></button>
       <button data-action="route" data-arg="projects"><svg class="gi"><use href="#i-grid"></use></svg><span class="lbl">Projects</span></button>
-    </nav>
-
-    <div class="grouplabel">Observe</div>
-    <nav class="nav">
+      <button data-action="route" data-arg="skills"><svg class="gi"><use href="#i-idea"></use></svg><span class="lbl">Skills</span></button>
       <button data-action="route" data-arg="runs"><svg class="gi"><use href="#i-runs"></use></svg><span class="lbl">Runs</span><span class="badge">2</span></button>
-      <button data-action="route" data-arg="metrics"><svg class="gi"><use href="#i-metrics"></use></svg><span class="lbl">Metrics</span></button>
-      <button data-action="route" data-arg="routing"><svg class="gi"><use href="#i-route"></use></svg><span class="lbl">Routing</span></button>
-      <button data-action="route" data-arg="terminal"><svg class="gi"><use href="#i-term"></use></svg><span class="lbl">Terminal</span><span class="cdot off" title="terminal disabled"></span></button>
+      <button data-action="route" data-arg="insights"><svg class="gi"><use href="#i-metrics"></use></svg><span class="lbl">Insights</span></button>
+      <button data-action="route" data-arg="inbox"><svg class="gi"><use href="#i-alert"></use></svg><span class="lbl">Inbox</span><span class="badge">3</span></button>
     </nav>
 
     <div class="spacer"></div>
     <div class="divider"></div>
     <nav class="nav">
-      <button data-action="route" data-arg="settings"><svg class="gi"><use href="#i-settings"></use></svg><span class="lbl">Settings</span></button>
       <button data-action="route" data-arg="help"><svg class="gi"><use href="#i-help"></use></svg><span class="lbl">Help</span></button>
+      <button data-action="route" data-arg="settings"><svg class="gi"><use href="#i-settings"></use></svg><span class="lbl">Settings</span></button>
     </nav>
   </aside>
 
@@ -678,10 +671,11 @@
 
     <!-- ============ CHIEF ============ -->
     <section class="screen" data-view="chief">
-      <div class="rowhead"><h1 class="page">Chief — org overview</h1>
+      <div class="rowhead"><h1 class="page">Org · Tree</h1>
+        <span class="seg"><button data-action="route" data-arg="org">Roster</button><button class="active" data-action="route" data-arg="chief">Tree</button><button data-action="toast" data-msg="Fleet graph — force-directed org view" data-variant="info">Graph</button></span>
         <div class="right" style="font-size:.78rem"><span class="muted">health</span><span class="bar watch" style="width:120px"><span style="width:78%"></span></span><span class="mono">78/100</span><span class="pill watch"><span class="d"></span>watch</span>
           <span class="muted">· 3 leads active · CI 4/5</span>
-          <a class="link" data-action="route" data-arg="metrics">Metrics →</a>
+          <a class="link" data-action="route" data-arg="insights">Insights →</a>
           <a class="link" data-action="route" data-arg="projects">Projects →</a></div></div>
 
       <div class="split wide">
@@ -739,8 +733,8 @@
     </section>
 
     <!-- ============ ORCHESTRATORS ============ -->
-    <section class="screen" data-view="orchestrators">
-      <div class="rowhead"><h1 class="page">Orchestrators</h1><span class="muted">· 5 leads · 3 active</span>
+    <section class="screen" data-view="org">
+      <div class="rowhead"><h1 class="page">Org</h1><span class="seg"><button class="active" data-action="route" data-arg="org">Roster</button><button data-action="route" data-arg="chief">Tree</button><button data-action="toast" data-msg="Fleet graph — force-directed org view" data-variant="info">Graph</button></span><span class="muted">· 5 leads · 3 active</span>
         <div class="right">
           <button class="btn primary" data-action="confirm" data-title="New orchestrator" data-body="Create a new domain lead: name, domain, hue, starter charter and base skills/tools." data-confirm="Create" data-toast-msg="Orchestrator created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new orchestrator</button>
         </div></div>
@@ -1132,7 +1126,7 @@ tests, contract drift, or unhandled errors. Return a verdict + reasons.</textare
           <div class="stat"><span class="label">Bible</span><span class="value">4/5</span></div>
         </div>
         <div class="panel"><h2>Suggested next action</h2><div class="kv"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> Open PR #42 from the auth-refactor run.<button class="btn sky sm" style="margin-left:auto" data-action="route" data-arg="runs">Go</button></div></div>
-        <div class="panel"><h2>Recent activity <span class="right"><a class="link" data-action="route" data-arg="metrics">cost &amp; token trends →</a></span></h2>
+        <div class="panel"><h2>Recent activity <span class="right"><a class="link" data-action="route" data-arg="insights">cost &amp; token trends →</a></span></h2>
           <div class="list">
             <div class="row"><span class="pill done"><span class="d"></span></span><span class="grow">auth refactor — diff +120 −44</span><span class="meta">12m ago</span></div>
             <div class="row"><span class="pill done"><span class="d"></span></span><span class="grow">build graph — 3D layout shipped</span><span class="meta">1h ago</span></div>
@@ -1235,9 +1229,48 @@ tests, contract drift, or unhandled errors. Return a verdict + reasons.</textare
       </div>
     </section>
 
-    <!-- ============ METRICS ============ -->
-    <section class="screen" data-view="metrics">
-      <div class="rowhead"><h1 class="page">Metrics</h1>
+    <!-- ============ SKILLS ============ -->
+    <section class="screen" data-view="skills">
+      <div class="rowhead"><h1 class="page">Skills</h1>
+        <div class="tabs"><button class="tab active" data-action="tab" data-group="sk" data-arg="skills">Skills</button><button class="tab" data-action="tab" data-group="sk" data-arg="automations">Automations</button></div>
+        <div class="right"><button class="btn primary" data-action="route" data-arg="k-home"><svg class="gi"><use href="#i-plus"></use></svg> new skill</button></div></div>
+
+      <div data-tabpanel="sk" data-arg="skills" class="tabpanel active">
+        <div class="grid3 cards">
+          <div class="card lift panel" style="margin:0"><div class="kv"><svg class="gi"><use href="#i-idea"></use></svg><b>create-mobile-ui-artifact</b></div><p class="muted" style="margin:.3rem 0;font-size:.8rem">Author a self-contained mobile monitor+approve mock.</p><div class="kv"><span class="pill done"><span class="d"></span>ready</span><a class="link" data-action="route" data-arg="runs">last run →</a></div></div>
+          <div class="card lift panel" style="margin:0"><div class="kv"><svg class="gi"><use href="#i-idea"></use></svg><b>regenerate-artifacts</b></div><p class="muted" style="margin:.3rem 0;font-size:.8rem">Recompile demo + bible from their real sources.</p><div class="kv"><span class="pill done"><span class="d"></span>ready</span><a class="link" data-action="route" data-arg="runs">last run →</a></div></div>
+          <div class="card lift panel" style="margin:0"><div class="kv"><svg class="gi"><use href="#i-idea"></use></svg><b>verify-artifacts-screenshot</b></div><p class="muted" style="margin:.3rem 0;font-size:.8rem">Headless-Edge screenshot check for HTML artifacts.</p><div class="kv"><span class="pill running"><span class="d"></span>running</span><a class="link" data-action="route" data-arg="runs">live run →</a></div></div>
+        </div>
+      </div>
+      <div data-tabpanel="sk" data-arg="automations" class="tabpanel">
+        <div class="panel"><h2>Automations <span class="right muted">scheduled + event triggers</span></h2>
+          <div class="list stack" style="font-size:.84rem">
+            <div class="row"><span class="grow">Nightly verify sweep <span class="muted">· cron 02:00</span></span><span class="pill done"><span class="d"></span>enabled</span></div>
+            <div class="row"><span class="grow">On PR opened → security review <span class="muted">· event</span></span><span class="pill queued"><span class="d"></span>paused</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ INBOX ============ -->
+    <section class="screen" data-view="inbox">
+      <div class="rowhead"><h1 class="page">Inbox</h1><span class="muted">· union over plan / review / verify / approvals — never a table</span>
+        <div class="right"><span class="pill watch"><span class="d"></span>3 pending</span></div></div>
+
+      <div class="panel">
+        <div class="list stack">
+          <div class="row"><span class="tier-chip be">Backend</span><span class="grow">Plan awaiting review — auth refactor</span><span class="pill watch"><span class="d"></span>plan gate</span><button class="btn sky sm" data-action="route" data-arg="runs">Open</button></div>
+          <div class="row"><span class="tier-chip fe">Frontend</span><span class="grow">PR #42 request-changes → fix run ready to approve</span><span class="pill running"><span class="d"></span>review</span><button class="btn sky sm" data-action="route" data-arg="runs">Open</button></div>
+          <div class="row"><span class="tier-chip sec">Security</span><span class="grow">API surface audit blocked — needs your decision</span><span class="pill error"><span class="d"></span>needs you</span><button class="btn sky sm" data-action="route" data-arg="chief">Open</button></div>
+          <div class="row"><span class="ldot sys"></span><span class="grow">Verify battery passed — core @ final checkpoint</span><span class="pill done"><span class="d"></span>verify</span><a class="link" data-action="route" data-arg="runs">view →</a></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ INSIGHTS ============ -->
+    <section class="screen" data-view="insights">
+      <div class="rowhead"><h1 class="page">Insights</h1>
+        <span class="seg"><button data-action="toast" data-msg="Overview — deterministic deltas + z-score anomalies (measured only, no LLM)" data-variant="info">Overview</button><button class="active" data-action="route" data-arg="insights">Charts</button><button data-action="route" data-arg="routing">Routing</button><button data-action="toast" data-msg="Evals — run / dry-real with freeze baselines" data-variant="info">Evals</button></span>
         <div class="right"><span class="picker">metric: cost</span><span class="picker">groupBy: day</span><span class="picker">range: 30d</span></div></div>
 
       <div class="stats" style="margin-bottom:.8rem">
@@ -1525,7 +1558,7 @@ This is the shared system prompt for every agent the harness runs.</textarea>
     <span class="muted">· last <a class="link done" data-action="route" data-arg="runs">ok verify core →</a></span>
     <span class="right">
       <button class="btn ghost sm" data-action="confirm" data-title="Pause all running agents?" data-body="Pause every running agent across the org?" data-variant="danger" data-confirm="Pause all" data-toast-msg="All agents paused" data-toast-variant="info"><svg class="gi"><use href="#i-pause"></use></svg> pause all</button>
-      <span class="muted">day totals in <a class="link" data-action="route" data-arg="metrics">Metrics →</a></span>
+      <span class="muted">day totals in <a class="link" data-action="route" data-arg="insights">Insights →</a></span>
       <span class="clock mono">--:--:--</span>
     </span>
   </div>
@@ -1580,17 +1613,19 @@ This is the shared system prompt for every agent the harness runs.</textarea>
 
     var meta = {
       'k-home':        { nav: 'k-home', title: 'K', icon: 'i-home', crumb: '' },
-      'chief':         { nav: 'chief', title: 'Chief', icon: 'i-crown', crumb: '' },
-      'orchestrators': { nav: 'orchestrators', title: 'Orchestrators', icon: 'i-net', crumb: '' },
-      'orchestrator-detail': { nav: 'orchestrators', title: 'Frontend Lead', icon: 'i-net', crumb: 'Orchestrators › Frontend Lead' },
-      'workflows':     { nav: 'workflows', title: 'Workflows', icon: 'i-flow', crumb: '' },
-      'workflow-detail': { nav: 'workflows', title: 'Code wave', icon: 'i-flow', crumb: 'Workflows › Code wave' },
+      'org':           { nav: 'org', title: 'Org', icon: 'i-crown', crumb: '' },
+      'chief':         { nav: 'org', title: 'Org · Tree', icon: 'i-crown', crumb: 'Org › Tree' },
+      'orchestrator-detail': { nav: 'org', title: 'Frontend Lead', icon: 'i-net', crumb: 'Org › Roster › Frontend Lead' },
+      'workflows':     { nav: 'runs', title: 'Workflows', icon: 'i-flow', crumb: 'Runs › Workflows' },
+      'workflow-detail': { nav: 'runs', title: 'Code wave', icon: 'i-flow', crumb: 'Runs › Workflows › Code wave' },
       'projects':      { nav: 'projects', title: 'Projects', icon: 'i-grid', crumb: '' },
       'project-workspace': { nav: 'projects', title: 'gitnexus', icon: 'i-grid', crumb: 'Projects › gitnexus' },
+      'skills':        { nav: 'skills', title: 'Skills', icon: 'i-idea', crumb: '' },
       'runs':          { nav: 'runs', title: 'Runs', icon: 'i-runs', crumb: '' },
-      'metrics':       { nav: 'metrics', title: 'Metrics', icon: 'i-metrics', crumb: '' },
-      'routing':       { nav: 'routing', title: 'Routing', icon: 'i-route', crumb: '' },
-      'terminal':      { nav: 'terminal', title: 'Terminal', icon: 'i-term', crumb: '' },
+      'insights':      { nav: 'insights', title: 'Insights', icon: 'i-metrics', crumb: '' },
+      'routing':       { nav: 'insights', title: 'Insights · Routing', icon: 'i-route', crumb: 'Insights › Routing' },
+      'inbox':         { nav: 'inbox', title: 'Inbox', icon: 'i-alert', crumb: '' },
+      'terminal':      { nav: 'settings', title: 'Settings · Terminal', icon: 'i-term', crumb: 'Settings › Terminal' },
       'settings':      { nav: 'settings', title: 'Settings', icon: 'i-settings', crumb: '' },
       'help':          { nav: 'help', title: 'Help', icon: 'i-help', crumb: '' },
       'login':         { nav: '', title: 'Sign in', icon: 'i-home', crumb: '' },

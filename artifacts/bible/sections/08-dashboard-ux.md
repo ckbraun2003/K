@@ -2,15 +2,17 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-10
+updated: 2026-07-11
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
 internal-tool quality. It is re-framed from *an operator driving a deck of tools* to *a user
-directing an org*: the home is a friendly conversation with **K**, and everything else is grouped
-into **Direct** (shape the org and its work) and **Observe** (watch what it did). IA decision
-**D-024** (evolve-visual + Direct/Observe IA) supersedes the *IA* of D-006 and D-013 while keeping
-their density, hero-only-glass, and mono-numeral discipline; decision **D-026** then *refines* D-024
+directing an org*: the home is a friendly conversation with **K**, and everything else once split
+into **Direct** (shape the org and its work) and **Observe** (watch what it did). **P4 (D-090) then
+flattens those two groups into a single 9-item rail** (Sidebar IA below), consolidating the org and
+insight surfaces. IA decision **D-024** (evolve-visual + Direct/Observe IA) supersedes the *IA* of
+D-006 and D-013 while keeping their density, hero-only-glass, and mono-numeral discipline; decision
+**D-026** then *refines* D-024
 with a UX-simplification pass — **one front door** (K is the only dispatch surface; per-screen `⚡` =
 a scoped prefill of the K composer), **one org-status home** (Chief), **compose-is-confirm + undo**
 (a full confirm-card only on escalation), a **unified scoped work-item model**, and de-duplicated
@@ -46,42 +48,61 @@ The shell stays: a collapsible **labeled sidebar**, the **⌘K command bar**, a 
 and an always-visible **activity strip**. What changes is the sidebar's grouping and the default
 landing.
 
-### Sidebar IA — two groups + footer
+### Sidebar IA — the 9-item rail (P4 · D-090)
 
-The flat destination list is regrouped into **Direct** and **Observe**, with Settings/Help in the
-footer. **K-home is the default landing.**
+**P4 (IA Restructure) flattens** the Direct/Observe two-group rail into a single **9-item flat
+rail** — no group labels — superseding the *grouping* of D-024 while keeping its "direct an org,
+then observe it" intent and all density / mono-numeral / hero-only-glass discipline. Merged and
+folded view strings are removed from `KNOWN_VIEWS`; a **`VIEW_REDIRECTS` map + `resolveRoute`**
+soft-redirect every legacy hash and **`useHashRoute` canonicalizes the address bar** (schema-neutral
+— no migration, no new table, no `WsMessage` change). **K-home stays the default landing.**
 
-| Group | Destination | Purpose |
-|-------|-------------|---------|
-| **Direct** | ☺ **K — home** *(landing)* | the friendly chat with K: ask, schedule, capture notes/tasks, kick off engineering work |
-| | ♚ **Chief** | the single org-status home: objectives, one whole-org delegation tree, autonomous-wake history, and a thin health line linking to Metrics / Projects |
-| | ❖ **Orchestrators** | the roster of leads (Frontend · Backend · Systems · Security · Network) as **slim cards** (name · hue · status · health · Open) |
-| | ❖ **Orchestrator detail** | one lead: charter + skills + tools + MCP + memory **editors**, the **per-lead authority override** panel (inherits the org default unless overridden), and the one-lead delegation tree |
-| | ⟲ **Workflows** | the named workflow definitions (implement+review, …) |
-| | ⟲ **Workflow detail** | one definition: its role sequence, prompt scaffold, scope flag |
-| | ▦ **Projects** | the fleet; each opens its 7-tab workspace |
-| **Observe** | ▶ **Runs** | live + past runs with the rich console |
-| | ◉ **Graph** | fleet + per-project 3D knowledge graphs |
-| | ∿ **Metrics** | tokens / cost / run trends |
-| | ⇄ **Routing** | model-routing outcomes |
-| | ⊨ **Evals** | agent & skill behavioral evals + baselines (pass-rate / discrimination / regression; gated Run) |
-| | `>_` **Terminal** | the guarded web terminal (default-off) |
-| **Footer** | ⚙ **Settings** · ❔ **Help** | auth/status + CLAUDE.md editor + the **org-default** authority/MCP panel (per-lead overrides live on Orchestrator detail); help opens this bible |
+| Rail | Route | Absorbs | Purpose |
+|------|-------|---------|---------|
+| ☺ **K — home** *(landing)* | `#/` | — | the friendly chat with K: ask, schedule, notes/tasks, kick off work |
+| ♚ **Org** | `#/org` | Chief · Orchestrators · Fleet Graph | **one org surface** — **Roster** (default) · **Tree** · **Graph** behind a SegControl; orchestrator **detail is a drill-in** (back → org/roster) |
+| ▦ **Projects** | `#/projects` | — | the fleet; each opens its 7-tab workspace |
+| ◈ **Skills** | `#/skills` | — | the capability catalog (Catalog · MCP · Hooks · Automations) |
+| ▶ **Runs** | `#/runs` | Workflows | live + past runs with the rich console; **Workflows fold in** behind a Runs/Workflows SegControl (`#/runs/workflows[/:defId]`) |
+| ∿ **Insights** | `#/insights` | Metrics · Routing · Evals | **4 tabs** — **Overview** (deterministic deltas + z-score anomalies, measured-only) · **Charts** · **Routing** · **Evals** |
+| ✉ **Inbox** | `#/inbox` | Memory | the approvals **union** (§ below); **Memory demoted** to ⌘K-only (`#/lessons`) — lessons were *already* an Inbox source, so no new source |
+| **Footer** | ❔ **Help** · ⚙ **Settings** | Terminal | Help opens this bible; Settings hosts the **diagnostics terminal** (`#/terminal` → settings), CLAUDE.md editor, and the org-default authority/MCP panel |
 
-The active destination sits on a translucent-blush glass pill; `g` + first letter jumps; the rail
-collapses to icons-only (state persisted). **Docs is not a top-level destination** — artifacts live
-per-project in the workspace Artifacts tab, and the bible stays reachable via footer Help.
+Every removed rail entry keeps its deep links via the redirect map: `chief → org/tree`,
+`orchestrators → org/roster`, `graph → org/graph`, `metrics → insights/charts`,
+`routing → insights/routing`, `evals → insights/evals`, `workflows → runs/workflows`,
+`workflow-detail/:id → runs/workflows/:id`, `memory → inbox`, `terminal → settings`. The redirect
+**replaces** the history entry (no Back-trap), and an unrouted hash is still a 404 (Shell default
+branch). The active destination sits on a translucent-blush glass pill (`aria-current="page"`); `g`
++ first letter jumps; the rail collapses to icons-only (state persisted). **Docs is not a top-level
+destination** — the bible stays reachable via footer Help and now **edits in place** per section
+(below).
 
-> **As-built (P5.1f).** The regroup ships in `web/src/shell/Sidebar.tsx`: a `group?: 'direct' |
-> 'observe'` field is added **orthogonally to** the existing `section` field (`primary`/`footer`/
-> `hidden`), which stays the source of truth for `NAV_DESTINATIONS`, `TopBar` label resolution, and
-> the **destination↔chord invariant test** (`web/test/chords.test.ts`, unchanged). **Direct** = K ·
-> Chief · Orchestrators · Workflows · Projects · Skills · Memory; **Observe** = Runs · Graph · Metrics
-> · Routing · Evals · Terminal; **footer** = Settings · Help. (Skills + Memory — authoring/governance
-> surfaces not tabled in D-024 — sit in Direct as "shape the org"; Evals sits in Observe per this
-> section's table.) Expanded rail shows "Direct"/"Observe" labels; collapsed rail shows a hairline
-> divider between the clusters. **K-home is the default `home` view** — the `home` route id is kept
-> (so every chord/route/test that references it is unchanged) and the destination is relabeled "K".
+**E-30 consolidations that ship with the rail:**
+- **Contextual terminal** — the guarded `node-pty` terminal moves from a standalone rail entry to
+  **where a shell is actually used**: a **project-workspace tab** (scoped to that project) and a
+  **Settings diagnostics** panel (the non-project home). `#/terminal` → Settings.
+- **Edit-in-place docs** — the bible DocsPage edits **one section at a time** through the existing
+  section-write API (`PUT /api/artifacts/:slug/sections/:sectionSlug` → source-of-truth writeback +
+  recompile), no separate editor surface. A `key={slug}` remount prevents an in-flight draft from
+  being saved into a newly-selected bible.
+- **One Tabs + one SegControl (D-093)** — a single new **`Tabs`** (underline, `role=tab` /
+  `aria-selected`) and the single extended **`SegControl`** (pill group, `aria-pressed`) replace
+  every ad-hoc tab/segmented copy across the app (Insights tabs, Org / Runs segments, Skills tabs,
+  orchestrator-detail, memory).
+- **E-11 canonical run-status (D-094)** — run-status surfaces adopt `web/src/lib/status.ts`
+  (`runStatusMeta` / `agentRunStatusMeta` / `delegationStatusMeta`, all **default-less**); every
+  adoption site **guards membership** so an unknown status degrades to muted, never crashes.
+  Non-canonicalized vocabularies (ProjectTask / WorkflowStep / SkillDraft / SkillEval / CI checks)
+  got token-drift fixes only; dedicated canonicalizers for them are deferred.
+
+> **As-built (P4).** `web/src/shell/Sidebar.tsx` is a **flat `DESTINATIONS` array** (the old
+> `group?: 'direct' | 'observe'` partition is gone). `web/src/lib/route.ts` owns `KNOWN_VIEWS` +
+> `VIEW_REDIRECTS` + `resolveRoute` + a `useHashRoute` that redirects via `history.replaceState`;
+> `Shell.tsx` routes `org → OrgPage(seg)`, `insights → InsightsPage(tab)`, `runs → RunsPage(sub)`,
+> `lessons → MemoryPage`, and drops the Chief / Orchestrators / Metrics / Routing / FleetGraph /
+> Terminal / Workflows / Evals top-level branches. The `home` route id is unchanged, so every
+> chord / route / test that references it still holds.
 
 ### ⌘K / K — the one front door
 
@@ -111,10 +132,15 @@ There is exactly one place work is dispatched.
 
 **Live-only** — what is **running right now** across all tiers, with pulsing status dots, one-line
 progress, last completed action, and pause-all. Click any entry → its full run console. **Day totals
-($ / runs / tokens) live only in Metrics** — the strip never prints aggregates (metric uniqueness:
+($ / runs / tokens) live only in Insights** — the strip never prints aggregates (metric uniqueness:
 every number appears in exactly one place).
 
-## Direct — the org surfaces (BUILT — Phase 5, parity P5.7)
+## The org surfaces (BUILT — Phase 5, parity P5.7)
+
+> **P4 reach.** These surfaces are unchanged in content but now reached through the flat rail:
+> **Chief** is the **Org · Tree** segment, **Orchestrators** the **Org · Roster** (detail is a
+> drill-in), and **Workflows** fold under **Runs**. The as-built blocks below describe what each
+> surface contains; the rail/redirect mapping is in Sidebar IA above.
 
 ### K — home (the landing)
 
@@ -280,7 +306,12 @@ A project opens into its workspace (unchanged in shape):
 | **Verification** | report timeline, findings by severity, fixes applied, re-run button |
 | **Artifacts** | this project's OWN artifacts as a gallery (only `project-<id>-*`, not the harness globals — F-038), each in a sandboxed iframe; a regular artifact edits as markdown, a **bible edits per SECTION** with source-of-truth writeback + recompile, staying in the project's own dir (D-065) |
 
-## Observe — the watch surfaces (today)
+## The watch surfaces (today)
+
+> **P4 reach.** **Runs** keeps its own rail entry (Workflows fold in behind a SegControl). **Graph**
+> is the **Org · Graph** segment; **Metrics**, **Routing**, and **Evals** are the **Insights** tabs
+> **Charts / Routing / Evals**, joined by a new deterministic **Overview** tab (measured deltas +
+> z-score anomalies, no LLM); **Terminal** relocates to a project tab + Settings diagnostics.
 
 - **Runs + rich run console.** Runs render as **structured, collapsed-by-default** items — commands
   (`$ …` with output on expand), file ops (Write preview, Edit/MultiEdit diff hunks), and delegated
@@ -418,7 +449,7 @@ spec at zero runtime cost, guarded by a drift test.
   the thing it created (the run console, the PR, the report) — no result has to be hunted for, and no
   action fires silently (the undo toast is the confirmation for the low-friction path).
 - **Metric uniqueness.** Every metric is printed in **exactly one place** — live state in the
-  activity strip, day totals and trends in Metrics, health on Chief's thin line / project Overview.
+  activity strip, day totals and trends in Insights, health on Org's thin line / project Overview.
   No surface re-prints another's numbers.
 - Live state always streams over the existing WebSocket; the UI never blocks on a poll. **The org
   views are live too (P5.7 C1):** `run_update` WS events also invalidate the chief-org /
