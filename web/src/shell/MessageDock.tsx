@@ -328,7 +328,9 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                   data-testid={`dock-picker-thread-${t.id}`}
                   onClick={() => selectThread(t.id)}
                   aria-current={t.id === selected}
-                  className="block w-full truncate px-4 py-2 text-left text-xs text-[var(--text)] transition-colors duration-100 hover:bg-[var(--raised)] aria-[current=true]:bg-[var(--raised)]"
+                  className={`block w-full truncate px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-[var(--raised)] ${
+                    t.id === selected ? 'bg-[var(--raised)] text-[var(--text)]' : 'text-[var(--text)]'
+                  }`}
                 >
                   {t.title ?? 'Untitled'}
                 </button>
