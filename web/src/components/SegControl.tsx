@@ -1,37 +1,42 @@
-import { cn } from '../lib/cn'
-
 /**
- * Segmented single-select control — extracted verbatim from the identical
- * private copies in MetricsPage/RoutingPage (wave C1) so new surfaces (the
- * capability catalog's facet filters) reuse ONE implementation. Each segment
- * exposes aria-pressed reflecting the selection (F-006 a11y lock).
+ * The ONE canonical segmented single-select (F-006 a11y lock; originally extracted verbatim
+ * from Metrics/Routing). P4 E-30: extended in place — optional `ariaLabel` (a11y group name),
+ * `size`, and per-option optional `icon`/`count`. Existing callers
+ * ({ options:{label,value}[], value, onChange }) are unchanged.
  */
+export interface SegOption<T extends string> { label: string; value: T; icon?: string; count?: number }
+
 export default function SegControl<T extends string>({
-  options,
-  value,
-  onChange,
+  options, value, onChange, ariaLabel, size = 'md',
 }: {
-  options: { label: string; value: T }[]
+  options: SegOption<T>[]
   value: T
   onChange: (v: T) => void
+  ariaLabel?: string
+  size?: 'sm' | 'md'
 }) {
+  const pad = size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
   return (
-    <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--raised)] p-0.5 gap-0.5">
-      {options.map(opt => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          aria-pressed={value === opt.value}
-          className={cn(
-            'rounded px-3 py-1 text-xs font-medium transition-colors duration-150',
-            value === opt.value
-              ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm'
-              : 'text-[var(--muted)] hover:text-[var(--text)]'
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
+    <div role="group" aria-label={ariaLabel} className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--raised)] p-0.5">
+      {options.map((o) => {
+        const active = o.value === value
+        return (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={active}
+            data-testid={`seg-${o.value}`}
+            onClick={() => onChange(o.value)}
+            className={`inline-flex items-center gap-1 rounded ${pad} font-medium transition-colors ${
+              active ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--text)]'
+            }`}
+          >
+            {o.icon && <span aria-hidden>{o.icon}</span>}
+            <span>{o.label}</span>
+            {o.count != null && <span className="rounded-full bg-[var(--surface)] px-1 text-[10px]">{o.count}</span>}
+          </button>
+        )
+      })}
     </div>
   )
 }

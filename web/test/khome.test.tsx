@@ -190,7 +190,7 @@ describe('KHome', () => {
     expect(glance.textContent).toMatch(/2 objectives in flight/)
 
     fireEvent.click(screen.getByTestId('khome-glance-link'))
-    expect(mockNavigate).toHaveBeenCalledWith('chief')
+    expect(mockNavigate).toHaveBeenCalledWith('org', 'tree')
   })
 
   it('shows the live route preview only when the composer is non-empty', async () => {
@@ -483,7 +483,7 @@ describe('KHome', () => {
     expect(await screen.findByTestId('khome-glance-error')).toBeTruthy()
     // The Chief link keeps working even while the glance is degraded.
     fireEvent.click(screen.getByTestId('khome-glance-link'))
-    expect(mockNavigate).toHaveBeenCalledWith('chief')
+    expect(mockNavigate).toHaveBeenCalledWith('org', 'tree')
   })
 
   it('a feed failure degrades the recent list to its empty state (feedQueryFn swallows errors — no error row)', async () => {

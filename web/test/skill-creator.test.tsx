@@ -9,7 +9,7 @@
  * failed draft offers retry.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { SkillDraft, DraftEval } from '@k/shared'
 
@@ -229,8 +229,9 @@ describe('DraftWorkspace — ready draft editing', () => {
     renderPage('d1')
     const row = await screen.findByTestId('eval-row-e1')
     expect(row.textContent).toContain('pass')
-    // the shared EVAL_BADGE palette (AutomationsTab export) styles the status
-    expect(row.querySelector('.text-green-300')).toBeTruthy()
+    // the shared EVAL_BADGE palette (AutomationsTab export) styles the status —
+    // now the canonical --green token (C3 token-drift fix), not raw text-green-300.
+    expect(within(row).getByText('pass').className).toContain('text-[var(--green)]')
     fireEvent.click(screen.getByTestId('eval-run-link-e1'))
     expect(mockNavigate).toHaveBeenCalledWith('runs', 'r-eval-1')
     fireEvent.click(screen.getByTestId('eval-run'))

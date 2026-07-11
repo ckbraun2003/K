@@ -5,6 +5,9 @@
 // same precedent as ./skill-runs.ts (a web-local response type the page consumes). Every helper
 // is pure and React-free so it unit-tests like ./verify.ts and ./chart.ts.
 
+import type { RunStatus } from '@k/shared'
+import { runStatusMeta } from './status'
+
 // ── Response shapes (mirror the backend contract) ──────────────────────────────────────────────
 
 /** GET /api/evals/systems → one seeded system. */
@@ -181,18 +184,22 @@ export function regressionBadge(
   return { label: 'no baseline', colorClass: 'bg-[var(--raised)] text-[var(--muted)]' }
 }
 
-/** Run status → badge classes. Mirrors AutomationsTab's RUN_STATUS_COLOR map (default muted). */
-const RUN_STATUS_COLOR: Record<string, string> = {
-  queued: 'bg-amber/15 text-[var(--amber)]',
-  running: 'bg-accent/15 text-[var(--accent-hover)]',
-  done: 'bg-green/15 text-[var(--green)]',
-  error: 'bg-red/15 text-[var(--red)]',
-  killed: 'bg-muted/15 text-[var(--muted)]',
-  interrupted: 'bg-red/15 text-[var(--red)]',
-}
+/**
+ * E-11 adoption (P4): the run-status badge is now backed by the SINGLE canonical status mapping
+ * (status.ts::runStatusMeta) instead of a local color map. Eval runs pass a SUBSET of the RunStatus
+ * domain (queued/running/done/error/killed); guard membership so an unknown eval status degrades to
+ * muted rather than crashing runStatusMeta's default-less canonicalize switch (which returns
+ * `undefined` for an unknown status, then throws in metaForCanonical). `RUN_LABELS` is not exported
+ * from status.ts, so the RunStatus domain is mirrored locally for the guard.
+ */
+const KNOWN_RUN_STATUSES = new Set<string>([
+  'queued', 'running', 'awaiting_input', 'awaiting_plan', 'done', 'error', 'killed', 'interrupted',
+])
 
 export function runStatusColor(status: string): string {
-  return RUN_STATUS_COLOR[status] ?? 'bg-muted/15 text-[var(--muted)]'
+  return KNOWN_RUN_STATUSES.has(status)
+    ? runStatusMeta(status as RunStatus).badge // canonical badge for a known run status
+    : 'bg-muted/15 text-[var(--muted)]' // unknown eval status → muted (never crash)
 }
 
 /** A null/0/1 deterministic-pass flag → a check / cross / em-dash glyph. */

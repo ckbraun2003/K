@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import type { Artifact } from '@k/shared'
 import { api } from '../lib/api'
+import SectionEditor from './SectionEditor'
 
 interface Props {
   slug: string
@@ -32,6 +33,7 @@ export function withInDocBase(html: string): string {
 
 export default function DocViewer({ slug }: Props) {
   const [view, setView] = useState<'md' | 'html'>('html')
+  const [edit, setEdit] = useState(false)
 
   const { data: artifact, isLoading } = useQuery<Artifact>({
     queryKey: ['artifact', slug],
@@ -59,20 +61,35 @@ export default function DocViewer({ slug }: Props) {
             {artifact.status ? ` · ${artifact.status}` : ''}
           </p>
         </div>
-        <div className="flex rounded-lg overflow-hidden border border-[var(--border)]">
-          {(['md', 'html'] as const).map(v => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`px-3 py-1 text-xs font-medium transition-colors ${
-                view === v
-                  ? 'bg-[var(--accent)] text-[var(--bg)]'
-                  : 'text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]'
-              }`}
-            >
-              .{v}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="doc-edit-toggle"
+            aria-pressed={edit}
+            onClick={() => setEdit(e => !e)}
+            className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
+              edit
+                ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)]'
+                : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]'
+            }`}
+          >
+            Edit
+          </button>
+          <div className="flex rounded-lg overflow-hidden border border-[var(--border)]">
+            {(['md', 'html'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${
+                  view === v
+                    ? 'bg-[var(--accent)] text-[var(--bg)]'
+                    : 'text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]'
+                }`}
+              >
+                .{v}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -102,6 +119,16 @@ export default function DocViewer({ slug }: Props) {
           />
         )}
       </div>
+
+      {/* P4 E-30 — edit-in-place. Mounts only when Edit is on; SectionEditor
+          self-hides (renders null) for non-bible artifacts. */}
+      {edit && (
+        <div className="flex-shrink-0 max-h-[45%] overflow-y-auto bg-[var(--surface)]">
+          {/* key by slug so switching artifacts fully remounts the editor — otherwise a
+              stale section pick + edited draft could Save into the NEWLY-selected bible. */}
+          <SectionEditor key={slug} slug={slug} />
+        </div>
+      )}
     </div>
   )
 }

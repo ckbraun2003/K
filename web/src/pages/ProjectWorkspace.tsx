@@ -1,4 +1,3 @@
-import { useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import type { Project } from '@k/shared'
@@ -7,6 +6,7 @@ import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
 import { fade } from '../lib/motion'
 import { healthRubric } from '../lib/health'
+import Tabs from '../components/Tabs'
 import OverviewTab from './tabs/OverviewTab'
 import VerificationTab from './tabs/VerificationTab'
 import ArtifactsTab from './tabs/ArtifactsTab'
@@ -14,6 +14,7 @@ import RunsTab from './tabs/RunsTab'
 import TasksTab from './tabs/TasksTab'
 import PrsCiTab from './tabs/PrsCiTab'
 import KnowledgeGraphTab from './tabs/KnowledgeGraphTab'
+import TerminalPage from './TerminalPage'
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
@@ -25,6 +26,7 @@ const TABS = [
   { id: 'prs-ci',         label: 'PRs & CI' },
   { id: 'verification',   label: 'Verification' },
   { id: 'artifacts',      label: 'Artifacts' },
+  { id: 'terminal',       label: 'Terminal' },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -48,9 +50,6 @@ export default function ProjectWorkspace({
     queryKey: ['projects'],
     queryFn: api.projects.list,
   })
-  // Declared before any early return so the hook order is stable across a
-  // projectId change (the route param can flip on the same mounted instance).
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   const project = projects.find(p => p.id === projectId)
   const projectName = project?.name ?? 'Project'
@@ -100,19 +99,6 @@ export default function ProjectWorkspace({
   const goTab = (id: TabId) => navigate('project', projectId, id)
   const goBack = () => navigate('projects')
 
-  const handleTabKeyDown = (e: React.KeyboardEvent, idx: number) => {
-    const count = TABS.length
-    let next = idx
-    if (e.key === 'ArrowRight') next = (idx + 1) % count
-    else if (e.key === 'ArrowLeft') next = (idx - 1 + count) % count
-    else if (e.key === 'Home') next = 0
-    else if (e.key === 'End') next = count - 1
-    else return
-    e.preventDefault()
-    tabRefs.current[next]?.focus()
-    goTab(TABS[next].id)
-  }
-
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Page header ───────────────────────────────────────────────────── */}
@@ -138,36 +124,14 @@ export default function ProjectWorkspace({
         )}
       </div>
 
-      {/* ── Tab bar ───────────────────────────────────────────────────────── */}
-      <div
-        role="tablist"
-        aria-label="Project workspace tabs"
-        className="flex flex-wrap gap-1 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2"
-      >
-        {TABS.map((t, idx) => {
-          const isActive = t.id === activeTab
-          return (
-            <button
-              key={t.id}
-              id={`tab-${t.id}`}
-              ref={el => { tabRefs.current[idx] = el }}
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`tabpanel-${t.id}`}
-              tabIndex={isActive ? 0 : -1}
-              onClick={() => goTab(t.id)}
-              onKeyDown={e => handleTabKeyDown(e, idx)}
-              className={cn(
-                'rounded-control px-3.5 py-1.5 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-hover)]',
-                isActive
-                  ? 'border border-[color:rgba(255,143,192,0.3)] bg-[color:rgba(255,143,192,0.14)] text-[var(--text)]'
-                  : 'border border-transparent text-[var(--muted)] hover:bg-[var(--raised)] hover:text-[var(--text)]',
-              )}
-            >
-              {t.label}
-            </button>
-          )
-        })}
+      {/* ── Tab bar (canonical Tabs, P4 E-30) ─────────────────────────────── */}
+      <div className="border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
+        <Tabs<TabId>
+          ariaLabel="Project workspace tabs"
+          items={TABS.map(t => ({ value: t.id, label: t.label }))}
+          value={activeTab}
+          onChange={goTab}
+        />
       </div>
 
       {/* ── Tab panels ────────────────────────────────────────────────────── */}
@@ -177,7 +141,7 @@ export default function ProjectWorkspace({
             key={t.id}
             id={`tabpanel-${t.id}`}
             role="tabpanel"
-            aria-labelledby={`tab-${t.id}`}
+            aria-label={t.label}
             hidden={t.id !== activeTab}
             className="h-full"
           >
@@ -198,6 +162,7 @@ export default function ProjectWorkspace({
                   {t.id === 'tasks'         && <TasksTab         projectId={projectId!} />}
                   {t.id === 'prs-ci'        && <PrsCiTab         projectId={projectId!} />}
                   {t.id === 'knowledge-graph' && <KnowledgeGraphTab projectId={projectId!} />}
+                  {t.id === 'terminal'      && <TerminalPage />}
                 </motion.div>
               </AnimatePresence>
             )}

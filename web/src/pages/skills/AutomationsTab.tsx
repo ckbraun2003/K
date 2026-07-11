@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Skill, CreateSkill, UpdateSkill, SkillEval, Project } from '@k/shared'
 import { api } from '../../lib/api'
+import { agentRunStatusMeta } from '../../lib/status'
 import AutoTextarea from '../../components/AutoTextarea'
 import type { SkillRun } from '../../lib/skill-runs'
 import { sortSkillRunsNewestFirst } from '../../lib/skill-runs'
@@ -335,8 +336,8 @@ export default function AutomationsTab() {
 /** Eval-status badge colors — exported so the Skill Creator's EvalPanel (C4)
  *  renders draft evals with the SAME status palette as the automation registry. */
 export const EVAL_BADGE: Record<SkillEval['status'], string> = {
-  pass: 'bg-green-500/20 text-green-300',
-  fail: 'bg-red-500/20 text-red-300',
+  pass: 'bg-green/20 text-[var(--green)]',
+  fail: 'bg-red/20 text-[var(--red)]',
   pending: 'bg-[var(--raised)] text-[var(--muted)]',
 }
 
@@ -600,13 +601,15 @@ function SkillEditor({ skill, onDone }: { skill: Skill; onDone: () => void }) {
   )
 }
 
-const RUN_STATUS_COLOR: Record<string, string> = {
-  queued: 'bg-amber/15 text-[var(--amber)]',
-  running: 'bg-accent/15 text-[var(--accent-hover)]',
-  done: 'bg-green/15 text-[var(--green)]',
-  error: 'bg-red/15 text-[var(--red)]',
-  killed: 'bg-muted/15 text-[var(--muted)]',
-  interrupted: 'bg-red/15 text-[var(--red)]',
+/** Canonical badge for a skill_run status. skill_runs use the AGENT-RUN vocabulary
+ *  (running/completed/failed — core writes 'completed'/'failed', see skills.ts), NOT
+ *  RunStatus, so it maps through agentRunStatusMeta. Guarded: an out-of-enum value degrades
+ *  to muted rather than throwing (the canonicalizers have no default branch) — one bad row
+ *  must never blank the whole list. */
+function skillRunBadge(status: string): string {
+  return status === 'running' || status === 'completed' || status === 'failed'
+    ? agentRunStatusMeta(status).badge
+    : 'bg-muted/15 text-[var(--muted)]'
 }
 
 /** Recent runs for a skill — surfaces the previously-unused api.skills.runs(). */
@@ -635,7 +638,7 @@ function SkillRunHistory({ skillId }: { skillId: string }) {
       )}
       <div className="flex flex-col gap-1">
         {ordered.map(sr => {
-          const cls = RUN_STATUS_COLOR[sr.status] ?? 'bg-muted/15 text-[var(--muted)]'
+          const cls = skillRunBadge(sr.status)
           const inner = (
             <>
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>

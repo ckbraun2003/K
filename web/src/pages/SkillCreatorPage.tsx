@@ -18,8 +18,8 @@ import AutoTextarea from '../components/AutoTextarea'
 
 const STATUS_BADGE: Record<SkillDraft['status'], string> = {
   drafting: 'bg-accent/15 text-[var(--accent-hover)]',
-  ready: 'bg-green-500/20 text-green-300',
-  failed: 'bg-red-500/20 text-red-300',
+  ready: 'bg-green/20 text-[var(--green)]',
+  failed: 'bg-red/20 text-[var(--red)]',
 }
 
 const inputCls =

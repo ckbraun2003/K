@@ -34,8 +34,12 @@ describe('keyboard chords', () => {
     for (const reserved of ['?', 'Escape']) expect(keys.has(reserved)).toBe(false)
   })
 
-  it('routes the Workflows view (known view + `g w` chord)', () => {
-    expect(KNOWN_VIEWS.has('workflows')).toBe(true)
-    expect(CHORD_MAP['w']).toBe('workflows')
+  it('chords target the new 9-item IA (merged/folded views have no chord; every target is a KNOWN_VIEW)', () => {
+    const chordViews = new Set(CHORDS.map(c => c.view))
+    expect(chordViews.has('org')).toBe(true)
+    expect(chordViews.has('insights')).toBe(true)
+    for (const gone of ['chief', 'orchestrators', 'graph', 'metrics', 'routing', 'evals', 'workflows'])
+      expect(chordViews.has(gone)).toBe(false)
+    for (const c of CHORDS) expect(KNOWN_VIEWS.has(c.view)).toBe(true)
   })
 })

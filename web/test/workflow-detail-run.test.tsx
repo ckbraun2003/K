@@ -73,13 +73,13 @@ vi.mock('../src/lib/route', () => ({
   useHashRoute: () => ({ view: 'workflow-detail' }),
 }))
 
-import WorkflowDetailPage from '../src/pages/WorkflowDetailPage'
+import WorkflowsView from '../src/pages/runs/WorkflowsView'
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <WorkflowDetailPage id="code-wave" />
+      <WorkflowsView defId="code-wave" />
     </QueryClientProvider>,
   )
 }

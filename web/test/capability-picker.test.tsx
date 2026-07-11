@@ -295,7 +295,7 @@ describe('OrchestratorDetailPage adoption — grant-guard banner stays parent-ow
       </QueryClientProvider>,
     )
     // open the MCP tab, add an addable server through the picker
-    fireEvent.click(await screen.findByTestId('orchestrator-tab-mcp'))
+    fireEvent.click(await screen.findByTestId('seg-mcp'))
     fireEvent.focus(await screen.findByTestId('orchestrator-mcp-input'))
     fireEvent.click(await screen.findByTestId('orchestrator-mcp-option-user:context7'))
     await waitFor(() => expect(mockOrchUpdate).toHaveBeenCalledWith('lead-web', { mcpServers: ['user:context7'] }))

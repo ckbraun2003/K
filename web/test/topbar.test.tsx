@@ -19,7 +19,7 @@ const { mockNavigate, mockOrchGet, mockWorkflowGet, mockProjectsList, KNOWN } = 
   mockWorkflowGet: vi.fn(),
   mockProjectsList: vi.fn(async () => []),
   // Inside vi.hoisted so the (hoisted) route mock factory below can reference it.
-  KNOWN: new Set(['home', 'runs', 'orchestrators', 'orchestrator', 'workflow-detail', 'project']),
+  KNOWN: new Set(['home', 'runs', 'orchestrator', 'org', 'project']),
 }))
 
 vi.mock('../src/lib/api', () => ({
@@ -80,19 +80,19 @@ describe('TopBar', () => {
     expect(screen.queryByTestId('topbar-parent')).toBeNull()
   })
 
-  it('renders the Orchestrators › <lead name> breadcrumb and navigates via the parent segment', async () => {
+  it('renders the Org › <lead name> breadcrumb and navigates via the parent segment', async () => {
     renderBar('orchestrator', 'lead-frontend')
 
     // Parent label renders immediately (no dangling '›' before the name resolves)…
     const parent = screen.getByTestId('topbar-parent')
-    expect(parent.textContent).toBe('Orchestrators')
+    expect(parent.textContent).toBe('Org')
 
     // …then the lead name resolves from the shared ['orchestrator', id] query.
     expect(await screen.findByText('Frontend')).toBeTruthy()
     expect(screen.getByTestId('topbar-title').textContent).toContain('›')
 
     fireEvent.click(parent)
-    expect(mockNavigate).toHaveBeenCalledWith('orchestrators')
+    expect(mockNavigate).toHaveBeenCalledWith('org', 'roster')
   })
 
   it('surfaces Not found for an unknown view (never masquerades as Home)', () => {

@@ -44,7 +44,7 @@ vi.mock('react-force-graph-3d', async () => {
 vi.mock('../src/lib/api', () => ({ api: { projects: { list: mockList } } }))
 vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
 
-import FleetGraphPage from '../src/pages/FleetGraphPage'
+import FleetGraphPage from '../src/pages/org/GraphView'
 
 const projects: Project[] = [
   { id: 'a', name: 'A', localPath: '/a', workspaceManaged: false, bibleDir: 'docs/bible', createdAt: 0 },

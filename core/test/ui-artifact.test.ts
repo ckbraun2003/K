@@ -133,18 +133,26 @@ describe('seedUiDemo — Command Deck', () => {
 describe('uiDemoHtml — Phase 5 full-scale "Agentic Org" demo', () => {
   const html = uiDemoHtml()
 
-  it('maps every redesigned screen as an in-memory navigable section', () => {
+  it('maps every redesigned screen as an in-memory navigable section (P4 9-item rail IA)', () => {
+    // P4 (D-090): orchestrators->org, metrics->insights, + new skills/inbox screens;
+    // chief is the Org·Tree segment, routing/terminal/workflows stay as internal screens.
     const screens = [
-      'k-home', 'chief', 'orchestrators', 'orchestrator-detail', 'workflows',
-      'workflow-detail', 'projects', 'project-workspace', 'runs',
-      'metrics', 'routing', 'terminal', 'settings', 'help', 'notfound', 'login',
+      'k-home', 'org', 'chief', 'orchestrator-detail', 'workflows',
+      'workflow-detail', 'projects', 'project-workspace', 'skills', 'runs',
+      'insights', 'routing', 'inbox', 'terminal', 'settings', 'help', 'notfound', 'login',
     ]
     for (const v of screens) {
       expect(html, `missing screen ${v}`).toContain(`data-view="${v}"`)
     }
-    // sidebar DIRECT + OBSERVE groups + the ⌘K Ask-K trigger + activity strip
-    expect(html).toContain('>Direct<')
-    expect(html).toContain('>Observe<')
+    // The flat 9-item rail (no Direct/Observe groups) + the ⌘K Ask-K trigger + activity strip.
+    for (const lbl of ['K', 'Org', 'Projects', 'Skills', 'Runs', 'Insights', 'Inbox', 'Help', 'Settings']) {
+      expect(html, `missing rail item ${lbl}`).toContain(`<span class="lbl">${lbl}</span>`)
+    }
+    expect(html).not.toContain('>Direct<')   // the two-group rail is gone (D-090)
+    expect(html).not.toContain('>Observe<')
+    // removed rail entries no longer have a nav button (folded/redirected)
+    expect(html).not.toContain('<span class="lbl">Metrics</span>')
+    expect(html).not.toContain('<span class="lbl">Chief</span>')
     expect(html).toContain('Ask K or jump anywhere')
     expect(html).toContain('org pulse')
   })

@@ -16,9 +16,8 @@ interface Props {
 
 /** Detail views that aren't Sidebar destinations — each renders a breadcrumb back to
  *  its parent list view instead of falling through to the "Home" title. */
-const DETAIL_PARENTS: Record<string, { label: string; icon: string; view: string }> = {
-  orchestrator: { label: 'Orchestrators', icon: '❖', view: 'orchestrators' },
-  'workflow-detail': { label: 'Workflows', icon: '⋔', view: 'workflows' },
+const DETAIL_PARENTS: Record<string, { label: string; icon: string; view: string; param?: string }> = {
+  orchestrator: { label: 'Org', icon: '❖', view: 'org', param: 'roster' },
   project: { label: 'Projects', icon: '▦', view: 'projects' },
 }
 
@@ -66,7 +65,7 @@ export default function TopBar({ view, param, connected, onOpenCommand }: Props)
             <button
               type="button"
               data-testid="topbar-parent"
-              onClick={() => navigate(parent.view)}
+              onClick={() => navigate(parent.view, parent.param)}
               className="font-semibold text-[var(--muted)] transition-colors duration-150 hover:text-[var(--text)]"
             >
               {parent.label}

@@ -18,9 +18,9 @@ export interface ShellKeyHandlers {
  *
  * Extracted from Shell so the chord state machine is unit-testable without
  * mounting the whole app. The key fix (F-001): once a `g` chord is armed, the
- * NEXT key RESOLVES it — including a second `g` (→ Fleet Graph). That branch
- * MUST run before the arming branch, otherwise `g g` re-arms the chord instead
- * of navigating.
+ * NEXT key RESOLVES it — even a second `g` (which post-P4 has no chord, so it
+ * simply disarms). That branch MUST run before the arming branch, otherwise
+ * `g g` re-arms the chord instead of resolving.
  */
 export function useShellKeys({
   onToggleCommand,
@@ -72,8 +72,8 @@ export function useShellKeys({
         handlers.current.onCloseLegend()
         return
       }
-      // A g-chord is already armed → the second key RESOLVES it (incl. a second
-      // `g` → Fleet Graph). Must precede the arming branch (F-001).
+      // A g-chord is already armed → the second key RESOLVES it (a second `g`
+      // has no chord post-P4, so it just disarms). Must precede the arming branch (F-001).
       if (chord) {
         disarm()
         if (CHORD_MAP[e.key]) {

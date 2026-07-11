@@ -8,22 +8,15 @@ import KHome from '../pages/KHome'
 import RunsPage from '../pages/RunsPage'
 import DocsPage from '../pages/DocsPage'
 import ProjectsPage from '../pages/ProjectsPage'
-import MetricsPage from '../pages/MetricsPage'
-import RoutingPage from '../pages/RoutingPage'
+import OrgPage from '../pages/OrgPage'
+import InsightsPage from '../pages/InsightsPage'
 import ProjectVerification from '../pages/ProjectVerification'
 import ProjectWorkspace from '../pages/ProjectWorkspace'
-import FleetGraphPage from '../pages/FleetGraphPage'
 import SkillsPage from '../pages/SkillsPage'
 import SkillCreatorPage from '../pages/SkillCreatorPage'
 import WorkflowNudge from '../components/WorkflowNudge'
-import TerminalPage from '../pages/TerminalPage'
 import SettingsPage from '../pages/SettingsPage'
-import WorkflowsPage from '../pages/WorkflowsPage'
-import WorkflowDetailPage from '../pages/WorkflowDetailPage'
-import ChiefPage from '../pages/ChiefPage'
-import OrchestratorsPage from '../pages/OrchestratorsPage'
 import OrchestratorDetailPage from '../pages/OrchestratorDetailPage'
-import EvalsPage from '../pages/EvalsPage'
 import MemoryPage from '../pages/MemoryPage'
 import InboxPage from '../pages/InboxPage'
 import TimelinePage from '../pages/TimelinePage'
@@ -94,25 +87,18 @@ export default function Shell() {
             {route.view === 'home' && <KHome />}
             {route.view === 'inbox' && <InboxPage />}
             {route.view === 'timeline' && <TimelinePage />}
-            {route.view === 'chief' && <ChiefPage />}
-            {route.view === 'orchestrators' && <OrchestratorsPage />}
+            {route.view === 'org' && <OrgPage seg={route.param} />}
             {route.view === 'orchestrator' && <OrchestratorDetailPage id={route.param} />}
-            {route.view === 'runs' && <RunsPage runId={route.param} />}
+            {route.view === 'runs' && <RunsPage runId={route.param} sub={route.subParam} />}
             {route.view === 'docs' && <DocsPage slug={route.param} />}
             {route.view === 'projects' && <ProjectsPage />}
-            {route.view === 'metrics' && <MetricsPage />}
-            {route.view === 'routing' && <RoutingPage />}
+            {route.view === 'insights' && <InsightsPage tab={route.param} />}
             {route.view === 'verify' && <ProjectVerification projectId={route.param} />}
             {route.view === 'project' && <ProjectWorkspace projectId={route.param} tab={route.subParam} />}
-            {route.view === 'graph' && <FleetGraphPage />}
             {route.view === 'skills' && <SkillsPage tab={route.param} />}
             {route.view === 'skill-creator' && <SkillCreatorPage draftId={route.param} />}
-            {route.view === 'terminal' && <TerminalPage />}
             {route.view === 'settings' && <SettingsPage />}
-            {route.view === 'workflows' && <WorkflowsPage runId={route.param} />}
-            {route.view === 'workflow-detail' && <WorkflowDetailPage id={route.param} />}
-            {route.view === 'evals' && <EvalsPage />}
-            {route.view === 'memory' && <MemoryPage />}
+            {route.view === 'lessons' && <MemoryPage />}
             {!isKnownView(route.view) && <NotFound route={route.view} />}
           </motion.div>
         </AnimatePresence>
