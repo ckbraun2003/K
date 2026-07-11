@@ -57,6 +57,7 @@ describe('SCHEMA_VERSION 11', () => {
     expect(d.pragma('user_version', { simple: true })).toBe(11)
     expect(columns(d, 'k_threads')).toContain('archived_at')
     expect(tables(d)).toContain('user_memories')
+    expect(d.prepare(`SELECT event_key FROM notification_rules WHERE event_key = ?`).get('memory_saved')).toBeTruthy()
     const title = (d.prepare(`SELECT title FROM k_threads WHERE id='k-default'`).get() as { title: string }).title
     expect(title).toBe('hello there K, plan my week')
     // idempotence + no clobber: rename, force re-migrate, title must survive
