@@ -31,10 +31,26 @@ import {
   buildDesktopConfig,
   isAllowedNavigation,
   sanitizeExternalTarget,
+  buildStartupFailureMessage,
 } from './core-launcher'
 import { notificationFromEnvelope, buildTrayMenu, coreWsUrl } from './notifications'
 
 const isDev = !app.isPackaged
+
+// Give Electron a stable, clean app identity BEFORE any app.getPath('userData') call (and
+// before the single-instance lock, whose lockfile lives under userData). Without this the
+// name defaults to the scoped package name '@k/desktop', so per-user data lands under
+// %APPDATA%\@k\desktop; pinning it to the productName keeps it at %APPDATA%\K. (The toast
+// AppUserModelId is a separate identity, set below.)
+app.setName('K')
+
+// Cold first launches are slow: core seeds skills/profiles/workflows + compiles the bible
+// while Windows Defender scans the freshly-installed files. 30s was too tight and produced
+// false "failed to start" dialogs; 90s covers a cold boot. The spawn-error/early-exit race
+// still fails FAST on a genuinely broken core, so this only lengthens the alive-but-slow case.
+const CORE_HEALTH_TIMEOUT_MS = 90_000
+// Keep the last N non-empty lines of core output for the startup-failure dialog.
+const CORE_LOG_TAIL_MAX = 40
 
 let coreProc: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
@@ -44,6 +60,28 @@ let wsReconnectTimer: NodeJS.Timeout | null = null
 let isQuitting = false
 let harnessToken = ''
 let corePort = 0
+// Tail of core's own stdout/stderr + a per-launch log file, so a startup failure shows the
+// REAL reason (spawn error / early exit / health timeout) instead of guessing at the user's PATH.
+let coreLogTail: string[] = []
+let coreLogPath = ''
+let coreLogStream: fs.WriteStream | null = null
+
+/** Forward a chunk of core's output to the process console (preserving the stdout vs
+ *  stderr distinction), append it to the per-launch core.log, and keep the last N
+ *  non-empty lines for the startup-failure dialog. */
+function recordCoreOutput(chunk: Buffer, toStderr: boolean): void {
+  const text = chunk.toString()
+  ;(toStderr ? process.stderr : process.stdout).write(`[core] ${text}`)
+  try {
+    coreLogStream?.write(text)
+  } catch {
+    /* best-effort log file */
+  }
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trim()) coreLogTail.push(line)
+  }
+  if (coreLogTail.length > CORE_LOG_TAIL_MAX) coreLogTail = coreLogTail.slice(-CORE_LOG_TAIL_MAX)
+}
 
 /** Absolute path to the bundled app icon (window + tray + notifications). */
 function iconPath(): string {
@@ -121,6 +159,23 @@ async function startCore(): Promise<void> {
   corePort = await pickFreePort()
   const dataDir = coreDataDir()
   fs.mkdirSync(dataDir, { recursive: true })
+  // Fresh per-launch core log + tail buffer so a failed boot can surface the real reason.
+  coreLogTail = []
+  try {
+    const logDir = path.join(app.getPath('userData'), 'logs')
+    fs.mkdirSync(logDir, { recursive: true })
+    coreLogPath = path.join(logDir, 'core.log')
+    coreLogStream = fs.createWriteStream(coreLogPath, { flags: 'w' })
+    // A WriteStream reports fd/write failures (a locked/synced file, a full disk) via an
+    // ASYNC 'error' event — with no listener Node would crash the whole main process
+    // mid-session. Drop the stream on error; the console + tail buffer keep working.
+    coreLogStream.on('error', (err) => {
+      console.error('[main] core.log write failed:', err)
+      coreLogStream = null
+    })
+  } catch {
+    coreLogStream = null
+  }
   const root = resourcesRoot()
   const repoRoot = runtimeRepoRoot()
   // Packaged install is read-only: seed the writable runtime with the bible source so
@@ -139,8 +194,8 @@ async function startCore(): Promise<void> {
   const nodeBin = process.env.K_NODE_BIN || bundledNode || 'node'
   const proc = spawn(nodeBin, [entry], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
   coreProc = proc
-  proc.stdout?.on('data', (d: Buffer) => process.stdout.write(`[core] ${d}`))
-  proc.stderr?.on('data', (d: Buffer) => process.stderr.write(`[core] ${d}`))
+  proc.stdout?.on('data', (d: Buffer) => recordCoreOutput(d, false))
+  proc.stderr?.on('data', (d: Buffer) => recordCoreOutput(d, true))
   proc.on('exit', (code) => {
     console.log(`[core] exited with ${code}`)
     // Only clear the ref if THIS instance is still the current one (forward-safe if
@@ -157,9 +212,9 @@ async function startCore(): Promise<void> {
     proc.once('error', (err) => reject(new Error(`failed to launch core (${nodeBin}): ${err.message}`)))
     proc.once('exit', (code) => reject(new Error(`core exited (code ${code}) before becoming healthy`)))
   })
-  const healthy = await Promise.race([waitForHealth(corePort, 30_000), failure])
+  const healthy = await Promise.race([waitForHealth(corePort, CORE_HEALTH_TIMEOUT_MS), failure])
   if (!healthy) {
-    throw new Error('core did not become healthy within 30s')
+    throw new Error(`core did not become healthy within ${CORE_HEALTH_TIMEOUT_MS / 1000}s`)
   }
   harnessToken = readToken(dataDir)
 }
@@ -407,6 +462,12 @@ function teardownShell(): void {
   wsClient = null
   tray?.destroy()
   tray = null
+  try {
+    coreLogStream?.end()
+  } catch {
+    /* already closed */
+  }
+  coreLogStream = null
 }
 
 // Synchronous config handoff for the preload (before page scripts). Token only —
@@ -444,13 +505,9 @@ if (!app.requestSingleInstanceLock()) {
       // download never blocks first paint. Best-effort — see checkForUpdates.
       checkForUpdates()
     } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
       console.error('[main] core failed to start:', err)
-      dialog.showErrorBox(
-        'K failed to start',
-        'The K core service did not become ready.\n\n' +
-          'Make sure Node.js is installed and on your PATH (see the app’s System requirements), ' +
-          'then relaunch K.',
-      )
+      dialog.showErrorBox('K failed to start', buildStartupFailureMessage(reason, coreLogTail, coreLogPath))
       app.quit()
     }
   })
