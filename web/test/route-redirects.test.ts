@@ -1,7 +1,7 @@
 /** P4 W0a — the legacy-hash redirect contract: every removed rail entry resolves to its
  *  new canonical home; params preserved where the destination consumes them. */
 import { it, expect } from 'vitest'
-import { parseHash, resolveRoute, KNOWN_VIEWS } from '../src/lib/route'
+import { parseHash, resolveRoute, KNOWN_VIEWS, VIEW_REDIRECTS } from '../src/lib/route'
 
 const resolve = (hash: string) => resolveRoute(parseHash(hash))
 
@@ -47,5 +47,15 @@ it('surviving views resolve unchanged', () => {
     '#/project/p1/runs', '#/verify/p1']) {
     const r = resolve(keep)
     expect(KNOWN_VIEWS.has(r.view)).toBe(true)
+  }
+})
+
+it('every VIEW_REDIRECTS target is a KNOWN_VIEW (no dangling redirect targets)', () => {
+  // Sweep the whole map generically so a redirect added/edited later (Tasks 10/18) can never
+  // land on a NotFound: each key is resolved bare, with a param, and with a param+subParam.
+  for (const src of Object.keys(VIEW_REDIRECTS)) {
+    for (const hash of [`#/${src}`, `#/${src}/some-param`, `#/${src}/some-param/some-sub`]) {
+      expect(KNOWN_VIEWS.has(resolve(hash).view), `dangling redirect target for ${hash}`).toBe(true)
+    }
   }
 })
