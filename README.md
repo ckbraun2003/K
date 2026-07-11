@@ -66,6 +66,23 @@ Once the dashboard is open:
 
 The in-app Getting Started guide and the bible's user guide go deeper.
 
+## Desktop app (Windows)
+
+Prefer not to run the dev servers? K also ships as a **Windows desktop app** — the same web
+dashboard, packaged with a bundled core, a system tray, and native notifications.
+
+1. **Download** the latest `K Setup <version>.exe` from
+   [GitHub Releases](https://github.com/ckbraun2003/K/releases).
+2. **Run the installer.** The build is **unsigned**, so Windows SmartScreen shows a warning on first
+   run — click **More info → Run anyway**. It installs per-user with desktop and Start-Menu shortcuts.
+3. **First run** opens a **System requirements** panel that checks your prerequisites. You must have
+   the **`claude` CLI installed and authenticated** (the agent engine — it is *not* bundled), plus
+   **`git`** and **Node 20**. **`gh`** (GitHub features) and **`ollama`** (local models) are optional.
+
+The app **auto-updates** from GitHub Releases — a newer build downloads in the background and installs
+on next quit. No configuration is needed; it launches core on a private loopback port and signs you in
+automatically. Full design + trust model: bible **§15 Desktop App**.
+
 ## Configuration
 
 All configuration is optional with sane defaults — K runs out of the box for local testing. To

@@ -194,9 +194,14 @@
       <span class="nav-title">Glossary</span>
       <span class="dot dot-green" title="stable"></span>
     </a>
+    <a class="nav-item" href="#15-desktop-app" data-section="15-desktop-app">
+      <span class="nav-icon">▣</span>
+      <span class="nav-title">Desktop App</span>
+      <span class="dot dot-green" title="stable"></span>
+    </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-10 10:37</span><br>
+      compiled <span class="mono">2026-07-10 22:13</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -243,11 +248,7 @@ redesign.</li>
 output still lands as a durable artifact, run record, or PR; the chat directs work, it never
 replaces the audit trail.</li>
 </ul>
-<div class="live-stats">
-      <div class="stat"><span class="stat-label">TOTAL RUNS</span><span class="stat-value">43</span></div>
-      <div class="stat"><span class="stat-label">TOKENS</span><span class="stat-value">1.9M</span></div>
-      <div class="stat"><span class="stat-label">COST</span><span class="stat-value">$4.00</span></div>
-    </div>
+<div class="live-empty">— no run data yet —</div>
 
     </section>
 
@@ -1452,11 +1453,7 @@ see §03 <em>Reused connectors</em>).</p>
 </ul>
 <h2>Lifecycle</h2>
 <p><code>registered → onboarded (invariants satisfied) → active (runs/PRs flowing) → idle (no activity N days) → archived (hidden from home, data retained)</code></p>
-<table><thead><tr><th>project</th><th>health</th><th>last verified</th></tr></thead><tbody><tr><td>jarvis-core</td>
-        <td><span class="dot dot-amber"></span><span class="mono">—</span></td>
-        <td>never</td></tr><tr><td>k</td>
-        <td><span class="dot dot-amber"></span><span class="mono">—</span></td>
-        <td>never</td></tr></tbody></table>
+<div class="live-empty">— no registered project data yet —</div>
 
     </section>
 
@@ -1744,37 +1741,7 @@ every open. Everything else — building, seeding, the dashboard, all tests — 
 this phase (rewiring it onto the behavioral subsystem is a deferred follow-on); the new subsystem stands
 alongside it. <strong>P5 extension:</strong> it is built to add <strong>DB-sourced <code>AgentProfile</code>s</strong> as eval systems, so the
 agent org can be evaluated as it comes online.</p>
-<table><thead><tr><th>run</th><th>prompt</th><th>status</th><th>cost</th><th>started</th></tr></thead><tbody><tr>
-      <td>066cccd0</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.139</td>
-      <td>2026-07-10 10:30</td>
-    </tr><tr>
-      <td>4e8a2b87</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.117</td>
-      <td>2026-07-10 10:00</td>
-    </tr><tr>
-      <td>8aba3186</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-amber"></span>interrupted</td>
-      <td>$0.000</td>
-      <td>2026-07-03 01:15</td>
-    </tr><tr>
-      <td>14b68c21</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-amber"></span>interrupted</td>
-      <td>$0.000</td>
-      <td>2026-07-03 01:15</td>
-    </tr><tr>
-      <td>813898ee</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.074</td>
-      <td>2026-07-03 01:00</td>
-    </tr></tbody></table>
+<div class="live-empty">— no run data yet —</div>
 
     </section>
 
@@ -2590,6 +2557,7 @@ the 2D-only <code>react-force-graph-2d</code> subpackage (guarded by a static im
 <li><input checked disabled type="checkbox" /> <strong>Wave V — whole-effort verification.</strong> Gates green (typecheck · core/web tests · build), whole-effort pre-merge review (MERGE-READY; in-scope review-fixes landed incl. <code>context_tokens</code> persistence round-trip), live Playwright smoke; merged <code>--no-ff</code> to <code>main</code>.</li>
 </ul>
 <p><strong>Deferred to a later phase</strong> (D-019): the <strong>Tauri desktop app</strong> (bundled-core sidecar, tray, native notifications) — old Track B; full spec retained in <code>~/.claude/plans/read-through-and-analyze-rippling-hanrahan.md</code>. Also deferred: <strong>PWA mobile</strong> (installable + push), further <strong>remote-access hardening</strong> (reverse proxy / Tailscale), and <strong>passkey/TOTP auth hardening</strong> (the Phase-1 → Phase-4 re-homing above — not shipped in the re-scoped Phase 4).</p>
+<p><strong>Update (2026-07-10) — the desktop app is now DELIVERED, re-scoped from Tauri to Electron.</strong> The bundled-core / tray / native-notification desktop app deferred above shipped as a <strong>Windows Electron app</strong> in a new <code>desktop/</code> workspace: core runs as a Node-20 child, the SPA is served same-origin, the shell auto-authenticates, and it installs via NSIS with unsigned auto-update from public GitHub Releases. See <strong>§15 Desktop App</strong> and <strong>D-089 → D-094</strong>. (PWA mobile, cross-platform builds, code-signing, and passkey/TOTP auth hardening remain deferred.)</p>
 <h2>Stabilization (Foundation) — reboot to a running org <em>(✓ 2026-06-30)</em></h2>
 <blockquote>
 <p>Before building the org (Phase 5), take K from "well-built substrate + parked work" to a solid, verified
@@ -3517,6 +3485,54 @@ of invented numbers).</p>
 <td><strong>E-12 folds the ~5 drifting health-score-&gt;color/label copies into ONE <code>healthRubric</code> (canonical thresholds &gt;=75 healthy / &gt;=50 warn / else critical / null unknown) consumed by every web health surface; glossary terms are extracted from the bible glossary section at <code>pnpm bible</code> COMPILE time into a committed generated module feeding a <code>GlossaryTerm</code> tooltip, guarded by a core-side drift test. The server <code>bible.ts liveHealth</code> 80-threshold is intentionally left unchanged.</strong></td>
 <td>One rubric means a threshold or palette change lands in a single place instead of drifting across ProjectCard/FleetGraph/ProjectVerification/ProjectWorkspace/verify; compile-time glossary extraction keeps tooltips in lockstep with the living spec at zero runtime cost with a drift guard; the server's distinct liveHealth threshold is a separate concern not swept in, to avoid changing server behavior.</td>
 <td>Per-site health color logic (drifts); a runtime glossary fetch (latency + another endpoint); silently changing the server 80 threshold to match web's 75 (an unrelated behavior change).</td>
+</tr>
+<tr>
+<td>D-089</td>
+<td>2026-07-10</td>
+<td>Electron over Tauri for the desktop app</td>
+<td><strong>Ship the desktop app as ELECTRON (electron-builder → NSIS + electron-updater); core is spawned as a Node-20 CHILD, not Electron's runtime.</strong></td>
+<td>Core is all-Node with native modules (better-sqlite3 / node-pty) and spawns CLIs, so one JS/Node toolchain fits and electron-builder gives installer + updater for free; the ABI smoke (Electron ABI 130 ≠ core's ABI 115) is handled by spawning core under a bundled Node-20 — avoiding electron-rebuild and keeping core's ABI-115 test suite intact (see §15).</td>
+<td>Tauri (a Rust toolchain plus a standalone node.exe sidecar whose ABI match Tauri itself flagged make-or-break); running core IN Electron's runtime + electron-rebuild (breaks the shared pnpm store and core's ABI-115 natives/tests).</td>
+</tr>
+<tr>
+<td>D-090</td>
+<td>2026-07-10</td>
+<td>Core serves the web SPA same-origin</td>
+<td><strong>Core serves <code>web/dist</code> via @fastify/static (gated on <code>K_WEB_DIST</code>) so the packaged app is ONE origin — relative <code>/api</code>, same-host WS — with the bundle public and the data plane token-gated.</strong></td>
+<td>One origin removes CORS and the build-frozen port entirely (the client's relative <code>/api</code> and <code>window.location</code> WS just work); the bundle already bakes no token, so making it public matches the existing Vite posture while every <code>/api/*</code>/<code>/ws*</code> route stays bearer/query-token gated (only public GET/HEAD assets are auth-exempt).</td>
+<td>Tauri hosting <code>web/dist</code> and repointing <code>/api</code> + WS (needs runtime port injection into the bundle); a cross-port core + CORS (more surface, build-frozen port).</td>
+</tr>
+<tr>
+<td>D-091</td>
+<td>2026-07-10</td>
+<td>Token handoff via IPC → auto-auth</td>
+<td><strong>The shell reads core's on-disk auth token and seeds it into the renderer's <code>sessionStorage['k.harnessToken']</code> via a SYNCHRONOUS IPC from a sandboxed preload, so the same-origin SPA auto-authenticates; the token never rides argv or the URL, and core's auth is unchanged.</strong></td>
+<td>The SPA already reads <code>sessionStorage['k.harnessToken']</code>, so seeding it from a sandboxed preload before the first API call gives a no-login desktop experience with zero core change; keeping the token off argv/URL (IPC only) closes the two easiest leak paths, and best-effort seeding degrades to the normal login screen on any failure.</td>
+<td>Baking a token into the bundle (a prod build bakes none by design — it would be a shipped secret); an in-app login screen (needless friction for a local single-user app).</td>
+</tr>
+<tr>
+<td>D-092</td>
+<td>2026-07-10</td>
+<td>Detect-&amp;-guide host prerequisites</td>
+<td><strong>A system doctor (<code>GET /api/system/doctor</code> + a Settings card) detects <code>claude</code>/<code>git</code>/<code>node</code> (required) and <code>gh</code>/<code>ollama</code> (optional); the non-redistributable <code>claude</code> CLI is guided-to-install, never bundled.</strong></td>
+<td>The agent engine is the host <code>claude</code> CLI and it is not redistributable, so the honest move is to detect + guide (with install URLs) and report <code>ok</code> only when every required tool is present; probes never throw (a missing tool is data), so first-run readiness is a clear checklist instead of a mystery failure.</td>
+<td>Bundling the agent engine (not redistributable); assume-installed (a rough, opaque first run when a prerequisite is missing).</td>
+</tr>
+<tr>
+<td>D-093</td>
+<td>2026-07-10</td>
+<td>Core relocatability via K_REPO_ROOT</td>
+<td><strong><code>REPO_ROOT</code>/<code>ARTIFACTS_DIR</code>/<code>WORKSPACE_DIR</code> honor a <code>K_REPO_ROOT</code> override, so a read-only install redirects writable repo-relative paths (<code>.worktrees</code>/artifacts/workspace) to a per-user writable runtime (seeded with the bible source on first run/version-change); agent-config stays read <code>__dirname</code>-relative from the read-only bundle.</strong></td>
+<td>A packaged install is read-only but core must write worktrees/artifacts, so one env override moves exactly the write paths to <code>&lt;userData&gt;/runtime</code> while read-only assets (agent-config, including skills) stay bundled and <code>__dirname</code>-relative — the smallest seam that makes core relocatable without copying the whole repo.</td>
+<td>Shipping/running from a writable copy of the entire repo (heavy, and pollutes user data); leaving paths <code>__dirname</code>-relative (every write fails under a read-only install).</td>
+</tr>
+<tr>
+<td>D-094</td>
+<td>2026-07-10</td>
+<td>Windows-first, unsigned, auto-update</td>
+<td><strong>Ship Windows-only and UNSIGNED with electron-updater against public GitHub Releases; trust = HTTPS-to-GitHub + the sha512 in <code>latest.yml</code> (NO signature backstop → the release pipeline must be protected); SmartScreen warnings accepted.</strong></td>
+<td>Proving the Windows install/tray/notification/update pattern end-to-end is the valuable first step, and an unsigned build still auto-updates (feed pinned at build time, sha512 pins the bytes) — provided the GitHub account/Actions pipeline that can publish a Release is locked down (2FA, branch protection, no direct-push releases), since that is the actual trust anchor.</td>
+<td>Code-signing now (a paid cert + notarization — deferred until the pattern is proven); no auto-update (manual re-download); cross-platform now (deferred until the Windows pattern is proven).</td>
 </tr>
 </tbody></table>
 
@@ -4556,6 +4572,115 @@ live tooltip component — edit here, then run <code>pnpm bible</code>.</p>
 <p><strong>Run Narrative</strong> — a per-run card whose deterministic goal, outcome, files, verification, and cost always render, plus up to three "generated" local-model Decisions and Risks bullets that are omitted when the model is unavailable.</p>
 <p><strong>Org Timeline</strong> — the org's activity history as one read-time union projection over run heads, review-ready notifications, verification results, and open PRs; a query, never a persisted feed table.</p>
 <p><strong>HealthRubric</strong> — the single canonical health-score rubric shared by every web surface: &gt;=75 healthy, &gt;=50 warn, else critical, null unknown.</p>
+
+    </section>
+
+    <section id="15-desktop-app" class="bible-section">
+      <header class="section-head">
+        <span class="section-icon">▣</span>
+        <h1>Desktop App</h1>
+        <span class="badge badge-green">stable</span>
+        <span class="section-updated mono">updated 2026-07-10</span>
+      </header>
+      <p>The K web app — <code>@k/core</code> (Fastify + better-sqlite3 + node-pty) and the <code>@k/web</code> React SPA — is packaged as a <strong>Windows Electron desktop app</strong> in a <code>desktop/</code> workspace. The shell owns nothing product-facing: it launches the <em>existing</em> core, opens the <em>existing</em> SPA on one origin, and adds the three things a desktop app buys that a browser tab cannot — a persistent tray process, native notifications, and one-click install + auto-update. The build ships Windows-first and <strong>unsigned</strong>; the <code>claude</code> CLI (the agent engine) is a detect-and-guide prerequisite, never bundled. Decisions D-089 → D-094.</p>
+<h2>Architecture</h2>
+<p>The shell is a thin supervisor. It picks a free loopback port, spawns core as an ordinary <strong>Node child process</strong> (not Electron's runtime — see the ABI note), waits for <code>/health</code>, reads the token core wrote to disk, opens a <code>BrowserWindow</code> on the same-origin app, and hands the token to a sandboxed preload over IPC. On quit it kills the core process tree so no <code>node.exe</code> orphans.</p>
+<pre><code>                         Electron main process (desktop/src/main.ts)
+                         ── picks free loopback port, owns lifecycle ──
+                                          │
+        ┌─────────────────────────────────┼──────────────────────────────────┐
+        │                                 │                                   │
+   spawn() a NODE child             BrowserWindow                        ws subscriber
+   (bundled Node-20, NOT       loads http://127.0.0.1:&lt;port&gt;/       (another /ws client)
+    Electron's runtime)          ├─ preload.ts (sandbox,                     │
+        │                        │   contextIsolation)                consumes E-19
+        ▼                        │   ── IPC k:config:sync ──►         notification
+  ┌───────────────┐              │   seeds sessionStorage             envelopes
+  │  @k/core       │◄────────────┘   ['k.harnessToken']                   │
+  │  Fastify on    │  same origin:                                        ▼
+  │  127.0.0.1     │  relative /api (bearer) + /ws (query-token)   native OS toast
+  │  serves        │  no CORS, no cross-port wiring                (window hidden only)
+  │  web/dist via  │
+  │  @fastify/     │           System tray ── Show/Hide/Quit, close-to-tray
+  │  static (W1)   │
+  └───────┬───────┘           electron-updater ──► GitHub Releases (latest.yml + sha512)
+          │
+   spawns claude / git / gh / npx gitnexus  (host prerequisites — doctor-checked, not bundled)
+</code></pre>
+<p><strong>Why core is a Node child, not Electron's runtime (the make-or-break decision).</strong> Electron 38's bundled Node reports <strong>ABI 130</strong>; core's <code>better-sqlite3</code> prebuild is compiled for Node 20's <strong>ABI 115</strong>. Running core inside Electron's runtime would demand <code>electron-rebuild</code> of every native module — which also mis-walks the shared pnpm store — and would fork core's natives (and its whole test suite) onto a second ABI. Instead the shell <code>spawn()</code>s core under a <strong>Node-20 runtime</strong> (the system <code>node</code> in dev; a <strong>bundled Node-20</strong> at <code>&lt;resources&gt;/node/node.exe</code> in the packaged app), so core keeps exactly the ABI-115 binaries and tests it already has. The runtime is one seam: <code>K_NODE_BIN</code> overrides it in either mode. Electron is pinned to <strong>38.8.6</strong> — a CVE-current line that installs cleanly under pnpm (43 broke on <code>@electron/get@5</code>'s ESM postinstall).</p>
+<h2>Same-origin serving (W1)</h2>
+<p>Core serves the built SPA itself when <code>K_WEB_DIST</code> points at a <code>web/dist</code> that actually contains <code>index.html</code> (<code>core/src/web-static.ts::resolveWebDist</code>, via <code>@fastify/static</code> with an SPA fallback). The packaged app is therefore <strong>one origin</strong>: the browser loads the bundle from core, the client's relative <code>/api</code> and <code>window.location</code>-based <code>/ws</code> just work, and there is no CORS or build-frozen port. There is no filesystem auto-detection — serving is triggered <em>only</em> by the explicit env var, so core's tests never flip into static-serving mode because a stray <code>web/dist</code> sits on disk.</p>
+<p>The security line is unchanged from Vite serving the bundle: the <strong>SPA bundle is public</strong> (a prod <code>vite build</code> bakes no token), and the <strong>data plane stays gated</strong> — every <code>/api/*</code> route is bearer-checked and <code>/ws*</code> is query-token-checked. The auth hook exempts only public read (<code>GET</code>/<code>HEAD</code>) asset paths that are <em>not</em> under <code>/api</code> or <code>/ws</code> (<code>isPublicAssetPath</code>). A latent build bug was fixed on the way: core now emits a flat <code>dist/index.js</code> (a <code>core/tsconfig.build.json</code> resolves <code>@k/shared</code> to its built <code>.d.ts</code>), guarded by <code>scripts/check-dist-layout.mjs</code>.</p>
+<h2>Token handoff + auto-auth</h2>
+<p>Core generates a strong bearer token on first run and persists it to <code>&lt;dataDir&gt;/auth-token</code>. The shell forces <code>HARNESS_TOKEN=''</code> in the child env (core owns the token; the shell never injects one) and sets <code>K_SUPPRESS_TOKEN_PRINT=1</code> so core skips its first-run token banner. After <code>/health</code> passes, the shell reads the token from disk and holds it in the main process.</p>
+<p>When the window loads, the <strong>sandboxed preload</strong> (<code>desktop/src/preload.ts</code>, <code>contextIsolation</code> + <code>sandbox</code>, no Node in the page) asks main for the token over a <strong>synchronous</strong> IPC (<code>k:config:sync</code>) — synchronous so it lands before the SPA's first API call — and seeds it into <code>sessionStorage['k.harnessToken']</code>, the exact key <code>web/src/lib/auth.ts</code> reads. The same-origin SPA then <strong>auto-authenticates with no login screen</strong>. The token rides IPC only — never argv, never the URL — and the whole path is best-effort: if anything throws, the SPA falls back to its normal login screen. The preload also exposes a read-only <code>window.__K_DESKTOP__</code> flag so the web knows it is inside the shell (see Notifications). No core auth change was needed.</p>
+<h2>System doctor (W2)</h2>
+<p><code>GET /api/system/doctor</code> (<code>core/src/system-doctor.ts</code>) probes the host tools K depends on and a Settings <strong>"System requirements"</strong> card renders the result. Required: <code>claude</code>, <code>git</code>, <code>node</code>. Optional: <code>gh</code>, <code>ollama</code> (K degrades gracefully without them). Each tool is checked with a short-timeout <code>--version</code> call; ENOENT / non-zero exit / timeout all collapse to "absent" — a missing tool is <em>data</em>, never an error — and the report is <code>ok</code> iff every required tool is present. A pure <code>buildDoctorReport</code> builder keeps the shape unit-testable without depending on what CI has installed; results are TTL-cached so polling doesn't respawn processes.</p>
+<p><strong>Why <code>claude</code> is not bundled.</strong> The <code>claude</code> CLI <em>is</em> the agent engine, and it is <strong>not redistributable</strong>. So the app detects it and guides installation + authentication (with the official install URL) rather than shipping it. <code>node</code> stays a listed prerequisite even though core is bundled — the <code>claude</code> CLI and <code>npx gitnexus</code> both need a host Node, and it is the doctor-checked runtime.</p>
+<h2>Tray + notifications</h2>
+<p>The window <strong>closes to the system tray</strong> rather than quitting (agent runs keep going in the background); the tray menu offers Show/Hide/Quit, and real quit sets an <code>isQuitting</code> flag first so <code>before-quit</code> can kill core. Because the main process stays alive with the window hidden, the shell is the right place to raise notifications a browser tab could not.</p>
+<p>Notifications are <strong>coordinated with E-19</strong>, not reinvented. The shell subscribes to core's <code>/ws</code> as just another client and reads core's existing <code>type:'notification'</code> envelopes — which have <strong>already</strong> applied the operator's per-event rules and deduped on status transition (<code>core/src/notify.ts</code>). It raises a native OS toast only when the envelope's resolved <code>browser</code> channel is on <strong>and</strong> the window is hidden/unfocused (mirroring E-19's foreground rule — the in-app center owns the foreground). To avoid double toasts, the <strong>desktop shell is the single native-notification authority</strong>: the renderer's browser-notification leg stands down when it sees <code>window.__K_DESKTOP__</code> (<code>web/src/lib/notifications</code>). Windows toasts render under a stable AppUserModelID <code>com.k.desktop</code> (set before any notification, and backed by the installer's Start-Menu shortcut).</p>
+<h2>Relocatability (W5)</h2>
+<p>A packaged install is <strong>read-only</strong>, but core writes to several repo-relative paths (<code>.worktrees</code>, artifacts, workspace). So <code>REPO_ROOT</code> / <code>ARTIFACTS_DIR</code> / <code>WORKSPACE_DIR</code> honor a <strong><code>K_REPO_ROOT</code></strong> env override, and the desktop shell points it at a <strong>writable <code>&lt;userData&gt;/runtime</code></strong>. On first run (and after a version change) the shell <strong>seeds</strong> that runtime with the bundled bible source so core can compile and serve it; the seed is idempotent and versioned (an upgrade refreshes the sections without clobbering the user's runtime on every launch). Read-only <strong>agent-config</strong> is the deliberate exception: it stays read <code>__dirname</code>-relative to the bundled <code>&lt;resources&gt;/agent-config</code> (including <code>skills.ts</code> / <code>skill-creator.ts</code>, repointed off <code>REPO_ROOT</code>), so it is never seeded into the writable runtime. In dev <code>K_REPO_ROOT</code> is unset and core keeps its in-repo default.</p>
+<h2>Packaging, build, release, and update</h2>
+<p><code>desktop/scripts/prepackage.mjs</code> stages a portable core into <code>desktop/staging/</code> via <strong><code>pnpm deploy --config.node-linker=hoisted --config.inject-workspace-packages=true</code></strong> — pnpm's <em>injected</em> deploy, <strong>not</strong> <code>--legacy</code> (legacy re-resolves from scratch, ignores the lockfile, and drifts <code>htmlparser2</code>/<code>sanitize-html</code> to an ESM build core then can't <code>require()</code>, crashing it at boot). Alongside the deployed core it stages the built SPA (<code>web/dist</code>), read-only <code>agent-config</code>, the bible source, and a <strong>bundled Node-20</strong> runtime (<code>K_BUNDLE_NODE</code> wins, else the current runtime iff it is Node 20, else a hard error — the ABI must be right).</p>
+<p><code>electron-builder.yml</code> then builds a <strong>per-user NSIS installer</strong> (desktop + Start-Menu shortcuts — the shortcut is what lets Windows toasts render under <code>com.k.desktop</code>) with <code>npmRebuild: false</code> (the Electron main process uses no native modules; the natives live in the staged core under Node-20). Resources land at <code>&lt;resources&gt;/{core, web/dist, agent-config, artifacts/bible, node/node.exe}</code>, which <code>main.ts::resourcesRoot()</code> resolves via <code>process.resourcesPath</code>.</p>
+<p>Scripts (note: a bare <code>pnpm pack</code> hits pnpm's builtin tarball command — always use <code>run</code>):</p>
+<ul>
+<li><code>pnpm --filter @k/desktop run pack</code> — prepackage + <code>electron-builder --dir</code> (unpacked app dir; the CI smoke).</li>
+<li><code>pnpm --filter @k/desktop run dist</code> — prepackage + full NSIS build → <code>K Setup &lt;version&gt;.exe</code> + <code>latest.yml</code>.</li>
+</ul>
+<p><strong>VERIFIED:</strong> the packaged <code>K.exe</code> boots core, serves loopback (<code>/health</code> + <code>/</code> → 200), and leaves <strong>0 orphans</strong>; <code>dist</code> produces <code>K Setup 0.0.1.exe</code> + <code>latest.yml</code>.</p>
+<p><strong>CI / release (W6).</strong> <code>ci.yml</code> gained a <code>desktop-build</code> job (windows-latest, on main + PRs) running <code>run pack</code>. A new <code>release.yml</code> triggers on <code>v*</code> tags, builds the NSIS installer, and publishes it <strong>plus <code>latest.yml</code></strong> to a GitHub Release. <code>latest.yml</code> is the electron-updater feed: on launch the packaged app calls <code>checkForUpdatesAndNotify</code>, which compares versions, downloads a newer installer, verifies its <strong>sha512</strong> against <code>latest.yml</code>, and installs on next quit (best-effort — offline / no-release / unsigned quirks are logged, never fatal).</p>
+<h2>Trust model + caveats</h2>
+<p>Be honest about what this build is and isn't:</p>
+<ul>
+<li><strong>Windows-only, unsigned.</strong> No code-signing certificate, so the first install shows a <strong>SmartScreen / Defender</strong> warning (accepted; "More info → Run anyway").</li>
+<li><strong>The auto-update trust anchor is HTTPS-to-GitHub plus the sha512 in <code>latest.yml</code> — there is NO signature backstop.</strong> The feed's owner/repo is hardcoded at build time (not attacker-influenceable at runtime), and the sha512 pins the exact bytes, but an unsigned build cannot prove <em>who</em> built them. Therefore <strong>whoever can publish a Release on <code>ckbraun2003/K</code> controls the update channel</strong>. Locking that pipeline down — 2FA, branch protection, no direct-push releases — <strong>is</strong> the update channel's security perimeter.</li>
+<li><strong>Node 20 is a prerequisite even though core is bundled.</strong> The bundled Node runs core, but the <code>claude</code> CLI and <code>npx gitnexus</code> still need a host Node, and it is the doctor-checked runtime.</li>
+<li><strong>Accepted limitation — unscoped K-self runs.</strong> In the packaged app, an unscoped <strong>K-self</strong> run (no project selected) executes in the non-git writable runtime dir, so it runs <strong>without worktree isolation or the plan gate</strong>. Scoped runs on registered projects are unaffected (they run in their own repo worktrees). This is a known, accepted edge, not a regression of the project-run path.</li>
+</ul>
+<h2>Key files</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>desktop/src/main.ts</code></td>
+<td>Electron main: lifecycle, spawn core, window hardening, tray, updater, kill-tree</td>
+</tr>
+<tr>
+<td><code>desktop/src/preload.ts</code></td>
+<td>Sandboxed preload: sync-IPC token → <code>sessionStorage</code>, <code>__K_DESKTOP__</code> flag</td>
+</tr>
+<tr>
+<td><code>desktop/src/core-launcher.ts</code></td>
+<td>Pure helpers: free port, child env (<code>K_WEB_DIST</code>/<code>K_REPO_ROOT</code>/<code>K_NODE_BIN</code>/token), nav allowlist</td>
+</tr>
+<tr>
+<td><code>desktop/src/notifications.ts</code></td>
+<td>Pure E-19-envelope → native-toast decision + tray menu + <code>/ws</code> URL</td>
+</tr>
+<tr>
+<td><code>desktop/scripts/prepackage.mjs</code></td>
+<td>Stage portable core (pnpm injected deploy) + Node-20 + web/dist + agent-config + bible</td>
+</tr>
+<tr>
+<td><code>desktop/electron-builder.yml</code></td>
+<td>NSIS build config, extraResources layout, GitHub publish</td>
+</tr>
+<tr>
+<td><code>core/src/web-static.ts</code></td>
+<td>Same-origin serving: <code>resolveWebDist</code>, <code>isPublicAssetPath</code></td>
+</tr>
+<tr>
+<td><code>core/src/system-doctor.ts</code></td>
+<td>Host prerequisite detection (<code>GET /api/system/doctor</code>)</td>
+</tr>
+</tbody></table>
 
     </section>
   </main>
