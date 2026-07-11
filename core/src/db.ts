@@ -2591,8 +2591,10 @@ export const memoriesDb = {
   insertMemory: db.prepare(`
     INSERT INTO user_memories (id, content, source_thread_id, created_at, updated_at)
     VALUES (@id, @content, @sourceThreadId, @createdAt, @updatedAt)`),
-  listMemories: db.prepare(`SELECT * FROM user_memories ORDER BY updated_at DESC`),
-  listRecentMemories: db.prepare(`SELECT * FROM user_memories ORDER BY updated_at DESC LIMIT ?`),
+  // rowid DESC tiebreak: two rows written in the same millisecond would otherwise
+  // order nondeterministically (latest-inserted wins ties).
+  listMemories: db.prepare(`SELECT * FROM user_memories ORDER BY updated_at DESC, rowid DESC`),
+  listRecentMemories: db.prepare(`SELECT * FROM user_memories ORDER BY updated_at DESC, rowid DESC LIMIT ?`),
   getMemory: db.prepare(`SELECT * FROM user_memories WHERE id = ?`),
   updateMemory: db.prepare(`UPDATE user_memories SET content = @content, updated_at = @updatedAt WHERE id = @id`),
   deleteMemory: db.prepare(`DELETE FROM user_memories WHERE id = ?`),
