@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto'
 import {
   KAskBodySchema,
   KUndoBodySchema,
+  KThreadCreateBodySchema,
+  KThreadPatchBodySchema,
   WorkItemStatusSchema,
   DurableWorkItemScopeSchema,
   KWorkItemCreateBodySchema,
@@ -11,8 +13,18 @@ import {
   type WorkItemStatus,
   type DurableWorkItemScope,
 } from '@k/shared'
-import { askK, undoK, ensureDefaultKThread, listKThreadTurns } from '../k-thread.js'
-import { workItemsDb, logisticsDb, runsDb } from '../db.js'
+import {
+  askK,
+  undoK,
+  getKThread,
+  createKThread,
+  resolveAskThread,
+  rowToKThread,
+  listKThreadTurns,
+  KThreadNotFoundError,
+} from '../k-thread.js'
+import { workItemsDb, logisticsDb, runsDb, kThreadsDb } from '../db.js'
+import { isTerminalRunStatus } from '../run-lifecycle.js'
 import { rowToWorkItem } from '../mcp/k-store.js'
 import { rowToNote, rowToCalendarEvent, rowToReminder } from '../mcp/logistics.js'
 import { sendError, sendZodError } from './http-errors.js'
@@ -26,10 +38,18 @@ const GLANCE_LIST_LIMIT = 20
 type Row = Record<string, unknown>
 
 /**
- * The "talk to K" front door (P5.1c, D-023) + the durable work-items surface (A1)
- * + the K-home glance reads (C2):
- *   POST  /api/k/ask            — activate K on a message (warm or fresh), returns KAskResult
- *   GET   /api/k/thread         — the durable K thread + its turns (the source of truth)
+ * The "talk to K" front door (P5.1c, D-023) + multi-thread K (UI Simplification) +
+ * the durable work-items surface (A1) + the K-home glance reads (C2):
+ *   POST  /api/k/ask            — activate K on a message (warm or fresh); accepts an
+ *                                  optional threadId (404 unknown); returns KAskResult
+ *   GET   /api/k/thread         — LEGACY (kept until Task 18): the most-recent
+ *                                  non-archived thread + its turns
+ *   GET   /api/k/threads        — list threads (?archived=1 includes archived), newest first
+ *   GET   /api/k/threads/:id    — a thread + its turns, oldest-first (404 unknown)
+ *   POST  /api/k/threads        — create an empty thread (title backfilled on first ask)
+ *   PATCH /api/k/threads/:id    — rename and/or archive/unarchive (404 unknown)
+ *   DELETE /api/k/threads/:id   — delete a thread + its turns (404 unknown; 409 while its
+ *                                  active run is non-terminal)
  *   GET   /api/k/work-items     — the DURABLE operator-global work items (personal + org)
  *   POST  /api/k/work-items     — create a durable operator-global work item
  *   PATCH /api/k/work-items/:id — set a durable work item's status
@@ -56,9 +76,11 @@ export async function kRoutes(app: FastifyInstance) {
       const result = await askK(parsed.data.message, {
         forceRoute: parsed.data.forceRoute,
         model: parsed.data.model,
+        threadId: parsed.data.threadId,
       })
       return reply.status(201).send(result)
     } catch (e) {
+      if (e instanceof KThreadNotFoundError) return sendError(reply, 404, 'thread not found')
       req.log.error(e)
       return sendError(reply, 500, 'k ask failed')
     }
@@ -81,16 +103,105 @@ export async function kRoutes(app: FastifyInstance) {
     }
   })
 
-  // GET /api/k/thread — the durable thread + turns (survives reload). Wrapped like
-  // the POST handler so a DB fault surfaces as a typed 500, not a raw stack.
+  // GET /api/k/thread — LEGACY, kept alive until Task 18 removes it: the
+  // most-recent non-archived thread + its turns (was the singleton default
+  // thread pre-multi-thread; resolveAskThread keeps old consumers on the newest
+  // active conversation instead). Wrapped like the POST handler so a DB fault
+  // surfaces as a typed 500, not a raw stack.
   app.get('/api/k/thread', async (req, reply) => {
     try {
-      const thread = ensureDefaultKThread()
+      const thread = resolveAskThread()
       const turns = listKThreadTurns(thread.id)
       return reply.send({ thread, turns })
     } catch (e) {
       req.log.error(e)
       return sendError(reply, 500, 'k thread read failed')
+    }
+  })
+
+  // GET /api/k/threads?archived=1 — list threads, newest-updated first
+  // (kThreadsDb.listThreads orders by updated_at DESC); default excludes archived
+  // threads. Each row carries a snippet/lastTurnAt preview (latest turn) so a
+  // thread-list UI never needs a per-row turns fetch just to render one.
+  app.get<{ Querystring: { archived?: string } }>('/api/k/threads', async (req, reply) => {
+    try {
+      const includeArchived = req.query.archived === '1'
+      const rows = kThreadsDb.listThreads.all() as Row[]
+      const threads = rows
+        .filter(r => includeArchived || r.archived_at == null)
+        .map(r => ({
+          ...rowToKThread(r),
+          snippet: (r.snippet as string | null) ?? null,
+          lastTurnAt: (r.last_turn_at as number | null) ?? null,
+        }))
+      return reply.send({ threads })
+    } catch (e) {
+      req.log.error(e)
+      return sendError(reply, 500, 'threads read failed')
+    }
+  })
+
+  // GET /api/k/threads/:id — a single thread + its turns, oldest-first. 404 unknown id.
+  app.get<{ Params: { id: string } }>('/api/k/threads/:id', async (req, reply) => {
+    try {
+      const thread = getKThread(req.params.id)
+      if (!thread) return sendError(reply, 404, 'not found')
+      return reply.send({ thread, turns: listKThreadTurns(req.params.id) })
+    } catch (e) {
+      req.log.error(e)
+      return sendError(reply, 500, 'thread read failed')
+    }
+  })
+
+  // POST /api/k/threads — create an empty thread (title null; askK backfills it
+  // from the operator's first message on that thread). 201 KThread.
+  app.post('/api/k/threads', async (req, reply) => {
+    const parsed = KThreadCreateBodySchema.safeParse(req.body ?? {})
+    if (!parsed.success) return sendZodError(reply, parsed.error)
+    try {
+      return reply.status(201).send(createKThread())
+    } catch (e) {
+      req.log.error(e)
+      return sendError(reply, 500, 'thread create failed')
+    }
+  })
+
+  // PATCH /api/k/threads/:id — rename and/or archive/unarchive. F-022 ordering:
+  // body validated FIRST (400), THEN existence checked (404). 200 KThread.
+  app.patch<{ Params: { id: string } }>('/api/k/threads/:id', async (req, reply) => {
+    const parsed = KThreadPatchBodySchema.safeParse(req.body)
+    if (!parsed.success) return sendZodError(reply, parsed.error)
+    try {
+      const { id } = req.params
+      if (!getKThread(id)) return sendError(reply, 404, 'not found')
+      if (parsed.data.title !== undefined) kThreadsDb.setThreadTitle.run(parsed.data.title, Date.now(), id)
+      if (parsed.data.archived !== undefined) {
+        kThreadsDb.setThreadArchived.run(parsed.data.archived ? Date.now() : null, Date.now(), id)
+      }
+      return reply.send(getKThread(id))
+    } catch (e) {
+      req.log.error(e)
+      return sendError(reply, 500, 'thread update failed')
+    }
+  })
+
+  // DELETE /api/k/threads/:id — 404 unknown · 409 while the thread's active run is
+  // still non-terminal (killing the thread out from under a live run would strand
+  // it) · 204 on success. k_thread_turns cascades via FK ON DELETE CASCADE.
+  app.delete<{ Params: { id: string } }>('/api/k/threads/:id', async (req, reply) => {
+    try {
+      const { id } = req.params
+      const thread = getKThread(id)
+      if (!thread) return sendError(reply, 404, 'not found')
+      if (thread.activeRunId) {
+        const run = runsDb.getRun.get(thread.activeRunId) as { status?: string } | undefined
+        if (run && !isTerminalRunStatus(run.status)) return sendError(reply, 409, 'thread has a live run')
+      }
+      kThreadsDb.deleteThread.run(id) // turns cascade via FK ON DELETE CASCADE
+      return reply.status(204).send()
+    } catch (e) {
+      req.log.error(e)
+      return sendError(reply, 500, 'thread delete failed')
     }
   })
 
