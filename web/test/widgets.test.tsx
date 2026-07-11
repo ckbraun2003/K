@@ -245,6 +245,15 @@ describe('widget catalog', () => {
     await waitFor(() => expect(widget.textContent).toMatch(/\$0\b/))
   })
 
+  it('CostTodayWidget: a cost-rollup fetch failure surfaces the error state, never a fake $0', async () => {
+    mockCostRollup.mockRejectedValue(new Error('rollup down'))
+    const { container } = renderWidget(<CostTodayWidget />)
+    expect(await screen.findByTestId('widget-cost-today-error')).toBeTruthy()
+    // A failed fetch must be visually distinguishable from an honest zero-spend
+    // day (D-026): no dollar figure at all, not a fabricated $0.0000.
+    expect(container.textContent).not.toMatch(/\$/)
+  })
+
   it('PersonalTasksWidget: add + toggle call api.k.workItems', async () => {
     mockWiList.mockResolvedValue([
       { id: 'wi1', runId: null, title: 'triage PR #42', body: null, status: 'open', scope: 'personal', createdAt: 1, updatedAt: 1 },
@@ -278,9 +287,13 @@ describe('widget catalog', () => {
     renderWidget(<ProjectHealthWidget />)
 
     expect(await screen.findByTestId('widget-project-health-dot-p1')).toBeTruthy()
-    expect(screen.getByTestId('widget-project-health-dot-p1').className).toContain(healthRubric(90).dot)
-    expect(screen.getByTestId('widget-project-health-dot-p2').className).toContain(healthRubric(60).dot)
-    expect(screen.getByTestId('widget-project-health-dot-p3').className).toContain(healthRubric(20).dot)
+    // Each row renders the CANONICAL <HealthRubric> component (data-testid
+    // "health-rubric", dot = its first inner span), not hand-rolled spans.
+    const dotClass = (id: string) => within(screen.getByTestId(`widget-project-health-dot-${id}`))
+      .getByTestId('health-rubric').querySelector('span')!.className
+    expect(dotClass('p1')).toContain(healthRubric(90).dot)
+    expect(dotClass('p2')).toContain(healthRubric(60).dot)
+    expect(dotClass('p3')).toContain(healthRubric(20).dot)
     // The three bands must actually differ in color (never a flat/uniform dot).
     expect(healthRubric(90).dot).not.toBe(healthRubric(60).dot)
     expect(healthRubric(60).dot).not.toBe(healthRubric(20).dot)
@@ -295,7 +308,8 @@ describe('widget catalog', () => {
     ] satisfies Project[])
     renderWidget(<ProjectHealthWidget />)
     expect(await screen.findByTestId('widget-project-health-dot-p1')).toBeTruthy()
-    expect(screen.getByTestId('widget-project-health-dot-p1').className).toContain(healthRubric(null).dot)
+    const rubric = within(screen.getByTestId('widget-project-health-dot-p1')).getByTestId('health-rubric')
+    expect(rubric.querySelector('span')!.className).toContain(healthRubric(null).dot)
   })
 
   // ── Thin render-smoke coverage for the remaining widgets ──────────────────
