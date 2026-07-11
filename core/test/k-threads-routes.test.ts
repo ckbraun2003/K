@@ -171,3 +171,41 @@ describe('GET /api/k/thread (legacy)', () => {
     expect(res.json().thread.archivedAt).toBeNull()
   })
 })
+
+describe('askK fallback un-archive (review fix)', () => {
+  it('ask with no threadId after archiving EVERY thread un-archives the resolved thread (message never lands hidden)', async () => {
+    // Archive everything that exists so the fallback branch is the only path left.
+    const archiveAll = async () => {
+      const all = (await app.inject({ method: 'GET', url: '/api/k/threads?archived=1', headers: AUTH })).json()
+        .threads as Array<{ id: string }>
+      for (const t of all) {
+        await app.inject({ method: 'PATCH', url: `/api/k/threads/${t.id}`, headers: AUTH, payload: { archived: true } })
+      }
+    }
+    await archiveAll()
+    // With zero non-archived threads the legacy route falls back to the default
+    // thread, CREATING it (fresh, unarchived) — then archive that too, so the
+    // default thread now EXISTS in the archived state (the bug's precondition).
+    const def = (await app.inject({ method: 'GET', url: '/api/k/thread', headers: AUTH })).json().thread
+    await archiveAll()
+    expect(
+      (db.prepare(`SELECT archived_at FROM k_threads WHERE id = ?`).get(def.id) as { archived_at: number | null })
+        .archived_at,
+    ).not.toBeNull()
+
+    const ask = await app.inject({
+      method: 'POST', url: '/api/k/ask', headers: AUTH,
+      payload: { message: 'hello after archiving everything' },
+    })
+    expect(ask.statusCode).toBe(201)
+    const askedThreadId = ask.json().kThreadId as string
+    // (a) the resolved thread is live again…
+    const thread = (await app.inject({ method: 'GET', url: `/api/k/threads/${askedThreadId}`, headers: AUTH })).json()
+      .thread
+    expect(thread.archivedAt).toBeNull()
+    // (b) …and therefore visible in the default (non-archived) list.
+    const visible = (await app.inject({ method: 'GET', url: '/api/k/threads', headers: AUTH })).json()
+      .threads as Array<{ id: string }>
+    expect(visible.some(t => t.id === askedThreadId)).toBe(true)
+  })
+})

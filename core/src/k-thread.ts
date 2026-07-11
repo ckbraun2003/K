@@ -118,6 +118,9 @@ export function createKThread(): KThread {
  * thread (kThreadsDb.listThreads is already updated_at DESC), falling back to
  * {@link ensureDefaultKThread} when there is no such thread (a wholly empty/all-
  * archived DB) — so a fresh install's first ask still works with zero threads.
+ * If that fallback lands on an ARCHIVED default thread (possible once PATCH can
+ * archive any thread), it is un-archived first: a thread receiving new activity
+ * must be visible in the non-archived list, or the message would land hidden.
  */
 export function resolveAskThread(threadId?: string): KThread {
   if (threadId) {
@@ -127,7 +130,11 @@ export function resolveAskThread(threadId?: string): KThread {
   }
   const rows = kThreadsDb.listThreads.all() as Array<{ id: string; archived_at: number | null }>
   const recent = rows.find(r => r.archived_at == null)
-  return recent ? getKThread(recent.id)! : ensureDefaultKThread()
+  if (recent) return getKThread(recent.id)!
+  const fallback = ensureDefaultKThread()
+  if (fallback.archivedAt == null) return fallback
+  kThreadsDb.setThreadArchived.run(null, Date.now(), fallback.id)
+  return getKThread(fallback.id)!
 }
 
 /** The thread's turns, oldest-first. */
