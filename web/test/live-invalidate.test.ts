@@ -21,7 +21,9 @@ const terminalRunUpdate = { type: 'run_update', run: { status: 'done' } as never
 const runningRunUpdate = { type: 'run_update', run: { status: 'running' } as never } as WsMessage
 
 const ORG_KEYS = ['chief-org', 'orchestrators', 'orchestrator'] as const
-const K_KEYS = ['k-thread', 'k-notes', 'k-schedule', 'k-work-items'] as const
+// UI Simplification Task 7 added 'k-threads' / 'user-memories' / 'notifications' to
+// the same terminal-only branch as the pre-existing four K-home keys.
+const K_KEYS = ['k-thread', 'k-notes', 'k-schedule', 'k-work-items', 'k-threads', 'user-memories', 'notifications'] as const
 
 function keyCounts(spy: ReturnType<typeof vi.fn>) {
   const counts: Record<string, number> = {}

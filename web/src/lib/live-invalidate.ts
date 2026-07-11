@@ -20,6 +20,11 @@ const TERMINAL_RUN_STATUSES = new Set<RunStatus>(['done', 'error', 'killed', 'in
  *    a k-turn (its reply / a Chief report-back), so K-authored changes surface live on
  *    K-home instead of only on the next reload (F-059). Gated on terminal (not every
  *    streaming tick) so a chatty run doesn't re-fetch these on each event.
+ *  - also on TERMINAL (UI Simplification Task 7): ['k-threads'] (the thread list —
+ *    a completed ask may have created/renamed/appended to a thread), ['user-memories']
+ *    (a memory_save tool call lands in the same run), and ['notifications'] (so a
+ *    cross-process memory_saved notification surfaces without needing its own WS
+ *    broadcast).
  *  - the org keys — ['chief-org'] (Chief tree), ['orchestrators'] (roster), and the
  *    ['orchestrator'] prefix (every ['orchestrator', id] detail) — are invalidated
  *    THROTTLED: the leading edge fires immediately; further messages inside the
@@ -55,6 +60,9 @@ export function makeRunUpdateInvalidator(
       void qc.invalidateQueries({ queryKey: ['k-notes'] })
       void qc.invalidateQueries({ queryKey: ['k-schedule'] })
       void qc.invalidateQueries({ queryKey: ['k-work-items'] })
+      void qc.invalidateQueries({ queryKey: ['k-threads'] })
+      void qc.invalidateQueries({ queryKey: ['user-memories'] })
+      void qc.invalidateQueries({ queryKey: ['notifications'] })
     }
     if (timer === null) {
       // Leading edge — invalidate now, then open the coalescing window.
