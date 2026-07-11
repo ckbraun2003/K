@@ -47,6 +47,7 @@ function rowToKThread(r: Row): KThread {
     title: r.title == null ? null : String(r.title),
     status: r.status as KThread['status'],
     activeRunId: r.active_run_id == null ? null : String(r.active_run_id),
+    archivedAt: r.archived_at == null ? null : Number(r.archived_at),
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
   }
