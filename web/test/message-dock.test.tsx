@@ -34,6 +34,15 @@ vi.mock('../src/lib/api', () => ({
     // list unconditionally like CommandBar does — empty by default here since none
     // of these tests exercise the @ flow (see message-dock-dispatch.test.tsx).
     projects: { list: async () => [] },
+    // Task 9 review fix: the dispatch card's model picker is Ollama-aware, so the
+    // dock also queries ['status'] — offline stub keeps the static option labels.
+    status: async () => ({
+      claude: { available: true },
+      ollama: { enabled: false, reachable: false, baseUrl: '', model: '' },
+      github: { authenticated: false },
+      auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'managed' },
+      voice: { enabled: false, reachable: false, baseUrl: '', model: '' },
+    }),
     claudeModel: {
       get: async () => ({
         model: 'claude-sonnet-4-6',

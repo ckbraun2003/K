@@ -12,6 +12,7 @@ import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MotionGlobalConfig } from 'framer-motion'
 import { routeForMessage } from '@k/shared'
+import type { Status } from '@k/shared'
 
 // framer-motion's rAF frameloop can stall a test — mirrors message-dock.test.tsx's
 // guard so the confirm card's AnimatePresence mount/exit is synchronous.
@@ -22,13 +23,24 @@ const PROJECTS = [
   { id: 'p2', name: 'Other', localPath: 'C:/tmp/other' },
 ]
 
-const { mockThreadsList, mockAsk, mockProjectsList, mockRunsStart, mockNavigate, mockInbox } = vi.hoisted(() => ({
+// Default status: Ollama off → the picker's static "Ollama (local)" label
+// (mirrors command-bar-plan-gate.test.tsx's statusValue shape).
+const STATUS_OLLAMA_OFF: Status = {
+  claude: { available: true },
+  ollama: { enabled: false, reachable: false, baseUrl: '', model: '' },
+  github: { authenticated: false },
+  auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'managed' },
+  voice: { enabled: false, reachable: false, baseUrl: '', model: '' },
+}
+
+const { mockThreadsList, mockAsk, mockProjectsList, mockRunsStart, mockNavigate, mockInbox, mockStatus } = vi.hoisted(() => ({
   mockThreadsList: vi.fn(),
   mockAsk: vi.fn(),
   mockProjectsList: vi.fn(),
   mockRunsStart: vi.fn(),
   mockNavigate: vi.fn(),
   mockInbox: vi.fn(),
+  mockStatus: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
@@ -37,6 +49,7 @@ vi.mock('../src/lib/api', () => ({
     k: { ask: mockAsk, undo: vi.fn() },
     projects: { list: mockProjectsList },
     runs: { start: mockRunsStart },
+    status: mockStatus,
     claudeModel: {
       get: async () => ({
         model: 'claude-sonnet-4-6',
@@ -79,6 +92,8 @@ beforeEach(() => {
   mockNavigate.mockClear()
   mockInbox.mockReset()
   mockInbox.mockResolvedValue({ items: [], counts: {}, total: 0 })
+  mockStatus.mockReset()
+  mockStatus.mockResolvedValue(STATUS_OLLAMA_OFF)
 })
 afterEach(() => {
   cleanup()
@@ -153,5 +168,23 @@ describe('MessageDock dispatch semantics', () => {
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-xyz'))
     await waitFor(() => expect(screen.queryByTestId('dock-dispatch-card')).toBeNull())
+  })
+
+  it('model picker surfaces the live Ollama model from the status query', async () => {
+    mockStatus.mockResolvedValue({
+      ...STATUS_OLLAMA_OFF,
+      ollama: { enabled: true, reachable: true, baseUrl: 'http://127.0.0.1:11434', model: 'llama3.2' },
+    })
+    renderDock('bar')
+    await openDispatchConfirm()
+
+    const select = screen.getByTestId('dock-dispatch-model') as HTMLSelectElement
+    // The status query resolves async — wait for the live label to land.
+    await waitFor(() => {
+      expect(Array.from(select.options).map(o => o.textContent)).toContain('Ollama · llama3.2')
+    })
+    // The VALUE stays 'ollama' so modelChoiceToOpts still maps it to preferLocal.
+    const ollamaOpt = Array.from(select.options).find(o => o.textContent === 'Ollama · llama3.2')
+    expect(ollamaOpt?.value).toBe('ollama')
   })
 })

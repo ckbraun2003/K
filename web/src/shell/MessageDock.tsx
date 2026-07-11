@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import type { KForceRoute, KRoute, Project } from '@k/shared'
+import type { KForceRoute, KRoute, Project, Status } from '@k/shared'
 import { routeForMessage, routeForTarget } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
@@ -12,7 +12,7 @@ import { onDockFocus } from '../lib/dock-bus'
 import { FORCE_ROUTE_OPTIONS } from '../lib/force-route-options'
 import { INBOX_KEY, inboxQueryFn } from '../lib/inbox-query'
 import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
-import { MODEL_OPTIONS, modelChoiceToOpts } from '../lib/run-models'
+import { buildModelOptions, modelChoiceToOpts } from '../lib/run-models'
 import { overlayFade, dialogCard } from '../lib/motion'
 import AutoTextarea from '../components/AutoTextarea'
 import MicButton from '../components/MicButton'
@@ -198,6 +198,13 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const { data: claudeModel } = useQuery({ queryKey: ['claude-model'], queryFn: () => api.claudeModel.get() })
   // Same cache key CommandBar uses (['projects']) — shared across both front doors.
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
+  // One batched status query (shared cache key with Settings/CommandBar) surfaces the
+  // live Ollama model in the dispatch card's picker — not a per-option fetch
+  // (CommandBar.tsx's idiom 1:1; lessons.md: no fan-out).
+  const { data: status } = useQuery<Status>({ queryKey: ['status'], queryFn: () => api.status() })
+  // `dispatch` prefix: the ask path's Claude-override list below is already
+  // named `modelOptions` — this one feeds only the dispatch card's picker.
+  const dispatchModelOptions = useMemo(() => buildModelOptions(status?.ollama), [status])
 
   // null until the user picks an @project dispatch; holds it while the confirm
   // card previews (CommandBar's `confirm` state, ported 1:1).
@@ -472,7 +479,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                   onChange={e => setDispatchModel(e.target.value)}
                   className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]"
                 >
-                  {MODEL_OPTIONS.map(o => (
+                  {dispatchModelOptions.map(o => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
