@@ -1,15 +1,26 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { KForceRoute } from '@k/shared'
+import { motion, AnimatePresence } from 'framer-motion'
+import type { KForceRoute, KRoute, Project } from '@k/shared'
+import { routeForMessage, routeForTarget } from '@k/shared'
 import { api } from '../lib/api'
+import { navigate } from '../lib/route'
 import { useAskK } from '../lib/useAskK'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useSelectedThread, selectThread } from '../lib/thread-select'
 import { onDockFocus } from '../lib/dock-bus'
 import { FORCE_ROUTE_OPTIONS } from '../lib/force-route-options'
 import { INBOX_KEY, inboxQueryFn } from '../lib/inbox-query'
+import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
+import { MODEL_OPTIONS, modelChoiceToOpts } from '../lib/run-models'
+import { overlayFade, dialogCard } from '../lib/motion'
+import AutoTextarea from '../components/AutoTextarea'
 import MicButton from '../components/MicButton'
 import Toast from '../components/Toast'
+
+/** A project-scoped dispatch the user has picked from the `@project` list — held
+ *  while the confirm card previews it, before `runs.start` actually fires. */
+interface DispatchConfirm { project: Project; prompt: string }
 
 interface ComposerProps {
   title: string
@@ -28,6 +39,13 @@ interface ComposerProps {
   onToggleExpand: () => void
   onNewChat: () => void
   inputRef: React.RefObject<HTMLInputElement>
+  /** K's deterministic route preview for the current plain (non-@) text — null
+   *  while empty or while an @project query is in play (see MessageDock's `route`). */
+  route: KRoute | null
+  /** Non-null (possibly empty) while `text` starts with '@' — the projects whose
+   *  name matches the token after it; null hides the picker entirely. */
+  projectMatches: Project[] | null
+  onPickProject: (project: Project) => void
 }
 
 /** The one composer both variants render — the bar inline, float inside its
@@ -36,11 +54,17 @@ function Composer({
   title, text, onTextChange, onKeyDown, onSend, busy, error,
   model, onModelChange, modelOptions, forceRoute, onForceRouteChange,
   expanded, onToggleExpand, onNewChat, inputRef,
+  route, projectMatches, onPickProject,
 }: ComposerProps) {
   return (
     <div>
       <div className="mono flex items-center justify-between text-[11px] text-[var(--muted)]">
-        <span data-testid="dock-target">→ {title}</span>
+        <span className="flex items-center gap-2">
+          <span data-testid="dock-target">→ {title}</span>
+          {/* K routes INLINE as the operator types — the deterministic preview of
+              where K will likely hand the message (mirrors CommandBar's k-route-preview). */}
+          {route && <span data-testid="dock-route-preview">→ {route.label}</span>}
+        </span>
         <button
           type="button"
           data-testid="dock-new-chat"
@@ -50,6 +74,27 @@ function Composer({
           + New chat
         </button>
       </div>
+      {/* @project picker — rows above the input, shown whenever `text` starts with
+          '@'; picking one hands off to the dispatch confirm card below. */}
+      {projectMatches && (
+        <div data-testid="dock-project-picker" className="mt-1.5 max-h-40 overflow-y-auto rounded-control border border-[var(--border)] bg-[var(--surface)]">
+          {projectMatches.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-[var(--muted)]">No matching project</p>
+          ) : (
+            projectMatches.map(p => (
+              <button
+                key={p.id}
+                type="button"
+                data-testid={`dock-project-row-${p.id}`}
+                onClick={() => onPickProject(p)}
+                className="block w-full px-3 py-1.5 text-left text-xs text-[var(--text)] transition-colors duration-100 hover:bg-[var(--raised)]"
+              >
+                <span className="text-[var(--accent)]">@</span> {p.name}
+              </button>
+            ))
+          )}
+        </div>
+      )}
       <div className="mt-1.5 flex items-center gap-2 rounded-control border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
         <span className="text-[var(--accent)]">⚡</span>
         <input
@@ -151,6 +196,19 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const { data: threadsData } = useQuery({ queryKey: ['k-threads'], queryFn: () => api.threads.list() })
   const { data: inbox } = useQuery({ queryKey: INBOX_KEY, queryFn: inboxQueryFn })
   const { data: claudeModel } = useQuery({ queryKey: ['claude-model'], queryFn: () => api.claudeModel.get() })
+  // Same cache key CommandBar uses (['projects']) — shared across both front doors.
+  const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
+
+  // null until the user picks an @project dispatch; holds it while the confirm
+  // card previews (CommandBar's `confirm` state, ported 1:1).
+  const [confirm, setConfirm] = useState<DispatchConfirm | null>(null)
+  const [dispatchPrompt, setDispatchPrompt] = useState('')
+  const [dispatchModel, setDispatchModel] = useState('auto')
+  const [dispatchInteractive, setDispatchInteractive] = useState(false)
+  const [dispatchPlanGate, setDispatchPlanGate] = useState(false)
+  const [dispatchBusy, setDispatchBusy] = useState(false)
+  const [dispatchError, setDispatchError] = useState<string | null>(null)
+  const dispatchComposeRef = useRef<HTMLTextAreaElement>(null)
 
   // Per-thread unsent-text drafts — a ref (not state): swapping threads reads/
   // writes it inside an effect, never re-renders on its own.
@@ -204,9 +262,34 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variant, open])
 
+  // Move focus into the compose textarea when the confirm card opens, caret at
+  // the end — mirrors CommandBar.tsx:103-111.
+  useEffect(() => {
+    if (!confirm) return
+    const el = dispatchComposeRef.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  }, [confirm])
+
   const title = threadsData?.threads.find(t => t.id === selected)?.title ?? 'New chat'
   const modelOptions = claudeModel?.options ?? []
   const inboxTotal = inbox?.total ?? 0
+
+  // K's deterministic route preview for the current plain (non-@) text — null
+  // for empty / @project text (CommandBar.tsx:194-197, ported 1:1).
+  const route = useMemo<KRoute | null>(
+    () => (text.trim() && !text.startsWith('@') ? (forceRoute ? routeForTarget(forceRoute) : routeForMessage(text.trim())) : null),
+    [text, forceRoute],
+  )
+
+  // Non-null (possibly empty) while `text` starts with '@' — projects whose name
+  // starts with the token right after it; an empty token (bare "@") lists all.
+  const projectMatches = useMemo<Project[] | null>(() => {
+    if (!text.startsWith('@')) return null
+    const token = text.slice(1).split(/\s+/)[0].toLowerCase()
+    return token ? projects.filter(p => p.name.toLowerCase().startsWith(token)) : projects
+  }, [text, projects])
 
   async function submit() {
     const msg = text.trim()
@@ -240,11 +323,68 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); void submit() }
   }
 
+  // Editing the input while a confirm card is up invalidates it (CommandBar's
+  // query-onChange idiom) — a stale project/prompt pairing must not linger.
+  function handleTextChange(v: string) {
+    setText(v)
+    if (confirm) setConfirm(null)
+  }
+
+  // Picking a project row seeds the confirm card's editable draft from whatever
+  // followed the @token — CommandBar.tsx:230-234, ported 1:1.
+  function pickProject(project: Project) {
+    const prompt = text.replace(/^@\S*\s*/, '')
+    setConfirm({ project, prompt })
+    setDispatchPrompt(prompt)
+    setDispatchModel('auto')
+    setDispatchInteractive(false)
+    setDispatchPlanGate(false)
+    setDispatchError(null)
+  }
+
+  function cancelDispatch() {
+    setConfirm(null)
+    inputRef.current?.focus()
+  }
+
+  // Fires the composed dispatch for real — CommandBar's fireDispatch body
+  // (CommandBar.tsx:240-257), ported 1:1 including the planGate opts shape.
+  async function fireDispatch() {
+    if (!confirm || dispatchBusy) return
+    const prompt = dispatchPrompt.trim()
+    if (!prompt) { dispatchComposeRef.current?.focus(); return }
+    setDispatchBusy(true)
+    setDispatchError(null)
+    try {
+      const run = await api.runs.start(prompt, {
+        cwd: confirm.project.localPath, projectId: confirm.project.id, ...modelChoiceToOpts(dispatchModel),
+        interactive: dispatchInteractive,
+        // E-02: send only an explicit ON — absent lets the tier default apply.
+        ...(dispatchPlanGate && !dispatchInteractive ? { planGate: true } : {}),
+      })
+      setConfirm(null)
+      setText('')
+      navigate('runs', run.id)
+    } catch (e) {
+      setDispatchError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDispatchBusy(false)
+    }
+  }
+
+  // Compose-box keys: Enter sends, Shift+Enter inserts a newline, Esc cancels
+  // back to the @picker — mirrors CommandBar.tsx:261-267.
+  function onDispatchComposeKeyDown(e: React.KeyboardEvent) {
+    if (!confirm) return
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void fireDispatch() }
+    if (e.key === 'Escape') { e.preventDefault(); cancelDispatch() }
+  }
+
   const composer = (
     <Composer
       title={title}
       text={text}
-      onTextChange={setText}
+      onTextChange={handleTextChange}
       onKeyDown={onInputKeyDown}
       onSend={() => void submit()}
       busy={ask.busy}
@@ -258,6 +398,9 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
       onToggleExpand={() => setExpanded(e => !e)}
       onNewChat={() => selectThread(null)}
       inputRef={inputRef}
+      route={route}
+      projectMatches={projectMatches}
+      onPickProject={pickProject}
     />
   )
 
@@ -276,6 +419,133 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     />
   )
 
+  // @project dispatch confirm card — ports CommandBar's compose-and-confirm
+  // dialog 1:1 (payload shape, mutual-exclusion checkboxes). Rendered unconditionally
+  // (like undoToast) so it overlays either variant identically.
+  const dispatchCard = (
+    <AnimatePresence>
+      {confirm && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-4 sm:justify-end sm:pr-6 sm:pb-24"
+          variants={overlayFade} initial="hidden" animate="visible" exit="exit"
+        >
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={cancelDispatch} />
+          <motion.div
+            data-testid="dock-dispatch-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dock-dispatch-heading"
+            className="glass glow-focus relative w-full max-w-md overflow-hidden rounded-xl"
+            variants={dialogCard} initial="hidden" animate="visible" exit="exit"
+            onClick={e => e.stopPropagation()}
+          >
+            <div id="dock-dispatch-heading" className="border-b border-[var(--border)] px-4 py-3 text-sm font-semibold text-[var(--text)]">
+              <span className="mr-2 text-[var(--accent)]">⚡</span>Compose &amp; dispatch
+            </div>
+            <div className="px-4 pt-3">
+              <label htmlFor="dock-dispatch-compose" className="mb-1 block text-xs text-[var(--muted)]">Prompt</label>
+              <AutoTextarea
+                id="dock-dispatch-compose"
+                ref={dispatchComposeRef}
+                data-testid="dock-dispatch-compose"
+                value={dispatchPrompt}
+                onChange={e => setDispatchPrompt(e.target.value)}
+                onKeyDown={onDispatchComposeKeyDown}
+                placeholder="Describe the task for the agent…"
+                className="glow-focus w-full resize-none rounded-control border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
+              />
+              <p className="mt-1 text-[10px] text-[var(--muted)]">
+                <kbd className="mono">↵</kbd> send · <kbd className="mono">⇧↵</kbd> newline
+              </p>
+            </div>
+            <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 px-4 py-3 text-xs">
+              <dt className="text-[var(--muted)]">Project</dt>
+              <dd className="text-[var(--text)]">
+                <span className="text-[var(--accent)]">{confirm.project.name}</span>
+              </dd>
+              <dt className="text-[var(--muted)]">Model</dt>
+              <dd className="text-[var(--text)]">
+                <select
+                  aria-label="Model"
+                  data-testid="dock-dispatch-model"
+                  value={dispatchModel}
+                  onChange={e => setDispatchModel(e.target.value)}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]"
+                >
+                  {MODEL_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                <span className="ml-2 text-[var(--muted)]">
+                  {dispatchModel === 'auto' ? 'routing may select another' : 'sent explicitly'}
+                </span>
+              </dd>
+              <dt className="text-[var(--muted)]">Scope</dt>
+              <dd className="text-[var(--text)]">
+                {RUN_DEFAULTS.scope} · <span className="mono">{RUN_DEFAULTS.permissionMode}</span>{' '}
+                <span className="text-[var(--muted)]">({RUN_DEFAULT_CAVEATS.permissionMode})</span>
+              </dd>
+              <dt className="text-[var(--muted)]">Mode</dt>
+              <dd className="text-[var(--text)]">
+                <label className="inline-flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    data-testid="dock-dispatch-interactive"
+                    checked={dispatchInteractive}
+                    // Turning Interactive ON CLEARS plan-gate (not just masks its
+                    // display) — one-shot-only, so the combo can never dispatch.
+                    onChange={e => { setDispatchInteractive(e.target.checked); if (e.target.checked) setDispatchPlanGate(false) }}
+                    className="accent-[var(--accent)]"
+                  />
+                  <span>Interactive — answer the agent&apos;s questions mid-run</span>
+                </label>
+                {dispatchInteractive && (
+                  <span className="ml-1 block text-[10px] text-[var(--muted)]">Claude only · keeps the session open for follow-ups</span>
+                )}
+                <label className="mt-1 inline-flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    data-testid="dock-dispatch-plan-gate"
+                    checked={dispatchPlanGate && !dispatchInteractive}
+                    disabled={dispatchInteractive}
+                    onChange={e => setDispatchPlanGate(e.target.checked)}
+                    className="accent-[var(--accent)]"
+                  />
+                  <span>Plan first — review &amp; approve a plan before it implements</span>
+                </label>
+              </dd>
+            </dl>
+            {dispatchError && (
+              <p data-testid="dock-dispatch-error" className="px-4 pb-2 text-[11px] text-[var(--red)]">⚠ {dispatchError}</p>
+            )}
+            <p className="border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted)]">
+              {RUN_DEFAULT_CAVEATS.footer}
+            </p>
+            <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-2.5">
+              <button
+                type="button"
+                onClick={cancelDispatch}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors duration-100 hover:text-[var(--text)]"
+              >
+                Cancel <kbd className="mono ml-1 text-[10px]">esc</kbd>
+              </button>
+              <button
+                type="button"
+                data-testid="dock-dispatch-run"
+                aria-label="Run dispatch"
+                disabled={dispatchBusy || !dispatchPrompt.trim()}
+                onClick={() => void fireDispatch()}
+                className="ml-auto rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-medium text-[var(--accent-hover)] transition-colors duration-100 hover:bg-accent/30 disabled:opacity-50"
+              >
+                {dispatchBusy ? '⏳ Dispatching…' : <>Dispatch <kbd className="mono ml-1 text-[10px]">↵</kbd></>}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+
   if (variant === 'bar') {
     return (
       <>
@@ -283,6 +553,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
           {composer}
         </footer>
         {undoToast}
+        {dispatchCard}
       </>
     )
   }
@@ -351,6 +622,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
       )}
 
       {undoToast}
+      {dispatchCard}
     </>
   )
 }

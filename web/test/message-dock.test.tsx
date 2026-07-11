@@ -30,6 +30,10 @@ vi.mock('../src/lib/api', () => ({
   api: {
     threads: { list: mockThreadsList, get: vi.fn(), create: mockThreadsCreate },
     k: { ask: mockAsk, undo: mockUndo },
+    // Task 9: the dock now previews an @project picker, so it queries the project
+    // list unconditionally like CommandBar does — empty by default here since none
+    // of these tests exercise the @ flow (see message-dock-dispatch.test.tsx).
+    projects: { list: async () => [] },
     claudeModel: {
       get: async () => ({
         model: 'claude-sonnet-4-6',
