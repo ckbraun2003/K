@@ -14,7 +14,12 @@ import { projectsDb } from './db.js'
 import { isPathWithin } from './paths.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-export const WORKSPACE_DIR = path.join(__dirname, '../../workspace')
+// Cloned project workspaces are WRITTEN here, so under the desktop app's read-only
+// install this follows the writable K_REPO_ROOT runtime dir (see supervisor.REPO_ROOT);
+// unset → the in-repo default.
+export const WORKSPACE_DIR = process.env.K_REPO_ROOT
+  ? path.join(path.resolve(process.env.K_REPO_ROOT), 'workspace')
+  : path.join(__dirname, '../../workspace')
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i

@@ -19,8 +19,13 @@ import { escHtml } from './html.js'
 import { isPathWithin } from './paths.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-// core/src/* and core/dist/* are both two levels below the repo root
-export const ARTIFACTS_DIR = path.join(__dirname, '../../artifacts')
+// core/src/* and core/dist/* are both two levels below the repo root. ARTIFACTS_DIR
+// is WRITTEN (compiled bible / ui-demo), so under the desktop app's read-only install
+// it follows the writable K_REPO_ROOT runtime dir (see supervisor.REPO_ROOT); unset →
+// the in-repo default.
+export const ARTIFACTS_DIR = process.env.K_REPO_ROOT
+  ? path.join(path.resolve(process.env.K_REPO_ROOT), 'artifacts')
+  : path.join(__dirname, '../../artifacts')
 
 fs.mkdirSync(ARTIFACTS_DIR, { recursive: true })
 

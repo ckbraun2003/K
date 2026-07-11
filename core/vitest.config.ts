@@ -1,8 +1,20 @@
 import { defineConfig, configDefaults } from 'vitest/config'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
+  // Resolve `@k/shared` to its TypeScript SOURCE for tests. The shared package's
+  // `exports` now points at built `dist` JS (so the compiled prod core is
+  // runnable under plain node), but tests run BEFORE `build`, so pin the source
+  // here — behavior is identical to the pre-build-fix node resolution, just explicit.
+  resolve: {
+    alias: {
+      '@k/shared': path.resolve(here, '../shared/src/types.ts'),
+    },
+  },
   test: {
     include: ['test/**/*.test.ts'],
     // The rigorous-testing campaign's confirmed-fault tests live in

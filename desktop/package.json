@@ -1,0 +1,31 @@
+{
+  "name": "@k/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "K desktop app — Electron shell around the bundled core + web SPA",
+  "author": "K",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsc -p tsconfig.json && electron dist/main.js",
+    "test": "vitest run",
+    "smoke:abi": "node scripts/abi-report.mjs",
+    "prepackage": "node scripts/prepackage.mjs",
+    "pack": "pnpm prepackage && electron-builder --dir",
+    "dist": "pnpm prepackage && electron-builder"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.18.1",
+    "electron": "^38.8.6",
+    "electron-builder": "^25.1.8",
+    "png-to-ico": "^2.1.8",
+    "typescript": "^5.5.0",
+    "vitest": "^1.6.1"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "ws": "^8.21.0"
+  }
+}

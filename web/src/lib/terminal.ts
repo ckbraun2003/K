@@ -7,16 +7,16 @@
  */
 
 /**
- * Build the terminal WS URL — points straight at core (not the Vite proxy).
+ * Build the terminal WS URL from a `ws[s]://host` base + token.
  *
- * `port` is required (no default) so every caller must supply the core port and
- * a port-shifted stack physically can't fall back to a hardcoded 3001 — the e2e
- * harness and multi-device setups run core off-default. Caller computes it the
- * same way the main gateway does (`import.meta.env.VITE_CORE_PORT ?? '3001'`,
- * see lib/ws.ts).
+ * The caller computes the base via `coreWsBase(window.location, …)` (lib/core-origin),
+ * exactly like the main /ws gateway: same-origin in prod (the packaged app's dynamic
+ * core port just works, scheme mirrors the page), core's VITE_CORE_PORT in dev. Taking
+ * the base (not a bare hostname+port) means the terminal socket can never fall back to
+ * a hardcoded `ws://…:3001` and correctly uses `wss://` on an https page.
  */
-export function terminalWsUrl(hostname: string, token: string, port: string): string {
-  return `ws://${hostname}:${port}/ws/terminal?token=${encodeURIComponent(token)}`
+export function terminalWsUrl(wsBase: string, token: string): string {
+  return `${wsBase}/ws/terminal?token=${encodeURIComponent(token)}`
 }
 
 /** Client → server: keystrokes. */

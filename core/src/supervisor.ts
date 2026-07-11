@@ -55,9 +55,14 @@ let ollamaTransportOverride: OllamaChatTransport | null = null
 let ollamaMcpConnectorOverride: OllamaAgentDeps['connectMcp'] | null = null
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-// core/src/* and core/dist/* are both two levels below the repo root
-export const REPO_ROOT = path.join(__dirname, '../../')
-const WORKTREES_DIR = path.join(__dirname, '../../.worktrees')
+// core/src/* and core/dist/* are both two levels below the repo root. The desktop
+// app runs core from a read-only install, so K_REPO_ROOT redirects the repo-relative
+// asset root (agent-config reads + .worktrees/artifacts writes) to a WRITABLE runtime
+// dir the shell seeds with the bundled agent-config; unset → the in-repo default.
+export const REPO_ROOT = process.env.K_REPO_ROOT
+  ? path.resolve(process.env.K_REPO_ROOT)
+  : path.join(__dirname, '../../')
+const WORKTREES_DIR = path.join(REPO_ROOT, '.worktrees')
 
 fs.mkdirSync(WORKTREES_DIR, { recursive: true })
 

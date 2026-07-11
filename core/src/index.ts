@@ -39,6 +39,7 @@ import { inboxRoutes } from './routes/inbox.js'
 import { notificationsRoutes } from './routes/notifications.js'
 import { mergeRoutes } from './routes/merge.js'
 import { feedRoutes } from './routes/feed.js'
+import { systemRoutes } from './routes/system.js'
 import { registerRunVerify } from './run-verify.js'
 import { registerNotifications } from './notify.js'
 import { sweepCheckpointRefs } from './checkpoints.js'
@@ -70,6 +71,8 @@ import {
 } from './auth.js'
 import { terminalGate, createTerminalSession, scrubSensitiveEnv, installConptyStderrFilter, type SpawnPty } from './terminal.js'
 import { credentialPosture } from './agent-config.js'
+import fastifyStatic from '@fastify/static'
+import { resolveWebDist, isPublicAssetPath } from './web-static.js'
 
 const PORT = Number(process.env.PORT ?? 3001)
 // loopback by default — Phase 0's security posture assumes localhost-only;
@@ -119,11 +122,22 @@ export async function buildApp() {
 
   await app.register(websocket)
 
+  // When a built web SPA is present (packaged desktop app, or `pnpm build` +
+  // `start`), core serves it SAME-ORIGIN so the browser loads the bundle and its
+  // relative `/api` + same-host `/ws` from one origin — no CORS, no cross-port
+  // wiring. null in dev (Vite serves the SPA) → behavior byte-identical to before.
+  const webDist = resolveWebDist()
+
   // ── Auth hook ─────────────────────────────────────────────────────────────
 
   app.addHook('onRequest', async (req, reply) => {
     // Skip auth for WS upgrade and health
     if (isAuthExempt(req.url)) return
+    // Skip auth for PUBLIC SPA assets when we're serving the bundle: the built
+    // bundle bakes no token (same as Vite serving it), and the data plane stays
+    // gated — every route is `/api/*` (bearer) or `/ws*` (query token), which
+    // isPublicAssetPath excludes. Gated on webDist so dev auth is unchanged.
+    if (webDist && isPublicAssetPath(req.method, req.url)) return
     const auth = req.headers.authorization
     // Constant-time compare against the expected `Bearer <token>` header to
     // avoid a timing oracle on the token bytes.
@@ -164,6 +178,7 @@ export async function buildApp() {
   await app.register(notificationsRoutes)
   await app.register(mergeRoutes)
   await app.register(feedRoutes)
+  await app.register(systemRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 
@@ -285,6 +300,21 @@ export async function buildApp() {
     socket.on('close', () => session.dispose())
     socket.on('error', () => session.dispose())
   })
+
+  // ── Same-origin SPA (registered LAST so specific /api, /ws, /health routes win
+  //    over the static wildcard) ─────────────────────────────────────────────
+  if (webDist) {
+    await app.register(fastifyStatic, { root: webDist, wildcard: false })
+    // SPA fallback: a public GET/HEAD that matched no file or API route serves
+    // index.html so hash-router deep links + client routes resolve. API/WS misses
+    // stay a JSON 404 (isPublicAssetPath excludes /api and /ws).
+    app.setNotFoundHandler((req, reply) => {
+      if (isPublicAssetPath(req.method, req.url)) {
+        return reply.type('text/html').sendFile('index.html')
+      }
+      return reply.status(404).send({ error: 'not found' })
+    })
+  }
 
   app.addHook('onClose', () => {
     stopGithubPoller()
@@ -466,7 +496,12 @@ async function start() {
  */
 function logTokenStatus(t: ResolvedToken) {
   const last4 = t.token.slice(-4)
-  if (t.firstRun) {
+  // When launched by the desktop shell, the launcher reads the token straight from
+  // the persisted file and seeds it into the app — it never needs (and must not
+  // print) the full token, since the shell forwards core's stdout to a terminal /
+  // future log. Print the masked confirmation instead.
+  const suppressFullToken = process.env.K_SUPPRESS_TOKEN_PRINT === '1'
+  if (t.firstRun && !suppressFullToken) {
     console.log('\n┌─────────────────────────────────────────────────────────────┐')
     console.log('│  FIRST-RUN SETUP — a strong harness token was generated.     │')
     console.log('└─────────────────────────────────────────────────────────────┘')
@@ -474,6 +509,8 @@ function logTokenStatus(t: ResolvedToken) {
     console.log(`   Saved : ${t.file}`)
     console.log('   Use this token to log in when accessing the dashboard remotely.')
     console.log('   It will NOT be printed again — copy it now if you need it.\n')
+  } else if (t.firstRun) {
+    console.log(`   Bearer token       → generated + persisted (…${last4}) at ${t.file}\n`)
   } else if (t.source === 'env') {
     console.log(`   Bearer token       → set via HARNESS_TOKEN (…${last4})\n`)
   } else {

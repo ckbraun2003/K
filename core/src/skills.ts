@@ -15,17 +15,26 @@ import { randomUUID } from 'crypto'
 import { schedule as cronSchedule, validate as cronValidate } from 'node-cron'
 import type { Skill, CreateSkill, SkillEval } from '@k/shared'
 import { db, skillsDb, skillEvalsDb, projectsDb } from './db.js'
-import { startRun, REPO_ROOT, type StartRunOptions } from './supervisor.js'
+import { startRun, type StartRunOptions } from './supervisor.js'
+import { fileURLToPath } from 'url'
 import { eventBus } from './events.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
 import { isPathWithin } from './paths.js'
 import { resolveSkillRoots, confineToRoots, type SkillRoots } from './skill-roots.js'
 import { registeredProjectSkillRoots } from './host-discovery.js'
 
+// agent-config is READ-ONLY bundled assets, resolved __dirname-relative (like
+// agent-config.ts / skill-roots.ts) — NOT via REPO_ROOT, which the desktop app
+// redirects to a writable, agent-config-LESS runtime dir. Using it here would make
+// every built-in skill silently no-op under packaging. SKILLS_ROOT and the source
+// base (readSkillSource below) share this same root, so the F-069 confinement holds.
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const ASSETS_ROOT = path.join(__dirname, '../../')
+
 /** The ONLY directory `readSkillSource` will read a skill's `source` as a file from. A
  *  `source` resolving outside this root (an absolute path, a `..` escape) is treated as raw
  *  inline prompt text — NEVER an unconfined file read (F-069 security review). */
-const SKILLS_ROOT = path.join(REPO_ROOT, 'agent-config', 'skills')
+const SKILLS_ROOT = path.join(ASSETS_ROOT, 'agent-config', 'skills')
 
 // Prepared once at module load — sets runId on a skill_run after the run is created
 const patchSkillRunId = db.prepare(`UPDATE skill_runs SET runId = ? WHERE id = ?`)
@@ -178,7 +187,7 @@ export function readSkillSource(skill: Skill, opts: { roots?: SkillRoots } = {})
     }
     return skill.source
   }
-  const abs = path.isAbsolute(skill.source) ? skill.source : path.join(REPO_ROOT, skill.source)
+  const abs = path.isAbsolute(skill.source) ? skill.source : path.join(ASSETS_ROOT, skill.source)
   if (isPathWithin(SKILLS_ROOT, abs)) {
     try {
       if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {

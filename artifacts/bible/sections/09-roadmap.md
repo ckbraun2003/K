@@ -155,6 +155,8 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
 
 **Deferred to a later phase** (D-019): the **Tauri desktop app** (bundled-core sidecar, tray, native notifications) — old Track B; full spec retained in `~/.claude/plans/read-through-and-analyze-rippling-hanrahan.md`. Also deferred: **PWA mobile** (installable + push), further **remote-access hardening** (reverse proxy / Tailscale), and **passkey/TOTP auth hardening** (the Phase-1 → Phase-4 re-homing above — not shipped in the re-scoped Phase 4).
 
+**Update (2026-07-10) — the desktop app is now DELIVERED, re-scoped from Tauri to Electron.** The bundled-core / tray / native-notification desktop app deferred above shipped as a **Windows Electron app** in a new `desktop/` workspace: core runs as a Node-20 child, the SPA is served same-origin, the shell auto-authenticates, and it installs via NSIS with unsigned auto-update from public GitHub Releases. See **§15 Desktop App** and **D-089 → D-094**. (PWA mobile, cross-platform builds, code-signing, and passkey/TOTP auth hardening remain deferred.)
+
 ## Stabilization (Foundation) — reboot to a running org *(✓ 2026-06-30)*
 
 > Before building the org (Phase 5), take K from "well-built substrate + parked work" to a solid, verified

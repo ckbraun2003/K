@@ -1,0 +1,36 @@
+name: Release
+
+# Cut a desktop release by pushing a version tag, e.g.:
+#   git tag v0.1.0 && git push origin v0.1.0
+# This builds the Windows NSIS installer and publishes it (+ latest.yml, the
+# electron-updater feed) to a GitHub Release on this repo.
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # create the GitHub Release + upload the installer assets
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20                # bundled into the app as the core runtime (ABI 115)
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build                   # shared/core/web
+      # prepackage (pnpm-deploy the portable core + bundle node + stage) then build the
+      # NSIS installer and PUBLISH it + latest.yml to the GitHub Release for this tag.
+      # electron-builder reads GH_TOKEN for the github publish provider.
+      - run: pnpm --filter @k/desktop run dist -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

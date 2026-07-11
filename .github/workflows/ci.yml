@@ -24,9 +24,40 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck               # pnpm -r typecheck (shared + core + web)
-      - run: pnpm -r test                  # vitest (core + web)
-      - run: pnpm build                   # pnpm -r build (core tsc + web tsc && vite build)
+      - run: pnpm typecheck               # pnpm -r typecheck (shared + core + web + desktop)
+      - run: pnpm -r test                  # vitest (core + web + desktop)
+      - run: pnpm build                   # pnpm -r build (core tsc + web tsc && vite build + desktop tsc)
+
+  # Prove the Windows desktop packaging pipeline assembles (pnpm-deploy the portable
+  # core, bundle the Node-20 runtime + web/agent-config, stage into an Electron app).
+  # `run pack` = prepackage + `electron-builder --dir` (no installer — the full NSIS
+  # build + publish happens in release.yml on a tag). Windows-only app, so windows-latest.
+  desktop-build:
+    runs-on: windows-latest
+    # Windows packaging is heavy — run it on main + PRs to main (the gates that
+    # matter), not on every feat/** push.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20                # the runner's Node 20 is what prepackage bundles (ABI 115)
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build                   # shared/core/web/desktop — prepackage reuses these
+      - run: pnpm --filter @k/desktop run pack   # prepackage (pnpm deploy + node bundle) + electron-builder --dir
+        env:
+          K_SKIP_BUILD: '1'               # reuse the `pnpm build` above; don't rebuild the whole workspace again
+      # Heavy, hard-to-reproduce-locally Windows path — on failure, keep the staged
+      # output for post-hoc inspection (builder logs already land in the Actions log).
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-packaging-output
+          path: desktop/release/
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Non-gating: the rigorous-testing campaign's confirmed-fault quarantine.
   # Tests here are RED by design (one per open fault) and MUST NOT block merges —

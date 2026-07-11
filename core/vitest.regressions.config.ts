@@ -1,6 +1,9 @@
 import { defineConfig } from 'vitest/config'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * NON-GATING quarantine project for the rigorous testing campaign.
@@ -15,6 +18,13 @@ import path from 'node:path'
  * corrupt gating-suite state. `passWithNoTests` keeps it green when empty.
  */
 export default defineConfig({
+  // Match vitest.config.ts: resolve `@k/shared` to source (its `exports` now point
+  // at built dist JS, which won't exist on a clean pre-build checkout).
+  resolve: {
+    alias: {
+      '@k/shared': path.resolve(here, '../shared/src/types.ts'),
+    },
+  },
   test: {
     include: ['test/regressions/**/*.test.ts'],
     passWithNoTests: true,

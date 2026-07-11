@@ -30,3 +30,12 @@ docs/
 .worktrees/
 # P0 live-probe transcripts (raw CLI output incl. host-hook noise) — never commit
 core/probes/out/
+# Electron desktop app: packaging output + bundled runtime staging — never commit
+# (compiled main/preload go to desktop/dist which the global dist/ rule already covers)
+desktop/release/
+desktop/out/
+desktop/node_modules/
+# prepackage staging (deployed core + bundled node + copied web/agent-config/bible)
+desktop/staging/
+# generated multi-size icon (prepackage rebuilds it from assets/icon.png each build)
+desktop/assets/icon.ico

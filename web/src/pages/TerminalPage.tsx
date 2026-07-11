@@ -10,6 +10,7 @@ import {
   errorReason,
   errorShort,
 } from '../lib/terminal'
+import { coreWsBase } from '../lib/core-origin'
 
 // The dev fallback is DEV-only: in a prod build VITE_TERMINAL_TOKEN is `undefined`
 // (vite emits no token — see vite-token-defines.ts) and this resolves to '' so no
@@ -48,11 +49,14 @@ export default function TerminalPage() {
     term.open(host)
     fit.fit()
 
-    // Core port defaults to 3001; the e2e harness / multi-device stacks inject
-    // VITE_CORE_PORT. Computed the same way as the main gateway (lib/ws.ts) so
-    // the terminal socket dials the live core, not a dead literal 3001.
-    const corePort = import.meta.env.VITE_CORE_PORT ?? '3001'
-    const ws = new WebSocket(terminalWsUrl(window.location.hostname, TOKEN, corePort))
+    // Same-origin in prod (packaged app's dynamic core port just works), core's
+    // VITE_CORE_PORT in dev — computed exactly like the main gateway (lib/ws.ts)
+    // so the terminal socket dials the live core, not a dead literal 3001.
+    const wsBase = coreWsBase(window.location, {
+      isDev: import.meta.env.DEV,
+      corePort: import.meta.env.VITE_CORE_PORT ?? '3001',
+    })
+    const ws = new WebSocket(terminalWsUrl(wsBase, TOKEN))
 
     // Effect-scoped (not React state, which would be stale in these one-shot
     // handlers): once a server gate/degradation frame explains the failure, an

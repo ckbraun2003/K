@@ -39,7 +39,12 @@ import { createHash, randomUUID } from 'crypto'
 import type { DraftEval, Skill, SkillDraft } from '@k/shared'
 import { db, eventsDb } from './db.js'
 import { getProfile } from './profiles.js'
-import { startRun, REPO_ROOT } from './supervisor.js'
+import { startRun } from './supervisor.js'
+import { fileURLToPath } from 'url'
+
+// agent-config is READ-ONLY bundled assets, resolved __dirname-relative (NOT via
+// REPO_ROOT, which the desktop app redirects to a writable, agent-config-less runtime).
+const ASSETS_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../')
 import { trackSupervisedRun } from './run-lifecycle.js'
 import { buildEvalPrompt, deriveEvalStatus, registerSkill } from './skills.js'
 import { assertSafeSegment } from './agent-config.js'
@@ -123,7 +128,7 @@ export function rowToSkillDraft(r: Record<string, unknown>): SkillDraft {
 
 // ─── Authoring prompts (pure, exported for unit-testing) ─────────────────────
 
-const AUTHORING_GUIDE_PATH = path.join(REPO_ROOT, 'agent-config', 'skills', 'skill-authoring', 'SKILL.md')
+const AUTHORING_GUIDE_PATH = path.join(ASSETS_ROOT, 'agent-config', 'skills', 'skill-authoring', 'SKILL.md')
 
 /** The skill-authoring guidance embedded into every authoring prompt. Missing/
  *  unreadable asset degrades to '' (the prompt's own output contract still
@@ -576,7 +581,7 @@ export async function evaluateDraft(id: string): Promise<{ evalId: string; runId
 
 // ─── Save to K's library (D2) ────────────────────────────────────────────────
 
-const DEFAULT_SKILLS_ROOT = path.join(REPO_ROOT, 'agent-config', 'skills')
+const DEFAULT_SKILLS_ROOT = path.join(ASSETS_ROOT, 'agent-config', 'skills')
 
 const getSkillByQualifiedKeyStmt = db.prepare(`SELECT id FROM skills WHERE qualified_key = ?`)
 // Provenance columns registerSkill's insertSkill statement (db.ts, frozen) does

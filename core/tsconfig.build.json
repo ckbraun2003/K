@@ -1,0 +1,20 @@
+{
+  // Production build config. The base tsconfig maps `@k/shared` to its TS SOURCE
+  // (great for dev/tsx/typecheck with no prior build), but that pulls shared/src
+  // into core's program and forces a nested `dist/core/src/index.js` emit.
+  //
+  // For the shipped build we instead resolve `@k/shared` to its built DECLARATION,
+  // so tsc treats it as an external module (not compiled), the program is only
+  // core/src, and the entry emits flat as `dist/index.js` — runnable under plain
+  // node (Electron's runtime). Requires `@k/shared` built first; `pnpm -r build`
+  // orders shared before core via the workspace dependency graph.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "paths": {
+      "@k/shared": ["../shared/dist/types.d.ts"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "test"]
+}
