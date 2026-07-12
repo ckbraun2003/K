@@ -133,28 +133,29 @@ describe('seedUiDemo — Command Deck', () => {
 describe('uiDemoHtml — Phase 5 full-scale "Agentic Org" demo', () => {
   const html = uiDemoHtml()
 
-  it('maps every redesigned screen as an in-memory navigable section (P4 9-item rail IA)', () => {
-    // P4 (D-090): orchestrators->org, metrics->insights, + new skills/inbox screens;
-    // chief is the Org·Tree segment, routing/terminal/workflows stay as internal screens.
+  it('maps every redesigned screen as an in-memory navigable section (6-tab rail IA)', () => {
+    // UI Simplification (D-101): Personal absorbs Inbox; Agents absorbs Org/Chief/
+    // Skills/Workflows; K-home splits into a chat screen + a widget overview screen.
     const screens = [
-      'k-home', 'org', 'chief', 'orchestrator-detail', 'workflows',
-      'workflow-detail', 'projects', 'project-workspace', 'skills', 'runs',
-      'insights', 'routing', 'inbox', 'terminal', 'settings', 'help', 'notfound', 'login',
+      'home-chat', 'home-overview', 'personal', 'agents', 'orchestrator-detail',
+      'projects', 'project-workspace', 'runs', 'insights', 'routing',
+      'settings', 'help', 'notfound', 'login',
     ]
     for (const v of screens) {
       expect(html, `missing screen ${v}`).toContain(`data-view="${v}"`)
     }
-    // The flat 9-item rail (no Direct/Observe groups) + the ⌘K Ask-K trigger + activity strip.
-    for (const lbl of ['K', 'Org', 'Projects', 'Skills', 'Runs', 'Insights', 'Inbox', 'Help', 'Settings']) {
+    // The 6-tab primary rail + Help/Settings footer (D-101).
+    for (const lbl of ['K', 'Personal', 'Agents', 'Runs', 'Insights', 'Projects', 'Help', 'Settings']) {
       expect(html, `missing rail item ${lbl}`).toContain(`<span class="lbl">${lbl}</span>`)
     }
-    expect(html).not.toContain('>Direct<')   // the two-group rail is gone (D-090)
-    expect(html).not.toContain('>Observe<')
-    // removed rail entries no longer have a nav button (folded/redirected)
+    // folded-away standalone rail entries no longer have their own nav button
+    expect(html).not.toContain('<span class="lbl">Org</span>')
+    expect(html).not.toContain('<span class="lbl">Skills</span>')
+    expect(html).not.toContain('<span class="lbl">Inbox</span>')
     expect(html).not.toContain('<span class="lbl">Metrics</span>')
     expect(html).not.toContain('<span class="lbl">Chief</span>')
-    expect(html).toContain('Ask K or jump anywhere')
-    expect(html).toContain('org pulse')
+    // Message Dock (D-102) replaces the ⌘K CommandBar palette + ActivityStrip
+    expect(html).toContain('Message K')
   })
 
   it('keeps the offline / sandbox-safe hard constraints (no CDN / link / storage)', () => {
