@@ -51,8 +51,9 @@ always-visible Activity strip at the bottom — is gone; both collapsed into the
 
 ### Sidebar IA — the 6-tab rail (D-101)
 
-**`KNOWN_VIEWS`** (`web/src/lib/route.ts`) is now 13 entries: the 6 primary + 2 footer destinations
-below, plus `orchestrator` / `project` / `verify` / `docs` / `skill-creator` / `timeline` (drill-ins
+**`KNOWN_VIEWS`** (`web/src/lib/route.ts`) is now 13 entries: the 6 primary destinations +
+`settings` (Help, the other footer rail entry, deep-links into `docs` and adds no view of its own),
+plus `orchestrator` / `project` / `verify` / `docs` / `skill-creator` / `timeline` (drill-ins
 reached from a hub, never rail buttons themselves). Every view string this restructure removed keeps
 a `VIEW_REDIRECTS` entry (Retirements & redirects, below) — the redirect **replaces** the history
 entry (`history.replaceState`, no Back-trap), and `resolveRoute` is idempotent (a canonical view is
