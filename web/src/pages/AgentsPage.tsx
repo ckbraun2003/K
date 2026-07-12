@@ -1,20 +1,35 @@
+import Tabs from '../components/Tabs'
+import { navigate } from '../lib/route'
+import OrgPage from './OrgPage'
+import SkillsPage from './SkillsPage'
+import WorkflowsView from './runs/WorkflowsView'
+
 /**
- * Agents hub — UI Simplification Task 10 stub. Merges Org (roster/tree/graph) +
- * Skills (catalog/MCP/hooks/automations) + Runs' pipelines sub-tab under one
- * surface; Task 16 fills this in.
+ * Agents hub (UI Simplification Task 16, fills the Task 10 stub) — mirrors
+ * PersonalPage's shape. Merges Org (roster/tree/graph) + Skills
+ * (catalog/MCP/hooks/automations) + Pipelines (named workflow definitions,
+ * folded off Runs) under one tabbed surface.
  */
+const TAB_IDS = ['org', 'skills', 'pipelines'] as const
+type AgentsTab = (typeof TAB_IDS)[number]
+
 export default function AgentsPage({ tab, sub }: { tab?: string; sub?: string }) {
+  const active: AgentsTab = (TAB_IDS as readonly string[]).includes(tab ?? '') ? (tab as AgentsTab) : 'org'
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <div data-testid="agents-page" className="glass-tint rounded-panel p-6">
-        <h1 className="text-lg font-semibold text-[var(--text)]">Agents</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">The Agents hub is arriving in this phase.</p>
-        {(tab || sub) && (
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            {tab && <>tab: {tab} </>}{sub && <>sub: {sub}</>}
-          </p>
-        )}
-      </div>
+    <div className="flex h-full flex-col gap-3 p-4">
+      <Tabs
+        items={[
+          { value: 'org', label: 'Org' },
+          { value: 'skills', label: 'Skills' },
+          { value: 'pipelines', label: 'Pipelines' },
+        ]}
+        value={active}
+        onChange={v => navigate('agents', v)}
+        ariaLabel="Agents"
+      />
+      {active === 'org' && <OrgPage seg={sub} />}
+      {active === 'skills' && <SkillsPage tab={sub} />}
+      {active === 'pipelines' && <WorkflowsView defId={sub} />}
     </div>
   )
 }

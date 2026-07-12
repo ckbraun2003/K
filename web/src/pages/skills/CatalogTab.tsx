@@ -104,7 +104,7 @@ export default function CatalogTab() {
           {/* Skill Creator entry (D-071) — the hidden #/skill-creator route. */}
           <button
             onClick={() => navigate('skill-creator')}
-            data-testid="catalog-create-with-agent"
+            data-testid="skill-creator-open"
             className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90"
           >
             + create with agent

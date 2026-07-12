@@ -54,7 +54,7 @@ describe('OrchestratorDetailPage — nav remaps (P4 B2)', () => {
     renderPage('ghost')
     await screen.findByTestId('orchestrator-notfound')
     fireEvent.click(screen.getByRole('button', { name: /Orchestrators/ }))
-    expect(mockNavigate).toHaveBeenCalledWith('org', 'roster')
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'org', 'roster')
   })
 
   it('loaded-page header back button navigates to org/roster', async () => {
@@ -62,7 +62,7 @@ describe('OrchestratorDetailPage — nav remaps (P4 B2)', () => {
     renderPage('lead-web')
     await screen.findByRole('heading', { level: 1, name: 'Web Lead' })
     fireEvent.click(screen.getByRole('button', { name: /Orchestrators/ }))
-    expect(mockNavigate).toHaveBeenCalledWith('org', 'roster')
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'org', 'roster')
   })
 
   it('Memory tab "Memory page" link navigates to lessons', async () => {

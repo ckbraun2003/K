@@ -84,7 +84,7 @@ describe('WorkflowsPage — Definitions list', () => {
     renderWithQuery(<WorkflowsView />)
     await waitFor(() => expect(screen.getByTestId('workflow-def-open')).toBeTruthy())
     fireEvent.click(screen.getByTestId('workflow-def-open'))
-    expect(window.location.hash).toContain('runs/workflows/code-wave')
+    expect(window.location.hash).toContain('agents/pipelines/code-wave')
   })
 })
 

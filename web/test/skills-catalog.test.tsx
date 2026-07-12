@@ -144,6 +144,12 @@ describe('CatalogTab — rows', () => {
     expect(err.textContent).toContain('skill is missing on disk — rescan first')
   })
 
+  it('the Skill Creator entry point uses the canonical testid and navigates to skill-creator', async () => {
+    renderTab()
+    fireEvent.click(await screen.findByTestId('skill-creator-open'))
+    expect(mockNavigate).toHaveBeenCalledWith('skill-creator')
+  })
+
   it('mountedBy chips deep-link to the orchestrator detail', async () => {
     renderTab()
     fireEvent.click(await screen.findByTestId('catalog-mountedby-deep-research-lead-web'))

@@ -34,7 +34,7 @@ function NotFound({ id }: { id?: string }) {
     <div className="h-full overflow-y-auto p-5">
       <button
         type="button"
-        onClick={() => navigate('org', 'roster')}
+        onClick={() => navigate('agents', 'org', 'roster')}
         className="text-[11px] text-[var(--accent-hover)] hover:underline"
       >
         ← Orchestrators
@@ -111,7 +111,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
       <div className="mb-4 flex items-center gap-3">
         <button
           type="button"
-          onClick={() => navigate('org', 'roster')}
+          onClick={() => navigate('agents', 'org', 'roster')}
           className="text-[11px] text-[var(--accent-hover)] hover:underline"
         >
           ← Orchestrators

@@ -1,8 +1,6 @@
-import SegControl from '../components/SegControl'
 import { navigate } from '../lib/route'
 import RunList from '../components/RunList'
 import RunConsole from '../components/RunConsole'
-import WorkflowsView from './runs/WorkflowsView'
 
 function RunsMasterDetail({ runId }: { runId?: string }) {
   return (
@@ -25,21 +23,6 @@ function RunsMasterDetail({ runId }: { runId?: string }) {
   )
 }
 
-export default function RunsPage({ runId, sub }: { runId?: string; sub?: string }) {
-  const workflows = runId === 'workflows'
-  return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-2">
-        <SegControl<'runs' | 'workflows'>
-          ariaLabel="Runs view"
-          options={[{ label: 'Runs', value: 'runs' }, { label: 'Workflows', value: 'workflows' }]}
-          value={workflows ? 'workflows' : 'runs'}
-          onChange={v => navigate('runs', v === 'workflows' ? 'workflows' : undefined)}
-        />
-      </header>
-      <div className="min-h-0 flex-1">
-        {workflows ? <WorkflowsView defId={sub} /> : <RunsMasterDetail runId={runId} />}
-      </div>
-    </div>
-  )
+export default function RunsPage({ runId }: { runId?: string }) {
+  return <RunsMasterDetail runId={runId} />
 }
