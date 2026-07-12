@@ -94,8 +94,10 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
   // Recent measured-cost actuals for this lead's header line (E-13 lens, scoped to
   // profileId) — SUM/median/p90 of stored run costs, NEVER price×token estimation
   // (same posture as CostTodayWidget/D-087). Cheap enough to fetch alongside the
-  // detail query rather than gating it behind a tab.
-  const { data: recentActuals } = useQuery<RecentActuals>({
+  // detail query rather than gating it behind a tab. A FAILED fetch renders an
+  // explicit error indicator (CostTodayWidget's isError idiom) — silently omitting
+  // it would be indistinguishable from the honest "no samples yet" state (D-026).
+  const { data: recentActuals, isError: recentActualsError } = useQuery<RecentActuals>({
     queryKey: ['recent-actuals', id],
     queryFn: () => api.metrics.recentActuals({ profileId: id }),
     enabled: !!id,
@@ -187,12 +189,18 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
         {/* Recent measured-cost actuals (E-13 lens) — median/p90 of ACTUAL stored run
             costs over the server's window, never a price×token estimate. Omitted
             entirely (not zeroed) when there is no sample yet (n===0) — an absent line
-            reads honestly; a fabricated $0.0000 would not (D-026). */}
-        {recentActuals && recentActuals.n > 0 && (
+            reads honestly; a fabricated $0.0000 would not (D-026). A FAILED fetch is a
+            third, distinct state: an explicit muted indicator, so "couldn't load" never
+            masquerades as "no samples yet". */}
+        {recentActualsError ? (
+          <span data-testid="orch-recent-cost-error" className="text-[11px] italic text-[var(--muted)]">
+            cost data unavailable
+          </span>
+        ) : recentActuals && recentActuals.n > 0 ? (
           <span data-testid="orch-recent-cost" className="mono text-[11px] text-[var(--muted)]">
             {`recent: median $${(recentActuals.medianCostUsd ?? 0).toFixed(4)} · p90 $${(recentActuals.p90CostUsd ?? 0).toFixed(4)} (n=${recentActuals.n}, ${recentActuals.windowDays}d)`}
           </span>
-        )}
+        ) : null}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

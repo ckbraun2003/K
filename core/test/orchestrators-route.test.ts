@@ -211,6 +211,57 @@ describe('GET /api/orchestrators/:id', () => {
       db.prepare('DELETE FROM agent_runs WHERE id = ?').run(agentRunId)
     }
   })
+
+  it('recentRuns is scoped to the requested lead — another lead\'s run never leaks in', async () => {
+    // Adversarial cross-lead probe: seed a resolved run under lead-frontend, then
+    // assert lead-backend's detail does NOT surface it (while lead-frontend's does,
+    // so the absence is meaningful — the row is visible, just correctly scoped).
+    const runId = uuid()
+    const agentRunId = uuid()
+    const now = Date.now()
+    runsDb.insertRun.run({
+      id: runId,
+      prompt: 'orchestrators-route cross-lead isolation probe',
+      cwd: 'C:\\nowhere',
+      worktree: null,
+      status: 'done',
+      provider: 'claude',
+      model: 'claude-sonnet-4-6',
+      tokensIn: 50,
+      tokensOut: 75,
+      costUsd: 0.0555,
+      projectId: null,
+      createdAt: now,
+    })
+    agentRunsDb.insertAgentRun.run({
+      id: agentRunId,
+      profileId: 'lead-frontend',
+      runId,
+      trigger: 'delegation',
+      goal: 'cross-lead isolation probe',
+      projectId: null,
+      workflowId: null,
+      status: 'completed',
+      createdAt: now,
+      completedAt: now,
+    })
+    try {
+      // Positive control — the owning lead sees it.
+      const owner = await app.inject({ method: 'GET', url: '/api/orchestrators/lead-frontend', headers: AUTH })
+      expect(owner.statusCode).toBe(200)
+      const ownerIds = ((owner.json() as ChiefOrgLead).recentRuns ?? []).map(r => r.id)
+      expect(ownerIds).toContain(runId)
+
+      // Isolation — a different lead never does.
+      const other = await app.inject({ method: 'GET', url: '/api/orchestrators/lead-backend', headers: AUTH })
+      expect(other.statusCode).toBe(200)
+      const otherIds = ((other.json() as ChiefOrgLead).recentRuns ?? []).map(r => r.id)
+      expect(otherIds).not.toContain(runId)
+    } finally {
+      db.prepare('DELETE FROM agent_runs WHERE id = ?').run(agentRunId)
+      db.prepare('DELETE FROM runs WHERE id = ?').run(runId)
+    }
+  })
 })
 
 describe('PATCH /api/orchestrators/:id', () => {

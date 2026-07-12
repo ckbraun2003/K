@@ -215,4 +215,17 @@ describe('OrchestratorDetailPage — header recent-cost line', () => {
     await waitFor(() => expect(mockRecentActuals).toHaveBeenCalled())
     expect(screen.queryByTestId('orch-recent-cost')).toBeNull()
   })
+
+  it('renders a distinct honest error indicator when the fetch fails (never silently omitted)', async () => {
+    mockGet.mockResolvedValue(detail)
+    mockRecentActuals.mockRejectedValue(new Error('metrics unavailable'))
+    renderPage('lead-web')
+    await screen.findByRole('heading', { level: 1, name: 'Web Lead' })
+    // Fetch failure must be distinguishable from the legitimate n===0 omission
+    // (D-026 honesty; CostTodayWidget's isError branch is the precedent).
+    const err = await screen.findByTestId('orch-recent-cost-error')
+    expect(err.textContent).toBe('cost data unavailable')
+    expect(screen.queryByTestId('orch-recent-cost')).toBeNull()
+    expect(document.body.textContent).not.toContain('recent: median')
+  })
 })

@@ -150,6 +150,9 @@ function recentRunsForLead(runsForLead: Row[]): NonNullable<ChiefOrgLead['recent
     if (out.length >= RECENT_RUNS_LIMIT) break
     if (r.run_id == null) continue
     const runRow = runsDb.getRun.get(String(r.run_id)) as Row | undefined
+    // Verified-unreachable under the enforced-FK schema (db.ts pragmas foreign_keys=ON,
+    // so a stored agent_runs.run_id always resolves) — kept as a skip, not a throw, so
+    // a future schema/pragma change degrades to an omitted row rather than a 500.
     if (!runRow) continue
     out.push({
       id: String(runRow.id),
