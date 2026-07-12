@@ -44,7 +44,7 @@ export default function RunList({ selectedId, onSelect }: Props) {
   const [pendingKill, setPendingKill] = useState<Run | null>(null)
   const [killing, setKilling] = useState(false)
 
-  // The shared default-list cache (RunList + ActivityStrip + KHome + Sidebar),
+  // The shared default-list cache (RunList + ActiveRunsWidget + Sidebar),
   // live-patched by run_update. Key + fn come from runs-query.ts so the
   // consumers can't drift — a *filtered* or non-default-limit list must use its
   // own scoped queryKey, never this one.
