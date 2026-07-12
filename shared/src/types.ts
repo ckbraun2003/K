@@ -1214,6 +1214,11 @@ export interface ChiefOrgLead {
   events: AgentEvent[]
   /** The lead's recent activations (bounded). */
   wakes: AgentRun[]
+  /** The lead's newest RESOLVED runs (bounded) — id/status/createdAt/costUsd from the
+   *  `runs` table, joined via each activation's run_id (agent_runs itself carries neither
+   *  a RunStatus nor cost_usd). Feeds the detail page's Runs tab. Optional (mirrors
+   *  effectiveModel/recent) so older payload fixtures stay valid. */
+  recentRuns?: Array<{ id: string; status: RunStatus; createdAt: number; costUsd: number }>
   /** The model this lead's next dispatch will actually use: the profile's explicit
    *  override when set, else the runtime Claude default. `source` says which. */
   effectiveModel?: { model: string; source: 'override' | 'runtime-default' }

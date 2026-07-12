@@ -1,12 +1,15 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { AgentProfile, ChiefOrgLead } from '@k/shared'
+import type { AgentProfile, ChiefOrgLead, LessonStatus, RecentActuals } from '@k/shared'
 import { api, type OrchestratorPatch } from '../lib/api'
 import { navigate } from '../lib/route'
 import { leadNode } from '../lib/delegation'
+import { relativeTime } from '../lib/verify'
+import { runStatusMeta } from '../lib/status'
 import DelegationTree from '../components/DelegationTree'
 import CapabilityPicker from '../components/CapabilityPicker'
 import SegControl from '../components/SegControl'
+import { LessonCard } from '../components/LessonCard'
 import type { MemoryLesson } from '../lib/memory'
 
 /**
@@ -17,9 +20,17 @@ import type { MemoryLesson } from '../lib/memory'
  * mcp↔allowlist grant guard fail-closed. The right panel REUSES leadNode + the shared
  * DelegationTree component (no re-derivation). Charter TEXT is tier-bound and shared
  * across orchestrator-tier leads, so per-lead charter editing is deferred (read-only).
+ *
+ * Task 17 (UI Simplification) additions: a `runs` tab over the detail payload's
+ * `recentRuns` (measured RunStatus + cost_usd, resolved server-side — see
+ * core/src/routes/org-shared.ts::assembleLead); the Memory tab gained a
+ * pending|accepted|rejected SegControl (was accepted-only) with approve/reject wired
+ * exactly like InboxTab's direct mutate-on-click (no confirm step); and a header
+ * recent-cost line sourced from GET /api/metrics/recent-actuals — MEASURED actuals
+ * only (median/p90 of stored run costs), never price×token estimation.
  */
 
-type Tab = 'charter' | 'skills' | 'tools' | 'mcp' | 'memory'
+type Tab = 'charter' | 'skills' | 'tools' | 'mcp' | 'memory' | 'runs'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'charter', label: 'Charter' },
@@ -27,6 +38,13 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'tools', label: 'Tools' },
   { id: 'mcp', label: 'MCP servers' },
   { id: 'memory', label: 'Memory' },
+  { id: 'runs', label: 'Runs' },
+]
+
+const MEMORY_STATUS_TABS: { id: LessonStatus; label: string }[] = [
+  { id: 'pending', label: 'Pending' },
+  { id: 'accepted', label: 'Accepted' },
+  { id: 'rejected', label: 'Rejected' },
 ]
 
 function NotFound({ id }: { id?: string }) {
@@ -56,6 +74,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<Tab>('charter')
   const [toolInput, setToolInput] = useState('')
+  const [memoryStatus, setMemoryStatus] = useState<LessonStatus>('pending')
 
   const { data: detail, isLoading, isError } = useQuery<ChiefOrgLead>({
     queryKey: ['orchestrator', id],
@@ -63,13 +82,23 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
     enabled: !!id,
   })
 
-  // Accepted lessons for this lead (memory tab). Read-only, its own batched query, and
-  // deferred until the Memory tab is actually opened (it's a distinct data source, not
-  // used by any other tab — no reason to fetch it on every detail load).
+  // This lead's lessons at the selected status (memory tab). Its own batched query,
+  // deferred until the Memory tab is actually opened (a distinct data source, not used
+  // by any other tab — no reason to fetch it on every detail load).
   const { data: lessons = [] } = useQuery<MemoryLesson[]>({
-    queryKey: ['profile-memory', id],
-    queryFn: () => api.memory.lessons({ profileId: id, status: 'accepted' }),
+    queryKey: ['profile-memory', id, memoryStatus],
+    queryFn: () => api.memory.lessons({ profileId: id, status: memoryStatus }),
     enabled: !!id && tab === 'memory',
+  })
+
+  // Recent measured-cost actuals for this lead's header line (E-13 lens, scoped to
+  // profileId) — SUM/median/p90 of stored run costs, NEVER price×token estimation
+  // (same posture as CostTodayWidget/D-087). Cheap enough to fetch alongside the
+  // detail query rather than gating it behind a tab.
+  const { data: recentActuals } = useQuery<RecentActuals>({
+    queryKey: ['recent-actuals', id],
+    queryFn: () => api.metrics.recentActuals({ profileId: id }),
+    enabled: !!id,
   })
 
   // Org-default profile — the grant baseline every lead inherits. Fetched only
@@ -90,6 +119,19 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
       setToolInput('')
     },
     // Do NOT swallow — the grant-guard 400 message is surfaced in the panel below.
+  })
+
+  // Approve/reject for the Memory tab's pending lessons — direct mutate-on-click, no
+  // confirm step (InboxTab's idiom, not MemoryPage's ConfirmDialog-gated reject).
+  // Invalidate the whole ['profile-memory', id] family so every status tab (this
+  // lead's pending/accepted/rejected lists) reflects the move.
+  const approveLesson = useMutation({
+    mutationFn: (lessonId: string) => api.memory.approve(lessonId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profile-memory', id] }),
+  })
+  const rejectLesson = useMutation({
+    mutationFn: (lessonId: string) => api.memory.reject(lessonId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profile-memory', id] }),
   })
 
   if (!id || isError) return <NotFound id={id} />
@@ -140,6 +182,15 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
           >
             {detail.recent.succeeded}/{detail.recent.total} recent ✓
             {detail.recent.failed > 0 && ` · ${detail.recent.failed} failed`}
+          </span>
+        )}
+        {/* Recent measured-cost actuals (E-13 lens) — median/p90 of ACTUAL stored run
+            costs over the server's window, never a price×token estimate. Omitted
+            entirely (not zeroed) when there is no sample yet (n===0) — an absent line
+            reads honestly; a fabricated $0.0000 would not (D-026). */}
+        {recentActuals && recentActuals.n > 0 && (
+          <span data-testid="orch-recent-cost" className="mono text-[11px] text-[var(--muted)]">
+            {`recent: median $${(recentActuals.medianCostUsd ?? 0).toFixed(4)} · p90 $${(recentActuals.p90CostUsd ?? 0).toFixed(4)} (n=${recentActuals.n}, ${recentActuals.windowDays}d)`}
           </span>
         )}
       </div>
@@ -277,28 +328,37 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
             </div>
           )}
 
-          {/* Memory — read-only accepted lessons for this lead, with a link out to the
-              Memory page where proposals are actually approved/rejected (no dead end). */}
+          {/* Memory — this lead's lessons at the selected status, with approve/reject wired
+              on the pending status only (InboxTab's direct mutate idiom). A link out to the
+              Memory page stays for the full cross-lead history (no dead end). */}
           {tab === 'memory' && (
             <div data-testid="orchestrator-panel-memory" className="space-y-2">
+              <SegControl<LessonStatus>
+                ariaLabel="Lesson status"
+                size="sm"
+                options={MEMORY_STATUS_TABS.map(t => ({ label: t.label, value: t.id }))}
+                value={memoryStatus}
+                onChange={setMemoryStatus}
+              />
               {lessons.length === 0 ? (
                 <p className="text-xs italic text-[var(--muted)]" data-testid="orchestrator-memory-empty">
-                  No accepted lessons for this lead.
+                  No {memoryStatus} lessons for this lead.
                 </p>
               ) : (
-                <ul className="space-y-1">
+                <div className="space-y-2">
                   {lessons.map(lesson => (
-                    <li
+                    <LessonCard
                       key={lesson.id}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs text-[var(--text)]"
-                    >
-                      {lesson.lesson}
-                    </li>
+                      lesson={lesson}
+                      onApprove={memoryStatus === 'pending' ? lid => approveLesson.mutate(lid) : undefined}
+                      onReject={memoryStatus === 'pending' ? lid => rejectLesson.mutate(lid) : undefined}
+                      busy={approveLesson.isPending && approveLesson.variables === lesson.id}
+                    />
                   ))}
-                </ul>
+                </div>
               )}
               <p className="text-[11px] text-[var(--muted)]">
-                Accepted lessons only — approve or reject proposals on the{' '}
+                This lead only — the{' '}
                 <button
                   type="button"
                   data-testid="orchestrator-memory-link"
@@ -306,9 +366,44 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                   className="text-[var(--accent-hover)] hover:underline"
                 >
                   Memory page
-                </button>
-                .
+                </button>{' '}
+                reviews lessons across every profile.
               </p>
+            </div>
+          )}
+
+          {/* Runs — this lead's newest resolved activations (RunStatus + measured cost_usd,
+              server-joined in assembleLead). Click-through reuses the Runs page detail view. */}
+          {tab === 'runs' && (
+            <div data-testid="orchestrator-panel-runs" className="space-y-2">
+              {(detail.recentRuns ?? []).length === 0 ? (
+                <p className="text-xs italic text-[var(--muted)]" data-testid="orchestrator-runs-empty">
+                  No recent runs for this lead.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {(detail.recentRuns ?? []).map(run => {
+                    const meta = runStatusMeta(run.status)
+                    return (
+                      <li key={run.id}>
+                        <button
+                          type="button"
+                          onClick={() => navigate('runs', run.id)}
+                          data-testid={`orchestrator-run-${run.id}`}
+                          className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-left text-xs transition-colors hover:border-[var(--accent)]"
+                        >
+                          <span className="mono text-[var(--text)]">{run.id.slice(0, 8)}</span>
+                          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${meta.badge}`}>
+                            {meta.label}
+                          </span>
+                          <span className="text-[var(--muted)]">{relativeTime(run.createdAt)}</span>
+                          <span className="mono ml-auto text-[var(--text)]">${run.costUsd.toFixed(4)}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
             </div>
           )}
 

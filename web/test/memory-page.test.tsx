@@ -23,7 +23,8 @@ function prof(id: string, name: string, tier: string) {
   return { id, name, tier, charter: tier, defaultModel: null, allowedTools: [], mcpServers: [], skills: [] }
 }
 
-import MemoryPage, { LessonCard } from '../src/pages/MemoryPage'
+import MemoryPage from '../src/pages/MemoryPage'
+import { LessonCard } from '../src/components/LessonCard'
 
 // jsdom has no matchMedia; framer-motion may probe it. Provide an inert stub.
 beforeAll(() => {

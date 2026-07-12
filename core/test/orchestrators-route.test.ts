@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { v4 as uuid } from 'uuid'
-import { db, agentRunsDb } from '../src/db.js'
+import { db, agentRunsDb, runsDb } from '../src/db.js'
 import { seedProfiles, getProfile } from '../src/profiles.js'
 import type { ChiefOrgLead, OrchestratorRosterPayload, AgentProfile } from '@k/shared'
 
@@ -132,6 +132,84 @@ describe('GET /api/orchestrators/:id', () => {
     expect(lead).toHaveProperty('latestRun')
     expect(Array.isArray(lead.events)).toBe(true)
     expect(Array.isArray(lead.wakes)).toBe(true)
+  })
+
+  // Task 17 (UI Simplification) — the Runs tab source: recentRuns resolves each
+  // activation's run_id against the `runs` table (measured RunStatus + cost_usd),
+  // never padding an unresolved activation with a placeholder row.
+  it('recentRuns resolves activations with a run_id to their measured Run rows (status + cost_usd)', async () => {
+    const runId = uuid()
+    const agentRunId = uuid()
+    const now = Date.now()
+    runsDb.insertRun.run({
+      id: runId,
+      prompt: 'orchestrators-route recentRuns probe',
+      cwd: 'C:\\nowhere',
+      worktree: null,
+      status: 'done',
+      provider: 'claude',
+      model: 'claude-sonnet-4-6',
+      tokensIn: 100,
+      tokensOut: 200,
+      costUsd: 0.1234,
+      projectId: null,
+      createdAt: now,
+    })
+    agentRunsDb.insertAgentRun.run({
+      id: agentRunId,
+      profileId: 'lead-network',
+      runId,
+      trigger: 'delegation',
+      goal: 'recentRuns probe',
+      projectId: null,
+      workflowId: null,
+      status: 'completed',
+      createdAt: now,
+      completedAt: now,
+    })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/orchestrators/lead-network', headers: AUTH })
+      expect(res.statusCode).toBe(200)
+      const lead = res.json() as ChiefOrgLead
+      expect(Array.isArray(lead.recentRuns)).toBe(true)
+      const row = lead.recentRuns!.find(r => r.id === runId)
+      expect(row).toBeDefined()
+      expect(row!.status).toBe('done')
+      expect(row!.costUsd).toBeCloseTo(0.1234)
+      expect(typeof row!.createdAt).toBe('number')
+    } finally {
+      db.prepare('DELETE FROM agent_runs WHERE id = ?').run(agentRunId)
+      db.prepare('DELETE FROM runs WHERE id = ?').run(runId)
+    }
+  })
+
+  it('an activation with no run_id (never dispatched) is excluded from recentRuns — never padded with a placeholder', async () => {
+    const before = await app.inject({ method: 'GET', url: '/api/orchestrators/lead-security', headers: AUTH })
+    const beforeIds = ((before.json() as ChiefOrgLead).recentRuns ?? []).map(r => r.id)
+
+    const agentRunId = uuid()
+    const now = Date.now()
+    agentRunsDb.insertAgentRun.run({
+      id: agentRunId,
+      profileId: 'lead-security',
+      runId: null,
+      trigger: 'delegation',
+      goal: 'no-run-id probe',
+      projectId: null,
+      workflowId: null,
+      status: 'failed',
+      createdAt: now,
+      completedAt: now,
+    })
+    try {
+      const after = await app.inject({ method: 'GET', url: '/api/orchestrators/lead-security', headers: AUTH })
+      const afterIds = ((after.json() as ChiefOrgLead).recentRuns ?? []).map(r => r.id)
+      // The newest activation (run_id null) contributes NOTHING to recentRuns —
+      // no placeholder row, list unchanged.
+      expect(afterIds).toEqual(beforeIds)
+    } finally {
+      db.prepare('DELETE FROM agent_runs WHERE id = ?').run(agentRunId)
+    }
   })
 })
 
