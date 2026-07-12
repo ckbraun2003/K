@@ -63,6 +63,7 @@
     grid-template-columns: 232px 1fr; grid-template-rows: 52px 1fr 40px;
     height: 100vh; }
   .deck.rail { grid-template-columns: 60px 1fr; }
+  .deck.no-dockbar { grid-template-rows: 52px 1fr 0; }
 
   /* ── sidebar ── */
   aside { grid-row: 1 / span 3; background: var(--surface); border-right: 1px solid var(--border);
@@ -109,13 +110,6 @@
   .topbar .title { display: flex; align-items: center; gap: .45rem; font-weight: 600; font-size: .95rem; }
   .topbar .crumb { color: var(--muted); font-size: .82rem; }
   .topbar .crumb .sep { opacity: .6; margin: 0 .2rem; }
-  .askk { margin-left: auto; display: flex; align-items: center; gap: .55rem; min-width: 320px;
-    background: var(--raised); border: 1px solid var(--border); border-radius: 11px;
-    padding: .4rem .7rem; color: var(--muted); cursor: pointer; font: inherit;
-    transition: border-color .15s, box-shadow .15s; }
-  .askk:hover { border-color: var(--accent-hover); }
-  .askk .kbd { margin-left: auto; font-family: var(--mono); font-size: .66rem; color: var(--text);
-    background: rgba(56,189,248,.16); border-radius: 6px; padding: 1px 6px; }
   .conn { display: inline-flex; align-items: center; gap: .4rem; font-size: .76rem; cursor: pointer;
     padding: .3rem .55rem; border-radius: 999px; border: 1px solid var(--border); }
   .conn .d { width: 8px; height: 8px; border-radius: 50%; }
@@ -131,7 +125,7 @@
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   /* signed-out: login is full-bleed — the authed shell (sidebar / topbar / strip) is hidden */
   .deck.authmode { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-  .deck.authmode aside, .deck.authmode .topbar, .deck.authmode .strip { display: none; }
+  .deck.authmode aside, .deck.authmode .topbar, .deck.authmode .dockbar { display: none; }
   .deck.authmode main { grid-column: 1; grid-row: 1; display: grid; place-items: center; }
   .deck.authmode .dialog-wrap { margin: 0; }
   h1.page { margin: 0 0 .15rem; font-size: 1.35rem; font-weight: 700; letter-spacing: -.01em; }
@@ -179,21 +173,12 @@
     border-bottom: 2px solid var(--warm-glow); animation: sparkle 3s ease-in-out infinite; }
   @keyframes sparkle { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.18); } }
   .hero .lead { color: var(--muted); margin: .25rem 0 1.1rem; font-size: .92rem; }
-  .composer { display: flex; align-items: center; gap: .6rem; background: var(--raised);
-    border: 1px solid var(--border); border-radius: var(--radius); padding: .55rem .7rem; }
-  .composer:focus-within { border-color: var(--accent-hover); box-shadow: 0 0 0 3px rgba(56,189,248,.22); }
-  .composer .gi { color: var(--accent-soft); }
-  .composer input { flex: 1; background: none; border: none; outline: none; color: var(--text);
-    font: inherit; font-size: .9rem; }
-  .composer .picker { font-family: var(--mono); font-size: .72rem; color: var(--muted);
-    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .2rem .5rem; cursor: pointer; }
-  .composer-actions { display: flex; align-items: center; gap: .6rem; margin-top: .7rem; flex-wrap: wrap; }
-  .composer .micbtn { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
+  .micbtn { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
     background: var(--surface); border: 1px solid var(--border); color: var(--accent-soft); cursor: pointer; flex-shrink: 0;
     transition: border-color .15s, color .15s, background .15s; }
-  .composer .micbtn:hover { border-color: var(--accent-hover); color: var(--accent-hover); }
-  .composer .micbtn .gi { color: inherit; }
-  .composer .micbtn.rec { color: var(--ink); background: var(--accent); border-color: var(--accent); animation: live 2s ease-out infinite; }
+  .micbtn:hover { border-color: var(--accent-hover); color: var(--accent-hover); }
+  .micbtn .gi { color: inherit; }
+  .micbtn.rec { color: var(--ink); background: var(--accent); border-color: var(--accent); animation: live 2s ease-out infinite; }
 
   /* ── buttons ── */
   .btn { display: inline-flex; align-items: center; gap: .4rem; font: inherit; font-size: .8rem;
@@ -463,34 +448,36 @@
   .od-recent h2 { margin: .2rem 0 .5rem; }
   [data-view="orchestrator-detail"] .split.fill { min-height: calc(100vh - 232px); }
 
-  /* ── activity strip ── */
-  .strip { grid-column: 2; display: flex; align-items: center; gap: 1rem; padding: 0 1.1rem; font-size: .72rem;
-    color: var(--muted); border-top: 1px solid var(--glass-border);
+  /* ── message dock (bar variant) ── */
+  .dockbar { grid-column: 2; display: none; align-items: center; gap: .6rem; padding: 0 1.1rem; font-size: .85rem;
+    color: var(--text); border-top: 1px solid var(--glass-border);
     background: var(--glass-bg); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); will-change: transform; }
-  .strip .seg-lead { display: inline-flex; align-items: center; gap: .35rem; }
-  .strip .clock { font-family: var(--mono); }
-  .strip .right { margin-left: auto; display: flex; align-items: center; gap: .9rem; }
+  .dockbar.show { display: flex; }
+  .dockbar input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: .9rem; }
+  .dockbar .gi { color: var(--accent-soft); flex-shrink: 0; }
+  .dock-fab { display: none; position: fixed; right: 1.6rem; bottom: 1.6rem; z-index: 40;
+    width: 52px; height: 52px; border-radius: 999px; border: 1px solid var(--border-warm);
+    background: var(--accent); color: var(--ink); font-weight: 700; cursor: pointer;
+    align-items: center; justify-content: center; box-shadow: 0 12px 30px -10px rgba(0,0,0,.6);
+    transition: transform .15s, box-shadow .15s; }
+  .dock-fab:hover { transform: translateY(-2px); box-shadow: 0 16px 36px -10px rgba(0,0,0,.7); }
+  .dock-fab.show { display: inline-flex; }
+  .dock-fab .badge { position: absolute; top: -4px; right: -4px; }
 
   /* ── overlays ── */
   .overlay { position: fixed; inset: 0; z-index: 50; display: none; }
   .overlay.show { display: block; }
   .scrim { position: absolute; inset: 0; background: rgba(8,4,18,.6); }
-  .cmd-wrap { position: relative; max-width: 640px; margin: 7rem auto 0; }
-  .cmdbar { border-radius: var(--radius-lg); overflow: hidden; box-shadow: 0 0 0 1px var(--accent-hover), 0 24px 60px -20px rgba(0,0,0,.8); }
-  .cmd-input { display: flex; align-items: center; gap: .6rem; padding: .9rem 1rem; border-bottom: 1px solid var(--glass-border); }
-  .cmd-input input { flex: 1; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: 1rem; }
-  .cmd-input .scope { font-family: var(--mono); font-size: .72rem; color: var(--accent-soft);
-    border: 1px solid var(--border); border-radius: 8px; padding: .15rem .5rem; }
-  .cmd-results { max-height: 320px; overflow-y: auto; }
-  .cmd-row { display: flex; align-items: center; gap: .6rem; padding: .6rem 1rem; cursor: pointer; font-size: .85rem; }
-  .cmd-row:hover, .cmd-row.hi { background: rgba(56,189,248,.12); }
-  .cmd-row .k { margin-left: auto; font-family: var(--mono); font-size: .68rem; color: var(--muted); }
-  .cmd-row.dispatch .gi { color: var(--accent); }
-  .cmd-foot { display: flex; align-items: center; gap: .8rem; padding: .6rem 1rem; border-top: 1px solid var(--glass-border);
+  .dock-wrap { position: relative; max-width: 640px; margin: 7rem auto 0; }
+  .dockcard { border-radius: var(--radius-lg); overflow: hidden; box-shadow: 0 0 0 1px var(--accent-hover), 0 24px 60px -20px rgba(0,0,0,.8); }
+  .dock-threads { max-height: 160px; overflow-y: auto; border-bottom: 1px solid var(--glass-border); }
+  .dock-thread-row { display: flex; align-items: center; gap: .6rem; padding: .55rem 1rem; cursor: pointer; font-size: .82rem; color: var(--muted); }
+  .dock-thread-row:hover, .dock-thread-row.sel { background: rgba(56,189,248,.12); color: var(--text); }
+  .dock-compose { padding: .9rem 1rem 1rem; }
+  .dock-input { display: flex; align-items: center; gap: .6rem; padding: .5rem 0 .7rem; }
+  .dock-input input { flex: 1; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: 1rem; }
+  .dock-foot { display: flex; align-items: center; gap: .8rem; padding-top: .6rem; border-top: 1px solid var(--glass-border);
     font-size: .72rem; color: var(--muted); }
-  .modepill { font-family: var(--mono); font-size: .7rem; padding: .2rem .55rem; border-radius: 999px;
-    border: 1px solid var(--border); color: var(--accent-hover); cursor: pointer; }
-  .modepill.disp { color: var(--ink); background: var(--accent); border-color: var(--accent); }
   .check { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
   .check .box { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--muted); }
   .check.on .box { background: var(--accent-hover); border-color: var(--accent-hover); }
@@ -529,9 +516,8 @@
   @media (max-width: 720px) {
     .deck { grid-template-columns: 1fr; grid-template-rows: 52px 1fr 40px; }
     aside { display: none; }
-    .topbar, main, .strip { grid-column: 1; }
+    .topbar, main, .dockbar { grid-column: 1; }
     .grid2, .grid3, .split, .stats { grid-template-columns: 1fr; }
-    .askk { min-width: 0; }
   }
 </style>
 </head>
@@ -578,13 +564,12 @@
     </div>
 
     <nav class="nav" id="nav">
-      <button data-action="route" data-arg="k-home"><svg class="gi"><use href="#i-home"></use></svg><span class="lbl">K</span></button>
-      <button data-action="route" data-arg="org"><svg class="gi"><use href="#i-crown"></use></svg><span class="lbl">Org</span></button>
-      <button data-action="route" data-arg="projects"><svg class="gi"><use href="#i-grid"></use></svg><span class="lbl">Projects</span></button>
-      <button data-action="route" data-arg="skills"><svg class="gi"><use href="#i-idea"></use></svg><span class="lbl">Skills</span></button>
+      <button data-action="route" data-arg="home-chat"><svg class="gi"><use href="#i-home"></use></svg><span class="lbl">K</span></button>
+      <button data-action="route" data-arg="personal"><svg class="gi"><use href="#i-check"></use></svg><span class="lbl">Personal</span><span class="badge">3</span></button>
+      <button data-action="route" data-arg="agents"><svg class="gi"><use href="#i-crown"></use></svg><span class="lbl">Agents</span></button>
       <button data-action="route" data-arg="runs"><svg class="gi"><use href="#i-runs"></use></svg><span class="lbl">Runs</span><span class="badge">2</span></button>
       <button data-action="route" data-arg="insights"><svg class="gi"><use href="#i-metrics"></use></svg><span class="lbl">Insights</span></button>
-      <button data-action="route" data-arg="inbox"><svg class="gi"><use href="#i-alert"></use></svg><span class="lbl">Inbox</span><span class="badge">3</span></button>
+      <button data-action="route" data-arg="projects"><svg class="gi"><use href="#i-grid"></use></svg><span class="lbl">Projects</span></button>
     </nav>
 
     <div class="spacer"></div>
@@ -598,12 +583,7 @@
   <div class="topbar">
     <span class="title"><span id="barIcon"><svg class="gi"><use href="#i-home"></use></svg></span><span id="barTitle">K</span></span>
     <span class="crumb" id="crumb"></span>
-    <button class="askk" data-action="cmd-open">
-      <svg class="gi"><use href="#i-search"></use></svg>
-      <span>Ask K or jump anywhere…</span>
-      <span class="kbd">Ctrl K</span>
-    </button>
-    <span class="conn live" id="conn" data-action="cycle-conn" title="click to cycle connection state">
+    <span class="conn live" id="conn" data-action="cycle-conn" title="click to cycle connection state" style="margin-left:auto">
       <span class="d"></span><span id="connLabel">live</span>
     </span>
   </div>
@@ -611,31 +591,82 @@
   <main id="main">
 
     <!-- ============ K HOME ============ -->
-    <section class="screen" data-view="k-home">
+    <section class="screen" data-view="home-chat">
+      <div class="rowhead">
+        <span class="seg" role="tablist">
+          <button class="active" data-action="route" data-arg="home-chat">Chat</button>
+          <button data-action="route" data-arg="home-overview">Overview</button>
+        </span>
+      </div>
+      <div class="panel fill" style="display:flex;flex-direction:column;gap:.7rem">
+        <div class="witem"><div class="witem-top"><span class="grow"><b>You</b> · refactor the auth module to use the new session store</span><span class="meta">09:14</span></div></div>
+        <div class="witem"><div class="witem-top"><span class="grow"><b>K</b> · Routed to Chief → Backend Lead. Backend is drafting a plan now — I'll ping you when it needs a decision.</span><span class="meta">09:14</span></div>
+          <div class="adv"><a class="link" data-action="route" data-arg="runs">View run →</a></div></div>
+        <div class="witem"><div class="witem-top"><span class="grow"><b>You</b> · what's blocking the security audit?</span><span class="meta">09:31</span></div></div>
+        <div class="witem"><div class="witem-top"><span class="grow"><b>K</b> · Security Lead flagged the public API surface — it needs your sign-off before it can continue.</span><span class="meta">09:31</span></div>
+          <div class="adv"><a class="link" data-action="route" data-arg="personal">Open Personal →</a></div></div>
+      </div>
+    </section>
+
+    <!-- ============ HOME OVERVIEW ============ -->
+    <section class="screen" data-view="home-overview">
+      <div class="rowhead">
+        <span class="seg" role="tablist">
+          <button data-action="route" data-arg="home-chat">Chat</button>
+          <button class="active" data-action="route" data-arg="home-overview">Overview</button>
+        </span>
+      </div>
       <div class="hero glass-tint-warm">
         <h2 class="greeting"><span class="glow" id="greet">Good evening, Cameron.</span></h2>
-        <p class="lead glance">3 agents working · <a class="link" data-action="route" data-arg="chief">Chief on the auth refactor →</a></p>
-        <div class="composer">
-          <svg class="gi"><use href="#i-bolt"></use></svg>
-          <input id="homeQ" placeholder="Ask K…  e.g. refactor the auth module — or hold the mic to talk" aria-label="Ask K" />
-          <button class="micbtn" data-action="toast" data-msg="Listening… hold to talk, release to send" data-variant="info" title="Hold to talk (Alt Space)" aria-label="Hold to talk"><svg class="gi"><use href="#i-mic"></use></svg></button>
-          <span class="picker">model: auto</span>
-        </div>
-        <div class="routeline"><span class="muted">K routes</span> → Chief <span class="seg-sep">→</span> Backend Lead</div>
-        <div class="composer-actions">
-          <button class="btn primary" data-action="cmd-send" data-q="refactor the auth module" data-route="→ Chief → Backend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> Send</button>
-          <span class="check" data-action="toggle-check"><span class="box"></span> Interactive</span>
-          <span class="adv"><span class="muted">Advanced:</span> <a class="link" data-action="cmd-dispatch" data-q="refactor the auth module" data-scope="force a specific lead">force a specific lead →</a></span>
-        </div>
+        <p class="lead glance">3 agents working · <a class="link" data-action="route" data-arg="agents">Chief on the auth refactor →</a></p>
       </div>
 
       <div class="grid3 cards">
+        <div class="card lift panel warm" style="margin:0">
+          <h2><svg class="gi"><use href="#i-runs"></use></svg> Active runs</h2>
+          <div class="witem"><div class="witem-top"><span class="grow">auth refactor</span><span class="pill running"><span class="d"></span>running</span></div></div>
+          <div class="witem"><div class="witem-top"><span class="grow">graph perf pass</span><span class="pill queued"><span class="d"></span>queued</span></div></div>
+          <button class="btn ghost sm" style="margin-top:.5rem" data-action="route" data-arg="runs">open runs →</button>
+        </div>
+
+        <div class="card lift panel warm" style="margin:0">
+          <h2><svg class="gi"><use href="#i-alert"></use></svg> Needs you</h2>
+          <div class="witem"><div class="witem-top"><span class="grow">Security · API surface audit</span><span class="pill error"><span class="d"></span>needs you</span></div></div>
+          <button class="btn ghost sm" style="margin-top:.5rem" data-action="route" data-arg="personal">open personal →</button>
+        </div>
+
+        <div class="card lift panel warm" style="margin:0">
+          <h2><svg class="gi"><use href="#i-crown"></use></svg> Org glance</h2>
+          <div class="grid3" style="gap:.4rem">
+            <div class="kv"><span class="ldot fe"></span>Frontend 2</div>
+            <div class="kv"><span class="ldot be"></span>Backend 1</div>
+            <div class="kv"><span class="ldot sec"></span>Security idle</div>
+          </div>
+          <button class="btn ghost sm" style="margin-top:.5rem" data-action="route" data-arg="agents">open agents →</button>
+        </div>
+
+        <div class="card lift panel warm" style="margin:0">
+          <h2><svg class="gi"><use href="#i-graph"></use></svg> Recent activity</h2>
+          <div class="card"><div class="kv"><span class="ldot fe"></span><b>Frontend</b></div><p class="muted" style="margin:.3rem 0">added focus ring to the dock</p><div class="kv"><span class="pill done"><span class="d"></span>done</span><a class="link" data-action="route" data-arg="runs">View run</a></div></div>
+        </div>
+
+        <div class="card lift panel warm" style="margin:0">
+          <h2><svg class="gi"><use href="#i-metrics"></use></svg> Cost today</h2>
+          <p class="mono" style="font-size:1.4rem;margin:.2rem 0">$4.82</p>
+          <button class="btn ghost sm" data-action="route" data-arg="insights">open insights →</button>
+        </div>
+
+        <div class="card lift panel warm" style="margin:0">
+          <h2><svg class="gi"><use href="#i-check"></use></svg> Personal tasks</h2>
+          <div class="witem"><div class="witem-top"><span class="check" data-action="toggle-check"><span class="box"></span></span><span class="grow">triage PR #42</span><span class="tier-chip">Chief</span></div></div>
+          <div class="witem"><div class="witem-top"><span class="check on" data-action="toggle-check"><span class="box"></span></span><span class="grow">build graph</span><span class="pill done"><span class="d"></span>done</span></div></div>
+        </div>
+
         <div class="card lift panel warm" style="margin:0">
           <h2><svg class="gi"><use href="#i-edit"></use></svg> Notes</h2>
           <div class="list stack" style="font-size:.82rem">
             <div class="row"><span class="grow">call re: API rate limits</span><button class="btn ghost sm" data-action="toast" data-msg="Note marked done" data-variant="info"><svg class="gi"><use href="#i-check"></use></svg></button></div>
             <div class="row"><span class="grow">idea: cache the graph layout</span><button class="btn ghost sm" data-action="confirm" data-title="Delete note?" data-body="This note will be removed." data-variant="danger" data-confirm="Delete" data-toast-msg="Note deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
-            <div class="row"><span class="grow">ask Chief for a security pass</span><button class="btn ghost sm" data-action="toast" data-msg="Note marked done" data-variant="info"><svg class="gi"><use href="#i-check"></use></svg></button></div>
           </div>
           <button class="btn ghost sm" style="margin-top:.5rem" data-action="toast" data-msg="Inline note composer opened" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add note</button>
         </div>
@@ -651,28 +682,92 @@
         </div>
 
         <div class="card lift panel warm" style="margin:0">
-          <h2><svg class="gi"><use href="#i-check"></use></svg> Your work <span class="right muted">personal</span></h2>
-          <div class="witem"><div class="witem-top"><span class="check" data-action="toggle-check"><span class="box"></span></span><span class="grow">triage PR #42</span><span class="tier-chip">Chief</span></div></div>
-          <div class="witem"><div class="witem-top"><span class="check on" data-action="toggle-check"><span class="box"></span></span><span class="grow">build graph</span><span class="pill done"><span class="d"></span>done</span></div></div>
-          <div class="witem"><div class="witem-top"><span class="check" data-action="toggle-check"><span class="box"></span></span><span class="grow">verify core</span><span class="pill queued"><span class="d"></span>queued</span></div>
-            <div class="adv"><a class="link" data-action="toast" data-msg="Promoted to an org objective — see Chief" data-variant="info">promote to objective →</a></div></div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h2>Recent from your org</h2>
-        <div class="grid3">
-          <div class="card"><div class="kv"><span class="ldot fe"></span><b>Frontend</b></div><p class="muted" style="margin:.3rem 0">added focus ring to the cmd bar</p><div class="kv"><span class="pill done"><span class="d"></span>done</span><a class="link" data-action="route" data-arg="runs">View run</a></div></div>
-          <div class="card"><div class="kv"><span class="ldot be"></span><b>Backend</b></div><p class="muted" style="margin:.3rem 0">auth refactor — diff +120 −44</p><div class="kv"><span class="pill running"><span class="d"></span>running</span><a class="link" data-action="route" data-arg="runs">View run</a></div></div>
-          <div class="card"><div class="kv"><span class="ldot sec"></span><b>Security</b></div><p class="muted" style="margin:.3rem 0">API surface audit blocked</p><div class="kv"><span class="pill error"><span class="d"></span>needs you</span><a class="link" data-action="route" data-arg="chief">Open Chief</a></div></div>
+          <h2><svg class="gi"><use href="#i-grid"></use></svg> Project health</h2>
+          <div class="kv"><span class="pill done"><span class="d"></span>gitnexus</span><span class="muted">CI green</span></div>
+          <button class="btn ghost sm" style="margin-top:.5rem" data-action="route" data-arg="projects">open projects →</button>
         </div>
       </div>
     </section>
 
-    <!-- ============ CHIEF ============ -->
-    <section class="screen" data-view="chief">
+    <!-- ============ AGENTS: ORG (Chief + roster) ============ -->
+    <section class="screen" data-view="agents">
+      <div class="tabbar" data-group="ag">
+        <button class="tab active" data-action="tab" data-group="ag" data-arg="org">Org</button>
+        <button class="tab" data-action="tab" data-group="ag" data-arg="skills">Skills</button>
+        <button class="tab" data-action="tab" data-group="ag" data-arg="pipelines">Pipelines</button>
+      </div>
+
+      <div data-tabpanel="ag" data-arg="org" class="active">
+      <div data-tabpanel="agorg" data-arg="roster" class="active">
+      <div class="rowhead"><h1 class="page">Org</h1><span class="seg"><button class="active" data-action="tab" data-group="agorg" data-arg="roster">Roster</button><button data-action="tab" data-group="agorg" data-arg="tree">Tree</button><button data-action="toast" data-msg="Fleet graph — force-directed org view" data-variant="info">Graph</button></span><span class="muted">· 5 leads · 3 active</span>
+        <div class="right">
+          <button class="btn primary" data-action="confirm" data-title="New orchestrator" data-body="Create a new domain lead: name, domain, hue, starter charter and base skills/tools." data-confirm="Create" data-toast-msg="Orchestrator created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new orchestrator</button>
+        </div></div>
+
+      <div class="grid2 cards" style="margin-bottom:.8rem">
+        <button class="card lift" style="text-align:left;cursor:pointer;background:var(--surface);border:1px solid var(--border)" data-action="route" data-arg="home-chat">
+          <div class="kv"><svg class="gi"><use href="#i-bolt"></use></svg><b>K</b></div>
+          <p class="muted" style="margin:.3rem 0 0">Secretary — your front door. Chat lives on Home.</p>
+        </button>
+        <button class="card lift" style="text-align:left;cursor:pointer;background:var(--surface);border:1px solid var(--border)" data-action="tab" data-group="agorg" data-arg="tree">
+          <div class="kv"><svg class="gi"><use href="#i-crown"></use></svg><b>Chief</b></div>
+          <p class="muted" style="margin:.3rem 0 0">Manager — objectives &amp; delegation. See the Tree view.</p>
+        </button>
+      </div>
+
+      <div class="grid3 cards">
+        <div class="card lift och-card" style="border-left:3px solid var(--lead-fe)"><div class="kv"><span class="ldot fe"></span><b>Frontend</b><span class="pill running och-status"><span class="d"></span>2 running</span></div>
+          <p class="muted charter">Owns web UI, a11y, perf</p>
+          <div class="kv health"><span class="muted">health</span><span class="mono">82</span><span class="bar healthy" style="width:54px"><span style="width:82%"></span></span><span class="pill healthy"><span class="d"></span>healthy</span></div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 94%</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">1 retry</span><span class="delta neg">−6</span></div></div></details>
+          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Frontend Lead" data-scope="dispatch to Frontend Lead" aria-label="Ask K — dispatch to Frontend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
+
+        <div class="card lift och-card" style="border-left:3px solid var(--lead-be)"><div class="kv"><span class="ldot be"></span><b>Backend</b><span class="pill running och-status"><span class="d"></span>1 running</span></div>
+          <p class="muted charter">APIs, data, migrations</p>
+          <div class="kv health"><span class="muted">health</span><span class="mono">76</span><span class="bar watch" style="width:54px"><span style="width:76%"></span></span><span class="pill watch"><span class="d"></span>watch</span></div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 92%</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div></div></details>
+          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Backend Lead" data-scope="dispatch to Backend Lead" aria-label="Ask K — dispatch to Backend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
+
+        <div class="card lift och-card" style="border-left:3px solid var(--lead-sys)"><div class="kv"><span class="ldot sys"></span><b>Systems</b><span class="muted och-status">idle</span></div>
+          <p class="muted charter">CI, infra, releases</p>
+          <div class="kv health"><span class="muted">health</span><span class="mono">68</span><span class="bar watch" style="width:54px"><span style="width:68%"></span></span><span class="pill watch"><span class="d"></span>watch</span></div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 88%</span><span class="delta neg">−18</span></div><div class="frow"><span class="grow">slow CI / staleness</span><span class="delta neg">−14</span></div></div></details>
+          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Systems Lead" data-scope="dispatch to Systems Lead" aria-label="Ask K — dispatch to Systems Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
+
+        <div class="card lift och-card" style="border-left:3px solid var(--lead-sec)"><div class="kv"><span class="ldot sec"></span><b>Security</b><span class="pill running och-status"><span class="d"></span>1 running</span></div>
+          <p class="muted charter">audit, secrets, supply-chain</p>
+          <div class="kv health"><span class="muted">health</span><span class="mono">46</span><span class="bar risk" style="width:54px"><span style="width:46%"></span></span><span class="pill risk"><span class="d"></span>at-risk</span></div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">1 blocked: needs you</span><span class="delta neg">−30</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">run success 88%</span><span class="delta neg">−12</span></div></div></details>
+          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Security Lead" data-scope="dispatch to Security Lead" aria-label="Ask K — dispatch to Security Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
+
+        <div class="card lift och-card" style="border-left:3px solid var(--lead-net)"><div class="kv"><span class="ldot net"></span><b>Network</b><span class="muted och-status">idle</span></div>
+          <p class="muted charter">edge, DNS, delivery</p>
+          <div class="kv health"><span class="muted">health</span><span class="mono">88</span><span class="bar healthy" style="width:54px"><span style="width:88%"></span></span><span class="pill healthy"><span class="d"></span>healthy</span></div>
+          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
+            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 94%</span><span class="delta neg">−12</span></div></div></details>
+          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Network Lead" data-scope="dispatch to Network Lead" aria-label="Ask K — dispatch to Network Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
+
+        <button class="card lift" style="border:1px dashed var(--border);color:var(--muted);background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;min-height:122px" data-action="confirm" data-title="New orchestrator" data-body="Create a new domain lead." data-confirm="Create" data-toast-msg="Orchestrator created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new orchestrator</button>
+      </div>
+
+      <div class="panel" style="margin-top:1rem"><h2>Recent dispatches <span class="right muted">last hour</span></h2>
+        <div class="list">
+          <div class="row"><span class="ldot fe"></span><b>Frontend</b><span class="grow muted">add focus ring to cmd bar</span><span class="pill running"><span class="d"></span>running</span><span class="meta">now</span></div>
+          <div class="row"><span class="ldot fe"></span><b>Frontend</b><span class="grow muted">visual-diff sweep</span><span class="pill running"><span class="d"></span>running</span><span class="meta">6m</span></div>
+          <div class="row"><span class="ldot be"></span><b>Backend</b><span class="grow muted">auth refactor</span><span class="pill running"><span class="d"></span>running</span><span class="meta">9m</span></div>
+          <div class="row"><span class="ldot sec"></span><b>Security</b><span class="grow muted">secret scan</span><span class="pill running"><span class="d"></span>running</span><span class="meta">14m</span></div>
+          <div class="row"><span class="ldot sys"></span><b>Systems</b><span class="grow muted">release v2.1</span><span class="pill done"><span class="d"></span>done</span><span class="meta">41m</span></div>
+        </div>
+      </div>
+      </div>
+
+      <div data-tabpanel="agorg" data-arg="tree">
       <div class="rowhead"><h1 class="page">Org · Tree</h1>
-        <span class="seg"><button data-action="route" data-arg="org">Roster</button><button class="active" data-action="route" data-arg="chief">Tree</button><button data-action="toast" data-msg="Fleet graph — force-directed org view" data-variant="info">Graph</button></span>
+        <span class="seg"><button data-action="tab" data-group="agorg" data-arg="roster">Roster</button><button class="active" data-action="tab" data-group="agorg" data-arg="tree">Tree</button><button data-action="toast" data-msg="Fleet graph — force-directed org view" data-variant="info">Graph</button></span>
         <div class="right" style="font-size:.78rem"><span class="muted">health</span><span class="bar watch" style="width:120px"><span style="width:78%"></span></span><span class="mono">78/100</span><span class="pill watch"><span class="d"></span>watch</span>
           <span class="muted">· 3 leads active · CI 4/5</span>
           <a class="link" data-action="route" data-arg="insights">Insights →</a>
@@ -730,61 +825,69 @@
           </div>
         </div>
       </div>
-    </section>
-
-    <!-- ============ ORCHESTRATORS ============ -->
-    <section class="screen" data-view="org">
-      <div class="rowhead"><h1 class="page">Org</h1><span class="seg"><button class="active" data-action="route" data-arg="org">Roster</button><button data-action="route" data-arg="chief">Tree</button><button data-action="toast" data-msg="Fleet graph — force-directed org view" data-variant="info">Graph</button></span><span class="muted">· 5 leads · 3 active</span>
-        <div class="right">
-          <button class="btn primary" data-action="confirm" data-title="New orchestrator" data-body="Create a new domain lead: name, domain, hue, starter charter and base skills/tools." data-confirm="Create" data-toast-msg="Orchestrator created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new orchestrator</button>
-        </div></div>
-
-      <div class="grid3 cards">
-        <div class="card lift och-card" style="border-left:3px solid var(--lead-fe)"><div class="kv"><span class="ldot fe"></span><b>Frontend</b><span class="pill running och-status"><span class="d"></span>2 running</span></div>
-          <p class="muted charter">Owns web UI, a11y, perf</p>
-          <div class="kv health"><span class="muted">health</span><span class="mono">82</span><span class="bar healthy" style="width:54px"><span style="width:82%"></span></span><span class="pill healthy"><span class="d"></span>healthy</span></div>
-          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
-            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 94%</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">1 retry</span><span class="delta neg">−6</span></div></div></details>
-          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Frontend Lead" data-scope="dispatch to Frontend Lead" aria-label="Ask K — dispatch to Frontend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
-
-        <div class="card lift och-card" style="border-left:3px solid var(--lead-be)"><div class="kv"><span class="ldot be"></span><b>Backend</b><span class="pill running och-status"><span class="d"></span>1 running</span></div>
-          <p class="muted charter">APIs, data, migrations</p>
-          <div class="kv health"><span class="muted">health</span><span class="mono">76</span><span class="bar watch" style="width:54px"><span style="width:76%"></span></span><span class="pill watch"><span class="d"></span>watch</span></div>
-          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
-            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 92%</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div></div></details>
-          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Backend Lead" data-scope="dispatch to Backend Lead" aria-label="Ask K — dispatch to Backend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
-
-        <div class="card lift och-card" style="border-left:3px solid var(--lead-sys)"><div class="kv"><span class="ldot sys"></span><b>Systems</b><span class="muted och-status">idle</span></div>
-          <p class="muted charter">CI, infra, releases</p>
-          <div class="kv health"><span class="muted">health</span><span class="mono">68</span><span class="bar watch" style="width:54px"><span style="width:68%"></span></span><span class="pill watch"><span class="d"></span>watch</span></div>
-          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
-            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 88%</span><span class="delta neg">−18</span></div><div class="frow"><span class="grow">slow CI / staleness</span><span class="delta neg">−14</span></div></div></details>
-          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Systems Lead" data-scope="dispatch to Systems Lead" aria-label="Ask K — dispatch to Systems Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
-
-        <div class="card lift och-card" style="border-left:3px solid var(--lead-sec)"><div class="kv"><span class="ldot sec"></span><b>Security</b><span class="pill running och-status"><span class="d"></span>1 running</span></div>
-          <p class="muted charter">audit, secrets, supply-chain</p>
-          <div class="kv health"><span class="muted">health</span><span class="mono">46</span><span class="bar risk" style="width:54px"><span style="width:46%"></span></span><span class="pill risk"><span class="d"></span>at-risk</span></div>
-          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
-            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">1 blocked: needs you</span><span class="delta neg">−30</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">run success 88%</span><span class="delta neg">−12</span></div></div></details>
-          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Security Lead" data-scope="dispatch to Security Lead" aria-label="Ask K — dispatch to Security Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
-
-        <div class="card lift och-card" style="border-left:3px solid var(--lead-net)"><div class="kv"><span class="ldot net"></span><b>Network</b><span class="muted och-status">idle</span></div>
-          <p class="muted charter">edge, DNS, delivery</p>
-          <div class="kv health"><span class="muted">health</span><span class="mono">88</span><span class="bar healthy" style="width:54px"><span style="width:88%"></span></span><span class="pill healthy"><span class="d"></span>healthy</span></div>
-          <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
-            <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 94%</span><span class="delta neg">−12</span></div></div></details>
-          <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Network Lead" data-scope="dispatch to Network Lead" aria-label="Ask K — dispatch to Network Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
-
-        <button class="card lift" style="border:1px dashed var(--border);color:var(--muted);background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;min-height:122px" data-action="confirm" data-title="New orchestrator" data-body="Create a new domain lead." data-confirm="Create" data-toast-msg="Orchestrator created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new orchestrator</button>
+      </div>
       </div>
 
-      <div class="panel" style="margin-top:1rem"><h2>Recent dispatches <span class="right muted">last hour</span></h2>
-        <div class="list">
-          <div class="row"><span class="ldot fe"></span><b>Frontend</b><span class="grow muted">add focus ring to cmd bar</span><span class="pill running"><span class="d"></span>running</span><span class="meta">now</span></div>
-          <div class="row"><span class="ldot fe"></span><b>Frontend</b><span class="grow muted">visual-diff sweep</span><span class="pill running"><span class="d"></span>running</span><span class="meta">6m</span></div>
-          <div class="row"><span class="ldot be"></span><b>Backend</b><span class="grow muted">auth refactor</span><span class="pill running"><span class="d"></span>running</span><span class="meta">9m</span></div>
-          <div class="row"><span class="ldot sec"></span><b>Security</b><span class="grow muted">secret scan</span><span class="pill running"><span class="d"></span>running</span><span class="meta">14m</span></div>
-          <div class="row"><span class="ldot sys"></span><b>Systems</b><span class="grow muted">release v2.1</span><span class="pill done"><span class="d"></span>done</span><span class="meta">41m</span></div>
+      <div data-tabpanel="ag" data-arg="skills">
+        <div class="rowhead"><h1 class="page">Skills</h1>
+          <div class="tabs"><button class="tab active" data-action="tab" data-group="sk" data-arg="skills">Skills</button><button class="tab" data-action="tab" data-group="sk" data-arg="automations">Automations</button></div>
+          <div class="right"><button class="btn primary" data-action="confirm" data-title="New skill" data-body="Author a new skill: name, description, and starter instructions." data-confirm="Create" data-toast-msg="Skill created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new skill</button></div></div>
+
+        <div data-tabpanel="sk" data-arg="skills" class="active">
+          <div class="grid3 cards">
+            <div class="card lift panel" style="margin:0"><div class="kv"><svg class="gi"><use href="#i-idea"></use></svg><b>create-mobile-ui-artifact</b></div><p class="muted" style="margin:.3rem 0;font-size:.8rem">Author a self-contained mobile monitor+approve mock.</p><div class="kv"><span class="pill done"><span class="d"></span>ready</span><a class="link" data-action="route" data-arg="runs">last run →</a></div></div>
+            <div class="card lift panel" style="margin:0"><div class="kv"><svg class="gi"><use href="#i-idea"></use></svg><b>regenerate-artifacts</b></div><p class="muted" style="margin:.3rem 0;font-size:.8rem">Recompile demo + bible from their real sources.</p><div class="kv"><span class="pill done"><span class="d"></span>ready</span><a class="link" data-action="route" data-arg="runs">last run →</a></div></div>
+            <div class="card lift panel" style="margin:0"><div class="kv"><svg class="gi"><use href="#i-idea"></use></svg><b>verify-artifacts-screenshot</b></div><p class="muted" style="margin:.3rem 0;font-size:.8rem">Headless-Edge screenshot check for HTML artifacts.</p><div class="kv"><span class="pill running"><span class="d"></span>running</span><a class="link" data-action="route" data-arg="runs">live run →</a></div></div>
+          </div>
+        </div>
+        <div data-tabpanel="sk" data-arg="automations">
+          <div class="panel"><h2>Automations <span class="right muted">scheduled + event triggers</span></h2>
+            <div class="list stack" style="font-size:.84rem">
+              <div class="row"><span class="grow">Nightly verify sweep <span class="muted">· cron 02:00</span></span><span class="pill done"><span class="d"></span>enabled</span></div>
+              <div class="row"><span class="grow">On PR opened → security review <span class="muted">· event</span></span><span class="pill queued"><span class="d"></span>paused</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div data-tabpanel="ag" data-arg="pipelines">
+        <div class="rowhead"><h1 class="page">Pipelines</h1><span class="muted">· 4 definitions</span>
+          <div class="right"><button class="btn primary" data-action="confirm" data-title="New workflow" data-body="Start from the Code-wave template or an empty role graph." data-confirm="Create" data-toast-msg="Workflow created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new workflow</button></div></div>
+
+        <div class="split">
+          <div class="panel"><h2>Definitions</h2>
+            <div class="list">
+              <div class="row selrow sel" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Code wave</b> <span class="muted">(default)</span><br><span class="muted" style="font-size:.72rem">controller → impl → spec → qa</span></div><span class="meta">42 runs</span></div>
+              <div class="row selrow" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Hotfix</b><br><span class="muted" style="font-size:.72rem">controller → implementer</span></div><span class="meta">11 runs</span></div>
+              <div class="row selrow" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Research spike</b><br><span class="muted" style="font-size:.72rem">researcher → synthesizer</span></div><span class="meta">7 runs</span></div>
+              <div class="row selrow" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Security audit</b><br><span class="muted" style="font-size:.72rem">auditor → fixer → verifier</span></div><span class="meta">5 runs</span></div>
+            </div>
+          </div>
+          <div class="panel col"><h2>Role graph <span class="right muted">Code wave</span></h2>
+            <p class="muted" style="font-size:.74rem;margin:-.2rem 0 .8rem">4 roles · sequential · tier T1 · used by <span class="fe">Frontend</span>, <span class="be">Backend</span> · 42 runs</p>
+            <div class="pipeline detail">
+              <div class="pnode selrow" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">controller</span><span class="psub">plans the wave · splits the work</span></span><span class="pt">T1</span></div>
+              <div class="pconn"></div>
+              <div class="pnode selrow" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">implementer</span><span class="psub">writes the diff against the spec</span></span><span class="pt">T1</span></div>
+              <div class="pconn"></div>
+              <div class="pnode selrow sel" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">spec-review</span><span class="psub">checks the diff · blocks on drift</span></span><span class="pt">T1</span></div>
+              <div class="pconn"></div>
+              <div class="pnode selrow" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">quality-review</span><span class="psub">final gate before the PR</span></span><span class="pt">T1</span></div>
+            </div>
+            <div class="kv" style="justify-content:center;margin-top:.9rem;gap:.4rem">
+              <button class="btn ghost sm" data-action="toast" data-msg="Add-role dialog" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add role</button>
+              <button class="btn ghost sm" data-action="toast" data-msg="Reorder mode" data-variant="info">reorder</button>
+              <button class="btn primary sm" data-action="confirm" data-title="Run this workflow?" data-body="Run the Code-wave workflow now?" data-confirm="Run" data-toast-msg="Code-wave dispatched" data-toast-link="1"><svg class="gi"><use href="#i-bolt"></use></svg> run this workflow</button>
+            </div>
+
+            <div class="panel" style="margin-top:1rem;background:var(--bg-deep)">
+              <h2 style="font-size:.9rem">Role prompt — spec-review</h2>
+              <textarea class="editor grow-area" style="min-height:160px">Review the implementer's diff against the spec. Block on missing
+tests, contract drift, or unhandled errors. Return a verdict + reasons.</textarea>
+              <div class="kv" style="margin-top:.6rem;font-size:.74rem"><span class="muted">model: inherit</span><span class="tier-chip">tier T1</span><span class="dirty" style="margin-left:auto">unsaved ●</span></div>
+              <div class="kv" style="margin-top:.5rem"><button class="btn ghost sm">Revert</button><button class="btn primary sm" data-action="confirm" data-title="Update prompt?" data-body="Update the Code-wave spec-review prompt?" data-confirm="Save" data-toast-msg="Prompt saved">Save</button></div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -910,72 +1013,6 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
               <div class="row"><span class="grow">quality-review <span class="muted">· not started</span></span><span class="pill killed"><span class="d"></span>idle</span><span class="meta">—</span></div>
             </div>
           </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ WORKFLOWS ============ -->
-    <section class="screen" data-view="workflows">
-      <div class="rowhead"><h1 class="page">Workflows</h1><span class="muted">· 4 definitions</span>
-        <div class="right"><button class="btn primary" data-action="confirm" data-title="New workflow" data-body="Start from the Code-wave template or an empty role graph." data-confirm="Create" data-toast-msg="Workflow created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new workflow</button></div></div>
-
-      <div class="split">
-        <div class="panel"><h2>Definitions</h2>
-          <div class="list">
-            <div class="row selrow sel" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Code wave</b> <span class="muted">(default)</span><br><span class="muted" style="font-size:.72rem">controller → impl → spec → qa</span></div><span class="meta">42 runs</span></div>
-            <div class="row selrow" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Hotfix</b><br><span class="muted" style="font-size:.72rem">controller → implementer</span></div><span class="meta">11 runs</span></div>
-            <div class="row selrow" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Research spike</b><br><span class="muted" style="font-size:.72rem">researcher → synthesizer</span></div><span class="meta">7 runs</span></div>
-            <div class="row selrow" data-action="select-row"><svg class="gi"><use href="#i-flow"></use></svg><div class="grow"><b>Security audit</b><br><span class="muted" style="font-size:.72rem">auditor → fixer → verifier</span></div><span class="meta">5 runs</span></div>
-          </div>
-        </div>
-        <div class="panel"><h2>Preview <span class="right muted">Code wave</span></h2>
-          <div>
-          <div class="pipeline">
-            <div class="pnode"><span class="pdot"></span><span class="role">controller</span><span class="pt">T1</span></div>
-            <div class="pconn"></div>
-            <div class="pnode"><span class="pdot"></span><span class="role">implementer</span><span class="pt">T1</span></div>
-            <div class="pconn"></div>
-            <div class="pnode"><span class="pdot"></span><span class="role">spec-review</span><span class="pt">T1</span></div>
-            <div class="pconn"></div>
-            <div class="pnode"><span class="pdot"></span><span class="role">quality-review</span><span class="pt">T1</span></div>
-          </div>
-          <p class="muted" style="font-size:.78rem;text-align:center;margin-top:.85rem">used by <span class="fe">Frontend</span>, <span class="be">Backend</span> · 42 runs</p>
-          <div class="kv" style="justify-content:center;margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="workflow-detail">Open</button><button class="btn primary sm" data-action="confirm" data-title="Run this workflow?" data-body="Run the Code-wave workflow now?" data-confirm="Run" data-toast-msg="Code-wave dispatched" data-toast-link="1"><svg class="gi"><use href="#i-bolt"></use></svg> run this workflow</button></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ WORKFLOW DETAIL ============ -->
-    <section class="screen" data-view="workflow-detail">
-      <div class="rowhead"><h1 class="page">Code wave</h1>
-        <div class="right muted">used by <span class="fe">Frontend</span>, <span class="be">Backend</span> · 42 runs</div></div>
-
-      <div class="split">
-        <div class="panel"><h2>Role graph</h2>
-          <p class="muted" style="font-size:.74rem;margin:-.35rem 0 .8rem">4 roles · sequential · tier T1 · used by <span class="fe">Frontend</span>, <span class="be">Backend</span></p>
-          <div>
-          <div class="pipeline detail">
-            <div class="pnode selrow" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">controller</span><span class="psub">plans the wave · splits the work</span></span><span class="pt">T1</span></div>
-            <div class="pconn"></div>
-            <div class="pnode selrow" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">implementer</span><span class="psub">writes the diff against the spec</span></span><span class="pt">T1</span></div>
-            <div class="pconn"></div>
-            <div class="pnode selrow sel" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">spec-review</span><span class="psub">checks the diff · blocks on drift</span></span><span class="pt">T1</span></div>
-            <div class="pconn"></div>
-            <div class="pnode selrow" data-action="select-row"><span class="pdot"></span><span class="pcol"><span class="role">quality-review</span><span class="psub">final gate before the PR</span></span><span class="pt">T1</span></div>
-          </div>
-          <div class="kv" style="justify-content:center;margin-top:1rem;gap:.4rem">
-            <button class="btn ghost sm" data-action="toast" data-msg="Add-role dialog" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add role</button>
-            <button class="btn ghost sm" data-action="toast" data-msg="Reorder mode" data-variant="info">reorder</button>
-            <button class="btn ghost sm" data-action="confirm" data-title="Delete role?" data-body="Remove spec-review from the Code-wave graph?" data-variant="danger" data-confirm="Delete" data-toast-msg="Role deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg> delete</button>
-          </div>
-          </div>
-        </div>
-        <div class="panel col"><h2>Role prompt — spec-review</h2>
-          <textarea class="editor grow-area" style="min-height:220px">Review the implementer's diff against the spec. Block on missing
-tests, contract drift, or unhandled errors. Return a verdict + reasons.</textarea>
-          <div class="kv" style="margin-top:.6rem;font-size:.74rem"><span class="muted">model: inherit</span><span class="tier-chip">tier T1</span><span class="dirty" style="margin-left:auto">unsaved ●</span></div>
-          <div class="kv" style="margin-top:.5rem"><button class="btn ghost sm">Revert</button><button class="btn primary sm" data-action="confirm" data-title="Update prompt?" data-body="Update the Code-wave spec-review prompt?" data-confirm="Save" data-toast-msg="Prompt saved">Save</button></div>
         </div>
       </div>
     </section>
@@ -1229,40 +1266,58 @@ tests, contract drift, or unhandled errors. Return a verdict + reasons.</textare
       </div>
     </section>
 
-    <!-- ============ SKILLS ============ -->
-    <section class="screen" data-view="skills">
-      <div class="rowhead"><h1 class="page">Skills</h1>
-        <div class="tabs"><button class="tab active" data-action="tab" data-group="sk" data-arg="skills">Skills</button><button class="tab" data-action="tab" data-group="sk" data-arg="automations">Automations</button></div>
-        <div class="right"><button class="btn primary" data-action="route" data-arg="k-home"><svg class="gi"><use href="#i-plus"></use></svg> new skill</button></div></div>
-
-      <div data-tabpanel="sk" data-arg="skills" class="tabpanel active">
-        <div class="grid3 cards">
-          <div class="card lift panel" style="margin:0"><div class="kv"><svg class="gi"><use href="#i-idea"></use></svg><b>create-mobile-ui-artifact</b></div><p class="muted" style="margin:.3rem 0;font-size:.8rem">Author a self-contained mobile monitor+approve mock.</p><div class="kv"><span class="pill done"><span class="d"></span>ready</span><a class="link" data-action="route" data-arg="runs">last run →</a></div></div>
-          <div class="card lift panel" style="margin:0"><div class="kv"><svg class="gi"><use href="#i-idea"></use></svg><b>regenerate-artifacts</b></div><p class="muted" style="margin:.3rem 0;font-size:.8rem">Recompile demo + bible from their real sources.</p><div class="kv"><span class="pill done"><span class="d"></span>ready</span><a class="link" data-action="route" data-arg="runs">last run →</a></div></div>
-          <div class="card lift panel" style="margin:0"><div class="kv"><svg class="gi"><use href="#i-idea"></use></svg><b>verify-artifacts-screenshot</b></div><p class="muted" style="margin:.3rem 0;font-size:.8rem">Headless-Edge screenshot check for HTML artifacts.</p><div class="kv"><span class="pill running"><span class="d"></span>running</span><a class="link" data-action="route" data-arg="runs">live run →</a></div></div>
-        </div>
+    <!-- ============ PERSONAL ============ -->
+    <section class="screen" data-view="personal">
+      <div class="tabbar" data-group="pz">
+        <button class="tab active" data-action="tab" data-group="pz" data-arg="inbox">Inbox</button>
+        <button class="tab" data-action="tab" data-group="pz" data-arg="tasks">Tasks</button>
+        <button class="tab" data-action="tab" data-group="pz" data-arg="chats">Chats</button>
+        <button class="tab" data-action="tab" data-group="pz" data-arg="memories">Memories</button>
       </div>
-      <div data-tabpanel="sk" data-arg="automations" class="tabpanel">
-        <div class="panel"><h2>Automations <span class="right muted">scheduled + event triggers</span></h2>
-          <div class="list stack" style="font-size:.84rem">
-            <div class="row"><span class="grow">Nightly verify sweep <span class="muted">· cron 02:00</span></span><span class="pill done"><span class="d"></span>enabled</span></div>
-            <div class="row"><span class="grow">On PR opened → security review <span class="muted">· event</span></span><span class="pill queued"><span class="d"></span>paused</span></div>
+
+      <div data-tabpanel="pz" data-arg="inbox" class="active">
+        <div class="rowhead"><h1 class="page">Inbox</h1><span class="muted">· union over plan / review / verify / approvals — never a table</span>
+          <div class="right"><span class="pill watch"><span class="d"></span>3 pending</span></div></div>
+
+        <div class="panel">
+          <div class="list stack">
+            <div class="row"><span class="tier-chip be">Backend</span><span class="grow">Plan awaiting review — auth refactor</span><span class="pill watch"><span class="d"></span>plan gate</span><button class="btn sky sm" data-action="route" data-arg="runs">Open</button></div>
+            <div class="row"><span class="tier-chip fe">Frontend</span><span class="grow">PR #42 request-changes → fix run ready to approve</span><span class="pill running"><span class="d"></span>review</span><button class="btn sky sm" data-action="route" data-arg="runs">Open</button></div>
+            <div class="row"><span class="tier-chip sec">Security</span><span class="grow">API surface audit blocked — needs your decision</span><span class="pill error"><span class="d"></span>needs you</span><button class="btn sky sm" data-action="route" data-arg="agents">Open</button></div>
+            <div class="row"><span class="ldot sys"></span><span class="grow">Verify battery passed — core @ final checkpoint</span><span class="pill done"><span class="d"></span>verify</span><a class="link" data-action="route" data-arg="runs">view →</a></div>
           </div>
         </div>
       </div>
-    </section>
 
-    <!-- ============ INBOX ============ -->
-    <section class="screen" data-view="inbox">
-      <div class="rowhead"><h1 class="page">Inbox</h1><span class="muted">· union over plan / review / verify / approvals — never a table</span>
-        <div class="right"><span class="pill watch"><span class="d"></span>3 pending</span></div></div>
+      <div data-tabpanel="pz" data-arg="tasks">
+        <div class="rowhead"><h1 class="page">Tasks</h1><span class="muted">· personal, yours alone</span></div>
+        <div class="panel">
+          <div class="witem"><div class="witem-top"><span class="check" data-action="toggle-check"><span class="box"></span></span><span class="grow">triage PR #42</span><span class="tier-chip">Chief</span></div></div>
+          <div class="witem"><div class="witem-top"><span class="check on" data-action="toggle-check"><span class="box"></span></span><span class="grow">build graph</span><span class="pill done"><span class="d"></span>done</span></div></div>
+          <div class="witem"><div class="witem-top"><span class="check" data-action="toggle-check"><span class="box"></span></span><span class="grow">verify core</span><span class="pill queued"><span class="d"></span>queued</span></div>
+            <div class="adv"><a class="link" data-action="toast" data-msg="Promoted to an org objective — see Agents" data-variant="info">promote to objective →</a></div></div>
+          <button class="btn ghost sm" style="margin-top:.5rem" data-action="toast" data-msg="Inline task composer opened" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add task</button>
+        </div>
+      </div>
 
-      <div class="panel">
-        <div class="list stack">
-          <div class="row"><span class="tier-chip be">Backend</span><span class="grow">Plan awaiting review — auth refactor</span><span class="pill watch"><span class="d"></span>plan gate</span><button class="btn sky sm" data-action="route" data-arg="runs">Open</button></div>
-          <div class="row"><span class="tier-chip fe">Frontend</span><span class="grow">PR #42 request-changes → fix run ready to approve</span><span class="pill running"><span class="d"></span>review</span><button class="btn sky sm" data-action="route" data-arg="runs">Open</button></div>
-          <div class="row"><span class="tier-chip sec">Security</span><span class="grow">API surface audit blocked — needs your decision</span><span class="pill error"><span class="d"></span>needs you</span><button class="btn sky sm" data-action="route" data-arg="chief">Open</button></div>
-          <div class="row"><span class="ldot sys"></span><span class="grow">Verify battery passed — core @ final checkpoint</span><span class="pill done"><span class="d"></span>verify</span><a class="link" data-action="route" data-arg="runs">view →</a></div>
+      <div data-tabpanel="pz" data-arg="chats">
+        <div class="rowhead"><h1 class="page">Chats</h1><span class="muted">· your K threads</span></div>
+        <div class="panel">
+          <div class="list">
+            <div class="row selrow sel" data-action="select-row"><span class="grow"><b>Auth refactor plan</b><br><span class="muted" style="font-size:.72rem">last: routed to Backend Lead</span></span><span class="meta">2m</span></div>
+            <div class="row selrow" data-action="select-row"><span class="grow"><b>Weekly planning</b><br><span class="muted" style="font-size:.72rem">last: 3 objectives drafted</span></span><span class="meta">1d</span></div>
+          </div>
+          <button class="btn ghost sm" style="margin-top:.5rem" data-action="route" data-arg="home-chat"><svg class="gi"><use href="#i-plus"></use></svg> new chat</button>
+        </div>
+      </div>
+
+      <div data-tabpanel="pz" data-arg="memories">
+        <div class="rowhead"><h1 class="page">Memories</h1><span class="muted">· what K remembers about you</span></div>
+        <div class="panel">
+          <div class="list stack" style="font-size:.84rem">
+            <div class="row"><span class="grow">prefers PRs over direct pushes to main</span><button class="btn ghost sm" data-action="confirm" data-title="Forget this?" data-body="Remove this memory?" data-variant="danger" data-confirm="Forget" data-toast-msg="Memory removed" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
+            <div class="row"><span class="grow">timezone: America/Denver</span><button class="btn ghost sm" data-action="confirm" data-title="Forget this?" data-body="Remove this memory?" data-variant="danger" data-confirm="Forget" data-toast-msg="Memory removed" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
+          </div>
         </div>
       </div>
     </section>
@@ -1403,15 +1458,6 @@ tests, contract drift, or unhandled errors. Return a verdict + reasons.</textare
       </div>
     </section>
 
-    <!-- ============ TERMINAL ============ -->
-    <section class="screen" data-view="terminal">
-      <div class="rowhead"><h1 class="page">Terminal</h1>
-        <div class="right"><button class="btn secondary sm" data-action="confirm" data-title="Enable terminal?" data-body="Set ENABLE_TERMINAL=true and start an embedded shell at the project root?" data-confirm="Enable" data-toast-msg="Terminal enabling…" data-toast-variant="info"><svg class="gi"><use href="#i-term"></use></svg> Enable terminal</button></div></div>
-
-      <div class="banner disabled"><svg class="gi"><use href="#i-stop"></use></svg> Terminal disabled — set ENABLE_TERMINAL=true to enable. <button class="btn ghost sm" style="margin-left:auto" data-action="route" data-arg="help">docs</button></div>
-      <div class="term fill">$ <span class="caret-blink">_</span></div>
-    </section>
-
     <!-- ============ SETTINGS ============ -->
     <section class="screen" data-view="settings">
       <h1 class="page">Settings</h1>
@@ -1483,6 +1529,12 @@ This is the shared system prompt for every agent the harness runs.</textarea>
         <div class="kv" style="margin-top:.6rem"><span class="muted" style="font-size:.72rem">Previous version is backed up on save.</span>
           <button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Change the global prompt?" data-body="This changes the global system prompt for EVERY agent. The previous version is backed up." data-confirm="Save" data-toast-msg="Global prompt saved">Save</button></div>
       </div>
+
+      <div class="panel"><h2>Terminal</h2>
+        <div class="right" style="margin:-.3rem 0 .6rem"><button class="btn secondary sm" data-action="confirm" data-title="Enable terminal?" data-body="Set ENABLE_TERMINAL=true and start an embedded shell at the project root?" data-confirm="Enable" data-toast-msg="Terminal enabling…" data-toast-variant="info"><svg class="gi"><use href="#i-term"></use></svg> Enable terminal</button></div>
+        <div class="banner disabled"><svg class="gi"><use href="#i-stop"></use></svg> Terminal disabled — set ENABLE_TERMINAL=true to enable. <button class="btn ghost sm" style="margin-left:auto" data-action="route" data-arg="help">docs</button></div>
+        <div class="term">$ <span class="caret-blink">_</span></div>
+      </div>
     </section>
 
     <!-- ============ HELP / DOCS ============ -->
@@ -1497,9 +1549,10 @@ This is the shared system prompt for every agent the harness runs.</textarea>
           </div>
           <h2 style="margin-top:1rem">Shortcuts</h2>
           <div class="list mono" style="font-size:.74rem">
-            <div class="row"><span class="grow">Ask K</span><span class="meta">Ctrl K</span></div>
-            <div class="row"><span class="grow">Go: K / Chief / Runs</span><span class="meta">g h / g c / g r</span></div>
-            <div class="row"><span class="grow">Projects / Metrics / Terminal</span><span class="meta">g p / g m / g t</span></div>
+            <div class="row"><span class="grow">Message K</span><span class="meta">Ctrl K</span></div>
+            <div class="row"><span class="grow">Go: Home / Personal / Agents</span><span class="meta">g h / g u / g a</span></div>
+            <div class="row"><span class="grow">Runs / Insights / Projects</span><span class="meta">g r / g n / g p</span></div>
+            <div class="row"><span class="grow">Docs / Settings</span><span class="meta">g d / g ,</span></div>
             <div class="row"><span class="grow">Shortcut help</span><span class="meta">?</span></div>
           </div>
         </div>
@@ -1530,7 +1583,7 @@ This is the shared system prompt for every agent the harness runs.</textarea>
         <div style="font-size:2.4rem">⌀</div>
         <h1 class="page" style="margin-top:.5rem">Not found</h1>
         <p class="sub">That screen doesn't exist.</p>
-        <div class="kv" style="justify-content:center"><button class="btn primary" data-action="route" data-arg="k-home">Back to K</button><button class="btn ghost" data-action="cmd-open">Press Ctrl K to go anywhere</button></div>
+        <div class="kv" style="justify-content:center"><button class="btn primary" data-action="route" data-arg="home-chat">Back to K</button><button class="btn ghost" data-action="dock-open">Press Ctrl K to message K</button></div>
       </div>
     </section>
 
@@ -1541,7 +1594,7 @@ This is the shared system prompt for every agent the harness runs.</textarea>
           <div class="kv" style="justify-content:center"><span class="logo" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent-hover));color:var(--ink)"><svg class="gi" style="stroke-width:2"><use href="#i-bolt"></use></svg></span></div>
           <h3 style="justify-content:center;margin-top:.5rem">Sign in to direct your org</h3>
           <div class="fields"><label>Access key</label><input type="password" value="••••••••••" aria-label="Access key" /></div>
-          <div class="actions"><button class="btn primary grow" data-action="route" data-arg="k-home">Sign in</button></div>
+          <div class="actions"><button class="btn primary grow" data-action="route" data-arg="home-chat">Sign in</button></div>
           <p class="muted" style="text-align:center;font-size:.72rem;margin:.6rem 0 0">Demo · no real auth</p>
         </div>
       </div>
@@ -1549,45 +1602,45 @@ This is the shared system prompt for every agent the harness runs.</textarea>
 
   </main>
 
-  <div class="strip">
-    <svg class="gi"><use href="#i-graph"></use></svg>
-    <span>org pulse:</span>
-    <span class="seg-lead"><span class="ldot fe"></span>Frontend 2</span>
-    <span class="seg-lead"><span class="ldot be"></span>Backend 1</span>
-    <span class="seg-lead"><span class="ldot sec"></span>Security idle</span>
-    <span class="muted">· last <a class="link done" data-action="route" data-arg="runs">ok verify core →</a></span>
-    <span class="right">
-      <button class="btn ghost sm" data-action="confirm" data-title="Pause all running agents?" data-body="Pause every running agent across the org?" data-variant="danger" data-confirm="Pause all" data-toast-msg="All agents paused" data-toast-variant="info"><svg class="gi"><use href="#i-pause"></use></svg> pause all</button>
-      <span class="muted">day totals in <a class="link" data-action="route" data-arg="insights">Insights →</a></span>
-      <span class="clock mono">--:--:--</span>
-    </span>
+  <div class="dockbar" id="dockbar">
+    <svg class="gi"><use href="#i-bolt"></use></svg>
+    <input id="dockBarInput" placeholder="Message K…" aria-label="Message K" />
+    <button class="micbtn" data-action="toast" data-msg="Listening… hold to talk, release to send" data-variant="info" title="Hold to talk (Alt Space)" aria-label="Hold to talk"><svg class="gi"><use href="#i-mic"></use></svg></button>
+    <span class="routeline" id="dockBarRoute" style="margin:0;white-space:nowrap"><span class="muted">→</span> Chief <span class="seg-sep">→</span> Backend Lead</span>
+    <span class="check" data-action="toggle-check"><span class="box"></span> Interactive</span>
+    <button class="btn primary sm" data-action="cmd-send" data-route="→ Chief → Backend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> Send</button>
+    <button class="btn ghost sm" data-action="toast" data-msg="New chat thread started" data-variant="info">+ New chat</button>
   </div>
 </div>
 
-<!-- ============ COMMAND BAR ============ -->
-<div class="overlay" id="cmd">
-  <div class="scrim" data-action="cmd-close"></div>
-  <div class="cmd-wrap"><div class="cmdbar glass">
-    <div class="cmd-input"><svg class="gi"><use href="#i-search"></use></svg>
-      <input id="cmdInput" placeholder="Ask K — or type to jump…" aria-label="Ask K" />
-      <span class="scope" id="cmdScope">@gitnexus</span></div>
-    <div class="routeline" id="cmdRoute" style="padding:.5rem 1rem;margin:0;border-bottom:1px solid var(--glass-border)"><span class="muted">routes</span> → Chief <span class="seg-sep">→</span> Backend Lead</div>
-    <div class="cmd-results">
-      <div class="cmd-row dispatch" data-action="cmd-send"><svg class="gi"><use href="#i-bolt"></use></svg> Dispatch: "refactor the auth module"<span class="k">↵</span></div>
-      <div class="cmd-row" data-action="route" data-arg="k-home"><svg class="gi"><use href="#i-home"></use></svg> Go to K (home)</div>
-      <div class="cmd-row" data-action="route" data-arg="runs"><svg class="gi"><use href="#i-runs"></use></svg> refactor auth (run 2d35…) · done</div>
+<button class="dock-fab" id="dockFab" data-action="dock-open" aria-label="Message K" title="Message K">K<span class="badge">3</span></button>
+
+<!-- ============ MESSAGE DOCK (⌘K) ============ -->
+<div class="overlay" id="dock">
+  <div class="scrim" data-action="dock-close"></div>
+  <div class="dock-wrap"><div class="dockcard glass-strong">
+    <div class="dock-threads">
+      <div class="dock-thread-row" data-action="toast" data-msg="New chat thread started" data-variant="info">+ New chat</div>
+      <div class="dock-thread-row sel" data-action="select-row">Auth refactor plan</div>
+      <div class="dock-thread-row" data-action="select-row">Weekly planning</div>
     </div>
-    <div class="adv" style="padding:.5rem 1rem;border-top:1px solid var(--glass-border);margin:0">
-      <span class="muted">Advanced:</span>
-      <span class="check" data-action="toggle-check"><span class="box"></span> force a specific lead</span>
-      <select aria-label="Force a specific lead"><option>auto-route</option><option>Frontend Lead</option><option>Backend Lead</option><option>Security Lead</option><option>Chief</option></select>
-    </div>
-    <div class="cmd-foot">
-      <span class="modepill" id="cmdMode" data-action="cmd-mode">↵ Navigate</span><span>tab to switch</span>
-      <span class="picker" style="margin-left:auto">model: auto</span>
-      <span class="check" data-action="toggle-check"><span class="box"></span> Interactive</span>
-      <button class="btn primary sm" data-action="cmd-send"><svg class="gi"><use href="#i-bolt"></use></svg> Send ↵</button>
-      <span class="muted">esc</span>
+    <div class="dock-compose">
+      <div class="kv muted" style="font-size:.72rem;justify-content:space-between">
+        <span>→ Auth refactor plan</span>
+        <button class="link" style="background:none;border:none;cursor:pointer" data-action="toast" data-msg="New chat thread started" data-variant="info">+ New chat</button>
+      </div>
+      <div class="dock-input">
+        <svg class="gi"><use href="#i-bolt"></use></svg>
+        <input id="dockInput" placeholder="Message K…" aria-label="Message K" />
+        <button class="micbtn" data-action="toast" data-msg="Listening… hold to talk, release to send" data-variant="info" title="Hold to talk (Alt Space)" aria-label="Hold to talk"><svg class="gi"><use href="#i-mic"></use></svg></button>
+      </div>
+      <div class="routeline" id="dockRoute"><span class="muted">routes</span> → Chief <span class="seg-sep">→</span> Backend Lead</div>
+      <div class="dock-foot">
+        <span class="picker">model: default</span>
+        <span class="check" data-action="toggle-check"><span class="box"></span> Interactive</span>
+        <button class="btn primary sm" style="margin-left:auto" data-action="cmd-send"><svg class="gi"><use href="#i-bolt"></use></svg> Send ↵</button>
+        <span class="muted">esc</span>
+      </div>
     </div>
   </div></div>
 </div>
@@ -1609,23 +1662,19 @@ This is the shared system prompt for every agent the harness runs.</textarea>
     var $ = function (s, r) { return (r || document).querySelector(s); };
     var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 
-    var state = { view: 'k-home', cmdMode: 'navigate' };
+    var state = { view: 'home-chat' };
 
     var meta = {
-      'k-home':        { nav: 'k-home', title: 'K', icon: 'i-home', crumb: '' },
-      'org':           { nav: 'org', title: 'Org', icon: 'i-crown', crumb: '' },
-      'chief':         { nav: 'org', title: 'Org · Tree', icon: 'i-crown', crumb: 'Org › Tree' },
-      'orchestrator-detail': { nav: 'org', title: 'Frontend Lead', icon: 'i-net', crumb: 'Org › Roster › Frontend Lead' },
-      'workflows':     { nav: 'runs', title: 'Workflows', icon: 'i-flow', crumb: 'Runs › Workflows' },
-      'workflow-detail': { nav: 'runs', title: 'Code wave', icon: 'i-flow', crumb: 'Runs › Workflows › Code wave' },
+      'home-chat':     { nav: 'home', title: 'K', icon: 'i-home', crumb: '' },
+      'home-overview': { nav: 'home', title: 'K · Overview', icon: 'i-home', crumb: 'Overview' },
+      'personal':      { nav: 'personal', title: 'Personal', icon: 'i-check', crumb: '' },
+      'agents':        { nav: 'agents', title: 'Agents', icon: 'i-crown', crumb: '' },
+      'orchestrator-detail': { nav: 'agents', title: 'Frontend Lead', icon: 'i-net', crumb: 'Agents › Roster › Frontend Lead' },
       'projects':      { nav: 'projects', title: 'Projects', icon: 'i-grid', crumb: '' },
       'project-workspace': { nav: 'projects', title: 'gitnexus', icon: 'i-grid', crumb: 'Projects › gitnexus' },
-      'skills':        { nav: 'skills', title: 'Skills', icon: 'i-idea', crumb: '' },
       'runs':          { nav: 'runs', title: 'Runs', icon: 'i-runs', crumb: '' },
       'insights':      { nav: 'insights', title: 'Insights', icon: 'i-metrics', crumb: '' },
       'routing':       { nav: 'insights', title: 'Insights · Routing', icon: 'i-route', crumb: 'Insights › Routing' },
-      'inbox':         { nav: 'inbox', title: 'Inbox', icon: 'i-alert', crumb: '' },
-      'terminal':      { nav: 'settings', title: 'Settings · Terminal', icon: 'i-term', crumb: 'Settings › Terminal' },
       'settings':      { nav: 'settings', title: 'Settings', icon: 'i-settings', crumb: '' },
       'help':          { nav: 'help', title: 'Help', icon: 'i-help', crumb: '' },
       'login':         { nav: '', title: 'Sign in', icon: 'i-home', crumb: '' },
@@ -1642,34 +1691,33 @@ This is the shared system prompt for every agent the harness runs.</textarea>
       $('#barIcon').innerHTML = '<svg class="gi"><use href="#' + m.icon + '"></use></svg>';
       $('#crumb').innerHTML = m.crumb ? ('<span class="sep">›</span> ' + m.crumb) : '';
       var main = $('#main'); if (main) main.scrollTop = 0;
+      // Message Dock (D-102): bar variant on Home, floating fab everywhere else
+      // (never on the login screen). One front door either way — Ctrl K always
+      // opens the full #dock overlay regardless of which variant is showing.
+      var showBar = (view === 'home-chat' || view === 'home-overview');
+      var showFab = !showBar && view !== 'login';
+      if (dk) dk.classList.toggle('no-dockbar', !showBar);
+      var db = $('#dockbar'); if (db) db.classList.toggle('show', showBar);
+      var df = $('#dockFab'); if (df) df.classList.toggle('show', showFab);
     }
 
     function open(sel) { $(sel).classList.add('show'); }
     function close(sel) { $(sel).classList.remove('show'); }
 
-    // The ⌘K composer is the ONE front door. Topbar opens it in Navigate mode;
-    // a per-screen ⚡ opens it pre-scoped in Dispatch mode with the route shown.
-    function openCmd() {
-      state.cmdMode = 'navigate'; open('#cmd'); renderMode();
-      var sc = $('#cmdScope'); if (sc) sc.textContent = '@gitnexus';
+    // The Message Dock overlay is the ONE front door alongside the persistent
+    // dockbar/fab. A per-screen ⚡ opens it pre-scoped with the route shown.
+    function openDock() {
+      open('#dock');
       renderRoute('');
-      var i = $('#cmdInput'); if (i) { i.value = ''; setTimeout(function () { i.focus(); }, 20); }
+      var i = $('#dockInput'); if (i) { i.value = ''; setTimeout(function () { i.focus(); }, 20); }
     }
-    function openCmdScoped(q, scope) {
-      state.cmdMode = 'dispatch'; open('#cmd'); renderMode();
-      var sc = $('#cmdScope'); if (sc) sc.textContent = scope || '@gitnexus';
+    function openDockScoped(q, scope) {
+      open('#dock');
       renderRoute(scope || '');
-      var i = $('#cmdInput'); if (i) { i.value = q || ''; setTimeout(function () { i.focus(); }, 20); }
-    }
-    function toggleMode() { state.cmdMode = state.cmdMode === 'navigate' ? 'dispatch' : 'navigate'; renderMode(); }
-    function renderMode() {
-      var p = $('#cmdMode'); if (!p) return;
-      var d = state.cmdMode === 'dispatch';
-      p.textContent = d ? '↵ Dispatch' : '↵ Navigate';
-      p.classList.toggle('disp', d);
+      var i = $('#dockInput'); if (i) { i.value = q || ''; setTimeout(function () { i.focus(); }, 20); }
     }
     function renderRoute(scope) {
-      var rl = $('#cmdRoute'); if (!rl) return;
+      var rl = $('#dockRoute'); if (!rl) return;
       var s = (scope || '').toLowerCase(), dest = 'Chief <span class="seg-sep">→</span> Backend Lead';
       if (s.indexOf('frontend') >= 0) dest = 'Frontend Lead';
       else if (s.indexOf('backend') >= 0) dest = 'Backend Lead';
@@ -1684,8 +1732,8 @@ This is the shared system prompt for every agent the harness runs.</textarea>
     // route. Escalations (T3 / cross-project / destructive) keep their confirm-card.
     function dispatchSend(rt) {
       var r = rt;
-      if (!r) { var rl = $('#cmdRoute'); r = rl ? rl.textContent.replace(/^routess*/, '').trim() : '→ Chief'; }
-      close('#cmd'); route('runs'); toast('Dispatched · ' + r, 'success', '', true);
+      if (!r) { var rl = $('#dockRoute'); r = rl ? rl.textContent.replace(/^routess*/, '').trim() : '→ Chief'; }
+      close('#dock'); route('runs'); toast('Dispatched · ' + r, 'success', '', true);
     }
 
     function openConfirm(ds) {
@@ -1743,10 +1791,9 @@ This is the shared system prompt for every agent the harness runs.</textarea>
       if (a === 'route') { route(t.dataset.arg); return; }
       if (a === 'rail') { $('#deck').classList.toggle('rail'); return; }
       if (a === 'cycle-conn') { ci = (ci + 1) % 3; setConn(conns[ci]); return; }
-      if (a === 'cmd-open') { openCmd(); return; }
-      if (a === 'cmd-close') { close('#cmd'); return; }
-      if (a === 'cmd-mode') { toggleMode(); return; }
-      if (a === 'cmd-dispatch') { openCmdScoped(t.dataset.q || '', t.dataset.scope || ''); return; }
+      if (a === 'dock-open') { openDock(); return; }
+      if (a === 'dock-close') { close('#dock'); return; }
+      if (a === 'cmd-dispatch') { openDockScoped(t.dataset.q || '', t.dataset.scope || ''); return; }
       if (a === 'cmd-send') { dispatchSend(t.dataset.route || ''); return; }
       if (a === 'toast-undo') { var tn = t.closest('.toast'); if (tn && tn.parentNode) tn.parentNode.removeChild(tn); toast('Dispatch undone', 'info'); return; }
       if (a === 'confirm') { openConfirm(t.dataset); return; }
@@ -1784,14 +1831,13 @@ This is the shared system prompt for every agent the harness runs.</textarea>
     });
 
     document.addEventListener('keydown', function (e) {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openCmd(); return; }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); openDock(); return; }
       if (e.key === 'Escape') {
-        ['#confirm', '#cmd'].some(function (s) {
+        ['#confirm', '#dock'].some(function (s) {
           var o = $(s); if (o && o.classList.contains('show')) { o.classList.remove('show'); return true; } return false;
         });
         return;
       }
-      if (e.key === 'Tab' && $('#cmd').classList.contains('show')) { e.preventDefault(); toggleMode(); }
     });
 
     // greeting (time-aware) + clock
@@ -1805,7 +1851,7 @@ This is the shared system prompt for every agent the harness runs.</textarea>
     }
     tick(); setInterval(tick, 1000);
 
-    route('k-home');
+    route('home-chat');
   })();
 </script>
 </body>
