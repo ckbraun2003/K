@@ -82,7 +82,10 @@ export default defineConfig({
       url: `http://localhost:${CORE_PORT}/health`,
       env: coreEnv,
       timeout: 120_000,
-      reuseExistingServer: true,
+      // Never adopt an unknown core on this port: an adopted process's autonomy
+      // (CHIEF_WAKE/LEAD_DISPATCH_RELAY) and K_DATA_DIR are unverified and may be
+      // the real ones (the exact T13/T16 incident vector) — always spawn our own.
+      reuseExistingServer: false,
       stdout: 'pipe',
       stderr: 'pipe',
     },
@@ -93,7 +96,10 @@ export default defineConfig({
       url: `http://localhost:${WEB_PORT}`,
       env: webEnv,
       timeout: 120_000,
-      reuseExistingServer: true,
+      // Never adopt an unknown process on this port either: a leftover dev
+      // server may be proxying a different CORE_PORT (unverified autonomy/
+      // data-dir on the other end) — always spawn our own, paired to coreEnv.
+      reuseExistingServer: false,
       stdout: 'pipe',
       stderr: 'pipe',
     },

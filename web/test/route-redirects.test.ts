@@ -1,5 +1,6 @@
-/** P4 W0a — the legacy-hash redirect contract: every removed rail entry resolves to its
- *  new canonical home; params preserved where the destination consumes them. */
+/** UI Simplification (T6) — the legacy-hash redirect contract: every removed rail entry
+ *  resolves to its new canonical home in the 13-view IA; params preserved where the
+ *  destination consumes them. */
 import { it, expect } from 'vitest'
 import { parseHash, resolveRoute, KNOWN_VIEWS, VIEW_REDIRECTS } from '../src/lib/route'
 

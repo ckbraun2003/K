@@ -22,7 +22,7 @@ import { navigate } from '../../../lib/route'
  * ("awaiting input" / "plan ready") and a running row always reads green.
  */
 export default function ActiveRunsWidget() {
-  const { data: runs = [] } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn, refetchInterval: 10_000 })
+  const { data: runs = [], isError } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn, refetchInterval: 10_000 })
 
   const parked = runs.filter(isParkedRun)
   const active = runs.filter(isActiveRun)
@@ -31,7 +31,9 @@ export default function ActiveRunsWidget() {
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Active runs</h2>
-      {rows.length === 0 ? (
+      {isError ? (
+        <p data-testid="widget-active-runs-error" className="text-xs italic text-[var(--red)]">Failed to load runs.</p>
+      ) : rows.length === 0 ? (
         <p className="text-sm italic text-[var(--muted)]">Idle — no agents running.</p>
       ) : (
         <div className="flex flex-col gap-1">

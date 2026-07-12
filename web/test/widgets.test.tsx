@@ -175,6 +175,13 @@ describe('widget catalog', () => {
     expect(await screen.findByText(/Idle/)).toBeTruthy()
   })
 
+  it('ActiveRunsWidget: a runs-list fetch failure surfaces the error state, never a fake "Idle"', async () => {
+    mockRunsList.mockRejectedValue(new Error('runs down'))
+    renderWidget(<ActiveRunsWidget />)
+    expect(await screen.findByTestId('widget-active-runs-error')).toBeTruthy()
+    expect(screen.queryByText(/Idle/)).toBeNull()
+  })
+
   it('NeedsYouWidget: renders per-kind counts; click navigates to personal/inbox', async () => {
     mockInboxList.mockResolvedValue({
       items: [],
@@ -199,6 +206,13 @@ describe('widget catalog', () => {
   it('NeedsYouWidget: renders "Inbox zero." when the inbox is empty', async () => {
     renderWidget(<NeedsYouWidget />)
     expect(await screen.findByText('Inbox zero.')).toBeTruthy()
+  })
+
+  it('NeedsYouWidget: an inbox fetch failure surfaces the error state, never a fake "Inbox zero."', async () => {
+    mockInboxList.mockRejectedValue(new Error('inbox down'))
+    renderWidget(<NeedsYouWidget />)
+    expect(await screen.findByTestId('widget-needs-you-error')).toBeTruthy()
+    expect(screen.queryByText('Inbox zero.')).toBeNull()
   })
 
   it('CostTodayWidget: renders todays measured total + sparkline; NO "$/token" or "est" strings', async () => {
@@ -335,6 +349,13 @@ describe('widget catalog', () => {
     expect(mockFeedList).toHaveBeenCalledWith({ limit: 6 })
     fireEvent.click(screen.getByTestId('widget-recent-activity-seeall'))
     expect(mockNavigate).toHaveBeenCalledWith('timeline')
+  })
+
+  it('RecentActivityWidget: a feed fetch failure surfaces the error state, never a fake "No recent activity."', async () => {
+    mockFeedList.mockRejectedValue(new Error('feed down'))
+    renderWidget(<RecentActivityWidget />)
+    expect(await screen.findByTestId('widget-recent-activity-error')).toBeTruthy()
+    expect(screen.queryByText('No recent activity.')).toBeNull()
   })
 
   it('NotesWidget: renders notes with the done marker and its empty state', async () => {

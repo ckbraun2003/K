@@ -1,18 +1,29 @@
 import { useQuery } from '@tanstack/react-query'
 import type { InboxItemKind } from '@k/shared'
-import { INBOX_KEY, inboxQueryFn, EMPTY_INBOX } from '../../../lib/inbox-query'
+import { EMPTY_INBOX } from '../../../lib/inbox-query'
+import { api } from '../../../lib/api'
 import { navigate } from '../../../lib/route'
 
 /**
  * NeedsYouWidget (UI Simplification Task 13) — the rail badge's per-kind
- * breakdown surfaced as a widget. Reads the ONE shared inbox query
- * (inbox-query.ts) the Sidebar badge + InboxPage both key off, so this
- * widget adds zero extra fetches and stays live via the Shell-level
- * `makeInboxInvalidator` (['inbox'] key). Mirrors InboxPage's SECTION_ORDER
- * / SECTION_LABEL (not exported there — duplicated here rather than
- * widening that page's public surface for a two-widget-only string map;
- * see task report).
+ * breakdown surfaced as a widget.
+ *
+ * Deliberately does NOT read the shared `['inbox']` / `inboxQueryFn` cache
+ * entry (inbox-query.ts) that the Sidebar badge / MessageDock / InboxPage
+ * key off: that fn swallows a fetch failure into `EMPTY_INBOX` on purpose
+ * (a dead core must not paint the always-on rail badge red). This widget is
+ * a dashboard tile, not ambient chrome — a failed fetch here must render an
+ * explicit error, never a fabricated "Inbox zero." (final-review fix). Two
+ * different queryFn contracts can't safely share one queryKey (whichever
+ * observer's fn last wins the cache entry), so this widget gets its OWN
+ * `['inbox', 'widget']` key — still covered by the Shell-level
+ * `makeInboxInvalidator` (prefix-matches `['inbox']`) — at the cost of one
+ * extra `GET /api/inbox` alongside the badge's when Home is mounted.
+ * Mirrors InboxPage's SECTION_ORDER / SECTION_LABEL (not exported there —
+ * duplicated here rather than widening that page's public surface for a
+ * two-widget-only string map; see task report).
  */
+const NEEDS_YOU_KEY = ['inbox', 'widget'] as const
 const SECTION_ORDER: InboxItemKind[] = ['plan_pending', 'input_needed', 'review_ready', 'lesson_pending', 'mcp_trust']
 const SECTION_LABEL: Record<InboxItemKind, string> = {
   plan_pending: 'Plans to approve', input_needed: 'Runs waiting on your reply',
@@ -20,7 +31,7 @@ const SECTION_LABEL: Record<InboxItemKind, string> = {
 }
 
 export default function NeedsYouWidget() {
-  const { data } = useQuery({ queryKey: INBOX_KEY, queryFn: inboxQueryFn })
+  const { data, isError } = useQuery({ queryKey: NEEDS_YOU_KEY, queryFn: () => api.inbox.list() })
   const box = data ?? EMPTY_INBOX
 
   return (
@@ -35,7 +46,9 @@ export default function NeedsYouWidget() {
         <span className="mono text-2xl font-semibold text-[var(--text)]">{box.total}</span>
         <span className="text-xs text-[var(--muted)]">item{box.total === 1 ? '' : 's'}</span>
       </div>
-      {box.total === 0 ? (
+      {isError ? (
+        <p data-testid="widget-needs-you-error" className="text-xs italic text-[var(--red)]">Failed to load inbox.</p>
+      ) : box.total === 0 ? (
         <p className="text-xs italic text-[var(--muted)]">Inbox zero.</p>
       ) : (
         <div className="flex flex-wrap gap-1">
