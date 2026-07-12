@@ -18,7 +18,6 @@ import {
   undoK,
   getKThread,
   createKThread,
-  resolveAskThread,
   rowToKThread,
   listKThreadTurns,
   KThreadNotFoundError,
@@ -42,8 +41,6 @@ type Row = Record<string, unknown>
  * the durable work-items surface (A1) + the K-home glance reads (C2):
  *   POST  /api/k/ask            — activate K on a message (warm or fresh); accepts an
  *                                  optional threadId (404 unknown); returns KAskResult
- *   GET   /api/k/thread         — LEGACY (kept until Task 18): the most-recent
- *                                  non-archived thread + its turns
  *   GET   /api/k/threads        — list threads (?archived=1 includes archived), newest first
  *   GET   /api/k/threads/:id    — a thread + its turns, oldest-first (404 unknown)
  *   POST  /api/k/threads        — create an empty thread (title backfilled on first ask)
@@ -100,22 +97,6 @@ export async function kRoutes(app: FastifyInstance) {
     } catch (e) {
       req.log.error(e)
       return sendError(reply, 500, 'k undo failed')
-    }
-  })
-
-  // GET /api/k/thread — LEGACY, kept alive until Task 18 removes it: the
-  // most-recent non-archived thread + its turns (was the singleton default
-  // thread pre-multi-thread; resolveAskThread keeps old consumers on the newest
-  // active conversation instead). Wrapped like the POST handler so a DB fault
-  // surfaces as a typed 500, not a raw stack.
-  app.get('/api/k/thread', async (req, reply) => {
-    try {
-      const thread = resolveAskThread()
-      const turns = listKThreadTurns(thread.id)
-      return reply.send({ thread, turns })
-    } catch (e) {
-      req.log.error(e)
-      return sendError(reply, 500, 'k thread read failed')
     }
   })
 

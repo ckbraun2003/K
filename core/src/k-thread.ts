@@ -112,8 +112,8 @@ export function createKThread(): KThread {
 }
 
 /**
- * Resolve the thread an ask (or the legacy GET /api/k/thread) targets. An explicit
- * `threadId` must exist (throws {@link KThreadNotFoundError} otherwise — the route
+ * Resolve the thread an ask targets. An explicit `threadId` must exist (throws
+ * {@link KThreadNotFoundError} otherwise — the route
  * layer 404s); with none given, defaults to the most-recently-updated NON-archived
  * thread (kThreadsDb.listThreads is already updated_at DESC), falling back to
  * {@link ensureDefaultKThread} when there is no such thread (a wholly empty/all-

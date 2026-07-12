@@ -26,7 +26,7 @@ export default function OrgGlanceWidget() {
     <button
       type="button"
       data-testid="widget-org-glance"
-      onClick={() => navigate('org', 'tree')}
+      onClick={() => navigate('agents', 'org', 'tree')}
       className="flex h-full w-full flex-col gap-2 overflow-y-auto p-3 text-left transition-colors hover:bg-[var(--raised)]"
     >
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Org at a glance</h2>

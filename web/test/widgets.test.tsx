@@ -320,7 +320,7 @@ describe('widget catalog', () => {
     await waitFor(() => expect(widget.textContent).toMatch(/2/))
     expect(widget.textContent).toMatch(/1/) // 1 objective in flight (orgPayload.assignments)
     fireEvent.click(widget)
-    expect(mockNavigate).toHaveBeenCalledWith('org', 'tree')
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'org', 'tree')
   })
 
   it('OrgGlanceWidget: a chief-org failure surfaces the error state, not fake zeros', async () => {

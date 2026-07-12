@@ -627,9 +627,10 @@ export const api = {
   // fresh) and streams over the existing run wire; the optional power controls
   // (model override / forced route / a target `threadId`, UI Simplification Task 7)
   // ride the same body — undefined fields are naturally omitted by JSON.stringify.
-  // `thread` reads the durable K conversation (source of truth, survives reload).
   // `notes`/`schedule`/`workItems` are the K-home glance reads + the durable
-  // personal work-item surface.
+  // personal work-item surface. The durable K conversation itself is read via
+  // `threads.get` below (multi-thread; the legacy singleton `thread()` binding
+  // retired in Task 18).
   k: {
     ask: (message: string, opts?: { model?: string; forceRoute?: KForceRoute; threadId?: string }) =>
       req<KAskResult>('/k/ask', {
@@ -645,7 +646,6 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runId }),
       }),
-    thread: () => req<{ thread: KThread; turns: KThreadTurn[] }>('/k/thread'),
     notes: () => req<Note[]>('/k/notes'),
     schedule: () => req<KSchedule>('/k/schedule'),
     workItems: {
@@ -671,9 +671,9 @@ export const api = {
   // one thread + its turns oldest-first (404 unknown → req throws). `create` seeds
   // an empty thread (title backfills from the first ask on it). `remove` 404s
   // unknown, 409s a thread whose active run is still non-terminal (both surface as
-  // req's thrown error). NOTE: `['k-thread']` (LEGACY, `api.k.thread()`) and
-  // `['k-threads']` / `['k-thread', id]` (this namespace) are DISTINCT query keys
-  // during the Task-18 deprecation window — both stay live until then.
+  // req's thrown error). NOTE: `['k-threads']` (the list) and `['k-thread', id]`
+  // (one thread's turns, this namespace) are DISTINCT query keys — the latter also
+  // matches the `['k-thread']` PREFIX invalidation `useAskK.send` fires.
   threads: {
     list: (includeArchived?: boolean) =>
       req<{ threads: KThreadSummary[] }>(`/k/threads${includeArchived ? '?archived=1' : ''}`),

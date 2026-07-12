@@ -144,7 +144,7 @@ export default function RunConsole({ runId }: Props) {
     queryFn: () => api.runs.get(runId),
   })
 
-  // Shared-cache status query (same key as Settings/CommandBar — no fan-out) so the
+  // Shared-cache status query (same key as Settings — no fan-out) so the
   // HITL reply box can gate the mic on whether voice is enabled.
   const { data: status } = useQuery<Status>({ queryKey: ['status'], queryFn: () => api.status() })
 

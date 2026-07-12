@@ -3,7 +3,7 @@ import { api } from './api'
 
 /**
  * The ONE shared default-runs-list query (wave C1). Its consumers (ActivityStrip,
- * RunList, CommandBar, KHome, and the Sidebar badge) previously shared the bare
+ * RunList, KHome, and the Sidebar badge) previously shared the bare
  * ['runs'] key with separately-written queryFns — the fns could silently drift
  * under one cache entry. Scoping the key to its limit and exporting a single
  * queryFn makes the pair impossible to desynchronise.

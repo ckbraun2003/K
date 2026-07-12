@@ -1,5 +1,5 @@
 /**
- * k routes — POST /api/k/ask + GET /api/k/thread (P5.1c, D-023).
+ * k routes — POST /api/k/ask + POST /api/k/undo (P5.1c, D-023).
  *
  * Builds the real Fastify app in-process (buildApp) and drives it with app.inject —
  * same bootstrap as app-routes.test.ts (K_SKIP_BOOTSTRAP set before importing index).
@@ -96,10 +96,17 @@ describe('POST /api/k/ask — validation + dispatch', () => {
       route: { target: string }
       runId: string
       warm: boolean
+      kThreadId: string
     }
     expect(body.route.target).toBe('logistics')
     expect(typeof body.runId).toBe('string')
     expect(body.warm).toBe(false)
+    // The turn lands in the resolved thread (resolveAskThread's default-thread
+    // fallback, no explicit threadId) and reads back via the canonical GET.
+    const thread = await app.inject({ method: 'GET', url: `/api/k/threads/${body.kThreadId}`, headers: AUTH })
+    expect(thread.statusCode).toBe(200)
+    const turns = (thread.json() as { turns: Array<{ text: string }> }).turns
+    expect(turns.some(t => t.text === 'what is on my calendar')).toBe(true)
   })
 
   it('bad forceRoute value → 400 (enum boundary)', async () => {
@@ -131,23 +138,12 @@ describe('POST /api/k/ask — validation + dispatch', () => {
   })
 })
 
-describe('GET /api/k/thread', () => {
-  it('returns the durable thread + turns including the asked message', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/k/thread', headers: AUTH })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as {
-      thread: { id: string }
-      turns: Array<{ role: string; text: string }>
-    }
-    expect(body.thread).toBeTruthy()
-    expect(Array.isArray(body.turns)).toBe(true)
-    expect(body.turns.some(t => t.text === 'what is on my calendar')).toBe(true)
-  })
-})
-
 describe('POST /api/k/undo — F-060', () => {
-  const threadTurns = async (): Promise<Array<{ text: string }>> => {
-    const res = await app.inject({ method: 'GET', url: '/api/k/thread', headers: AUTH })
+  // Reads a thread's turns via the canonical GET /api/k/threads/:id — the same
+  // resolveAskThread path askK() uses, so this exercises identical coverage to
+  // the retired legacy GET /api/k/thread (Task 18).
+  const threadTurns = async (threadId: string): Promise<Array<{ text: string }>> => {
+    const res = await app.inject({ method: 'GET', url: `/api/k/threads/${threadId}`, headers: AUTH })
     return (res.json() as { turns: Array<{ text: string }> }).turns
   }
 
@@ -167,8 +163,8 @@ describe('POST /api/k/undo — F-060', () => {
     const ask = await app.inject({
       method: 'POST', url: '/api/k/ask', headers: AUTH, payload: { message: 'remind me to undo this' },
     })
-    const runId = (ask.json() as { runId: string }).runId
-    expect((await threadTurns()).some(t => t.text === 'remind me to undo this')).toBe(true)
+    const { runId, kThreadId } = ask.json() as { runId: string; kThreadId: string }
+    expect((await threadTurns(kThreadId)).some(t => t.text === 'remind me to undo this')).toBe(true)
 
     const undo = await app.inject({
       method: 'POST', url: '/api/k/undo', headers: AUTH, payload: { runId },
@@ -177,6 +173,6 @@ describe('POST /api/k/undo — F-060', () => {
     expect((undo.json() as { undone: boolean }).undone).toBe(true)
 
     // The dangling turn is gone — it will not be replayed into a later seed.
-    expect((await threadTurns()).some(t => t.text === 'remind me to undo this')).toBe(false)
+    expect((await threadTurns(kThreadId)).some(t => t.text === 'remind me to undo this')).toBe(false)
   })
 })

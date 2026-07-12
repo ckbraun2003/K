@@ -1,7 +1,7 @@
 /**
  * k threads CRUD routes + askK threadId (UI Simplification, Task 2) —
  * GET/POST /api/k/threads, GET/PATCH/DELETE /api/k/threads/:id, POST /api/k/ask
- * threadId, and the legacy GET /api/k/thread's multi-thread-aware redirect.
+ * threadId.
  *
  * Same harness shape as k-route.test.ts: builds the real Fastify app in-process
  * (buildApp) and drives it with app.inject. The supervisor is mocked so askK's
@@ -164,14 +164,6 @@ describe('GET /api/k/threads/:id', () => {
   })
 })
 
-describe('GET /api/k/thread (legacy)', () => {
-  it('GET /api/k/thread (legacy) returns the most-recent non-archived thread', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/k/thread', headers: AUTH })
-    expect(res.statusCode).toBe(200)
-    expect(res.json().thread.archivedAt).toBeNull()
-  })
-})
-
 describe('askK fallback un-archive (review fix)', () => {
   it('ask with no threadId after archiving EVERY thread un-archives the resolved thread (message never lands hidden)', async () => {
     // Archive everything that exists so the fallback branch is the only path left.
@@ -183,13 +175,16 @@ describe('askK fallback un-archive (review fix)', () => {
       }
     }
     await archiveAll()
-    // With zero non-archived threads the legacy route falls back to the default
-    // thread, CREATING it (fresh, unarchived) — then archive that too, so the
-    // default thread now EXISTS in the archived state (the bug's precondition).
-    const def = (await app.inject({ method: 'GET', url: '/api/k/thread', headers: AUTH })).json().thread
+    // With zero non-archived threads resolveAskThread falls back to the default
+    // thread, CREATING it (fresh, unarchived) via an ask — then archive that too,
+    // so the default thread now EXISTS in the archived state (the bug's precondition).
+    const seed = await app.inject({
+      method: 'POST', url: '/api/k/ask', headers: AUTH, payload: { message: 'seed the default thread' },
+    })
+    const defId = (seed.json() as { kThreadId: string }).kThreadId
     await archiveAll()
     expect(
-      (db.prepare(`SELECT archived_at FROM k_threads WHERE id = ?`).get(def.id) as { archived_at: number | null })
+      (db.prepare(`SELECT archived_at FROM k_threads WHERE id = ?`).get(defId) as { archived_at: number | null })
         .archived_at,
     ).not.toBeNull()
 

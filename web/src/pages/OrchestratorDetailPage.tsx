@@ -338,7 +338,8 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
 
           {/* Memory — this lead's lessons at the selected status, with approve/reject wired
               on the pending status only (InboxTab's direct mutate idiom). A link out to the
-              Memory page stays for the full cross-lead history (no dead end). */}
+              Inbox stays for pending lessons across every lead (no dead end); there is no
+              cross-lead ALL-STATUS view post-MemoryPage retirement (Task 18). */}
           {tab === 'memory' && (
             <div data-testid="orchestrator-panel-memory" className="space-y-2">
               <SegControl<LessonStatus>
@@ -370,12 +371,12 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                 <button
                   type="button"
                   data-testid="orchestrator-memory-link"
-                  onClick={() => navigate('lessons')}
+                  onClick={() => navigate('personal', 'inbox')}
                   className="text-[var(--accent-hover)] hover:underline"
                 >
-                  Memory page
+                  Inbox
                 </button>{' '}
-                reviews lessons across every profile.
+                reviews pending lessons across every profile.
               </p>
             </div>
           )}

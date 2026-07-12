@@ -20,8 +20,9 @@ export interface PendingUndo {
 }
 
 /**
- * Shared "ask K + 5s undo" orchestration (P5.1f) — extracted from CommandBar so
- * both ⌘K and K-home drive the front door identically.
+ * Shared "ask K + 5s undo" orchestration (P5.1f) — used by MessageDock (the one
+ * front door, both its bar and float variants) and org/TreeView's per-lead ask
+ * affordance, so both drive K identically.
  *
  * `send` is optimistic AND anchors the undo window to the SEND action (F-066): it
  * raises the Undo affordance IMMEDIATELY (via `pendingUndo`, with the previewed route
@@ -31,17 +32,15 @@ export interface PendingUndo {
  * `runId` is patched in WITHOUT changing `key`, so the toast keeps its original
  * send-anchored timer instead of restarting. A failed dispatch clears the optimistic
  * window (nothing was started). A successful send also invalidates the `['k-thread']`
- * PREFIX (covers both the legacy singleton key and every scoped `['k-thread', id]`
- * detail) and the `['k-threads']` list (UI Simplification Task 7), so a thread
+ * PREFIX (covers every scoped `['k-thread', id]` detail read, e.g. ChatView's
+ * transcript) and the `['k-threads']` list (UI Simplification Task 7), so a thread
  * surface reading either key sees the new turn without waiting for reload.
- * Navigation is CALLER-CHOSEN via `navigateOnSend`
- * (default true): ⌘K navigates on resolve because its Undo toast is rendered outside
- * the palette and survives the close; K-home passes `false` and stays put — navigating
- * would unmount the page and kill its own Undo toast, so it offers a "View run" link on
- * the toast instead. `undo` best-effort kills the started run; pressed while the ask is
- * still in flight, it kills the run as soon as its id resolves. A trimmed-empty message
- * is a no-op. Re-entry is guarded by a synchronous ref so a double click/Enter can't
- * fire two asks.
+ * Navigation is CALLER-CHOSEN via `navigateOnSend` (default true; both current
+ * callers pass `false` and stay put — navigating on resolve would unmount the page
+ * and kill its own Undo toast). `undo` best-effort kills the started run; pressed
+ * while the ask is still in flight, it kills the run as soon as its id resolves.
+ * A trimmed-empty message is a no-op. Re-entry is guarded by a synchronous ref so
+ * a double click/Enter can't fire two asks.
  */
 export function useAskK(opts?: { navigateOnSend?: boolean }) {
   const navigateOnSend = opts?.navigateOnSend ?? true

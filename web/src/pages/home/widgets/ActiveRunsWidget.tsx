@@ -9,7 +9,7 @@ import { navigate } from '../../../lib/route'
  * ActiveRunsWidget (UI Simplification Task 13) — ports ActivityStrip's
  * active/parked rows (formerly ActivityStrip.tsx:51-86) into a 3x3 grid
  * cell. Reads the ONE shared default-runs-list query (runs-query.ts) — the
- * same cache entry ActivityStrip/RunList/CommandBar/Sidebar all shared — so
+ * same cache entry ActivityStrip/RunList/Sidebar all shared — so
  * this widget adds zero extra fetches and stays live via the Shell-level
  * `run_update` invalidator (useLiveInvalidators → ['runs'] prefix).
  *

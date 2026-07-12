@@ -89,13 +89,13 @@ describe('OrchestratorDetailPage — nav remaps (P4 B2)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('agents', 'org', 'roster')
   })
 
-  it('Memory tab "Memory page" link navigates to lessons', async () => {
+  it('Memory tab "Inbox" link navigates to personal/inbox', async () => {
     mockGet.mockResolvedValue(detail)
     renderPage('lead-web')
     await screen.findByRole('heading', { level: 1, name: 'Web Lead' })
     fireEvent.click(screen.getByTestId('seg-memory'))
     fireEvent.click(await screen.findByTestId('orchestrator-memory-link'))
-    expect(mockNavigate).toHaveBeenCalledWith('lessons')
+    expect(mockNavigate).toHaveBeenCalledWith('personal', 'inbox')
   })
 })
 

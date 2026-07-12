@@ -247,7 +247,7 @@ describe('DraftWorkspace — ready draft editing', () => {
     expect((nameInput as HTMLInputElement).value).toBe('pr-check')
     fireEvent.click(screen.getByTestId('save-submit'))
     await waitFor(() => expect(mockSave).toHaveBeenCalledWith('d1', 'pr-check'))
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('skills'))
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('agents', 'skills'))
     expect(sessionStorage.getItem(CATALOG_HIGHLIGHT_KEY)).toBe('pr-check')
   })
 
@@ -260,7 +260,7 @@ describe('DraftWorkspace — ready draft editing', () => {
     expect((await screen.findByTestId('save-error')).textContent).toBe(
       'a skill named "pr-check" already exists',
     )
-    expect(mockNavigate).not.toHaveBeenCalledWith('skills')
+    expect(mockNavigate).not.toHaveBeenCalledWith('agents', 'skills')
     expect(sessionStorage.getItem(CATALOG_HIGHLIGHT_KEY)).toBeNull()
   })
 
@@ -271,7 +271,7 @@ describe('DraftWorkspace — ready draft editing', () => {
     expect(screen.getByTestId('draft-badge-saved').textContent).toBe('saved to K library')
     expect(screen.queryByTestId('save-submit')).toBeNull()
     fireEvent.click(screen.getByTestId('save-view-catalog'))
-    expect(mockNavigate).toHaveBeenCalledWith('skills')
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'skills')
   })
 })
 

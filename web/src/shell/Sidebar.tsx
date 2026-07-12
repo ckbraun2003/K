@@ -17,7 +17,7 @@ export interface Destination {
   view?: string
   param?: string
   /** Where the entry renders: the primary nav group, the footer cluster, or `hidden`
-   *  (kept only so TopBar/⌘K can resolve a label for a view reached indirectly, e.g.
+   *  (kept only so TopBar can resolve a label for a view reached indirectly, e.g.
    *  the Docs view reached via Help — Docs is no longer a top-level destination). */
   section: 'primary' | 'footer' | 'hidden'
 }
@@ -35,17 +35,11 @@ export const DESTINATIONS: Destination[] = [
   // Footer cluster — below the spacer.
   { id: 'help', icon: '❔', label: 'Help', hint: 'How to use K — the user guide', enabled: true, view: 'docs', param: 'project-bible', section: 'footer' },
   { id: 'settings', icon: '⚙', label: 'Settings', hint: 'Provider/auth status, diagnostics & global system prompt', enabled: true, section: 'footer' },
-  // Hidden: not rail destinations, kept so TopBar/command-palette resolve a label for indirectly-reached views.
+  // Hidden: not rail destinations, kept so TopBar can resolve a label for indirectly-reached views.
   { id: 'docs', icon: '▤', label: 'Docs', hint: 'Harness bible & artifacts', enabled: true, view: 'docs', param: 'project-bible', section: 'hidden' },
   { id: 'skill-creator', icon: '✎', label: 'Skill Creator', hint: 'Draft, refine & evaluate a skill with an agent', enabled: true, section: 'hidden' },
   { id: 'timeline', icon: '≡', label: 'Timeline', hint: 'Org activity feed', enabled: true, section: 'hidden' },
 ]
-
-/** Command-palette source: the enabled rail items. CommandBar itself is retired in
- *  Task 18 (dead/unmounted since Task 10) — kept as an empty set so NAV_DESTINATIONS
- *  (and CommandBar's import of it) still compile until that retirement sweep. */
-const COMMAND_ONLY = new Set<string>()
-export const NAV_DESTINATIONS = DESTINATIONS.filter(d => d.enabled && (d.section !== 'hidden' || COMMAND_ONLY.has(d.id)))
 
 export default function Sidebar({
   active,

@@ -62,7 +62,7 @@ function Composer({
         <span className="flex items-center gap-2">
           <span data-testid="dock-target">→ {title}</span>
           {/* K routes INLINE as the operator types — the deterministic preview of
-              where K will likely hand the message (mirrors CommandBar's k-route-preview). */}
+              where K will likely hand the message. */}
           {route && <span data-testid="dock-route-preview">→ {route.label}</span>}
         </span>
         <button
@@ -196,18 +196,18 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const { data: threadsData } = useQuery({ queryKey: ['k-threads'], queryFn: () => api.threads.list() })
   const { data: inbox } = useQuery({ queryKey: INBOX_KEY, queryFn: inboxQueryFn })
   const { data: claudeModel } = useQuery({ queryKey: ['claude-model'], queryFn: () => api.claudeModel.get() })
-  // Same cache key CommandBar uses (['projects']) — shared across both front doors.
+  // The ['projects'] cache key backing the @project dispatch picker.
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
-  // One batched status query (shared cache key with Settings/CommandBar) surfaces the
+  // One batched status query (shared cache key with Settings) surfaces the
   // live Ollama model in the dispatch card's picker — not a per-option fetch
-  // (CommandBar.tsx's idiom 1:1; lessons.md: no fan-out).
+  // (lessons.md: no fan-out).
   const { data: status } = useQuery<Status>({ queryKey: ['status'], queryFn: () => api.status() })
   // `dispatch` prefix: the ask path's Claude-override list below is already
   // named `modelOptions` — this one feeds only the dispatch card's picker.
   const dispatchModelOptions = useMemo(() => buildModelOptions(status?.ollama), [status])
 
   // null until the user picks an @project dispatch; holds it while the confirm
-  // card previews (CommandBar's `confirm` state, ported 1:1).
+  // card previews it.
   const [confirm, setConfirm] = useState<DispatchConfirm | null>(null)
   const [dispatchPrompt, setDispatchPrompt] = useState('')
   const [dispatchModel, setDispatchModel] = useState('auto')
@@ -258,7 +258,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   }
 
   // Esc closes the float overlay and returns focus to the fab (standard modal
-  // pattern — mirrors ConfirmDialog/CommandBar).
+  // pattern — mirrors ConfirmDialog).
   useEffect(() => {
     if (variant !== 'float' || !open) return
     function onKey(e: KeyboardEvent) {
@@ -270,7 +270,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   }, [variant, open])
 
   // Move focus into the compose textarea when the confirm card opens, caret at
-  // the end — mirrors CommandBar.tsx:103-111.
+  // the end.
   useEffect(() => {
     if (!confirm) return
     const el = dispatchComposeRef.current
@@ -284,7 +284,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const inboxTotal = inbox?.total ?? 0
 
   // K's deterministic route preview for the current plain (non-@) text — null
-  // for empty / @project text (CommandBar.tsx:194-197, ported 1:1).
+  // for empty / @project text.
   const route = useMemo<KRoute | null>(
     () => (text.trim() && !text.startsWith('@') ? (forceRoute ? routeForTarget(forceRoute) : routeForMessage(text.trim())) : null),
     [text, forceRoute],
@@ -325,20 +325,19 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   }
 
   function onInputKeyDown(e: React.KeyboardEvent) {
-    // IME-guarded (CJK candidate selection also fires Enter) — mirrors
-    // KHome/CommandBar's compose-box handlers.
+    // IME-guarded (CJK candidate selection also fires Enter).
     if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); void submit() }
   }
 
-  // Editing the input while a confirm card is up invalidates it (CommandBar's
-  // query-onChange idiom) — a stale project/prompt pairing must not linger.
+  // Editing the input while a confirm card is up invalidates it — a stale
+  // project/prompt pairing must not linger.
   function handleTextChange(v: string) {
     setText(v)
     if (confirm) setConfirm(null)
   }
 
   // Picking a project row seeds the confirm card's editable draft from whatever
-  // followed the @token — CommandBar.tsx:230-234, ported 1:1.
+  // followed the @token.
   function pickProject(project: Project) {
     const prompt = text.replace(/^@\S*\s*/, '')
     setConfirm({ project, prompt })
@@ -354,8 +353,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     inputRef.current?.focus()
   }
 
-  // Fires the composed dispatch for real — CommandBar's fireDispatch body
-  // (CommandBar.tsx:240-257), ported 1:1 including the planGate opts shape.
+  // Fires the composed dispatch for real, including the planGate opts shape.
   async function fireDispatch() {
     if (!confirm || dispatchBusy) return
     const prompt = dispatchPrompt.trim()
@@ -380,7 +378,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   }
 
   // Compose-box keys: Enter sends, Shift+Enter inserts a newline, Esc cancels
-  // back to the @picker — mirrors CommandBar.tsx:261-267.
+  // back to the @picker.
   function onDispatchComposeKeyDown(e: React.KeyboardEvent) {
     if (!confirm) return
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void fireDispatch() }
@@ -412,8 +410,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   )
 
   // Rendered unconditionally (outside both the bar footer and the open-gated
-  // overlay) so a send's undo window survives the float overlay closing —
-  // mirrors CommandBar.tsx:577-585.
+  // overlay) so a send's undo window survives the float overlay closing.
   const undoToast = (
     <Toast
       open={ask.pendingUndo !== null}
@@ -426,9 +423,8 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     />
   )
 
-  // @project dispatch confirm card — ports CommandBar's compose-and-confirm
-  // dialog 1:1 (payload shape, mutual-exclusion checkboxes). Rendered unconditionally
-  // (like undoToast) so it overlays either variant identically.
+  // @project dispatch confirm card (payload shape, mutual-exclusion checkboxes).
+  // Rendered unconditionally (like undoToast) so it overlays either variant identically.
   const dispatchCard = (
     <AnimatePresence>
       {confirm && (
