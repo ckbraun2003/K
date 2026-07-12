@@ -134,6 +134,51 @@ describe('ChatsTab', () => {
     await waitFor(() => expect(mockThreadsUpdate).toHaveBeenCalledWith('kt-2', { archived: false }))
   })
 
+  it('archiving the CURRENTLY-SELECTED thread demotes the selection to the next non-archived thread', async () => {
+    // The T11 rule (mirrors ChatView's archive): an EXPLICIT archive moves the selection off
+    // the thread — otherwise returning Home would land the operator parked on the archived
+    // chip state. The next pick skips archived rows in this tab's include-archived list.
+    const t1 = thread({ id: 'kt-1', title: 'Selected chat' })
+    const tArch = thread({ id: 'kt-arch', title: 'Already archived', archivedAt: Date.now() })
+    const t2 = thread({ id: 'kt-2', title: 'Next chat' })
+    mockThreadsList.mockResolvedValue({ threads: [t1, tArch, t2] })
+    selectThread('kt-1')
+    renderTab()
+    await screen.findByTestId('chats-row-kt-1')
+
+    fireEvent.click(screen.getByTestId('chats-archive-kt-1'))
+
+    await waitFor(() => expect(mockThreadsUpdate).toHaveBeenCalledWith('kt-1', { archived: true }))
+    await waitFor(() => expect(getSelectedThread()).toBe('kt-2')) // skips kt-arch (archived)
+  })
+
+  it('archiving a NON-selected thread leaves the selection alone', async () => {
+    const t1 = thread({ id: 'kt-1', title: 'Selected chat' })
+    const t2 = thread({ id: 'kt-2', title: 'Other chat' })
+    mockThreadsList.mockResolvedValue({ threads: [t1, t2] })
+    selectThread('kt-1')
+    renderTab()
+    await screen.findByTestId('chats-row-kt-2')
+
+    fireEvent.click(screen.getByTestId('chats-archive-kt-2'))
+
+    await waitFor(() => expect(mockThreadsUpdate).toHaveBeenCalledWith('kt-2', { archived: true }))
+    expect(getSelectedThread()).toBe('kt-1')
+  })
+
+  it('UNARCHIVING never touches the selection (even when the unarchived thread is selected)', async () => {
+    const tArch = thread({ id: 'kt-arch', title: 'Archived chat', archivedAt: Date.now() })
+    mockThreadsList.mockResolvedValue({ threads: [tArch] })
+    selectThread('kt-arch')
+    renderTab()
+    await screen.findByTestId('chats-row-kt-arch')
+
+    fireEvent.click(screen.getByTestId('chats-archive-kt-arch'))
+
+    await waitFor(() => expect(mockThreadsUpdate).toHaveBeenCalledWith('kt-arch', { archived: false }))
+    expect(getSelectedThread()).toBe('kt-arch')
+  })
+
   it('delete opens ConfirmDialog; confirm calls api.threads.remove; a 409 rejection surfaces in the dialog error', async () => {
     const t1 = thread({ id: 'kt-1', title: 'Doomed chat' })
     mockThreadsList.mockResolvedValue({ threads: [t1] })

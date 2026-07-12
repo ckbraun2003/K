@@ -141,7 +141,20 @@ export default function ChatView() {
   })
   const archive = useMutation({
     mutationFn: (id: string) => api.threads.update(id, { archived: true }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['k-threads'] }),
+    // An EXPLICIT archive moves the selection OFF the thread (T11 rule) — only NAVIGATING to an
+    // already-archived thread keeps it (the probe's keep+chip flow above). Demote AFTER the
+    // refetch settles so `next` comes from the FRESH default list (which now excludes the
+    // archived id), guarded like the probe: a selection the user already moved is never
+    // clobbered. Demoting here (not leaving it to the probe) means the probe never ACTS on the
+    // archived selection — its staleness guards abort any probe that raced this flow.
+    onSuccess: async (_data, id) => {
+      await qc.invalidateQueries({ queryKey: ['k-threads'] })
+      if (getSelectedThread() !== id) return // the selection already moved on — nothing to demote
+      const state = qc.getQueryState<{ threads: KThreadSummary[] }>(['k-threads'])
+      if (state?.status !== 'success') return // failed refetch: degrade only, never write (spec 9)
+      const fresh = state.data?.threads ?? []
+      selectThread(fresh.find(t => t.id !== id)?.id ?? null) // next thread, or the empty draft
+    },
   })
 
   function startRename(t: KThreadSummary) {

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { KThreadSummary } from '@k/shared'
 import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
-import { selectThread } from '../../lib/thread-select'
+import { selectThread, getSelectedThread } from '../../lib/thread-select'
 import { relativeTime } from '../../lib/verify'
 import ConfirmDialog from '../../components/ConfirmDialog'
 
@@ -31,10 +31,11 @@ const BTN_DANGER =
  *
  * Open hands off to Home's Chat view: select the thread in the shared
  * `thread-select.ts` store, flip the remembered Home sub-view to 'chat', and
- * navigate there. If the thread this tab just archived/deleted happens to be
- * the one currently selected, ChatView's own selection-fallback probe (Task
- * 11) demotes it the moment its list affirmatively excludes the id — this
- * tab does not need to reach into that store on archive/delete itself.
+ * navigate there. An EXPLICIT archive of the currently-selected thread also
+ * moves the selection off it here (T11 rule, mirrors ChatView's archive) —
+ * otherwise returning Home would land parked on the archived chip state.
+ * Delete still leaves demotion to ChatView's selection-fallback probe (Task
+ * 11): its by-id read 404s a deleted id and demotes.
  */
 export default function ChatsTab() {
   const qc = useQueryClient()
@@ -59,7 +60,16 @@ export default function ChatsTab() {
   })
   const toggleArchive = useMutation({
     mutationFn: (t: KThreadSummary) => api.threads.update(t.id, { archived: t.archivedAt === null }),
-    onSuccess: invalidateThreads,
+    onSuccess: (_data, t) => {
+      invalidateThreads()
+      // T11 rule (mirrors ChatView's archive): an EXPLICIT archive of the currently-selected
+      // thread moves the selection off it — next = the first OTHER non-archived thread in this
+      // tab's own (include-archived) list, or the empty draft. UNARCHIVE never touches the
+      // selection, and the getSelectedThread() guard never clobbers one that already moved.
+      if (t.archivedAt === null && getSelectedThread() === t.id) {
+        selectThread(threads.find(x => x.id !== t.id && x.archivedAt === null)?.id ?? null)
+      }
+    },
   })
   const del = useMutation({
     mutationFn: (id: string) => api.threads.remove(id),

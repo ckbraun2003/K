@@ -288,6 +288,35 @@ describe('ChatView', () => {
     expect(screen.queryByTestId('chat-archived-indicator')).toBeNull()
   })
 
+  it('EXPLICITLY archiving the OPEN thread moves the selection to the next thread — no archived chip (T11 rule)', async () => {
+    // The rule: an EXPLICIT archive action moves the selection off the thread; only NAVIGATING
+    // to an already-archived thread keeps it (the probe's keep+chip flow above). The by-id read
+    // here reflects the server's honest post-archive state (archivedAt set) — without the
+    // explicit-archive demotion, the probe would prove kt-1 archived-but-live and KEEP it
+    // parked on the chip state instead of falling to the next conversation.
+    const t1 = thread({ id: 'kt-1', title: 'Open chat' })
+    const t2 = thread({ id: 'kt-2', title: 'Other chat' })
+    mockThreadsList
+      .mockResolvedValueOnce({ threads: [t1, t2] }) // pre-archive snapshot
+      .mockResolvedValue({ threads: [t2] }) // any fetch after the archive excludes kt-1
+    mockThreadsGet.mockImplementation(async (id: string) => ({
+      thread: id === 'kt-1' ? { ...t1, archivedAt: Date.now() } : t2,
+      turns: [],
+    }))
+    mockThreadsUpdate.mockResolvedValue({ ...t1, archivedAt: Date.now() })
+    selectThread('kt-1')
+    renderChat()
+    await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-1')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('chat-archive-kt-1'))
+
+    await waitFor(() => expect(mockThreadsUpdate).toHaveBeenCalledWith('kt-1', { archived: true }))
+    await waitFor(() => expect(getSelectedThread()).toBe('kt-2'))
+    // The next conversation renders — never the archived chip state.
+    await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-2')).toBeTruthy())
+    expect(screen.queryByTestId('chat-archived-indicator')).toBeNull()
+  })
+
   it('a failing threads query degrades to the empty state — chat never hard-blocks (spec §9)', async () => {
     // A real prior selection existed (persisted from an earlier, working session) —
     // the list read failing must still degrade the TRANSCRIPT to the empty state
