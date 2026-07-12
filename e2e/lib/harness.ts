@@ -41,11 +41,18 @@ export async function waitForWs(page: Page, timeout = 30_000): Promise<void> {
   await expect(page.locator('[title="core connected"]')).toBeVisible({ timeout })
 }
 
-// --- Command bar (⌘K) -------------------------------------------------------
+// --- Message Dock (⌘K) -------------------------------------------------------
+// UI Simplification retired the CommandBar palette (Task 18); the TopBar's
+// `topbar-dock-launcher` button (and the ⌘K chord, equally) now call
+// `focusDock()` (web/src/lib/dock-bus.ts): the bar variant (Home) is already
+// mounted inline and just takes focus, the float variant (elsewhere) opens
+// its overlay first. Kept the export name so existing callers across the
+// persona specs don't need touching for the "open it" step.
 
-/** Open the command palette via the TopBar button (keyboard chord is flaky in CI). */
+/** Open (or focus) the Message Dock composer via the TopBar button (keyboard chord is flaky in CI). */
 export async function openCommandBar(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /Ask K or jump anywhere/i }).click()
+  await page.getByTestId('topbar-dock-launcher').click()
+  await expect(page.getByTestId('dock-input')).toBeVisible()
 }
 
 // --- Timing -----------------------------------------------------------------

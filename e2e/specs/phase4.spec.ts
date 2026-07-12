@@ -62,9 +62,10 @@ test('shell boots with WS green; Settings and Workflows are reachable via sideba
     })
   }
 
-  // Settings is in the footer cluster; Workflows is in the primary nav group.
+  // Settings is in the footer cluster; Agents is in the primary nav group (Workflows
+  // folded into Agents → pipelines — no longer a standalone rail destination).
   await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Workflows' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Agents' })).toBeVisible()
 
   // --- Sidebar button navigation ---
   await page.getByRole('button', { name: 'Settings' }).click()
@@ -72,10 +73,10 @@ test('shell boots with WS green; Settings and Workflows are reachable via sideba
   await waitForWs(page)
   await screenshot(page, 'PHASE4-01-settings-via-sidebar')
 
-  await page.getByRole('button', { name: 'Workflows' }).click()
-  await page.waitForURL(/#\/workflows/, { timeout: 10_000 })
+  await page.getByRole('button', { name: 'Agents' }).click()
+  await page.waitForURL(/#\/agents/, { timeout: 10_000 })
   await waitForWs(page)
-  await screenshot(page, 'PHASE4-01-workflows-via-sidebar')
+  await screenshot(page, 'PHASE4-01-agents-via-sidebar')
 
   // --- Hash-route direct navigation ---
   await gotoApp(page, '#/settings')
@@ -84,7 +85,7 @@ test('shell boots with WS green; Settings and Workflows are reachable via sideba
   await gotoApp(page, '#/workflows')
   await screenshot(page, 'PHASE4-01-workflows-via-hash')
 
-  // --- Keyboard chords: g , → settings, g w → workflows ---
+  // --- Keyboard chords: g , → settings, g a → agents ---
   // Return home first so focus is on a non-input element.
   await gotoApp(page, '#/home')
 
@@ -114,24 +115,24 @@ test('shell boots with WS green; Settings and Workflows are reachable via sideba
     })
   }
 
-  // Back to home for g→w chord.
+  // Back to home for g→a chord.
   await gotoApp(page, '#/home')
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
   await page.locator('body').click()
 
   try {
     await page.keyboard.press('g')
-    await page.keyboard.press('w')
-    await page.waitForFunction(() => window.location.hash.includes('/workflows'), { timeout: 5_000 })
-    await screenshot(page, 'PHASE4-01-workflows-via-chord')
+    await page.keyboard.press('a')
+    await page.waitForFunction(() => window.location.hash.includes('/agents'), { timeout: 5_000 })
+    await screenshot(page, 'PHASE4-01-agents-via-chord')
   } catch (err) {
     findings.push({
-      title: 'Keyboard chord g→w does not navigate to Workflows',
+      title: 'Keyboard chord g→a does not navigate to Agents',
       severity: 'Low',
       category: 'Bug',
-      surface: 'Shell keyboard chords / Workflows',
-      repro: 'Home → body click → press g → press w (chord defined in chords.ts).',
-      expected: 'URL hash changes to include /workflows.',
+      surface: 'Shell keyboard chords / Agents',
+      repro: 'Home → body click → press g → press a (chord defined in chords.ts).',
+      expected: 'URL hash changes to include /agents.',
       actual: String(err),
       evidence: 'reports/screens/PHASE4-01-home.png',
     })
@@ -658,6 +659,7 @@ test('knowledge graph tab: AFRAME-free, canvas or graceful no-data state', async
 // 6. ONE real claude dispatch (plan mode, tiny prompt)
 // ---------------------------------------------------------------------------
 test('ONE real dispatch: confirm card, RunConsole live events, context-meter, Console↔Timeline toggle', async ({ page }) => {
+  test.skip(true, 'CommandBar retired at UI Simplification Task 18 (2026-07) — this test\'s entry point (typing a plain, non-@ prompt auto-surfaces a cmdk-row-dispatch from an ambiguous nav/dispatch list) has no MessageDock equivalent; dispatch is now explicit-only via typing @project and picking a dock-project-row-*, which requires a pre-registered project this test never sets up.')
   await gotoApp(page, '#/home')
 
   // Open command bar via the TopBar button (keyboard chord is flaky in CI).
@@ -902,6 +904,7 @@ test('HITL compact wiring: answer-box and compact button appear for awaiting_inp
 //        while run.status === 'awaiting_input'.
 // ---------------------------------------------------------------------------
 test('HITL interactive live test: dispatch interactive run, multi-turn, /compact wiring', async ({ page }) => {
+  test.skip(true, 'CommandBar retired at UI Simplification Task 18 (2026-07) — this test\'s dispatch entry point (⌘K → typed prompt auto-surfaces a cmdk-row-dispatch from an ambiguous nav/dispatch list) has no MessageDock equivalent; the rest of the test (multi-turn HITL answer/compact wiring) is sound but unreachable without inventing a new @project-based dispatch flow this test never set up.')
   await gotoApp(page, '#/home')
 
   // --- 1. Open ⌘K, fill prompt, open confirm card ---

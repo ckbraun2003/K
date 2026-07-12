@@ -28,7 +28,10 @@ test('shell + labeled sidebar render; no top-level Docs rail item', async ({ pag
   await gotoApp(page, '#/home')
   // Root is not blank (a module-eval crash would leave #root empty).
   await expect(page.locator('#root')).not.toBeEmpty()
-  await expect(page.getByRole('heading', { name: 'Command Deck' })).toBeVisible()
+  // UI Simplification: the old "Command Deck" title is gone — TopBar now shows
+  // the active destination's label (route.ts / Sidebar.tsx DESTINATIONS); on
+  // Home that's "K".
+  await expect(page.getByTestId('topbar-title')).toHaveText(/K/)
   // Labeled nav destinations.
   await expect(page.getByRole('button', { name: /^Projects/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /^Runs/ })).toBeVisible()
