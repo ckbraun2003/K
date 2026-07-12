@@ -413,6 +413,59 @@ test('REAL RUN: one plan-mode dispatch streams to a terminal status', async ({ p
     })
   }
 
+  // (a2) Context meter + Console/Timeline toggle, riding THIS same live run
+  //      (zero extra dispatch). Moved here from phase4.spec.ts test 6 when its
+  //      CommandBar entry point was retired (UI Simplification Task 18) — this
+  //      is now the suite's only live-run coverage of both surfaces. Neither
+  //      depends on awaiting_input, so a plan-mode one-shot exercises them.
+  try {
+    await expect(page.getByTestId('context-meter')).toBeVisible({ timeout: 30_000 })
+    const meterText = await page.getByTestId('context-meter').textContent().catch(() => '')
+    await shot(page, 'P03-realrun-context-meter')
+    // Valid states: "ctx Nk / Mk · NN%" (known model) or "ctx —" (unknown model).
+    if (!meterText?.includes('ctx')) {
+      add({
+        title: 'REAL RUN: context meter visible but content unexpected',
+        severity: 'Med',
+        category: 'Bug',
+        surface: 'RunConsole / ContextMeter',
+        repro: 'Dispatch a run, open its console, inspect the context-meter.',
+        expected: '"ctx Nk / Mk · NN%" or "ctx —" in the meter element.',
+        actual: `Meter textContent: "${meterText}"`,
+        evidence: 'reports/screens/P03-realrun-context-meter.png',
+      })
+    }
+  } catch {
+    add({
+      title: 'REAL RUN: context meter (data-testid="context-meter") never rendered',
+      severity: 'High',
+      category: 'Missing',
+      surface: 'RunConsole / ContextMeter',
+      repro: 'Dispatch a run, open its console, wait up to 30s.',
+      expected: 'context-meter renders once the run record loads (even "ctx —").',
+      actual: 'context-meter element never became visible.',
+      evidence: 'reports/screens/P03-realrun-console.png',
+    })
+  }
+  const timelineBtn = page.getByRole('button', { name: 'timeline' })
+  if (await timelineBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await timelineBtn.click()
+    await shot(page, 'P03-realrun-timeline-view')
+    await page.getByRole('button', { name: 'console' }).click()
+    await shot(page, 'P03-realrun-console-view')
+  } else {
+    add({
+      title: 'REAL RUN: Console/Timeline toggle not found in run header',
+      severity: 'High',
+      category: 'Missing',
+      surface: 'RunConsole / view toggle',
+      repro: 'Open a live run page and look for the console/timeline toggle.',
+      expected: '"console" and "timeline" toggle buttons visible in the header.',
+      actual: '"timeline" button not found.',
+      evidence: 'reports/screens/P03-realrun-console.png',
+    })
+  }
+
   // (b) Reach a terminal status. The header status badge transitions to one of
   //     done/error/killed/interrupted. (run_update is what drives this badge —
   //     observing the badge change proves run_update arrived over the WS.)

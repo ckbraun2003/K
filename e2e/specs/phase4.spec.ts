@@ -800,99 +800,17 @@ test('ONE real dispatch: confirm card, RunConsole live events, context-meter, Co
 })
 
 // ---------------------------------------------------------------------------
-// 7. Interactive HITL + compact wiring (best-effort)
+// 7. [DELETED at UI Simplification Task 20 review] "HITL compact wiring:
+//    answer-box and compact button appear for awaiting_input runs (best-effort)".
+//    It only ever exercised its no-op branch once tests 6 and 8 (its only
+//    sources of a live awaiting_input run) were retired with the CommandBar:
+//    no spec in the suite produces an awaiting_input run anymore, so the test
+//    was permanently recording the same deferred Low finding and asserting
+//    nothing. Live coverage of context-meter + Console/Timeline toggle moved
+//    onto P03.spec.ts's budget-gated REAL RUN (same run, zero extra dispatch);
+//    the awaiting_input-only HITL surfaces (run-answer-box / run-answer-input /
+//    run-compact-btn) are covered at unit level by web/test/run-console-hitl.test.tsx.
 // ---------------------------------------------------------------------------
-test('HITL compact wiring: answer-box and compact button appear for awaiting_input runs (best-effort)', async ({ page }) => {
-  // The ONE real dispatch budget was consumed in test 6 (non-interactive mode).
-  // We look for an existing awaiting_input run in the list. If none is found, the
-  // compact button / answer-box wiring is recorded as a deferred Low finding.
-  await gotoApp(page, '#/runs')
-  await page.waitForLoadState('networkidle').catch(() => {})
-  await screenshot(page, 'PHASE4-07-runs-list')
-
-  // The RunList renders runs with their status. "awaiting input" is the badge text.
-  const awaitingBadge = page.getByText('awaiting input').first()
-  const hasAwaitingRun = await awaitingBadge.isVisible({ timeout: 5_000 }).catch(() => false)
-
-  if (!hasAwaitingRun) {
-    findings.push({
-      title: 'HITL compact wiring NOT live-tested — no awaiting_input run found',
-      severity: 'Low',
-      category: 'Docs-mismatch',
-      surface: 'RunConsole / run-answer-box / run-compact-btn',
-      repro: 'Dispatch a non-interactive run and check the Runs list for awaiting_input status.',
-      expected:
-        'An interactive run parks at awaiting_input so the answer-box and compact button can be smoke-tested.',
-      actual:
-        'No awaiting_input run available (expected: we dispatched a non-interactive run in test 6). ' +
-        'The compact wiring is a KNOWN deferred item for interactive-mode runs.',
-      evidence: 'reports/screens/PHASE4-07-runs-list.png',
-    })
-    return
-  }
-
-  // An awaiting_input run exists — click into its row and verify the HITL UI.
-  try {
-    await awaitingBadge.click()
-    await page.waitForTimeout(1000) // let RunConsole load the run record
-    await screenshot(page, 'PHASE4-07-hitl-run')
-
-    const answerBox = page.locator('[data-testid="run-answer-box"]')
-    const answerBoxVisible = await answerBox.isVisible({ timeout: 5_000 }).catch(() => false)
-    if (!answerBoxVisible) {
-      findings.push({
-        title: 'RunConsole: awaiting_input run does not render the answer-box',
-        severity: 'High',
-        category: 'Bug',
-        surface: 'RunConsole / run-answer-box',
-        repro: 'Open a run in awaiting_input status.',
-        expected: 'data-testid="run-answer-box" visible with answer input and compact button.',
-        actual: 'run-answer-box not visible.',
-        evidence: 'reports/screens/PHASE4-07-hitl-run.png',
-      })
-    } else {
-      // Check the compact button.
-      const compactBtn = page.locator('[data-testid="run-compact-btn"]')
-      const compactVisible = await compactBtn.isVisible({ timeout: 3_000 }).catch(() => false)
-      if (!compactVisible) {
-        findings.push({
-          title: 'RunConsole: awaiting_input run does not show run-compact-btn',
-          severity: 'High',
-          category: 'Missing',
-          surface: 'RunConsole / run-compact-btn',
-          repro: 'Open an awaiting_input run; look for "Compact context" button.',
-          expected: 'data-testid="run-compact-btn" button visible in the answer box.',
-          actual: 'Compact button not found.',
-          evidence: 'reports/screens/PHASE4-07-hitl-run.png',
-        })
-      } else {
-        // Smoke the button wiring: click Compact (sends /compact over the wire).
-        // A fresh/short session → CLI may reply "Not enough messages to compact" — EXPECTED.
-        // We are only verifying the button click does not crash the UI.
-        await compactBtn.click()
-        await page.waitForTimeout(1000)
-        await screenshot(page, 'PHASE4-07-compact-clicked')
-      }
-
-      // Check the answer input is present.
-      const answerInput = page.locator('[data-testid="run-answer-input"]')
-      await expect(answerInput).toBeVisible({ timeout: 3_000 })
-    }
-
-    await screenshot(page, 'PHASE4-07-hitl-complete')
-  } catch (err) {
-    findings.push({
-      title: 'HITL run interaction threw an error',
-      severity: 'High',
-      category: 'Bug',
-      surface: 'RunConsole / HITL',
-      repro: 'Click an awaiting_input run badge → verify answer-box + compact button.',
-      expected: 'No crash; HITL UI renders.',
-      actual: String(err),
-      evidence: 'reports/screens/PHASE4-07-runs-list.png',
-    })
-  }
-})
 
 // ---------------------------------------------------------------------------
 // 8. INTERACTIVE HITL — the definitive live test (added post-Wave V)
