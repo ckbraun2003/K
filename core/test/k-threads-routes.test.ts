@@ -204,3 +204,30 @@ describe('askK fallback un-archive (review fix)', () => {
     expect(visible.some(t => t.id === askedThreadId)).toBe(true)
   })
 })
+
+describe('askK explicit-threadId un-archive (final-review fix)', () => {
+  it('ask WITH an explicit threadId un-archives that thread too (not just the no-threadId fallback path)', async () => {
+    const t = (await app.inject({ method: 'POST', url: '/api/k/threads', headers: AUTH, payload: {} })).json()
+    await app.inject({
+      method: 'PATCH', url: `/api/k/threads/${t.id}`, headers: AUTH, payload: { archived: true },
+    })
+    expect(
+      (db.prepare(`SELECT archived_at FROM k_threads WHERE id = ?`).get(t.id) as { archived_at: number | null })
+        .archived_at,
+    ).not.toBeNull()
+
+    const ask = await app.inject({
+      method: 'POST', url: '/api/k/ask', headers: AUTH,
+      payload: { message: 'hello to an archived thread, explicitly', threadId: t.id },
+    })
+    expect(ask.statusCode).toBe(201)
+
+    // (a) the explicitly-targeted thread is live again…
+    const thread = (await app.inject({ method: 'GET', url: `/api/k/threads/${t.id}`, headers: AUTH })).json().thread
+    expect(thread.archivedAt).toBeNull()
+    // (b) …and therefore visible in the default (non-archived) list.
+    const visible = (await app.inject({ method: 'GET', url: '/api/k/threads', headers: AUTH })).json()
+      .threads as Array<{ id: string }>
+    expect(visible.some(v => v.id === t.id)).toBe(true)
+  })
+})

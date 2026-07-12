@@ -4,7 +4,7 @@
  * Tests GET /api/settings/home-layout and PUT /api/settings/home-layout.
  * Wipes the home_layout KV row before/after to keep tests isolated.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { db } from '../src/db.js'
 
