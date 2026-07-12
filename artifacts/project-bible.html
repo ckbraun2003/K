@@ -201,7 +201,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-12 03:30</span><br>
+      compiled <span class="mono">2026-07-12 03:57</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -1835,8 +1835,9 @@ implementation history lives in §13 Observability → <em>Implementation histor
 <strong>Message Dock</strong>. The old fourth zone — the ⌘K command bar docked at the top plus a separate
 always-visible Activity strip at the bottom — is gone; both collapsed into the one Dock (below).</p>
 <h3>Sidebar IA — the 6-tab rail (D-101)</h3>
-<p><strong><code>KNOWN_VIEWS</code></strong> (<code>web/src/lib/route.ts</code>) is now 13 entries: the 6 primary + 2 footer destinations
-below, plus <code>orchestrator</code> / <code>project</code> / <code>verify</code> / <code>docs</code> / <code>skill-creator</code> / <code>timeline</code> (drill-ins
+<p><strong><code>KNOWN_VIEWS</code></strong> (<code>web/src/lib/route.ts</code>) is now 13 entries: the 6 primary destinations +
+<code>settings</code> (Help, the other footer rail entry, deep-links into <code>docs</code> and adds no view of its own),
+plus <code>orchestrator</code> / <code>project</code> / <code>verify</code> / <code>docs</code> / <code>skill-creator</code> / <code>timeline</code> (drill-ins
 reached from a hub, never rail buttons themselves). Every view string this restructure removed keeps
 a <code>VIEW_REDIRECTS</code> entry (Retirements &amp; redirects, below) — the redirect <strong>replaces</strong> the history
 entry (<code>history.replaceState</code>, no Back-trap), and <code>resolveRoute</code> is idempotent (a canonical view is
