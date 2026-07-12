@@ -155,7 +155,15 @@ export function appendTurn(
   runId: string | null = null,
 ): KThreadTurn {
   const id = randomUUID()
-  kThreadsDb.insertTurn.run({ id, threadId, role, text, runId, createdAt: Date.now() })
+  const now = Date.now()
+  kThreadsDb.insertTurn.run({ id, threadId, role, text, runId, createdAt: now })
+  // Visibility invariant (see resolveAskThread): a thread receiving new activity must be visible
+  // in the non-archived list. captureAnswers / reportDelegationBack / continueLeadOutcomeToK all
+  // append here WITHOUT going through resolveAskThread's un-archive, so centralize it at this choke
+  // point — a thread archived mid-run/delegation resurfaces when K's reply lands, instead of the
+  // reply landing hidden. Guarded (archived_at IS NOT NULL) so a normal non-archived append is
+  // untouched. (resolveAskThread's own explicit un-archive stays, now idempotent with this.)
+  kThreadsDb.clearThreadArchivedOnActivity.run(now, threadId)
   return rowToKThreadTurn(kThreadsDb.getTurn.get(id) as Row)
 }
 

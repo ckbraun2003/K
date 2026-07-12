@@ -42,26 +42,33 @@ export default function NeedsYouWidget() {
       className="flex h-full w-full flex-col gap-2 overflow-y-auto p-3 text-left transition-colors hover:bg-[var(--raised)]"
     >
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Needs you</h2>
-      <div className="flex items-baseline gap-1.5">
-        <span className="mono text-2xl font-semibold text-[var(--text)]">{box.total}</span>
-        <span className="text-xs text-[var(--muted)]">item{box.total === 1 ? '' : 's'}</span>
-      </div>
+      {/* The count headline is DATA-DERIVED, so it is gated on !isError alongside the chips —
+          a failed fetch must render error-only, never a fabricated "0 items" above the error
+          line (mirrors CostTodayWidget/ActiveRunsWidget's no-fake-zero posture). */}
       {isError ? (
         <p data-testid="widget-needs-you-error" className="text-xs italic text-[var(--red)]">Failed to load inbox.</p>
-      ) : box.total === 0 ? (
-        <p className="text-xs italic text-[var(--muted)]">Inbox zero.</p>
       ) : (
-        <div className="flex flex-wrap gap-1">
-          {SECTION_ORDER.filter(kind => box.counts[kind] > 0).map(kind => (
-            <span
-              key={kind}
-              data-testid={`widget-needs-you-chip-${kind}`}
-              className="rounded-full bg-amber/15 px-2 py-0.5 text-[10px] font-medium text-[var(--amber)]"
-            >
-              {SECTION_LABEL[kind]} · {box.counts[kind]}
-            </span>
-          ))}
-        </div>
+        <>
+          <div className="flex items-baseline gap-1.5">
+            <span className="mono text-2xl font-semibold text-[var(--text)]">{box.total}</span>
+            <span className="text-xs text-[var(--muted)]">item{box.total === 1 ? '' : 's'}</span>
+          </div>
+          {box.total === 0 ? (
+            <p className="text-xs italic text-[var(--muted)]">Inbox zero.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {SECTION_ORDER.filter(kind => box.counts[kind] > 0).map(kind => (
+                <span
+                  key={kind}
+                  data-testid={`widget-needs-you-chip-${kind}`}
+                  className="rounded-full bg-amber/15 px-2 py-0.5 text-[10px] font-medium text-[var(--amber)]"
+                >
+                  {SECTION_LABEL[kind]} · {box.counts[kind]}
+                </span>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </button>
   )

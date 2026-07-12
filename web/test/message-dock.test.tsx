@@ -18,8 +18,9 @@ import type { KThreadSummary } from '@k/shared'
 // command-bar-ask-k.test.tsx's guard so the undo toast's exit is deterministic.
 MotionGlobalConfig.skipAnimations = true
 
-const { mockThreadsList, mockThreadsCreate, mockAsk, mockUndo, mockInbox } = vi.hoisted(() => ({
+const { mockThreadsList, mockThreadsGet, mockThreadsCreate, mockAsk, mockUndo, mockInbox } = vi.hoisted(() => ({
   mockThreadsList: vi.fn(),
+  mockThreadsGet: vi.fn(),
   mockThreadsCreate: vi.fn(),
   mockAsk: vi.fn(),
   mockUndo: vi.fn(async () => ({ undone: true })),
@@ -28,7 +29,7 @@ const { mockThreadsList, mockThreadsCreate, mockAsk, mockUndo, mockInbox } = vi.
 
 vi.mock('../src/lib/api', () => ({
   api: {
-    threads: { list: mockThreadsList, get: vi.fn(), create: mockThreadsCreate },
+    threads: { list: mockThreadsList, get: mockThreadsGet, create: mockThreadsCreate },
     k: { ask: mockAsk, undo: mockUndo },
     // Task 9: the dock now previews an @project picker, so it queries the project
     // list unconditionally like CommandBar does — empty by default here since none
@@ -96,11 +97,13 @@ beforeEach(() => {
   // (see mic-button.test.tsx), nothing extra to stub here.
   selectThread(null)
   mockThreadsList.mockReset()
+  mockThreadsGet.mockReset()
   mockThreadsCreate.mockReset()
   mockAsk.mockReset()
   mockUndo.mockClear()
   mockInbox.mockReset()
   mockThreadsList.mockResolvedValue({ threads: [] })
+  mockThreadsGet.mockResolvedValue({ thread: thread({}), turns: [] })
   mockInbox.mockResolvedValue({ items: [], counts: {}, total: 0 })
   mockAsk.mockImplementation(async (message: string, opts?: { threadId?: string }) => ({
     kThreadId: opts?.threadId ?? 'kt', agentRunId: 'ar', runId: 'run-123',
@@ -123,6 +126,36 @@ describe('MessageDock', () => {
   it('shows "New chat" as the destination label when selection is null', async () => {
     renderDock('bar')
     expect(await screen.findByTestId('dock-target')).toHaveProperty('textContent', '→ New chat')
+  })
+
+  it('resolves an ARCHIVED selection by id: header shows its real title + an archived hint, not "New chat"', async () => {
+    // A persisted selection can point at an archived thread — ABSENT from the default list.
+    // The header must resolve it by id and tell the truth about where a send lands (submit()
+    // appends to and server-un-archives it), instead of mislabelling the destination "New chat".
+    mockThreadsList.mockResolvedValue({ threads: [] })
+    mockThreadsGet.mockResolvedValue({
+      thread: thread({ id: 'kt-arch', title: 'Archived plan', archivedAt: Date.now() }),
+      turns: [],
+    })
+    renderDock('bar')
+    act(() => { selectThread('kt-arch') })
+
+    await waitFor(() => expect(screen.getByTestId('dock-target').textContent).toBe('→ Archived plan'))
+    expect(screen.getByTestId('dock-archived-hint')).toBeTruthy()
+  })
+
+  it('demotes a DELETED selection (by-id 404) to a new-chat draft so the header + send agree', async () => {
+    const { getSelectedThread } = await import('../src/lib/thread-select')
+    // T8: on a non-Home view ChatView's probe is not mounted to demote a stale selection. A
+    // by-id 404 here means the thread was deleted — demote to a new-chat draft (null) so the
+    // header's "New chat" and submit()'s behavior agree, instead of stranding a dead selection.
+    mockThreadsList.mockResolvedValue({ threads: [] })
+    mockThreadsGet.mockRejectedValue(new Error('not found'))
+    renderDock('bar')
+    act(() => { selectThread('kt-del') })
+
+    await waitFor(() => expect(getSelectedThread()).toBeNull())
+    await waitFor(() => expect(screen.getByTestId('dock-target').textContent).toBe('→ New chat'))
   })
 
   it('sending with null selection creates a thread first, then asks with its id', async () => {

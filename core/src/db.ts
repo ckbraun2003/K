@@ -2846,6 +2846,13 @@ const listThreads = db.prepare(`
   FROM k_threads th ORDER BY th.updated_at DESC`)
 const setThreadTitle = db.prepare(`UPDATE k_threads SET title = ?, updated_at = ? WHERE id = ?`)
 const setThreadArchived = db.prepare(`UPDATE k_threads SET archived_at = ?, updated_at = ? WHERE id = ?`)
+// Visibility invariant: a thread receiving new activity must be visible in the non-archived
+// list. Cleared at the appendTurn choke point so a thread archived mid-run/delegation resurfaces
+// when K's reply lands. Guarded (WHERE archived_at IS NOT NULL) so a normal non-archived append
+// is a no-op — no spurious updated_at bump / list reorder on the common path.
+const clearThreadArchivedOnActivity = db.prepare(
+  `UPDATE k_threads SET archived_at = NULL, updated_at = ? WHERE id = ? AND archived_at IS NOT NULL`,
+)
 const deleteThread = db.prepare(`DELETE FROM k_threads WHERE id = ?`)
 const threadByActiveRun = db.prepare(`SELECT * FROM k_threads WHERE active_run_id = ?`)
 
@@ -2867,6 +2874,7 @@ export const kThreadsDb = {
   listThreads,
   setThreadTitle,
   setThreadArchived,
+  clearThreadArchivedOnActivity,
   deleteThread,
   threadByActiveRun,
 }

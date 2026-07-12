@@ -7,7 +7,7 @@ import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { useAskK } from '../lib/useAskK'
 import { useFocusTrap } from '../lib/useFocusTrap'
-import { useSelectedThread, selectThread } from '../lib/thread-select'
+import { useSelectedThread, selectThread, getSelectedThread } from '../lib/thread-select'
 import { onDockFocus } from '../lib/dock-bus'
 import { FORCE_ROUTE_OPTIONS } from '../lib/force-route-options'
 import { INBOX_KEY, inboxQueryFn } from '../lib/inbox-query'
@@ -22,8 +22,19 @@ import Toast from '../components/Toast'
  *  while the confirm card previews it, before `runs.start` actually fires. */
 interface DispatchConfirm { project: Project; prompt: string }
 
+/** A thrown `api.threads.get` error that means the thread is DELETED (a 404) vs a transient
+ *  failure — the not-found route answers `{ error: 'not found' }`, a bare non-ok falls back to
+ *  `404 <statusText>`. A deleted selection is demoted to a new-chat draft; a transient failure
+ *  only degrades. Mirrors ChatView's probe helper. */
+function is404(e: unknown): boolean {
+  return e instanceof Error && /\b404\b|not found/i.test(e.message)
+}
+
 interface ComposerProps {
   title: string
+  /** The selection resolves to an ARCHIVED thread — the header shows an honest "archived" hint;
+   *  a send still proceeds and server-un-archives it, so the destination label stays truthful. */
+  archived: boolean
   text: string
   onTextChange: (text: string) => void
   onKeyDown: (e: React.KeyboardEvent) => void
@@ -51,7 +62,7 @@ interface ComposerProps {
 /** The one composer both variants render — the bar inline, float inside its
  *  overlay sheet (see MessageDock below). */
 function Composer({
-  title, text, onTextChange, onKeyDown, onSend, busy, error,
+  title, archived, text, onTextChange, onKeyDown, onSend, busy, error,
   model, onModelChange, modelOptions, forceRoute, onForceRouteChange,
   expanded, onToggleExpand, onNewChat, inputRef,
   route, projectMatches, onPickProject,
@@ -61,6 +72,16 @@ function Composer({
       <div className="mono flex items-center justify-between text-[11px] text-[var(--muted)]">
         <span className="flex items-center gap-2">
           <span data-testid="dock-target">→ {title}</span>
+          {/* Honest label for a persisted selection that resolved to an archived thread — a send
+              still lands there (and un-archives it), so the destination is not "New chat". */}
+          {archived && (
+            <span
+              data-testid="dock-archived-hint"
+              className="rounded bg-amber/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--amber)]"
+            >
+              archived
+            </span>
+          )}
           {/* K routes INLINE as the operator types — the deterministic preview of
               where K will likely hand the message. */}
           {route && <span data-testid="dock-route-preview">→ {route.label}</span>}
@@ -193,7 +214,18 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const [expanded, setExpanded] = useState(false)
   const ask = useAskK({ navigateOnSend: false })
 
-  const { data: threadsData } = useQuery({ queryKey: ['k-threads'], queryFn: () => api.threads.list() })
+  const { data: threadsData, isSuccess: threadsLoaded } = useQuery({ queryKey: ['k-threads'], queryFn: () => api.threads.list() })
+  // A selection can point at a thread ABSENT from the default (non-archived) list — archived,
+  // or just-created before the list caught up. Resolve it by id so the header tells the truth
+  // about where a send lands. Enabled only in that case (and only once the list has SETTLED so
+  // "absent" is real, not still-loading); retry:false so a 404 (deleted) surfaces at once.
+  const selectedInList = selected !== null && (threadsData?.threads.some(t => t.id === selected) ?? false)
+  const selectedById = useQuery({
+    queryKey: ['k-thread', selected],
+    queryFn: () => api.threads.get(selected as string),
+    enabled: selected !== null && threadsLoaded && !selectedInList,
+    retry: false,
+  })
   const { data: inbox } = useQuery({ queryKey: INBOX_KEY, queryFn: inboxQueryFn })
   const { data: claudeModel } = useQuery({ queryKey: ['claude-model'], queryFn: () => api.claudeModel.get() })
   // The ['projects'] cache key backing the @project dispatch picker.
@@ -279,7 +311,27 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     el.setSelectionRange(el.value.length, el.value.length)
   }, [confirm])
 
-  const title = threadsData?.threads.find(t => t.id === selected)?.title ?? 'New chat'
+  // A persisted selection whose by-id read 404s points at a DELETED thread — demote to a new-chat
+  // draft so the header's "New chat" and submit()'s behavior agree (closes the T8 gap: a stale
+  // deleted selection on a non-Home view, where ChatView's probe isn't mounted to demote it).
+  // Guarded on getSelectedThread(): ChatView's probe may demote first (to the newest remaining
+  // thread) — first writer wins, and we never clobber a selection that already moved. A transient
+  // (non-404) failure only degrades — never demote. An ARCHIVED thread (get succeeds) is KEPT; its
+  // label just gains the archived hint below.
+  useEffect(() => {
+    if (selected === null || selectedInList) return
+    if (selectedById.isError && is404(selectedById.error) && getSelectedThread() === selected) {
+      selectThread(null)
+    }
+  }, [selected, selectedInList, selectedById.isError, selectedById.error])
+
+  // Prefer the listed thread; else the by-id resolution (the archived/absent case). Either can be
+  // untitled (title null) → "New chat", exactly as before. `selectionArchived` drives the honest
+  // archived hint on the header (a send still proceeds and server-un-archives it).
+  const listedThread = selected === null ? undefined : threadsData?.threads.find(t => t.id === selected)
+  const resolvedThread = !selectedInList ? selectedById.data?.thread : undefined
+  const title = (listedThread ?? resolvedThread)?.title ?? 'New chat'
+  const selectionArchived = (resolvedThread?.archivedAt ?? null) !== null
   const modelOptions = claudeModel?.options ?? []
   const inboxTotal = inbox?.total ?? 0
 
@@ -388,6 +440,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const composer = (
     <Composer
       title={title}
+      archived={selectionArchived}
       text={text}
       onTextChange={handleTextChange}
       onKeyDown={onInputKeyDown}

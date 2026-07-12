@@ -41,15 +41,18 @@ export default function InboxTab() {
   const fail = (verb: string) => (e: unknown) => setToast(`${verb} failed: ${(e as Error).message}`)
   const refreshInbox = () => { void qc.invalidateQueries({ queryKey: INBOX_KEY }) }
 
-  // Lesson approve/reject cross into Memory review → also invalidate the lessons list.
+  // Lesson approve/reject also move the lead's memory lists — invalidate the ['profile-memory']
+  // prefix (OrchestratorDetailPage's per-lead pending/accepted/rejected tabs) so an approve/reject
+  // here reflects there live. (The retired MemoryPage's ['memory','lessons'] key has zero readers
+  // at HEAD, so invalidating it did nothing.)
   const approveLesson = useMutation({
     mutationFn: (lessonId: string) => api.memory.approve(lessonId),
-    onSuccess: () => { refreshInbox(); void qc.invalidateQueries({ queryKey: ['memory', 'lessons'] }) },
+    onSuccess: () => { refreshInbox(); void qc.invalidateQueries({ queryKey: ['profile-memory'] }) },
     onError: fail('Approve'),
   })
   const rejectLesson = useMutation({
     mutationFn: (lessonId: string) => api.memory.reject(lessonId),
-    onSuccess: () => { refreshInbox(); void qc.invalidateQueries({ queryKey: ['memory', 'lessons'] }) },
+    onSuccess: () => { refreshInbox(); void qc.invalidateQueries({ queryKey: ['profile-memory'] }) },
     onError: fail('Reject'),
   })
   // MCP trust/dismiss cross into the capability catalog → also invalidate ['capabilities'].

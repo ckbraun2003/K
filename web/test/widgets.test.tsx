@@ -139,7 +139,12 @@ beforeEach(() => {
   mockProjectsList.mockReset().mockResolvedValue([])
   mockNavigate.mockClear()
 })
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  // The CostTodayWidget tests vi.stubGlobal('requestAnimationFrame', …); restore it so the stub
+  // never leaks into later tests in this file (or the run).
+  vi.unstubAllGlobals()
+})
 
 describe('widget catalog', () => {
   it('WIDGET_DEFS covers every HomeWidgetId', () => {
@@ -213,6 +218,8 @@ describe('widget catalog', () => {
     renderWidget(<NeedsYouWidget />)
     expect(await screen.findByTestId('widget-needs-you-error')).toBeTruthy()
     expect(screen.queryByText('Inbox zero.')).toBeNull()
+    // The data-derived count headline must be gone too — no fabricated "0 items" above the error.
+    expect(screen.queryByText('items')).toBeNull()
   })
 
   it('CostTodayWidget: renders todays measured total + sparkline; NO "$/token" or "est" strings', async () => {
@@ -341,6 +348,9 @@ describe('widget catalog', () => {
     mockOrg.mockRejectedValue(new Error('org down'))
     renderWidget(<OrgGlanceWidget />)
     expect(await screen.findByTestId('widget-org-glance-error')).toBeTruthy()
+    // The error branch REPLACES the glance line entirely — never a fabricated "0 leads active ·
+    // 0 objectives in flight" (D-026: a failed fetch must be visually distinct from real zeros).
+    expect(screen.getByTestId('widget-org-glance').textContent).not.toMatch(/active|objective/)
   })
 
   it('RecentActivityWidget: renders feed rows; See all navigates to the timeline', async () => {

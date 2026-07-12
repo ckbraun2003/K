@@ -6,6 +6,15 @@ import { navigate } from '../../lib/route'
 import { useSelectedThread, selectThread, getSelectedThread } from '../../lib/thread-select'
 import { relativeTime } from '../../lib/verify'
 
+/** A thrown `api.threads.get` error that means the thread is DELETED (a 404) — the not-found
+ *  route answers `{ error: 'not found' }`, a bare non-ok falls back to `404 <statusText>`. Lets
+ *  the demotion probe tell a genuinely-gone selection (demote) from an archived-but-live one
+ *  (keep) or a transient failure (keep + re-arm). Errs safe: an unrecognized error is NOT a 404,
+ *  so it degrades rather than demoting. */
+function is404(e: unknown): boolean {
+  return e instanceof Error && /\b404\b|not found/i.test(e.message)
+}
+
 /**
  * ChatView (UI Simplification Task 11) — Home's Chat tab: a thread-list rail
  * + the selected thread's transcript. The MessageDock bar (mounted at Shell
@@ -45,6 +54,10 @@ export default function ChatView() {
   const selected = useSelectedThread()
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameText, setRenameText] = useState('')
+  // The selected id, once the probe has PROVEN it archived-but-live (a by-id read succeeded
+  // with archivedAt != null). Drives the honest "archived" chip on the transcript surface —
+  // cleared the moment the selection returns to the list, goes null, or is demoted.
+  const [archivedSelection, setArchivedSelection] = useState<string | null>(null)
   const tailRef = useRef<HTMLDivElement>(null)
 
   const { data: threadsData, isError: threadsFailed, isSuccess: threadsLoaded } = useQuery({
@@ -70,20 +83,40 @@ export default function ChatView() {
   useEffect(() => {
     if (!threadsLoaded || selected === null || threads.some(t => t.id === selected)) {
       probeRef.current = null // nothing unknown to probe (also re-arms after a failed read settles)
+      setArchivedSelection(null) // a listed/null selection is never the archived-absent case
       return
     }
     if (probeRef.current === selected) return // probe for this id already issued
     probeRef.current = selected
-    void qc.invalidateQueries({ queryKey: ['k-threads'] }).then(() => {
+    void qc.invalidateQueries({ queryKey: ['k-threads'] }).then(async () => {
       // Re-check against the FRESH cache — and only act if this probe is still
       // the live one and the user hasn't already re-selected something else.
       if (probeRef.current !== selected || getSelectedThread() !== selected) return
       const state = qc.getQueryState<{ threads: KThreadSummary[] }>(['k-threads'])
-      if (state?.status !== 'success') return // failed refetch: degrade render only, never write
+      if (state?.status !== 'success') { probeRef.current = null; return } // failed refetch: degrade only, re-arm
       const fresh = state.data?.threads ?? []
-      if (fresh.some(t => t.id === selected)) return // the list caught up — selection was real
-      probeRef.current = null
-      selectThread(fresh[0]?.id ?? null) // affirmatively gone → newest remaining, or the empty draft
+      if (fresh.some(t => t.id === selected)) return // the list caught up — selection was real (dock-create race)
+
+      // Absent even from the FRESH default list: archived (the server excludes archived from the
+      // default list) or deleted. A direct by-id read tells them apart — it SUCCEEDS for an archived
+      // thread, 404s for a deleted one — so an archived thread opened from Chats/Memories is KEPT (its
+      // transcript stays), instead of being silently demoted to a different conversation.
+      try {
+        const { thread: byId } = await api.threads.get(selected)
+        if (probeRef.current !== selected || getSelectedThread() !== selected) return // moved on mid-fetch
+        if (byId.archivedAt !== null) {
+          setArchivedSelection(selected) // archived-but-live → keep it, surface the archived chip
+          return
+        }
+        // Exists yet not archived AND absent from the default list — inconsistent; treat as gone.
+        probeRef.current = null
+        selectThread(fresh[0]?.id ?? null)
+      } catch (e) {
+        if (probeRef.current !== selected || getSelectedThread() !== selected) return
+        probeRef.current = null
+        if (is404(e)) selectThread(fresh[0]?.id ?? null) // confirmed deleted → newest remaining, or the empty draft
+        // else: transient by-id failure → degrade only, keep the selection, re-arm (probeRef cleared)
+      }
     })
   }, [threadsLoaded, selected, threads, qc])
 
@@ -93,6 +126,9 @@ export default function ChatView() {
     enabled: effectiveId !== null,
   })
   const turns = threadDetail?.turns ?? []
+  // True only once the probe has proven the current selection archived-but-live — the surface
+  // then shows an honest "archived" chip (a send restores it: askK un-archives on activity).
+  const isArchivedSurface = effectiveId !== null && archivedSelection === effectiveId
 
   // Auto-scroll the latest turn into view on every new turn (send or refetch).
   useEffect(() => {
@@ -197,6 +233,17 @@ export default function ChatView() {
           </p>
         ) : (
           <div className="space-y-2.5">
+            {isArchivedSurface && (
+              <div className="flex items-center gap-1.5">
+                <span
+                  data-testid="chat-archived-indicator"
+                  className="flex-shrink-0 rounded bg-amber/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--amber)]"
+                >
+                  archived
+                </span>
+                <span className="text-[10px] text-[var(--muted)]">Sending restores this chat.</span>
+              </div>
+            )}
             {turns.map(t => (
               <div
                 key={t.id}

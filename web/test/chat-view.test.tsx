@@ -240,6 +240,54 @@ describe('ChatView', () => {
     expect(mockThreadsList).toHaveBeenCalledTimes(2) // one probe, then it settles
   })
 
+  it('an archived selection (opened from Chats/Memories) is KEPT with its transcript + an archived indicator — never demoted', async () => {
+    // Opening an archived thread from ChatsTab/MemoriesTab selects an id ABSENT from the
+    // default (non-archived) list. The probe must distinguish archived-but-existing (KEEP)
+    // from deleted (demote) via a by-id read — so the operator lands on the chat they opened,
+    // not a different conversation the probe demoted them onto.
+    const active = thread({ id: 'kt-1', title: 'Active chat' })
+    const archived = thread({ id: 'kt-arch', title: 'Archived plan', archivedAt: Date.now() })
+    mockThreadsList.mockResolvedValue({ threads: [active] }) // the default list excludes the archived one
+    mockThreadsGet.mockImplementation(async (id: string) => ({
+      thread: id === 'kt-arch' ? archived : active,
+      turns: id === 'kt-arch'
+        ? [turn({ id: 'tn-a', threadId: 'kt-arch', role: 'user', text: 'archived message' })]
+        : [],
+    }))
+    renderChat()
+    await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-1')).toBeTruthy())
+
+    act(() => { selectThread('kt-arch') })
+
+    // One probe refetch confirms kt-arch is absent from the default list; the by-id read then
+    // proves it EXISTS (archived) — so the selection is KEPT (not demoted to kt-1)…
+    await waitFor(() => expect(mockThreadsList).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByTestId('chat-turn-user').textContent).toContain('archived message'))
+    expect(getSelectedThread()).toBe('kt-arch')
+    // …and the chat surface is honest that the thread is archived.
+    expect(screen.getByTestId('chat-archived-indicator')).toBeTruthy()
+    expect(mockThreadsList).toHaveBeenCalledTimes(2) // exactly one probe — no refetch loop
+  })
+
+  it('a DELETED selection (by-id 404) IS still demoted to the newest remaining thread — no archived chip', async () => {
+    // The control: a genuinely-deleted id 404s on the by-id read (unlike an archived thread,
+    // which resolves) — so it is demoted exactly as before, and no archived indicator shows.
+    const active = thread({ id: 'kt-1', title: 'Active chat' })
+    mockThreadsList.mockResolvedValue({ threads: [active] })
+    mockThreadsGet.mockImplementation(async (id: string) => {
+      if (id === 'kt-del') throw new Error('not found')
+      return { thread: active, turns: [] }
+    })
+    renderChat()
+    await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-1')).toBeTruthy())
+
+    act(() => { selectThread('kt-del') })
+
+    await waitFor(() => expect(mockThreadsList).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(getSelectedThread()).toBe('kt-1'))
+    expect(screen.queryByTestId('chat-archived-indicator')).toBeNull()
+  })
+
   it('a failing threads query degrades to the empty state — chat never hard-blocks (spec §9)', async () => {
     // A real prior selection existed (persisted from an earlier, working session) —
     // the list read failing must still degrade the TRANSCRIPT to the empty state
