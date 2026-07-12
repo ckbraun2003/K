@@ -12,6 +12,7 @@ import {
   buildDesktopConfig,
   isAllowedNavigation,
   sanitizeExternalTarget,
+  buildStartupFailureMessage,
 } from '../src/core-launcher'
 
 describe('pickFreePort', () => {
@@ -134,5 +135,39 @@ describe('sanitizeExternalTarget', () => {
     expect(sanitizeExternalTarget('file:///etc/passwd')).toBeNull()
     expect(sanitizeExternalTarget('javascript:alert(1)')).toBeNull()
     expect(sanitizeExternalTarget('not a url')).toBeNull()
+  })
+})
+
+describe('buildStartupFailureMessage', () => {
+  const reason = 'core did not become healthy within 90s'
+  const logPath = 'C:\\Users\\me\\AppData\\Roaming\\K\\logs\\core.log'
+
+  it('surfaces the real reason, the log tail, and the log path', () => {
+    const msg = buildStartupFailureMessage(reason, ['line A', 'line B', 'boom: ENOENT'], logPath)
+    expect(msg).toContain(reason)
+    expect(msg).toContain('boom: ENOENT')
+    expect(msg).toContain(logPath)
+  })
+
+  it('NEVER blames the user PATH / Node (the packaged app uses its own bundled node)', () => {
+    // Regression guard for the original misleading "make sure Node.js is on your PATH" text.
+    const msg = buildStartupFailureMessage(reason, ['some output'], logPath).toLowerCase()
+    expect(msg).not.toContain('path')
+    expect(msg).not.toContain('install node')
+  })
+
+  it('shows only the last 12 lines of a long tail', () => {
+    const tail = Array.from({ length: 40 }, (_, i) => `L${i}`)
+    const msg = buildStartupFailureMessage(reason, tail, logPath)
+    expect(msg).toContain('L39')
+    expect(msg).toContain('L28') // 40 - 12
+    expect(msg).not.toContain('L27')
+  })
+
+  it('omits the tail/log sections cleanly when empty (no dangling labels)', () => {
+    const msg = buildStartupFailureMessage(reason, [], '')
+    expect(msg).toContain(reason)
+    expect(msg).not.toContain('Last core output:')
+    expect(msg).not.toContain('Full log:')
   })
 })

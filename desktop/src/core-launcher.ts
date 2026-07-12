@@ -164,3 +164,24 @@ export function sanitizeExternalTarget(target: string): string | null {
   // script-crafted URL can't leak to the external browser.
   return `${u.protocol}//${u.host}${u.pathname}`
 }
+
+/**
+ * Build the user-facing "K failed to start" dialog body from the REAL failure reason
+ * (spawn error / early exit / health timeout — thrown by main's startCore), the tail
+ * of core's own output, and where the full log lives. Pure + unit-tested.
+ *
+ * Deliberately says NOTHING about the user's PATH: the packaged app spawns its OWN
+ * bundled Node, so a "check your PATH" suggestion is always wrong and was the source of
+ * real user confusion. A cold first launch is the common cause, so it nudges a relaunch.
+ */
+export function buildStartupFailureMessage(reason: string, logTail: string[], logPath: string): string {
+  const tail = logTail.slice(-12).join('\n')
+  const tailBlock = tail ? `\n\nLast core output:\n${tail}` : ''
+  const logLine = logPath ? `\n\nFull log: ${logPath}` : ''
+  return (
+    `K's background service (core) did not start.\n\n` +
+    `Reason: ${reason}${tailBlock}${logLine}\n\n` +
+    `The first launch can be slow while Windows scans the newly installed files — ` +
+    `relaunching K often resolves it.`
+  )
+}
