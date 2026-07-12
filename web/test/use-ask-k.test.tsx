@@ -13,6 +13,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { routeForMessage } from '@k/shared'
 
 const { mockAsk, mockUndo, mockNavigate } = vi.hoisted(() => ({
@@ -38,6 +39,17 @@ import { useAskK } from '../src/lib/useAskK'
 
 const MSG = 'refactor the auth module'
 
+// useAskK now reads useQueryClient (Task 7's thread-key invalidation), so every
+// renderHook needs a QueryClientProvider in scope — a fresh client per call, since
+// the counted invalidateQueries mock cache-state doesn't need to persist across tests.
+function renderAskK(opts?: { navigateOnSend?: boolean }) {
+  const qc = new QueryClient()
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  )
+  return renderHook(() => useAskK(opts), { wrapper })
+}
+
 beforeEach(() => {
   mockAsk.mockReset()
   mockUndo.mockClear()
@@ -49,7 +61,7 @@ beforeEach(() => {
 
 describe('useAskK', () => {
   it('send calls api.k.ask once, navigates to the run, sets pendingUndo', async () => {
-    const { result } = renderHook(() => useAskK())
+    const { result } = renderAskK()
 
     let ok: boolean | undefined
     await act(async () => { ok = await result.current.send(MSG) })
@@ -66,7 +78,7 @@ describe('useAskK', () => {
   })
 
   it('passes the power-control opts (model / forceRoute) through to api.k.ask untouched', async () => {
-    const { result } = renderHook(() => useAskK({ navigateOnSend: false }))
+    const { result } = renderAskK({ navigateOnSend: false })
 
     await act(async () => {
       await result.current.send(MSG, { model: 'claude-opus-4-8', forceRoute: 'chief' })
@@ -77,7 +89,7 @@ describe('useAskK', () => {
   })
 
   it('a trimmed-empty message is a no-op', async () => {
-    const { result } = renderHook(() => useAskK())
+    const { result } = renderAskK()
 
     let ok: boolean | undefined
     await act(async () => { ok = await result.current.send('   ') })
@@ -89,7 +101,7 @@ describe('useAskK', () => {
   })
 
   it('navigateOnSend:false sends + sets pendingUndo without navigating (K-home policy)', async () => {
-    const { result } = renderHook(() => useAskK({ navigateOnSend: false }))
+    const { result } = renderAskK({ navigateOnSend: false })
 
     let ok: boolean | undefined
     await act(async () => { ok = await result.current.send(MSG) })
@@ -102,7 +114,7 @@ describe('useAskK', () => {
   })
 
   it('undo undoes the pending run once via api.k.undo and clears pendingUndo', async () => {
-    const { result } = renderHook(() => useAskK())
+    const { result } = renderAskK()
 
     await act(async () => { await result.current.send(MSG) })
     expect(result.current.pendingUndo).not.toBeNull()
@@ -116,13 +128,13 @@ describe('useAskK', () => {
   })
 
   it('undo with no pending run is a no-op', async () => {
-    const { result } = renderHook(() => useAskK())
+    const { result } = renderAskK()
     await act(async () => { await result.current.undo() })
     expect(mockUndo).not.toHaveBeenCalled()
   })
 
   it('clearUndo nulls pendingUndo without undoing', async () => {
-    const { result } = renderHook(() => useAskK())
+    const { result } = renderAskK()
     await act(async () => { await result.current.send(MSG) })
 
     act(() => { result.current.clearUndo() })
@@ -133,7 +145,7 @@ describe('useAskK', () => {
 
   it('a rejected send surfaces the error and leaves pendingUndo null', async () => {
     mockAsk.mockRejectedValueOnce(new Error('kaboom'))
-    const { result } = renderHook(() => useAskK())
+    const { result } = renderAskK()
 
     let ok: boolean | undefined
     await act(async () => { ok = await result.current.send(MSG) })
@@ -152,7 +164,7 @@ describe('useAskK', () => {
     // the state WHILE the dispatch is in flight.
     let resolveAsk!: (v: unknown) => void
     mockAsk.mockImplementationOnce(() => new Promise(r => { resolveAsk = r }))
-    const { result } = renderHook(() => useAskK({ navigateOnSend: false }))
+    const { result } = renderAskK({ navigateOnSend: false })
 
     let sendPromise!: Promise<boolean>
     act(() => { sendPromise = result.current.send(MSG) })
@@ -177,7 +189,7 @@ describe('useAskK', () => {
   it('undo pressed BEFORE the runId resolves kills the run once its id exists (F-066)', async () => {
     let resolveAsk!: (v: unknown) => void
     mockAsk.mockImplementationOnce(() => new Promise(r => { resolveAsk = r }))
-    const { result } = renderHook(() => useAskK({ navigateOnSend: false }))
+    const { result } = renderAskK({ navigateOnSend: false })
 
     let sendPromise!: Promise<boolean>
     act(() => { sendPromise = result.current.send(MSG) })
@@ -201,7 +213,7 @@ describe('useAskK', () => {
 
   it('a failed send clears the optimistic window (no lingering undo affordance)', async () => {
     mockAsk.mockRejectedValueOnce(new Error('boom'))
-    const { result } = renderHook(() => useAskK({ navigateOnSend: false }))
+    const { result } = renderAskK({ navigateOnSend: false })
 
     await act(async () => { await result.current.send(MSG) })
 

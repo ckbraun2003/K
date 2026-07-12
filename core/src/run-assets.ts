@@ -45,6 +45,7 @@ import { createHash } from 'crypto'
 import { fileURLToPath } from 'url'
 import type { SkillSourceKind } from '@k/shared'
 import type { AgentProfile } from './profiles.js'
+import { memoriesDb } from './db.js'
 import {
   assertMcpGrants,
   computeDisallowedTools,
@@ -409,7 +410,17 @@ export function resolveRunAssets(profile: AgentProfile, opts: ResolveRunAssetsOp
   // ── System prompt: L0 base + L1 tier charter (same read + joiner as synth) ──
   const l0 = fs.readFileSync(path.join(assetsDir, 'base-operating-prompt.md'), 'utf8')
   const l1 = fs.readFileSync(path.join(assetsDir, 'tiers', `${charter}.charter.md`), 'utf8')
-  const systemPrompt = `${l0}\n\n---\n\n${l1}`
+  let systemPrompt = `${l0}\n\n---\n\n${l1}`
+  // Secretary-only L2 addendum: the operator's durable memories (saved via the
+  // logistics `memory_save` tool), most-recently-updated first. Bounded at 4000
+  // chars so an unbounded memory store can never blow out the prompt budget.
+  if (charter === 'secretary') {
+    const rows = memoriesDb.listRecentMemories.all(20) as Array<{ content: string }>
+    if (rows.length) {
+      const block = rows.map(r => `- ${r.content}`).join('\n').slice(0, 4000)
+      systemPrompt = `${systemPrompt}\n\n---\n\n## What you remember about your operator\n\n${block}`
+    }
+  }
 
   // ── k-native skills: resolve in place from agent-config/skills/<name> ───────
   let skillsMeta = 0

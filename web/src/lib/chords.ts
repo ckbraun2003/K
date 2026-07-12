@@ -12,16 +12,16 @@ export interface Chord {
   label: string
 }
 
-// Mnemonics chosen to avoid colliding with each other. Every primary rail destination
-// plus Settings has a chord; the merged Org / Insights surfaces get `g o` / `g n`.
+// Mnemonics chosen to avoid colliding with each other. Every 6-rail primary
+// destination plus Settings has a chord (UI Simplification Task 10); Docs is
+// hidden from the rail but still deep-linkable via `g d`.
 export const CHORDS: Chord[] = [
-  { key: 'h', view: 'home', label: 'K' },
-  { key: 'i', view: 'inbox', label: 'Inbox' },
-  { key: 'o', view: 'org', label: 'Org' },
-  { key: 'p', view: 'projects', label: 'Projects' },
-  { key: 's', view: 'skills', label: 'Skills' },
+  { key: 'h', view: 'home', label: 'Home' },
+  { key: 'u', view: 'personal', label: 'Personal' },
+  { key: 'a', view: 'agents', label: 'Agents' },
   { key: 'r', view: 'runs', label: 'Runs' },
   { key: 'n', view: 'insights', label: 'Insights' },
+  { key: 'p', view: 'projects', label: 'Projects' },
   { key: 'd', view: 'docs', label: 'Docs' },
   { key: ',', view: 'settings', label: 'Settings' },
 ]

@@ -62,9 +62,10 @@ test('shell boots with WS green; Settings and Workflows are reachable via sideba
     })
   }
 
-  // Settings is in the footer cluster; Workflows is in the primary nav group.
+  // Settings is in the footer cluster; Agents is in the primary nav group (Workflows
+  // folded into Agents → pipelines — no longer a standalone rail destination).
   await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Workflows' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Agents' })).toBeVisible()
 
   // --- Sidebar button navigation ---
   await page.getByRole('button', { name: 'Settings' }).click()
@@ -72,10 +73,10 @@ test('shell boots with WS green; Settings and Workflows are reachable via sideba
   await waitForWs(page)
   await screenshot(page, 'PHASE4-01-settings-via-sidebar')
 
-  await page.getByRole('button', { name: 'Workflows' }).click()
-  await page.waitForURL(/#\/workflows/, { timeout: 10_000 })
+  await page.getByRole('button', { name: 'Agents' }).click()
+  await page.waitForURL(/#\/agents/, { timeout: 10_000 })
   await waitForWs(page)
-  await screenshot(page, 'PHASE4-01-workflows-via-sidebar')
+  await screenshot(page, 'PHASE4-01-agents-via-sidebar')
 
   // --- Hash-route direct navigation ---
   await gotoApp(page, '#/settings')
@@ -84,7 +85,7 @@ test('shell boots with WS green; Settings and Workflows are reachable via sideba
   await gotoApp(page, '#/workflows')
   await screenshot(page, 'PHASE4-01-workflows-via-hash')
 
-  // --- Keyboard chords: g , → settings, g w → workflows ---
+  // --- Keyboard chords: g , → settings, g a → agents ---
   // Return home first so focus is on a non-input element.
   await gotoApp(page, '#/home')
 
@@ -114,24 +115,24 @@ test('shell boots with WS green; Settings and Workflows are reachable via sideba
     })
   }
 
-  // Back to home for g→w chord.
+  // Back to home for g→a chord.
   await gotoApp(page, '#/home')
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
   await page.locator('body').click()
 
   try {
     await page.keyboard.press('g')
-    await page.keyboard.press('w')
-    await page.waitForFunction(() => window.location.hash.includes('/workflows'), { timeout: 5_000 })
-    await screenshot(page, 'PHASE4-01-workflows-via-chord')
+    await page.keyboard.press('a')
+    await page.waitForFunction(() => window.location.hash.includes('/agents'), { timeout: 5_000 })
+    await screenshot(page, 'PHASE4-01-agents-via-chord')
   } catch (err) {
     findings.push({
-      title: 'Keyboard chord g→w does not navigate to Workflows',
+      title: 'Keyboard chord g→a does not navigate to Agents',
       severity: 'Low',
       category: 'Bug',
-      surface: 'Shell keyboard chords / Workflows',
-      repro: 'Home → body click → press g → press w (chord defined in chords.ts).',
-      expected: 'URL hash changes to include /workflows.',
+      surface: 'Shell keyboard chords / Agents',
+      repro: 'Home → body click → press g → press a (chord defined in chords.ts).',
+      expected: 'URL hash changes to include /agents.',
       actual: String(err),
       evidence: 'reports/screens/PHASE4-01-home.png',
     })
@@ -658,6 +659,7 @@ test('knowledge graph tab: AFRAME-free, canvas or graceful no-data state', async
 // 6. ONE real claude dispatch (plan mode, tiny prompt)
 // ---------------------------------------------------------------------------
 test('ONE real dispatch: confirm card, RunConsole live events, context-meter, Console↔Timeline toggle', async ({ page }) => {
+  test.skip(true, 'CommandBar retired at UI Simplification Task 18 (2026-07) — this test\'s entry point (typing a plain, non-@ prompt auto-surfaces a cmdk-row-dispatch from an ambiguous nav/dispatch list) has no MessageDock equivalent; dispatch is now explicit-only via typing @project and picking a dock-project-row-*, which requires a pre-registered project this test never sets up.')
   await gotoApp(page, '#/home')
 
   // Open command bar via the TopBar button (keyboard chord is flaky in CI).
@@ -798,99 +800,17 @@ test('ONE real dispatch: confirm card, RunConsole live events, context-meter, Co
 })
 
 // ---------------------------------------------------------------------------
-// 7. Interactive HITL + compact wiring (best-effort)
+// 7. [DELETED at UI Simplification Task 20 review] "HITL compact wiring:
+//    answer-box and compact button appear for awaiting_input runs (best-effort)".
+//    It only ever exercised its no-op branch once tests 6 and 8 (its only
+//    sources of a live awaiting_input run) were retired with the CommandBar:
+//    no spec in the suite produces an awaiting_input run anymore, so the test
+//    was permanently recording the same deferred Low finding and asserting
+//    nothing. Live coverage of context-meter + Console/Timeline toggle moved
+//    onto P03.spec.ts's budget-gated REAL RUN (same run, zero extra dispatch);
+//    the awaiting_input-only HITL surfaces (run-answer-box / run-answer-input /
+//    run-compact-btn) are covered at unit level by web/test/run-console-hitl.test.tsx.
 // ---------------------------------------------------------------------------
-test('HITL compact wiring: answer-box and compact button appear for awaiting_input runs (best-effort)', async ({ page }) => {
-  // The ONE real dispatch budget was consumed in test 6 (non-interactive mode).
-  // We look for an existing awaiting_input run in the list. If none is found, the
-  // compact button / answer-box wiring is recorded as a deferred Low finding.
-  await gotoApp(page, '#/runs')
-  await page.waitForLoadState('networkidle').catch(() => {})
-  await screenshot(page, 'PHASE4-07-runs-list')
-
-  // The RunList renders runs with their status. "awaiting input" is the badge text.
-  const awaitingBadge = page.getByText('awaiting input').first()
-  const hasAwaitingRun = await awaitingBadge.isVisible({ timeout: 5_000 }).catch(() => false)
-
-  if (!hasAwaitingRun) {
-    findings.push({
-      title: 'HITL compact wiring NOT live-tested — no awaiting_input run found',
-      severity: 'Low',
-      category: 'Docs-mismatch',
-      surface: 'RunConsole / run-answer-box / run-compact-btn',
-      repro: 'Dispatch a non-interactive run and check the Runs list for awaiting_input status.',
-      expected:
-        'An interactive run parks at awaiting_input so the answer-box and compact button can be smoke-tested.',
-      actual:
-        'No awaiting_input run available (expected: we dispatched a non-interactive run in test 6). ' +
-        'The compact wiring is a KNOWN deferred item for interactive-mode runs.',
-      evidence: 'reports/screens/PHASE4-07-runs-list.png',
-    })
-    return
-  }
-
-  // An awaiting_input run exists — click into its row and verify the HITL UI.
-  try {
-    await awaitingBadge.click()
-    await page.waitForTimeout(1000) // let RunConsole load the run record
-    await screenshot(page, 'PHASE4-07-hitl-run')
-
-    const answerBox = page.locator('[data-testid="run-answer-box"]')
-    const answerBoxVisible = await answerBox.isVisible({ timeout: 5_000 }).catch(() => false)
-    if (!answerBoxVisible) {
-      findings.push({
-        title: 'RunConsole: awaiting_input run does not render the answer-box',
-        severity: 'High',
-        category: 'Bug',
-        surface: 'RunConsole / run-answer-box',
-        repro: 'Open a run in awaiting_input status.',
-        expected: 'data-testid="run-answer-box" visible with answer input and compact button.',
-        actual: 'run-answer-box not visible.',
-        evidence: 'reports/screens/PHASE4-07-hitl-run.png',
-      })
-    } else {
-      // Check the compact button.
-      const compactBtn = page.locator('[data-testid="run-compact-btn"]')
-      const compactVisible = await compactBtn.isVisible({ timeout: 3_000 }).catch(() => false)
-      if (!compactVisible) {
-        findings.push({
-          title: 'RunConsole: awaiting_input run does not show run-compact-btn',
-          severity: 'High',
-          category: 'Missing',
-          surface: 'RunConsole / run-compact-btn',
-          repro: 'Open an awaiting_input run; look for "Compact context" button.',
-          expected: 'data-testid="run-compact-btn" button visible in the answer box.',
-          actual: 'Compact button not found.',
-          evidence: 'reports/screens/PHASE4-07-hitl-run.png',
-        })
-      } else {
-        // Smoke the button wiring: click Compact (sends /compact over the wire).
-        // A fresh/short session → CLI may reply "Not enough messages to compact" — EXPECTED.
-        // We are only verifying the button click does not crash the UI.
-        await compactBtn.click()
-        await page.waitForTimeout(1000)
-        await screenshot(page, 'PHASE4-07-compact-clicked')
-      }
-
-      // Check the answer input is present.
-      const answerInput = page.locator('[data-testid="run-answer-input"]')
-      await expect(answerInput).toBeVisible({ timeout: 3_000 })
-    }
-
-    await screenshot(page, 'PHASE4-07-hitl-complete')
-  } catch (err) {
-    findings.push({
-      title: 'HITL run interaction threw an error',
-      severity: 'High',
-      category: 'Bug',
-      surface: 'RunConsole / HITL',
-      repro: 'Click an awaiting_input run badge → verify answer-box + compact button.',
-      expected: 'No crash; HITL UI renders.',
-      actual: String(err),
-      evidence: 'reports/screens/PHASE4-07-runs-list.png',
-    })
-  }
-})
 
 // ---------------------------------------------------------------------------
 // 8. INTERACTIVE HITL — the definitive live test (added post-Wave V)
@@ -902,6 +822,7 @@ test('HITL compact wiring: answer-box and compact button appear for awaiting_inp
 //        while run.status === 'awaiting_input'.
 // ---------------------------------------------------------------------------
 test('HITL interactive live test: dispatch interactive run, multi-turn, /compact wiring', async ({ page }) => {
+  test.skip(true, 'CommandBar retired at UI Simplification Task 18 (2026-07) — this test\'s dispatch entry point (⌘K → typed prompt auto-surfaces a cmdk-row-dispatch from an ambiguous nav/dispatch list) has no MessageDock equivalent; the rest of the test (multi-turn HITL answer/compact wiring) is sound but unreachable without inventing a new @project-based dispatch flow this test never set up.')
   await gotoApp(page, '#/home')
 
   // --- 1. Open ⌘K, fill prompt, open confirm card ---

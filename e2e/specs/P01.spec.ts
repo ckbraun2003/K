@@ -38,10 +38,12 @@ test('home boots with live WS and renders the metrics row', async ({ page }) => 
   await gotoApp(page, '#/home')
   const { ms } = await timed(() => gotoApp(page, '#/home'))
 
-  // Metric cards documented on Home (Tokens/Cost/Active/Runs today/Total).
-  await expect(page.getByText('Tokens today')).toBeVisible()
+  // Metric cards live on Home's Overview segment (UI Simplification: Home defaults to
+  // Chat — web/src/pages/HomePage.tsx); DEFAULT_LAYOUT (lib/home-layout.ts) seeds
+  // active_runs + cost_today among the widgets a fresh install always renders.
+  await page.getByTestId('seg-overview').click()
   await expect(page.getByText('Active runs')).toBeVisible()
-  await expect(page.getByText('Total runs')).toBeVisible()
+  await expect(page.getByText('Cost today')).toBeVisible()
 
   await screenshot(page, 'P01-home')
 
@@ -60,10 +62,26 @@ test('home boots with live WS and renders the metrics row', async ({ page }) => 
 })
 
 test('empty state forces Getting Started and a clear first action', async ({ page }) => {
-  await gotoApp(page, '#/home')
+  // This spec shares one core/DB with the whole e2e run (single webServer for all
+  // 109 tests). C4-repro.spec.ts registers two fixture projects as tests #1-#2,
+  // and it sorts before P01 alphabetically — so by the time this test runs,
+  // "zero projects" is no longer true unless we make it true ourselves. Clear
+  // the fleet via the API first so this test verifies the REAL empty state
+  // (its actual intent) rather than being coupled to suite file-execution order.
+  const existing = await page.request.get('/api/projects')
+  for (const p of (await existing.json()) as Array<{ id: string }>) {
+    await page.request.delete(`/api/projects/${encodeURIComponent(p.id)}`)
+  }
+
+  // GettingStarted now renders on Projects (forced open there when there are zero
+  // projects — web/src/pages/ProjectsPage.tsx), not on Home; the UI Simplification
+  // restructure moved it off Home's Chat-default view.
+  await gotoApp(page, '#/projects')
 
   // With zero projects, GettingStarted is forced open and the empty-state CTA shows.
-  const cta = page.getByRole('button', { name: /register your first project/i })
+  const gettingStarted = page.getByRole('region', { name: /getting started/i })
+  await expect(gettingStarted).toBeVisible()
+  const cta = gettingStarted.getByRole('button', { name: /register project/i })
   await expect(cta).toBeVisible()
   await screenshot(page, 'P01-empty-state')
 
@@ -114,9 +132,15 @@ test('Help deep-links into the bible (Docs)', async ({ page }) => {
 
 test('sidebar tooltips/labels are present for discoverability', async ({ page }) => {
   await gotoApp(page, '#/home')
-  // Icon-only nav relies on title/aria-label for discoverability.
-  for (const label of ['Home', 'Projects', 'Fleet Graph', 'Runs', 'Skills', 'Docs', 'Help']) {
-    await expect(page.getByRole('button', { name: label })).toBeVisible()
+  // Icon-only nav relies on title/aria-label for discoverability. UI Simplification's
+  // 6-item primary rail + footer cluster (web/src/shell/Sidebar.tsx DESTINATIONS) —
+  // Home's own rail label is "K", not "Home"; Fleet Graph/Skills/Docs are no longer
+  // top-level rail destinations (folded into Agents/Insights, or hidden). Scoped to
+  // the sidebar's <nav> — an unscoped 'K' query also substring-matches TopBar/
+  // MessageDock's "Message K"/"Message K ⌘K" buttons (strict-mode ambiguity).
+  const rail = page.locator('nav')
+  for (const label of ['K', 'Personal', 'Agents', 'Runs', 'Insights', 'Projects', 'Help', 'Settings']) {
+    await expect(rail.getByRole('button', { name: label, exact: true })).toBeVisible()
   }
 })
 

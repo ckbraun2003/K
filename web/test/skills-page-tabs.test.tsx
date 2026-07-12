@@ -121,9 +121,9 @@ describe('SkillsPage — routed tabs', () => {
   it('clicking a tab NAVIGATES (hash-routed), rather than flipping local state', () => {
     renderPage(undefined)
     fireEvent.click(screen.getByTestId('tab-mcp'))
-    expect(mockNavigate).toHaveBeenCalledWith('skills', 'mcp')
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'skills', 'mcp')
     fireEvent.click(screen.getByTestId('tab-catalog'))
-    expect(mockNavigate).toHaveBeenCalledWith('skills', undefined)
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'skills', undefined)
   })
 
   it('exposes the tablist pattern (roles)', () => {

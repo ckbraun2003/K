@@ -53,7 +53,7 @@ async function shot(page: Page, name: string): Promise<void> {
 
 /** Open ⌘K and wait for its input to be focusable. Returns the input locator. */
 async function commandInput(page: Page) {
-  const input = page.getByPlaceholder(/Ask K/i)
+  const input = page.getByTestId('dock-input')
   await expect(input).toBeVisible({ timeout: 10_000 })
   return input
 }
@@ -71,6 +71,10 @@ test.beforeEach(async ({ page }) => {
 // 1. ⌘K opens both ways: the TopBar button AND the Ctrl/Cmd+K shortcut.
 // ---------------------------------------------------------------------------
 test('command bar opens via button and via Ctrl/Cmd+K, closes on Escape', async ({ page }) => {
+  test.skip(
+    true,
+    'CommandBar retired at UI Simplification Task 18 (2026-07) — this test is anchored to #/home, where MessageDock renders variant="bar" (always mounted inline, no open/closed state to toggle-close), and focusDock() is idempotent-open (not a toggle) even for the float variant used elsewhere, so button-open/Escape-close/Ctrl+K-toggle-close has no equivalent here.',
+  )
   await gotoApp(page, '#/home')
   // warm nav so the first Vite optimize cost isn't blamed on the bar
   await gotoApp(page, '#/home')
@@ -184,23 +188,25 @@ test('@ autocomplete suggests the registered project', async ({ page }) => {
   try {
     // Bare "@" should list projects (completion mode with empty prefix lists all).
     await input.fill('@')
-    const suggestion = page.getByRole('button', { name: new RegExp(FIXTURE_NAME, 'i') })
+    const picker = page.getByTestId('dock-project-picker')
+    await expect(picker).toBeVisible({ timeout: 6000 })
+    const suggestion = picker.getByRole('button', { name: new RegExp(FIXTURE_NAME, 'i') })
     await expect(suggestion.first()).toBeVisible({ timeout: 6000 })
     await shot(page, 'P03-at-autocomplete')
 
     // Type a prefix and confirm it narrows to the fixture.
     await input.fill(`@${FIXTURE_NAME.slice(0, 4)}`)
     await expect(
-      page.getByRole('button', { name: new RegExp(FIXTURE_NAME, 'i') }).first(),
+      picker.getByRole('button', { name: new RegExp(FIXTURE_NAME, 'i') }).first(),
     ).toBeVisible({ timeout: 6000 })
   } catch (e) {
     add({
       title: '@project autocomplete did not surface the registered project',
       severity: 'High',
       category: 'Bug',
-      surface: '⌘K / @autocomplete',
-      repro: 'Open ⌘K, type "@" then a name prefix.',
-      expected: 'A completion row for the registered project appears.',
+      surface: 'MessageDock / @project picker',
+      repro: 'Open the dock, type "@" then a name prefix.',
+      expected: 'A dock-project-picker row for the registered project appears.',
       actual: String(e).slice(0, 500),
       evidence: 'reports/screens/P03-at-autocomplete.png',
     })
@@ -215,6 +221,10 @@ test('@ autocomplete suggests the registered project', async ({ page }) => {
 //    project / model / scope before firing. Assert whether one actually exists.
 // ---------------------------------------------------------------------------
 test('dispatch shows a confirm/preview before firing (plain + @project)', async ({ page }) => {
+  test.skip(
+    true,
+    'CommandBar retired at UI Simplification Task 18 (2026-07) — MessageDock never shows an in-list "Dispatch agent:" row for plain text (free text always routes to K as chat, see routeForMessage in MessageDock.tsx) and @project dispatch now flows through a separate dock-project-picker + dock-dispatch-card confirm form rather than a single-fill palette row, so this mixed nav/dispatch-ambiguity assertion has no equivalent.',
+  )
   await gotoApp(page, '#/home')
 
   // --- Plain prompt ---
@@ -298,17 +308,23 @@ test('REAL RUN: one plan-mode dispatch streams to a terminal status', async ({ p
   const input = await commandInput(page)
   await input.fill(`@${FIXTURE_NAME} list the files in this repo`)
 
-  const dispatchRow = page.getByRole('button', { name: /Dispatch in/i }).first()
+  // The @-prefixed text opens dock-project-picker; picking the row hands off to
+  // the dock-dispatch-card confirm card (prompt pre-seeded from the text after
+  // the @token) instead of firing straight from a palette row.
+  const projectRow = page
+    .getByTestId('dock-project-picker')
+    .getByRole('button', { name: new RegExp(FIXTURE_NAME, 'i') })
+    .first()
   try {
-    await expect(dispatchRow).toBeVisible({ timeout: 6000 })
+    await expect(projectRow).toBeVisible({ timeout: 6000 })
   } catch {
     add({
-      title: 'REAL RUN blocked: no @project dispatch row to confirm',
+      title: 'REAL RUN blocked: no @project picker row to confirm',
       severity: 'Critical',
       category: 'Bug',
-      surface: '⌘K / dispatch',
-      repro: `Type "@${FIXTURE_NAME} list the files in this repo" and look for the dispatch row.`,
-      expected: 'A dispatch row to click/Enter.',
+      surface: 'MessageDock / @project picker',
+      repro: `Type "@${FIXTURE_NAME} list the files in this repo" and look for the project row.`,
+      expected: 'A dock-project-picker row to click.',
       actual: 'Row never appeared; cannot fire the real run.',
       evidence: 'commandInput filled, row not visible',
     })
@@ -317,23 +333,30 @@ test('REAL RUN: one plan-mode dispatch streams to a terminal status', async ({ p
   }
 
   realRunFired = true
+  const dispatchCard = page.getByTestId('dock-dispatch-card')
   const dispatch = await timed(async () => {
-    await dispatchRow.click()
-    // execute() navigates to #/runs/<id> on success.
+    await projectRow.click()
+    await expect(dispatchCard).toBeVisible({ timeout: 6000 })
+    // This test's charter is a PLAN-MODE run specifically — check the explicit
+    // plan-gate box (absent = tier default applies, which E-02 says is not
+    // guaranteed to be plan mode).
+    await page.getByTestId('dock-dispatch-plan-gate').check()
+    await page.getByTestId('dock-dispatch-run').click()
+    // fireDispatch() navigates to #/runs/<id> on success.
     await page.waitForURL(/#\/runs\/.+/, { timeout: 20_000 })
   }).catch((e) => ({ ms: -1, value: null, err: e }))
 
   if ('err' in dispatch || dispatch.ms < 0) {
-    // Dispatch failed before navigation — the bar shows "⚠ <error>" in its footer.
-    const footer = await page.locator('.glass').first().innerText().catch(() => '')
+    // Dispatch failed before navigation — the card shows dock-dispatch-error.
+    const errText = await page.getByTestId('dock-dispatch-error').innerText().catch(() => '')
     add({
       title: 'REAL RUN: dispatch failed before reaching the run console',
       severity: 'High',
       category: 'Bug',
-      surface: '⌘K / dispatch → runs',
+      surface: 'MessageDock / dispatch → runs',
       repro: `Confirm the "@${FIXTURE_NAME} list the files in this repo" dispatch.`,
       expected: 'Navigates to #/runs/<id> and a run starts.',
-      actual: `No navigation. Command bar footer: ${footer.replace(/\s+/g, ' ').slice(0, 300)}`,
+      actual: `No navigation. Dispatch card error: ${errText.replace(/\s+/g, ' ').slice(0, 300)}`,
       evidence: 'waitForURL(/#/runs/) timed out',
     })
     await shot(page, 'P03-realrun-dispatch-failed')
@@ -387,6 +410,59 @@ test('REAL RUN: one plan-mode dispatch streams to a terminal status', async ({ p
       expected: 'First token/event within a few seconds.',
       actual: `First output after ${firstOutputMs}ms.`,
       evidence: 'expect.poll timing',
+    })
+  }
+
+  // (a2) Context meter + Console/Timeline toggle, riding THIS same live run
+  //      (zero extra dispatch). Moved here from phase4.spec.ts test 6 when its
+  //      CommandBar entry point was retired (UI Simplification Task 18) — this
+  //      is now the suite's only live-run coverage of both surfaces. Neither
+  //      depends on awaiting_input, so a plan-mode one-shot exercises them.
+  try {
+    await expect(page.getByTestId('context-meter')).toBeVisible({ timeout: 30_000 })
+    const meterText = await page.getByTestId('context-meter').textContent().catch(() => '')
+    await shot(page, 'P03-realrun-context-meter')
+    // Valid states: "ctx Nk / Mk · NN%" (known model) or "ctx —" (unknown model).
+    if (!meterText?.includes('ctx')) {
+      add({
+        title: 'REAL RUN: context meter visible but content unexpected',
+        severity: 'Med',
+        category: 'Bug',
+        surface: 'RunConsole / ContextMeter',
+        repro: 'Dispatch a run, open its console, inspect the context-meter.',
+        expected: '"ctx Nk / Mk · NN%" or "ctx —" in the meter element.',
+        actual: `Meter textContent: "${meterText}"`,
+        evidence: 'reports/screens/P03-realrun-context-meter.png',
+      })
+    }
+  } catch {
+    add({
+      title: 'REAL RUN: context meter (data-testid="context-meter") never rendered',
+      severity: 'High',
+      category: 'Missing',
+      surface: 'RunConsole / ContextMeter',
+      repro: 'Dispatch a run, open its console, wait up to 30s.',
+      expected: 'context-meter renders once the run record loads (even "ctx —").',
+      actual: 'context-meter element never became visible.',
+      evidence: 'reports/screens/P03-realrun-console.png',
+    })
+  }
+  const timelineBtn = page.getByRole('button', { name: 'timeline' })
+  if (await timelineBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await timelineBtn.click()
+    await shot(page, 'P03-realrun-timeline-view')
+    await page.getByRole('button', { name: 'console' }).click()
+    await shot(page, 'P03-realrun-console-view')
+  } else {
+    add({
+      title: 'REAL RUN: Console/Timeline toggle not found in run header',
+      severity: 'High',
+      category: 'Missing',
+      surface: 'RunConsole / view toggle',
+      repro: 'Open a live run page and look for the console/timeline toggle.',
+      expected: '"console" and "timeline" toggle buttons visible in the header.',
+      actual: '"timeline" button not found.',
+      evidence: 'reports/screens/P03-realrun-console.png',
     })
   }
 

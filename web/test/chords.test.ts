@@ -1,20 +1,19 @@
 import { describe, it, expect } from 'vitest'
 import { CHORDS, CHORD_MAP } from '../src/lib/chords'
-import { DESTINATIONS } from '../src/shell/Sidebar'
 import { KNOWN_VIEWS } from '../src/lib/route'
 
 describe('keyboard chords', () => {
-  it('covers every enabled, routable Sidebar destination', () => {
-    // `help` is an enabled destination but only deep-links into docs (no own
-    // route/view), so it isn't a chord target. Every other enabled destination
-    // with a real view must have a chord (finding #24 parity gap).
-    const enabledViews = DESTINATIONS
-      .filter(d => d.enabled && d.id !== 'help' && d.section !== 'hidden')
-      .map(d => d.view ?? d.id)
-    const chordViews = new Set(CHORDS.map(c => c.view))
-    for (const v of enabledViews) {
-      expect(chordViews.has(v), `missing chord for "${v}"`).toBe(true)
-    }
+  it('pins the Task 10 remap — one chord per primary/hidden-but-chorded view', () => {
+    expect(CHORDS).toEqual([
+      { key: 'h', view: 'home', label: 'Home' },
+      { key: 'u', view: 'personal', label: 'Personal' },
+      { key: 'a', view: 'agents', label: 'Agents' },
+      { key: 'r', view: 'runs', label: 'Runs' },
+      { key: 'n', view: 'insights', label: 'Insights' },
+      { key: 'p', view: 'projects', label: 'Projects' },
+      { key: 'd', view: 'docs', label: 'Docs' },
+      { key: ',', view: 'settings', label: 'Settings' },
+    ])
   })
 
   it('has unique chord keys (no two chords share a second key)', () => {
@@ -29,17 +28,21 @@ describe('keyboard chords', () => {
 
   it('does not collide with single-key palette/legend handlers', () => {
     // The chord prefix is `g`; `?` opens the legend, `Escape` closes it, and
-    // ⌘K/Ctrl+K opens the palette. None of these may appear as a chord key.
+    // ⌘K/Ctrl+K now focuses the MessageDock. None of these may appear as a chord key.
     const keys = new Set(CHORDS.map(c => c.key))
     for (const reserved of ['?', 'Escape']) expect(keys.has(reserved)).toBe(false)
   })
 
-  it('chords target the new 9-item IA (merged/folded views have no chord; every target is a KNOWN_VIEW)', () => {
+  it('every chord targets a KNOWN_VIEW (Task 10 restores the full cross-check)', () => {
+    // Task 6's route table is the final 13-member IA; every chord here must resolve
+    // to one of those views — no chord may dangle on a pre-restructure name.
+    for (const c of CHORDS) expect(KNOWN_VIEWS.has(c.view), `"${c.view}" is not a KNOWN_VIEW`).toBe(true)
+  })
+
+  it('no chord survives for a removed/folded pre-restructure view', () => {
     const chordViews = new Set(CHORDS.map(c => c.view))
-    expect(chordViews.has('org')).toBe(true)
-    expect(chordViews.has('insights')).toBe(true)
-    for (const gone of ['chief', 'orchestrators', 'graph', 'metrics', 'routing', 'evals', 'workflows'])
+    for (const gone of ['org', 'skills', 'inbox', 'lessons', 'chief', 'orchestrators', 'graph',
+      'metrics', 'routing', 'evals', 'workflows', 'workflow-detail', 'memory', 'terminal'])
       expect(chordViews.has(gone)).toBe(false)
-    for (const c of CHORDS) expect(KNOWN_VIEWS.has(c.view)).toBe(true)
   })
 })

@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { InboxItem, InboxItemKind } from '@k/shared'
-import { INBOX_KEY, inboxQueryFn, EMPTY_INBOX } from '../lib/inbox-query'
-import { api } from '../lib/api'
-import { navigate } from '../lib/route'
-import { relativeTime } from '../lib/verify'
-import Toast from '../components/Toast'
+import { INBOX_KEY, inboxQueryFn, EMPTY_INBOX } from '../../lib/inbox-query'
+import { api } from '../../lib/api'
+import { navigate } from '../../lib/route'
+import { relativeTime } from '../../lib/verify'
+import Toast from '../../components/Toast'
 
 // Render order + section headings — plans/replies first (they hold a live process),
 // then review, then the async approve queues (lessons, MCP trust).
@@ -30,7 +30,7 @@ interface Handlers {
   busy: boolean
 }
 
-export default function InboxPage() {
+export default function InboxTab() {
   const qc = useQueryClient()
   const [toast, setToast] = useState<string | null>(null)
   // The ONE shared inbox query (rail badge + this page key off it, so the page adds
@@ -41,15 +41,18 @@ export default function InboxPage() {
   const fail = (verb: string) => (e: unknown) => setToast(`${verb} failed: ${(e as Error).message}`)
   const refreshInbox = () => { void qc.invalidateQueries({ queryKey: INBOX_KEY }) }
 
-  // Lesson approve/reject cross into Memory review → also invalidate the lessons list.
+  // Lesson approve/reject also move the lead's memory lists — invalidate the ['profile-memory']
+  // prefix (OrchestratorDetailPage's per-lead pending/accepted/rejected tabs) so an approve/reject
+  // here reflects there live. (The retired MemoryPage's ['memory','lessons'] key has zero readers
+  // at HEAD, so invalidating it did nothing.)
   const approveLesson = useMutation({
     mutationFn: (lessonId: string) => api.memory.approve(lessonId),
-    onSuccess: () => { refreshInbox(); void qc.invalidateQueries({ queryKey: ['memory', 'lessons'] }) },
+    onSuccess: () => { refreshInbox(); void qc.invalidateQueries({ queryKey: ['profile-memory'] }) },
     onError: fail('Approve'),
   })
   const rejectLesson = useMutation({
     mutationFn: (lessonId: string) => api.memory.reject(lessonId),
-    onSuccess: () => { refreshInbox(); void qc.invalidateQueries({ queryKey: ['memory', 'lessons'] }) },
+    onSuccess: () => { refreshInbox(); void qc.invalidateQueries({ queryKey: ['profile-memory'] }) },
     onError: fail('Reject'),
   })
   // MCP trust/dismiss cross into the capability catalog → also invalidate ['capabilities'].
@@ -80,16 +83,6 @@ export default function InboxPage() {
 
   return (
     <div data-testid="inbox-page" className="h-full overflow-y-auto p-5">
-      <div className="mb-4">
-        <h1 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-          Inbox · {box.total} {box.total === 1 ? 'item' : 'items'}
-        </h1>
-        <p className="mt-1 text-[11px] text-[var(--muted)]">
-          Everything waiting on <span className="font-medium text-[var(--text)]">you</span> — plans, replies,
-          reviews, and approvals — in one place. Acting here is the confirmation (D-026).
-        </p>
-      </div>
-
       {box.total === 0 ? (
         <div
           data-testid="inbox-zero"
@@ -112,16 +105,6 @@ export default function InboxPage() {
                   <span className="rounded-full bg-[var(--raised)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
                     {count}
                   </span>
-                  {kind === 'lesson_pending' && (
-                    <button
-                      type="button"
-                      data-testid="inbox-lessons-history"
-                      onClick={() => navigate('lessons')}
-                      className="ml-auto text-[10px] font-semibold text-[var(--accent-hover)] hover:underline"
-                    >
-                      review full history →
-                    </button>
-                  )}
                 </div>
                 <div className="flex flex-col gap-2">
                   {items.map(item => (

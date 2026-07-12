@@ -17,34 +17,29 @@ export interface Destination {
   view?: string
   param?: string
   /** Where the entry renders: the primary nav group, the footer cluster, or `hidden`
-   *  (kept only so TopBar/⌘K can resolve a label for a view reached indirectly, e.g.
+   *  (kept only so TopBar can resolve a label for a view reached indirectly, e.g.
    *  the Docs view reached via Help — Docs is no longer a top-level destination). */
   section: 'primary' | 'footer' | 'hidden'
 }
 
+// UI Simplification Task 10 — the 6-rail IA: Home/Personal/Agents/Runs/Insights/
+// Projects replace the prior 7-primary/2-footer/5-hidden 14-item rail. Personal
+// absorbs the Inbox; Agents absorbs Org + Skills + Runs' workflows sub-tab.
 export const DESTINATIONS: Destination[] = [
-  { id: 'home', icon: '⌂', label: 'K', hint: 'Talk to K — your front door to the org', enabled: true, section: 'primary' },
-  { id: 'org', icon: '♛', label: 'Org', hint: 'Chief, orchestrators & fleet — roster, tree & graph', enabled: true, section: 'primary' },
-  { id: 'projects', icon: '▦', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary' },
-  { id: 'skills', icon: '⚒', label: 'Skills', hint: 'Skills, MCP & hooks — the capability catalog', enabled: true, section: 'primary' },
-  { id: 'runs', icon: '▶', label: 'Runs', hint: 'Live & past agent runs, delegation workflows', enabled: true, section: 'primary' },
+  { id: 'home', icon: '⌂', label: 'K', hint: 'Home — chat with K & your overview', enabled: true, section: 'primary' },
+  { id: 'personal', icon: '☑', label: 'Personal', hint: 'Your inbox, tasks, chats & memories', enabled: true, section: 'primary' },
+  { id: 'agents', icon: '♛', label: 'Agents', hint: 'Org, skills & pipelines — the agent organization', enabled: true, section: 'primary' },
+  { id: 'runs', icon: '▶', label: 'Runs', hint: 'Live & past agent runs', enabled: true, section: 'primary' },
   { id: 'insights', icon: '∿', label: 'Insights', hint: 'Overview, charts, routing & evals', enabled: true, section: 'primary' },
-  { id: 'inbox', icon: '☑', label: 'Inbox', hint: 'Everything waiting on you — approve, reply, review', enabled: true, section: 'primary' },
+  { id: 'projects', icon: '▦', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary' },
   // Footer cluster — below the spacer.
   { id: 'help', icon: '❔', label: 'Help', hint: 'How to use K — the user guide', enabled: true, view: 'docs', param: 'project-bible', section: 'footer' },
   { id: 'settings', icon: '⚙', label: 'Settings', hint: 'Provider/auth status, diagnostics & global system prompt', enabled: true, section: 'footer' },
-  // Hidden: not rail destinations, kept so TopBar/command-palette resolve a label for indirectly-reached views.
+  // Hidden: not rail destinations, kept so TopBar can resolve a label for indirectly-reached views.
   { id: 'docs', icon: '▤', label: 'Docs', hint: 'Harness bible & artifacts', enabled: true, view: 'docs', param: 'project-bible', section: 'hidden' },
   { id: 'skill-creator', icon: '✎', label: 'Skill Creator', hint: 'Draft, refine & evaluate a skill with an agent', enabled: true, section: 'hidden' },
-  // Demoted from the rail: reachable via command palette only. Memory folded its approvals into Inbox.
-  { id: 'lessons', icon: '❋', label: 'Memory', hint: 'Review & approve proposed agent lessons', enabled: true, view: 'lessons', section: 'hidden' },
-  { id: 'terminal', icon: '>_', label: 'Terminal', hint: 'Embedded shell (also in project workspace & Settings diagnostics)', enabled: true, section: 'hidden' },
+  { id: 'timeline', icon: '≡', label: 'Timeline', hint: 'Org activity feed', enabled: true, section: 'hidden' },
 ]
-
-/** Command-palette source: the enabled rail items PLUS the two deliberately-demoted
- *  deep-links (Memory->lessons, Terminal) which are reachable via the palette only. */
-const COMMAND_ONLY = new Set(['lessons', 'terminal'])
-export const NAV_DESTINATIONS = DESTINATIONS.filter(d => d.enabled && (d.section !== 'hidden' || COMMAND_ONLY.has(d.id)))
 
 export default function Sidebar({
   active,
@@ -62,7 +57,11 @@ export default function Sidebar({
   // live query uses (runs-query.ts), so this adds zero fetches; the predicates
   // match ActivityStrip's definitions. Parked (awaiting_input) runs count too —
   // an empty badge next to a run needing input hid it entirely (F-055).
-  const { data: runs = [] } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn })
+  // refetchInterval restores the every-page 10s poll ActivityStrip provided before it was
+  // retired: on views where a WS run_update could be dropped without a reconnect-triggered
+  // invalidation (Agents/Insights/Projects/Settings), the badge would otherwise read stale.
+  // Dedups with the Home/Runs widgets' identical poll on the shared key where they're mounted.
+  const { data: runs = [] } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn, refetchInterval: 10_000 })
   const activeRuns = runs.filter(isActiveRun).length
   const parkedRuns = runs.filter(isParkedRun).length
   const badgeCount = activeRuns + parkedRuns
@@ -102,9 +101,9 @@ export default function Sidebar({
           {d.icon}
         </span>
         {!collapsed && <span className="truncate">{d.label}</span>}
-        {!collapsed && d.id === 'inbox' && inboxCount > 0 && (
+        {!collapsed && d.id === 'personal' && inboxCount > 0 && (
           <span
-            data-testid="sidebar-inbox-badge"
+            data-testid="sidebar-personal-badge"
             title={`${inboxCount} item${inboxCount > 1 ? 's' : ''} waiting on you`}
             className="ml-auto rounded px-1.5 text-[10px] font-semibold bg-amber/20 text-[var(--amber)]"
           >

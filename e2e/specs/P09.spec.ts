@@ -297,6 +297,7 @@ test('register modal: dismiss via backdrop click and via Escape', async ({ page 
 // ===========================================================================
 
 test('command bar: empty prompt is not dispatchable; special/emoji/quotes preview as a dispatch', async ({ page }) => {
+  test.skip(true, 'CommandBar retired at UI Simplification Task 18 (2026-07) — the mixed nav+dispatch ambiguity list (empty-query dispatch gating, "Dispatch agent:" preview rows) has no MessageDock equivalent: free text always sends as a chat message, and dispatch is @project-only via a separate compose card.')
   await gotoApp(page, '#/home')
   try {
     await openCommandBar(page)
@@ -372,6 +373,7 @@ test('command bar: empty prompt is not dispatchable; special/emoji/quotes previe
 })
 
 test('command bar: a huge multi-KB prompt does not freeze or crash the palette', async ({ page }) => {
+  test.skip(true, 'CommandBar retired at UI Simplification Task 18 (2026-07) — this asserts the "Dispatch agent:" preview renders for free text; the MessageDock never previews a dispatch for plain text (dispatch is @project-only via a separate compose card), so there is nothing equivalent left to time.')
   await gotoApp(page, '#/home')
   try {
     await openCommandBar(page)
@@ -418,11 +420,11 @@ test('command bar: a huge multi-KB prompt does not freeze or crash the palette',
 // ===========================================================================
 
 test('terminal (#/terminal) shows a clear disabled/error banner, not a silent hang', async ({ page }) => {
-  await gotoApp(page, '#/home')
   try {
-    await page.getByRole('button', { name: 'Terminal' }).click()
-    await page.waitForURL(/#\/terminal/, { timeout: 10_000 }).catch(() => {})
-    await waitForWs(page)
+    // No Sidebar rail button reaches Terminal anymore (E-30 folded it into
+    // Settings' embedded "Diagnostics" shell); #/terminal now redirects to
+    // #/settings, where the embedded TerminalPage renders unconditionally.
+    await gotoApp(page, '#/terminal')
 
     // The page wires an error banner three ways: a JSON {type:'error',code:'disabled'}
     // frame → "Terminal disabled — set ENABLE_TERMINAL=true to enable it.", or a
@@ -608,28 +610,34 @@ test('kill flow: dispatch one tiny run and assert the UI reaches a terminal stat
   await safeShot(page, 'P09-kill-register')
 
   // Navigate to a clean page (#/runs) so the register modal's fading overlay
-  // can't intercept the ⌘K click — a full route change unmounts it entirely.
+  // can't intercept the dock click — a full route change unmounts it entirely.
   await gotoApp(page, '#/runs')
 
-  // Dispatch via ⌘K against the project. RUN_PERMISSION_MODE=plan keeps it safe.
+  // Dispatch via the Message Dock's @project flow. RUN_PERMISSION_MODE=plan
+  // keeps it safe.
   realDispatchSpent = true
   try {
-    const cmdkBtn = page.getByRole('button', { name: /Ask K or jump anywhere/i })
-    await expect(cmdkBtn).toBeVisible()
-    await cmdkBtn.click({ timeout: 10_000 }).catch(async () => {
-      await page.waitForTimeout(400)
-      await cmdkBtn.click({ timeout: 10_000 })
-    })
-    const input = page.getByPlaceholder(/Ask K/i)
+    await openCommandBar(page)
+    const input = page.getByTestId('dock-input')
     await expect(input).toBeVisible({ timeout: 5_000 })
-    // @project scopes the dispatch to the fixture's cwd; tiny prompt.
-    await input.fill('@P09-edge-a say hi and stop')
-    // Prefer the project-scoped dispatch row if present; else any dispatch row.
-    const projRow = page.getByText(/Dispatch in/i).first()
-    const anyRow = page.getByText(/Dispatch (in|agent)/i).first()
-    const row = (await projRow.isVisible().catch(() => false)) ? projRow : anyRow
-    await expect(row).toBeVisible({ timeout: 8_000 })
-    await row.click()
+    // "@project" opens the project picker; the fixture's name filters it to one row.
+    await input.fill('@P09-edge-a')
+    const picker = page.getByTestId('dock-project-picker')
+    await expect(picker).toBeVisible({ timeout: 8_000 })
+    const projRow = picker.getByRole('button', { name: /P09-edge-a/i }).first()
+    await expect(projRow).toBeVisible({ timeout: 8_000 })
+    await projRow.click()
+
+    // Picking the row opens the dispatch confirm/compose card — the prompt is
+    // now a separate field there (the dock no longer accepts a single
+    // "@project <prompt>" string like the old ⌘K did).
+    const card = page.getByTestId('dock-dispatch-card')
+    await expect(card).toBeVisible({ timeout: 5_000 })
+    const compose = page.getByTestId('dock-dispatch-compose')
+    await compose.fill('say hi and stop')
+    const runBtn = page.getByTestId('dock-dispatch-run')
+    await expect(runBtn).toBeEnabled({ timeout: 5_000 })
+    await runBtn.click()
 
     // Should navigate to the run console (#/runs/<id>). We already came FROM
     // #/runs, so wait for a run ID in the hash (a UUID segment), then for the
@@ -741,8 +749,8 @@ test('kill flow: dispatch one tiny run and assert the UI reaches a terminal stat
       title: 'Kill-flow dispatch crashed',
       severity: 'Med',
       category: 'Bug',
-      surface: 'CommandBar→RunConsole / kill flow',
-      repro: 'Dispatch a tiny run via ⌘K, then attempt Kill.',
+      surface: 'MessageDock→RunConsole / kill flow',
+      repro: 'Dispatch a tiny run via the Message Dock (@project), then attempt Kill.',
       expected: 'Dispatch + kill flow completes without throwing.',
       actual: String(e).slice(0, 300),
       evidence: 'reports/screens/P09-kill-dispatched.png',
@@ -767,8 +775,9 @@ test('concurrent navigation: rapid route switches do not corrupt the shell', asy
     await waitForWs(page)
     await safeShot(page, 'P09-concurrent-nav')
 
-    // Sidebar must still be present & interactive (shell not wedged).
-    await expect(page.getByRole('button', { name: 'Home' })).toBeVisible()
+    // Sidebar must still be present & interactive (shell not wedged). The
+    // former "Home" rail button is now labeled "K" (Sidebar.tsx DESTINATIONS).
+    await expect(page.getByRole('button', { name: 'K', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Projects' })).toBeVisible()
   } catch (e) {
     findings.push({

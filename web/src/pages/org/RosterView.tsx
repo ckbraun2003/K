@@ -76,7 +76,18 @@ export default function RosterView() {
 
   return (
     <div className="h-full overflow-y-auto p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <button data-testid="roster-card-k" onClick={() => navigate('home')} className="glass-tint rounded-panel p-4 text-left card-lift">
+          <div className="text-sm font-semibold">K</div>
+          <div className="text-xs text-[var(--muted)]">Secretary — your front door. Chat lives on Home.</div>
+        </button>
+        <button data-testid="roster-card-chief" onClick={() => navigate('agents', 'org', 'tree')} className="glass-tint rounded-panel p-4 text-left card-lift">
+          <div className="text-sm font-semibold">Chief</div>
+          <div className="text-xs text-[var(--muted)]">Manager — objectives & delegation. See the Tree view.</div>
+        </button>
+      </div>
+
+      <div className="mb-4 mt-4 flex items-center justify-between gap-3">
         {data && (
           <div
             className="ml-auto flex items-center gap-2 text-[11px] text-[var(--muted)]"

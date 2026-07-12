@@ -21,7 +21,7 @@ vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 
 import { api } from '../src/lib/api'
 import { navigate } from '../src/lib/route'
-import InboxPage from '../src/pages/InboxPage'
+import InboxTab from '../src/pages/personal/InboxTab'
 import { EMPTY_INBOX } from '../src/lib/inbox-query'
 
 // jsdom has no matchMedia; framer-motion (via Toast) may probe it. Inert stub.
@@ -72,12 +72,12 @@ function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <InboxPage />
+      <InboxTab />
     </QueryClientProvider>,
   )
 }
 
-describe('InboxPage', () => {
+describe('InboxTab', () => {
   it('renders a section container for each of the five kinds', async () => {
     mockList.mockResolvedValue(fullInbox())
     renderPage()

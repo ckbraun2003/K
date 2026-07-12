@@ -34,7 +34,7 @@ export default function SkillsPage({ tab }: { tab?: string }) {
 
   const goTab = (id: TabId) => {
     const def = TABS.find(t => t.id === id)!
-    navigate('skills', def.param)
+    navigate('agents', 'skills', def.param)
   }
 
   return (

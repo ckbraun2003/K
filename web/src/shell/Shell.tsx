@@ -2,35 +2,33 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
-import ActivityStrip from './ActivityStrip'
-import CommandBar from './CommandBar'
-import KHome from '../pages/KHome'
+import MessageDock from './MessageDock'
+import HomePage from '../pages/HomePage'
+import PersonalPage from '../pages/PersonalPage'
+import AgentsPage from '../pages/AgentsPage'
 import RunsPage from '../pages/RunsPage'
 import DocsPage from '../pages/DocsPage'
 import ProjectsPage from '../pages/ProjectsPage'
-import OrgPage from '../pages/OrgPage'
 import InsightsPage from '../pages/InsightsPage'
 import ProjectVerification from '../pages/ProjectVerification'
 import ProjectWorkspace from '../pages/ProjectWorkspace'
-import SkillsPage from '../pages/SkillsPage'
 import SkillCreatorPage from '../pages/SkillCreatorPage'
 import WorkflowNudge from '../components/WorkflowNudge'
 import SettingsPage from '../pages/SettingsPage'
 import OrchestratorDetailPage from '../pages/OrchestratorDetailPage'
-import MemoryPage from '../pages/MemoryPage'
-import InboxPage from '../pages/InboxPage'
 import TimelinePage from '../pages/TimelinePage'
 import NotFound from '../pages/NotFound'
 import { useHashRoute, isKnownView } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
+import { focusDock } from '../lib/dock-bus'
 import { stageTransition } from '../lib/motion'
 import { CHORDS } from '../lib/chords'
 import { useShellKeys } from '../lib/use-shell-keys'
+import useLiveInvalidators from './useLiveInvalidators'
 
 export default function Shell() {
   const route = useHashRoute()
   const [connected, setConnected] = useState(false)
-  const [commandOpen, setCommandOpen] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
   const [navCollapsed, setNavCollapsed] = useState<boolean>(
     () => localStorage.getItem('k.nav.collapsed') === '1',
@@ -59,10 +57,15 @@ export default function Shell() {
   }, [])
 
   const { chordArmed } = useShellKeys({
-    onToggleCommand: () => setCommandOpen(o => !o),
+    onToggleCommand: focusDock,
     onToggleLegend: () => setLegendOpen(o => !o),
     onCloseLegend: () => setLegendOpen(false),
   })
+
+  // The ONE live-invalidator subscription for the whole app — mounted at Shell
+  // level so invalidation never depends on which page happens to be routed
+  // (UI Simplification Task 10; see useLiveInvalidators.ts).
+  useLiveInvalidators()
 
   return (
     <MotionConfig reducedMotion="user">
@@ -72,7 +75,7 @@ export default function Shell() {
     >
       <div className="ambient" aria-hidden />
       <Sidebar active={route.view} collapsed={navCollapsed} onToggleCollapse={toggleNav} />
-      <TopBar view={route.view} param={route.param} connected={connected} onOpenCommand={() => setCommandOpen(true)} />
+      <TopBar view={route.view} param={route.param} connected={connected} />
 
       <main className="relative z-10 overflow-hidden">
         <AnimatePresence mode="wait">
@@ -84,28 +87,25 @@ export default function Shell() {
             animate="visible"
             exit="exit"
           >
-            {route.view === 'home' && <KHome />}
-            {route.view === 'inbox' && <InboxPage />}
+            {route.view === 'home' && <HomePage />}
+            {route.view === 'personal' && <PersonalPage tab={route.param} />}
+            {route.view === 'agents' && <AgentsPage tab={route.param} sub={route.subParam} />}
+            {route.view === 'runs' && <RunsPage runId={route.param} />}
             {route.view === 'timeline' && <TimelinePage />}
-            {route.view === 'org' && <OrgPage seg={route.param} />}
             {route.view === 'orchestrator' && <OrchestratorDetailPage id={route.param} />}
-            {route.view === 'runs' && <RunsPage runId={route.param} sub={route.subParam} />}
             {route.view === 'docs' && <DocsPage slug={route.param} />}
             {route.view === 'projects' && <ProjectsPage />}
             {route.view === 'insights' && <InsightsPage tab={route.param} />}
             {route.view === 'verify' && <ProjectVerification projectId={route.param} />}
             {route.view === 'project' && <ProjectWorkspace projectId={route.param} tab={route.subParam} />}
-            {route.view === 'skills' && <SkillsPage tab={route.param} />}
             {route.view === 'skill-creator' && <SkillCreatorPage draftId={route.param} />}
             {route.view === 'settings' && <SettingsPage />}
-            {route.view === 'lessons' && <MemoryPage />}
             {!isKnownView(route.view) && <NotFound route={route.view} />}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      <ActivityStrip />
-      <CommandBar open={commandOpen} onClose={() => setCommandOpen(false)} />
+      <MessageDock variant={route.view === 'home' ? 'bar' : 'float'} />
       {/* Global nudge: a finalized task-workflow prompts the operator to review + close
           its tasks (F-076 — the harness never auto-closes them). */}
       <WorkflowNudge />
@@ -153,7 +153,7 @@ export default function Shell() {
               <p className="mt-1 text-xs text-[var(--muted)]">Press <kbd className="mono rounded bg-[var(--raised)] px-1 py-0.5 text-[10px]">?</kbd> any time to toggle this panel.</p>
               <ul className="mt-4 flex flex-col gap-1.5">
                 <li className="flex items-center justify-between text-xs">
-                  <span className="text-[var(--text)]">Command palette</span>
+                  <span className="text-[var(--text)]">Message K</span>
                   <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">⌘K</kbd>
                 </li>
                 {CHORDS.map(c => (

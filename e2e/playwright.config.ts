@@ -34,6 +34,16 @@ const coreEnv = {
   // Keep real dispatch safe & cheap when a spec does fire one (Hybrid budget).
   RUN_PERMISSION_MODE: process.env.RUN_PERMISSION_MODE ?? 'plan',
   ENABLE_TERMINAL: process.env.ENABLE_TERMINAL ?? 'false',
+  // Autonomy OFF inside test stacks. chief-wake.ts defaults CHIEF_WAKE to ON with a
+  // */15min cron — any suite run crossing a quarter-hour boundary was getting a REAL
+  // autonomous "org check-in" dispatch (Chief -> lead relays) inside the shared test
+  // core: unbudgeted spend, and enough spawned claude processes to starve the machine
+  // and cascade-fail the rest of the run (observed 2026-07-12). Only the tests
+  // themselves may dispatch. Mirrors scripts/smoke-ui-simpl.mts's isolated-core env.
+  CHIEF_WAKE: '0',
+  LEAD_DISPATCH_RELAY: '0',
+  GRAPH_AUTO_REINDEX: '0',
+  ENABLE_GITHUB_POLL: 'false',
 }
 
 const webEnv = {
@@ -72,7 +82,10 @@ export default defineConfig({
       url: `http://localhost:${CORE_PORT}/health`,
       env: coreEnv,
       timeout: 120_000,
-      reuseExistingServer: true,
+      // Never adopt an unknown core on this port: an adopted process's autonomy
+      // (CHIEF_WAKE/LEAD_DISPATCH_RELAY) and K_DATA_DIR are unverified and may be
+      // the real ones (the exact T13/T16 incident vector) — always spawn our own.
+      reuseExistingServer: false,
       stdout: 'pipe',
       stderr: 'pipe',
     },
@@ -83,7 +96,10 @@ export default defineConfig({
       url: `http://localhost:${WEB_PORT}`,
       env: webEnv,
       timeout: 120_000,
-      reuseExistingServer: true,
+      // Never adopt an unknown process on this port either: a leftover dev
+      // server may be proxying a different CORE_PORT (unverified autonomy/
+      // data-dir on the other end) — always spawn our own, paired to coreEnv.
+      reuseExistingServer: false,
       stdout: 'pipe',
       stderr: 'pipe',
     },

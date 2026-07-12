@@ -25,4 +25,20 @@ describe('SegControl (extended)', () => {
     fireEvent.click(screen.getByTestId('seg-graph'))
     expect(onChange).toHaveBeenCalledWith('graph')
   })
+  it('a disabled option is not selectable and exposes aria-disabled', () => {
+    const onChange = vi.fn()
+    render(
+      <SegControl<S>
+        options={[options[0], { label: 'Tree', value: 'tree' as S, disabled: true }, options[2]]}
+        value="roster"
+        onChange={onChange}
+      />,
+    )
+    const tree = screen.getByTestId('seg-tree')
+    expect(tree.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(tree)
+    expect(onChange).not.toHaveBeenCalled()
+    // non-disabled options are untouched: no aria-disabled attribute at all
+    expect(screen.getByTestId('seg-roster').getAttribute('aria-disabled')).toBe(null)
+  })
 })

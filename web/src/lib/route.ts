@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 
 export type Route = { view: string; param?: string; subParam?: string }
 
-/** Views Shell can render AFTER the P4 IA restructure. Merged/folded pages own their old
- *  deep links via VIEW_REDIRECTS below; an unrouted hash is a 404 (Shell default branch). */
+/** Views Shell can render AFTER the K UI Simplification restructure. Merged/folded pages own
+ *  their old deep links via VIEW_REDIRECTS below; an unrouted hash is a 404 (Shell default
+ *  branch). */
 export const KNOWN_VIEWS = new Set([
-  'home', 'org', 'orchestrator', 'projects', 'skills', 'runs', 'insights',
-  'inbox', 'timeline', 'docs', 'verify', 'project', 'skill-creator', 'settings', 'lessons',
+  'home', 'personal', 'agents', 'runs', 'insights', 'projects',
+  'orchestrator', 'project', 'verify', 'docs', 'skill-creator', 'settings', 'timeline',
 ])
 
 export function isKnownView(view: string): boolean {
@@ -16,20 +17,28 @@ export function isKnownView(view: string): boolean {
 /** A legacy hash's raw Route → its canonical P4 Route. */
 export type ViewRedirect = (r: Route) => Route
 
-/** P4 IA restructure (E-29/E-10/E-30): every removed rail entry redirects to the page that
+/** K UI Simplification restructure: every removed rail entry redirects to the page that
  *  absorbed it, deep-linked to the right segment/tab. Params flow through where the
- *  destination consumes them (workflow id → runs). */
+ *  destination consumes them (workflow id → agents/pipelines). */
 export const VIEW_REDIRECTS: Record<string, ViewRedirect> = {
-  chief: () => ({ view: 'org', param: 'tree' }),          // former Chief page content is the Tree segment
-  orchestrators: () => ({ view: 'org', param: 'roster' }),
-  graph: () => ({ view: 'org', param: 'graph' }),
+  // pre-P4 legacy
+  chief: () => ({ view: 'agents', param: 'org', subParam: 'tree' }),          // former Chief page content is the Tree segment
+  orchestrators: () => ({ view: 'agents', param: 'org', subParam: 'roster' }),
+  graph: () => ({ view: 'agents', param: 'org', subParam: 'graph' }),
   metrics: () => ({ view: 'insights', param: 'charts' }),
   routing: () => ({ view: 'insights', param: 'routing' }),
   evals: () => ({ view: 'insights', param: 'evals' }),
-  workflows: (r) => (r.param ? { view: 'runs', param: r.param } : { view: 'runs', param: 'workflows' }),
-  'workflow-detail': (r) => ({ view: 'runs', param: 'workflows', subParam: r.param }),
-  memory: () => ({ view: 'inbox' }),
+  workflows: (r) => ({ view: 'agents', param: 'pipelines', subParam: r.param }),
+  'workflow-detail': (r) => ({ view: 'agents', param: 'pipelines', subParam: r.param }),
+  memory: () => ({ view: 'personal', param: 'inbox' }),
   terminal: () => ({ view: 'settings' }),
+  // P4-era views folding into the hubs
+  org: (r) => ({ view: 'agents', param: 'org', subParam: r.param ?? 'roster' }),
+  skills: (r) => ({ view: 'agents', param: 'skills', subParam: r.param }),
+  inbox: () => ({ view: 'personal', param: 'inbox' }),
+  lessons: () => ({ view: 'personal', param: 'inbox' }),
+  // Runs keeps its view; only its folded 'workflows' sub-view moved
+  runs: (r) => (r.param === 'workflows' ? { view: 'agents', param: 'pipelines', subParam: r.subParam } : r),
 }
 
 /** Apply a legacy-hash redirect if one exists; canonical routes pass through unchanged
@@ -75,7 +84,10 @@ export function useHashRoute(): Route {
     // If a legacy hash redirected, REPLACE the address bar with the canonical hash (no history
     // push → no Back-trap) and sync `raw` to canonical so a later revisit of the same legacy
     // hash re-fires this effect (replaceState alone fires no hashchange, so `raw` would go stale).
-    if (VIEW_REDIRECTS[raw.view]) {
+    // `changed` guards against no-op loops: 'runs' has an identity-returning redirect (only its
+    // folded 'workflows' sub-view actually moves), so a plain #/runs/:runId must NOT re-navigate.
+    const changed = route.view !== raw.view || route.param !== raw.param || route.subParam !== raw.subParam
+    if (VIEW_REDIRECTS[raw.view] && changed) {
       navigate(route.view, route.param, route.subParam, true)
       setRaw(route)
     }

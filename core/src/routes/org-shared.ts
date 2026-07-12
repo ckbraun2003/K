@@ -2,6 +2,7 @@ import type {
   AgentEvent,
   AgentRun,
   Run,
+  RunStatus,
   AgentProfile,
   ChiefOrgLead,
   OrchestratorRosterEntry,
@@ -131,6 +132,38 @@ function scanLead(profile: AgentProfile): { runsForLead: Row[]; latestRun: Run |
 /** How many of the newest activation rows feed the recent-health counts. */
 export const RECENT_HEALTH_WINDOW = 10
 
+/** How many of a lead's newest RESOLVED runs feed the Runs tab (detail view only —
+ *  rosterVitals never pays this cost). */
+export const RECENT_RUNS_LIMIT = 10
+
+/**
+ * A lead's newest {@link RECENT_RUNS_LIMIT} runs, resolved from the `runs` table via each
+ * activation's run_id — same resolution rule scanLead's `latestRun` already applies to the
+ * single newest match, generalized past the first one. An activation with no run_id (it
+ * failed before dispatch) or whose run_id no longer resolves is skipped, never padded with
+ * a placeholder (measured actuals only). Bounded: at most RECENT_RUNS_LIMIT extra by-PK
+ * lookups over the already-fetched runsForLead scan (mirrors the existing latestRun cost).
+ */
+function recentRunsForLead(runsForLead: Row[]): NonNullable<ChiefOrgLead['recentRuns']> {
+  const out: NonNullable<ChiefOrgLead['recentRuns']> = []
+  for (const r of runsForLead) {
+    if (out.length >= RECENT_RUNS_LIMIT) break
+    if (r.run_id == null) continue
+    const runRow = runsDb.getRun.get(String(r.run_id)) as Row | undefined
+    // Verified-unreachable under the enforced-FK schema (db.ts pragmas foreign_keys=ON,
+    // so a stored agent_runs.run_id always resolves) — kept as a skip, not a throw, so
+    // a future schema/pragma change degrades to an omitted row rather than a 500.
+    if (!runRow) continue
+    out.push({
+      id: String(runRow.id),
+      status: runRow.status as RunStatus,
+      createdAt: Number(runRow.created_at),
+      costUsd: Number(runRow.cost_usd),
+    })
+  }
+  return out
+}
+
 /**
  * Success/failure counts over the FIRST {@link RECENT_HEALTH_WINDOW} rows of a
  * (created_at DESC) activation scan: total = window size, succeeded/failed = the
@@ -177,6 +210,10 @@ export function assembleLead(profile: AgentProfile): ChiefOrgLead {
     latestRun,
     events,
     wakes,
+    // The Runs tab source — computed here (not in scanLead) so rosterVitals, which
+    // shares scanLead but never renders a Runs tab, stays a single bounded scan with
+    // zero extra per-lead run lookups.
+    recentRuns: recentRunsForLead(runsForLead),
     // Surfaces which model the next dispatch will ACTUALLY use — the explicit row
     // override vs the operator's runtime Claude default — so the UI renders honestly.
     effectiveModel: profile.defaultModel != null

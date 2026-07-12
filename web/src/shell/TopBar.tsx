@@ -3,6 +3,7 @@ import type { ChiefOrgLead, NamedWorkflow, Project } from '@k/shared'
 import { DESTINATIONS } from './Sidebar'
 import { api } from '../lib/api'
 import { isKnownView, navigate } from '../lib/route'
+import { focusDock } from '../lib/dock-bus'
 import NotificationBell from '../components/NotificationBell'
 
 interface Props {
@@ -11,14 +12,16 @@ interface Props {
    *  detail views render a "Parent › EntityName" breadcrumb instead of "Home". */
   param?: string
   connected: boolean
-  onOpenCommand: () => void
 }
 
-/** Detail views that aren't Sidebar destinations — each renders a breadcrumb back to
- *  its parent list view instead of falling through to the "Home" title. */
-const DETAIL_PARENTS: Record<string, { label: string; icon: string; view: string; param?: string }> = {
-  orchestrator: { label: 'Org', icon: '❖', view: 'org', param: 'roster' },
-  project: { label: 'Projects', icon: '▦', view: 'projects' },
+/** Detail views that aren't (or, for `timeline`, are only a hidden) Sidebar rail
+ *  destination — each renders a breadcrumb back to its parent view (label/icon
+ *  resolved from that parent's own DESTINATIONS entry) instead of falling through
+ *  to the plain title (UI Simplification Task 10). */
+const DETAIL_PARENTS: Record<string, string> = {
+  orchestrator: 'agents',
+  project: 'projects',
+  timeline: 'home',
 }
 
 /**
@@ -49,26 +52,32 @@ function useDetailName(view: string, param?: string): string | undefined {
   return undefined
 }
 
-export default function TopBar({ view, param, connected, onOpenCommand }: Props) {
+export default function TopBar({ view, param, connected }: Props) {
   const dest = DESTINATIONS.find(d => d.id === view)
-  const parent = DETAIL_PARENTS[view]
-  const detailName = useDetailName(view, param)
+  const parentView = DETAIL_PARENTS[view]
+  const parentDest = parentView ? DESTINATIONS.find(d => d.id === parentView) : undefined
+  const asyncDetailName = useDetailName(view, param)
+  // Prefer the resolved entity name (orchestrator/project — neither is itself a
+  // Sidebar destination, so `dest` is undefined for them). A parent-less detail
+  // that IS its own hidden destination (timeline) has no entity to resolve —
+  // fall back to its own label so the breadcrumb still names it, not just "K".
+  const detailName = asyncDetailName ?? dest?.label
   // An unrouted hash must not masquerade as Home — surface the not-found state.
   const title = dest?.label.split(' ·')[0] ?? (isKnownView(view) ? 'Home' : 'Not found')
-  const icon = dest?.icon ?? (parent ? parent.icon : isKnownView(view) ? '⌂' : '⌀')
+  const icon = dest?.icon ?? (parentDest ? parentDest.icon : isKnownView(view) ? '⌂' : '⌀')
   return (
     <header className="relative z-20 flex items-center gap-4 border-b border-[var(--border)] px-5 py-3">
       <h1 data-testid="topbar-title" className="text-sm font-semibold tracking-wide text-[var(--text)]">
         <span className="mr-2 text-[var(--accent)]">{icon}</span>
-        {parent ? (
+        {parentDest ? (
           <>
             <button
               type="button"
               data-testid="topbar-parent"
-              onClick={() => navigate(parent.view, parent.param)}
+              onClick={() => navigate(parentDest.id)}
               className="font-semibold text-[var(--muted)] transition-colors duration-150 hover:text-[var(--text)]"
             >
-              {parent.label}
+              {parentDest.label}
             </button>
             {/* Until the entity name resolves, show only the parent — no dangling '›'. */}
             {detailName && (
@@ -83,11 +92,13 @@ export default function TopBar({ view, param, connected, onOpenCommand }: Props)
         )}
       </h1>
       <button
-        onClick={onOpenCommand}
+        data-testid="topbar-dock-launcher"
+        onClick={() => focusDock()}
+        aria-label="Message K ⌘K"
         className="ml-auto flex w-80 items-center gap-2 rounded-control border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-left text-xs text-[var(--muted)] transition-colors duration-150 hover:border-[color:rgba(56,189,248,0.5)] hover:text-[var(--text)]"
       >
         <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px]">⌘K</kbd>
-        <span>Ask K or jump anywhere…</span>
+        <span>Message K…</span>
       </button>
       <NotificationBell />
       <span

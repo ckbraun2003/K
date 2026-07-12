@@ -286,7 +286,7 @@ function DefinitionsSection() {
 
         <button
           type="button"
-          onClick={() => navigate('runs', 'workflows', selected.id)}
+          onClick={() => navigate('agents', 'pipelines', selected.id)}
           data-testid="workflow-def-open"
           className="mt-4 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)]"
         >

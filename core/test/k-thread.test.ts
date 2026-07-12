@@ -295,6 +295,28 @@ describe('askK — resumable one-shot dispatch + answer capture (W7a)', () => {
   })
 })
 
+// ── appendTurn visibility invariant (final-review fix) ────────────────────────
+
+describe('appendTurn un-archives on activity (visibility invariant)', () => {
+  it('a terminal K reply landing on an archived thread un-archives it — the reply is never hidden', async () => {
+    // A K run is in flight on the default thread…
+    const result = await askK('note the errands')
+    // …then the operator ARCHIVES the thread while the run is still running.
+    db.prepare('UPDATE k_threads SET archived_at = ? WHERE id = ?').run(Date.now(), DEFAULT_K_THREAD_ID)
+    expect(getKThread(DEFAULT_K_THREAD_ID)!.archivedAt).not.toBeNull()
+
+    // K's answer lands on terminal (captureAnswers → appendTurn).
+    eventBus.emitEvent({ id: uuid(), runId: result.runId, seq: 1, type: 'assistant', ts: Date.now(), text: 'Noted.' })
+    eventBus.emitRunUpdate({ id: result.runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
+
+    // The reply un-archived the thread: archived_at is cleared and it is back in the DEFAULT
+    // (non-archived) list — so the operator actually sees K's answer instead of it landing hidden.
+    expect(getKThread(DEFAULT_K_THREAD_ID)!.archivedAt).toBeNull()
+    const defaultList = db.prepare('SELECT id FROM k_threads WHERE archived_at IS NULL').all() as Array<{ id: string }>
+    expect(defaultList.some(t => t.id === DEFAULT_K_THREAD_ID)).toBe(true)
+  })
+})
+
 // ── askK — resumable session (one-shot, W7a) ──────────────────────────────────
 
 describe('askK — resumable session (one-shot, W7a)', () => {

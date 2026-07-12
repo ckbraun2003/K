@@ -21,6 +21,7 @@ import { synthesizeConfigDir } from '../src/agent-config.js'
 import { resolveRunAssets } from '../src/run-assets.js'
 import { GrantError } from '../src/authority.js'
 import type { AgentProfile } from '../src/profiles.js'
+import { db, memoriesDb } from '../src/db.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ASSET_DIR = path.join(__dirname, '../../agent-config')
@@ -211,5 +212,41 @@ describe('resolveRunAssets — fail-closed narrowing (typed GrantError)', () => 
     const p = profileWith({ mcpServers: ['kstore'], allowedTools: ['Read'] })
     expect(resolve(p)).toThrow(GrantError)
     expect(resolve(p)).toThrow(/does not grant it/)
+  })
+})
+
+describe('resolveRunAssets — secretary operator-memories system-prompt block (Task 4)', () => {
+  afterAll(() => {
+    db.prepare(`DELETE FROM user_memories WHERE id = 'um-t1'`).run()
+  })
+
+  it('secretary system prompt carries the operator-memories block when memories exist', () => {
+    memoriesDb.insertMemory.run({
+      id: 'um-t1',
+      content: 'prefers concise answers',
+      sourceThreadId: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-run-assets-'))
+    tmpDirs.push(dataDir)
+    const assets = resolveRunAssets(profileWith({ tier: 'secretary', charter: 'secretary' }), {
+      runId: 'run-mem-secretary',
+      dataDir,
+      assetsDir: ASSET_DIR,
+    })
+    expect(assets.systemPrompt).toContain('What you remember about your operator')
+    expect(assets.systemPrompt).toContain('prefers concise answers')
+  })
+
+  it('orchestrator system prompt never carries the memories block', () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k-run-assets-'))
+    tmpDirs.push(dataDir)
+    const assets = resolveRunAssets(profileWith(), {
+      runId: 'run-mem-orchestrator',
+      dataDir,
+      assetsDir: ASSET_DIR,
+    })
+    expect(assets.systemPrompt).not.toContain('What you remember about your operator')
   })
 })

@@ -42,7 +42,11 @@ test.beforeEach(async ({ page }) => {
 // --- helpers ---------------------------------------------------------------
 
 async function gotoSkills(page: Page): Promise<void> {
-  await gotoApp(page, '#/skills')
+  // Legacy '#/skills/automations' (view=skills, param=automations) redirects to
+  // '#/agents/skills/automations' (route.ts VIEW_REDIRECTS) — the SkillsPage sub-tab
+  // that owns the AutomationsTab body (the "+ add skill" form) verbatim. A bare
+  // '#/skills' would land on SkillsPage's default Catalog sub-tab instead.
+  await gotoApp(page, '#/skills/automations')
   await expect(page.getByRole('button', { name: /add skill/i })).toBeVisible()
 }
 
@@ -84,6 +88,19 @@ async function createSkill(
     await page.getByPlaceholder('e.g. done').fill(opts.event)
   }
   await page.getByPlaceholder(/Describe what this skill should do/i).fill(opts.source)
+
+  // Client-side cron validation (web/src/pages/skills/AutomationsTab.tsx: checkCron)
+  // disables the register button entirely and shows a live "skill-cron-hint" instead
+  // of a post-submit red error banner — it mirrors the server's node-cron validator so
+  // an unfireable cron is caught before the round trip, not after. Treat that hint as
+  // the rejection's error text; there is nothing to click/submit in this case.
+  if (trigger === 'schedule') {
+    const hintText = await page.getByTestId('skill-cron-hint').textContent().catch(() => null)
+    if (hintText?.includes('⚠')) {
+      return { errorText: hintText.replace('⚠', '').trim() }
+    }
+  }
+
   await page.getByRole('button', { name: /^register$|registering/i }).click()
 
   // Either the form closes (success) or a red error appears (failure). Give it a beat.

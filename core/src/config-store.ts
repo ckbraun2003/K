@@ -10,6 +10,7 @@
  *  - __resetConfigCache: exported for tests to force a DB round-trip.
  */
 
+import { HomeLayoutSchema, type HomeLayout } from '@k/shared'
 import { configDb } from './db.js'
 
 // In-memory cache keyed by app_config.key. Populated lazily on first read or
@@ -144,6 +145,25 @@ export function setWhisperBaseUrl(v: string): void {
 export function setWhisperModel(v: string): void {
   configDb.set(VOICE_KEYS.model, v)
   cache.set(VOICE_KEYS.model, v)
+}
+
+// ── Home layout ───────────────────────────────────────────────────────────────
+
+/** Read home layout from app_config. Returns null if absent or corrupt. */
+export function homeLayout(): HomeLayout | null {
+  const raw = configDb.get('home_layout')
+  if (!raw) return null
+  try {
+    const parsed = HomeLayoutSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+/** Persist home layout to app_config. Assumes caller validates via HomeLayoutSchema. */
+export function setHomeLayout(layout: HomeLayout): void {
+  configDb.set('home_layout', JSON.stringify(layout))
 }
 
 // ── Test seam ────────────────────────────────────────────────────────────────

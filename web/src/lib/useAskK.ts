@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { KRoute, KForceRoute } from '@k/shared'
 import { routeForMessage, routeForTarget } from '@k/shared'
 import { api } from './api'
@@ -19,8 +20,9 @@ export interface PendingUndo {
 }
 
 /**
- * Shared "ask K + 5s undo" orchestration (P5.1f) — extracted from CommandBar so
- * both ⌘K and K-home drive the front door identically.
+ * Shared "ask K + 5s undo" orchestration (P5.1f) — used by MessageDock (the one
+ * front door, both its bar and float variants) and org/TreeView's per-lead ask
+ * affordance, so both drive K identically.
  *
  * `send` is optimistic AND anchors the undo window to the SEND action (F-066): it
  * raises the Undo affordance IMMEDIATELY (via `pendingUndo`, with the previewed route
@@ -29,17 +31,20 @@ export interface PendingUndo {
  * with far less than the advertised window. When `api.k.ask` resolves the started
  * `runId` is patched in WITHOUT changing `key`, so the toast keeps its original
  * send-anchored timer instead of restarting. A failed dispatch clears the optimistic
- * window (nothing was started). Navigation is CALLER-CHOSEN via `navigateOnSend`
- * (default true): ⌘K navigates on resolve because its Undo toast is rendered outside
- * the palette and survives the close; K-home passes `false` and stays put — navigating
- * would unmount the page and kill its own Undo toast, so it offers a "View run" link on
- * the toast instead. `undo` best-effort kills the started run; pressed while the ask is
- * still in flight, it kills the run as soon as its id resolves. A trimmed-empty message
- * is a no-op. Re-entry is guarded by a synchronous ref so a double click/Enter can't
- * fire two asks.
+ * window (nothing was started). A successful send also invalidates the `['k-thread']`
+ * PREFIX (covers every scoped `['k-thread', id]` detail read, e.g. ChatView's
+ * transcript) and the `['k-threads']` list (UI Simplification Task 7), so a thread
+ * surface reading either key sees the new turn without waiting for reload.
+ * Navigation is CALLER-CHOSEN via `navigateOnSend` (default true; both current
+ * callers pass `false` and stay put — navigating on resolve would unmount the page
+ * and kill its own Undo toast). `undo` best-effort kills the started run; pressed
+ * while the ask is still in flight, it kills the run as soon as its id resolves.
+ * A trimmed-empty message is a no-op. Re-entry is guarded by a synchronous ref so
+ * a double click/Enter can't fire two asks.
  */
 export function useAskK(opts?: { navigateOnSend?: boolean }) {
   const navigateOnSend = opts?.navigateOnSend ?? true
+  const qc = useQueryClient()
   const [pendingUndo, setPendingUndo] = useState<PendingUndo | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -57,7 +62,7 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
   // through to api.k.ask untouched.
   const send = useCallback(async (
     message: string,
-    opts?: { model?: string; forceRoute?: KForceRoute },
+    opts?: { model?: string; forceRoute?: KForceRoute; threadId?: string },
   ): Promise<boolean> => {
     const msg = message.trim()
     if (!msg) return false
@@ -74,12 +79,23 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
     setPendingUndo({ key, runId: null, route })
     try {
       const result = await api.k.ask(msg, opts)
+      // A successful ask appended a turn (and may have created/renamed a thread) —
+      // refresh both the thread-detail prefix and the thread list so a Chats
+      // surface (Task 11+/15) doesn't go stale until the next reload. `['k-thread']`
+      // is a PREFIX match: it also invalidates every scoped `['k-thread', id]`.
+      void qc.invalidateQueries({ queryKey: ['k-thread'] })
+      void qc.invalidateQueries({ queryKey: ['k-threads'] })
       // Undo was pressed while the ask was in flight → kill now that the id exists.
       // The window is already closed (undo nulled pendingUndo); don't re-raise or
       // navigate to a run the operator just undid.
       if (undoBeforeResolve.current === key) {
         undoBeforeResolve.current = null
         try { await api.k.undo(result.runId) } catch { /* best-effort */ }
+        // Re-refresh AFTER the undo: the success invalidation above raced the appended
+        // turn INTO the cache; the undo then removed it server-side, so re-invalidate to
+        // drop it from any thread surface reading these keys (M-D2).
+        void qc.invalidateQueries({ queryKey: ['k-thread'] })
+        void qc.invalidateQueries({ queryKey: ['k-threads'] })
         return true
       }
       // Patch the resolved runId (and the authoritative server route) into the SAME
@@ -97,7 +113,7 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
       busyRef.current = false
       setBusy(false)
     }
-  }, [navigateOnSend])
+  }, [navigateOnSend, qc])
 
   // Capture the pending run into a local BEFORE clearing so the caller's onDismiss
   // (which also nulls pendingUndo) can't race the read. Uses the K undo endpoint (not
@@ -114,7 +130,14 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
       return
     }
     try { await api.k.undo(cur.runId) } catch { /* best-effort */ }
-  }, [pendingUndo])
+    // The undo removed the appended turn(s) server-side; drop them from the cache so an
+    // undone message doesn't linger in the transcript. A fast one-shot that already reached
+    // terminal inside the 5s window gets NO ws run_update (kill() is a no-op), so without
+    // this the ChatView transcript would keep showing the undone turn until an unrelated
+    // later invalidation (M-D2).
+    void qc.invalidateQueries({ queryKey: ['k-thread'] })
+    void qc.invalidateQueries({ queryKey: ['k-threads'] })
+  }, [pendingUndo, qc])
 
   const clearUndo = useCallback(() => setPendingUndo(null), [])
 

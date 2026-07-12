@@ -579,6 +579,9 @@ db.exec(`
     -- claude -p --resume <cli_session_id> so continuity comes from a cheap cache-read
     -- of the session, not a held warm process or a replayed transcript.
     cli_session_id TEXT,
+    -- Archives the thread out of the default list without deleting it (UI
+    -- Simplification, SCHEMA_VERSION 11). NULL = active/unarchived.
+    archived_at   INTEGER,
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL
   );
@@ -591,6 +594,18 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_k_thread_turns ON k_thread_turns(thread_id, created_at);
+
+  -- Operator memory store (UI Simplification, SCHEMA_VERSION 11) — saved directly
+  -- (by the operator or K's memory_save tool), no accept/reject gate (contrast
+  -- Lesson, agent memory layer A). source_thread_id is loose provenance: SET NULL
+  -- on thread delete keeps the memory after its originating conversation is gone.
+  CREATE TABLE IF NOT EXISTS user_memories (
+    id               TEXT PRIMARY KEY,
+    content          TEXT NOT NULL,
+    source_thread_id TEXT REFERENCES k_threads(id) ON DELETE SET NULL,
+    created_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL
+  );
 
   -- ── Agent org (P5.0) ─────────────────────────────────────────────────────────
   -- Durable agent identities (bible section 03, D-020): one entity per row, gated by
@@ -698,7 +713,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 10
+export const SCHEMA_VERSION = 11
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1437,6 +1452,37 @@ function migrateSlow(d: Database.Database): void {
   }
   if (hasTable(d, 'host_mcp_servers')) {
     addColumn(d, 'host_mcp_servers', 'inbox_dismissed_hash', 'TEXT')
+  }
+
+  // ── UI Simplification (SCHEMA_VERSION 11 — multi-thread K archive flag, operator
+  // user_memories store, memory_saved notification rule, one-shot thread-title backfill).
+  if (hasTable(d, 'k_threads')) {
+    addColumn(d, 'k_threads', 'archived_at', 'INTEGER')
+    // one-shot title backfill: NULL-titled threads take their first user turn (idempotent
+    // — guarded on NULL). hasTable(k_thread_turns) guard keeps migrate() safe against
+    // old-schema fixtures that predate the turns table (e.g. the cli_session_id test).
+    if (hasTable(d, 'k_thread_turns')) {
+      d.prepare(`
+        UPDATE k_threads SET title = substr((
+          SELECT t.text FROM k_thread_turns t
+          WHERE t.thread_id = k_threads.id AND t.role = 'user'
+          ORDER BY t.created_at ASC LIMIT 1), 1, 60)
+        WHERE title IS NULL AND EXISTS (
+          SELECT 1 FROM k_thread_turns t WHERE t.thread_id = k_threads.id AND t.role = 'user')
+      `).run()
+    }
+  }
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS user_memories (
+      id               TEXT PRIMARY KEY,
+      content          TEXT NOT NULL,
+      source_thread_id TEXT REFERENCES k_threads(id) ON DELETE SET NULL,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL
+    );
+  `)
+  if (hasTable(d, 'notification_rules')) {
+    d.exec(`INSERT OR IGNORE INTO notification_rules (event_key, inapp, browser) VALUES ('memory_saved', 1, 0);`)
   }
 }
 
@@ -2537,6 +2583,23 @@ const listEvalBaselines = db.prepare(`SELECT * FROM eval_baselines ORDER BY syst
 
 export const evalBaselinesDb = { upsertEvalBaseline, getEvalBaseline, listEvalBaselines }
 
+// ─── Operator memory helpers (UI Simplification, SCHEMA_VERSION 11) ─────────
+// The user_memories store — saved directly (operator or K's memory_save tool),
+// no accept/reject gate (contrast Lesson, agent memory layer A).
+
+export const memoriesDb = {
+  insertMemory: db.prepare(`
+    INSERT INTO user_memories (id, content, source_thread_id, created_at, updated_at)
+    VALUES (@id, @content, @sourceThreadId, @createdAt, @updatedAt)`),
+  // rowid DESC tiebreak: two rows written in the same millisecond would otherwise
+  // order nondeterministically (latest-inserted wins ties).
+  listMemories: db.prepare(`SELECT * FROM user_memories ORDER BY updated_at DESC, rowid DESC`),
+  listRecentMemories: db.prepare(`SELECT * FROM user_memories ORDER BY updated_at DESC, rowid DESC LIMIT ?`),
+  getMemory: db.prepare(`SELECT * FROM user_memories WHERE id = ?`),
+  updateMemory: db.prepare(`UPDATE user_memories SET content = @content, updated_at = @updatedAt WHERE id = @id`),
+  deleteMemory: db.prepare(`DELETE FROM user_memories WHERE id = ?`),
+}
+
 // ─── Runtime config helpers ──────────────────────────────────────────────────
 
 const getConfigRow = db.prepare(`SELECT value FROM app_config WHERE key = ?`)
@@ -2774,6 +2837,25 @@ const getThreadIdByTurnRunId = db.prepare(
   `SELECT thread_id FROM k_thread_turns WHERE run_id = ? ORDER BY created_at ASC, id ASC LIMIT 1`,
 )
 
+// ── UI Simplification (multi-thread K, SCHEMA_VERSION 11) — thread list/rename/
+// archive/delete + the active-run reverse lookup a resumed run's thread needs.
+const listThreads = db.prepare(`
+  SELECT th.*,
+    (SELECT t.text FROM k_thread_turns t WHERE t.thread_id = th.id ORDER BY t.created_at DESC LIMIT 1) AS snippet,
+    (SELECT t.created_at FROM k_thread_turns t WHERE t.thread_id = th.id ORDER BY t.created_at DESC LIMIT 1) AS last_turn_at
+  FROM k_threads th ORDER BY th.updated_at DESC`)
+const setThreadTitle = db.prepare(`UPDATE k_threads SET title = ?, updated_at = ? WHERE id = ?`)
+const setThreadArchived = db.prepare(`UPDATE k_threads SET archived_at = ?, updated_at = ? WHERE id = ?`)
+// Visibility invariant: a thread receiving new activity must be visible in the non-archived
+// list. Cleared at the appendTurn choke point so a thread archived mid-run/delegation resurfaces
+// when K's reply lands. Guarded (WHERE archived_at IS NOT NULL) so a normal non-archived append
+// is a no-op — no spurious updated_at bump / list reorder on the common path.
+const clearThreadArchivedOnActivity = db.prepare(
+  `UPDATE k_threads SET archived_at = NULL, updated_at = ? WHERE id = ? AND archived_at IS NOT NULL`,
+)
+const deleteThread = db.prepare(`DELETE FROM k_threads WHERE id = ?`)
+const threadByActiveRun = db.prepare(`SELECT * FROM k_threads WHERE active_run_id = ?`)
+
 export const kThreadsDb = {
   insertThread,
   getThread,
@@ -2789,4 +2871,10 @@ export const kThreadsDb = {
   clearThreadActiveRunByRunId,
   hasUserTurnForRun,
   getThreadIdByTurnRunId,
+  listThreads,
+  setThreadTitle,
+  setThreadArchived,
+  clearThreadArchivedOnActivity,
+  deleteThread,
+  threadByActiveRun,
 }

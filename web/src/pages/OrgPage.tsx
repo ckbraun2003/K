@@ -18,7 +18,7 @@ export default function OrgPage({ seg }: { seg?: string }) {
             ariaLabel="Org view"
             options={[{ label: 'Roster', value: 'roster' }, { label: 'Tree', value: 'tree' }, { label: 'Graph', value: 'graph' }]}
             value={active}
-            onChange={(s) => navigate('org', s)}
+            onChange={(s) => navigate('agents', 'org', s)}
           />
         </div>
       </header>

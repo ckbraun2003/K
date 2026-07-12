@@ -15,17 +15,17 @@ afterEach(() => {
 })
 
 describe('useHashRoute legacy-hash redirect (M2/F1)', () => {
-  it('redirects #/chief → org/tree by REPLACING history (no push, no Back-trap)', () => {
+  it('redirects #/chief → agents/org/tree by REPLACING history (no push, no Back-trap)', () => {
     window.location.hash = '#/chief'
     const replaceSpy = vi.spyOn(window.history, 'replaceState')
 
     const { result } = renderHook(() => useHashRoute())
 
     // The rendered route is the canonical destination…
-    expect(result.current).toEqual({ view: 'org', param: 'tree' })
+    expect(result.current).toEqual({ view: 'agents', param: 'org', subParam: 'tree' })
     // …reached via replaceState (not a push), and the address bar is rewritten.
-    expect(replaceSpy).toHaveBeenCalledWith(null, '', '#/org/tree')
-    expect(window.location.hash).toBe('#/org/tree')
+    expect(replaceSpy).toHaveBeenCalledWith(null, '', '#/agents/org/tree')
+    expect(window.location.hash).toBe('#/agents/org/tree')
   })
 
   it('a canonical hash does NOT redirect (no replaceState)', () => {

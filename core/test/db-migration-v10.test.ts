@@ -24,13 +24,16 @@ function tables(d: Database.Database): string[] {
 
 describe('SCHEMA_VERSION 10', () => {
   it('is 10 and the live DB has the new tables + seeded rules', () => {
-    expect(SCHEMA_VERSION).toBe(10)
+    // v10 features exist from v10 onward; the exact current-version pin lives in the
+    // latest migration test (db-migration-v11.test.ts), so later bumps don't break this.
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(10)
     expect(tables(db as unknown as Database.Database)).toEqual(
       expect.arrayContaining(['run_plans', 'notifications', 'notification_rules']),
     )
     const rules = notificationsDb.listNotificationRules.all() as Array<{ event_key: string; inapp: number; browser: number }>
+    // arrayContaining (not exact): later versions seed additional rules (e.g. v11's memory_saved).
     expect(rules.map(r => r.event_key).sort()).toEqual(
-      ['run_awaiting_input', 'run_awaiting_plan', 'run_failed', 'run_review_ready', 'verify_fail'],
+      expect.arrayContaining(['run_awaiting_input', 'run_awaiting_plan', 'run_failed', 'run_review_ready', 'verify_fail']),
     )
     expect(rules.find(r => r.event_key === 'run_awaiting_plan')).toMatchObject({ inapp: 1, browser: 1 })
     expect(rules.find(r => r.event_key === 'verify_fail')).toMatchObject({ inapp: 1, browser: 0 })
@@ -56,7 +59,8 @@ describe('SCHEMA_VERSION 10', () => {
     `)
     migrate(d)
     expect(tables(d)).toEqual(expect.arrayContaining(['run_plans', 'notifications', 'notification_rules']))
-    expect(d.pragma('user_version', { simple: true })).toBe(10)
+    // Stamped to the CURRENT version (derived, per the v8/v9-test precedent, so later bumps don't break this).
+    expect(d.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
     // Backfill: pre-existing done rows read reviewed (no inbox flood); live rows stay NULL.
     expect((d.prepare(`SELECT reviewed_at FROM runs WHERE id = 'done-run'`).get() as { reviewed_at: number }).reviewed_at).toBe(200)
     expect((d.prepare(`SELECT reviewed_at FROM runs WHERE id = 'live-run'`).get() as { reviewed_at: number | null }).reviewed_at).toBeNull()

@@ -341,6 +341,7 @@ const EVENT_LABELS: Record<NotificationEventKey, string> = {
   run_review_ready: 'Run ready for review',
   run_failed: 'Run failed',
   verify_fail: 'Verification failed',
+  memory_saved: 'Memory saved',
 }
 
 /** Notification delivery rules (E-19). One row per event: an In-app toggle (the bell +

@@ -14,6 +14,7 @@
  * thin adapter over askK / undoK / ensureDefaultKThread / listKThreadTurns.
  */
 import { randomUUID } from 'crypto'
+import { v4 as uuid } from 'uuid'
 import type { KThread, KThreadTurn, KAskResult, KRoute, KForceRoute } from '@k/shared'
 import { routeForMessage, routeForTarget } from '@k/shared'
 import { kThreadsDb, runsDb, eventsDb, mgmtDb, db } from './db.js'
@@ -41,12 +42,16 @@ const K_SEED_INSTRUCTION =
 
 type Row = Record<string, unknown>
 
-function rowToKThread(r: Row): KThread {
+/** Row → KThread mapper (snake_case → camelCase). Exported so the thread-list route
+ *  (routes/k.ts GET /api/k/threads) can reuse it directly on the joined listThreads
+ *  rows instead of duplicating the mapping. */
+export function rowToKThread(r: Row): KThread {
   return {
     id: String(r.id),
     title: r.title == null ? null : String(r.title),
     status: r.status as KThread['status'],
     activeRunId: r.active_run_id == null ? null : String(r.active_run_id),
+    archivedAt: r.archived_at == null ? null : Number(r.archived_at),
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
   }
@@ -88,6 +93,53 @@ export function ensureDefaultKThread(): KThread {
   return getKThread(DEFAULT_K_THREAD_ID)!
 }
 
+/** Thrown when an explicit thread id (resolveAskThread, or a direct route lookup)
+ *  does not exist — the route layer maps this to 404. */
+export class KThreadNotFoundError extends Error {
+  constructor(id: string) {
+    super(`k thread not found: ${id}`)
+  }
+}
+
+/** Create a new, empty K thread (title null; backfilled from the first ask — see
+ *  the title-on-first-send step in {@link askK}). */
+export function createKThread(): KThread {
+  const id = `kt-${uuid().slice(0, 8)}`
+  const now = Date.now()
+  kThreadsDb.insertThread.run({ id, title: null, status: 'active', activeRunId: null, createdAt: now, updatedAt: now })
+  // Non-null: we just inserted it.
+  return getKThread(id)!
+}
+
+/**
+ * Resolve the thread an ask targets. An explicit `threadId` must exist (throws
+ * {@link KThreadNotFoundError} otherwise — the route
+ * layer 404s); with none given, defaults to the most-recently-updated NON-archived
+ * thread (kThreadsDb.listThreads is already updated_at DESC), falling back to
+ * {@link ensureDefaultKThread} when there is no such thread (a wholly empty/all-
+ * archived DB) — so a fresh install's first ask still works with zero threads.
+ * Either path can land on an ARCHIVED thread (possible once PATCH can archive
+ * any thread, including the one an explicit threadId names): that thread is
+ * un-archived first — a thread receiving new activity must be visible in the
+ * non-archived list, or the message would land hidden.
+ */
+export function resolveAskThread(threadId?: string): KThread {
+  if (threadId) {
+    const t = getKThread(threadId)
+    if (!t) throw new KThreadNotFoundError(threadId)
+    if (t.archivedAt == null) return t
+    kThreadsDb.setThreadArchived.run(null, Date.now(), t.id)
+    return getKThread(t.id)!
+  }
+  const rows = kThreadsDb.listThreads.all() as Array<{ id: string; archived_at: number | null }>
+  const recent = rows.find(r => r.archived_at == null)
+  if (recent) return getKThread(recent.id)!
+  const fallback = ensureDefaultKThread()
+  if (fallback.archivedAt == null) return fallback
+  kThreadsDb.setThreadArchived.run(null, Date.now(), fallback.id)
+  return getKThread(fallback.id)!
+}
+
 /** The thread's turns, oldest-first. */
 export function listKThreadTurns(id: string): KThreadTurn[] {
   const rows = kThreadsDb.listTurns.all(id) as Row[]
@@ -103,7 +155,15 @@ export function appendTurn(
   runId: string | null = null,
 ): KThreadTurn {
   const id = randomUUID()
-  kThreadsDb.insertTurn.run({ id, threadId, role, text, runId, createdAt: Date.now() })
+  const now = Date.now()
+  kThreadsDb.insertTurn.run({ id, threadId, role, text, runId, createdAt: now })
+  // Visibility invariant (see resolveAskThread): a thread receiving new activity must be visible
+  // in the non-archived list. captureAnswers / reportDelegationBack / continueLeadOutcomeToK all
+  // append here WITHOUT going through resolveAskThread's un-archive, so centralize it at this choke
+  // point — a thread archived mid-run/delegation resurfaces when K's reply lands, instead of the
+  // reply landing hidden. Guarded (archived_at IS NOT NULL) so a normal non-archived append is
+  // untouched. (resolveAskThread's own explicit un-archive stays, now idempotent with this.)
+  kThreadsDb.clearThreadArchivedOnActivity.run(now, threadId)
   return rowToKThreadTurn(kThreadsDb.getTurn.get(id) as Row)
 }
 
@@ -459,12 +519,19 @@ async function delegateToChief(
  * `opts.model` is an explicit per-ask model override threaded to startAgentRun. With
  * design A a model override no longer forfeits continuity: there is no live process to
  * keep, so the ask simply RESUMES the same session under the chosen model.
+ *
+ * Multi-thread (UI Simplification): `opts.threadId` targets a specific thread via
+ * {@link resolveAskThread} — an explicit unknown id throws {@link KThreadNotFoundError}
+ * (the route layer 404s, BEFORE any turn is appended); omitted, it resolves to the
+ * most-recent non-archived thread as before. A thread's still-untitled first ask
+ * stamps its title from the message (see below) so a freshly created thread shows
+ * something in a thread list without a separate rename step.
  */
 export async function askK(
   message: string,
-  opts: { forceRoute?: KForceRoute; model?: string } = {},
+  opts: { forceRoute?: KForceRoute; model?: string; threadId?: string } = {},
 ): Promise<KAskResult> {
-  const thread = ensureDefaultKThread()
+  const thread = resolveAskThread(opts.threadId)
   // A forced route wins over the classifier — routeForTarget is the SAME shared
   // mapping the composer previews, so the forced preview and this decision agree.
   const route = opts.forceRoute ? routeForTarget(opts.forceRoute) : routeForMessage(message)
@@ -473,6 +540,10 @@ export async function askK(
   // throws (startAgentRun rolls back only its own agent_runs row; the ask stays,
   // which is acceptable: the thread is the source of truth for what was asked).
   const turn = appendTurn(thread.id, 'user', message, null)
+  // Title-on-first-send: a freshly created thread (POST /api/k/threads) has no
+  // title; stamp one from the operator's first message so the thread list has
+  // something to show. Guarded on title == null, so it only ever fires once.
+  if (thread.title == null) kThreadsDb.setThreadTitle.run(message.slice(0, 60), Date.now(), thread.id)
 
   // Delegation path (D-046): an engineering-routed ask (Chief or a named lead) hands
   // UP to the Chief instead of K running it. Checked BEFORE the resumable path — a

@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -625,12 +625,14 @@ export const api = {
   },
   // Talk to K (P5.1c) — the front door. `ask` activates K on a message (warm or
   // fresh) and streams over the existing run wire; the optional power controls
-  // (model override / forced route) ride the same body — undefined fields are
-  // naturally omitted by JSON.stringify. `thread` reads the durable K conversation
-  // (source of truth, survives reload). `notes`/`schedule`/`workItems` are the
-  // K-home glance reads + the durable personal work-item surface.
+  // (model override / forced route / a target `threadId`, UI Simplification Task 7)
+  // ride the same body — undefined fields are naturally omitted by JSON.stringify.
+  // `notes`/`schedule`/`workItems` are the K-home glance reads + the durable
+  // personal work-item surface. The durable K conversation itself is read via
+  // `threads.get` below (multi-thread; the legacy singleton `thread()` binding
+  // retired in Task 18).
   k: {
-    ask: (message: string, opts?: { model?: string; forceRoute?: KForceRoute }) =>
+    ask: (message: string, opts?: { model?: string; forceRoute?: KForceRoute; threadId?: string }) =>
       req<KAskResult>('/k/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -644,7 +646,6 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runId }),
       }),
-    thread: () => req<{ thread: KThread; turns: KThreadTurn[] }>('/k/thread'),
     notes: () => req<Note[]>('/k/notes'),
     schedule: () => req<KSchedule>('/k/schedule'),
     workItems: {
@@ -663,6 +664,66 @@ export const api = {
           body: JSON.stringify({ status }),
         }),
     },
+  },
+  // Durable K threads (multi-thread K, UI Simplification Task 7) — sibling to
+  // `k.ask`'s optional `threadId`. `list` defaults to non-archived, newest-updated
+  // first; pass `includeArchived: true` to also see archived threads. `get` reads
+  // one thread + its turns oldest-first (404 unknown → req throws). `create` seeds
+  // an empty thread (title backfills from the first ask on it). `remove` 404s
+  // unknown, 409s a thread whose active run is still non-terminal (both surface as
+  // req's thrown error). NOTE: `['k-threads']` (the list) and `['k-thread', id]`
+  // (one thread's turns, this namespace) are DISTINCT query keys — the latter also
+  // matches the `['k-thread']` PREFIX invalidation `useAskK.send` fires.
+  threads: {
+    list: (includeArchived?: boolean) =>
+      req<{ threads: KThreadSummary[] }>(`/k/threads${includeArchived ? '?archived=1' : ''}`),
+    get: (id: string) => req<{ thread: KThread; turns: KThreadTurn[] }>(`/k/threads/${id}`),
+    create: () =>
+      req<KThread>('/k/threads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+    update: (id: string, patch: { title?: string; archived?: boolean }) =>
+      req<KThread>(`/k/threads/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }),
+    remove: (id: string) => req<undefined>(`/k/threads/${id}`, { method: 'DELETE' }),
+  },
+  // The operator's own durable memory store (UI Simplification Task 7) — distinct
+  // from `memory` above (agent-memory lessons, layer A, gated by accept/reject): a
+  // UserMemory is saved directly (by the operator or K's memory_save tool), no
+  // review gate.
+  memories: {
+    list: () => req<{ memories: UserMemory[] }>('/memories'),
+    create: (content: string) =>
+      req<UserMemory>('/memories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      }),
+    update: (id: string, content: string) =>
+      req<UserMemory>(`/memories/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      }),
+    remove: (id: string) => req<undefined>(`/memories/${id}`, { method: 'DELETE' }),
+  },
+  // The operator-arranged Home widget grid (UI Simplification, spec §5.2/§8.3).
+  // `get` may answer `{ layout: null }` before the operator has ever saved one
+  // (a Home surface falls back to a default grid); `put` replaces the whole
+  // layout (zod bounds/overlap validation happens server-side — a bad grid 400s).
+  homeLayout: {
+    get: () => req<{ layout: HomeLayout | null }>('/settings/home-layout'),
+    put: (layout: HomeLayout) =>
+      req<{ layout: HomeLayout }>('/settings/home-layout', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(layout),
+      }),
   },
   // System doctor (Wave 2) — host prerequisite readiness. Detects whether the host
   // tools the desktop app relies on (claude/git/node required; gh/ollama optional)

@@ -312,7 +312,7 @@ export default function CapabilityPicker({
                 // Tabbable on purpose — keyboard users need the deep link; the
                 // focus-within gate keeps the list open while it has focus.
                 onMouseDown={e => e.preventDefault()}
-                onClick={() => navigate('skills', catalogHash)}
+                onClick={() => navigate('agents', 'skills', catalogHash)}
                 data-testid={`${testidPrefix}-catalog-link`}
                 className="mt-0.5 w-full rounded-md px-2 py-1.5 text-left text-[11px] text-[var(--accent-hover)] hover:bg-[var(--raised)]"
               >

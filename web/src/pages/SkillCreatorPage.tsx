@@ -38,7 +38,7 @@ export default function SkillCreatorPage({ draftId }: { draftId?: string }) {
         <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2.5">
           <button
             type="button"
-            onClick={() => navigate('skills')}
+            onClick={() => navigate('agents', 'skills')}
             className="text-[11px] text-[var(--accent-hover)] hover:underline"
           >
             ← Catalog
@@ -519,7 +519,7 @@ function SaveBar({ draft }: { draft: SkillDraft }) {
       } catch {
         // sessionStorage unavailable (private mode) — the save still worked.
       }
-      navigate('skills')
+      navigate('agents', 'skills')
     },
   })
 
@@ -533,7 +533,7 @@ function SaveBar({ draft }: { draft: SkillDraft }) {
         <button
           type="button"
           data-testid="save-view-catalog"
-          onClick={() => navigate('skills')}
+          onClick={() => navigate('agents', 'skills')}
           className="text-[11px] text-[var(--accent-hover)] hover:underline"
         >
           view in catalog →

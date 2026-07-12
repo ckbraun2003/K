@@ -20,7 +20,7 @@ beforeAll(() => {
   }
 })
 
-const { mockCatalogSkills, mockCatalogMcp, mockNavigate, mockOrchGet, mockOrchUpdate, mockLessons } =
+const { mockCatalogSkills, mockCatalogMcp, mockNavigate, mockOrchGet, mockOrchUpdate, mockLessons, mockRecentActuals } =
   vi.hoisted(() => ({
     mockCatalogSkills: vi.fn(),
     mockCatalogMcp: vi.fn(),
@@ -28,6 +28,7 @@ const { mockCatalogSkills, mockCatalogMcp, mockNavigate, mockOrchGet, mockOrchUp
     mockOrchGet: vi.fn(),
     mockOrchUpdate: vi.fn(),
     mockLessons: vi.fn(),
+    mockRecentActuals: vi.fn(),
   }))
 
 vi.mock('../src/lib/api', () => ({
@@ -35,7 +36,8 @@ vi.mock('../src/lib/api', () => ({
     capabilities: { skills: mockCatalogSkills, mcp: mockCatalogMcp },
     orchestrators: { get: mockOrchGet, update: mockOrchUpdate },
     orgDefault: { get: vi.fn().mockResolvedValue({ skills: [], allowedTools: [], mcpServers: [] }) },
-    memory: { lessons: mockLessons },
+    memory: { lessons: mockLessons, approve: vi.fn(), reject: vi.fn() },
+    metrics: { recentActuals: mockRecentActuals },
   },
 }))
 vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
@@ -121,6 +123,7 @@ beforeEach(() => {
   mockCatalogSkills.mockResolvedValue({ skills: catalogSkills, scannedAt: 1, warnings: [] })
   mockCatalogMcp.mockResolvedValue({ servers: catalogServers, scannedAt: 1, warnings: [] })
   mockLessons.mockResolvedValue([])
+  mockRecentActuals.mockResolvedValue({ scope: 'none', n: 0, windowDays: 30, medianCostUsd: null, p90CostUsd: null })
 })
 afterEach(() => cleanup())
 
@@ -218,7 +221,7 @@ describe('CapabilityPicker — add combobox', () => {
     expect(onChange).not.toHaveBeenCalled()
     // deep link goes to the skills catalog tab
     fireEvent.click(screen.getByTestId('pick-catalog-link'))
-    expect(mockNavigate).toHaveBeenCalledWith('skills', undefined)
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'skills', undefined)
   })
 
   it('an untrusted MCP server is grayed and the deep link targets #/skills/mcp', async () => {
@@ -231,7 +234,7 @@ describe('CapabilityPicker — add combobox', () => {
     fireEvent.click(opt)
     expect(onChange).not.toHaveBeenCalled()
     fireEvent.click(screen.getByTestId('pick-catalog-link'))
-    expect(mockNavigate).toHaveBeenCalledWith('skills', 'mcp')
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'skills', 'mcp')
   })
 
   it('Enter adds only an exact ADDABLE match (keyboard cannot bypass the gray-out)', async () => {
