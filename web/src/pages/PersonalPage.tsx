@@ -4,32 +4,18 @@ import { INBOX_KEY, inboxQueryFn } from '../lib/inbox-query'
 import { navigate } from '../lib/route'
 import InboxTab from './personal/InboxTab'
 import TasksTab from './personal/TasksTab'
+import ChatsTab from './personal/ChatsTab'
+import MemoriesTab from './personal/MemoriesTab'
 
 /**
- * Personal hub (UI Simplification Task 14) — replaces the Task 10 stub. Absorbs
- * Inbox (moved intact from InboxPage.tsx, F-none) + a new Tasks tab (KHome's
- * work-items/notes/schedule cards ported for full management) under one tabbed
- * surface. Chats/Memories are placeholder panels until Task 15 fills them in —
- * declared inline here as one-line stubs so the Tabs bar has all 4 destinations.
+ * Personal hub (UI Simplification Task 14, filled out by Task 15) — replaces
+ * the Task 10 stub. Absorbs Inbox (moved intact from InboxPage.tsx) + Tasks
+ * (KHome's work-items/notes/schedule cards ported for full management) +
+ * Chats (thread management surface, Task 15) + Memories (operator-memory UI,
+ * Task 15) under one tabbed surface.
  */
 const TAB_IDS = ['inbox', 'tasks', 'chats', 'memories'] as const
 type PersonalTab = (typeof TAB_IDS)[number]
-
-function ChatsTab() {
-  return (
-    <div data-testid="personal-chats-stub" className="p-4 text-sm italic text-[var(--muted)]">
-      Chats — arriving in the next phase.
-    </div>
-  )
-}
-
-function MemoriesTab() {
-  return (
-    <div data-testid="personal-memories-stub" className="p-4 text-sm italic text-[var(--muted)]">
-      Memories — arriving in the next phase.
-    </div>
-  )
-}
 
 export default function PersonalPage({ tab }: { tab?: string }) {
   const active: PersonalTab = (TAB_IDS as readonly string[]).includes(tab ?? '') ? (tab as PersonalTab) : 'inbox'
