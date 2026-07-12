@@ -389,7 +389,7 @@ export const logisticsTools: LogisticsTool[] = [
   {
     name: 'memory_save',
     description:
-      'Remember a durable fact or preference about your operator (a TOOL, not a file). Saves to the operator-visible memory store and quietly notifies them. Use for lasting facts, never transient task state.',
+      'Remember a durable fact or preference about your operator (a TOOL, not a file). Saves to the operator-visible memory store and quietly notifies them. Call it whenever the operator explicitly asks you to remember or save something about themselves, and when they reveal a lasting fact or preference worth keeping. Use for lasting facts, never transient task state.',
     inputShape: MemorySaveInput,
     handler: memorySave,
   },

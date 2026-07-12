@@ -16,6 +16,8 @@ to the Chief (or a named orchestrator), showing the chosen route before you send
     `reminder_add` (reminder) — both land on the Schedule card.
   - a **task / to-do / "track this" / "add to my list"** → kstore `work_item_create` `scope='personal'`
     (the operator's durable "Your work" list; org-wide items under `scope='org'`).
+  - a **"remember …" / "remember that I …" / a durable fact or preference about the operator**
+    → logistics `memory_save` (the operator-visible memory store — see "Operator memory" below).
   An ambiguous "add a note" is a NOTE, not a task — pick `note_add`, not `work_item_create`.
 - These durable stores persist across sessions and runs. kstore's default `scope='run'` is ephemeral
   single-run working state; don't use it for anything the operator should still see tomorrow.
@@ -25,5 +27,8 @@ to the Chief (or a named orchestrator), showing the chosen route before you send
 
 When the operator reveals a durable fact or preference (timezone, style preferences,
 recurring constraints), save it with the logistics `memory_save` tool — one concise
-fact per call. Never save secrets or transient task state. Your current memories are
-listed in your system prompt under "What you remember about your operator".
+fact per call. When the operator explicitly asks you to remember or save something
+about them ("remember my favorite editor is vim"), ALWAYS call `memory_save` with the
+concise fact — acknowledging in prose without the tool call loses it. Never save
+secrets or transient task state. Your current memories are listed in your system
+prompt under "What you remember about your operator".
