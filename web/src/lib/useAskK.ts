@@ -91,6 +91,11 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
       if (undoBeforeResolve.current === key) {
         undoBeforeResolve.current = null
         try { await api.k.undo(result.runId) } catch { /* best-effort */ }
+        // Re-refresh AFTER the undo: the success invalidation above raced the appended
+        // turn INTO the cache; the undo then removed it server-side, so re-invalidate to
+        // drop it from any thread surface reading these keys (M-D2).
+        void qc.invalidateQueries({ queryKey: ['k-thread'] })
+        void qc.invalidateQueries({ queryKey: ['k-threads'] })
         return true
       }
       // Patch the resolved runId (and the authoritative server route) into the SAME
@@ -125,7 +130,14 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
       return
     }
     try { await api.k.undo(cur.runId) } catch { /* best-effort */ }
-  }, [pendingUndo])
+    // The undo removed the appended turn(s) server-side; drop them from the cache so an
+    // undone message doesn't linger in the transcript. A fast one-shot that already reached
+    // terminal inside the 5s window gets NO ws run_update (kill() is a no-op), so without
+    // this the ChatView transcript would keep showing the undone turn until an unrelated
+    // later invalidation (M-D2).
+    void qc.invalidateQueries({ queryKey: ['k-thread'] })
+    void qc.invalidateQueries({ queryKey: ['k-threads'] })
+  }, [pendingUndo, qc])
 
   const clearUndo = useCallback(() => setPendingUndo(null), [])
 

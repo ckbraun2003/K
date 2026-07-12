@@ -149,7 +149,9 @@ describe('ChatsTab', () => {
     fireEvent.click(screen.getByTestId('chats-archive-kt-1'))
 
     await waitFor(() => expect(mockThreadsUpdate).toHaveBeenCalledWith('kt-1', { archived: true }))
-    await waitFor(() => expect(getSelectedThread()).toBe('kt-2')) // skips kt-arch (archived)
+    // Longer timeout: the archive→demote runs through a mutation settle + effect, which can
+    // exceed waitFor's 1s default under full-suite parallel load (flaked there; 10/10 solo).
+    await waitFor(() => expect(getSelectedThread()).toBe('kt-2'), { timeout: 3000 }) // skips kt-arch (archived)
   })
 
   it('archiving a NON-selected thread leaves the selection alone', async () => {

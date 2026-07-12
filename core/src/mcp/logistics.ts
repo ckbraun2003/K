@@ -278,7 +278,7 @@ function memorySave(args: unknown): UserMemory {
   const now = Date.now()
   const runId = process.env.K_RUN_ID || null
   const threadRow = runId ? (kThreadsDb.threadByActiveRun.get(runId) as { id: string } | undefined) : undefined
-  const id = `um-${uuid().slice(0, 8)}`
+  const id = `um-${uuid()}`
   memoriesDb.insertMemory.run({
     id,
     content,

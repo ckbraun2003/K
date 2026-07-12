@@ -311,19 +311,22 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     el.setSelectionRange(el.value.length, el.value.length)
   }, [confirm])
 
-  // A persisted selection whose by-id read 404s points at a DELETED thread — demote to a new-chat
-  // draft so the header's "New chat" and submit()'s behavior agree (closes the T8 gap: a stale
-  // deleted selection on a non-Home view, where ChatView's probe isn't mounted to demote it).
-  // Guarded on getSelectedThread(): ChatView's probe may demote first (to the newest remaining
-  // thread) — first writer wins, and we never clobber a selection that already moved. A transient
-  // (non-404) failure only degrades — never demote. An ARCHIVED thread (get succeeds) is KEPT; its
-  // label just gains the archived hint below.
+  // A persisted selection whose by-id read 404s points at a DELETED thread — demote it to the
+  // NEWEST remaining non-archived thread (the default `['k-threads']` list is newest-first),
+  // matching ChatView's §8.1 probe (`fresh[0]?.id ?? null`) EXACTLY. On Home both this dock and
+  // ChatView are mounted and both demote, so picking the identical target means they can't race to
+  // divergent selections (the earlier `null` demote could win the race and strand the operator on
+  // an empty draft — M-D4); it also keeps the demote working on Home→Overview, where the bar is
+  // mounted but ChatView is not. Only an empty list falls back to the new-chat draft. Guarded on
+  // getSelectedThread() so a selection that already moved isn't clobbered. A transient (non-404)
+  // failure only degrades — never demote. An ARCHIVED thread (get succeeds) is KEPT; its label
+  // just gains the archived hint below.
   useEffect(() => {
     if (selected === null || selectedInList) return
     if (selectedById.isError && is404(selectedById.error) && getSelectedThread() === selected) {
-      selectThread(null)
+      selectThread(threadsData?.threads[0]?.id ?? null)
     }
-  }, [selected, selectedInList, selectedById.isError, selectedById.error])
+  }, [selected, selectedInList, selectedById.isError, selectedById.error, threadsData])
 
   // Prefer the listed thread; else the by-id resolution (the archived/absent case). Either can be
   // untitled (title null) → "New chat", exactly as before. `selectionArchived` drives the honest
@@ -354,6 +357,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     const msg = text.trim()
     if (!msg || ask.busy) return
     let threadId = selected
+    let createdNow = false
     if (threadId === null) {
       // The lazy create is a failure point BEFORE ask.send — both call sites are
       // fire-and-forget (`void submit()`), so an unwrapped rejection here would be
@@ -363,6 +367,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
         const created = await api.threads.create()
         selectThread(created.id)
         threadId = created.id
+        createdNow = true
       } catch (e) {
         ask.setError(e instanceof Error ? e.message : String(e))
         return
@@ -373,7 +378,17 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
       model: model === 'default' ? undefined : model,
       forceRoute: forceRoute === '' ? undefined : forceRoute,
     })
-    if (sent) { setText(''); drafts.current.delete(threadId ?? 'new') }
+    if (sent) {
+      // Clear the composer ONLY if the operator hasn't switched threads while the send was
+      // in flight — getSelectedThread() is the synchronous live selection, so a mismatch
+      // means they moved on and setText('') would wipe the NEW thread's draft (M-D3).
+      if (getSelectedThread() === threadId) setText('')
+      drafts.current.delete(threadId)
+      // A lazy create fired the draft-swap effect, which stashed the just-sent text under
+      // the old 'new' key; drop it so a later "+ New chat" can't resurrect a sent message
+      // into the composer and invite an accidental re-send (M-D1).
+      if (createdNow) drafts.current.delete('new')
+    }
   }
 
   function onInputKeyDown(e: React.KeyboardEvent) {

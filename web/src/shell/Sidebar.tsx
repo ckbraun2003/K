@@ -57,7 +57,11 @@ export default function Sidebar({
   // live query uses (runs-query.ts), so this adds zero fetches; the predicates
   // match ActivityStrip's definitions. Parked (awaiting_input) runs count too —
   // an empty badge next to a run needing input hid it entirely (F-055).
-  const { data: runs = [] } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn })
+  // refetchInterval restores the every-page 10s poll ActivityStrip provided before it was
+  // retired: on views where a WS run_update could be dropped without a reconnect-triggered
+  // invalidation (Agents/Insights/Projects/Settings), the badge would otherwise read stale.
+  // Dedups with the Home/Runs widgets' identical poll on the shared key where they're mounted.
+  const { data: runs = [] } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn, refetchInterval: 10_000 })
   const activeRuns = runs.filter(isActiveRun).length
   const parkedRuns = runs.filter(isParkedRun).length
   const badgeCount = activeRuns + parkedRuns

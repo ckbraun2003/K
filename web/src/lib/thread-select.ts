@@ -29,8 +29,10 @@ export function subscribeSelectedThread(l: Listener): () => void {
   return () => listeners.delete(l)
 }
 
-/** React binding — re-renders the caller on every `selectThread` call (own or
- *  another surface's), including a cross-tab/localStorage-external change. */
+/** React binding — re-renders the caller on every in-page `selectThread` call, whether this
+ *  surface's or another mounted surface's (both share the module store). NOT wired to the
+ *  `storage` event, so a selection made in ANOTHER TAB won't re-render here until a reload —
+ *  acceptable: chat selection is a per-surface convenience, not shared cross-tab state. */
 export function useSelectedThread(): string | null {
   return useSyncExternalStore(subscribeSelectedThread, getSelectedThread)
 }

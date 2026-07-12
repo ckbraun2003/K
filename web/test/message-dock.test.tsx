@@ -144,11 +144,11 @@ describe('MessageDock', () => {
     expect(screen.getByTestId('dock-archived-hint')).toBeTruthy()
   })
 
-  it('demotes a DELETED selection (by-id 404) to a new-chat draft so the header + send agree', async () => {
+  it('demotes a DELETED selection (by-id 404) with an EMPTY list to a new-chat draft', async () => {
     const { getSelectedThread } = await import('../src/lib/thread-select')
-    // T8: on a non-Home view ChatView's probe is not mounted to demote a stale selection. A
-    // by-id 404 here means the thread was deleted — demote to a new-chat draft (null) so the
-    // header's "New chat" and submit()'s behavior agree, instead of stranding a dead selection.
+    // A by-id 404 means the selection's thread was DELETED. With NO remaining threads the demote
+    // target is the new-chat draft (null) so the header's "New chat" and submit()'s behavior agree,
+    // instead of stranding a dead selection. (A non-empty list demotes to the newest — next test.)
     mockThreadsList.mockResolvedValue({ threads: [] })
     mockThreadsGet.mockRejectedValue(new Error('not found'))
     renderDock('bar')
@@ -156,6 +156,20 @@ describe('MessageDock', () => {
 
     await waitFor(() => expect(getSelectedThread()).toBeNull())
     await waitFor(() => expect(screen.getByTestId('dock-target').textContent).toBe('→ New chat'))
+  })
+
+  it('demotes a DELETED selection to the NEWEST remaining thread, not a blank draft (M-D4)', async () => {
+    const { getSelectedThread } = await import('../src/lib/thread-select')
+    // M-D4: the deleted-selection demote picks the newest non-archived thread from the default
+    // list (newest-first), IDENTICAL to ChatView's §8.1 probe — so on Home the two mounted
+    // demoters agree on the target and can never race to divergent selections (a `null` demote
+    // would have stranded the operator on an empty draft instead of their next conversation).
+    mockThreadsList.mockResolvedValue({ threads: [thread({ id: 'kt-newest', title: 'Newest' }), thread({ id: 'kt-older', title: 'Older' })] })
+    mockThreadsGet.mockRejectedValue(new Error('not found'))
+    renderDock('bar')
+    act(() => { selectThread('kt-del') })
+
+    await waitFor(() => expect(getSelectedThread()).toBe('kt-newest'))
   })
 
   it('sending with null selection creates a thread first, then asks with its id', async () => {

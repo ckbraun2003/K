@@ -23,7 +23,7 @@ export async function memoriesRoutes(app: FastifyInstance) {
     const parsed = UserMemoryCreateBodySchema.safeParse(req.body ?? {})
     if (!parsed.success) return sendError(reply, 400, 'bad body')
     const now = Date.now()
-    const id = `um-${uuid().slice(0, 8)}`
+    const id = `um-${uuid()}`
     memoriesDb.insertMemory.run({ id, content: parsed.data.content, sourceThreadId: null, createdAt: now, updatedAt: now })
     return reply.code(201).send(rowToMemory(memoriesDb.getMemory.get(id) as Record<string, unknown>))
   })
