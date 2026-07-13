@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-07-05
+updated: 2026-07-13
 ---
 
 ## Running locally
@@ -15,6 +15,18 @@ pnpm --filter @k/core dev    # core API + WS  → http://localhost:3001
 pnpm --filter @k/web dev     # dashboard      → http://localhost:5173
 pnpm dev                     # both in parallel
 ```
+
+### Dev-stack hygiene
+
+- `pnpm --filter @k/core dev` is **non-watch by default** (F4) — one boot, no auto-restart on file
+  save. Hot-restart-on-save is opt-in: `pnpm --filter @k/core dev:watch`.
+- Never leave a dev stack (watched or not) running across a `git merge`/rebase, or while hand-editing
+  schema/migrations in `core/src/db.ts` — an in-place restart can boot mid-edit and stamp a schema
+  version before its migration exists (see the poisoned-stamp incident under Schema migrations).
+- Before merging anything that touches `core/src/db.ts`, run `pnpm smoke:upgrade`
+  (`core/scripts/upgrade-smoke.mjs`) — it copies the real dev DB to a temp dir, boots the merged core
+  against the copy on port 3299, and polls `/api/runs` + `/api/profiles`, proving the **upgrade**
+  path boots (not just a fresh install).
 
 ## Environment (`core/.env`)
 
@@ -46,7 +58,7 @@ recon finding that the Claude default model was an env-frozen `const` read once 
 
 | What | Where | Versioned |
 |------|-------|-----------|
-| SQLite (runs, events, artifacts, projects, verification) | `core/data/k.db` (WAL) | no |
+| SQLite (runs, events, artifacts, projects, verification) | `data/k.db` (WAL) | no |
 | Harness bearer token (first-run generated secret) | `data/auth-token` (0600, gitignored) | no |
 | Shipped agent-config assets (D2) | `agent-config/` (base prompt, tier charters, vendored gitnexus skills/hook) | yes |
 | Bible source | `artifacts/bible/` | no — gitignored K-system dir (same in every project) |
@@ -60,6 +72,10 @@ recon finding that the Claude default model was an env-frozen `const` read once 
 `artifacts/` and `tasks/` are **K-system directories** — the same hidden, gitignored names in every
 managed project (`onboard.ts ensureGitignore` adds them); bibles scaffold into `artifacts/bible/`.
 K's own bible therefore lives on-disk as a living spec and is **not** under version control.
+
+**`data/k.db` is a dev database** — disposable test/dev data only, never personal data; the only
+registered project is the K repo itself (`jarvis-core` → the repo root). Treat it as expendable: if
+it needs wiping to recover from a bad state, wipe it.
 
 ## Bible workflow
 
@@ -295,6 +311,33 @@ retries on the next open. **Bump discipline (documented at the constant in
 `SCHEMA_VERSION` — an older-stamped DB then re-runs the scan and is re-stamped.
 The per-step guards stay as belt-and-suspenders for the slow path and for
 concurrent first-boots racing before the stamp lands.
+
+**Sentinel guard against a poisoned stamp (F1).** The fast path above trusts `PRAGMA user_version`
+blindly, which only holds if the stamp and the actual schema agree. `migrate()` now checks a
+**sentinel column** (`SCHEMA_SENTINEL = { table: 'projects', column: 'budget_daily_usd' }`, updated
+alongside every `SCHEMA_VERSION` bump) before honoring a matching stamp: if the sentinel column
+doesn't actually exist on `projects`, the stamp is treated as poisoned — `migrate()` logs a warning
+and falls through to the full `migrateSlow()` rescan regardless of what `user_version` says. Because
+that rescan is idempotent (guarded ALTERs), it self-heals every missing column and re-stamps
+correctly with no manual intervention.
+
+**The 2026-07-13 poisoned-stamp incident (motivating F1).** The dev DB (`data/k.db`, repo root) was
+found stamped `user_version = 12` with **zero** of the v12 columns present. Mechanism: a
+`pnpm --filter @k/core dev:watch` process was running against the real DB during schema editing; an
+intermediate save hot-restarted core mid-edit and stamped 12 before the v12 migration block existed
+in `migrateSlow()`. The pre-F1 fast path trusted that stamp unconditionally, so `migrate()` returned
+immediately on every later boot and the DB was never repaired. After the P5 merge landed, module-level
+`db.prepare()` statements referencing v12 columns crashed core at import
+(`SqliteError: no such column: budget_daily_usd`) → crash-loop → every `/api` route `503` — the whole
+backend appeared dead. CI, all test suites, and live smokes all exercise fresh DBs
+(`CREATE TABLE IF NOT EXISTS`), so none of them could have caught an upgrade-path bug like this — see
+`pnpm smoke:upgrade` under Dev-stack hygiene, which now closes that gap.
+
+**Recovery procedure** for a DB found in this state: stop every process pointed at it, force the
+stamp back to zero (`PRAGMA user_version = 0`), then boot core **once** with the rest of the stack
+stopped — the migration scan runs unconditionally at `user_version = 0`, and being idempotent, heals
+every missing column and re-stamps to the current `SCHEMA_VERSION`. With F1 in place this manual
+recovery is now also the automatic behavior the next time a poisoned stamp is opened.
 
 **One-shot, flag-guarded migrations (P5.7).** Some evolutions cannot be
 plain-idempotent ALTERs and run exactly once, guarded by an `app_config` flag
