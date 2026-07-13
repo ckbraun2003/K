@@ -13,7 +13,7 @@ import type { WsMessage } from '@k/shared'
 
 const {
   capturedHandler, unsubscribeSpy, runUpdateHandler, runUpdateDispose,
-  projectListSpy, capabilitiesSpy, verifySpy, inboxSpy, feedSpy, notifySpy,
+  projectListSpy, capabilitiesSpy, verifySpy, inboxSpy, feedSpy, autonomySpy, notifySpy,
 } = vi.hoisted(() => ({
   capturedHandler: { current: null as ((msg: WsMessage) => void) | null },
   unsubscribeSpy: vi.fn(),
@@ -24,6 +24,7 @@ const {
   verifySpy: vi.fn(),
   inboxSpy: vi.fn(),
   feedSpy: vi.fn(),
+  autonomySpy: vi.fn(),
   notifySpy: vi.fn(),
 }))
 
@@ -43,6 +44,8 @@ vi.mock('../src/lib/live-invalidate', () => ({
   // P3 E-09's feed invalidator — was KHome-owned (KHome.tsx:79-82); Task 10 moves
   // it here so the Org Timeline feed refreshes live even though KHome no longer mounts.
   makeFeedInvalidator: () => feedSpy,
+  // P5 autonomy invalidator (budget_update / run_retried) — same Shell-only ownership.
+  makeAutonomyInvalidator: () => autonomySpy,
 }))
 
 vi.mock('../src/lib/notifications', () => ({ raiseBrowserNotification: notifySpy }))
@@ -66,6 +69,7 @@ beforeEach(() => {
   verifySpy.mockClear()
   inboxSpy.mockClear()
   feedSpy.mockClear()
+  autonomySpy.mockClear()
   notifySpy.mockClear()
 })
 afterEach(() => cleanup())
@@ -83,6 +87,7 @@ describe('useLiveInvalidators', () => {
     expect(verifySpy).toHaveBeenCalledWith(msg)
     expect(inboxSpy).toHaveBeenCalledWith(msg)
     expect(feedSpy).toHaveBeenCalledWith(msg)
+    expect(autonomySpy).toHaveBeenCalledWith(msg)
     expect(notifySpy).toHaveBeenCalledWith(msg)
   })
 

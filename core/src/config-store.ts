@@ -10,7 +10,10 @@
  *  - __resetConfigCache: exported for tests to force a DB round-trip.
  */
 
-import { HomeLayoutSchema, type HomeLayout } from '@k/shared'
+import {
+  HomeLayoutSchema, type HomeLayout,
+  AutonomySettingsSchema, DEFAULT_AUTONOMY_SETTINGS, type AutonomySettings, type AutonomyPatchBody,
+} from '@k/shared'
 import { configDb } from './db.js'
 
 // In-memory cache keyed by app_config.key. Populated lazily on first read or
@@ -164,6 +167,30 @@ export function homeLayout(): HomeLayout | null {
 /** Persist home layout to app_config. Assumes caller validates via HomeLayoutSchema. */
 export function setHomeLayout(layout: HomeLayout): void {
   configDb.set('home_layout', JSON.stringify(layout))
+}
+
+// ── Autonomy settings (P5) — one JSON blob in app_config (mirrors home_layout) ──
+
+const AUTONOMY_KEY = 'autonomy.settings'
+
+/** Read persisted autonomy settings, merged over DEFAULT (forward-compatible with
+ *  added fields). Absent or corrupt → DEFAULT (default OFF). */
+export function autonomySettings(): AutonomySettings {
+  const raw = configDb.get(AUTONOMY_KEY)
+  if (!raw) return DEFAULT_AUTONOMY_SETTINGS
+  try {
+    const parsed = AutonomySettingsSchema.safeParse({ ...DEFAULT_AUTONOMY_SETTINGS, ...JSON.parse(raw) })
+    return parsed.success ? parsed.data : DEFAULT_AUTONOMY_SETTINGS
+  } catch {
+    return DEFAULT_AUTONOMY_SETTINGS
+  }
+}
+
+/** Merge a partial patch onto current settings, validate, persist, return the new value. */
+export function setAutonomySettings(patch: AutonomyPatchBody): AutonomySettings {
+  const next = AutonomySettingsSchema.parse({ ...autonomySettings(), ...patch })
+  configDb.set(AUTONOMY_KEY, JSON.stringify(next))
+  return next
 }
 
 // ── Test seam ────────────────────────────────────────────────────────────────

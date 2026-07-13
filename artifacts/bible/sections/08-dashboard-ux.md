@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-11
+updated: 2026-07-13
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -204,7 +204,7 @@ the one agent that actually talks to them.
 
 | Tab | Content |
 |-----|---------|
-| **Org** (default) | the roster of leads behind a **Roster / Tree / Graph** `SegControl` (`OrgPage`) — unchanged from P4's "one org surface" (D-096): Roster is slim cards, Tree is the whole-org DelegationTree, Graph is the fleet 3D graph |
+| **Org** (default) | the roster of leads behind a **Roster / Tree / Graph** `SegControl` (`OrgPage`) — unchanged from P4's "one org surface" (D-096): Roster is slim cards, Tree is the whole-org DelegationTree, Graph is the fleet 3D graph. Carries a **read-only autonomy status chip** (Autonomy OFF/ON) deep-linking to Settings → Autonomous Org — no duplicated controls (P5 Autonomy, D-107) |
 | **Skills** | the capability catalog — unchanged 4 routed sub-tabs: Catalog · MCP · Hooks · Automations (below) |
 | **Pipelines** | named workflow **definitions** — the former standalone Workflows page, folded in here rather than under Runs (its P4 home); a definition's role sequence, prompt scaffold, cross-project flag, and the "Run this workflow" launcher |
 
@@ -228,6 +228,13 @@ history) — headed by the `CapabilityStatRow` totals strip. Content is unchange
 host-integration program (D-069..D-071); only its address moved from a standalone rail entry to
 Agents → Skills.
 
+**Routines are first-class on the Automations tab (P5 Autonomy, E-16, D-110).** No new table and no
+new rail slot — the existing node-cron Automations registry (over the `skills` table) gains: an
+**NL→cron helper** (RULES-ONLY, no model — an unmappable phrase returns `400` at the route boundary,
+never a guess), a **next-run** display, and a **measured cost per routine** (summed from its run
+history via a JOIN to `runs.cost_usd` — measured actuals, never estimated). A routine *is* a
+schedule-triggered skill, so it needs derived next-run + measured cost, not a new entity.
+
 ## Runs (rail entry, now a plain master-detail)
 
 **Runs no longer carries a Workflows sub-tab** — that content moved to Agents → Pipelines (above),
@@ -242,7 +249,8 @@ a **`ctx X / Y · Z%`** pressure meter. (Internals in §13.)
 
 **Overview** (deterministic deltas + z-score anomalies, measured-only, no LLM) · **Charts**
 (tokens/cost/run trends, KPI tiles, cost-by-lead, error-rate, latency p50/p95, success+latency day
-trends) · **Routing** (model-routing outcomes — cost/latency/success by provider+model) · **Evals**
+trends, plus **P5 Autonomy's budget burn-down — measured 24h, zero-forecast — and retry-rate**
+charts, §13) · **Routing** (model-routing outcomes — cost/latency/success by provider+model) · **Evals**
 (the behavioral eval subsystem, §07). A shared 14/30/60-day window `SegControl` covers
 Overview/Charts/Routing; Evals runs its own independent view. Content and internals are unchanged
 from P4 — only the address moved from 3 standalone rail entries (Metrics/Routing/Evals) to 3 of
@@ -345,13 +353,22 @@ Terms defined in §14 render an inline `GlossaryTerm` tooltip wherever they appe
 
 ## Notifications + the Personal Inbox
 
-- **The Inbox tab (Personal) is THE "needs-YOU" surface.** A **UNION over five sources** — plan
+- **The Inbox tab (Personal) is THE "needs-YOU" surface.** A **UNION over six sources** — plan
   approvals (runs parked at `awaiting_plan`), `awaiting_input` parks, pending lessons (§04),
-  untrusted MCP servers, and review-ready runs. It is **a query, never a table** (D-081): each item
-  is read live from its own authoritative source, so it can never drift out of sync.
+  untrusted MCP servers, review-ready runs, and **autonomy proposals (P5 Autonomy)**. It is **a
+  query, never a table** (D-081): each item is read live from its own authoritative source, so it can
+  never drift out of sync.
+- **Proposal cards (P5 Autonomy, E-14/E-18).** The `proposal` inbox kind surfaces the **blocked**,
+  sourced `org` work_items the collectors + self-heal write (§07): a card shows its `source` chip
+  (ci_failed / verify_finding / open_issue / stale_bible; a self-heal park renders under the
+  **verify** chip) and two inline actions — **Approve** (→ `open`, enters the backlog for E-15
+  auto-pull, §04) and **Dismiss** (→ `cancelled`, **sticky** — the collector won't re-nag; **no undo**
+  on dismiss, a documented default-OFF limitation, D-111). The `InboxCounts.proposal` count feeds the
+  same needs-you badge.
 - **Dismissal semantics.** A review-ready run dismisses via a stamp-once `runs.reviewed_at`. An
   untrusted-MCP card dismisses via an `inbox_dismissed_hash` pinned to the server's `config_hash` —
-  a later config drift re-surfaces the card.
+  a later config drift re-surfaces the card. A **proposal** dismisses by flipping its work_item to
+  `cancelled` (the `source_key` still resolves it, so it stays dismissed).
 - **Notification rules and channels.** A seeded `notification_rules` table maps event key → channel
   (in-app and/or browser). The in-app center is durable; the browser leg is transient (dedupes on
   status transitions, fires only when the tab is hidden AND permission is granted, gesture-requested).
@@ -362,6 +379,12 @@ Terms defined in §14 render an inline `GlossaryTerm` tooltip wherever they appe
 - **Settings** — provider/auth status cards (no secrets), the guarded global CLAUDE.md editor, and
   the **org-default authority / MCP panel** — per-lead overrides live on orchestrator detail
   ("inherits org default unless overridden"); Settings owns the default, detail owns the delta.
+- **Autonomous Org (P5 Autonomy, `SettingsAutonomy.tsx`, D-107).** The single front door for the whole
+  autonomy stack (§03): a master **enabled** toggle (**default OFF**) + sub-toggles (Generate proposals ·
+  Auto-pull backlog · Self-heal failed runs) + **max-concurrency** + **org daily budget cap** + **warn %**,
+  persisted as one `app_config` blob (`autonomy.settings`). Toggling ON applies at runtime, no restart.
+  The master gates all four autonomous behaviors; the **budget governor is the always-on safety cap**
+  (applies even when autonomy is OFF once set — D-108). Agents → Org mirrors only a read-only status chip.
 - **Claude default model** — a Settings picker sets the global Claude default model
   (`app_config`-managed, applies to the next run, no restart). The Dock's `KAskBody.model` override
   still overrides it for a single dispatch.

@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-07-04
+updated: 2026-07-13
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -352,6 +352,50 @@ direction, D-057); the demo's **Interactive checkbox for K sends dropped** (it m
 K path is already interactive by design); and the demo's **health scores/bands, tier radios, and
 per-lead hues** consciously not built (pragmatic parity: real derived health lines shipped instead
 of invented numbers).
+
+## K Expansion — Phase 5: Autonomy *(✓ 2026-07-13 — `feat/exp-p5`, schema v11→v12)*
+
+> The K Expansion Program's autonomy phase (E-14..E-18, E-27): the org can generate its own work,
+> pull it, retry its own failures, cap its own spend, and derive its own lessons — **all behind one
+> persisted, default-OFF operator choice** (Settings → Autonomous Org, D-107..D-109). Decisions
+> D-107..D-113. One reviewable commit per lane; a whole-phase SEAMS review before merge.
+
+- [x] **Front door — Autonomous Org (D-107..D-109).** `CHIEF_WAKE` → a persisted `app_config`
+  (`autonomy.settings`) choice: master `enabled` (default OFF) + sub-toggles + max-concurrency + org
+  budget cap + warn %, on a new `SettingsAutonomy.tsx` section; the env is deprecated warn-only; the
+  schedulers always wire + gate per-tick so enabling ON needs no restart; Agents→Org shows a read-only
+  status chip (§03, §08).
+- [x] **Master gate (D-108).** `autonomySettings().enabled` gates chief auto-wake + proposals +
+  backlog auto-pull + self-heal; the **budget governor is the always-on exception** (a safety cap,
+  applies even when autonomy is OFF once set).
+- [x] **E-14 proposals.** Deterministic ZERO-TOKEN collectors (ci_failed / verify_finding / open_issue
+  / stale_bible) on a 15m cron → `blocked` `org` work_items with `source`/`source_key`, deduped +
+  open-capped; Inbox proposal cards approve→`open` / dismiss→`cancelled` (sticky). Honest one-shot-per-
+  project + no-undo limitations documented (D-111; §04, §07, §08).
+- [x] **E-15 backlog auto-pull.** An interval relay CAS-claims the oldest `open` org item
+  (`open→in_progress`), governed by the budget gate + max-concurrency; dispatches under the default
+  orchestrator (§04).
+- [x] **E-17 budget governor.** Reactive caps on MEASURED `runs.cost_usd` over a rolling 24h window —
+  ZERO forecasting; org + per-project caps; at cap a dispatch is PARKED (`429`/`BudgetCapError`), no
+  queue. Interactive/persistent K exempt; operator-action routes a tracked follow-up (D-112; §13).
+- [x] **E-18 self-heal.** Deterministic failure classification off the last error event → retry with a
+  fallback model (retry_count<2, budget headroom, original cwd, `retry_of` lineage, `run_retried`) or
+  PARK an Inbox proposal with a one-line diagnosis; killed/interrupted skipped (§07).
+- [x] **E-27 eval-derived lessons.** Repeated (≥2) same-signature failures → ONE deduped, capped
+  pending `agent_memory` lesson through the existing D-041 gate (no new UI); off `verify_results` only,
+  `eval_results` deferred (D-113; §04 memory layer C, §07).
+- [x] **E-16 routines first-class.** The Automations tab (Agents→Skills) gains an NL→cron helper
+  (rules-only, `400` on unmappable), next-run display, and measured cost per routine — no new table,
+  no new rail slot (D-110; §08).
+- [x] **Insights → Charts.** Budget burn-down (measured 24h) + retry-rate charts (§13).
+- [x] **Schema v11→v12.** `work_items.source`/`source_key` (+ partial-unique idx); `runs.retry_of`/
+  `retry_count`/`failure_class`; `projects.budget_daily_usd`; the `autonomy.settings` blob.
+
+**Deferred / honest limits (default-OFF, tracked):** project-keyed proposal source_keys are
+**one-shot per project** (a genuine recurrence isn't re-surfaced until the row clears) and inbox
+dismiss has **no undo** (D-111); the budget park does not yet gate operator-initiated action routes
+(rewind / review-fix / deep-verify / workflows / run-skill-now — D-112); E-27 covers `verify_results`
+only (`eval_results` has no failure-reason column — D-113).
 
 ## Phase 6 — Intelligence & Scale *(optional)*
 

@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -91,6 +91,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return res.json() as Promise<T>
 }
+
+/** Shared JSON request header (bodies below reuse this rather than re-inlining). */
+const JSON_H = { 'Content-Type': 'application/json' }
 
 export const api = {
   runs: {
@@ -540,6 +543,10 @@ export const api = {
     dismissReview: (runId: string) => req<void>(`/inbox/runs/${runId}/dismiss-review`, { method: 'POST' }),
     dismissMcp: (qualifiedKey: string) =>
       req<void>(`/inbox/mcp/${encodeURIComponent(qualifiedKey)}/dismiss`, { method: 'POST' }),
+    // E-14 — approve flips a proposal blocked→open (enters the E-15 backlog);
+    // dismiss flips it blocked→cancelled (sticky — the same signal won't re-propose).
+    approveProposal: (workItemId: string) => req<void>(`/inbox/proposals/${workItemId}/approve`, { method: 'POST' }),
+    dismissProposal: (workItemId: string) => req<void>(`/inbox/proposals/${workItemId}/dismiss`, { method: 'POST' }),
   },
   // ── P2 E-19 notification center + per-event delivery rules.
   notifications: {
@@ -564,6 +571,22 @@ export const api = {
       return req<FeedPayload>(`/feed${s ? `?${s}` : ''}`)
     },
   },
+  // ── P5 Autonomy — frozen namespaces; lanes fill the backing routes.
+  autonomy: {
+    get: () => req<AutonomySettings>('/autonomy'),
+    patch: (p: AutonomyPatchBody) => req<AutonomySettings>('/autonomy', { method: 'PATCH', headers: JSON_H, body: JSON.stringify(p) }),
+  },
+  budget: {
+    status: () => req<BudgetStatus>('/budget'),
+    burndown: (days: number) => req<CostRollup>(`/budget/burndown?days=${days}`),
+    setProject: (id: string, budgetDailyUsd: number | null) =>
+      req<void>(`/projects/${id}/budget`, { method: 'PATCH', headers: JSON_H, body: JSON.stringify({ budgetDailyUsd }) }),
+  },
+  routines: {
+    list: () => req<RoutineView[]>('/routines'),
+    parseCron: (text: string) => req<{ cron: string }>('/routines/parse-cron', { method: 'POST', headers: JSON_H, body: JSON.stringify({ text }) }),
+  },
+  retryMetrics: { series: (days: number) => req<RetryRateSeries>(`/metrics/retry-rate?days=${days}`) },
   // Local models (Ollama) — model management over the core routes/ollama.ts surface.
   // Pull is fire-and-forget (202): progress arrives as `ollama_pull` WS messages,
   // not in this response. All bodies are JSON; req() guards the empty/204 case.

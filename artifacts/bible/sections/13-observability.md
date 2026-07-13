@@ -2,7 +2,7 @@
 title: Observability
 icon: "👁"
 status: active
-updated: 2026-07-10
+updated: 2026-07-13
 ---
 
 Phase 4's Track D makes the harness **observable**: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard *surfaces* it powers. The *Implementation history* appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.
@@ -186,6 +186,30 @@ the program bans price-coupled estimation (measured actuals only). The rule is *
 enforced** by a committed **no-price-tables grep gate** (`core/test/no-price-tables.test.ts`) that
 fails if a price table reappears. The catalog's relative **weight bands** (§08) convey *context*
 cost without implying a dollar figure.
+
+## Autonomy budget + retry observability (BUILT — P5 Autonomy, E-17/E-18)
+
+The autonomy stack (§03) adds two measured lenses on Insights → Charts (§08), both **derivations over
+data already stored — no forecasting, no new spend**:
+
+- **Budget burn-down (measured, 24h).** `core/src/budget-governor.ts::budgetStatus` sums
+  `runs.cost_usd` over a **rolling 24h window** against the org cap (autonomy settings) and any
+  per-project caps (`projects.budget_daily_usd`), classifying each scope `ok | warn | capped`
+  (`classifyBudget` is pure: null cap → always `ok`; `capped` iff spent ≥ cap; `warn` iff spent ≥
+  cap·warnPct). It is **REACTIVE — ZERO forecasting**: no price×token math, no projected spend, only
+  measured actuals, so the same no-price-tables grep gate that guards the cost lens above still holds.
+  At a cap a dispatch is **parked = refused-with-reason** (`BudgetCapError` / `429`), never queued —
+  the burn-down surfaces the `capped` state and a `budget_update` WS event nudges the chart; the
+  operator raises the cap to proceed (D-112). Gated dispatch paths: `startAgentRun` (autonomous),
+  manual `POST /api/runs`, operator→Chief `delegateToChief`, and autonomous scheduled/event skill
+  dispatch; **interactive/persistent K turns are exempt** (the operator's own conversation is never
+  budget-blocked). Because the cap is a safety limit it applies **even while autonomy is OFF** once
+  set (§03, D-108).
+- **Retry rate (measured).** `core/src/retry-metrics.ts` counts self-heal retries off the
+  `runs.retry_of` lineage (E-18, §07) against total runs over a day-bucketed window — the rate is real
+  because a retry is a real row stamped `retry_of`/`retry_count`, and a `run_retried` WS event
+  invalidates the series live. A retry is a fallback-model re-dispatch, so the chart reads how often the
+  org is self-correcting rather than parking.
 
 ## Implementation history (dashboard)
 

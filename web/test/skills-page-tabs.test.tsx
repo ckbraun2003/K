@@ -19,7 +19,7 @@ beforeAll(() => {
 
 const {
   mockCatalogSkills, mockCatalogMcp, mockCatalogHooks, mockSummary,
-  mockSkillsList, mockProjectsList, mockNavigate,
+  mockSkillsList, mockProjectsList, mockNavigate, mockRoutinesList, mockParseCron,
 } = vi.hoisted(() => ({
   mockCatalogSkills: vi.fn(),
   mockCatalogMcp: vi.fn(),
@@ -28,6 +28,8 @@ const {
   mockSkillsList: vi.fn(),
   mockProjectsList: vi.fn(),
   mockNavigate: vi.fn(),
+  mockRoutinesList: vi.fn(),
+  mockParseCron: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
@@ -45,6 +47,8 @@ vi.mock('../src/lib/api', () => ({
     },
     skills: { list: mockSkillsList, evals: vi.fn().mockResolvedValue([]), runs: vi.fn().mockResolvedValue([]) },
     projects: { list: mockProjectsList },
+    // E-16 — the automations tab (extracted AutomationsTab) unconditionally loads routines.
+    routines: { list: mockRoutinesList, parseCron: mockParseCron },
   },
 }))
 vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
@@ -81,6 +85,7 @@ beforeEach(() => {
   mockSummary.mockResolvedValue(summary)
   mockSkillsList.mockResolvedValue([])
   mockProjectsList.mockResolvedValue([])
+  mockRoutinesList.mockResolvedValue([])
 })
 afterEach(() => cleanup())
 

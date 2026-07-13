@@ -9,10 +9,11 @@ import Toast from '../../components/Toast'
 
 // Render order + section headings — plans/replies first (they hold a live process),
 // then review, then the async approve queues (lessons, MCP trust).
-const SECTION_ORDER: InboxItemKind[] = ['plan_pending', 'input_needed', 'review_ready', 'lesson_pending', 'mcp_trust']
+const SECTION_ORDER: InboxItemKind[] = ['plan_pending', 'input_needed', 'review_ready', 'proposal', 'lesson_pending', 'mcp_trust']
 const SECTION_LABEL: Record<InboxItemKind, string> = {
   plan_pending: 'Plans to approve', input_needed: 'Runs waiting on your reply',
-  review_ready: 'Ready for review', lesson_pending: 'Lessons to approve', mcp_trust: 'MCP servers to trust',
+  review_ready: 'Ready for review', proposal: 'Proposals to approve',
+  lesson_pending: 'Lessons to approve', mcp_trust: 'MCP servers to trust',
 }
 
 // Shared button shells — filled accents carry dark ink (text-[var(--bg)]) for contrast
@@ -27,7 +28,14 @@ interface Handlers {
   trustMcp: (qualifiedKey: string) => void
   dismissMcp: (qualifiedKey: string) => void
   dismissReview: (runId: string) => void
+  approveProposal: (workItemId: string) => void
+  dismissProposal: (workItemId: string) => void
   busy: boolean
+}
+
+// E-14 source chip labels — short, deterministic (no prose).
+const PROPOSAL_SOURCE_LABEL: Record<string, string> = {
+  ci_failed: 'CI', verify_finding: 'Verify', open_issue: 'Issue', stale_bible: 'Bible',
 }
 
 export default function InboxTab() {
@@ -71,6 +79,23 @@ export default function InboxTab() {
     onSuccess: refreshInbox,
     onError: fail('Dismiss'),
   })
+  // E-14 — approve enters the auto-pull backlog (open); dismiss is sticky (cancelled).
+  // Both are single-click, compose-is-confirm actions. Dismiss is PERMANENT for
+  // project-keyed sources: ci_failed / verify_finding / stale_bible derive their
+  // source_key from the project, so a sticky-dismiss suppresses that signal for good —
+  // the accepted "don't nag again" design (proposal-collectors.ts). Only open_issue is
+  // issue-number-keyed, so a genuinely NEW issue re-proposes under its own key; a
+  // dismissed project-keyed signal never re-surfaces on its own (no collector "undo").
+  const approveProposal = useMutation({
+    mutationFn: (id: string) => api.inbox.approveProposal(id),
+    onSuccess: refreshInbox,
+    onError: fail('Approve'),
+  })
+  const dismissProposal = useMutation({
+    mutationFn: (id: string) => api.inbox.dismissProposal(id),
+    onSuccess: refreshInbox,
+    onError: fail('Dismiss'),
+  })
 
   const handlers: Handlers = {
     approveLesson: id => approveLesson.mutate(id),
@@ -78,7 +103,10 @@ export default function InboxTab() {
     trustMcp: key => trustMcp.mutate(key),
     dismissMcp: key => dismissMcp.mutate(key),
     dismissReview: id => dismissReview.mutate(id),
-    busy: approveLesson.isPending || rejectLesson.isPending || trustMcp.isPending || dismissMcp.isPending || dismissReview.isPending,
+    approveProposal: id => approveProposal.mutate(id),
+    dismissProposal: id => dismissProposal.mutate(id),
+    busy: approveLesson.isPending || rejectLesson.isPending || trustMcp.isPending || dismissMcp.isPending ||
+      dismissReview.isPending || approveProposal.isPending || dismissProposal.isPending,
   }
 
   return (
@@ -164,6 +192,8 @@ function CardMeta({ item }: { item: InboxItem }) {
       return <span className="rounded bg-[var(--raised)] px-1.5 py-0.5">{item.profileName ?? 'unassigned'}</span>
     case 'mcp_trust':
       return <span className="mono rounded bg-[var(--raised)] px-1.5 py-0.5">{item.sourceKind}</span>
+    case 'proposal':
+      return <span className="rounded bg-[var(--raised)] px-1.5 py-0.5">{PROPOSAL_SOURCE_LABEL[item.source] ?? item.source}</span>
   }
 }
 
@@ -233,6 +263,27 @@ function CardActions({ item, handlers }: { item: InboxItem; handlers: Handlers }
             data-testid={`inbox-dismiss-${item.id}`}
             disabled={handlers.busy}
             onClick={() => handlers.dismissMcp(item.qualifiedKey)}
+            className={BTN_SECONDARY}
+          >
+            Dismiss
+          </button>
+        </>
+      )
+    case 'proposal':
+      return (
+        <>
+          <button
+            data-testid={`inbox-approve-${item.id}`}
+            disabled={handlers.busy}
+            onClick={() => handlers.approveProposal(item.workItemId)}
+            className={BTN_PRIMARY}
+          >
+            ✓ Approve
+          </button>
+          <button
+            data-testid={`inbox-dismiss-${item.id}`}
+            disabled={handlers.busy}
+            onClick={() => handlers.dismissProposal(item.workItemId)}
             className={BTN_SECONDARY}
           >
             Dismiss

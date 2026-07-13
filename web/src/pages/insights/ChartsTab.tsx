@@ -7,6 +7,8 @@ import TimeseriesChart from '../../components/TimeseriesChart'
 import QualityTrendChart from '../../components/QualityTrendChart'
 import MetricCard from '../../components/MetricCard'
 import SegControl from '../../components/SegControl'
+import BudgetBurndownChart from '../../components/BudgetBurndownChart'
+import RetryRateChart from '../../components/RetryRateChart'
 import type { Metric } from '../../lib/chart'
 
 /** Latency (ms) → '1.2s' for the KPI tiles. */
@@ -303,6 +305,18 @@ export default function ChartsTab({ days }: { days: Days }) {
           color="var(--chart-1)"
           format={fmtLatencySecs}
         />
+      </div>
+
+      {/* P5 autonomy — measured budget burn-down + retry rate (stub charts; lanes A/D fill) */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Budget burn-down (24h, measured)</h2>
+          <BudgetBurndownChart />
+        </div>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Retry rate</h2>
+          <RetryRateChart />
+        </div>
       </div>
     </>
   )

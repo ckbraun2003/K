@@ -700,7 +700,8 @@
       <div data-tabpanel="ag" data-arg="org" class="active">
       <div data-tabpanel="agorg" data-arg="roster" class="active">
       <div class="rowhead"><h1 class="page">Org</h1><span class="seg"><button class="active" data-action="tab" data-group="agorg" data-arg="roster">Roster</button><button data-action="tab" data-group="agorg" data-arg="tree">Tree</button><button data-action="toast" data-msg="Fleet graph — force-directed org view" data-variant="info">Graph</button></span><span class="muted">· 5 leads · 3 active</span>
-        <div class="right">
+        <div class="right" style="gap:.5rem;align-items:center">
+          <button class="pill done" style="cursor:pointer;border:none;font:inherit" data-action="route" data-arg="settings" aria-label="Autonomy on — open Settings"><span class="d"></span>Autonomy ON</button>
           <button class="btn primary" data-action="confirm" data-title="New orchestrator" data-body="Create a new domain lead: name, domain, hue, starter charter and base skills/tools." data-confirm="Create" data-toast-msg="Orchestrator created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new orchestrator</button>
         </div></div>
 
@@ -841,11 +842,16 @@
           </div>
         </div>
         <div data-tabpanel="sk" data-arg="automations">
-          <div class="panel"><h2>Automations <span class="right muted">scheduled + event triggers</span></h2>
+          <div class="panel"><h2>Automations <span class="right muted">routines · scheduled + event triggers</span></h2>
+            <div class="row muted mono" style="font-size:.66rem;letter-spacing:.04em;padding:0 .1rem .2rem"><span class="grow">routine</span><span style="width:150px">next run</span><span style="width:64px;text-align:right">cost 30d</span><span style="width:64px;text-align:right">state</span></div>
             <div class="list stack" style="font-size:.84rem">
-              <div class="row"><span class="grow">Nightly verify sweep <span class="muted">· cron 02:00</span></span><span class="pill done"><span class="d"></span>enabled</span></div>
-              <div class="row"><span class="grow">On PR opened → security review <span class="muted">· event</span></span><span class="pill queued"><span class="d"></span>paused</span></div>
+              <div class="row"><span class="grow">Nightly verify sweep <span class="muted">· cron 02:00</span></span><span class="mono muted" style="width:150px;font-size:.74rem">in 6h 12m · 02:00</span><span class="mono" style="width:64px;text-align:right">$2.14</span><span style="width:64px;text-align:right"><span class="pill done"><span class="d"></span>on</span></span></div>
+              <div class="row"><span class="grow">Weekly bible freshness <span class="muted">· cron Mon 09:00</span></span><span class="mono muted" style="width:150px;font-size:.74rem">in 3d · Mon 09:00</span><span class="mono" style="width:64px;text-align:right">$0.38</span><span style="width:64px;text-align:right"><span class="pill done"><span class="d"></span>on</span></span></div>
+              <div class="row"><span class="grow">On PR opened → security review <span class="muted">· event</span></span><span class="mono muted" style="width:150px;font-size:.74rem">on event</span><span class="mono" style="width:64px;text-align:right">$1.02</span><span style="width:64px;text-align:right"><span class="pill queued"><span class="d"></span>paused</span></span></div>
             </div>
+            <div class="adv" style="margin-top:.7rem"><span class="muted">Schedule in plain English:</span>
+              <input style="flex:1;min-width:150px;background:var(--raised);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit;font-size:.74rem;padding:.22rem .5rem" placeholder="e.g. every weekday at 7am" aria-label="Describe a schedule" />
+              <button class="btn secondary sm" data-action="toast" data-msg="Parsed → cron 0 7 * * 1-5 (rules-only, no model — an unmappable phrase is rejected)" data-variant="info">→ cron</button></div>
           </div>
         </div>
       </div>
@@ -1276,8 +1282,8 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
       </div>
 
       <div data-tabpanel="pz" data-arg="inbox" class="active">
-        <div class="rowhead"><h1 class="page">Inbox</h1><span class="muted">· union over plan / review / verify / approvals — never a table</span>
-          <div class="right"><span class="pill watch"><span class="d"></span>3 pending</span></div></div>
+        <div class="rowhead"><h1 class="page">Inbox</h1><span class="muted">· union over plan / review / verify / approvals / proposals — never a table</span>
+          <div class="right"><span class="pill watch"><span class="d"></span>6 pending</span></div></div>
 
         <div class="panel">
           <div class="list stack">
@@ -1285,6 +1291,8 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
             <div class="row"><span class="tier-chip fe">Frontend</span><span class="grow">PR #42 request-changes → fix run ready to approve</span><span class="pill running"><span class="d"></span>review</span><button class="btn sky sm" data-action="route" data-arg="runs">Open</button></div>
             <div class="row"><span class="tier-chip sec">Security</span><span class="grow">API surface audit blocked — needs your decision</span><span class="pill error"><span class="d"></span>needs you</span><button class="btn sky sm" data-action="route" data-arg="agents">Open</button></div>
             <div class="row"><span class="ldot sys"></span><span class="grow">Verify battery passed — core @ final checkpoint</span><span class="pill done"><span class="d"></span>verify</span><a class="link" data-action="route" data-arg="runs">view →</a></div>
+            <div class="row"><span class="tier-chip">proposal</span><span class="grow">Fix failing CI — <b>api-gateway</b></span><span class="pill error"><span class="d"></span>ci_failed</span><button class="btn primary sm" data-action="confirm" data-title="Approve proposal?" data-body="Add “Fix failing CI — api-gateway” to the backlog? Auto-pull will claim it when a slot is free." data-confirm="Approve" data-toast-msg="Proposal approved → backlog" data-toast-link="1">Approve</button><button class="btn ghost sm" data-action="confirm" data-title="Dismiss proposal?" data-body="Dismiss this proposal? It won't nag again — dismiss has no undo." data-variant="danger" data-confirm="Dismiss" data-toast-msg="Proposal dismissed" data-toast-variant="info">Dismiss</button></div>
+            <div class="row"><span class="tier-chip">proposal</span><span class="grow">Self-heal parked — run <span class="mono">r-8f2a</span> failed (unknown)</span><span class="pill done"><span class="d"></span>verify</span><button class="btn primary sm" data-action="confirm" data-title="Approve self-heal?" data-body="Dispatch a new default-orchestrator run with the diagnosis as its goal?" data-confirm="Approve" data-toast-msg="Self-heal run dispatched" data-toast-link="1">Approve</button><button class="btn ghost sm" data-action="confirm" data-title="Dismiss proposal?" data-body="Dismiss this parked run?" data-variant="danger" data-confirm="Dismiss" data-toast-msg="Proposal dismissed" data-toast-variant="info">Dismiss</button></div>
           </div>
         </div>
       </div>
@@ -1430,6 +1438,37 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
             <polyline fill="none" stroke="#fbbf24" stroke-width="2" points="6,30 40,22 74,28 108,18 142,26 176,20 210,30 244,16 290,22"/>
           </svg>
         </div>
+
+        <div class="card mcard"><h2>Budget burn-down <span class="right muted">24h · measured</span></h2>
+          <svg class="chart" viewBox="0 0 300 130" aria-label="budget burn-down measured 24h">
+            <line class="axis" x1="28" y1="110" x2="290" y2="110"/>
+            <line x1="28" y1="24" x2="290" y2="24" stroke="#f87171" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <text class="axlabel" x="286" y="20" text-anchor="end" fill="#f87171">cap $25</text>
+            <line x1="28" y1="41" x2="290" y2="41" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>
+            <text class="axlabel" x="286" y="52" text-anchor="end" fill="#fbbf24">warn 80%</text>
+            <polygon fill="#ff8fc0" fill-opacity=".14" points="28,110 56,102 84,92 112,84 140,72 168,66 196,58 224,52 252,48 290,44 290,110"/>
+            <polyline fill="none" stroke="#ff8fc0" stroke-width="2" points="28,110 56,102 84,92 112,84 140,72 168,66 196,58 224,52 252,48 290,44"/>
+          </svg>
+          <div class="legend"><span class="lk"><span class="sw" style="background:#ff8fc0"></span>spent $18.40</span><span class="lk mono muted">measured — no forecast</span></div>
+        </div>
+
+        <div class="card mcard"><h2>Retry rate <span class="right muted">14d · self-heal</span></h2>
+          <svg class="chart" viewBox="0 0 300 130" aria-label="retry rate 14d">
+            <line class="gridline" x1="28" y1="44" x2="296" y2="44"/><line class="gridline" x1="28" y1="77" x2="296" y2="77"/>
+            <line class="axis" x1="28" y1="110" x2="296" y2="110"/>
+            <text class="axlabel" x="24" y="20" text-anchor="end">10%</text><text class="axlabel" x="24" y="114" text-anchor="end">0</text>
+            <g fill="#38bdf8" fill-opacity=".8">
+              <rect x="30" y="98" width="13" height="12" rx="2"/><rect x="50" y="92" width="13" height="18" rx="2"/>
+              <rect x="70" y="104" width="13" height="6" rx="2"/><rect x="90" y="86" width="13" height="24" rx="2"/>
+              <rect x="110" y="96" width="13" height="14" rx="2"/><rect x="130" y="80" width="13" height="30" rx="2"/>
+              <rect x="150" y="100" width="13" height="10" rx="2"/><rect x="170" y="90" width="13" height="20" rx="2"/>
+              <rect x="190" y="104" width="13" height="6" rx="2"/><rect x="210" y="94" width="13" height="16" rx="2"/>
+              <rect x="230" y="84" width="13" height="26" rx="2"/><rect x="250" y="98" width="13" height="12" rx="2"/>
+              <rect x="270" y="102" width="13" height="8" rx="2"/>
+            </g>
+          </svg>
+          <div class="legend"><span class="lk mono">3.1% retried</span><span class="lk mono muted">off runs.retry_of</span></div>
+        </div>
       </div>
     </section>
 
@@ -1470,6 +1509,21 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
           <span class="pill done"><span class="d"></span>GitHub ok</span>
           <span class="pill done"><span class="d"></span>Harness auth ok</span>
         </div>
+      </div>
+
+      <div class="panel"><h2>Autonomous Org <span class="right muted">default OFF · one front door</span></h2>
+        <div class="list" style="font-size:.82rem">
+          <div class="row"><span class="grow"><b>Autonomous Org</b> <span class="muted" style="font-size:.72rem">— gates the whole stack</span></span><span class="toggle on" data-action="toast" data-msg="Autonomous Org enabled — applies at runtime, no restart" data-variant="info"></span></div>
+          <div class="row"><span class="grow">Generate proposals <span class="muted" style="font-size:.72rem">· CI / verify / issues / bible</span></span><span class="toggle on" data-action="toast" data-msg="Proposal collectors on" data-variant="info"></span></div>
+          <div class="row"><span class="grow">Auto-pull backlog</span><span class="toggle" data-action="toast" data-msg="Backlog auto-pull off" data-variant="info"></span></div>
+          <div class="row"><span class="grow">Self-heal failed runs</span><span class="toggle on" data-action="toast" data-msg="Self-heal on" data-variant="info"></span></div>
+        </div>
+        <div class="kv" style="margin-top:.7rem;gap:1.1rem;flex-wrap:wrap;font-size:.8rem">
+          <span class="kv" style="gap:.4rem"><span class="muted">max concurrency</span><span class="tier-chip mono">2</span></span>
+          <span class="kv" style="gap:.4rem"><span class="muted">org daily cap</span><span class="tier-chip mono">$25.00</span></span>
+          <span class="kv" style="gap:.4rem"><span class="muted">warn at</span><span class="tier-chip mono">80%</span></span>
+        </div>
+        <div class="banner" style="margin-top:.7rem"><svg class="gi"><use href="#i-info"></use></svg> The budget cap is an always-on safety limit — it applies to manual and autonomous dispatches even while the master is off, once set.</div>
       </div>
 
       <div class="panel"><h2>Local models · Ollama <span class="right"><a class="link" data-action="route" data-arg="routing">routing performance →</a></span></h2>

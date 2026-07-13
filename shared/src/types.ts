@@ -630,10 +630,16 @@ export const UpdateNotificationRuleBodySchema = z
   .refine(v => v.inapp !== undefined || v.browser !== undefined, { message: 'provide inapp or browser' })
 export type UpdateNotificationRuleBody = z.infer<typeof UpdateNotificationRuleBodySchema>
 
+// E-14 — the collector that produced a proposal. Declared ABOVE the inbox union
+// (BLOCKER 3): InboxItemSchema is a z.discriminatedUnion evaluated eagerly at module
+// load, and its `proposal` member references this — so it must resolve first.
+export const ProposalSourceSchema = z.enum(['ci_failed', 'verify_finding', 'open_issue', 'stale_bible'])
+export type ProposalSource = z.infer<typeof ProposalSourceSchema>
+
 // E-05 — the typed inbox card union. `id` is the kind-scoped stable id
 // `<kind>:<entity id>`; `ts` is the sort key (park/creation/discovery time).
 export const InboxItemKindSchema = z.enum([
-  'plan_pending', 'input_needed', 'lesson_pending', 'mcp_trust', 'review_ready',
+  'plan_pending', 'input_needed', 'lesson_pending', 'mcp_trust', 'review_ready', 'proposal',
 ])
 export type InboxItemKind = z.infer<typeof InboxItemKindSchema>
 
@@ -659,6 +665,9 @@ export const InboxItemSchema = z.discriminatedUnion('kind', [
   // actions: open review (run console review view) / dismiss (POST /api/inbox/runs/:id/dismiss-review)
   z.object({ ...inboxCommon, kind: z.literal('review_ready'), runId: z.string(),
     verifyStatus: VerifyStatusSchema.nullable() }),
+  // actions: approve (POST /api/inbox/proposals/:id/approve) / dismiss (…/dismiss) — inline
+  z.object({ ...inboxCommon, kind: z.literal('proposal'), workItemId: z.string(),
+    source: ProposalSourceSchema, body: z.string().nullable() }),
 ])
 export type InboxItem = z.infer<typeof InboxItemSchema>
 
@@ -668,6 +677,7 @@ export const InboxCountsSchema = z.object({
   lesson_pending: z.number().int(),
   mcp_trust: z.number().int(),
   review_ready: z.number().int(),
+  proposal: z.number().int(),
 })
 export type InboxCounts = z.infer<typeof InboxCountsSchema>
 
@@ -796,6 +806,63 @@ export const RecentActualsSchema = z.object({
 })
 export type RecentActuals = z.infer<typeof RecentActualsSchema>
 
+// ─── Autonomy (Phase 5) ──────────────────────────────────────────────────────
+// The persisted operator config that gates the whole autonomy stack (default OFF).
+export const AutonomySettingsSchema = z.object({
+  enabled: z.boolean(),                              // master (default false)
+  proposals: z.boolean(),                            // E-14 collectors
+  backlogAutoPull: z.boolean(),                      // E-15 relay
+  selfHeal: z.boolean(),                             // E-18 retries
+  maxConcurrency: z.number().int().min(1).max(10),   // E-15 slot cap
+  orgDailyBudgetUsd: z.number().nonnegative().nullable(), // E-17 org cap (null=off)
+  budgetWarnPct: z.number().min(0).max(1),           // E-17 warn threshold fraction
+}).strict()
+export type AutonomySettings = z.infer<typeof AutonomySettingsSchema>
+export const DEFAULT_AUTONOMY_SETTINGS: AutonomySettings = {
+  enabled: false, proposals: false, backlogAutoPull: false, selfHeal: false,
+  maxConcurrency: 1, orgDailyBudgetUsd: null, budgetWarnPct: 0.8,
+}
+export const AutonomyPatchBodySchema = AutonomySettingsSchema.partial().strict()
+  .refine(v => Object.keys(v).length > 0, { message: 'empty patch' })
+export type AutonomyPatchBody = z.infer<typeof AutonomyPatchBodySchema>
+
+export const ProjectBudgetPatchBodySchema = z.object({
+  budgetDailyUsd: z.number().nonnegative().nullable(),
+}).strict()
+
+// E-17 — measured budget status (rolling window; NO forecasting).
+export const BudgetScopeStatusSchema = z.object({
+  capUsd: z.number().nullable(),
+  spentUsd: z.number(),
+  warnPct: z.number(),
+  state: z.enum(['ok', 'warn', 'capped']),
+})
+export type BudgetScopeStatus = z.infer<typeof BudgetScopeStatusSchema>
+export const BudgetStatusSchema = z.object({
+  windowHours: z.number().int(),
+  org: BudgetScopeStatusSchema,
+  projects: z.array(z.object({ projectId: z.string(), projectName: z.string(), status: BudgetScopeStatusSchema })),
+  generatedAt: z.number(),
+})
+export type BudgetStatus = z.infer<typeof BudgetStatusSchema>
+
+// E-18 — self-healing failure taxonomy + retry-rate series.
+export const FailureClassSchema = z.enum(['transient', 'timeout', 'model_capacity', 'tooling', 'permanent', 'unknown'])
+export type FailureClass = z.infer<typeof FailureClassSchema>
+
+export const RetryRatePointSchema = z.object({ day: z.string(), runs: z.number().int(), retries: z.number().int(), rate: z.number() })
+export const RetryRateSeriesSchema = z.object({ windowDays: z.number().int(), points: z.array(RetryRatePointSchema), overallRate: z.number() })
+export type RetryRateSeries = z.infer<typeof RetryRateSeriesSchema>
+
+// E-16 — a routine is a schedule-triggered skill with derived next-run + measured cost.
+export const RoutineViewSchema = z.object({
+  id: z.string(), name: z.string(), enabled: z.boolean(), schedule: z.string(),
+  nextRunAt: z.number().nullable(), lastRunAt: z.number().nullable(),
+  runs: z.number().int(), totalCostUsd: z.number(),
+})
+export type RoutineView = z.infer<typeof RoutineViewSchema>
+export const NlToCronBodySchema = z.object({ text: z.string().min(1).max(200) }).strict()
+
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
 export const WsMessageSchema = z.discriminatedUnion('type', [
@@ -841,6 +908,12 @@ export const WsMessageSchema = z.discriminatedUnion('type', [
   // Capability catalog changed (rescan completed / overlay toggled) — a nudge to
   // invalidate ['capabilities'] queries. Transient, not persisted (D-069).
   z.object({ type: z.literal('capabilities_update'), scannedAt: z.number() }),
+  // E-14: a proposal was created/approved/dismissed — nudge ['inbox'] invalidation.
+  z.object({ type: z.literal('proposal_update') }),
+  // E-17: measured budget status changed (a dispatch spent, or a cap moved).
+  z.object({ type: z.literal('budget_update'), status: BudgetStatusSchema }),
+  // E-18: a failed run was auto-retried.
+  z.object({ type: z.literal('run_retried'), originalRunId: z.string(), retryRunId: z.string(), failureClass: FailureClassSchema }),
   z.object({ type: z.literal('ping') }),
   z.object({ type: z.literal('pong') }),
 ])

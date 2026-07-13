@@ -22,6 +22,7 @@ import { trackSupervisedRun } from './run-lifecycle.js'
 import { isPathWithin } from './paths.js'
 import { resolveSkillRoots, confineToRoots, type SkillRoots } from './skill-roots.js'
 import { registeredProjectSkillRoots } from './host-discovery.js'
+import { budgetGate } from './budget-governor.js'
 
 // agent-config is READ-ONLY bundled assets, resolved __dirname-relative (like
 // agent-config.ts / skill-roots.ts) — NOT via REPO_ROOT, which the desktop app
@@ -433,6 +434,17 @@ export function startEventListener(): void {
       s => s.enabled && s.triggerType === 'event' && s.eventTrigger === r.status,
     )
     for (const skill of skills) {
+      // E-17: an EVENT-triggered skill run is an AUTONOMOUS org dispatch, and it reaches
+      // startRun DIRECTLY (not via startAgentRun), so gate it here — a capped org must
+      // stop firing routines. SKIP (no throw): a triggered skill is fire-and-forget.
+      const g = budgetGate({})
+      if (!g.allowed) {
+        console.warn(
+          `[skills] event dispatch skipped for ${skill.name}: budget_capped ` +
+            `(${g.scope} cap $${g.capUsd}, measured $${g.spentUsd.toFixed(2)}/24h)`,
+        )
+        continue
+      }
       triggerSkill(skill.id, `event:run_update:${r.status}`).catch(err =>
         console.warn(`[skills] event trigger failed for ${skill.name}:`, err),
       )
@@ -469,6 +481,18 @@ export function startScheduler(): void {
     for (const skill of skills) {
       if (activeTasks.has(skill.id) || !skill.schedule) continue
       const task = cronSchedule(skill.schedule, () => {
+        // E-17: a SCHEDULE-triggered skill run is an AUTONOMOUS org dispatch that reaches
+        // startRun DIRECTLY (not via startAgentRun), so gate it at the cron tick — a capped
+        // org must stop firing scheduled routines. SKIP (no throw): a triggered skill is
+        // fire-and-forget; the next tick re-consults once spend rolls back under the cap.
+        const g = budgetGate({})
+        if (!g.allowed) {
+          console.warn(
+            `[skills] schedule dispatch skipped for ${skill.name}: budget_capped ` +
+              `(${g.scope} cap $${g.capUsd}, measured $${g.spentUsd.toFixed(2)}/24h)`,
+          )
+          return
+        }
         triggerSkill(skill.id, 'scheduler').catch(err =>
           console.warn(`[skills] schedule trigger failed for ${skill.name}:`, err),
         )

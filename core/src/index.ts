@@ -42,6 +42,10 @@ import { notificationsRoutes } from './routes/notifications.js'
 import { mergeRoutes } from './routes/merge.js'
 import { feedRoutes } from './routes/feed.js'
 import { systemRoutes } from './routes/system.js'
+import { autonomySettingsRoutes } from './routes/autonomy-settings.js'
+import { budgetRoutes } from './routes/budget.js'
+import { routinesRoutes } from './routes/routines.js'
+import { retryMetricsRoutes } from './routes/retry-metrics.js'
 import { registerRunVerify } from './run-verify.js'
 import { registerNotifications } from './notify.js'
 import { sweepCheckpointRefs } from './checkpoints.js'
@@ -54,7 +58,12 @@ import { ensureHarnessBibleRegistered } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
+import { startProposalCollectors } from './proposal-collectors.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
+import { startBudgetBroadcast } from './budget-governor.js'
+import { startBacklogRelay } from './backlog-relay.js'
+import { startSelfHeal } from './self-heal.js'
+import { startLessonProposals } from './lesson-proposals.js'
 import { getProject, listProjects, warnStaleProjectPaths } from './projects.js'
 import { reconcileOnBoot, REPO_ROOT } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
@@ -95,12 +104,22 @@ const TERMINAL_TOKEN = process.env.TERMINAL_TOKEN ?? 'dev-terminal-token'
 let stopGraphAutoReindex: (() => void) | undefined
 // Same, for the Chief autonomous wake (cron tick + run-completion subscription).
 let stopChiefWake: (() => void) | undefined
+// Same, for the deterministic zero-token proposal collectors (15m cron; E-14).
+let stopProposalCollectors: (() => void) | undefined
 // Same, for the MAIN-process lead-dispatch relay (drains the child-recorded intent queue).
 let stopLeadDispatchRelay: (() => void) | undefined
+// Same, for the E-17 budget-status broadcaster (WS budget_update once per run terminal).
+let stopBudgetBroadcast: (() => void) | undefined
+// Same, for the E-15 backlog auto-pull relay (drains open org work_items; opt-in, default OFF).
+let stopBacklogRelay: (() => void) | undefined
 // Same, for the E-04 run-verify engine (terminal-'done' → recipe battery; W0 stub).
 let stopRunVerify: (() => void) | null = null
 // Same, for the E-19 notification engine (rules-gated run/verify → notifications; W0 stub).
 let stopNotifications: (() => void) | null = null
+// Same, for the E-18 self-heal engine (terminal-failed org run → classify → retry/park).
+let stopSelfHeal: (() => void) | undefined
+// Same, for the E-27 lesson-proposal cron (repeated verify failures → gated pending lessons).
+let stopLessonProposals: (() => void) | undefined
 // Releases the single-instance lock file (set in start(); undefined in tests).
 let releaseInstanceLock: (() => void) | undefined
 
@@ -183,6 +202,10 @@ export async function buildApp() {
   await app.register(mergeRoutes)
   await app.register(feedRoutes)
   await app.register(systemRoutes)
+  await app.register(autonomySettingsRoutes)
+  await app.register(budgetRoutes)
+  await app.register(routinesRoutes)
+  await app.register(retryMetricsRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 
@@ -326,7 +349,12 @@ export async function buildApp() {
     stopRunVerify?.()
     stopNotifications?.()
     stopChiefWake?.()
+    stopProposalCollectors?.()
     stopLeadDispatchRelay?.()
+    stopBudgetBroadcast?.()
+    stopBacklogRelay?.()
+    stopSelfHeal?.()
+    stopLessonProposals?.()
     releaseInstanceLock?.()
   })
   return app
@@ -478,14 +506,36 @@ async function start() {
   stopGraphAutoReindex = registerGraphAutoReindex(getProject)
   // E-04 run-verify engine seam (W0 stub — Lane B lands the real trigger).
   stopRunVerify = registerRunVerify(getProject)
-  // E-19 notification engine seam (W0 stub — Lane B lands the real pipeline).
+  // E-19 notification engine seam (registerNotifications) — a W0 stub; no P5 lane
+  // shipped a notification pipeline, so this remains a stub.
   stopNotifications = registerNotifications()
   // Wake the Chief autonomously on a schedule tick + on subscribed run-completion
-  // events (debounced + already-running/self-wake guarded). Default ON; CHIEF_WAKE=0.
+  // events (debounced + already-running/self-wake guarded). P5-B: gated by the
+  // persisted autonomySettings().enabled (default OFF, opt-in via Settings ->
+  // Autonomous Org) — the CHIEF_WAKE env is deprecated and no longer defaults this on.
   stopChiefWake = startChiefWake()
+  // Deterministic, zero-token proposal candidates (ci_failed/verify_finding/open_issue/
+  // stale_bible) on a 15m cron — gated by autonomySettings().enabled && .proposals
+  // (default OFF). PROPOSAL_COLLECTORS=0 kill switch.
+  stopProposalCollectors = startProposalCollectors()
   // Drain the DB-backed lead-dispatch intent queue in this long-lived process (so a lead
   // run + its report-back outlive the ephemeral mgmt-server child). Default ON; LEAD_DISPATCH_RELAY=0.
   stopLeadDispatchRelay = startLeadDispatchRelay()
+  // E-17 budget governor: broadcast measured budget status on the WS once per run terminal
+  // (the single site runs.cost_usd is finalized), so cost surfaces update without polling.
+  stopBudgetBroadcast = startBudgetBroadcast()
+  // E-15 backlog auto-pull: drain the open org backlog on an interval, dispatching the
+  // oldest item under the default orchestrator. Inert until the operator enables it
+  // (autonomySettings.enabled + backlogAutoPull, default OFF). Opt out: BACKLOG_RELAY=0.
+  stopBacklogRelay = startBacklogRelay()
+  // E-18 self-healing runs: on a terminal FAILED org/auto run, classify and (if the operator
+  // enabled Autonomy + Self-heal, budget permitting) retry with a model fallback, else park an
+  // Inbox proposal. Inert until autonomy is enabled; subscribes to the run-update bus.
+  stopSelfHeal = startSelfHeal()
+  // E-27 eval/verification-derived lessons: an hourly cron groups repeated verify failures by
+  // signature and proposes ONE deduped, capped pending lesson each through the existing D-041
+  // gate. Gated inside proposeLessons by autonomy enabled && proposals; LESSON_PROPOSALS=0 opts out.
+  stopLessonProposals = startLessonProposals()
   startOllamaProbe()  // no-op unless ENABLE_OLLAMA; keeps router reachability fresh
   console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
   console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)

@@ -8,6 +8,7 @@ import {
   makeVerifyInvalidator,
   makeInboxInvalidator,
   makeFeedInvalidator,
+  makeAutonomyInvalidator,
 } from '../lib/live-invalidate'
 import { raiseBrowserNotification } from '../lib/notifications'
 
@@ -32,6 +33,8 @@ export default function useLiveInvalidators(): void {
     // P3 E-09: the Org Timeline feed — previously wired only while KHome (the
     // landing page) was mounted; now always live, matching every other invalidator.
     const feedInvalidator = makeFeedInvalidator(qc)
+    // P5 autonomy: budget_update → ['budget'], run_retried → ['runs']+['retry-rate'].
+    const autonomyInvalidator = makeAutonomyInvalidator(qc)
     const unsubscribe = onWsMessage(msg => {
       runUpdateInvalidator.handler(msg)
       projectListInvalidator(msg)
@@ -39,6 +42,7 @@ export default function useLiveInvalidators(): void {
       verifyInvalidator(msg)
       inboxInvalidator(msg)
       feedInvalidator(msg)
+      autonomyInvalidator(msg)
       raiseBrowserNotification(msg) // E-19 browser leg (visibility- + permission-gated)
     })
     return () => {

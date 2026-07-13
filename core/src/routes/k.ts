@@ -22,6 +22,7 @@ import {
   listKThreadTurns,
   KThreadNotFoundError,
 } from '../k-thread.js'
+import { BudgetCapError } from '../budget-governor.js'
 import { workItemsDb, logisticsDb, runsDb, kThreadsDb } from '../db.js'
 import { isTerminalRunStatus } from '../run-lifecycle.js'
 import { rowToWorkItem } from '../mcp/k-store.js'
@@ -78,6 +79,12 @@ export async function kRoutes(app: FastifyInstance) {
       return reply.status(201).send(result)
     } catch (e) {
       if (e instanceof KThreadNotFoundError) return sendError(reply, 404, 'thread not found')
+      // E-17: a capped operator→Chief delegation is a transient, operator-resolvable state,
+      // not a server fault — map it to a clean 429 (the explanatory K turn is already
+      // persisted on the thread for the chat view), never an opaque 500.
+      if (e instanceof BudgetCapError) {
+        return reply.status(429).send({ error: e.message, scope: e.scope, capUsd: e.capUsd, spentUsd: e.spentUsd })
+      }
       req.log.error(e)
       return sendError(reply, 500, 'k ask failed')
     }

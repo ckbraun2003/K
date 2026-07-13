@@ -110,9 +110,11 @@ describe('updateProfile — patch merge', () => {
 
 describe('seedProfiles — idempotent durable roster', () => {
   it('seeds the eight durable profiles once, then no-ops', () => {
-    const first = seedProfiles()
-    // K, Chief, orchestrator + 5 leads — unless a prior boot already seeded some.
-    expect(first).toEqual(expect.arrayContaining(['K', 'Chief', 'orchestrator', 'Frontend']))
+    // Shared-dir safe: a prior test in the same singleFork DB may already have seeded some or all
+    // of the roster, so seedProfiles() returns only names it actually inserted (possibly none).
+    // Invariant that always holds: after seeding, the full durable roster EXISTS (asserted below via
+    // getProfileByName) and an immediate re-seed is a no-op (idempotent by name).
+    seedProfiles()
     const second = seedProfiles()
     expect(second).toEqual([]) // idempotent by name
 

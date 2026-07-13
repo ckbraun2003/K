@@ -15,14 +15,17 @@ beforeAll(() => {
   }
 })
 
-const { mockList, mockEvals, mockRuns, mockProjects } = vi.hoisted(() => ({
+const { mockList, mockEvals, mockRuns, mockProjects, mockRoutinesList, mockParseCron } = vi.hoisted(() => ({
   mockList: vi.fn(), mockEvals: vi.fn(), mockRuns: vi.fn(), mockProjects: vi.fn(),
+  mockRoutinesList: vi.fn(), mockParseCron: vi.fn(),
 }))
 vi.mock('../src/lib/api', () => ({
   api: {
     skills: { list: mockList, evals: mockEvals, runs: mockRuns },
     // SkillsPage loads registered projects for the per-skill "▶ run" project selector (F-069).
     projects: { list: mockProjects },
+    // E-16 — AutomationsTab unconditionally loads routines; empty list keeps this suite inert.
+    routines: { list: mockRoutinesList, parseCron: mockParseCron },
   },
 }))
 vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
@@ -46,8 +49,10 @@ function renderPage() {
 
 beforeEach(() => {
   mockList.mockReset(); mockEvals.mockReset(); mockRuns.mockReset(); mockProjects.mockReset()
+  mockRoutinesList.mockReset(); mockParseCron.mockReset()
   mockList.mockResolvedValue([skill]); mockEvals.mockResolvedValue([]); mockRuns.mockResolvedValue([])
   mockProjects.mockResolvedValue([])
+  mockRoutinesList.mockResolvedValue([])
 })
 afterEach(() => cleanup())
 

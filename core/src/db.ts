@@ -713,7 +713,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 11
+export const SCHEMA_VERSION = 12
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1484,6 +1484,29 @@ function migrateSlow(d: Database.Database): void {
   if (hasTable(d, 'notification_rules')) {
     d.exec(`INSERT OR IGNORE INTO notification_rules (event_key, inapp, browser) VALUES ('memory_saved', 1, 0);`)
   }
+
+  // ── Phase 5 Autonomy (SCHEMA_VERSION 12) ──────────────────────────────────
+  // E-14/E-15: proposal + backlog fields on work_items. `source` = the collector
+  // that produced a proposal (NULL for normal items); `source_key` = the dedupe key.
+  if (hasTable(d, 'work_items')) {
+    addColumn(d, 'work_items', 'source', 'TEXT')
+    addColumn(d, 'work_items', 'source_key', 'TEXT')
+    // Partial-unique: at most one live work_item per source_key; NULLs unconstrained
+    // so ordinary (non-proposal) items are unaffected. Dedupe is enforced in SQL.
+    d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_source_key
+              ON work_items(source_key) WHERE source_key IS NOT NULL`)
+  }
+  // E-18: self-healing retry lineage on runs.
+  if (hasTable(d, 'runs')) {
+    addColumn(d, 'runs', 'retry_of', 'TEXT REFERENCES runs(id)')
+    addColumn(d, 'runs', 'retry_count', 'INTEGER NOT NULL DEFAULT 0')
+    addColumn(d, 'runs', 'failure_class', 'TEXT')
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_runs_retry_of ON runs(retry_of)`)
+  }
+  // E-17: per-project daily budget cap (NULL = no cap). Org cap lives in app_config.
+  if (hasTable(d, 'projects')) {
+    addColumn(d, 'projects', 'budget_daily_usd', 'REAL')
+  }
 }
 
 migrate(db)
@@ -1599,7 +1622,12 @@ const nextEventSeq = db.prepare(`SELECT COALESCE(MAX(seq) + 1, 0) AS next FROM e
 // P2 E-05/E-19: SQL-only "has reviewable changes" predicate (checkpoint events).
 const hasCheckpointEvents = db.prepare(`SELECT EXISTS(SELECT 1 FROM events WHERE run_id = ? AND type = 'checkpoint') AS n`)
 
-export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listCheckpointEvents, listAssistantEvents, listAssistantEventsAfterSeq, latestAssistantEvent, nextEventSeq, hasCheckpointEvents }
+// E-18: the failing run's error text — the ONLY place it lives is the `text` column
+// of its latest type='error' event (supervisor.ts, `text: String(err)`); a clean
+// non-zero exit persists NO such event (BLOCKER 4). Backs failure classification.
+const latestErrorEvent = db.prepare(`SELECT text FROM events WHERE run_id = ? AND type = 'error' ORDER BY seq DESC LIMIT 1`)
+
+export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listCheckpointEvents, listAssistantEvents, listAssistantEventsAfterSeq, latestAssistantEvent, nextEventSeq, hasCheckpointEvents, latestErrorEvent }
 
 // ─── Review comment helpers (P1 E-01) ────────────────────────────────────────
 
@@ -1782,6 +1810,8 @@ const deleteProjectWorkItems = db.prepare(`DELETE FROM work_items WHERE project_
 // and degrade to status='missing' at the next rescan instead; see the skills DDL note.)
 const deleteProjectHostMcpServers = db.prepare(`DELETE FROM host_mcp_servers WHERE project_id = ?`)
 const deleteProjectRow = db.prepare(`DELETE FROM projects WHERE id = ?`)
+// E-17: set/clear a project's daily budget cap (NULL = no cap).
+const setProjectBudget = db.prepare(`UPDATE projects SET budget_daily_usd = ? WHERE id = ?`)
 const deleteProject = db.transaction((id: string) => {
   deleteProjectRunPlans.run(id)      // P2: FK on runs(id) — before deleteProjectRuns
   deleteProjectRunComments.run(id)   // P1: FK on runs(id) — before deleteProjectRuns
@@ -1806,6 +1836,7 @@ export const projectsDb = {
   listProjects,
   countActiveProjectRuns,
   deleteProject,
+  setProjectBudget,
 }
 
 // ─── Project graph helpers ───────────────────────────────────────────────────
@@ -2078,6 +2109,69 @@ export const workItemsDb = {
   listDurableWorkItems,
   listDurableWorkItemsByStatus,
 }
+
+// ── E-14/E-15 proposals + backlog (org-scoped work_items) ────────────────────
+const insertProposal = db.prepare(`
+  INSERT INTO work_items (id, title, body, status, scope, project_id, source, source_key, created_at, updated_at)
+  VALUES (@id, @title, @body, 'blocked', 'org', @projectId, @source, @sourceKey, @createdAt, @createdAt)
+`)
+// Blocked+sourced org items are UNAPPROVED proposals; joined to project name for the inbox.
+const listProposals = db.prepare(`
+  SELECT w.*, p.name AS project_name FROM work_items w
+  LEFT JOIN projects p ON p.id = w.project_id
+  WHERE w.scope = 'org' AND w.status = 'blocked' AND w.source IS NOT NULL
+  ORDER BY w.created_at DESC LIMIT ?
+`)
+const getProposalBySourceKey = db.prepare(`SELECT * FROM work_items WHERE source_key = ?`)
+const countOpenProposals = db.prepare(`
+  SELECT COUNT(*) AS n FROM work_items WHERE scope='org' AND status='blocked' AND source IS NOT NULL
+`)
+// Approve: blocked → open (enters the backlog). changes===0 ⇒ not an approvable proposal ⇒ 404.
+const approveProposal = db.prepare(`
+  UPDATE work_items SET status='open', updated_at=@now
+  WHERE id=@id AND scope='org' AND status='blocked' AND source IS NOT NULL
+`)
+const dismissProposal = db.prepare(`
+  UPDATE work_items SET status='cancelled', updated_at=@now
+  WHERE id=@id AND scope='org' AND status='blocked' AND source IS NOT NULL
+`)
+// Backlog = open org items (approved proposals OR operator/agent-created org tickets).
+const listOpenBacklog = db.prepare(`
+  SELECT * FROM work_items WHERE scope='org' AND status='open' ORDER BY created_at ASC LIMIT ?
+`)
+// E-15 atomic claim (mirrors leadDispatchDb.claimLeadDispatch): open → in_progress.
+const claimBacklogItem = db.prepare(`
+  UPDATE work_items SET status='in_progress', updated_at=@now
+  WHERE id=@id AND scope='org' AND status='open'
+`)
+// Record the dispatched run id onto an already-claimed item (a second claim would match
+// 0 rows now that status='in_progress'; updateWorkItem cannot set run_id). Conductor MAJOR 2.
+const setWorkItemRun = db.prepare(`UPDATE work_items SET run_id=@runId, updated_at=@now WHERE id=@id`)
+export const proposalsDb = {
+  insertProposal, listProposals, getProposalBySourceKey, countOpenProposals,
+  approveProposal, dismissProposal, listOpenBacklog, claimBacklogItem, setWorkItemRun,
+}
+
+// ── E-17 measured spend (rolling window; NO forecasting) ─────────────────────
+const orgSpendSince = db.prepare(`SELECT COALESCE(SUM(cost_usd),0) AS spend FROM runs WHERE created_at >= ?`)
+const projectSpendSince = db.prepare(
+  `SELECT COALESCE(SUM(cost_usd),0) AS spend FROM runs WHERE project_id = ? AND created_at >= ?`)
+export const budgetDb = { orgSpendSince, projectSpendSince }
+
+// ── E-18 retry lineage ───────────────────────────────────────────────────────
+const setRunRetry = db.prepare(`UPDATE runs SET retry_of=@retryOf, retry_count=@retryCount WHERE id=@id`)
+const setRunFailureClass = db.prepare(`UPDATE runs SET failure_class=@failureClass WHERE id=@id`)
+const countRunsSince = db.prepare(`SELECT COUNT(*) AS n FROM runs WHERE created_at >= ?`)
+const countRetriesSince = db.prepare(`SELECT COUNT(*) AS n FROM runs WHERE retry_of IS NOT NULL AND created_at >= ?`)
+export const retryDb = { setRunRetry, setRunFailureClass, countRunsSince, countRetriesSince }
+
+// ── E-16 routine measured cost (skill_runs has NO cost; JOIN to runs) — MAJOR 4 ──
+// skill_runs (db.ts:261-269) columns: id, skillId, runId, triggeredBy, startedAt, completedAt, status.
+const scheduleSkillRunCost = db.prepare(`
+  SELECT sr.startedAt AS started_at, r.cost_usd AS cost_usd
+  FROM skill_runs sr LEFT JOIN runs r ON r.id = sr.runId WHERE sr.skillId = ?
+`)
+export const routinesDb = { scheduleSkillRunCost }
 
 // ─── kstore: agent-memory (lesson) helpers ───────────────────────────────────
 // Backs lesson_propose / lesson_list. A proposed lesson lands 'pending'; the
