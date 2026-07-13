@@ -52,21 +52,31 @@ import { eventBus } from './events.js'
 import { startAgentRun } from './agent-runs.js'
 import { agentRunsDb, configDb } from './db.js'
 import { getProfile } from './profiles.js'
-import { claudeDefaultModel } from './config-store.js'
+import { autonomySettings, claudeDefaultModel } from './config-store.js'
 import { warnIfOrgRoleModelNotToolCapable } from './agent-config.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
+import { runCollectors } from './proposal-collectors.js'
 
 /** The Chief's default schedule-wake instruction (the `-p` seed for a cron wake). Names the
  *  dispatchable leads inline (F-067) so an autonomously-woken Chief always knows the VALID
  *  lead identifiers and never invents a discipline like "engineering"; `lead_list` remains the
  *  authoritative runtime roster. The lead set is fixed by the durable seed (profiles.ts), so a
- *  static enumeration is safe and keeps this a plain constant. */
+ *  static enumeration is safe and keeps this a plain constant.
+ *
+ *  E-14 "optional prioritization pass": a goal-text-only addition (no new code path) pointing
+ *  the woken Chief at the open (blocked, sourced) proposal backlog via the existing kstore
+ *  work-item tools — it may PRUNE stale ones (work_item_update → status 'cancelled'); it never
+ *  reorders (no priority column — YAGNI) and never approves (approval stays an operator action
+ *  via the Inbox). */
 export const DEFAULT_CHIEF_WAKE_GOAL =
   'Autonomous org check-in: review active leads and open objectives with the mgmt read tools ' +
   '(assignment_list, report_list); surface blockers and note any unstaffed work. Report a concise ' +
   'status; do not dispatch new work yet. The dispatchable leads are Frontend (lead-frontend), ' +
   'Backend (lead-backend), Systems (lead-systems), Security (lead-security), and Network ' +
-  '(lead-network) — call lead_list for the authoritative roster before assign_lead / dispatch_lead.'
+  '(lead-network) — call lead_list for the authoritative roster before assign_lead / dispatch_lead. ' +
+  'If there are open proposals (work_item_list scope=org status=blocked), review them and cancel ' +
+  '(work_item_update status=cancelled) any that are stale or no longer relevant — leave the rest ' +
+  'for operator approval; do not approve proposals yourself.'
 
 /** Default cron for the Chief's scheduled wake (every 15 minutes). A literal default;
  *  the `CHIEF_WAKE_CRON` env override is read lazily inside startChiefWake() so it can
@@ -79,9 +89,21 @@ export type WakeOutcome =
   | { woke: true; agentRunId: string; runId: string }
   | { woke: false; reason: 'debounced' | 'already-running' | 'disabled' | 'rate-capped' | 'failed' }
 
-// Opt-out via env (default ON). Read lazily so tests/settings can toggle per-call.
+// The autonomous org master switch — persisted, operator-configured (Settings →
+// Autonomous Org), DEFAULT OFF. Replaces the old env-gated default (CHIEF_WAKE).
 function chiefWakeEnabled(): boolean {
-  return process.env.CHIEF_WAKE !== '0'
+  return autonomySettings().enabled === true
+}
+
+/** One-time boot warning: the CHIEF_WAKE env var is deprecated; the persisted
+ *  Settings toggle is authoritative. Call once from startChiefWake. */
+let deprecationWarned = false
+function warnDeprecatedChiefWakeEnv(): void {
+  if (deprecationWarned) return
+  if (process.env.CHIEF_WAKE !== undefined) {
+    deprecationWarned = true
+    console.warn('[chief-wake] CHIEF_WAKE env is deprecated and ignored — set autonomy via Settings → Autonomous Org (persisted, default OFF).')
+  }
 }
 
 // ── Rate breaker (event wakes only) ─────────────────────────────────────────
@@ -233,6 +255,7 @@ export function onChiefWakeRunUpdate(run: Run): void {
  * the exact callback the cron task runs. Fire-and-forget; wakeChief never throws.
  */
 export function scheduledChiefWake(): void {
+  try { runCollectors() } catch (e) { console.warn('[chief-wake] collectors failed:', e) }
   void wakeChief('schedule', { goal: DEFAULT_CHIEF_WAKE_GOAL }).catch(() => { /* never crash the tick */ })
 }
 
@@ -240,10 +263,12 @@ export function scheduledChiefWake(): void {
  * Start the Chief autonomous wake: register a node-cron schedule tick AND subscribe
  * to terminal run-completion events, both routed through `wakeChief`. Returns a stop
  * fn that tears down the cron task + the subscription (mirrors registerGraphAutoReindex).
- * When disabled (CHIEF_WAKE=0) it wires nothing and returns a no-op stop.
+ * When disabled (autonomySettings().enabled === false, the default) it wires nothing
+ * and returns a no-op stop.
  */
 export function startChiefWake(opts?: { cron?: string; minIntervalMs?: number }): () => void {
   if (!chiefWakeEnabled()) return () => { /* disabled — nothing wired */ }
+  warnDeprecatedChiefWakeEnv()
 
   // minIntervalMs is module-global (wakeChief reads it). Capture the prior value so
   // the stop fn restores it — a per-instance override must not leak past this instance

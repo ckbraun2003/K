@@ -29,7 +29,14 @@ import { db, agentRunsDb, configDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { startRun } from '../src/supervisor.js'
 import { getProfile, createProfile } from '../src/profiles.js'
+import { setAutonomySettings, __resetConfigCache } from '../src/config-store.js'
 import type { Run } from '@k/shared'
+
+// P5-B: chiefWakeEnabled() now reads the persisted autonomy setting (default OFF)
+// instead of the CHIEF_WAKE env var. Every "should wake" case in this suite needs
+// the master switch ON — set it once here so the whole file behaves as it did under
+// the old env-default-ON regime, without reintroducing an env dependency.
+const AUTONOMY_ON = { enabled: true, proposals: false, backlogAutoPull: false, selfHeal: false, maxConcurrency: 1, orgDailyBudgetUsd: null, budgetWarnPct: 0.8 }
 
 // startRun mocked so no real agent spawns, but it MUST insert a real runs row:
 // agent_runs.run_id has a FOREIGN KEY → runs(id). Mirrors agent-runs.test.ts.
@@ -163,6 +170,9 @@ beforeEach(() => {
   db.prepare(`DELETE FROM agent_runs WHERE profile_id = 'chief'`).run()
   db.prepare(`DELETE FROM agent_runs WHERE run_id LIKE 'mock-cw-run-%'`).run()
   resetChiefWakeDebounce()
+  __resetConfigCache()
+  setAutonomySettings(AUTONOMY_ON)
+  delete process.env.CHIEF_WAKE
 })
 
 afterAll(() => {
@@ -264,17 +274,18 @@ describe('wakeChief', () => {
     }
   })
 
-  it('returns {reason:disabled} when CHIEF_WAKE=0', async () => {
-    const prev = process.env.CHIEF_WAKE
-    process.env.CHIEF_WAKE = '0'
+  // P5-B: the env var no longer gates anything (deprecated + ignored) — the
+  // persisted autonomySettings().enabled is the sole source of truth now.
+  it('returns {reason:disabled} when the persisted autonomy setting is OFF (env is ignored)', async () => {
+    setAutonomySettings({ ...AUTONOMY_ON, enabled: false })
+    process.env.CHIEF_WAKE = '1' // proves the env can no longer turn it back on
     try {
       const res = await wakeChief('schedule', { goal: 'p52b-disabled' })
       expect(res.woke).toBe(false)
       if (!res.woke) expect(res.reason).toBe('disabled')
       expect(chiefWakesWithGoal('p52b-disabled')).toHaveLength(0)
     } finally {
-      if (prev === undefined) delete process.env.CHIEF_WAKE
-      else process.env.CHIEF_WAKE = prev
+      delete process.env.CHIEF_WAKE
     }
   })
 })
