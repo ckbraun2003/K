@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { cn } from '../lib/cn'
+import { Icon } from '../ui/Icon'
 import {
   type ToolItem,
   commandText,
@@ -67,6 +68,10 @@ function ExpandableRow({
   return (
     <div
       data-testid={testid}
+      // NOTE: this className computation is test-locked verbatim (tool-call.test.tsx
+      // asserts the literal 'border-[var(--red)]/50' / 'border-[var(--border)]'
+      // substrings, and that 'var(--red)' is absent in the non-error case) — do
+      // not convert to semantic-token classes.
       className={cn(
         'rounded-lg border bg-[var(--raised)]',
         error ? 'border-[var(--red)]/50' : 'border-[var(--border)]',
@@ -82,28 +87,24 @@ function ExpandableRow({
           hasDetail && 'cursor-pointer',
         )}
       >
-        <span className="flex-shrink-0 text-xs text-[var(--muted)]">{icon}</span>
+        <span className="flex-shrink-0 text-label text-muted">{icon}</span>
         <span
           className={cn(
-            'min-w-0 flex-1 truncate font-mono text-xs',
-            error ? 'text-[var(--red)]' : 'text-[var(--text)]',
+            'mono min-w-0 flex-1 truncate text-label',
+            error ? 'text-red' : 'text-text',
           )}
         >
           {summary}
         </span>
         {pending && (
-          <span className="flex-shrink-0 text-[10px] italic text-[var(--muted)]">running…</span>
+          <span className="flex-shrink-0 text-micro italic text-muted">running…</span>
         )}
         {hasDetail && (
-          <span
-            className={cn(
-              'flex-shrink-0 text-[10px] text-[var(--muted)] transition-transform',
-              open && 'rotate-90',
-            )}
-            aria-hidden
-          >
-            ▸
-          </span>
+          <Icon
+            name="chevronRight"
+            size={14}
+            className={cn('flex-shrink-0 text-muted transition-transform', open && 'rotate-90')}
+          />
         )}
       </button>
       <AnimatePresence initial={false}>
@@ -116,7 +117,7 @@ function ExpandableRow({
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-[var(--border)] px-3 py-2">{detail}</div>
+            <div className="border-t border-border px-3 py-2">{detail}</div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -129,11 +130,11 @@ function CodeBlock({ text, tone }: { text: string; tone?: 'add' | 'del' | 'error
   return (
     <pre
       className={cn(
-        'max-h-64 overflow-auto whitespace-pre-wrap break-words rounded px-2.5 py-1.5 font-mono text-xs',
-        tone === 'add' && 'bg-green/10 text-[var(--green)]',
-        tone === 'del' && 'bg-red/10 text-[var(--red)]',
-        tone === 'error' && 'bg-red/10 text-[var(--red)]',
-        tone == null && 'bg-[var(--surface)] text-[var(--muted)]',
+        'mono max-h-64 overflow-auto whitespace-pre-wrap break-words rounded px-2.5 py-1.5 text-label',
+        tone === 'add' && 'bg-green/10 text-green',
+        tone === 'del' && 'bg-red/10 text-red',
+        tone === 'error' && 'bg-red/10 text-red',
+        tone == null && 'bg-surface text-muted',
       )}
     >
       {text}
@@ -142,11 +143,7 @@ function CodeBlock({ text, tone }: { text: string; tone?: 'add' | 'del' | 'error
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-      {children}
-    </p>
-  )
+  return <p className="micro-label mb-1">{children}</p>
 }
 
 // ─── Command (Bash) ───────────────────────────────────────────────────────────
@@ -163,11 +160,11 @@ export function CommandCall({ item, runEnded = false }: { item: ToolItem; runEnd
   const detail =
     !pending ? (
       <div className="space-y-2">
-        {description && <p className="text-xs text-[var(--muted)]">{description}</p>}
+        {description && <p className="text-label text-muted">{description}</p>}
         {output ? (
           <CodeBlock text={output} tone={error ? 'error' : undefined} />
         ) : (
-          <p className="text-xs italic text-[var(--muted)]">(no output)</p>
+          <p className="text-label italic text-muted">(no output)</p>
         )}
       </div>
     ) : undefined
@@ -175,6 +172,8 @@ export function CommandCall({ item, runEnded = false }: { item: ToolItem; runEnd
   return (
     <ExpandableRow
       testid="tool-command"
+      // No design-system icon cleanly represents "shell command" — kept as a
+      // text glyph (deviation, see final report).
       icon="$"
       error={error}
       pending={pending}
@@ -222,18 +221,18 @@ export function FileCall({ item, runEnded = false }: { item: ToolItem; runEnded?
       </div>
     )
   } else {
-    body = <p className="text-xs italic text-[var(--muted)]">(no preview available)</p>
+    body = <p className="text-label italic text-muted">(no preview available)</p>
   }
 
   return (
     <ExpandableRow
       testid="tool-file"
-      icon="✎"
+      icon={<Icon name="edit" size={14} />}
       error={error}
       pending={pending}
       summary={
         <span>
-          <span className="text-[var(--accent-hover)]">{FILE_OP_LABEL[op]}</span> {path}
+          <span className="text-accent-hover">{FILE_OP_LABEL[op]}</span> {path}
         </span>
       }
       detail={
@@ -259,13 +258,15 @@ export function DelegateCall({ item, runEnded = false }: { item: ToolItem; runEn
   return (
     <ExpandableRow
       testid="tool-delegate"
+      // No design-system icon cleanly represents "delegated subagent" — kept as
+      // a text glyph (deviation, see final report).
       icon="◆"
       error={error}
       pending={pending}
       summary={
         <span>
-          <span className="text-[var(--accent-hover)]">{agent}</span>
-          {label && <span className="text-[var(--muted)]"> · {label}</span>}
+          <span className="text-accent-hover">{agent}</span>
+          {label && <span className="text-muted"> · {label}</span>}
         </span>
       }
       detail={
@@ -280,7 +281,7 @@ export function DelegateCall({ item, runEnded = false }: { item: ToolItem; runEn
               {result ? (
                 <CodeBlock text={result} tone={error ? 'error' : undefined} />
               ) : (
-                <p className="text-xs italic text-[var(--muted)]">(no result)</p>
+                <p className="text-label italic text-muted">(no result)</p>
               )}
             </div>
           )}
@@ -304,13 +305,13 @@ export function OtherCall({ item, runEnded = false }: { item: ToolItem; runEnded
   return (
     <ExpandableRow
       testid="tool-other"
-      icon="⚙"
+      icon={<Icon name="settings" size={14} />}
       error={error}
       pending={pending}
       summary={
         <span>
-          <span className="text-[var(--accent-hover)]">{name}</span>
-          <span className="text-[var(--muted)]">({arg})</span>
+          <span className="text-accent-hover">{name}</span>
+          <span className="text-muted">({arg})</span>
         </span>
       }
       detail={

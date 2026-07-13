@@ -5,6 +5,7 @@ import { cn } from '../lib/cn'
 import { EVENT_COLOR } from './RunConsole'
 import { api } from '../lib/api'
 import RewindDialog from './RewindDialog'
+import { Button } from '../ui/Button'
 
 interface Props {
   events: AgentEvent[]
@@ -147,7 +148,7 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
 
   if (events.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[var(--muted)] text-sm italic">
+      <div className="flex-1 flex items-center justify-center text-muted text-body italic">
         No events
       </div>
     )
@@ -213,24 +214,26 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
                 ref={el => { rowRefs.current[idx] = el }}
                 data-testid={ckpt ? `ckpt-marker-${ckpt.wave}` : 'ckpt-marker'}
                 className={cn(
-                  'py-1.5 pl-2 border-b border-[var(--border)] last:border-0 border-l-2 border-l-[var(--accent)] bg-accent/5 transition-opacity duration-150',
+                  'py-1.5 pl-2 border-b border-border last:border-0 border-l-2 border-l-accent bg-accent/5 transition-opacity duration-150',
                   dimmed ? 'opacity-25' : 'opacity-100',
                 )}
               >
-                <div className="flex items-center gap-2 font-mono text-xs">
-                  <span className="text-[var(--muted)] w-6 text-right flex-shrink-0">{e.seq}</span>
-                  <span className="text-[var(--muted)] flex-shrink-0">{formatAbsTime(e.ts)}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/15 text-[var(--accent-hover)] font-semibold flex-shrink-0">
+                <div className="mono flex items-center gap-2 text-label">
+                  <span className="text-muted w-6 text-right flex-shrink-0 tabular-nums">{e.seq}</span>
+                  <span className="text-muted flex-shrink-0 tabular-nums">{formatAbsTime(e.ts)}</span>
+                  <span className="text-micro px-1.5 py-0.5 rounded bg-accent/15 text-accent-hover font-semibold flex-shrink-0 tabular-nums">
                     {ckpt ? `wave ${ckpt.wave} · ${ckpt.sha.slice(0, 10)}` : (e.text ?? 'checkpoint')}
                   </span>
                   {terminal && ckpt && (
-                    <button
+                    <Button
+                      variant="glass"
+                      size="sm"
                       data-testid={`ckpt-rewind-${ckpt.wave}`}
                       onClick={() => setRewindTarget({ sha: ckpt.sha, wave: ckpt.wave })}
-                      className="text-xs px-2 py-0.5 rounded bg-accent/15 text-[var(--accent-hover)] hover:bg-accent/25 transition-colors font-medium flex-shrink-0"
+                      className="flex-shrink-0"
                     >
                       Rewind here
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
@@ -245,28 +248,28 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
               try {
                 const parsed = JSON.parse(rawStr)
                 rawContent = (
-                  <pre className="mt-1 text-xs text-[var(--muted)] bg-[var(--raised)] rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-words">
+                  <pre className="mono mt-1 text-label text-muted bg-raised rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-words">
                     {JSON.stringify(parsed, null, 2)}
                   </pre>
                 )
               } catch {
                 rawContent = (
-                  <p className="mt-1 text-xs text-[var(--muted)] italic">(no raw)</p>
+                  <p className="mt-1 text-label text-muted italic">(no raw)</p>
                 )
               }
             } else if (rawCache[e.seq] === null) {
               // Fetch returned 404 or failed
               rawContent = (
-                <p className="mt-1 text-xs text-[var(--muted)] italic">raw unavailable</p>
+                <p className="mt-1 text-label text-muted italic">raw unavailable</p>
               )
             } else if (!e.raw && loadingSeqs.has(e.seq)) {
               // In-flight fetch (loadingSeqs is state, so this row re-renders)
               rawContent = (
-                <p className="mt-1 text-xs text-[var(--muted)] italic">loading…</p>
+                <p className="mt-1 text-label text-muted italic">loading…</p>
               )
             } else if (!e.raw) {
               rawContent = (
-                <p className="mt-1 text-xs text-[var(--muted)] italic">(no raw)</p>
+                <p className="mt-1 text-label text-muted italic">(no raw)</p>
               )
             }
           }
@@ -276,27 +279,27 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
               key={e.id}
               ref={el => { rowRefs.current[idx] = el }}
               data-testid="timeline-row"
-              className={cn('py-1.5 border-b border-[var(--border)] last:border-0 transition-opacity duration-150', dimmed ? 'opacity-25' : 'opacity-100')}
+              className={cn('py-1.5 border-b border-border last:border-0 transition-opacity duration-150', dimmed ? 'opacity-25' : 'opacity-100')}
             >
               <button
                 onClick={() => toggleExpanded(e.id, e.seq, !!e.raw)}
                 aria-expanded={isExpanded}
                 className="w-full text-left"
               >
-                <div className="flex items-baseline gap-2 font-mono text-xs">
-                  <span className="text-[var(--muted)] w-6 text-right flex-shrink-0">{e.seq}</span>
-                  <span className="text-[var(--muted)] flex-shrink-0">{formatAbsTime(e.ts)}</span>
-                  <span className="text-[var(--muted)] flex-shrink-0 w-16 text-right">
+                <div className="mono flex items-baseline gap-2 text-label">
+                  <span className="text-muted w-6 text-right flex-shrink-0 tabular-nums">{e.seq}</span>
+                  <span className="text-muted flex-shrink-0 tabular-nums">{formatAbsTime(e.ts)}</span>
+                  <span className="text-muted flex-shrink-0 w-16 text-right tabular-nums">
                     {formatRelTime(e.ts - firstTs)}
                   </span>
-                  <span className={cn('flex-shrink-0 font-semibold', EVENT_COLOR[e.type] ?? 'text-[var(--text)]')}>
+                  <span className={cn('flex-shrink-0 font-semibold', EVENT_COLOR[e.type] ?? 'text-text')}>
                     {e.type}
                   </span>
                   {e.tool && (
-                    <span className="text-[var(--accent-hover)] flex-shrink-0">{e.tool}()</span>
+                    <span className="text-accent-hover flex-shrink-0">{e.tool}()</span>
                   )}
                   {e.text && (
-                    <span className="text-[var(--text)] truncate min-w-0">
+                    <span className="text-text truncate min-w-0">
                       {e.text.slice(0, 120)}
                     </span>
                   )}
@@ -309,20 +312,17 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
       </div>
 
       {/* Replay scrubber footer */}
-      <div className="flex-shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2 bg-[var(--surface)]">
+      <div className="flex-shrink-0 border-t border-border px-5 py-3 space-y-2 bg-surface">
         {/* Readout */}
-        <div className="font-mono text-xs text-[var(--muted)]">
+        <div className="mono text-label text-muted tabular-nums">
           seq {cursorEvent.seq} · {cursor + 1}/{events.length} · {formatRelTime(cursorEvent.ts - firstTs)}
         </div>
 
         {/* Controls row */}
         <div className="flex items-center gap-3">
-          <button
-            onClick={handlePlayPause}
-            className="text-xs px-3 py-1 rounded bg-accent/15 text-[var(--accent-hover)] hover:bg-accent/25 transition-colors font-medium flex-shrink-0"
-          >
+          <Button variant="glass" size="sm" onClick={handlePlayPause} className="flex-shrink-0">
             {playing ? 'Pause' : 'Play'}
-          </button>
+          </Button>
           <input
             type="range"
             aria-label="Replay position"
@@ -333,7 +333,7 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
               setPlaying(false)
               setCursor(Number(e.target.value))
             }}
-            className="flex-1 accent-[var(--accent)]"
+            className="flex-1 accent-accent"
           />
         </div>
       </div>

@@ -10,7 +10,6 @@ import { pairToolCalls, groupConsoleItems } from '../lib/console'
 import { contextPressure, nextAutoCompact, type AutoCompactState } from '../lib/context'
 import { cleanRunPrompt } from '../lib/prompt'
 import { linkify } from '../lib/linkify'
-import { runStatusMeta } from '../lib/status'
 import RunTimeline from './RunTimeline'
 import PlanCard from './PlanCard'
 import NarrativeCard from './NarrativeCard'
@@ -21,6 +20,12 @@ import ConfirmDialog from './ConfirmDialog'
 import AutoTextarea from './AutoTextarea'
 import ContextMeter from './ContextMeter'
 import MicButton from './MicButton'
+import SegControl from './SegControl'
+import { StatusPill } from '../ui/StatusPill'
+import { Tag } from '../ui/Tag'
+import { Button } from '../ui/Button'
+import { Icon } from '../ui/Icon'
+import { EmptyState } from '../ui/EmptyState'
 
 interface Props {
   runId: string
@@ -74,12 +79,12 @@ export function ollamaRuntimeBadge(
 }
 
 export const EVENT_COLOR: Record<string, string> = {
-  system:    'text-[var(--muted)]',
-  assistant: 'text-[var(--text)]',
-  user:      'text-[var(--accent-hover)]',
-  usage:     'text-[var(--green)]',
-  error:     'text-[var(--red)]',
-  status:    'text-[var(--amber)]',
+  system:    'text-muted',
+  assistant: 'text-text',
+  user:      'text-accent-hover',
+  usage:     'text-green',
+  error:     'text-red',
+  status:    'text-amber',
 }
 
 /**
@@ -94,13 +99,13 @@ function EventLine({ event: e }: { event: AgentEvent }) {
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.1 }}
-      className={cn('leading-relaxed whitespace-pre-wrap break-words', EVENT_COLOR[e.type] ?? 'text-[var(--text)]')}
+      className={cn('leading-relaxed whitespace-pre-wrap break-words', EVENT_COLOR[e.type] ?? 'text-text')}
     >
       {e.type === 'status' && (
-        <span className="text-[var(--muted)]">── {e.text} ──</span>
+        <span className="text-muted">── {e.text} ──</span>
       )}
       {e.type === 'usage' && (
-        <span>
+        <span className="tabular-nums">
           ▸ {e.tokensIn?.toLocaleString()} in / {e.tokensOut?.toLocaleString()} out
           {e.costUsd ? ` / $${e.costUsd.toFixed(4)}` : ''}
         </span>
@@ -109,7 +114,7 @@ function EventLine({ event: e }: { event: AgentEvent }) {
         <span>⚠ {linkify(e.text ?? '')}</span>
       )}
       {e.type === 'assistant' && e.tool && (
-        <span className="text-[var(--accent-hover)]">⚙ {e.tool}()</span>
+        <span className="text-accent-hover">⚙ {e.tool}()</span>
       )}
       {e.type === 'assistant' && !e.tool && e.text && (
         <span>{linkify(e.text)}</span>
@@ -277,46 +282,37 @@ export default function RunConsole({ runId }: Props) {
   // resolution state (no data, no error yet).
   if (isError) {
     return (
-      <div
-        data-testid="run-not-found"
-        className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center"
-      >
-        <p className="text-sm font-medium text-[var(--text)]">Run not found</p>
-        <p className="text-xs text-[var(--muted)]">This run doesn’t exist or is no longer available.</p>
-        <button
-          onClick={() => navigate('runs')}
-          className="mt-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-        >
-          ← All runs
-        </button>
+      <div data-testid="run-not-found" className="flex-1 flex items-center justify-center px-6">
+        <EmptyState
+          icon="warning"
+          headline="Run not found"
+          hint="This run doesn’t exist or is no longer available."
+          action={<Button variant="ghost" size="sm" onClick={() => navigate('runs')}>← All runs</Button>}
+        />
       </div>
     )
   }
-  if (!run) return <div className="flex-1 flex items-center justify-center text-[var(--muted)]">Loading…</div>
+  if (!run) return <div className="flex-1 flex items-center justify-center text-muted">Loading…</div>
 
   // A terminal run's tool calls can't still be running: an unpaired tool_use is
   // resolved (not perpetually pending) once the run ends (F-063). awaiting_input
   // is NOT terminal — the CLI is live and a turn may still be in flight.
   const runEnded =
     run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted'
-  const statusMeta = runStatusMeta(run.status)
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-border flex-shrink-0">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-[var(--text)] truncate">{cleanRunPrompt(run.prompt)}</p>
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--muted)]">
-            <span>
+          <p className="text-title truncate">{cleanRunPrompt(run.prompt)}</p>
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-muted">
+            <span className="mono tabular-nums">
               {run.model} · {run.tokensIn.toLocaleString()} in / {run.tokensOut.toLocaleString()} out · ${run.costUsd.toFixed(4)}
             </span>
             {runtimeBadge && (
-              <span
-                data-testid="run-runtime-badge"
-                className="rounded border border-[var(--border)] bg-[var(--raised)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted)]"
-              >
-                {runtimeBadge}
+              <span data-testid="run-runtime-badge">
+                <Tag tint="sky">{runtimeBadge}</Tag>
               </span>
             )}
             <span aria-hidden>·</span>
@@ -325,34 +321,28 @@ export default function RunConsole({ runId }: Props) {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {/* Console | Timeline | Review toggle */}
-          <div className="flex items-center rounded-lg border border-[var(--border)] bg-[var(--raised)] p-0.5 gap-0.5">
-            {(['console', 'timeline', 'review'] as const).map(v => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className={cn(
-                  'rounded px-3 py-1 text-xs font-medium transition-colors duration-150 capitalize',
-                  view === v
-                    ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm'
-                    : 'text-[var(--muted)] hover:text-[var(--text)]'
-                )}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
+          <SegControl<'console' | 'timeline' | 'review'>
+            ariaLabel="Run view"
+            options={[
+              { label: 'console', value: 'console' },
+              { label: 'timeline', value: 'timeline' },
+              { label: 'review', value: 'review' },
+            ]}
+            value={view}
+            onChange={setView}
+          />
           <VerifyChip runId={runId} />
-          <span className={cn('text-xs px-2 py-0.5 rounded font-semibold', statusMeta.badge, statusMeta.live && 'glow-live')}>
-            {statusMeta.label}
-          </span>
+          <StatusPill status={run.status} />
           {(run.status === 'running' || run.status === 'awaiting_input') && (
-            <button
+            <Button
+              variant="danger"
+              size="sm"
+              icon="stop"
               onClick={() => setConfirmKill(true)}
               data-testid="run-kill-btn"
-              className="text-xs px-2 py-0.5 rounded bg-red/20 text-[var(--red)] hover:bg-red/30 transition-colors"
             >
               Kill
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -363,14 +353,15 @@ export default function RunConsole({ runId }: Props) {
         // key={runId} remounts on run switch so per-seq raw cache never leaks across runs
         <RunTimeline key={runId} events={events} runId={runId} terminal={runEnded} />
       ) : (
-        /* Event stream — tool calls rendered richly & collapsed, grouped when consecutive */
-        <div className="flex-1 overflow-y-auto px-5 py-4 font-mono text-sm space-y-1">
+        /* Event stream — dense log, stays an opaque surface (no glass/blur).
+           Tool calls rendered richly & collapsed, grouped when consecutive. */
+        <div className="flex-1 overflow-y-auto px-5 py-4 mono text-body space-y-1">
           {events.length === 0 && (
-            <div className="text-[var(--muted)] italic">Waiting for output…</div>
+            <div className="text-muted italic">Waiting for output…</div>
           )}
           {segments.map(seg =>
             seg.type === 'tools' ? (
-              <div key={seg.key} className="space-y-1 border-l border-[var(--border)] pl-2">
+              <div key={seg.key} className="space-y-1 border-l border-border pl-2">
                 {seg.items.map(it => (
                   <ToolCall key={it.call.id} item={it} runEnded={runEnded} />
                 ))}
@@ -389,10 +380,16 @@ export default function RunConsole({ runId }: Props) {
       {/* E-08 run narrative — deterministic fields + auto/degrade local-model bullets (Lane A fills NarrativeCard). */}
       <NarrativeCard runId={runId} />
 
-      {/* HITL answer box — shown while the interactive run is waiting on the operator */}
+      {/* HITL answer box — shown while the interactive run is waiting on the operator.
+          Glass-panel card, accent-tinted border — a top-level flex child of the
+          console root (not nested inside the opaque event-stream area), so no
+          nested-backdrop-filter risk. */}
       {run.status === 'awaiting_input' && (
-        <div className="flex-shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2" data-testid="run-answer-box">
-          <p className="text-xs font-medium text-[var(--amber)]">⏳ The agent is waiting for your reply.</p>
+        <div className="glass-panel flex-shrink-0 mx-5 mb-3 border-accent/25 px-5 py-3 space-y-2" data-testid="run-answer-box">
+          <p className="flex items-center gap-1.5 text-label font-medium text-amber">
+            <Icon name="warning" size={14} />
+            The agent is waiting for your reply.
+          </p>
           <AutoTextarea
             ref={answerRef}
             aria-label="Answer the agent"
@@ -403,14 +400,14 @@ export default function RunConsole({ runId }: Props) {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void handleSend() }
             }}
             placeholder="Type your reply…  (↵ send · ⇧↵ newline)"
-            className="glow-focus w-full resize-none rounded-control border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
+            className="glow-focus w-full resize-none rounded-control border border-border bg-bg/60 px-3 py-2 text-body text-text placeholder:text-muted/70 outline-none"
           />
           {pressure.band === 'danger' && (
             <p
               data-testid="run-compact-hint"
-              className="text-xs text-[var(--red)]"
+              className="flex items-center gap-1 text-label text-red"
             >
-              <span aria-hidden>⚠ </span>
+              <Icon name="warning" size={14} />
               {autoCompactFired
                 ? 'Context near limit — automatic compaction attempted. Press “Compact context” to retry.'
                 : 'Context near limit — compacting automatically. You can also press “Compact context” now.'}
@@ -422,33 +419,29 @@ export default function RunConsole({ runId }: Props) {
               onTranscript={(t) => { setAnswer(a => (a ? a + ' ' : '') + t); answerRef.current?.focus() }}
               disabled={!status?.voice?.enabled}
             />
-            <button
-              type="button"
-              onClick={() => void handleEnd()}
-              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-            >
+            <Button variant="ghost" size="sm" onClick={() => void handleEnd()}>
               End session
-            </button>
+            </Button>
             <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => void handleCompact()}
                 disabled={sending}
                 data-testid="run-compact-btn"
                 title="Runs the CLI's /compact to condense the conversation and free up context."
-                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)] disabled:opacity-50"
               >
                 Compact context
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => void handleSend()}
                 disabled={sending || !answer.trim()}
                 data-testid="run-answer-send"
-                className="rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-medium text-[var(--accent-hover)] transition-colors hover:bg-accent/30 disabled:opacity-50"
               >
                 {sending ? 'Sending…' : 'Send ↵'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -458,13 +451,15 @@ export default function RunConsole({ runId }: Props) {
           GitHub remote (a remoteless project can't open a PR — F-061). */}
       {(run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted') &&
         run.projectId && runProjectHasRemote && (
-          <div className="flex-shrink-0 border-t border-[var(--border)] px-5 py-2 flex justify-end">
-            <button
+          <div className="flex-shrink-0 border-t border-border px-5 py-2 flex justify-end">
+            <Button
+              variant="glass"
+              size="sm"
+              icon="pr"
               onClick={() => navigate('project', run.projectId!, 'prs-ci')}
-              className="text-xs text-[var(--muted)] hover:text-[var(--text)] border border-[var(--border)] rounded px-3 py-1 transition-colors hover:border-[var(--accent)] hover:text-[var(--accent-hover)]"
             >
               Create PR from Run →
-            </button>
+            </Button>
           </div>
         )}
 
