@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { PlanDocSchema, type InboxCounts, type InboxItem, type InboxPayload, type VerifyStatus } from '@k/shared'
-import { db, runsDb } from '../db.js'
+import { db, runsDb, proposalsDb } from '../db.js'
 import { sendError } from './http-errors.js'
 
 // Local prepares (capabilities.ts:72 precedent): the union is an inbox-only read
@@ -117,11 +117,13 @@ export async function inboxRoutes(app: FastifyInstance) {
       lesson_pending: items.filter(i => i.kind === 'lesson_pending').length,
       mcp_trust: items.filter(i => i.kind === 'mcp_trust').length,
       review_ready: (countReviewReady.get() as { n: number }).n, // honest uncapped count
+      // E-14: open (blocked, sourced) proposals. Count only for now — B3 adds the cards.
+      proposal: (proposalsDb.countOpenProposals.get() as { n: number }).n,
     }
     const payload: InboxPayload = {
       items,
       counts,
-      total: counts.plan_pending + counts.input_needed + counts.lesson_pending + counts.mcp_trust + counts.review_ready,
+      total: counts.plan_pending + counts.input_needed + counts.lesson_pending + counts.mcp_trust + counts.review_ready + counts.proposal,
     }
     return reply.send(payload)
   })

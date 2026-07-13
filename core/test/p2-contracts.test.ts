@@ -84,7 +84,7 @@ describe('P2 contracts (W0 freeze)', () => {
     expect(InboxItemSchema.safeParse({ ...common, kind: 'review_ready', runId: RUN_ID, verifyStatus: 'pass' }).success).toBe(true)
     expect(InboxItemSchema.safeParse({ ...common, kind: 'mystery' }).success).toBe(false)
     expect(InboxPayloadSchema.parse({
-      items: [], counts: { plan_pending: 0, input_needed: 0, lesson_pending: 0, mcp_trust: 0, review_ready: 0 }, total: 0,
+      items: [], counts: { plan_pending: 0, input_needed: 0, lesson_pending: 0, mcp_trust: 0, review_ready: 0, proposal: 0 }, total: 0,
     }).total).toBe(0)
   })
 
