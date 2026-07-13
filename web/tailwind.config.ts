@@ -25,6 +25,14 @@ export default {
         control: '14px',
         pill: '9999px',
       },
+      fontSize: {
+        display: ['24px', { lineHeight: '32px', fontWeight: '600' }],
+        title: ['16px', { lineHeight: '24px', fontWeight: '600' }],
+        body: ['14px', { lineHeight: '22px' }],
+        label: ['12px', { lineHeight: '16px', fontWeight: '500' }],
+        caption: ['11px', { lineHeight: '14px' }],
+        micro: ['10px', { lineHeight: '12px' }],
+      },
       fontFamily: {
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
       },
