@@ -106,9 +106,12 @@ body { font-variant-numeric: tabular-nums; }
   100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
 }
 
-/* Focused command bar gets a soft sky-blue ring (the interactive-highlight colour) */
-.glow-focus {
-  box-shadow: 0 0 0 1px var(--accent-hover), 0 0 26px -6px rgba(56, 189, 248, 0.5);
+/* Focused command bar gets a soft sky-blue ring (the interactive-highlight colour).
+   Lives in @layer utilities so variant prefixes (focus-visible:glow-focus) work. */
+@layer utilities {
+  .glow-focus {
+    box-shadow: 0 0 0 1px var(--accent-hover), 0 0 26px -6px rgba(56, 189, 248, 0.5);
+  }
 }
 
 /* Card hover lift — 150ms, hairline transitions to the sky-blue highlight */
