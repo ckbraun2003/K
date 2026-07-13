@@ -490,7 +490,8 @@ async function start() {
   stopGraphAutoReindex = registerGraphAutoReindex(getProject)
   // E-04 run-verify engine seam (W0 stub — Lane B lands the real trigger).
   stopRunVerify = registerRunVerify(getProject)
-  // E-19 notification engine seam (W0 stub — Lane B lands the real pipeline).
+  // E-19 notification engine seam (registerNotifications) — a W0 stub; no P5 lane
+  // shipped a notification pipeline, so this remains a stub.
   stopNotifications = registerNotifications()
   // Wake the Chief autonomously on a schedule tick + on subscribed run-completion
   // events (debounced + already-running/self-wake guarded). P5-B: gated by the

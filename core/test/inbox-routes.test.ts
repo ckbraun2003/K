@@ -79,9 +79,11 @@ describe('GET /api/inbox', () => {
     // the already-reviewed done run is absent:
     expect(inbox.items.some(i => i.kind === 'review_ready' && i.runId === reviewedRun)).toBe(false)
     expect(inbox.counts.plan_pending).toBeGreaterThanOrEqual(1)
+    // total sums ALL kinds INCLUDING proposals — the route's total includes counts.proposal
+    // (inbox.ts), so the expected sum must too (a leaked/seeded proposal must not fail this).
     expect(inbox.total).toBe(
       inbox.counts.plan_pending + inbox.counts.input_needed + inbox.counts.lesson_pending
-      + inbox.counts.mcp_trust + inbox.counts.review_ready)
+      + inbox.counts.mcp_trust + inbox.counts.review_ready + inbox.counts.proposal)
     // ts DESC across kinds:
     const ts = inbox.items.map(i => i.ts)
     expect([...ts].sort((a, b) => b - a)).toEqual(ts)

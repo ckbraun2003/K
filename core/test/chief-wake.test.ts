@@ -30,6 +30,7 @@ import { eventBus } from '../src/events.js'
 import { startRun } from '../src/supervisor.js'
 import { getProfile, createProfile } from '../src/profiles.js'
 import { setAutonomySettings, __resetConfigCache } from '../src/config-store.js'
+import { DEFAULT_AUTONOMY_SETTINGS } from '@k/shared'
 import type { Run } from '@k/shared'
 
 // P5-B: chiefWakeEnabled() now reads the persisted autonomy setting (default OFF)
@@ -176,6 +177,11 @@ beforeEach(() => {
 })
 
 afterAll(() => {
+  // M1: beforeEach forced autonomy ON for the whole file; restore the persisted setting to
+  // its default (OFF) so it does not leak enabled=true into the shared K_DATA_DIR and boot a
+  // LATER suite's buildApp() with Autonomous Org ON. Mirrors autonomy-settings-route.test.ts.
+  setAutonomySettings({ ...DEFAULT_AUTONOMY_SETTINGS })
+  __resetConfigCache()
   db.prepare(`DELETE FROM agent_runs WHERE profile_id = 'chief'`).run()
   db.prepare(`DELETE FROM agent_runs WHERE run_id LIKE 'mock-cw-run-%'`).run()
   db.prepare(`DELETE FROM runs WHERE id LIKE 'mock-cw-run-%'`).run()
@@ -441,6 +447,39 @@ describe('onChiefWakeRunUpdate (event path) + startChiefWake', () => {
       expect(eventWakes).toHaveLength(2) // the 3rd wake was suppressed by the breaker
     } finally {
       db.prepare(`DELETE FROM app_config WHERE key = 'chief_wake_max_per_hour'`).run()
+    }
+  })
+
+  it('e10) runtime-enable (M3): startChiefWake() called while autonomy is OFF still wires the subscription; enabling later wakes on the next event with NO restart', async () => {
+    // Autonomy OFF at the instant startChiefWake runs. Pre-M3 this early-returned a no-op and
+    // wired NOTHING, so enabling Autonomous Org later needed a process restart. Now it must
+    // ALWAYS wire — the per-event gate (onChiefWakeRunUpdate → chiefWakeEnabled) does the
+    // disabling, so a runtime enable goes live on the next event with no restart.
+    setAutonomySettings({ ...AUTONOMY_ON, enabled: false })
+    __resetConfigCache()
+    const stop = startChiefWake()
+    try {
+      // While still OFF: an org-relevant terminal on the bus must NOT wake (the per-event gate).
+      const offRunId = seedLeadTerminal()
+      eventBus.emitRunUpdate(terminalRun(offRunId))
+      await flush()
+      expect(chiefWakesGoalIncludes(offRunId)).toHaveLength(0)
+
+      // Operator flips Autonomous Org ON at runtime — no restart, no fresh startChiefWake().
+      setAutonomySettings({ ...AUTONOMY_ON, enabled: true })
+      __resetConfigCache()
+      resetChiefWakeDebounce()
+
+      // The SAME subscription wired above (while disabled) is now live: the next org-relevant
+      // terminal wakes the Chief (trigger=event), proving the wire survived the OFF-at-boot call.
+      const onRunId = seedLeadTerminal()
+      eventBus.emitRunUpdate(terminalRun(onRunId))
+      await flush()
+      const woke = chiefWakesGoalIncludes(onRunId)
+      expect(woke).toHaveLength(1)
+      expect(woke[0].trigger).toBe('event')
+    } finally {
+      stop()
     }
   })
 })

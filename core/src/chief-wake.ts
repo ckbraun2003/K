@@ -263,12 +263,24 @@ export function scheduledChiefWake(): void {
  * Start the Chief autonomous wake: register a node-cron schedule tick AND subscribe
  * to terminal run-completion events, both routed through `wakeChief`. Returns a stop
  * fn that tears down the cron task + the subscription (mirrors registerGraphAutoReindex).
- * When disabled (autonomySettings().enabled === false, the default) it wires nothing
- * and returns a no-op stop.
+ * ALWAYS wires (M3): while autonomySettings().enabled is false (the default) each tick /
+ * event is gated to a cheap no-op by wakeChief()/onChiefWakeRunUpdate(), and enabling
+ * Autonomous Org at runtime goes live on the NEXT tick/event with no process restart.
  */
 export function startChiefWake(opts?: { cron?: string; minIntervalMs?: number }): () => void {
-  if (!chiefWakeEnabled()) return () => { /* disabled — nothing wired */ }
+  // MINOR-1: fire the one-time CHIEF_WAKE env-deprecation warning at boot REGARDLESS of the
+  // enabled state — hoisted above every gate. It previously sat after a disabled early-return,
+  // so a default-OFF operator who still set CHIEF_WAKE=1 never saw the deprecation notice.
   warnDeprecatedChiefWakeEnv()
+
+  // M3: ALWAYS wire the cron tick + the run-update subscription — do NOT early-return when
+  // autonomy is OFF. wakeChief(), onChiefWakeRunUpdate(), and runCollectors() each RE-READ the
+  // persisted autonomySettings().enabled per tick/event, so while disabled a tick is a cheap
+  // no-op and the subscription callback returns early — and the moment the operator flips
+  // Autonomous Org ON in Settings, the NEXT scheduled tick / run-completion event wakes the
+  // Chief with NO process restart (mirrors startProposalCollectors' always-schedule +
+  // per-tick-gate design). The rate breaker + kill switch (in wakeChief / onChiefWakeRunUpdate)
+  // stay fully intact — this only removes the boot-time all-or-nothing gate.
 
   // minIntervalMs is module-global (wakeChief reads it). Capture the prior value so
   // the stop fn restores it — a per-instance override must not leak past this instance

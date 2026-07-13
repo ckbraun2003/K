@@ -79,10 +79,13 @@ export default function InboxTab() {
     onSuccess: refreshInbox,
     onError: fail('Dismiss'),
   })
-  // E-14 — approve enters the auto-pull backlog (open); dismiss is sticky
-  // (cancelled — the same signal won't re-propose). Both are single-click,
-  // compose-is-confirm actions; a fresh collector run supplies the "undo" for a
-  // wrong dismiss (a still-true signal simply re-surfaces under a new key).
+  // E-14 — approve enters the auto-pull backlog (open); dismiss is sticky (cancelled).
+  // Both are single-click, compose-is-confirm actions. Dismiss is PERMANENT for
+  // project-keyed sources: ci_failed / verify_finding / stale_bible derive their
+  // source_key from the project, so a sticky-dismiss suppresses that signal for good —
+  // the accepted "don't nag again" design (proposal-collectors.ts). Only open_issue is
+  // issue-number-keyed, so a genuinely NEW issue re-proposes under its own key; a
+  // dismissed project-keyed signal never re-surfaces on its own (no collector "undo").
   const approveProposal = useMutation({
     mutationFn: (id: string) => api.inbox.approveProposal(id),
     onSuccess: refreshInbox,
