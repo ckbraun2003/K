@@ -6,3 +6,4 @@
 # Generated artifacts are emitted with LF by the compiler — pin LF so a Windows
 # checkout doesn't rewrite them to CRLF and churn the tracked files.
 artifacts/*.html text eol=lf
+web/src/generated/*.ts text eol=lf
