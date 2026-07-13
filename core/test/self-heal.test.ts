@@ -38,9 +38,20 @@ function seedFailedRun(id: string, retryCount = 0, stderr: string | null = 'ECON
 describe('self-heal', () => {
   beforeEach(() => {
     __resetConfigCache(); startRunMock.mockReset()
-    // Delete children before parents (foreign_keys=ON; events.run_id → runs(id) has no ON DELETE).
-    db.prepare('DELETE FROM events').run(); db.prepare('DELETE FROM agent_runs').run()
-    db.prepare('DELETE FROM runs').run(); db.prepare('DELETE FROM work_items').run()
+    // SHARED K_DATA_DIR: sibling suites leave RESTRICT-referencing children on `runs`, so a
+    // blanket `DELETE FROM runs` FK-fails. Scope cleanup to THIS suite's own 'r%' rows only,
+    // children before parents (events.run_id → runs has no ON DELETE = RESTRICT). `runs` form a
+    // retry chain via the self-FK runs.retry_of (also RESTRICT), so delete leaf-first (rows not
+    // referenced as any retry's parent) until none of ours remain.
+    db.prepare(`DELETE FROM events WHERE run_id LIKE 'r%'`).run()
+    db.prepare(`DELETE FROM agent_runs WHERE run_id LIKE 'r%'`).run()
+    db.prepare(`DELETE FROM work_items WHERE source_key LIKE 'self_heal:r%'`).run()
+    let removed: number
+    do {
+      removed = db.prepare(
+        `DELETE FROM runs WHERE id LIKE 'r%' AND id NOT IN (SELECT retry_of FROM runs WHERE retry_of IS NOT NULL)`,
+      ).run().changes as number
+    } while (removed > 0)
     setAutonomySettings(ON)
   })
 
@@ -74,5 +85,25 @@ describe('self-heal', () => {
     seedFailedRun('r3', 0, null)               // no error event persisted
     expect(await onRunTerminalForHeal({ id: 'r3', status: 'error' } as any)).toBe('parked')
     expect((db.prepare(`SELECT failure_class FROM runs WHERE id='r3'`).get() as any).failure_class).toBe('unknown')
+  })
+
+  it('re-heals a failed retry (a descended run has no agent_runs owner but is still eligible)', async () => {
+    // The retry's own run row must exist so setRunRetry can stamp its lineage.
+    startRunMock.mockImplementation(async () => {
+      db.prepare(`INSERT INTO runs (id,prompt,cwd,worktree,status,created_at) VALUES ('R1-retry','p','.','.','running',?)`).run(Date.now())
+      return { id: 'R1-retry' }
+    })
+    // R0: the original org run (agent_runs owner), retry_count 0.
+    seedFailedRun('R0', 0, 'ECONNRESET')
+    // R1: R0's retry — dispatched via startRun, so it has NO agent_runs row of its own; it is
+    // eligible only via runs.retry_of. Without the retry_of eligibility branch this would be
+    // orphaned ('skipped') and the ladder would never climb past retry_count=1.
+    db.prepare(`INSERT INTO runs (id,prompt,cwd,worktree,status,model,retry_of,retry_count,created_at) VALUES ('R1','p','.','.','error','claude-sonnet-4-6','R0',1,?)`).run(Date.now())
+    db.prepare(`INSERT INTO events (id,run_id,seq,type,ts,text) VALUES ('e-R1','R1',1,'error',?,'ECONNRESET')`).run(Date.now())
+    const outcome = await onRunTerminalForHeal({ id: 'R1', status: 'error' } as any)
+    expect(outcome).not.toBe('skipped')
+    expect(outcome).toBe('retried')       // retry_count 1 < MAX_RETRIES → climbs to 2
+    const retry = db.prepare(`SELECT retry_of, retry_count FROM runs WHERE id='R1-retry'`).get() as any
+    expect(retry.retry_of).toBe('R1'); expect(retry.retry_count).toBe(2)
   })
 })

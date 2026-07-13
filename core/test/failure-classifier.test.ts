@@ -14,6 +14,12 @@ describe('failure classifier', () => {
     expect(classifyFailure({ status: 'killed' })).toBe('permanent')  // operator kill is not auto-retried
     expect(classifyFailure({ status: 'error', stderr: null })).toBe('unknown')
   })
+  it('classifies a permanent failure permanent even when its message carries a transient token', () => {
+    // The stray "429" matches the model_capacity pattern as a substring; because `permanent`
+    // is tested FIRST, the genuine assertion failure wins and is NOT wrongly auto-retried.
+    expect(classifyFailure({ status: 'error', stderr: 'AssertionError: expected 429 to equal 200' })).toBe('permanent')
+    expect(isRetryable(classifyFailure({ status: 'error', stderr: 'AssertionError: expected 429 to equal 200' }))).toBe(false)
+  })
   it('fallback downgrades on capacity, keeps model on transient, none on permanent', () => {
     expect(fallbackModel('claude-opus-4-8', 'model_capacity')).toBe('claude-sonnet-4-6')
     expect(fallbackModel('claude-sonnet-4-6', 'transient')).toBe('claude-sonnet-4-6') // retry same model

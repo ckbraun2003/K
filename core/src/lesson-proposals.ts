@@ -48,9 +48,13 @@ export function proposeLessons(now = Date.now()): number {
   let inserted = 0
   for (const c of candidates) {
     if (inserted >= LESSON_PROPOSAL_CAP) break
-    // Dedupe: a pending lesson whose text embeds this signature already covers it.
+    // Dedupe on the bracketed signature token. Escape LIKE metacharacters (\ % _) in the
+    // signature so a `%`/`_` carried in the failure reason can't wildcard-match a DIFFERENT
+    // recurring signature. Match across ALL statuses (not just 'pending') so that once an
+    // operator REJECTS a lesson for a signature, the hourly cron does not re-propose it.
+    const escSig = c.signature.replace(/[\\%_]/g, '\\$&')
     const existing = db.prepare(
-      `SELECT 1 FROM agent_memory WHERE status='pending' AND lesson LIKE ? LIMIT 1`).get(`%[sig:${c.signature}]%`)
+      `SELECT 1 FROM agent_memory WHERE lesson LIKE ? ESCAPE '\\' LIMIT 1`).get(`%[sig:${escSig}]%`)
     if (existing) continue
     const lesson = `Recurring failure (${c.count}×): ${c.text.slice(0, 200)}. Suggested charter adjustment: add a pre-flight check for this class before dispatch. [sig:${c.signature}]`
     // Reuse the EXISTING lesson writer (SEAMS contract) — a fleet-wide pending lesson (no run/profile).

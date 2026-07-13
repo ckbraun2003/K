@@ -6,12 +6,17 @@
  */
 import type { FailureClass } from '@k/shared'
 
+// Order matters — patterns are tested top-to-bottom, first match wins. `permanent`
+// (a real assertion/compile/test failure) is tested FIRST so it beats an incidental
+// transient token in the same message, e.g. "AssertionError: expected 429 to equal 200"
+// must classify permanent, not model_capacity off the stray "429". Retrying a genuine
+// test failure just burns budget.
 const PATTERNS: Array<[RegExp, FailureClass]> = [
+  [/assertion|expected .* to (?:equal|be)|test(?:s)? failed|compilation error|type error|syntaxerror/i, 'permanent'],
   [/overloaded_error|529|rate.?limit|429|capacity/i, 'model_capacity'],
   [/timed? ?out|deadline exceeded|etimedout/i, 'timeout'],
   [/enotfound|econnreset|econnrefused|socket hang up|connection reset|network|getaddrinfo|502|503|504/i, 'transient'],
   [/command not found|not recognized|no such file|permission denied|missing dependency|module not found/i, 'tooling'],
-  [/assertion|expected .* to (?:equal|be)|test(?:s)? failed|compilation error|type error|syntaxerror/i, 'permanent'],
 ]
 
 export function classifyFailure(input: { status: string; stderr?: string | null; exitCode?: number | null }): FailureClass {

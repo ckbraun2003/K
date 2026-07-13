@@ -30,13 +30,18 @@ function runErrorText(runId: string): string | null {
 export async function onRunTerminalForHeal(run: Run, now = Date.now()): Promise<'retried' | 'parked' | 'skipped'> {
   const s = autonomySettings()
   if (!s.enabled || !s.selfHeal) return 'skipped'
-  if (!isTerminalRunStatus(run.status) || run.status === 'done') return 'skipped'
-  // Only org/auto runs (an agent_runs row) are eligible — never a manual user run.
+  // Act only on genuine execution failures. A clean finish ('done') and a deliberate
+  // stop ('killed'/'interrupted') are not failures — never retry or park them (else an
+  // operator-cancelled org run parks Inbox noise).
+  if (!isTerminalRunStatus(run.status) || run.status === 'done' || run.status === 'killed' || run.status === 'interrupted') return 'skipped'
+  // Eligible: an org/auto run (has an agent_runs owner) OR a descended retry. A retry is
+  // dispatched via startRun and gets NO agent_runs row of its own, so without the retry_of
+  // branch a failed retry would find no owner → be orphaned (never re-healed, never parked)
+  // and the retry ladder could never climb past retry_count=1.
   const owner = agentRunsDb.getAgentRunProfileByRunId.get(run.id) as { profile_id?: string } | undefined
-  if (!owner?.profile_id) return 'skipped'
-
-  const row = runsDb.getRun.get(run.id) as { model?: string; retry_count?: number; prompt?: string; project_id?: string | null } | undefined
+  const row = runsDb.getRun.get(run.id) as { model?: string; retry_count?: number; prompt?: string; project_id?: string | null; retry_of?: string | null } | undefined
   if (!row) return 'skipped'
+  if (!owner?.profile_id && !row.retry_of) return 'skipped'
   const stderr = runErrorText(run.id)
   const cls = classifyFailure({ status: run.status, stderr })
   retryDb.setRunFailureClass.run({ id: run.id, failureClass: cls })
@@ -71,7 +76,7 @@ export async function onRunTerminalForHeal(run: Run, now = Date.now()): Promise<
 
 export function startSelfHeal(): () => void {
   const off = eventBus.onRunUpdate(run => {
-    if (!isTerminalRunStatus(run.status) || run.status === 'done') return
+    if (!isTerminalRunStatus(run.status) || run.status === 'done' || run.status === 'killed' || run.status === 'interrupted') return
     void onRunTerminalForHeal(run).catch(() => { /* never crash the bus */ })
   })
   return off
