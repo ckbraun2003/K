@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Skill, CreateSkill, UpdateSkill, SkillEval, Project } from '@k/shared'
+import type { Skill, CreateSkill, UpdateSkill, SkillEval, Project, RoutineView } from '@k/shared'
 import { api } from '../../lib/api'
 import { agentRunStatusMeta } from '../../lib/status'
 import AutoTextarea from '../../components/AutoTextarea'
@@ -27,6 +27,20 @@ const TRIGGER_COLORS: Record<Skill['triggerType'], string> = {
   manual: 'bg-[var(--raised)] text-[var(--muted)]',
   schedule: 'bg-yellow-500/20 text-yellow-300',
   event: 'bg-orange-500/20 text-orange-300',
+}
+
+// E-16 — a routine's nextRunAt is a FUTURE timestamp; verify.ts::relativeTime is
+// "ago"-oriented (clamps a future ts to "just now"), so it can't render this
+// correctly. Small local, future-oriented counterpart, same coarse bucket style.
+function formatNextRun(ts: number | null, now: number = Date.now()): string {
+  if (ts == null) return 'not scheduled'
+  const sec = Math.max(0, Math.round((ts - now) / 1000))
+  if (sec < 60) return 'due now'
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `in ${min}m`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `in ${hr}h`
+  return `in ${Math.floor(hr / 24)}d`
 }
 
 function Badge({ label, className }: { label: string; className: string }) {
@@ -59,9 +73,17 @@ export default function AutomationsTab() {
     queryKey: ['projects'],
     queryFn: api.projects.list,
   })
+  // E-16 — schedule-triggered routines: derived next-run + measured cost, keyed by skill id.
+  const { data: routines } = useQuery<RoutineView[]>({
+    queryKey: ['routines'],
+    queryFn: api.routines.list,
+  })
+  const routineById = new Map((routines ?? []).map(r => [r.id, r]))
 
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<CreateSkill>(BLANK)
+  // E-16 NL→cron: free-text phrase for the create form's schedule field.
+  const [nlText, setNlText] = useState('')
   // Pending delete (skill awaiting confirmation) + last-triggered run (toast).
   const [pendingDelete, setPendingDelete] = useState<Skill | null>(null)
   const [triggered, setTriggered] = useState<{ skillName: string; runId: string } | null>(null)
@@ -102,6 +124,16 @@ export default function AutomationsTab() {
   const testMutation = useMutation({
     mutationFn: (id: string) => api.skills.test(id),
     onSuccess: (_data, id) => qc.invalidateQueries({ queryKey: ['skill-evals', id] }),
+  })
+
+  // E-16 NL→cron: the boundary validates (400 on invalid/unmappable) — a rejection
+  // surfaces inline next to the cron field rather than blocking registration.
+  const parseCronMutation = useMutation({
+    mutationFn: (text: string) => api.routines.parseCron(text),
+    onSuccess: result => {
+      setForm(f => ({ ...f, schedule: result.cron }))
+      setNlText('')
+    },
   })
 
   function handleSubmit(e: React.FormEvent) {
@@ -180,6 +212,7 @@ export default function AutomationsTab() {
             <div>
               <label className="mb-1 block text-xs text-[var(--muted)]">Trigger</label>
               <select
+                data-testid="skill-trigger-select"
                 className={selectCls}
                 value={form.triggerType}
                 onChange={e =>
@@ -210,6 +243,31 @@ export default function AutomationsTab() {
                     ? `⚠ ${cronCheck.error}`
                     : '5 or 6 fields: min hour day month weekday (e.g. 0 2 * * * = 2am daily)'}
                 </p>
+                {/* E-16 NL→cron — rules-only translation at the boundary (POST
+                    /api/routines/parse-cron); fills the cron field above on success. */}
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    data-testid="routine-nl-input"
+                    className={inputCls}
+                    placeholder="Describe in words (e.g. every day at 9am)"
+                    value={nlText}
+                    onChange={e => { setNlText(e.target.value); parseCronMutation.reset() }}
+                  />
+                  <button
+                    type="button"
+                    data-testid="routine-nl-submit"
+                    disabled={!nlText.trim() || parseCronMutation.isPending}
+                    onClick={() => parseCronMutation.mutate(nlText.trim())}
+                    className="whitespace-nowrap rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+                  >
+                    {parseCronMutation.isPending ? '…' : 'To cron'}
+                  </button>
+                </div>
+                {parseCronMutation.isError && (
+                  <span data-testid="cron-error" className="mt-1 block text-[11px] text-[var(--red)]">
+                    {(parseCronMutation.error as Error).message}
+                  </span>
+                )}
               </div>
             )}
             {form.triggerType === 'event' && (
@@ -279,6 +337,7 @@ export default function AutomationsTab() {
           <SkillRow
             key={skill.id}
             skill={skill}
+            routine={routineById.get(skill.id)}
             projects={projects}
             onToggle={enabled => toggleMutation.mutate({ id: skill.id, enabled })}
             onTrigger={projectId => triggerMutation.mutate({ skill, projectId })}
@@ -343,6 +402,7 @@ export const EVAL_BADGE: Record<SkillEval['status'], string> = {
 
 function SkillRow({
   skill,
+  routine,
   projects,
   onToggle,
   onTrigger,
@@ -353,6 +413,7 @@ function SkillRow({
   isTestPending,
 }: {
   skill: Skill
+  routine?: RoutineView
   projects: Project[]
   onToggle: (enabled: boolean) => void
   onTrigger: (projectId?: string) => void
@@ -406,7 +467,17 @@ function SkillRow({
             <p className="mt-0.5 truncate text-xs text-[var(--muted)]">{skill.description}</p>
           )}
           {skill.triggerType === 'schedule' && skill.schedule && (
-            <p className="mt-0.5 text-xs text-[var(--muted)]">cron: {skill.schedule}</p>
+            <p className="mt-0.5 text-xs text-[var(--muted)]">
+              cron: {skill.schedule}
+              {routine && (
+                <>
+                  {' · '}
+                  <span data-testid="routine-next-run">next run {formatNextRun(routine.nextRunAt)}</span>
+                  {' · '}
+                  <span data-testid="routine-cost">${routine.totalCostUsd.toFixed(2)}</span>
+                </>
+              )}
+            </p>
           )}
           {skill.triggerType === 'event' && skill.eventTrigger && (
             <p className="mt-0.5 text-xs text-[var(--muted)]">on: {skill.eventTrigger}</p>
