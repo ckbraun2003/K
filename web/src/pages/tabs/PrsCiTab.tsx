@@ -5,6 +5,10 @@ import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
 import DiffViewer from '../../components/DiffViewer'
 import MergeButton from '../../components/MergeButton'
+import { Icon } from '../../ui/Icon'
+import { Button, IconButton } from '../../ui/Button'
+import { Spinner } from '../../ui/Spinner'
+import { Input, Textarea } from '../../ui/Field'
 
 interface Props {
   projectId: string
@@ -42,17 +46,17 @@ function timeAgo(isoOrMs: string | number | null | undefined): string {
 }
 
 const CHECK_DOT: Record<string, string> = {
-  passing: 'bg-[var(--green)]',
-  failing:  'bg-[var(--red)]',
-  pending:  'bg-[var(--amber)] glow-live',
-  none:     'bg-[var(--muted)]',
+  passing: 'bg-green',
+  failing:  'bg-red',
+  pending:  'bg-amber glow-live',
+  none:     'bg-muted',
 }
 
 function ciConclusionColor(conclusion: string | null, status: string): string {
-  if (status === 'in_progress' || status === 'queued') return 'text-[var(--amber)]'
-  if (conclusion === 'success') return 'text-[var(--green)]'
-  if (conclusion === 'failure' || conclusion === 'cancelled') return 'text-[var(--red)]'
-  return 'text-[var(--muted)]'
+  if (status === 'in_progress' || status === 'queued') return 'text-amber'
+  if (conclusion === 'success') return 'text-green'
+  if (conclusion === 'failure' || conclusion === 'cancelled') return 'text-red'
+  return 'text-muted'
 }
 
 function ciLabel(run: CiRunInfo): string {
@@ -73,7 +77,7 @@ function PrRow({ pr, projectId }: { pr: PrInfo; projectId: string }) {
     enabled: expanded,
   })
   return (
-    <div className="border-b border-[var(--border)]">
+    <div className="border-b border-border">
       <div
         role="button"
         tabIndex={0}
@@ -81,20 +85,24 @@ function PrRow({ pr, projectId }: { pr: PrInfo; projectId: string }) {
         data-testid={`pr-row-${pr.number}`}
         onClick={() => setExpanded(e => !e)}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(v => !v) } }}
-        className="flex items-start gap-3 px-4 py-3 hover:bg-[var(--surface)] transition-colors cursor-pointer"
+        className="flex items-start gap-3 px-4 py-3 hover:bg-surface transition-colors cursor-pointer"
       >
         {/* Expand chevron */}
-        <span className={cn('mt-1 flex-shrink-0 text-[10px] text-[var(--muted)] transition-transform', expanded && 'rotate-90')} aria-hidden>▶</span>
+        <Icon
+          name="chevronRight"
+          size={14}
+          className={cn('mt-1 flex-shrink-0 text-muted transition-transform', expanded && 'rotate-90')}
+        />
 
         {/* Check dot */}
-        <span className={cn('mt-1 w-2 h-2 rounded-full flex-shrink-0', CHECK_DOT[pr.checks] ?? 'bg-[var(--muted)]')} />
+        <span className={cn('mt-1 w-2 h-2 rounded-full flex-shrink-0', CHECK_DOT[pr.checks] ?? 'bg-muted')} />
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-xs text-[var(--muted)]">#{pr.number}</span>
-            <p className="text-sm text-[var(--text)] truncate">{pr.title}</p>
+            <span className="mono text-xs text-muted">#{pr.number}</span>
+            <p className="text-sm text-text truncate">{pr.title}</p>
           </div>
-          <p className="font-mono text-[10px] text-[var(--muted)] mt-0.5">checks: {pr.checks}</p>
+          <p className="mono text-[10px] text-muted mt-0.5">checks: {pr.checks}</p>
         </div>
 
         {/* One-click merge (renders only for OPEN + green PRs) — stops propagation itself */}
@@ -107,22 +115,26 @@ function PrRow({ pr, projectId }: { pr: PrInfo; projectId: string }) {
           rel="noopener noreferrer"
           onClick={e => e.stopPropagation()}
           title="Open on GitHub"
-          className="flex-shrink-0 text-[var(--muted)] hover:text-[var(--accent-hover)] transition-colors text-xs mt-0.5"
+          className="flex-shrink-0 text-muted hover:text-accent-hover transition-colors mt-0.5"
           aria-label="Open PR on GitHub"
         >
-          ↗
+          <Icon name="external" size={14} />
         </a>
       </div>
 
       {/* Lazily-fetched read-only diff panel */}
       {expanded && (
-        <div className="border-t border-[var(--border)] bg-[var(--bg)]">
-          {isLoading && <p className="px-4 py-3 text-xs text-[var(--muted)]">Loading diff…</p>}
-          {error != null && <p className="px-4 py-3 text-xs text-[var(--red)]">{String((error as Error).message)}</p>}
+        <div className="border-t border-border bg-bg">
+          {isLoading && (
+            <p className="flex items-center gap-2 px-4 py-3 text-xs text-muted">
+              <Spinner size={14} /> Loading diff…
+            </p>
+          )}
+          {error != null && <p className="px-4 py-3 text-xs text-red">{String((error as Error).message)}</p>}
           {diff != null && (
             <div className="overflow-x-auto" data-testid={`pr-diff-${pr.number}`}>
               {diff.files.length === 0
-                ? <p className="px-4 py-3 text-xs text-[var(--muted)]">No file changes.</p>
+                ? <p className="px-4 py-3 text-xs text-muted">No file changes.</p>
                 : <DiffViewer files={diff.files} comments={[]} readOnly />}
             </div>
           )}
@@ -136,13 +148,13 @@ function CiRow({ run, remote }: { run: CiRunInfo; remote?: string }) {
   const color = ciConclusionColor(run.conclusion, run.status)
   const url = ciRunUrl(remote, run.id)
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--surface)] transition-colors">
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-border hover:bg-surface transition-colors">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-sm text-[var(--text)] truncate">{run.workflow}</p>
-          <span className={cn('font-mono text-xs flex-shrink-0', color)}>{ciLabel(run)}</span>
+          <p className="text-sm text-text truncate">{run.workflow}</p>
+          <span className={cn('mono text-xs flex-shrink-0', color)}>{ciLabel(run)}</span>
         </div>
-        <p className="font-mono text-[10px] text-[var(--muted)] mt-0.5">
+        <p className="mono text-[10px] text-muted mt-0.5">
           {run.branch} · {timeAgo(run.createdAt)}
         </p>
       </div>
@@ -154,12 +166,12 @@ function CiRow({ run, remote }: { run: CiRunInfo; remote?: string }) {
           onClick={e => e.stopPropagation()}
           title="Open run on GitHub"
           aria-label={`Open CI run ${run.id} on GitHub`}
-          className="font-mono text-[10px] text-[var(--muted)] flex-shrink-0 hover:text-[var(--accent-hover)] transition-colors"
+          className="mono text-[10px] text-muted flex-shrink-0 hover:text-accent-hover transition-colors inline-flex items-center gap-1"
         >
-          #{run.id} ↗
+          #{run.id} <Icon name="external" size={14} />
         </a>
       ) : (
-        <span className="font-mono text-[10px] text-[var(--muted)] flex-shrink-0">
+        <span className="mono text-[10px] text-muted flex-shrink-0">
           #{run.id}
         </span>
       )}
@@ -235,36 +247,32 @@ export default function PrsCiTab({ projectId }: Props) {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Header bar */}
-      <div className="flex-shrink-0 px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
+      <div className="flex-shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-3">
           {hasRemote ? (
-            <button
-              data-testid="prs-open-pr"
-              onClick={openCreatePr}
-              className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:border-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
-            >
-              + Open PR
-            </button>
+            <Button data-testid="prs-open-pr" variant="glass" size="sm" icon="plus" onClick={openCreatePr}>
+              Open PR
+            </Button>
           ) : (
-            <span data-testid="prs-no-remote" className="text-[11px] text-[var(--muted)]">
+            <span data-testid="prs-no-remote" className="text-[11px] text-muted">
               No GitHub remote — PRs unavailable
             </span>
           )}
           {/* Auto-merge greens — only meaningful when the project has a remote to push to */}
           {hasRemote && (
-            <label className="flex items-center gap-1.5 text-[11px] text-[var(--muted)] cursor-pointer select-none">
+            <label className="flex items-center gap-1.5 text-[11px] text-muted cursor-pointer select-none">
               <input
                 type="checkbox"
                 data-testid="automerge-toggle"
                 checked={!!project?.autoMerge}
                 onChange={e => autoMergeMutation.mutate(e.target.checked)}
-                className="accent-[var(--accent)]"
+                className="accent-accent"
               />
               Auto-merge greens (k/verify + checks)
             </label>
           )}
         </div>
-        <span className="font-mono text-[10px] text-[var(--muted)]">
+        <span className="mono text-[10px] text-muted">
           {github?.fetchedAt != null
             ? `Updated ${timeAgo(github.fetchedAt)}`
             : isLoading
@@ -277,34 +285,34 @@ export default function PrsCiTab({ projectId }: Props) {
 
       {/* Success banner */}
       {prUrl != null && prNumber != null && (
-        <div className="flex-shrink-0 px-4 py-2 bg-[var(--surface)] border-b border-[var(--border)] text-xs text-[var(--text)] flex items-center gap-2">
-          <span className="text-[var(--green)]">PR created:</span>
+        <div className="flex-shrink-0 px-4 py-2 bg-surface border-b border-border text-xs text-text flex items-center gap-2">
+          <span className="text-green">PR created:</span>
           <a
             href={prUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[var(--accent-hover)] underline underline-offset-2 hover:opacity-80 transition-opacity"
+            className="text-accent-hover underline underline-offset-2 hover:opacity-80 transition-opacity"
           >
             #{prNumber}
           </a>
-          <button
+          <IconButton
+            name="close"
+            variant="ghost"
+            label="Dismiss"
             onClick={() => { setPrUrl(null); setPrNumber(null) }}
-            className="ml-auto text-[var(--muted)] hover:text-[var(--text)] transition-colors"
-            aria-label="Dismiss"
-          >
-            x
-          </button>
+            className="ml-auto"
+          />
         </div>
       )}
 
       {isLoading && (
-        <div className="flex-1 flex items-center justify-center text-sm text-[var(--muted)]">
-          Loading GitHub status…
+        <div className="flex-1 flex items-center justify-center gap-2 text-sm text-muted">
+          <Spinner size={16} /> Loading GitHub status…
         </div>
       )}
 
       {error && !isLoading && (
-        <div className="flex-1 flex items-center justify-center text-sm text-[var(--red)]">
+        <div className="flex-1 flex items-center justify-center text-sm text-red">
           Failed to load GitHub status: {String(error)}
         </div>
       )}
@@ -313,13 +321,13 @@ export default function PrsCiTab({ projectId }: Props) {
         <>
           {/* PRs section */}
           <div className="flex-shrink-0">
-            <div className="px-4 py-2 bg-[var(--raised)] border-b border-[var(--border)]">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-                Open PRs · {openPrs.length}
+            <div className="px-4 py-2 bg-raised border-b border-border">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                Open PRs · <span className="mono">{openPrs.length}</span>
               </h3>
             </div>
             {openPrs.length === 0 ? (
-              <div className="px-4 py-4 text-xs text-[var(--muted)]">No open PRs.</div>
+              <div className="px-4 py-4 text-xs text-muted">No open PRs.</div>
             ) : (
               openPrs.map(pr => <PrRow key={pr.number} pr={pr} projectId={projectId} />)
             )}
@@ -328,9 +336,9 @@ export default function PrsCiTab({ projectId }: Props) {
           {/* Merged / closed PRs section (F-046) — only when there are any */}
           {closedPrs.length > 0 && (
             <div className="flex-shrink-0">
-              <div className="px-4 py-2 bg-[var(--raised)] border-b border-[var(--border)]">
-                <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-                  Merged / Closed · {closedPrs.length}
+              <div className="px-4 py-2 bg-raised border-b border-border">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                  Merged / Closed · <span className="mono">{closedPrs.length}</span>
                 </h3>
               </div>
               {closedPrs.map(pr => <PrRow key={pr.number} pr={pr} projectId={projectId} />)}
@@ -339,13 +347,13 @@ export default function PrsCiTab({ projectId }: Props) {
 
           {/* CI Runs section */}
           <div className="flex-shrink-0">
-            <div className="px-4 py-2 bg-[var(--raised)] border-b border-[var(--border)]">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-                CI Runs · {ciRuns.length}
+            <div className="px-4 py-2 bg-raised border-b border-border">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                CI Runs · <span className="mono">{ciRuns.length}</span>
               </h3>
             </div>
             {ciRuns.length === 0 ? (
-              <div className="px-4 py-4 text-xs text-[var(--muted)]">No CI runs.</div>
+              <div className="px-4 py-4 text-xs text-muted">No CI runs.</div>
             ) : (
               ciRuns.map(run => <CiRow key={run.id} run={run} remote={remote} />)
             )}
@@ -360,68 +368,65 @@ export default function PrsCiTab({ projectId }: Props) {
           onClick={e => { if (e.target === e.currentTarget) setShowModal(false) }}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--bg)] shadow-2xl p-6 flex flex-col gap-4"
+            className="w-full max-w-md glass-overlay p-6 flex flex-col gap-4"
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
           >
-            <h2 id="modal-title" className="text-sm font-semibold text-[var(--text)]">Open Pull Request</h2>
+            <h2 id="modal-title" className="text-sm font-semibold text-text">Open Pull Request</h2>
 
             {/* Title */}
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-[var(--muted)]">Title</span>
-              <input
+              <span className="text-xs text-muted">Title</span>
+              <Input
                 type="text"
                 value={prForm.title}
                 onChange={e => setPrForm(f => ({ ...f, title: e.target.value }))}
                 placeholder="feat: my change"
                 maxLength={255}
-                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
               />
             </label>
 
             {/* Description */}
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-[var(--muted)]">Description</span>
-              <textarea
+              <span className="text-xs text-muted">Description</span>
+              <Textarea
                 value={prForm.body}
                 onChange={e => setPrForm(f => ({ ...f, body: e.target.value }))}
                 rows={6}
                 maxLength={65535}
                 placeholder="What does this PR do?"
-                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--accent)] transition-colors resize-y"
               />
             </label>
 
             {/* Head branch */}
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-[var(--muted)]">Head branch</span>
-              <input
+              <span className="text-xs text-muted">Head branch</span>
+              <Input
                 type="text"
                 value={prForm.head}
                 onChange={e => setPrForm(f => ({ ...f, head: e.target.value }))}
                 placeholder="feat/my-branch"
                 maxLength={255}
-                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
               />
             </label>
 
             {/* Base branch */}
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-[var(--muted)]">Base branch</span>
-              <input
+              <span className="text-xs text-muted">Base branch</span>
+              <Input
                 type="text"
                 value={prForm.base}
                 onChange={e => setPrForm(f => ({ ...f, base: e.target.value }))}
                 placeholder="main"
                 maxLength={255}
-                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
               />
             </label>
 
             {/* Mutation error */}
             {createPrMutation.isError && (
-              <p className="text-xs text-[var(--red)]">
+              <p className="flex items-center gap-1.5 text-xs text-red">
+                <Icon name="warning" size={14} />
                 {createPrMutation.error instanceof Error
                   ? createPrMutation.error.message
                   : 'Failed to create PR'}
@@ -430,23 +435,18 @@ export default function PrsCiTab({ projectId }: Props) {
 
             {/* Buttons */}
             <div className="flex items-center justify-end gap-2 pt-1">
-              <button
-                onClick={() => setShowModal(false)}
-                disabled={createPrMutation.isPending}
-                className="rounded-lg border border-[var(--border)] px-4 py-2 text-xs text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--text)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
+              <Button variant="ghost" size="sm" onClick={() => setShowModal(false)} disabled={createPrMutation.isPending}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                loading={createPrMutation.isPending}
                 onClick={() => createPrMutation.mutate()}
                 disabled={createPrMutation.isPending || !prForm.title.trim() || !prForm.head.trim() || !prForm.base.trim()}
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[var(--bg)] hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                {createPrMutation.isPending && (
-                  <span className="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" aria-hidden />
-                )}
                 Create PR
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -205,32 +205,39 @@ export function uiDemoHtml(): string {
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   :root {
-    /* warmed vivid-midnight-glass tokens (Phase 5 brief §2.1) */
-    --bg: #1b1030;            /* warmed midnight base */
-    --bg-deep: #1a0f2e;       /* deepest midnight (ambient floor, ink-on-blush) */
-    --surface: #241640;       /* dense cards / panels (opaque) */
-    --raised: #33205c;        /* inputs, raised controls (warmer lift) */
-    --surface-warm: #2a1a47;  /* K-home gentle side panels */
+    /* vivid-midnight-glass tokens — mirrors web/src/index.css :root exactly (bible §6, D-011) */
+    --bg: #1b1030;
+    --bg-deep: #140b26;
+    --surface: #2a1a47;
+    --raised: #33205c;
     --border: #3a2a5c;
-    --border-warm: rgba(255,176,210,0.14);
+    --border-strong: #4a3775;
     --text: #f4f0ff;
     --muted: #b3a6cd;
-    --accent: #ff8fc0;        /* blush — fills / active pills (DARK text on it) */
-    --accent-soft: #ffb0d2;   /* blush TEXT on dark surfaces */
+    --accent: #ff8fc0;        /* blush — fills / active pills (dark on-accent text) */
     --accent-hover: #38bdf8;  /* sky — hover / focus rings / links */
-    --warm-glow: #ffd9a8;     /* warm sand — K-home greeting only */
-    --ink: #1a0f2e;           /* dark text used on blush fills */
+    --on-accent: #241640;     /* dark text on accent-filled chips */
     --green: #34d399; --amber: #fbbf24; --red: #f87171;
-    /* lead identity hues — muted/secondary, deliberately NOT the saturated
-       green/amber/red that carry status meaning (D-013 §7) */
-    --lead-fe: #6fa8dd; --lead-be: #a07cd6; --lead-sys: #5fb3a8;
-    --lead-sec: #d488a6; --lead-net: #8a93c2;
     --mono: 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+    --terminal-bg: #0b0e14;
+    /* chart palette — ordinal series color (also used for lead-identity bars,
+       matching the shipped app's seriesFill(): leads are NOT individually hued) */
+    --chart-1: #ff8fc0; --chart-2: #34d399; --chart-3: #fbbf24; --chart-4: #38bdf8;
+    --chart-5: #a855f7; --chart-6: #f87171; --chart-7: #c084fc; --chart-8: #6366f1;
+    --chart-other: #4c3a6e;
     --radius-lg: 18px; --radius: 14px; --radius-sm: 10px; --radius-pill: 999px;
-    --glass-bg: rgba(46,27,82,.55);
-    --glass-border: rgba(255,176,210,.16);
-    --glass-highlight: rgba(255,255,255,.08);
-    --glass-tint: rgba(255,176,210,.12);
+    /* 4-tier glass system: chrome (structural, sidebar/dockbar) · panel (floating
+       cards) · overlay (modals, highest contrast) · surface-solid (opaque, no blur) */
+    --glass-chrome-bg: rgba(42,26,71,.55);
+    --glass-panel-bg: rgba(42,26,71,.72);
+    --glass-overlay-bg: rgba(51,32,92,.82);
+    --glass-tier-border: rgba(179,166,205,.14);
+    --glass-sheen: rgba(255,255,255,.07);
+    --shadow-1: 0 2px 8px rgba(10,4,24,.35);
+    --shadow-2: 0 6px 24px rgba(10,4,24,.45);
+    --shadow-3: 0 16px 48px rgba(10,4,24,.60);
+    --dur-1: 120ms; --dur-2: 180ms; --dur-3: 240ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
   }
   html, body { height: 100%; }
   body {
@@ -251,10 +258,13 @@ export function uiDemoHtml(): string {
   /* ── ambient ── */
   .ambient { position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background:
-      radial-gradient(40rem 28rem at 72% -12%, rgba(255,176,210,.10), transparent 60%),
-      radial-gradient(34rem 24rem at 6% 110%, rgba(56,189,248,.08), transparent 60%);
-    animation: drift 26s ease-in-out infinite alternate; will-change: transform; }
-  @keyframes drift { from { transform: translateX(-2%); opacity: .8; } to { transform: translateX(2%) translateY(1.4%); opacity: 1; } }
+      radial-gradient(58rem 46rem at 25% 25%, rgba(168,85,247,.10), transparent 60%),
+      radial-gradient(54rem 42rem at 100% 30%, rgba(255,143,192,.07), transparent 60%),
+      radial-gradient(54rem 40rem at 35% 100%, rgba(56,189,248,.06), transparent 60%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
+      var(--bg-deep);
+    animation: drift 72s ease-in-out infinite alternate; will-change: transform; }
+  @keyframes drift { from { transform: translateX(-2%) translateY(0); opacity: .8; } to { transform: translateX(2%) translateY(1.5%); opacity: 1; } }
 
   /* ── shell grid ── */
   .deck { position: relative; z-index: 10; display: grid;
@@ -264,11 +274,13 @@ export function uiDemoHtml(): string {
   .deck.no-dockbar { grid-template-rows: 52px 1fr 0; }
 
   /* ── sidebar ── */
-  aside { grid-row: 1 / span 3; background: var(--surface); border-right: 1px solid var(--border);
+  aside { grid-row: 1 / span 3; background: var(--glass-chrome-bg); border-right: 1px solid var(--border);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4);
+    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
     display: flex; flex-direction: column; padding: .7rem .6rem; overflow: hidden; }
   .brand { display: flex; align-items: center; gap: .5rem; padding: .3rem .5rem .8rem; }
   .brand .logo { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center;
-    background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--ink); }
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--on-accent); }
   .brand b { font-size: 1rem; letter-spacing: .14em; }
   .brand .col { display: flex; flex-direction: column; line-height: 1.05; }
   .brand small { color: var(--muted); font-size: .58rem; letter-spacing: .06em; }
@@ -281,7 +293,7 @@ export function uiDemoHtml(): string {
   .nav button { display: flex; align-items: center; gap: .6rem; width: 100%; padding: .48rem .6rem;
     border-radius: 10px; color: var(--muted); background: none; border: 1px solid transparent;
     cursor: pointer; font: inherit; text-align: left; position: relative;
-    transition: color .15s, background .15s, border-color .15s; }
+    transition: color var(--dur-1), background var(--dur-1), border-color var(--dur-1); }
   .nav button:hover { color: var(--text); background: var(--raised); border-color: rgba(56,189,248,.3); }
   .nav button.active { color: var(--text); background: rgba(255,143,192,.14);
     border-color: rgba(255,143,192,.28); }
@@ -291,7 +303,7 @@ export function uiDemoHtml(): string {
   .nav .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav .badge { font-family: var(--mono); font-size: .64rem; min-width: 16px; height: 16px;
     padding: 0 4px; border-radius: 999px; display: grid; place-items: center;
-    background: rgba(255,143,192,.2); color: var(--accent-soft); }
+    background: rgba(255,143,192,.2); color: var(--accent); }
   .nav .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
   .nav .cdot.off { background: var(--red); }
   .divider { height: 1px; background: var(--border); margin: .55rem .4rem; }
@@ -302,10 +314,11 @@ export function uiDemoHtml(): string {
 
   /* ── top bar ── */
   .topbar { grid-column: 2; display: flex; align-items: center; gap: .8rem;
-    padding: 0 1.1rem; background: rgba(36,22,64,.5);
-    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+    padding: 0 1.1rem; background: var(--glass-chrome-bg);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4);
+    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
     border-bottom: 1px solid var(--border); }
-  .topbar .title { display: flex; align-items: center; gap: .45rem; font-weight: 600; font-size: .95rem; }
+  .topbar .title { display: flex; align-items: center; gap: .45rem; } /* size/weight: .text-title */
   .topbar .crumb { color: var(--muted); font-size: .82rem; }
   .topbar .crumb .sep { opacity: .6; margin: 0 .2rem; }
   .conn { display: inline-flex; align-items: center; gap: .4rem; font-size: .76rem; cursor: pointer;
@@ -319,44 +332,64 @@ export function uiDemoHtml(): string {
   /* ── stage ── */
   main { grid-column: 2; overflow-y: auto; padding: 1.3rem 1.5rem 2rem; position: relative; }
   .screen { display: none; }
-  .screen.active { display: block; animation: rise .22s ease-out; }
+  .screen.active { display: block; animation: rise var(--dur-3) var(--ease); }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   /* signed-out: login is full-bleed — the authed shell (sidebar / topbar / strip) is hidden */
   .deck.authmode { grid-template-columns: 1fr; grid-template-rows: 1fr; }
   .deck.authmode aside, .deck.authmode .topbar, .deck.authmode .dockbar { display: none; }
   .deck.authmode main { grid-column: 1; grid-row: 1; display: grid; place-items: center; }
   .deck.authmode .dialog-wrap { margin: 0; }
-  h1.page { margin: 0 0 .15rem; font-size: 1.35rem; font-weight: 700; letter-spacing: -.01em; }
+  h1.page { margin: 0 0 .15rem; letter-spacing: -.01em; } /* size/weight: .text-display */
   .sub { color: var(--muted); margin: 0 0 1.1rem; font-size: .85rem; }
   .rowhead { display: flex; align-items: center; gap: .6rem; margin: 0 0 1rem; }
   .rowhead h1 { margin: 0; }
   .rowhead .right { margin-left: auto; display: flex; gap: .5rem; align-items: center; }
 
   /* ── surfaces ── */
-  .glass { background: var(--glass-bg); border: 1px solid var(--glass-border);
-    -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
-    box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 14px 44px -24px rgba(0,0,0,.7); }
-  .glass-tint-warm { border: 1px solid var(--border-warm);
-    background: linear-gradient(135deg, rgba(255,176,210,.12), rgba(255,217,168,.06)), var(--glass-bg);
-    -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
-    box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 18px 50px -26px rgba(0,0,0,.75); }
-  .glass-strong { background: rgba(36,22,64,.86); border: 1px solid var(--glass-border);
-    -webkit-backdrop-filter: blur(32px) saturate(190%); backdrop-filter: blur(32px) saturate(190%);
-    box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 28px 64px -24px rgba(0,0,0,.8); }
-  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-    .glass, .glass-tint-warm { background: var(--raised); border-color: var(--border); }
-    .glass-strong { background: var(--surface); }
+  /* 4-tier glass system — verbatim from web/src/index.css @layer components (task 4, bible §6) */
+  .glass-chrome, .glass-panel, .glass-overlay {
+    border: 1px solid var(--glass-tier-border);
+    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
   }
+  .glass-chrome { background: var(--glass-chrome-bg);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); }
+  .glass-panel { background: var(--glass-panel-bg);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
+    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-2); }
+  .glass-overlay { background: var(--glass-overlay-bg);
+    -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4);
+    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-3); }
+  .surface-solid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .micro-label { font-size: 10px; line-height: 12px; letter-spacing: .08em;
+    text-transform: uppercase; font-weight: 500; color: var(--muted); }
+  /* ── type scale (verbatim from web/tailwind.config.ts fontSize; 6th tier
+       is .micro-label above) — applied to real markup below, not decorative ── */
+  .text-display { font-size: 24px; line-height: 32px; font-weight: 600; }
+  .text-title { font-size: 16px; line-height: 24px; font-weight: 600; }
+  .text-body { font-size: 14px; line-height: 22px; }
+  .text-label { font-size: 12px; line-height: 16px; font-weight: 500; }
+  .text-caption { font-size: 11px; line-height: 14px; }
+  .shimmer { background: linear-gradient(90deg, var(--raised) 25%, var(--border) 50%, var(--raised) 75%);
+    background-size: 200% 100%; animation: shimmer 1.6s var(--ease) infinite; border-radius: var(--radius-sm); }
+  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .glass-chrome { background: var(--surface); }
+    .glass-panel, .glass-overlay { background: var(--raised); }
+  }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
   .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 1rem 1.1rem; margin-bottom: 1rem; }
-  .panel.warm { background: var(--surface-warm); border-color: var(--border-warm); }
   .panel h2 { margin: 0 0 .75rem; font-size: .68rem; text-transform: uppercase; letter-spacing: .12em;
     color: var(--muted); display: flex; align-items: center; gap: .4rem; }
   .panel h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 1rem; transition: transform .15s, border-color .15s, box-shadow .15s; }
+    padding: 1rem; transition: transform var(--dur-1), border-color var(--dur-1), box-shadow var(--dur-1); }
   .card.lift:hover { transform: translateY(-2px); border-color: rgba(56,189,248,.45);
     box-shadow: 0 12px 32px -16px rgba(56,189,248,.4); }
+  /* .panel/.card carry an opaque skin by default; when combined with a glass
+     tier the tier must win (compound selector beats the plain single-class
+     rules regardless of source order). */
+  .panel.glass-panel, .card.glass-panel { background: var(--glass-panel-bg);
+    border-color: var(--glass-tier-border); border-radius: var(--radius-lg); }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
   .split { display: grid; grid-template-columns: 1.5fr 1fr; gap: 1rem; align-items: start; }
@@ -366,30 +399,30 @@ export function uiDemoHtml(): string {
   /* ── hero / greeting ── */
   .hero { border-radius: var(--radius-lg); padding: 1.35rem 1.6rem 1.2rem; margin-bottom: 1.1rem; }
   .greeting { font-size: 1.7rem; font-weight: 600; letter-spacing: -.01em; margin: 0; }
-  .greeting .glow { background: linear-gradient(90deg, var(--warm-glow), var(--accent-soft));
+  .greeting .glow { background: linear-gradient(90deg, var(--amber), var(--accent));
     -webkit-background-clip: text; background-clip: text; color: transparent;
-    border-bottom: 2px solid var(--warm-glow); animation: sparkle 3s ease-in-out infinite; }
+    border-bottom: 2px solid var(--amber); animation: sparkle 3s ease-in-out infinite; }
   @keyframes sparkle { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.18); } }
-  .hero .lead { color: var(--muted); margin: .25rem 0 1.1rem; font-size: .92rem; }
+  .hero .lead { color: var(--muted); margin: .25rem 0 1.1rem; } /* size: .text-body */
   .micbtn { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
-    background: var(--surface); border: 1px solid var(--border); color: var(--accent-soft); cursor: pointer; flex-shrink: 0;
-    transition: border-color .15s, color .15s, background .15s; }
+    background: var(--surface); border: 1px solid var(--border); color: var(--accent); cursor: pointer; flex-shrink: 0;
+    transition: border-color var(--dur-1), color var(--dur-1), background var(--dur-1); }
   .micbtn:hover { border-color: var(--accent-hover); color: var(--accent-hover); }
   .micbtn .gi { color: inherit; }
-  .micbtn.rec { color: var(--ink); background: var(--accent); border-color: var(--accent); animation: live 2s ease-out infinite; }
+  .micbtn.rec { color: var(--on-accent); background: var(--accent); border-color: var(--accent); animation: live 2s ease-out infinite; }
 
   /* ── buttons ── */
   .btn { display: inline-flex; align-items: center; gap: .4rem; font: inherit; font-size: .8rem;
     font-weight: 600; padding: .42rem .8rem; border-radius: 10px; cursor: pointer;
-    border: 1px solid transparent; transition: background .15s, border-color .15s, color .15s, opacity .15s; }
-  .btn.primary { background: var(--accent); color: var(--ink); }
+    border: 1px solid transparent; transition: background var(--dur-1), border-color var(--dur-1), color var(--dur-1), opacity var(--dur-1); }
+  .btn.primary { background: var(--accent); color: var(--on-accent); }
   .btn.primary:hover { background: var(--accent-hover); }
   .btn.secondary { background: var(--raised); color: var(--text); border-color: var(--border); }
   .btn.secondary:hover { border-color: var(--accent-hover); }
   .btn.ghost { background: none; color: var(--muted); }
   .btn.ghost:hover { color: var(--text); background: var(--raised); }
   .btn.danger { background: none; color: var(--red); border-color: rgba(248,113,113,.5); }
-  .btn.danger:hover { background: var(--red); color: var(--ink); }
+  .btn.danger:hover { background: var(--red); color: var(--on-accent); }
   .btn.sky { background: none; color: var(--accent-hover); border-color: rgba(56,189,248,.5); }
   .btn.sky:hover { background: rgba(56,189,248,.16); }
   .btn:disabled { opacity: .4; cursor: default; }
@@ -409,11 +442,8 @@ export function uiDemoHtml(): string {
   .bar.risk > span { background: var(--red); }
   .bar.data > span { background: var(--accent-hover); }  /* calm sky for analytic volume/spend bars */
   @keyframes live { 0% { box-shadow: 0 0 0 0 rgba(255,143,192,.5); } 70% { box-shadow: 0 0 0 5px rgba(255,143,192,0); } 100% { box-shadow: 0 0 0 0 rgba(255,143,192,0); } }
-  .ldot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-  .fe { color: var(--lead-fe); } .be { color: var(--lead-be); } .sys { color: var(--lead-sys); }
-  .sec { color: var(--lead-sec); } .net { color: var(--lead-net); }
-  .ldot.fe { background: var(--lead-fe); } .ldot.be { background: var(--lead-be); }
-  .ldot.sys { background: var(--lead-sys); } .ldot.sec { background: var(--lead-sec); } .ldot.net { background: var(--lead-net); }
+  /* per-lead hues consciously not built (bible §5.7) — identity dots stay neutral */
+  .ldot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; background: var(--muted); }
   .bar { height: 7px; border-radius: 999px; background: var(--raised); overflow: hidden; }
   .bar > span { display: block; height: 100%; border-radius: 999px;
     background: linear-gradient(90deg, var(--accent), var(--accent-hover)); }
@@ -431,7 +461,7 @@ export function uiDemoHtml(): string {
 
   /* ── inline routing preview (the K composer shows its route BEFORE send) ── */
   .routeline { display: flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: .74rem;
-    color: var(--accent-soft); margin-top: .55rem; }
+    color: var(--accent); margin-top: .55rem; }
   .routeline .seg-sep { color: var(--muted); }
   .adv { display: flex; align-items: center; gap: .55rem; font-size: .74rem; color: var(--muted);
     margin-top: .5rem; flex-wrap: wrap; }
@@ -453,8 +483,8 @@ export function uiDemoHtml(): string {
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem; }
   .stat { background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius-sm);
     padding: .45rem .65rem; display: flex; align-items: baseline; gap: .5rem; justify-content: space-between; }
-  .stat .label { color: var(--muted); font-size: .58rem; letter-spacing: .1em; text-transform: uppercase; }
-  .stat .value { font-family: var(--mono); font-size: 1.05rem; font-weight: 600; }
+  /* .stat .label: fully superseded by .micro-label (tier 6). .stat .value: size/weight by .text-title. */
+  .stat .value { font-family: var(--mono); }
 
   /* ── tree ── */
   .tree { font-size: .82rem; }
@@ -466,7 +496,7 @@ export function uiDemoHtml(): string {
   .tnode .kids { margin-left: 1rem; padding-left: .5rem; border-left: 1px solid var(--border);
     display: none; }
   .tnode.open > .kids { display: block; }
-  .tnode-row .caret { width: 1em; color: var(--muted); transition: transform .15s; }
+  .tnode-row .caret { width: 1em; color: var(--muted); transition: transform var(--dur-2); }
   .tnode.open > .tnode-row .caret { transform: rotate(90deg); }
 
   /* ── editor ── */
@@ -474,11 +504,11 @@ export function uiDemoHtml(): string {
     border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);
     font-family: var(--mono); font-size: .8rem; line-height: 1.6; padding: .7rem .8rem; outline: none; }
   .editor:focus { border-color: var(--accent-hover); box-shadow: 0 0 0 3px rgba(56,189,248,.2); }
-  .dirty { color: var(--amber); font-size: .72rem; }
+  .dirty { color: var(--amber); } /* size: .text-caption */
   .tabbar { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin-bottom: .9rem;
     flex-wrap: wrap; }
   .tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted);
-    font: inherit; font-size: .8rem; padding: .45rem .7rem; cursor: pointer; }
+    font-family: inherit; padding: .45rem .7rem; cursor: pointer; } /* size/weight: .text-label */
   .tab:hover { color: var(--text); }
   .tab.active { color: var(--text); border-bottom-color: var(--accent); }
   [data-tabpanel] { display: none; }
@@ -488,7 +518,7 @@ export function uiDemoHtml(): string {
   .toggle { display: inline-flex; width: 34px; height: 19px; border-radius: 999px; background: var(--raised);
     border: 1px solid var(--border); position: relative; cursor: pointer; flex-shrink: 0; }
   .toggle::after { content: ''; position: absolute; top: 1px; left: 1px; width: 15px; height: 15px;
-    border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+    border-radius: 50%; background: var(--muted); transition: transform var(--dur-2), background var(--dur-2); }
   .toggle.on { background: rgba(56,189,248,.25); border-color: var(--accent-hover); }
   .toggle.on::after { transform: translateX(15px); background: var(--accent-hover); }
 
@@ -496,6 +526,10 @@ export function uiDemoHtml(): string {
   .radio { display: flex; gap: .6rem; align-items: flex-start; padding: .5rem .6rem; border-radius: 10px;
     border: 1px solid var(--border); margin-bottom: .4rem; cursor: pointer; }
   .radio:hover { border-color: var(--accent-hover); }
+  /* read-only display variant — tier radios are consciously not built as an
+     editable control (bible §5.7); no pointer/hover affordance implying a click. */
+  .radio.ro { cursor: default; }
+  .radio.ro:hover { border-color: var(--border); }
   .radio.on { border-color: var(--accent); background: rgba(255,143,192,.1); }
   .radio .knob { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--muted); margin-top: 2px; flex-shrink: 0; }
   .radio.on .knob { border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--accent); }
@@ -508,7 +542,7 @@ export function uiDemoHtml(): string {
   .banner.disabled { color: var(--muted); border-color: var(--border); background: var(--surface); }
   .banner.connected { color: var(--green); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.08); }
   .banner.error { color: var(--red); border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.08); }
-  .term { background: var(--bg-deep); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  .term { background: var(--terminal-bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
     font-family: var(--mono); font-size: .8rem; padding: .9rem 1rem; min-height: 220px; color: var(--green); }
   .caret-blink { animation: blink 1.1s step-end infinite; }
   @keyframes blink { 50% { opacity: 0; } }
@@ -566,10 +600,10 @@ export function uiDemoHtml(): string {
     overflow: hidden; background: var(--surface); }
   .segmented button { background: none; border: none; color: var(--muted); font: inherit; font-size: .76rem;
     font-weight: 600; padding: .34rem .8rem; cursor: pointer; display: inline-flex; align-items: center; gap: .35rem;
-    transition: color .15s, background .15s; }
+    transition: color var(--dur-1), background var(--dur-1); }
   .segmented button + button { border-left: 1px solid var(--border); }
   .segmented button:hover { color: var(--text); }
-  .segmented button.active { color: var(--ink); background: var(--accent); }
+  .segmented button.active { color: var(--on-accent); background: var(--accent); }
 
   /* ── health derivation (discoverable breakdown via native <details>) ── */
   .hbreak { border-top: 1px solid var(--border); margin-top: .55rem; padding-top: .5rem; }
@@ -577,7 +611,7 @@ export function uiDemoHtml(): string {
   .hbreak summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: .4rem;
     font-size: .72rem; color: var(--muted); user-select: none; }
   .hbreak summary::-webkit-details-marker { display: none; }
-  .hbreak summary .chev { transition: transform .15s; color: var(--muted); }
+  .hbreak summary .chev { transition: transform var(--dur-2); color: var(--muted); }
   .hbreak[open] summary .chev { transform: rotate(90deg); }
   .hbreak summary:hover { color: var(--text); }
   .hbreak .factors { margin-top: .45rem; display: flex; flex-direction: column; gap: .28rem; font-size: .72rem; }
@@ -647,17 +681,22 @@ export function uiDemoHtml(): string {
   [data-view="orchestrator-detail"] .split.fill { min-height: calc(100vh - 232px); }
 
   /* ── message dock (bar variant) ── */
+  /* glass-chrome (structural bottom bar, matches MessageDock.tsx's data-testid=
+     "message-dock-bar" footer): zero the side/bottom edges, keep only the top
+     hairline in plain --border (not --glass-tier-border) — same convention as
+     the sidebar/topbar chrome. */
   .dockbar { grid-column: 2; display: none; align-items: center; gap: .6rem; padding: 0 1.1rem; font-size: .85rem;
-    color: var(--text); border-top: 1px solid var(--glass-border);
-    background: var(--glass-bg); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); will-change: transform; }
+    color: var(--text); border-top: 1px solid var(--border);
+    background: var(--glass-chrome-bg); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4);
+    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1); will-change: transform; }
   .dockbar.show { display: flex; }
   .dockbar input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: .9rem; }
-  .dockbar .gi { color: var(--accent-soft); flex-shrink: 0; }
+  .dockbar .gi { color: var(--accent); flex-shrink: 0; }
   .dock-fab { display: none; position: fixed; right: 1.6rem; bottom: 1.6rem; z-index: 40;
-    width: 52px; height: 52px; border-radius: 999px; border: 1px solid var(--border-warm);
-    background: var(--accent); color: var(--ink); font-weight: 700; cursor: pointer;
+    width: 52px; height: 52px; border-radius: 999px; border: 1px solid var(--glass-tier-border);
+    background: var(--accent); color: var(--on-accent); font-weight: 700; cursor: pointer;
     align-items: center; justify-content: center; box-shadow: 0 12px 30px -10px rgba(0,0,0,.6);
-    transition: transform .15s, box-shadow .15s; }
+    transition: transform var(--dur-1), box-shadow var(--dur-1); }
   .dock-fab:hover { transform: translateY(-2px); box-shadow: 0 16px 36px -10px rgba(0,0,0,.7); }
   .dock-fab.show { display: inline-flex; }
   .dock-fab .badge { position: absolute; top: -4px; right: -4px; }
@@ -668,13 +707,13 @@ export function uiDemoHtml(): string {
   .scrim { position: absolute; inset: 0; background: rgba(8,4,18,.6); }
   .dock-wrap { position: relative; max-width: 640px; margin: 7rem auto 0; }
   .dockcard { border-radius: var(--radius-lg); overflow: hidden; box-shadow: 0 0 0 1px var(--accent-hover), 0 24px 60px -20px rgba(0,0,0,.8); }
-  .dock-threads { max-height: 160px; overflow-y: auto; border-bottom: 1px solid var(--glass-border); }
+  .dock-threads { max-height: 160px; overflow-y: auto; border-bottom: 1px solid var(--glass-tier-border); }
   .dock-thread-row { display: flex; align-items: center; gap: .6rem; padding: .55rem 1rem; cursor: pointer; font-size: .82rem; color: var(--muted); }
   .dock-thread-row:hover, .dock-thread-row.sel { background: rgba(56,189,248,.12); color: var(--text); }
   .dock-compose { padding: .9rem 1rem 1rem; }
   .dock-input { display: flex; align-items: center; gap: .6rem; padding: .5rem 0 .7rem; }
   .dock-input input { flex: 1; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: 1rem; }
-  .dock-foot { display: flex; align-items: center; gap: .8rem; padding-top: .6rem; border-top: 1px solid var(--glass-border);
+  .dock-foot { display: flex; align-items: center; gap: .8rem; padding-top: .6rem; border-top: 1px solid var(--glass-tier-border);
     font-size: .72rem; color: var(--muted); }
   .check { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
   .check .box { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--muted); }
@@ -694,10 +733,13 @@ export function uiDemoHtml(): string {
   /* ── toasts ── */
   .toasts { position: fixed; right: 1.1rem; bottom: 3.3rem; z-index: 60; display: flex; flex-direction: column;
     gap: .5rem; align-items: flex-end; }
+  /* toasts stay an OPAQUE surface (not a glass tier) — a toast can be a DOM
+     descendant of the topbar's glass-chrome header, and stacking a second
+     backdrop-filter there would double-blur (matches Toast.tsx). */
   .toast { display: flex; align-items: center; gap: .55rem; padding: .6rem .8rem; border-radius: 12px; font-size: .82rem;
-    border: 1px solid var(--glass-border); background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); animation: rise .2s ease-out; max-width: 360px; }
-  .toast.out { opacity: 0; transform: translateY(6px); transition: .3s; }
+    border: 1px solid var(--border); background: var(--surface);
+    animation: rise var(--dur-2) var(--ease); max-width: 360px; }
+  .toast.out { opacity: 0; transform: translateY(6px); transition: var(--dur-3); }
   .toast.success { color: var(--green); } .toast.error { color: var(--red); } .toast.info { color: var(--accent-hover); }
   .toast .toast-link { margin-left: .4rem; background: none; border: none; color: var(--accent-hover);
     font: inherit; font-weight: 600; cursor: pointer; }
@@ -707,7 +749,7 @@ export function uiDemoHtml(): string {
   :focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; border-radius: 6px; }
 
   @media (prefers-reduced-motion: reduce) {
-    .ambient, .greeting .glow, .pill.running .d, .conn .d, .caret-blink, .skel { animation: none !important; }
+    .ambient, .greeting .glow, .pill.running .d, .conn .d, .caret-blink, .shimmer { animation: none !important; }
     * { transition-duration: .01ms !important; }
   }
   @media (max-width: 1024px) { .deck { grid-template-columns: 60px 1fr; } .lbl, .grouplabel, .brand .col, .badge { display: none; } }
@@ -751,6 +793,8 @@ export function uiDemoHtml(): string {
   <symbol id="i-idea" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.3 1 2.5h6c0-1.2.3-1.8 1-2.5A6 6 0 0 0 12 3z"/></symbol>
   <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M8.5 21h7"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v11"/><path d="M8 10l4 4 4-4"/><path d="M5 20h14"/></symbol>
+  <symbol id="i-checklist" viewBox="0 0 24 24"><path d="M4.5 6.5l1.2 1.2L8 5.3"/><path d="M4.5 12.5l1.2 1.2L8 11.3"/><path d="M4.5 18.5l1.2 1.2L8 17.3"/><path d="M11 6h9M11 12h9M11 18h9"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h3.7l1.8 2H19a1 1 0 0 1 1 1v8.5A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z"/></symbol>
 </svg>
 
 <div class="deck" id="deck">
@@ -763,11 +807,11 @@ export function uiDemoHtml(): string {
 
     <nav class="nav" id="nav">
       <button data-action="route" data-arg="home-chat"><svg class="gi"><use href="#i-home"></use></svg><span class="lbl">K</span></button>
-      <button data-action="route" data-arg="personal"><svg class="gi"><use href="#i-check"></use></svg><span class="lbl">Personal</span><span class="badge">3</span></button>
+      <button data-action="route" data-arg="personal"><svg class="gi"><use href="#i-checklist"></use></svg><span class="lbl">Personal</span><span class="badge">3</span></button>
       <button data-action="route" data-arg="agents"><svg class="gi"><use href="#i-crown"></use></svg><span class="lbl">Agents</span></button>
       <button data-action="route" data-arg="runs"><svg class="gi"><use href="#i-runs"></use></svg><span class="lbl">Runs</span><span class="badge">2</span></button>
       <button data-action="route" data-arg="insights"><svg class="gi"><use href="#i-metrics"></use></svg><span class="lbl">Insights</span></button>
-      <button data-action="route" data-arg="projects"><svg class="gi"><use href="#i-grid"></use></svg><span class="lbl">Projects</span></button>
+      <button data-action="route" data-arg="projects"><svg class="gi"><use href="#i-folder"></use></svg><span class="lbl">Projects</span></button>
     </nav>
 
     <div class="spacer"></div>
@@ -779,7 +823,7 @@ export function uiDemoHtml(): string {
   </aside>
 
   <div class="topbar">
-    <span class="title"><span id="barIcon"><svg class="gi"><use href="#i-home"></use></svg></span><span id="barTitle">K</span></span>
+    <span class="title text-title"><span id="barIcon"><svg class="gi"><use href="#i-home"></use></svg></span><span id="barTitle">K</span></span>
     <span class="crumb" id="crumb"></span>
     <span class="conn live" id="conn" data-action="cycle-conn" title="click to cycle connection state" style="margin-left:auto">
       <span class="d"></span><span id="connLabel">live</span>
@@ -814,53 +858,53 @@ export function uiDemoHtml(): string {
           <button class="active" data-action="route" data-arg="home-overview">Overview</button>
         </span>
       </div>
-      <div class="hero glass-tint-warm">
+      <div class="hero glass-panel">
         <h2 class="greeting"><span class="glow" id="greet">Good evening, Cameron.</span></h2>
-        <p class="lead glance">3 agents working · <a class="link" data-action="route" data-arg="agents">Chief on the auth refactor →</a></p>
+        <p class="lead glance text-body">3 agents working · <a class="link" data-action="route" data-arg="agents">Chief on the auth refactor →</a></p>
       </div>
 
       <div class="grid3 cards">
-        <div class="card lift panel warm" style="margin:0">
+        <div class="card lift panel glass-panel" style="margin:0">
           <h2><svg class="gi"><use href="#i-runs"></use></svg> Active runs</h2>
           <div class="witem"><div class="witem-top"><span class="grow">auth refactor</span><span class="pill running"><span class="d"></span>running</span></div></div>
           <div class="witem"><div class="witem-top"><span class="grow">graph perf pass</span><span class="pill queued"><span class="d"></span>queued</span></div></div>
           <button class="btn ghost sm" style="margin-top:.5rem" data-action="route" data-arg="runs">open runs →</button>
         </div>
 
-        <div class="card lift panel warm" style="margin:0">
+        <div class="card lift panel glass-panel" style="margin:0">
           <h2><svg class="gi"><use href="#i-alert"></use></svg> Needs you</h2>
           <div class="witem"><div class="witem-top"><span class="grow">Security · API surface audit</span><span class="pill error"><span class="d"></span>needs you</span></div></div>
           <button class="btn ghost sm" style="margin-top:.5rem" data-action="route" data-arg="personal">open personal →</button>
         </div>
 
-        <div class="card lift panel warm" style="margin:0">
+        <div class="card lift panel glass-panel" style="margin:0">
           <h2><svg class="gi"><use href="#i-crown"></use></svg> Org glance</h2>
           <div class="grid3" style="gap:.4rem">
-            <div class="kv"><span class="ldot fe"></span>Frontend 2</div>
-            <div class="kv"><span class="ldot be"></span>Backend 1</div>
-            <div class="kv"><span class="ldot sec"></span>Security idle</div>
+            <div class="kv"><span class="ldot"></span>Frontend 2</div>
+            <div class="kv"><span class="ldot"></span>Backend 1</div>
+            <div class="kv"><span class="ldot"></span>Security idle</div>
           </div>
           <button class="btn ghost sm" style="margin-top:.5rem" data-action="route" data-arg="agents">open agents →</button>
         </div>
 
-        <div class="card lift panel warm" style="margin:0">
+        <div class="card lift panel glass-panel" style="margin:0">
           <h2><svg class="gi"><use href="#i-graph"></use></svg> Recent activity</h2>
-          <div class="card"><div class="kv"><span class="ldot fe"></span><b>Frontend</b></div><p class="muted" style="margin:.3rem 0">added focus ring to the dock</p><div class="kv"><span class="pill done"><span class="d"></span>done</span><a class="link" data-action="route" data-arg="runs">View run</a></div></div>
+          <div class="card"><div class="kv"><span class="ldot"></span><b>Frontend</b></div><p class="muted" style="margin:.3rem 0">added focus ring to the dock</p><div class="kv"><span class="pill done"><span class="d"></span>done</span><a class="link" data-action="route" data-arg="runs">View run</a></div></div>
         </div>
 
-        <div class="card lift panel warm" style="margin:0">
+        <div class="card lift panel glass-panel" style="margin:0">
           <h2><svg class="gi"><use href="#i-metrics"></use></svg> Cost today</h2>
           <p class="mono" style="font-size:1.4rem;margin:.2rem 0">$4.82</p>
           <button class="btn ghost sm" data-action="route" data-arg="insights">open insights →</button>
         </div>
 
-        <div class="card lift panel warm" style="margin:0">
+        <div class="card lift panel glass-panel" style="margin:0">
           <h2><svg class="gi"><use href="#i-check"></use></svg> Personal tasks</h2>
           <div class="witem"><div class="witem-top"><span class="check" data-action="toggle-check"><span class="box"></span></span><span class="grow">triage PR #42</span><span class="tier-chip">Chief</span></div></div>
           <div class="witem"><div class="witem-top"><span class="check on" data-action="toggle-check"><span class="box"></span></span><span class="grow">build graph</span><span class="pill done"><span class="d"></span>done</span></div></div>
         </div>
 
-        <div class="card lift panel warm" style="margin:0">
+        <div class="card lift panel glass-panel" style="margin:0">
           <h2><svg class="gi"><use href="#i-edit"></use></svg> Notes</h2>
           <div class="list stack" style="font-size:.82rem">
             <div class="row"><span class="grow">call re: API rate limits</span><button class="btn ghost sm" data-action="toast" data-msg="Note marked done" data-variant="info"><svg class="gi"><use href="#i-check"></use></svg></button></div>
@@ -869,7 +913,7 @@ export function uiDemoHtml(): string {
           <button class="btn ghost sm" style="margin-top:.5rem" data-action="toast" data-msg="Inline note composer opened" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add note</button>
         </div>
 
-        <div class="card lift panel warm" style="margin:0">
+        <div class="card lift panel glass-panel" style="margin:0">
           <h2><svg class="gi"><use href="#i-home"></use></svg> Schedule</h2>
           <div class="list" style="font-size:.82rem">
             <div class="row"><span class="meta">09:00</span><span class="grow">standup</span></div>
@@ -879,7 +923,7 @@ export function uiDemoHtml(): string {
           <button class="btn ghost sm" style="margin-top:.5rem" data-action="toast" data-msg="Event composer opened" data-variant="info"><svg class="gi"><use href="#i-plus"></use></svg> add event</button>
         </div>
 
-        <div class="card lift panel warm" style="margin:0">
+        <div class="card lift panel glass-panel" style="margin:0">
           <h2><svg class="gi"><use href="#i-grid"></use></svg> Project health</h2>
           <div class="kv"><span class="pill done"><span class="d"></span>gitnexus</span><span class="muted">CI green</span></div>
           <button class="btn ghost sm" style="margin-top:.5rem" data-action="route" data-arg="projects">open projects →</button>
@@ -890,14 +934,14 @@ export function uiDemoHtml(): string {
     <!-- ============ AGENTS: ORG (Chief + roster) ============ -->
     <section class="screen" data-view="agents">
       <div class="tabbar" data-group="ag">
-        <button class="tab active" data-action="tab" data-group="ag" data-arg="org">Org</button>
-        <button class="tab" data-action="tab" data-group="ag" data-arg="skills">Skills</button>
-        <button class="tab" data-action="tab" data-group="ag" data-arg="pipelines">Pipelines</button>
+        <button class="tab active text-label" data-action="tab" data-group="ag" data-arg="org">Org</button>
+        <button class="tab text-label" data-action="tab" data-group="ag" data-arg="skills">Skills</button>
+        <button class="tab text-label" data-action="tab" data-group="ag" data-arg="pipelines">Pipelines</button>
       </div>
 
       <div data-tabpanel="ag" data-arg="org" class="active">
       <div data-tabpanel="agorg" data-arg="roster" class="active">
-      <div class="rowhead"><h1 class="page">Org</h1><span class="seg"><button class="active" data-action="tab" data-group="agorg" data-arg="roster">Roster</button><button data-action="tab" data-group="agorg" data-arg="tree">Tree</button><button data-action="toast" data-msg="Fleet graph — force-directed org view" data-variant="info">Graph</button></span><span class="muted">· 5 leads · 3 active</span>
+      <div class="rowhead"><h1 class="page text-display">Org</h1><span class="seg"><button class="active" data-action="tab" data-group="agorg" data-arg="roster">Roster</button><button data-action="tab" data-group="agorg" data-arg="tree">Tree</button><button data-action="toast" data-msg="Fleet graph — force-directed org view" data-variant="info">Graph</button></span><span class="muted">· 5 leads · 3 active</span>
         <div class="right" style="gap:.5rem;align-items:center">
           <button class="pill done" style="cursor:pointer;border:none;font:inherit" data-action="route" data-arg="settings" aria-label="Autonomy on — open Settings"><span class="d"></span>Autonomy ON</button>
           <button class="btn primary" data-action="confirm" data-title="New orchestrator" data-body="Create a new domain lead: name, domain, hue, starter charter and base skills/tools." data-confirm="Create" data-toast-msg="Orchestrator created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new orchestrator</button>
@@ -915,35 +959,35 @@ export function uiDemoHtml(): string {
       </div>
 
       <div class="grid3 cards">
-        <div class="card lift och-card" style="border-left:3px solid var(--lead-fe)"><div class="kv"><span class="ldot fe"></span><b>Frontend</b><span class="pill running och-status"><span class="d"></span>2 running</span></div>
+        <div class="card lift och-card"><div class="kv"><span class="ldot"></span><b>Frontend</b><span class="pill running och-status"><span class="d"></span>2 running</span></div>
           <p class="muted charter">Owns web UI, a11y, perf</p>
           <div class="kv health"><span class="muted">health</span><span class="mono">82</span><span class="bar healthy" style="width:54px"><span style="width:82%"></span></span><span class="pill healthy"><span class="d"></span>healthy</span></div>
           <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
             <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 94%</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">1 retry</span><span class="delta neg">−6</span></div></div></details>
           <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Frontend Lead" data-scope="dispatch to Frontend Lead" aria-label="Ask K — dispatch to Frontend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
 
-        <div class="card lift och-card" style="border-left:3px solid var(--lead-be)"><div class="kv"><span class="ldot be"></span><b>Backend</b><span class="pill running och-status"><span class="d"></span>1 running</span></div>
+        <div class="card lift och-card"><div class="kv"><span class="ldot"></span><b>Backend</b><span class="pill running och-status"><span class="d"></span>1 running</span></div>
           <p class="muted charter">APIs, data, migrations</p>
           <div class="kv health"><span class="muted">health</span><span class="mono">76</span><span class="bar watch" style="width:54px"><span style="width:76%"></span></span><span class="pill watch"><span class="d"></span>watch</span></div>
           <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
             <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 92%</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div></div></details>
           <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Backend Lead" data-scope="dispatch to Backend Lead" aria-label="Ask K — dispatch to Backend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
 
-        <div class="card lift och-card" style="border-left:3px solid var(--lead-sys)"><div class="kv"><span class="ldot sys"></span><b>Systems</b><span class="muted och-status">idle</span></div>
+        <div class="card lift och-card"><div class="kv"><span class="ldot"></span><b>Systems</b><span class="muted och-status">idle</span></div>
           <p class="muted charter">CI, infra, releases</p>
           <div class="kv health"><span class="muted">health</span><span class="mono">68</span><span class="bar watch" style="width:54px"><span style="width:68%"></span></span><span class="pill watch"><span class="d"></span>watch</span></div>
           <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
             <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 88%</span><span class="delta neg">−18</span></div><div class="frow"><span class="grow">slow CI / staleness</span><span class="delta neg">−14</span></div></div></details>
           <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Systems Lead" data-scope="dispatch to Systems Lead" aria-label="Ask K — dispatch to Systems Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
 
-        <div class="card lift och-card" style="border-left:3px solid var(--lead-sec)"><div class="kv"><span class="ldot sec"></span><b>Security</b><span class="pill running och-status"><span class="d"></span>1 running</span></div>
+        <div class="card lift och-card"><div class="kv"><span class="ldot"></span><b>Security</b><span class="pill running och-status"><span class="d"></span>1 running</span></div>
           <p class="muted charter">audit, secrets, supply-chain</p>
           <div class="kv health"><span class="muted">health</span><span class="mono">46</span><span class="bar risk" style="width:54px"><span style="width:46%"></span></span><span class="pill risk"><span class="d"></span>at-risk</span></div>
           <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
             <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">1 blocked: needs you</span><span class="delta neg">−30</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">run success 88%</span><span class="delta neg">−12</span></div></div></details>
           <div class="kv acts"><button class="btn primary sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn ghost sm" data-action="cmd-dispatch" data-q="dispatch to Security Lead" data-scope="dispatch to Security Lead" aria-label="Ask K — dispatch to Security Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div></div>
 
-        <div class="card lift och-card" style="border-left:3px solid var(--lead-net)"><div class="kv"><span class="ldot net"></span><b>Network</b><span class="muted och-status">idle</span></div>
+        <div class="card lift och-card"><div class="kv"><span class="ldot"></span><b>Network</b><span class="muted och-status">idle</span></div>
           <p class="muted charter">edge, DNS, delivery</p>
           <div class="kv health"><span class="muted">health</span><span class="mono">88</span><span class="bar healthy" style="width:54px"><span style="width:88%"></span></span><span class="pill healthy"><span class="d"></span>healthy</span></div>
           <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how it's scored</summary>
@@ -955,17 +999,17 @@ export function uiDemoHtml(): string {
 
       <div class="panel" style="margin-top:1rem"><h2>Recent dispatches <span class="right muted">last hour</span></h2>
         <div class="list">
-          <div class="row"><span class="ldot fe"></span><b>Frontend</b><span class="grow muted">add focus ring to cmd bar</span><span class="pill running"><span class="d"></span>running</span><span class="meta">now</span></div>
-          <div class="row"><span class="ldot fe"></span><b>Frontend</b><span class="grow muted">visual-diff sweep</span><span class="pill running"><span class="d"></span>running</span><span class="meta">6m</span></div>
-          <div class="row"><span class="ldot be"></span><b>Backend</b><span class="grow muted">auth refactor</span><span class="pill running"><span class="d"></span>running</span><span class="meta">9m</span></div>
-          <div class="row"><span class="ldot sec"></span><b>Security</b><span class="grow muted">secret scan</span><span class="pill running"><span class="d"></span>running</span><span class="meta">14m</span></div>
-          <div class="row"><span class="ldot sys"></span><b>Systems</b><span class="grow muted">release v2.1</span><span class="pill done"><span class="d"></span>done</span><span class="meta">41m</span></div>
+          <div class="row"><span class="ldot"></span><b>Frontend</b><span class="grow muted">add focus ring to cmd bar</span><span class="pill running"><span class="d"></span>running</span><span class="meta">now</span></div>
+          <div class="row"><span class="ldot"></span><b>Frontend</b><span class="grow muted">visual-diff sweep</span><span class="pill running"><span class="d"></span>running</span><span class="meta">6m</span></div>
+          <div class="row"><span class="ldot"></span><b>Backend</b><span class="grow muted">auth refactor</span><span class="pill running"><span class="d"></span>running</span><span class="meta">9m</span></div>
+          <div class="row"><span class="ldot"></span><b>Security</b><span class="grow muted">secret scan</span><span class="pill running"><span class="d"></span>running</span><span class="meta">14m</span></div>
+          <div class="row"><span class="ldot"></span><b>Systems</b><span class="grow muted">release v2.1</span><span class="pill done"><span class="d"></span>done</span><span class="meta">41m</span></div>
         </div>
       </div>
       </div>
 
       <div data-tabpanel="agorg" data-arg="tree">
-      <div class="rowhead"><h1 class="page">Org · Tree</h1>
+      <div class="rowhead"><h1 class="page text-display">Org · Tree</h1>
         <span class="seg"><button data-action="tab" data-group="agorg" data-arg="roster">Roster</button><button class="active" data-action="tab" data-group="agorg" data-arg="tree">Tree</button><button data-action="toast" data-msg="Fleet graph — force-directed org view" data-variant="info">Graph</button></span>
         <div class="right" style="font-size:.78rem"><span class="muted">health</span><span class="bar watch" style="width:120px"><span style="width:78%"></span></span><span class="mono">78/100</span><span class="pill watch"><span class="d"></span>watch</span>
           <span class="muted">· 3 leads active · CI 4/5</span>
@@ -999,17 +1043,17 @@ export function uiDemoHtml(): string {
           <ul class="tree" style="list-style:none;padding:0;margin:0">
             <li class="tnode open"><div class="tnode-row" data-action="tree"><span class="caret">›</span><svg class="gi"><use href="#i-crown"></use></svg><b>Chief</b></div>
               <ul class="kids" style="list-style:none;padding:0">
-                <li class="tnode"><div class="tnode-row" data-action="tree-sel" data-insp="chiefInsp"><span class="caret">›</span><span class="ldot fe"></span>Frontend <span class="muted">82 · 2</span><span class="pill healthy" style="margin-left:auto"><span class="d"></span>healthy</span></div>
+                <li class="tnode"><div class="tnode-row" data-action="tree-sel" data-insp="chiefInsp"><span class="caret">›</span><span class="ldot"></span>Frontend <span class="muted">82 · 2</span><span class="pill healthy" style="margin-left:auto"><span class="d"></span>healthy</span></div>
                   <ul class="kids" style="list-style:none;padding:0"><li class="tnode-row" data-action="tree-sel" data-insp="chiefInsp">implementer <span class="pill running" style="margin-left:auto"><span class="d"></span>running</span></li><li class="tnode-row">spec-review <span class="pill queued" style="margin-left:auto"><span class="d"></span>queued</span></li></ul></li>
-                <li class="tnode-row" data-action="tree-sel" data-insp="chiefInsp"><span class="ldot be"></span>Backend <span class="muted">76 · 1</span><span class="pill watch" style="margin-left:auto"><span class="d"></span>watch</span></li>
-                <li class="tnode-row"><span class="ldot sys"></span>Systems <span class="muted">68 · idle</span><span class="pill watch" style="margin-left:auto"><span class="d"></span>watch</span></li>
-                <li class="tnode-row" data-action="tree-sel" data-insp="chiefInsp"><span class="ldot sec"></span>Security <span class="muted">46 · 1</span><span class="pill risk" style="margin-left:auto"><span class="d"></span>at-risk</span></li>
-                <li class="tnode-row"><span class="ldot net"></span>Network <span class="muted">88 · idle</span><span class="pill healthy" style="margin-left:auto"><span class="d"></span>healthy</span></li>
+                <li class="tnode-row" data-action="tree-sel" data-insp="chiefInsp"><span class="ldot"></span>Backend <span class="muted">76 · 1</span><span class="pill watch" style="margin-left:auto"><span class="d"></span>watch</span></li>
+                <li class="tnode-row"><span class="ldot"></span>Systems <span class="muted">68 · idle</span><span class="pill watch" style="margin-left:auto"><span class="d"></span>watch</span></li>
+                <li class="tnode-row" data-action="tree-sel" data-insp="chiefInsp"><span class="ldot"></span>Security <span class="muted">46 · 1</span><span class="pill risk" style="margin-left:auto"><span class="d"></span>at-risk</span></li>
+                <li class="tnode-row"><span class="ldot"></span>Network <span class="muted">88 · idle</span><span class="pill healthy" style="margin-left:auto"><span class="d"></span>healthy</span></li>
               </ul></li>
           </ul>
           <div class="card" id="chiefInsp" style="margin-top:.8rem;background:var(--bg-deep)">
             <div class="muted" style="font-size:.7rem">INSPECTOR — select a node</div>
-            <div class="kv" style="margin-top:.3rem"><span class="ldot fe"></span><b>Frontend Lead</b></div>
+            <div class="kv" style="margin-top:.3rem"><span class="ldot"></span><b>Frontend Lead</b></div>
             <p class="muted" style="margin:.3rem 0;font-size:.78rem">health 82 · load 60% · 2 live · latest: focus-ring diff +12 −3</p>
             <div class="kv" style="gap:.4rem;flex-wrap:wrap">
               <button class="btn sky sm" data-action="route" data-arg="orchestrator-detail">Open lead</button>
@@ -1028,8 +1072,8 @@ export function uiDemoHtml(): string {
       </div>
 
       <div data-tabpanel="ag" data-arg="skills">
-        <div class="rowhead"><h1 class="page">Skills</h1>
-          <div class="tabs"><button class="tab active" data-action="tab" data-group="sk" data-arg="skills">Skills</button><button class="tab" data-action="tab" data-group="sk" data-arg="automations">Automations</button></div>
+        <div class="rowhead"><h1 class="page text-display">Skills</h1>
+          <div class="tabs"><button class="tab active text-label" data-action="tab" data-group="sk" data-arg="skills">Skills</button><button class="tab text-label" data-action="tab" data-group="sk" data-arg="automations">Automations</button></div>
           <div class="right"><button class="btn primary" data-action="confirm" data-title="New skill" data-body="Author a new skill: name, description, and starter instructions." data-confirm="Create" data-toast-msg="Skill created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new skill</button></div></div>
 
         <div data-tabpanel="sk" data-arg="skills" class="active">
@@ -1055,7 +1099,7 @@ export function uiDemoHtml(): string {
       </div>
 
       <div data-tabpanel="ag" data-arg="pipelines">
-        <div class="rowhead"><h1 class="page">Pipelines</h1><span class="muted">· 4 definitions</span>
+        <div class="rowhead"><h1 class="page text-display">Pipelines</h1><span class="muted">· 4 definitions</span>
           <div class="right"><button class="btn primary" data-action="confirm" data-title="New workflow" data-body="Start from the Code-wave template or an empty role graph." data-confirm="Create" data-toast-msg="Workflow created" data-toast-link="1"><svg class="gi"><use href="#i-plus"></use></svg> new workflow</button></div></div>
 
         <div class="split">
@@ -1088,7 +1132,7 @@ export function uiDemoHtml(): string {
               <h2 style="font-size:.9rem">Role prompt — spec-review</h2>
               <textarea class="editor grow-area" style="min-height:160px">Review the implementer's diff against the spec. Block on missing
 tests, contract drift, or unhandled errors. Return a verdict + reasons.</textarea>
-              <div class="kv" style="margin-top:.6rem;font-size:.74rem"><span class="muted">model: inherit</span><span class="tier-chip">tier T1</span><span class="dirty" style="margin-left:auto">unsaved ●</span></div>
+              <div class="kv" style="margin-top:.6rem;font-size:.74rem"><span class="muted">model: inherit</span><span class="tier-chip">tier T1</span><span class="dirty text-caption" style="margin-left:auto">unsaved ●</span></div>
               <div class="kv" style="margin-top:.5rem"><button class="btn ghost sm">Revert</button><button class="btn primary sm" data-action="confirm" data-title="Update prompt?" data-body="Update the Code-wave spec-review prompt?" data-confirm="Save" data-toast-msg="Prompt saved">Save</button></div>
             </div>
           </div>
@@ -1098,7 +1142,7 @@ tests, contract drift, or unhandled errors. Return a verdict + reasons.</textare
 
     <!-- ============ ORCHESTRATOR DETAIL (FLAGSHIP) ============ -->
     <section class="screen" data-view="orchestrator-detail">
-      <div class="rowhead"><h1 class="page"><span class="ldot fe"></span> Frontend Lead</h1>
+      <div class="rowhead"><h1 class="page text-display"><span class="ldot"></span> Frontend Lead</h1>
         <div class="right" style="gap:.5rem;align-items:center"><span class="muted" style="font-size:.78rem">health</span><span class="mono">82</span><span class="pill healthy"><span class="d"></span>healthy</span><span class="muted" style="font-size:.78rem">· 2 live</span></div></div>
       <div class="kv muted" style="font-size:.74rem;margin:-.6rem 0 .6rem;gap:.9rem;flex-wrap:wrap">
         <span>load <span class="bar" style="width:90px;display:inline-block;vertical-align:middle"><span style="width:60%"></span></span> <span class="mono">60%</span></span>
@@ -1117,11 +1161,11 @@ tests, contract drift, or unhandled errors. Return a verdict + reasons.</textare
       <div class="split wide balance fill">
         <div class="panel col od-left">
           <div class="tabbar">
-            <button class="tab active" data-action="tab" data-group="od" data-arg="charter">Charter</button>
-            <button class="tab" data-action="tab" data-group="od" data-arg="skills">Skills</button>
-            <button class="tab" data-action="tab" data-group="od" data-arg="tools">Tools</button>
-            <button class="tab" data-action="tab" data-group="od" data-arg="mcp">MCP · Authority</button>
-            <button class="tab" data-action="tab" data-group="od" data-arg="memory">Memory</button>
+            <button class="tab active text-label" data-action="tab" data-group="od" data-arg="charter">Charter</button>
+            <button class="tab text-label" data-action="tab" data-group="od" data-arg="skills">Skills</button>
+            <button class="tab text-label" data-action="tab" data-group="od" data-arg="tools">Tools</button>
+            <button class="tab text-label" data-action="tab" data-group="od" data-arg="mcp">MCP · Authority</button>
+            <button class="tab text-label" data-action="tab" data-group="od" data-arg="memory">Memory</button>
           </div>
 
           <div data-tabpanel="od" data-arg="charter" class="active">
@@ -1135,7 +1179,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
 - Run a11y + visual-diff checks before every PR.
 - Prefer tokens over bespoke hex; glass is hero-only, dense views opaque.
 - Hand security-sensitive changes to the Security lead via Chief.</textarea>
-            <div class="kv" style="margin-top:.6rem"><span class="dirty">unsaved ●</span><span style="margin-left:auto"></span>
+            <div class="kv" style="margin-top:.6rem"><span class="dirty text-caption">unsaved ●</span><span style="margin-left:auto"></span>
               <button class="btn ghost sm">Revert</button>
               <button class="btn primary sm" data-action="confirm" data-title="Update charter?" data-body="Update Frontend Lead's charter? Applies to its next dispatches." data-confirm="Save" data-toast-msg="Charter saved">Save</button></div>
           </div>
@@ -1164,10 +1208,10 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
             <div class="panel" style="margin:0 0 .8rem;background:var(--bg-deep)">
               <h2>Authority tier — Frontend Lead <span class="right tier-chip">override</span></h2>
               <p class="muted" style="font-size:.74rem;margin:0 0 .55rem">Inherits the org default (T1 Standard, set in Settings) unless overridden here.</p>
-              <div class="radio" data-action="tier" data-tier="t0"><span class="knob"></span><div><div class="t">T0 Read-only</div><div class="desc">query and read; no writes, no network</div></div></div>
-              <div class="radio on" data-action="tier" data-tier="t1"><span class="knob"></span><div><div class="t">T1 Standard</div><div class="desc">edit files, run safe tools; no secrets, no deploy</div></div></div>
-              <div class="radio" data-action="tier" data-tier="t2"><span class="knob"></span><div><div class="t">T2 Elevated</div><div class="desc">network + MCP servers; guarded writes</div></div></div>
-              <div class="radio" data-action="tier" data-tier="t3"><span class="knob"></span><div><div class="t">T3 Privileged <span class="sec">⚠ requires you</span></div><div class="desc">deploy, secrets, destructive ops</div></div></div>
+              <div class="radio ro"><span class="knob"></span><div><div class="t">T0 Read-only</div><div class="desc">query and read; no writes, no network</div></div></div>
+              <div class="radio ro on"><span class="knob"></span><div><div class="t">T1 Standard</div><div class="desc">edit files, run safe tools; no secrets, no deploy</div></div></div>
+              <div class="radio ro"><span class="knob"></span><div><div class="t">T2 Elevated</div><div class="desc">network + MCP servers; guarded writes</div></div></div>
+              <div class="radio ro"><span class="knob"></span><div><div class="t">T3 Privileged <span class="sec">⚠ requires you</span></div><div class="desc">deploy, secrets, destructive ops</div></div></div>
               <div class="kv" style="margin-top:.5rem"><span class="muted" style="font-size:.74rem">Changing tier affects EVERY agent this lead dispatches.</span>
                 <button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Raise to T3 Privileged?" data-body="Raise Frontend Lead to T3 Privileged? This grants deploy + secrets to its agents." data-variant="danger" data-confirm="Apply T3" data-toast-msg="Authority tier applied">Apply</button></div>
             </div>
@@ -1194,7 +1238,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
         <div class="panel od-right">
           <h2>Live delegation</h2>
           <ul class="tree" style="list-style:none;padding:0;margin:0">
-            <li class="tnode open"><div class="tnode-row" data-action="tree"><span class="caret">›</span><span class="ldot fe"></span><b>Frontend</b></div>
+            <li class="tnode open"><div class="tnode-row" data-action="tree"><span class="caret">›</span><span class="ldot"></span><b>Frontend</b></div>
               <ul class="kids" style="list-style:none;padding:0">
                 <li class="tnode-row" data-action="tree-sel" data-insp="odInsp">controller <span class="pill running" style="margin-left:auto"><span class="d"></span>running</span></li>
                 <li class="tnode-row sel" data-action="tree-sel" data-insp="odInsp">implementer <span class="pill running" style="margin-left:auto"><span class="d"></span>running</span></li>
@@ -1223,11 +1267,11 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
 
     <!-- ============ PROJECTS ============ -->
     <section class="screen" data-view="projects">
-      <div class="rowhead"><h1 class="page">Projects</h1><span class="muted">· 4 projects</span>
+      <div class="rowhead"><h1 class="page text-display">Projects</h1><span class="muted">· 4 projects</span>
         <div class="right">
           <details class="rubric" style="position:relative">
             <summary><span class="info-q">?</span> How health is scored</summary>
-            <div class="body glass" style="position:absolute;right:0;top:135%;width:330px;z-index:40;padding:.85rem .95rem;border-radius:12px">
+            <div class="body glass-panel" style="position:absolute;right:0;top:135%;width:330px;z-index:40;padding:.85rem .95rem;border-radius:12px">
               <b style="color:var(--text)">Health 0–100</b> = 100 − weighted deductions from observable signals:
               <div class="vstack-sm" style="margin:.5rem 0 .6rem">
                 <div>· CI / build status</div>
@@ -1255,7 +1299,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
           <div class="kv muted" style="font-size:.74rem;margin-top:.4rem">CI ok · PRs 2 · bible ok · spark ∿∿∿</div>
           <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how 82 is scored</summary>
             <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 94%</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">1 retry</span><span class="delta neg">−6</span></div></div></details>
-          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> suggested: open PR #42</div>
+          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--amber)"><use href="#i-idea"></use></svg> suggested: open PR #42</div>
           <div class="kv muted" style="font-size:.72rem;margin-top:.5rem">last run: <span style="color:var(--text)">code-wave</span> · 8m</div>
           <div class="kv acts" style="margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="project-workspace">Open workspace</button><button class="btn ghost sm" data-action="confirm" data-title="Delete gitnexus?" data-body="Permanently delete gitnexus and all its runs / tasks / KG? Cannot be undone." data-variant="danger" data-confirm="Delete" data-toast-msg="gitnexus deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div></div>
 
@@ -1264,7 +1308,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
           <div class="kv muted" style="font-size:.74rem;margin-top:.4rem">CI fail · PRs 0 · bible stale · spark ∿∿</div>
           <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how 48 is scored</summary>
             <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">CI failing</span><span class="delta neg">−30</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">bible stale</span><span class="delta neg">−10</span></div></div></details>
-          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> suggested: fix CI</div>
+          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--amber)"><use href="#i-idea"></use></svg> suggested: fix CI</div>
           <div class="kv muted" style="font-size:.72rem;margin-top:.5rem">last run: <span style="color:var(--text)">ci-repair</span> · 3m</div>
           <div class="kv acts" style="margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="project-workspace">Open workspace</button><button class="btn ghost sm" data-action="confirm" data-title="Delete k-harness?" data-body="Permanently delete k-harness and all its runs / tasks / KG? Cannot be undone." data-variant="danger" data-confirm="Delete" data-toast-msg="k-harness deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div></div>
 
@@ -1273,7 +1317,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
           <div class="kv muted" style="font-size:.74rem;margin-top:.4rem">CI ok · PRs 1 · bible ok · spark ∿∿∿</div>
           <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how 91 is scored</summary>
             <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 99%</span><span class="delta neg">−3</span></div><div class="frow"><span class="grow">1 retry</span><span class="delta neg">−6</span></div></div></details>
-          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> suggested: merge PR #18</div>
+          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--amber)"><use href="#i-idea"></use></svg> suggested: merge PR #18</div>
           <div class="kv muted" style="font-size:.72rem;margin-top:.5rem">last run: <span style="color:var(--text)">build-docs</span> · 1h</div>
           <div class="kv acts" style="margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="project-workspace">Open workspace</button><button class="btn ghost sm" data-action="confirm" data-title="Delete docs-site?" data-body="Permanently delete docs-site and all its runs / tasks / KG? Cannot be undone." data-variant="danger" data-confirm="Delete" data-toast-msg="docs-site deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div></div>
 
@@ -1282,7 +1326,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
           <div class="kv muted" style="font-size:.74rem;margin-top:.4rem">CI ok · PRs 3 · bible stale · spark ∿∿</div>
           <details class="hbreak"><summary><svg class="gi chev" style="width:.85em;height:.85em"><use href="#i-arrow"></use></svg>how 67 is scored</summary>
             <div class="factors"><div class="frow"><span class="grow">base</span><span class="delta zero">100</span></div><div class="frow"><span class="grow">run success 89%</span><span class="delta neg">−11</span></div><div class="frow"><span class="grow">2 retries</span><span class="delta neg">−12</span></div><div class="frow"><span class="grow">bible stale</span><span class="delta neg">−10</span></div></div></details>
-          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> suggested: refresh bible</div>
+          <div class="card" style="background:var(--bg-deep);padding:.5rem .7rem;margin-top:.6rem"><svg class="gi" style="color:var(--amber)"><use href="#i-idea"></use></svg> suggested: refresh bible</div>
           <div class="kv muted" style="font-size:.72rem;margin-top:.5rem">last run: <span style="color:var(--text)">bible-refresh</span> · 26m</div>
           <div class="kv acts" style="margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="project-workspace">Open workspace</button><button class="btn ghost sm" data-action="confirm" data-title="Delete api-gateway?" data-body="Permanently delete api-gateway and all its runs / tasks / KG? Cannot be undone." data-variant="danger" data-confirm="Delete" data-toast-msg="api-gateway deleted" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div></div>
       </div>
@@ -1309,15 +1353,15 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
               <line x1="112" y1="232" x2="172" y2="320"/><line x1="112" y1="232" x2="205" y2="150"/>
               <line x1="538" y1="330" x2="428" y2="320"/><line x1="538" y1="330" x2="420" y2="112"/>
             </g>
-            <g fill="#241640" stroke-width="2.5">
+            <g fill="#2a1a47" stroke-width="2.5">
               <circle cx="205" cy="150" r="19" stroke="#34d399"/>
               <circle cx="420" cy="112" r="19" stroke="#34d399"/>
               <circle cx="172" cy="320" r="19" stroke="#f87171"/>
               <circle cx="428" cy="320" r="19" stroke="#fbbf24"/>
             </g>
-            <circle cx="300" cy="64" r="9" fill="#6fa8dd"/><circle cx="498" cy="202" r="9" fill="#a07cd6"/>
-            <circle cx="300" cy="398" r="9" fill="#5fb3a8"/><circle cx="112" cy="232" r="9" fill="#d488a6"/>
-            <circle cx="538" cy="330" r="9" fill="#8a93c2"/>
+            <circle cx="300" cy="64" r="9" fill="#ff8fc0"/><circle cx="498" cy="202" r="9" fill="#38bdf8"/>
+            <circle cx="300" cy="398" r="9" fill="#a855f7"/><circle cx="112" cy="232" r="9" fill="#c084fc"/>
+            <circle cx="538" cy="330" r="9" fill="#6366f1"/>
             <g font-size="11" text-anchor="middle" font-family="system-ui,sans-serif">
               <text x="205" y="185" fill="#f4f0ff">gitnexus</text><text x="420" y="147" fill="#f4f0ff">docs-site</text>
               <text x="172" y="355" fill="#f4f0ff">k-harness</text><text x="428" y="355" fill="#f4f0ff">api-gateway</text>
@@ -1327,16 +1371,16 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
             </g>
           </svg>
         </div>
-        <div class="panel glass"><h2>Inspector</h2>
-          <div class="kv"><span class="ldot fe"></span><b>Frontend Lead</b></div>
+        <div class="panel glass-panel"><h2>Inspector</h2>
+          <div class="kv"><span class="ldot"></span><b>Frontend Lead</b></div>
           <p class="muted" style="font-size:.78rem;margin:.3rem 0">health 82 · load 60% · 2 live</p>
           <p class="muted" style="font-size:.74rem;margin:.4rem 0 0">Owns web UI, a11y, perf.</p>
           <div class="kv" style="margin-top:.7rem"><button class="btn sky sm" data-action="route" data-arg="orchestrator-detail">Open</button><button class="btn primary sm" data-action="cmd-dispatch" data-q="dispatch on Frontend Lead" data-scope="on Frontend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> dispatch</button></div>
           <h2 style="margin:1rem 0 .5rem">Linked nodes</h2>
           <div class="list" style="font-size:.78rem">
-            <div class="row"><span class="ldot be"></span><span class="grow">Backend Lead</span><span class="meta">shared API types</span></div>
-            <div class="row"><span class="ldot sec"></span><span class="grow">Security Lead</span><span class="meta">auth surface</span></div>
-            <div class="row"><span class="ldot sys"></span><span class="grow">Systems Lead</span><span class="meta">build pipeline</span></div>
+            <div class="row"><span class="ldot"></span><span class="grow">Backend Lead</span><span class="meta">shared API types</span></div>
+            <div class="row"><span class="ldot"></span><span class="grow">Security Lead</span><span class="meta">auth surface</span></div>
+            <div class="row"><span class="ldot"></span><span class="grow">Systems Lead</span><span class="meta">build pipeline</span></div>
             <div class="row"><svg class="gi muted"><use href="#i-grid"></use></svg><span class="grow">gitnexus</span><span class="meta">project</span></div>
             <div class="row"><svg class="gi muted"><use href="#i-grid"></use></svg><span class="grow">docs-site</span><span class="meta">project</span></div>
           </div>
@@ -1347,26 +1391,26 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
 
     <!-- ============ PROJECT WORKSPACE (7 tabs) ============ -->
     <section class="screen" data-view="project-workspace">
-      <div class="rowhead"><h1 class="page">gitnexus</h1><span class="muted">· github.com/…/gitnexus · health 82/100</span>
+      <div class="rowhead"><h1 class="page text-display">gitnexus</h1><span class="muted">· github.com/…/gitnexus · health 82/100</span>
         <div class="right"><button class="btn primary sm" data-action="cmd-dispatch" data-q="dispatch in gitnexus" data-scope="in project gitnexus"><svg class="gi"><use href="#i-bolt"></use></svg> Ask K</button></div></div>
       <div class="tabbar">
-        <button class="tab active" data-action="tab" data-group="ws" data-arg="overview">Overview</button>
-        <button class="tab" data-action="tab" data-group="ws" data-arg="kg">Knowledge Graph</button>
-        <button class="tab" data-action="tab" data-group="ws" data-arg="runs">Runs</button>
-        <button class="tab" data-action="tab" data-group="ws" data-arg="tasks">Tasks</button>
-        <button class="tab" data-action="tab" data-group="ws" data-arg="prs">PRs &amp; CI</button>
-        <button class="tab" data-action="tab" data-group="ws" data-arg="verify">Verification</button>
-        <button class="tab" data-action="tab" data-group="ws" data-arg="artifacts">Artifacts</button>
+        <button class="tab active text-label" data-action="tab" data-group="ws" data-arg="overview">Overview</button>
+        <button class="tab text-label" data-action="tab" data-group="ws" data-arg="kg">Knowledge Graph</button>
+        <button class="tab text-label" data-action="tab" data-group="ws" data-arg="runs">Runs</button>
+        <button class="tab text-label" data-action="tab" data-group="ws" data-arg="tasks">Tasks</button>
+        <button class="tab text-label" data-action="tab" data-group="ws" data-arg="prs">PRs &amp; CI</button>
+        <button class="tab text-label" data-action="tab" data-group="ws" data-arg="verify">Verification</button>
+        <button class="tab text-label" data-action="tab" data-group="ws" data-arg="artifacts">Artifacts</button>
       </div>
 
       <div data-tabpanel="ws" data-arg="overview" class="active">
         <div class="stats" style="margin-bottom:.8rem">
-          <div class="stat"><span class="label">Runs</span><span class="value">342</span></div>
-          <div class="stat"><span class="label">Cost</span><span class="value">$612</span></div>
-          <div class="stat"><span class="label">PRs</span><span class="value">2</span></div>
-          <div class="stat"><span class="label">Bible</span><span class="value">4/5</span></div>
+          <div class="stat"><span class="label micro-label">Runs</span><span class="value text-title">342</span></div>
+          <div class="stat"><span class="label micro-label">Cost</span><span class="value text-title">$612</span></div>
+          <div class="stat"><span class="label micro-label">PRs</span><span class="value text-title">2</span></div>
+          <div class="stat"><span class="label micro-label">Bible</span><span class="value text-title">4/5</span></div>
         </div>
-        <div class="panel"><h2>Suggested next action</h2><div class="kv"><svg class="gi" style="color:var(--warm-glow)"><use href="#i-idea"></use></svg> Open PR #42 from the auth-refactor run.<button class="btn sky sm" style="margin-left:auto" data-action="route" data-arg="runs">Go</button></div></div>
+        <div class="panel"><h2>Suggested next action</h2><div class="kv"><svg class="gi" style="color:var(--amber)"><use href="#i-idea"></use></svg> Open PR #42 from the auth-refactor run.<button class="btn sky sm" style="margin-left:auto" data-action="route" data-arg="runs">Go</button></div></div>
         <div class="panel"><h2>Recent activity <span class="right"><a class="link" data-action="route" data-arg="insights">cost &amp; token trends →</a></span></h2>
           <div class="list">
             <div class="row"><span class="pill done"><span class="d"></span></span><span class="grow">auth refactor — diff +120 −44</span><span class="meta">12m ago</span></div>
@@ -1436,7 +1480,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
 
     <!-- ============ RUNS + CONSOLE ============ -->
     <section class="screen" data-view="runs">
-      <div class="rowhead"><h1 class="page">Runs</h1><span class="muted">· 5 recent</span></div>
+      <div class="rowhead"><h1 class="page text-display">Runs</h1><span class="muted">· 5 recent</span></div>
 
       <div class="split">
           <div class="panel"><h2>Run list</h2><div class="list">
@@ -1449,7 +1493,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
 
           <div class="console col">
             <div class="chead">
-              <b style="font-size:.82rem">refactor auth</b><span class="muted" style="font-size:.72rem"><span class="ldot fe" style="display:inline-block;vertical-align:middle"></span> Frontend ▸ implementer · claude-opus</span>
+              <b style="font-size:.82rem">refactor auth</b><span class="muted" style="font-size:.72rem"><span class="ldot" style="display:inline-block;vertical-align:middle"></span> Frontend ▸ implementer · claude-opus</span>
               <span class="seg" style="margin-left:auto"><button class="active" data-action="seg">Console</button><button data-action="seg">Timeline</button></span>
             </div>
             <div class="chead" style="border-top:none">
@@ -1473,14 +1517,14 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
     <!-- ============ PERSONAL ============ -->
     <section class="screen" data-view="personal">
       <div class="tabbar" data-group="pz">
-        <button class="tab active" data-action="tab" data-group="pz" data-arg="inbox">Inbox</button>
-        <button class="tab" data-action="tab" data-group="pz" data-arg="tasks">Tasks</button>
-        <button class="tab" data-action="tab" data-group="pz" data-arg="chats">Chats</button>
-        <button class="tab" data-action="tab" data-group="pz" data-arg="memories">Memories</button>
+        <button class="tab active text-label" data-action="tab" data-group="pz" data-arg="inbox">Inbox</button>
+        <button class="tab text-label" data-action="tab" data-group="pz" data-arg="tasks">Tasks</button>
+        <button class="tab text-label" data-action="tab" data-group="pz" data-arg="chats">Chats</button>
+        <button class="tab text-label" data-action="tab" data-group="pz" data-arg="memories">Memories</button>
       </div>
 
       <div data-tabpanel="pz" data-arg="inbox" class="active">
-        <div class="rowhead"><h1 class="page">Inbox</h1><span class="muted">· union over plan / review / verify / approvals / proposals — never a table</span>
+        <div class="rowhead"><h1 class="page text-display">Inbox</h1><span class="muted">· union over plan / review / verify / approvals / proposals — never a table</span>
           <div class="right"><span class="pill watch"><span class="d"></span>6 pending</span></div></div>
 
         <div class="panel">
@@ -1488,7 +1532,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
             <div class="row"><span class="tier-chip be">Backend</span><span class="grow">Plan awaiting review — auth refactor</span><span class="pill watch"><span class="d"></span>plan gate</span><button class="btn sky sm" data-action="route" data-arg="runs">Open</button></div>
             <div class="row"><span class="tier-chip fe">Frontend</span><span class="grow">PR #42 request-changes → fix run ready to approve</span><span class="pill running"><span class="d"></span>review</span><button class="btn sky sm" data-action="route" data-arg="runs">Open</button></div>
             <div class="row"><span class="tier-chip sec">Security</span><span class="grow">API surface audit blocked — needs your decision</span><span class="pill error"><span class="d"></span>needs you</span><button class="btn sky sm" data-action="route" data-arg="agents">Open</button></div>
-            <div class="row"><span class="ldot sys"></span><span class="grow">Verify battery passed — core @ final checkpoint</span><span class="pill done"><span class="d"></span>verify</span><a class="link" data-action="route" data-arg="runs">view →</a></div>
+            <div class="row"><span class="ldot"></span><span class="grow">Verify battery passed — core @ final checkpoint</span><span class="pill done"><span class="d"></span>verify</span><a class="link" data-action="route" data-arg="runs">view →</a></div>
             <div class="row"><span class="tier-chip">proposal</span><span class="grow">Fix failing CI — <b>api-gateway</b></span><span class="pill error"><span class="d"></span>ci_failed</span><button class="btn primary sm" data-action="confirm" data-title="Approve proposal?" data-body="Add “Fix failing CI — api-gateway” to the backlog? Auto-pull will claim it when a slot is free." data-confirm="Approve" data-toast-msg="Proposal approved → backlog" data-toast-link="1">Approve</button><button class="btn ghost sm" data-action="confirm" data-title="Dismiss proposal?" data-body="Dismiss this proposal? It won't nag again — dismiss has no undo." data-variant="danger" data-confirm="Dismiss" data-toast-msg="Proposal dismissed" data-toast-variant="info">Dismiss</button></div>
             <div class="row"><span class="tier-chip">proposal</span><span class="grow">Self-heal parked — run <span class="mono">r-8f2a</span> failed (unknown)</span><span class="pill done"><span class="d"></span>verify</span><button class="btn primary sm" data-action="confirm" data-title="Approve self-heal?" data-body="Dispatch a new default-orchestrator run with the diagnosis as its goal?" data-confirm="Approve" data-toast-msg="Self-heal run dispatched" data-toast-link="1">Approve</button><button class="btn ghost sm" data-action="confirm" data-title="Dismiss proposal?" data-body="Dismiss this parked run?" data-variant="danger" data-confirm="Dismiss" data-toast-msg="Proposal dismissed" data-toast-variant="info">Dismiss</button></div>
           </div>
@@ -1496,7 +1540,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
       </div>
 
       <div data-tabpanel="pz" data-arg="tasks">
-        <div class="rowhead"><h1 class="page">Tasks</h1><span class="muted">· personal, yours alone</span></div>
+        <div class="rowhead"><h1 class="page text-display">Tasks</h1><span class="muted">· personal, yours alone</span></div>
         <div class="panel">
           <div class="witem"><div class="witem-top"><span class="check" data-action="toggle-check"><span class="box"></span></span><span class="grow">triage PR #42</span><span class="tier-chip">Chief</span></div></div>
           <div class="witem"><div class="witem-top"><span class="check on" data-action="toggle-check"><span class="box"></span></span><span class="grow">build graph</span><span class="pill done"><span class="d"></span>done</span></div></div>
@@ -1507,7 +1551,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
       </div>
 
       <div data-tabpanel="pz" data-arg="chats">
-        <div class="rowhead"><h1 class="page">Chats</h1><span class="muted">· your K threads</span></div>
+        <div class="rowhead"><h1 class="page text-display">Chats</h1><span class="muted">· your K threads</span></div>
         <div class="panel">
           <div class="list">
             <div class="row selrow sel" data-action="select-row"><span class="grow"><b>Auth refactor plan</b><br><span class="muted" style="font-size:.72rem">last: routed to Backend Lead</span></span><span class="meta">2m</span></div>
@@ -1518,7 +1562,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
       </div>
 
       <div data-tabpanel="pz" data-arg="memories">
-        <div class="rowhead"><h1 class="page">Memories</h1><span class="muted">· what K remembers about you</span></div>
+        <div class="rowhead"><h1 class="page text-display">Memories</h1><span class="muted">· what K remembers about you</span></div>
         <div class="panel">
           <div class="list stack" style="font-size:.84rem">
             <div class="row"><span class="grow">prefers PRs over direct pushes to main</span><button class="btn ghost sm" data-action="confirm" data-title="Forget this?" data-body="Remove this memory?" data-variant="danger" data-confirm="Forget" data-toast-msg="Memory removed" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
@@ -1530,15 +1574,15 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
 
     <!-- ============ INSIGHTS ============ -->
     <section class="screen" data-view="insights">
-      <div class="rowhead"><h1 class="page">Insights</h1>
+      <div class="rowhead"><h1 class="page text-display">Insights</h1>
         <span class="seg"><button data-action="toast" data-msg="Overview — deterministic deltas + z-score anomalies (measured only, no LLM)" data-variant="info">Overview</button><button class="active" data-action="route" data-arg="insights">Charts</button><button data-action="route" data-arg="routing">Routing</button><button data-action="toast" data-msg="Evals — run / dry-real with freeze baselines" data-variant="info">Evals</button></span>
         <div class="right"><span class="picker">metric: cost</span><span class="picker">groupBy: day</span><span class="picker">range: 30d</span></div></div>
 
       <div class="stats" style="margin-bottom:.8rem">
-        <div class="stat"><span class="label">Today</span><span class="value">$7.92</span></div>
-        <div class="stat"><span class="label">7d</span><span class="value">$48.10</span></div>
-        <div class="stat"><span class="label">Tokens 7d</span><span class="value">1.4M</span></div>
-        <div class="stat"><span class="label">Success</span><span class="value">94%</span></div>
+        <div class="stat"><span class="label micro-label">Today</span><span class="value text-title">$7.92</span></div>
+        <div class="stat"><span class="label micro-label">7d</span><span class="value text-title">$48.10</span></div>
+        <div class="stat"><span class="label micro-label">Tokens 7d</span><span class="value text-title">1.4M</span></div>
+        <div class="stat"><span class="label micro-label">Success</span><span class="value text-title">94%</span></div>
       </div>
 
       <div class="mgrid">
@@ -1599,11 +1643,11 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
 
         <div class="card mcard"><h2>Cost by lead <span class="right muted">7d</span></h2>
           <div class="mlist vstack-sm" style="font-size:.76rem">
-            <div class="kv" style="gap:.55rem"><span class="ldot fe"></span><span style="width:34px">FE</span><span class="bar" style="flex:1"><span style="width:100%;background:var(--lead-fe)"></span></span><span class="mono">$18</span></div>
-            <div class="kv" style="gap:.55rem"><span class="ldot be"></span><span style="width:34px">BE</span><span class="bar" style="flex:1"><span style="width:78%;background:var(--lead-be)"></span></span><span class="mono">$14</span></div>
-            <div class="kv" style="gap:.55rem"><span class="ldot sec"></span><span style="width:34px">SEC</span><span class="bar" style="flex:1"><span style="width:39%;background:var(--lead-sec)"></span></span><span class="mono">$7</span></div>
-            <div class="kv" style="gap:.55rem"><span class="ldot sys"></span><span style="width:34px">SYS</span><span class="bar" style="flex:1"><span style="width:33%;background:var(--lead-sys)"></span></span><span class="mono">$6</span></div>
-            <div class="kv" style="gap:.55rem"><span class="ldot net"></span><span style="width:34px">NET</span><span class="bar" style="flex:1"><span style="width:17%;background:var(--lead-net)"></span></span><span class="mono">$3</span></div>
+            <div class="kv" style="gap:.55rem"><span class="ldot"></span><span style="width:34px">FE</span><span class="bar" style="flex:1"><span style="width:100%;background:var(--chart-1)"></span></span><span class="mono">$18</span></div>
+            <div class="kv" style="gap:.55rem"><span class="ldot"></span><span style="width:34px">BE</span><span class="bar" style="flex:1"><span style="width:78%;background:var(--chart-4)"></span></span><span class="mono">$14</span></div>
+            <div class="kv" style="gap:.55rem"><span class="ldot"></span><span style="width:34px">SEC</span><span class="bar" style="flex:1"><span style="width:39%;background:var(--chart-7)"></span></span><span class="mono">$7</span></div>
+            <div class="kv" style="gap:.55rem"><span class="ldot"></span><span style="width:34px">SYS</span><span class="bar" style="flex:1"><span style="width:33%;background:var(--chart-5)"></span></span><span class="mono">$6</span></div>
+            <div class="kv" style="gap:.55rem"><span class="ldot"></span><span style="width:34px">NET</span><span class="bar" style="flex:1"><span style="width:17%;background:var(--chart-8)"></span></span><span class="mono">$3</span></div>
           </div>
         </div>
 
@@ -1672,8 +1716,8 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
 
     <!-- ============ ROUTING ============ -->
     <section class="screen" data-view="routing">
-      <h1 class="page">Routing</h1>
-      <div class="panel" style="border-color:rgba(255,143,192,.4)"><div class="kv"><svg class="gi" style="color:var(--accent-soft)"><use href="#i-idea"></use></svg> Recommendation: route default → claude-opus (96% success, $0.04/run).
+      <h1 class="page text-display">Routing</h1>
+      <div class="panel" style="border-color:rgba(255,143,192,.4)"><div class="kv"><svg class="gi" style="color:var(--accent)"><use href="#i-idea"></use></svg> Recommendation: route default → claude-opus (96% success, $0.04/run).
         <button class="btn primary sm" style="margin-left:auto" data-action="confirm" data-title="Apply recommendation?" data-body="Set the default route to claude-opus? Changes routing for new runs." data-confirm="Apply" data-toast-msg="Default route updated">Apply</button></div></div>
       <div class="panel"><h2>Models <span class="right"><a class="link" data-action="route" data-arg="settings">manage local models →</a></span></h2>
         <div class="list" style="font-size:.78rem">
@@ -1697,7 +1741,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
 
     <!-- ============ SETTINGS ============ -->
     <section class="screen" data-view="settings">
-      <h1 class="page">Settings</h1>
+      <h1 class="page text-display">Settings</h1>
 
       <div class="panel"><h2>Status</h2>
         <div class="kv" style="gap:1.2rem;flex-wrap:wrap">
@@ -1729,7 +1773,7 @@ spec-review -> quality-review). Keep dense views opaque; glass is hero-only.
 
         <div class="grouplabel" style="padding:.2rem 0 .35rem">Installed</div>
         <div class="list" style="font-size:.82rem">
-          <div class="row"><span class="grow mono">llama3.2:3b</span><span class="tier-chip">2.0 GB</span><span class="pill" style="color:var(--accent-soft)"><span class="d"></span>active</span><button class="btn ghost sm" data-action="confirm" data-title="Remove llama3.2:3b?" data-body="Delete this model from disk? You can pull it again later." data-variant="danger" data-confirm="Remove" data-toast-msg="llama3.2:3b removed" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
+          <div class="row"><span class="grow mono">llama3.2:3b</span><span class="tier-chip">2.0 GB</span><span class="pill" style="color:var(--accent)"><span class="d"></span>active</span><button class="btn ghost sm" data-action="confirm" data-title="Remove llama3.2:3b?" data-body="Delete this model from disk? You can pull it again later." data-variant="danger" data-confirm="Remove" data-toast-msg="llama3.2:3b removed" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
           <div class="row"><span class="grow mono">qwen2.5:0.5b</span><span class="tier-chip">0.4 GB</span><button class="btn sky sm" data-action="confirm" data-title="Make qwen2.5:0.5b the active local model?" data-body="K's router will use qwen2.5:0.5b for local runs from now on. Applies immediately — no restart." data-confirm="Set active" data-toast-msg="qwen2.5:0.5b is now the active local model">set active</button><button class="btn ghost sm" data-action="confirm" data-title="Remove qwen2.5:0.5b?" data-body="Delete this model from disk?" data-variant="danger" data-confirm="Remove" data-toast-msg="qwen2.5:0.5b removed" data-toast-variant="info"><svg class="gi"><use href="#i-trash"></use></svg></button></div>
         </div>
 
@@ -1791,7 +1835,7 @@ This is the shared system prompt for every agent the harness runs.</textarea>
 
     <!-- ============ HELP / DOCS ============ -->
     <section class="screen" data-view="help">
-      <h1 class="page">Help / Docs</h1>
+      <h1 class="page text-display">Help / Docs</h1>
       <div class="split balance">
         <div class="panel"><h2>Contents</h2>
           <div class="list">
@@ -1815,7 +1859,7 @@ This is the shared system prompt for every agent the harness runs.</textarea>
           <h2 style="margin-top:1rem">Pattern gallery (design reference)</h2>
           <p class="muted" style="font-size:.78rem;margin:0 0 .6rem">Ordinary dispatch is one Send + a 5s undo toast (no confirm-card). A full confirm-card appears ONLY on escalation: T3 authority, cross-project, or destructive (kill / delete / reassign).</p>
           <div class="grid2">
-            <div class="dialog glass-strong" style="margin:0"><h3><svg class="gi" style="color:var(--red)"><use href="#i-alert"></use></svg> Escalation — confirm required</h3>
+            <div class="dialog glass-overlay" style="margin:0"><h3><svg class="gi" style="color:var(--red)"><use href="#i-alert"></use></svg> Escalation — confirm required</h3>
               <p class="muted" style="font-size:.78rem">Cross-project dispatch to k-harness. Reaches outside the current project.</p>
               <div class="actions"><span class="grow"></span><button class="btn ghost sm">Cancel</button><button class="btn danger sm">Confirm ↵</button></div></div>
             <div class="stack">
@@ -1833,7 +1877,7 @@ This is the shared system prompt for every agent the harness runs.</textarea>
     <section class="screen" data-view="notfound">
       <div class="empty" style="padding:5rem 1rem">
         <div style="font-size:2.4rem">⌀</div>
-        <h1 class="page" style="margin-top:.5rem">Not found</h1>
+        <h1 class="page text-display" style="margin-top:.5rem">Not found</h1>
         <p class="sub">That screen doesn't exist.</p>
         <div class="kv" style="justify-content:center"><button class="btn primary" data-action="route" data-arg="home-chat">Back to K</button><button class="btn ghost" data-action="dock-open">Press Ctrl K to message K</button></div>
       </div>
@@ -1842,8 +1886,8 @@ This is the shared system prompt for every agent the harness runs.</textarea>
     <!-- ============ LOGIN ============ -->
     <section class="screen" data-view="login">
       <div class="dialog-wrap" style="margin-top:4rem">
-        <div class="dialog glass-strong">
-          <div class="kv" style="justify-content:center"><span class="logo" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent-hover));color:var(--ink)"><svg class="gi" style="stroke-width:2"><use href="#i-bolt"></use></svg></span></div>
+        <div class="dialog glass-overlay">
+          <div class="kv" style="justify-content:center"><span class="logo" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent-hover));color:var(--on-accent)"><svg class="gi" style="stroke-width:2"><use href="#i-bolt"></use></svg></span></div>
           <h3 style="justify-content:center;margin-top:.5rem">Sign in to direct your org</h3>
           <div class="fields"><label>Access key</label><input type="password" value="••••••••••" aria-label="Access key" /></div>
           <div class="actions"><button class="btn primary grow" data-action="route" data-arg="home-chat">Sign in</button></div>
@@ -1859,7 +1903,6 @@ This is the shared system prompt for every agent the harness runs.</textarea>
     <input id="dockBarInput" placeholder="Message K…" aria-label="Message K" />
     <button class="micbtn" data-action="toast" data-msg="Listening… hold to talk, release to send" data-variant="info" title="Hold to talk (Alt Space)" aria-label="Hold to talk"><svg class="gi"><use href="#i-mic"></use></svg></button>
     <span class="routeline" id="dockBarRoute" style="margin:0;white-space:nowrap"><span class="muted">→</span> Chief <span class="seg-sep">→</span> Backend Lead</span>
-    <span class="check" data-action="toggle-check"><span class="box"></span> Interactive</span>
     <button class="btn primary sm" data-action="cmd-send" data-route="→ Chief → Backend Lead"><svg class="gi"><use href="#i-bolt"></use></svg> Send</button>
     <button class="btn ghost sm" data-action="toast" data-msg="New chat thread started" data-variant="info">+ New chat</button>
   </div>
@@ -1870,7 +1913,7 @@ This is the shared system prompt for every agent the harness runs.</textarea>
 <!-- ============ MESSAGE DOCK (⌘K) ============ -->
 <div class="overlay" id="dock">
   <div class="scrim" data-action="dock-close"></div>
-  <div class="dock-wrap"><div class="dockcard glass-strong">
+  <div class="dock-wrap"><div class="dockcard glass-overlay">
     <div class="dock-threads">
       <div class="dock-thread-row" data-action="toast" data-msg="New chat thread started" data-variant="info">+ New chat</div>
       <div class="dock-thread-row sel" data-action="select-row">Auth refactor plan</div>
@@ -1889,7 +1932,6 @@ This is the shared system prompt for every agent the harness runs.</textarea>
       <div class="routeline" id="dockRoute"><span class="muted">routes</span> → Chief <span class="seg-sep">→</span> Backend Lead</div>
       <div class="dock-foot">
         <span class="picker">model: default</span>
-        <span class="check" data-action="toggle-check"><span class="box"></span> Interactive</span>
         <button class="btn primary sm" style="margin-left:auto" data-action="cmd-send"><svg class="gi"><use href="#i-bolt"></use></svg> Send ↵</button>
         <span class="muted">esc</span>
       </div>
@@ -1900,7 +1942,7 @@ This is the shared system prompt for every agent the harness runs.</textarea>
 <!-- ============ GENERIC CONFIRM (escalation / destructive only) ============ -->
 <div class="overlay" id="confirm">
   <div class="scrim" data-action="confirm-cancel"></div>
-  <div class="dialog-wrap"><div class="dialog glass-strong">
+  <div class="dialog-wrap"><div class="dialog glass-overlay">
     <h3 id="confirmTitle">Confirm</h3>
     <div class="fields" id="confirmBody"></div>
     <div class="actions"><button class="btn ghost" data-action="confirm-cancel">Cancel <span class="muted">esc</span></button><span class="grow"></span><button class="btn primary" id="confirmOk" data-action="confirm-ok">Confirm ↵</button></div>
@@ -1919,11 +1961,11 @@ This is the shared system prompt for every agent the harness runs.</textarea>
     var meta = {
       'home-chat':     { nav: 'home', title: 'K', icon: 'i-home', crumb: '' },
       'home-overview': { nav: 'home', title: 'K · Overview', icon: 'i-home', crumb: 'Overview' },
-      'personal':      { nav: 'personal', title: 'Personal', icon: 'i-check', crumb: '' },
+      'personal':      { nav: 'personal', title: 'Personal', icon: 'i-checklist', crumb: '' },
       'agents':        { nav: 'agents', title: 'Agents', icon: 'i-crown', crumb: '' },
       'orchestrator-detail': { nav: 'agents', title: 'Frontend Lead', icon: 'i-net', crumb: 'Agents › Roster › Frontend Lead' },
-      'projects':      { nav: 'projects', title: 'Projects', icon: 'i-grid', crumb: '' },
-      'project-workspace': { nav: 'projects', title: 'gitnexus', icon: 'i-grid', crumb: 'Projects › gitnexus' },
+      'projects':      { nav: 'projects', title: 'Projects', icon: 'i-folder', crumb: '' },
+      'project-workspace': { nav: 'projects', title: 'gitnexus', icon: 'i-folder', crumb: 'Projects › gitnexus' },
       'runs':          { nav: 'runs', title: 'Runs', icon: 'i-runs', crumb: '' },
       'insights':      { nav: 'insights', title: 'Insights', icon: 'i-metrics', crumb: '' },
       'routing':       { nav: 'insights', title: 'Insights · Routing', icon: 'i-route', crumb: 'Insights › Routing' },
@@ -2068,11 +2110,6 @@ This is the shared system prompt for every agent the harness runs.</textarea>
       if (a === 'toggle-danger') {
         if (t.classList.contains('on')) { t.classList.remove('on'); toast((t.dataset.tool || 'Tool') + ' disabled', 'info'); return; }
         openConfirm({ title: 'Enable ' + (t.dataset.tool || 'tool') + '?', body: 'This is a danger tool — it can modify the system. Enable it for this lead?', variant: 'danger', confirm: 'Enable', toastMsg: (t.dataset.tool || 'Tool') + ' enabled' });
-        t.classList.add('on');
-        return;
-      }
-      if (a === 'tier') {
-        $$('.radio[data-action="tier"]').forEach(function (r) { r.classList.remove('on'); });
         t.classList.add('on');
         return;
       }

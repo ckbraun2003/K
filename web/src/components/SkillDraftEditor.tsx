@@ -99,13 +99,13 @@ export default function SkillDraftEditor({
     name !== initial.name || description !== initial.description || body !== initial.body
 
   const inputCls =
-    'w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:border-[var(--accent)] focus:outline-none'
+    'w-full rounded-lg border border-border bg-raised px-3 py-1.5 text-sm text-text placeholder-muted focus:border-accent focus:outline-none'
 
   return (
     <div data-testid="draft-editor" className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label htmlFor="draft-editor-name" className="mb-1 block text-xs text-[var(--muted)]">
+          <label htmlFor="draft-editor-name" className="mb-1 block text-xs text-muted">
             Frontmatter · name
           </label>
           <input
@@ -118,7 +118,7 @@ export default function SkillDraftEditor({
           />
         </div>
         <div>
-          <label htmlFor="draft-editor-description" className="mb-1 block text-xs text-[var(--muted)]">
+          <label htmlFor="draft-editor-description" className="mb-1 block text-xs text-muted">
             Frontmatter · description (the trigger — what makes agents load this skill)
           </label>
           <input
@@ -132,7 +132,7 @@ export default function SkillDraftEditor({
         </div>
       </div>
       <div>
-        <label htmlFor="draft-editor-body" className="mb-1 block text-xs text-[var(--muted)]">
+        <label htmlFor="draft-editor-body" className="mb-1 block text-xs text-muted">
           SKILL.md body (markdown)
         </label>
         <AutoTextarea
@@ -152,7 +152,7 @@ export default function SkillDraftEditor({
             composeSkillMd({ name, description, otherFrontmatter: initial.otherFrontmatter, body }),
           )
         }
-        className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-50"
+        className="rounded-lg bg-accent px-4 py-1.5 text-xs font-semibold text-bg transition-opacity hover:opacity-90 disabled:opacity-50"
       >
         {busy ? 'saving…' : 'save draft'}
       </button>

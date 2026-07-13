@@ -25,24 +25,24 @@ export default function CapabilityStatRow() {
       title={`Estimates of prompt-context weight, not billed tokens${
         unestimated > 0 ? `; ${unestimated} not yet measured excluded` : ''
       }`}
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-2 text-[11px] text-[var(--muted)]"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-surface px-5 py-2 text-[11px] text-muted"
     >
       {data ? (
         <>
           <span>
             Enabled skills:{' '}
-            <span className="mono text-[var(--text)]">{data.skills.enabledCount}</span> ·{' '}
-            <span className="mono text-[var(--text)]">~{formatCompact(data.skills.estTokens)}</span> tok
+            <span className="mono text-text">{data.skills.enabledCount}</span> ·{' '}
+            <span className="mono text-text">~{formatCompact(data.skills.estTokens)}</span> tok
           </span>
           <span aria-hidden>—</span>
           <span>
-            MCP: <span className="mono text-[var(--text)]">{data.mcp.enabledCount}</span> servers ·{' '}
-            <span className="mono text-[var(--text)]">~{formatCompact(data.mcp.estTokens)}</span> tok
+            MCP: <span className="mono text-text">{data.mcp.enabledCount}</span> servers ·{' '}
+            <span className="mono text-text">~{formatCompact(data.mcp.estTokens)}</span> tok
           </span>
           <span aria-hidden>—</span>
           <span>
             Total <GlossaryTerm term="Weight band">context weight</GlossaryTerm>:{' '}
-            <span className="mono text-[var(--accent-hover)]">~{formatCompact(data.totalEstTokens)}</span> tok
+            <span className="mono text-accent-hover">~{formatCompact(data.totalEstTokens)}</span> tok
           </span>
           {unestimated > 0 && (
             <span data-testid="capability-stat-unestimated" className="italic">

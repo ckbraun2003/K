@@ -7,8 +7,12 @@ import { onWsMessage } from '../lib/ws'
 import { cn } from '../lib/cn'
 import { RUNS_LIST_KEY, RUNS_LIST_LIMIT, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
 import { cleanRunPrompt } from '../lib/prompt'
-import { runStatusMeta } from '../lib/status'
 import ConfirmDialog from './ConfirmDialog'
+import { Tag } from '../ui/Tag'
+import { StatusPill } from '../ui/StatusPill'
+import { IconButton } from '../ui/Button'
+import { EmptyState } from '../ui/EmptyState'
+import { SkeletonRow } from '../ui/Skeleton'
 
 interface Props {
   selectedId: string | null
@@ -48,7 +52,7 @@ export default function RunList({ selectedId, onSelect }: Props) {
   // live-patched by run_update. Key + fn come from runs-query.ts so the
   // consumers can't drift — a *filtered* or non-default-limit list must use its
   // own scoped queryKey, never this one.
-  const { data: runs = [] } = useQuery<Run[]>({
+  const { data: runs = [], isLoading } = useQuery<Run[]>({
     queryKey: RUNS_LIST_KEY,
     queryFn: runsListQueryFn,
     refetchInterval: 5_000,
@@ -100,8 +104,8 @@ export default function RunList({ selectedId, onSelect }: Props) {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-[var(--border)]">
-        <h2 className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider mb-2">Runs</h2>
+      <div className="px-4 py-3 border-b border-border">
+        <h2 className="micro-label mb-2">Runs</h2>
         {/* Filter chips */}
         <div className="flex items-center gap-1 flex-wrap">
           {FILTERS.map(f => {
@@ -110,17 +114,15 @@ export default function RunList({ selectedId, onSelect }: Props) {
             return (
               <button
                 key={f}
+                type="button"
                 data-testid={`run-filter-${f}`}
                 onClick={() => setFilter(f)}
                 aria-pressed={isActive}
-                className={cn(
-                  'text-xs px-2 py-0.5 rounded font-medium transition-colors',
-                  isActive
-                    ? 'bg-accent/15 text-[var(--accent-hover)]'
-                    : 'text-[var(--muted)] hover:text-[var(--text)]'
-                )}
+                className="p-0 focus-visible:glow-focus rounded-pill"
               >
-                {f} {count}
+                <Tag tint={isActive ? 'accent' : 'neutral'}>
+                  {f} <span className="mono tabular-nums">{count}</span>
+                </Tag>
               </button>
             )
           })}
@@ -129,14 +131,18 @@ export default function RunList({ selectedId, onSelect }: Props) {
 
       {/* Run list */}
       <div className="flex-1 overflow-y-auto">
-        {filteredRuns.length === 0 && (
-          <div className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-            {runs.length === 0
-              ? (<>No runs yet.<br />Press ⌘K to start one.</>)
-              : 'No runs match this filter.'}
+        {isLoading ? (
+          <div className="px-4 py-2">
+            {Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} />)}
           </div>
-        )}
-        {filteredRuns.map(run => {
+        ) : filteredRuns.length === 0 ? (
+          <div className="px-4 py-8">
+            {runs.length === 0
+              ? <EmptyState icon="runs" headline="No runs yet" hint="⌘K to dispatch one" />
+              : <EmptyState icon="runs" headline="No runs match this filter" />}
+          </div>
+        ) : null}
+        {!isLoading && filteredRuns.map(run => {
           const killable = run.status === 'running' || run.status === 'queued'
           return (
             <motion.div
@@ -148,33 +154,31 @@ export default function RunList({ selectedId, onSelect }: Props) {
               onClick={() => onSelect(run.id)}
               onKeyDown={e => handleRowKeyDown(e, run.id)}
               className={cn(
-                'group w-full text-left px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--surface)] transition-colors cursor-pointer',
-                selectedId === run.id && 'bg-[var(--surface)] border-l-2 border-l-[var(--accent)]'
+                'group w-full text-left px-4 py-3 border-b border-border hover:bg-surface transition-colors cursor-pointer',
+                selectedId === run.id && 'bg-surface border-l-2 border-l-accent'
               )}
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
             >
               <div className="flex items-center gap-2 mb-1">
-                <span className={cn('w-2 h-2 rounded-full flex-shrink-0', runStatusMeta(run.status).dot)} />
-                <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', runStatusMeta(run.status).badge)}>
-                  {runStatusMeta(run.status).label}
-                </span>
-                <span className="mono text-xs text-[var(--muted)] ml-auto">
+                <StatusPill status={run.status} />
+                <span className="mono tabular-nums text-label text-muted ml-auto">
                   ${(run.costUsd).toFixed(4)}
                 </span>
                 {killable && (
-                  <button
+                  <IconButton
+                    name="close"
+                    label="Kill run"
+                    variant="danger"
+                    size="sm"
                     onClick={e => { e.stopPropagation(); setPendingKill(run) }}
                     data-testid="run-kill-btn"
-                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 text-xs px-1.5 py-0.5 rounded bg-red/20 text-[var(--red)] hover:bg-red/30 transition-opacity"
-                    aria-label="Kill run"
-                  >
-                    ✕
-                  </button>
+                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
+                  />
                 )}
               </div>
-              <p className="text-sm text-[var(--text)] truncate">{cleanRunPrompt(run.prompt)}</p>
-              <p className="mono text-xs text-[var(--muted)] mt-0.5">
+              <p className="text-body text-text truncate">{cleanRunPrompt(run.prompt)}</p>
+              <p className="mono tabular-nums text-label text-muted mt-0.5">
                 {new Date(run.createdAt).toLocaleTimeString()} · {run.model}
               </p>
             </motion.div>
@@ -183,8 +187,8 @@ export default function RunList({ selectedId, onSelect }: Props) {
       </div>
 
       {/* Sticky footer totals */}
-      <div className="flex-shrink-0 border-t border-[var(--border)] px-4 py-2">
-        <p className="mono text-xs text-[var(--muted)]">
+      <div className="flex-shrink-0 border-t border-border px-4 py-2">
+        <p className="mono tabular-nums text-label text-muted">
           {atLimit && <span className="mr-1">last 100 ·</span>}
           Σ {filteredRuns.length} runs · ${totalCost.toFixed(2)} · {formatTokens(totalTokens)}
         </p>
@@ -197,7 +201,7 @@ export default function RunList({ selectedId, onSelect }: Props) {
         busy={killing}
         message={
           <>
-            Terminating <span className="font-medium text-[var(--text)]">{pendingKill?.prompt}</span>{' '}
+            Terminating <span className="font-medium text-text">{pendingKill?.prompt}</span>{' '}
             stops the agent immediately. This cannot be undone.
           </>
         }

@@ -34,7 +34,7 @@ export default function WorkflowNudge() {
       message={
         <>
           Workflow complete —{' '}
-          <span className="font-medium text-[var(--text)]">
+          <span className="font-medium text-text">
             {nudge?.count} {nudge && nudge.count === 1 ? 'task' : 'tasks'}
           </span>{' '}
           to review &amp; close

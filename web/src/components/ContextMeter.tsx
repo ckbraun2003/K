@@ -35,7 +35,7 @@ export default function ContextMeter({ pressure }: { pressure: ContextPressure }
         role="img"
         aria-label="Context usage unknown"
         title="Context window unknown for this model — pressure can't be shown."
-        className="inline-flex items-center gap-1 text-[var(--muted)]"
+        className="inline-flex items-center gap-1 text-caption text-muted"
       >
         ctx —
       </span>
@@ -49,14 +49,14 @@ export default function ContextMeter({ pressure }: { pressure: ContextPressure }
       role="img"
       aria-label={`Context usage ${pct}% (${tokens} of ${limit} tokens)`}
       title={`${tokens.toLocaleString()} / ${limit.toLocaleString()} context tokens`}
-      className="inline-flex items-center gap-1.5 text-[var(--muted)]"
+      className="inline-flex items-center gap-1.5 text-caption text-muted"
     >
-      <span className="whitespace-nowrap">
+      <span className="mono tabular-nums whitespace-nowrap">
         ctx {formatTokens(tokens)} / {formatTokens(limit)} · {pct}%
       </span>
       <span
         aria-hidden
-        className="h-1 w-12 overflow-hidden rounded-full bg-[var(--border)]"
+        className="h-1 w-12 overflow-hidden rounded-full bg-border"
       >
         <span
           data-testid="context-meter-fill"

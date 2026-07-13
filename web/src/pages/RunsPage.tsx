@@ -1,11 +1,16 @@
 import { navigate } from '../lib/route'
 import RunList from '../components/RunList'
 import RunConsole from '../components/RunConsole'
+import { EmptyState } from '../ui/EmptyState'
 
 function RunsMasterDetail({ runId }: { runId?: string }) {
   return (
     <div className="flex h-full overflow-hidden">
-      <aside className="w-72 flex-shrink-0 overflow-hidden border-r border-[var(--border)]">
+      {/* NOT glass-chrome — this scrolls dense run-list data, so it stays an
+          opaque surface (bg-surface, no blur/radius/all-side border — a flush
+          full-height divider, not a floating card) per "dense data never sits
+          on blur". */}
+      <aside className="bg-surface w-72 flex-shrink-0 overflow-hidden border-r border-border">
         <RunList selectedId={runId ?? null} onSelect={id => navigate('runs', id)} />
       </aside>
       {/* section, not main — the shell already provides the page's <main> landmark */}
@@ -13,9 +18,8 @@ function RunsMasterDetail({ runId }: { runId?: string }) {
         {runId ? (
           <RunConsole runId={runId} />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <div className="text-4xl opacity-40">▶</div>
-            <p className="text-sm text-[var(--muted)]">Select a run — or press <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px]">⌘K</kbd> to dispatch one.</p>
+          <div className="flex h-full items-center justify-center">
+            <EmptyState icon="runs" headline="Select a run" hint="or press ⌘K to dispatch one" />
           </div>
         )}
       </section>

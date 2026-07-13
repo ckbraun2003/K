@@ -13,6 +13,9 @@ import {
   BREAKDOWN_BARS,
   BREAKDOWN_MAX,
 } from '../../lib/verify'
+import { Icon } from '../../ui/Icon'
+import { Button, IconButton } from '../../ui/Button'
+import { Spinner } from '../../ui/Spinner'
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -56,20 +59,20 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
   const ciConclusion = github?.ci?.[0]?.conclusion ?? null
   const ciChip: { label: string; tone: string } =
     ciConclusion == null
-      ? { label: 'CI —', tone: 'text-[var(--muted)]' }
+      ? { label: 'CI —', tone: 'text-muted' }
       : ciConclusion === 'success'
-        ? { label: 'CI ✓', tone: 'text-[var(--green)]' }
-        : { label: 'CI ✗', tone: 'text-[var(--amber)]' }
+        ? { label: 'CI ✓', tone: 'text-green' }
+        : { label: 'CI ✗', tone: 'text-amber' }
   const bibleChip: { label: string; tone: string } =
     latest?.breakdown?.bible == null
       // null breakdown OR an UNMEASURED bible (a bare scaffold) → not scored, show —.
-      ? { label: 'bible —', tone: 'text-[var(--muted)]' }
+      ? { label: 'bible —', tone: 'text-muted' }
       : latest.breakdown.bible > 0
-        ? { label: 'bible ✓', tone: 'text-[var(--green)]' }
-        : { label: 'bible ✗', tone: 'text-[var(--amber)]' }
+        ? { label: 'bible ✓', tone: 'text-green' }
+        : { label: 'bible ✗', tone: 'text-amber' }
   const remoteChip: { label: string; tone: string } = project?.githubRemote
-    ? { label: `remote ✓ ${project.githubRemote}`, tone: 'text-[var(--green)]' }
-    : { label: 'no remote', tone: 'text-[var(--amber)]' }
+    ? { label: `remote ✓ ${project.githubRemote}`, tone: 'text-green' }
+    : { label: 'no remote', tone: 'text-amber' }
 
   const verify = useMutation({
     mutationFn: (deep: boolean) => api.projects.verify(projectId, deep ? { deep: true } : undefined),
@@ -101,12 +104,15 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
       {pathMissing && (
         <div
           data-testid="overview-path-missing"
-          className="rounded-lg border border-[var(--red)]/40 bg-[var(--red)]/10 px-4 py-3 text-xs text-[var(--red)]"
+          className="flex items-start gap-2 rounded-panel border border-red/40 bg-red/10 px-4 py-3 text-xs text-red"
         >
-          <span className="font-semibold">⚠ Repo folder missing on disk.</span>{' '}
-          <span className="text-[var(--muted)]">
-            <span className="mono">{project?.localPath}</span> no longer exists — Onboard, Dispatch and
-            Verify are disabled until the folder is restored or the project is removed.
+          <Icon name="warning" size={14} className="mt-0.5 shrink-0" />
+          <span>
+            <span className="font-semibold">Repo folder missing on disk.</span>{' '}
+            <span className="text-muted">
+              <span className="mono">{project?.localPath}</span> no longer exists — Onboard, Dispatch and
+              Verify are disabled until the folder is restored or the project is removed.
+            </span>
           </span>
         </div>
       )}
@@ -117,7 +123,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
           <span
             key={chip.label}
             className={cn(
-              'mono rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-0.5 text-[10px]',
+              'mono rounded-full border border-border bg-surface px-2.5 py-0.5 text-[10px]',
               chip.tone,
             )}
           >
@@ -127,24 +133,24 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* ── Health Score ─────────────────────────────────────────────── */}
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+      <div className="rounded-panel border border-border bg-surface p-4">
         <div className="flex items-baseline gap-3">
           {reportsLoading ? (
-            <span className="mono text-3xl font-semibold text-[var(--muted)]">…</span>
+            <Spinner size={20} />
           ) : latest ? (
             <>
               <span className={cn('mono text-3xl font-semibold', scoreColor(latest.score))}>
                 {latest.score ?? '—'}
               </span>
-              <span className="text-xs text-[var(--muted)]">
+              <span className="text-xs text-muted">
                 {latest.score == null ? 'insufficient signal' : '/ 100 health'}
               </span>
-              <span className="ml-auto text-[11px] text-[var(--muted)]">
+              <span className="ml-auto text-[11px] text-muted">
                 {formatTimeAgo(latest.completedAt ?? latest.startedAt)}
               </span>
             </>
           ) : (
-            <span className="text-sm text-[var(--muted)]">No verification run yet.</span>
+            <span className="text-sm text-muted">No verification run yet.</span>
           )}
         </div>
 
@@ -157,14 +163,14 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
               return (
                 <div key={key}>
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-[var(--muted)]">{label}</span>
-                    <span className="mono text-[var(--muted)]">
+                    <span className="text-muted">{label}</span>
+                    <span className="mono text-muted">
                       {value == null ? 'not measured' : `${value}/${max}`}
                     </span>
                   </div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--raised)]">
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-raised">
                     <div
-                      className="h-full rounded-full bg-[var(--accent)] transition-all duration-300"
+                      className="h-full rounded-full bg-accent transition-all duration-300"
                       style={{ width: `${pct * 100}%` }}
                     />
                   </div>
@@ -176,20 +182,22 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* ── Recent Runs ──────────────────────────────────────────────── */}
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+      <div className="rounded-panel border border-border bg-surface p-4">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
           Recent Runs
         </h3>
         {runsLoading ? (
-          <p className="mt-2 text-xs text-[var(--muted)]">Loading…</p>
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+            <Spinner size={14} /> Loading…
+          </div>
         ) : recentRuns.length === 0 ? (
-          <p className="mt-2 text-xs text-[var(--muted)]">No runs for this project yet.</p>
+          <p className="mt-2 text-xs text-muted">No runs for this project yet.</p>
         ) : (
           <ul className="mt-3 space-y-1">
             {recentRuns.map(run => (
               <li key={run.id}>
                 <button
-                  className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-xs hover:bg-[var(--raised)] transition-colors"
+                  className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-xs hover:bg-raised transition-colors"
                   onClick={() => navigate('project', projectId, 'runs')}
                 >
                   <span
@@ -198,13 +206,13 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
                       runStatusMeta(run.status).dot,
                     )}
                   />
-                  <span className="flex-1 truncate text-[var(--text)]">
+                  <span className="flex-1 truncate text-text">
                     {run.prompt.length > 60 ? run.prompt.slice(0, 60) + '…' : run.prompt}
                   </span>
-                  <span className="mono flex-shrink-0 text-[var(--muted)]">
+                  <span className="mono flex-shrink-0 text-muted">
                     ${run.costUsd.toFixed(4)}
                   </span>
-                  <span className="flex-shrink-0 text-[var(--muted)]">
+                  <span className="flex-shrink-0 text-muted">
                     {relativeTime(run.createdAt)}
                   </span>
                 </button>
@@ -215,26 +223,28 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* ── Open PRs ─────────────────────────────────────────────────── */}
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+      <div className="rounded-panel border border-border bg-surface p-4">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
           Open PRs
         </h3>
         {githubLoading ? (
-          <p className="mt-2 text-xs text-[var(--muted)]">Loading…</p>
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+            <Spinner size={14} /> Loading…
+          </div>
         ) : !github ? (
-          <p className="mt-2 text-xs text-[var(--muted)]">No GitHub remote configured.</p>
+          <p className="mt-2 text-xs text-muted">No GitHub remote configured.</p>
         ) : openPrs.length === 0 ? (
-          <p className="mt-2 text-xs text-[var(--muted)]">No open pull requests.</p>
+          <p className="mt-2 text-xs text-muted">No open pull requests.</p>
         ) : (
           <ul className="mt-3 space-y-2">
             {openPrs.map(pr => (
               <li key={pr.number} className="flex items-center gap-2 text-xs">
-                <span className="mono text-[var(--muted)]">#{pr.number}</span>
+                <span className="mono text-muted">#{pr.number}</span>
                 <a
                   href={pr.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 truncate text-[var(--text)] hover:text-[var(--accent)] transition-colors"
+                  className="flex-1 truncate text-text hover:text-accent transition-colors"
                 >
                   {pr.title}
                 </a>
@@ -242,10 +252,10 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
                   className={cn(
                     'flex-shrink-0 text-[10px]',
                     pr.checks === 'passing'
-                      ? 'text-[var(--green)]'
+                      ? 'text-green'
                       : pr.checks === 'failing'
-                        ? 'text-[var(--red)]'
-                        : 'text-[var(--amber)]',
+                        ? 'text-red'
+                        : 'text-amber',
                   )}
                 >
                   {pr.checks}
@@ -258,70 +268,75 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
 
       {/* ── Quick Actions ─────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2">
-        <button
+        <Button
+          variant="primary"
+          size="sm"
           onClick={() => verify.mutate(false)}
           disabled={pending || pathMissing}
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {verify.isPending ? 'verifying…' : '▶ Run Verification'}
-        </button>
-        <button
+          {verify.isPending ? 'verifying…' : 'Run Verification'}
+        </Button>
+        <Button
+          variant="glass"
+          size="sm"
           onClick={() => verify.mutate(true)}
           disabled={pending || pathMissing}
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Deep Verify
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="glass"
+          size="sm"
           onClick={() => navigate('project', projectId, 'knowledge-graph')}
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)]"
         >
-          ◉ Build graph
-        </button>
-        <button
+          Build graph
+        </Button>
+        <Button
+          variant="glass"
+          size="sm"
           onClick={() => onboard.mutate()}
           disabled={onboard.isPending || pathMissing}
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
           title={pathMissing ? 'Path missing — restore the repo folder first' : 'Scaffold the starter bible + CI workflow if missing'}
         >
-          {onboard.isPending ? 'onboarding…' : '✦ Onboard'}
-        </button>
-        <button
+          {onboard.isPending ? 'onboarding…' : 'Onboard'}
+        </Button>
+        <Button
+          variant="glass"
+          size="sm"
           onClick={() => { if (!pathMissing) navigate('project', projectId, 'runs') }}
           disabled={pathMissing}
           title={pathMissing ? 'Path missing — restore the repo folder first' : undefined}
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Dispatch Agent
-        </button>
-        <button
-          onClick={() => navigate('docs', 'ui-demo')}
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)]"
-        >
-          🖥 UI Demo
-        </button>
+        </Button>
+        <Button variant="glass" size="sm" icon="monitor" onClick={() => navigate('docs', 'ui-demo')}>
+          UI Demo
+        </Button>
         {verify.error && (
-          <span className="text-[11px] text-[var(--red)]">⚠ {String(verify.error)}</span>
+          <span className="flex items-center gap-1 text-[11px] text-red">
+            <Icon name="warning" size={14} /> {String(verify.error)}
+          </span>
         )}
         {onboard.error && (
-          <span className="text-[11px] text-[var(--red)]">⚠ {String(onboard.error)}</span>
+          <span className="flex items-center gap-1 text-[11px] text-red">
+            <Icon name="warning" size={14} /> {String(onboard.error)}
+          </span>
         )}
       </div>
 
       {/* ── Onboard result notice ─────────────────────────────────────── */}
       {onboardResult && (
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-xs">
+        <div className="rounded-panel border border-border bg-surface p-4 text-xs">
           <div className="flex items-center justify-between">
-            <span className="font-semibold text-[var(--text)]">Onboarding complete</span>
-            <button
+            <span className="font-semibold text-text">Onboarding complete</span>
+            <IconButton
+              name="close"
+              variant="ghost"
+              label="Dismiss onboarding notice"
               onClick={() => setOnboardResult(null)}
-              className="text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-              aria-label="Dismiss onboarding notice"
-            >
-              ✕
-            </button>
+            />
           </div>
-          <p className="mt-1.5 text-[var(--muted)]">
+          <p className="mt-1.5 text-muted">
             {onboardResult.created.length === 0
               ? 'All bible invariants already satisfied — nothing to scaffold.'
               : `Scaffolded ${onboardResult.created.length} file${onboardResult.created.length === 1 ? '' : 's'}.`}
@@ -329,7 +344,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
           {onboardResult.created.length > 0 && (
             <ul className="mt-2 space-y-0.5">
               {onboardResult.created.map(f => (
-                <li key={f} className="mono text-[10px] text-[var(--muted)]">+ {f}</li>
+                <li key={f} className="mono text-[10px] text-muted">+ {f}</li>
               ))}
             </ul>
           )}
@@ -337,7 +352,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
             {(['githubRemote', 'bible', 'ci'] as const).map(k => (
               <span
                 key={k}
-                className={onboardResult.invariants[k] ? 'text-[var(--green)]' : 'text-[var(--amber)]'}
+                className={onboardResult.invariants[k] ? 'text-green' : 'text-amber'}
               >
                 {onboardResult.invariants[k] ? '✓' : '○'} {k}
               </span>

@@ -7,6 +7,9 @@ import { EVAL_BADGE } from './skills/AutomationsTab'
 import { CATALOG_HIGHLIGHT_KEY } from '../lib/catalog-highlight'
 import SkillDraftEditor, { parseSkillMd } from '../components/SkillDraftEditor'
 import AutoTextarea from '../components/AutoTextarea'
+import { Icon } from '../ui/Icon'
+import { Button } from '../ui/Button'
+import { Spinner } from '../ui/Spinner'
 
 /**
  * Skill Creator (D-071) — build → refine → evaluate → save-to-K-library, on a
@@ -17,13 +20,13 @@ import AutoTextarea from '../components/AutoTextarea'
  */
 
 const STATUS_BADGE: Record<SkillDraft['status'], string> = {
-  drafting: 'bg-accent/15 text-[var(--accent-hover)]',
-  ready: 'bg-green/20 text-[var(--green)]',
-  failed: 'bg-red/20 text-[var(--red)]',
+  drafting: 'bg-accent/15 text-accent-hover',
+  ready: 'bg-green/20 text-green',
+  failed: 'bg-red/20 text-red',
 }
 
 const inputCls =
-  'w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:border-[var(--accent)] focus:outline-none'
+  'w-full rounded-lg border border-border bg-raised px-3 py-1.5 text-sm text-text placeholder-muted focus:border-accent focus:outline-none'
 
 export default function SkillCreatorPage({ draftId }: { draftId?: string }) {
   const { data: drafts = [] } = useQuery<SkillDraft[]>({
@@ -34,27 +37,23 @@ export default function SkillCreatorPage({ draftId }: { draftId?: string }) {
   return (
     <div className="flex h-full overflow-hidden">
       {/* ── Left rail — resumable drafts + new. ───────────────────────────── */}
-      <aside className="flex w-64 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)]">
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2.5">
-          <button
-            type="button"
-            onClick={() => navigate('agents', 'skills')}
-            className="text-[11px] text-[var(--accent-hover)] hover:underline"
-          >
-            ← Catalog
-          </button>
+      <aside className="flex w-64 flex-shrink-0 flex-col border-r border-border bg-surface">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
+          <Button variant="ghost" size="sm" icon="arrowLeft" onClick={() => navigate('agents', 'skills')}>
+            Catalog
+          </Button>
           <button
             type="button"
             data-testid="draft-new"
             onClick={() => navigate('skill-creator')}
-            className="rounded-lg bg-[var(--accent)] px-2.5 py-1 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90"
+            className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-on-accent transition-opacity hover:opacity-90"
           >
             + new draft
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           {drafts.length === 0 && (
-            <p className="px-2 py-4 text-center text-xs italic text-[var(--muted)]">
+            <p className="px-2 py-4 text-center text-xs italic text-muted">
               No drafts yet — describe one to start.
             </p>
           )}
@@ -68,11 +67,11 @@ export default function SkillCreatorPage({ draftId }: { draftId?: string }) {
                   aria-current={d.id === draftId ? 'page' : undefined}
                   className={`w-full rounded-lg border px-2.5 py-2 text-left transition-colors ${
                     d.id === draftId
-                      ? 'border-[color:rgba(255,143,192,0.3)] bg-[color:rgba(255,143,192,0.14)]'
-                      : 'border-transparent hover:bg-[var(--raised)]'
+                      ? 'border-accent/30 bg-accent/15'
+                      : 'border-transparent hover:bg-raised'
                   }`}
                 >
-                  <span className="block truncate text-xs font-medium text-[var(--text)]">
+                  <span className="block truncate text-xs font-medium text-text">
                     {d.nameHint ?? (parseSkillMd(d.skillMd ?? '').name || 'untitled draft')}
                   </span>
                   <span className="mt-0.5 flex items-center gap-1.5">
@@ -82,11 +81,11 @@ export default function SkillCreatorPage({ draftId }: { draftId?: string }) {
                       {d.status}
                     </span>
                     {d.savedSkillId && (
-                      <span className="rounded bg-green-500/20 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-green-300">
+                      <span className="rounded bg-green/20 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-green">
                         saved
                       </span>
                     )}
-                    <span className="text-[10px] text-[var(--muted)]">rev {d.revision}</span>
+                    <span className="mono text-[10px] text-muted">rev {d.revision}</span>
                   </span>
                 </button>
               </li>
@@ -130,15 +129,15 @@ function BriefForm() {
         create.mutate({ brief: trimmed, ...(nameHint.trim() !== '' ? { nameHint: nameHint.trim() } : {}) })
       }}
     >
-      <h1 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+      <h1 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
         Create a skill with an agent
       </h1>
-      <p className="mt-1 text-xs text-[var(--muted)]">
+      <p className="mt-1 text-xs text-muted">
         Describe what the skill should do — an agent drafts the SKILL.md; you refine, evaluate,
         and save it into K's library when it's right.
       </p>
       <div className="mt-4">
-        <label htmlFor="brief-input" className="mb-1 block text-xs text-[var(--muted)]">Brief</label>
+        <label htmlFor="brief-input" className="mb-1 block text-xs text-muted">Brief</label>
         <AutoTextarea
           id="brief-input"
           data-testid="brief-input"
@@ -150,7 +149,7 @@ function BriefForm() {
         />
       </div>
       <div className="mt-3">
-        <label htmlFor="brief-name-hint" className="mb-1 block text-xs text-[var(--muted)]">
+        <label htmlFor="brief-name-hint" className="mb-1 block text-xs text-muted">
           Name hint (optional — the agent picks one otherwise)
         </label>
         <input
@@ -167,12 +166,12 @@ function BriefForm() {
           type="submit"
           data-testid="brief-submit"
           disabled={create.isPending || brief.trim() === ''}
-          className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="rounded-lg bg-accent px-4 py-1.5 text-xs font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {create.isPending ? 'starting…' : 'draft it'}
         </button>
         {create.isError && (
-          <span data-testid="brief-error" className="text-xs text-red-400">
+          <span data-testid="brief-error" className="text-xs text-red">
             {(create.error as Error).message}
           </span>
         )}
@@ -218,7 +217,11 @@ function DraftWorkspace({ id }: { id: string }) {
   })
 
   if (isLoading || !draft) {
-    return <p className="text-xs italic text-[var(--muted)]">Loading draft…</p>
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted">
+        <Spinner size={14} /> Loading draft…
+      </div>
+    )
   }
 
   return (
@@ -235,12 +238,12 @@ function DraftWorkspace({ id }: { id: string }) {
           onSave={md => update.mutate(md)}
         />
       ) : (
-        <p className="text-xs italic text-[var(--muted)]">
+        <p className="text-xs italic text-muted">
           No draft content yet — the authoring run writes the first SKILL.md.
         </p>
       )}
       {update.isError && (
-        <p data-testid="draft-update-error" className="text-xs text-red-400">
+        <p data-testid="draft-update-error" className="text-xs text-red">
           {(update.error as Error).message}
         </p>
       )}
@@ -270,7 +273,7 @@ function StatusHeader({
   retryPending: boolean
 }) {
   return (
-    <div data-testid="draft-status-header" className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+    <div data-testid="draft-status-header" className="rounded-xl border border-border bg-surface px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${STATUS_BADGE[draft.status]}`}
@@ -281,23 +284,23 @@ function StatusHeader({
         {draft.savedSkillId ? (
           <span
             data-testid="draft-badge-saved"
-            className="rounded bg-green-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-300"
+            className="rounded bg-green/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green"
           >
             saved to K library
           </span>
         ) : (
           <span
             data-testid="draft-badge-unsaved"
-            className="rounded bg-amber/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--amber)]"
+            className="rounded bg-amber/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber"
           >
             agent-generated draft — not saved
           </span>
         )}
-        <span className="text-[11px] text-[var(--muted)]">rev {draft.revision}</span>
+        <span className="mono text-[11px] text-muted">rev {draft.revision}</span>
         <span className="ml-auto" />
         {draft.status === 'drafting' && (
-          <span data-testid="draft-spinner" className="animate-pulse text-xs text-[var(--accent-hover)]">
-            drafting…
+          <span data-testid="draft-spinner" className="flex items-center gap-1.5 text-xs text-accent-hover">
+            <Spinner size={14} /> drafting…
           </span>
         )}
         {draft.runId && (
@@ -305,7 +308,7 @@ function StatusHeader({
             type="button"
             data-testid="draft-view-run"
             onClick={() => navigate('runs', draft.runId!)}
-            className="text-[11px] text-[var(--accent-hover)] hover:underline"
+            className="text-[11px] text-accent-hover hover:underline"
           >
             view run →
           </button>
@@ -313,21 +316,22 @@ function StatusHeader({
       </div>
       {draft.status === 'failed' && (
         <div className="mt-2 flex items-center gap-3">
-          <p data-testid="draft-failed" className="text-xs text-red-400">
-            The authoring run failed — its console has the details.
+          <p data-testid="draft-failed" className="flex items-center gap-1.5 text-xs text-red">
+            <Icon name="warning" size={14} className="shrink-0" />
+            <span>The authoring run failed — its console has the details.</span>
           </p>
           <button
             type="button"
             data-testid="draft-retry"
             onClick={onRetry}
             disabled={retryPending}
-            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+            className="rounded-lg border border-border px-2.5 py-1 text-xs text-text transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
           >
             {retryPending ? 'retrying…' : 'retry'}
           </button>
         </div>
       )}
-      <p className="mt-2 text-[11px] text-[var(--muted)]">Brief: {draft.brief}</p>
+      <p className="mt-2 text-[11px] text-muted">Brief: {draft.brief}</p>
     </div>
   )
 }
@@ -358,9 +362,9 @@ function RefinePanel({
   const revisions = Object.entries(revisionRuns).sort(([a], [b]) => Number(a) - Number(b))
 
   return (
-    <section data-testid="refine-panel" className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-        Refine · revision {draft.revision}
+    <section data-testid="refine-panel" className="rounded-xl border border-border bg-surface p-4">
+      <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+        Refine · revision <span className="mono">{draft.revision}</span>
       </h2>
       <form
         className="mt-2 flex flex-col gap-2"
@@ -386,25 +390,25 @@ function RefinePanel({
             type="submit"
             data-testid="refine-submit"
             disabled={pending || draft.status === 'drafting' || feedback.trim() === ''}
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[var(--accent)] disabled:opacity-50"
+            className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-accent-hover transition-colors hover:border-accent disabled:opacity-50"
           >
             {pending ? 'refining…' : 'refine'}
           </button>
           {error && (
-            <span data-testid="refine-error" className="text-xs text-red-400">{error}</span>
+            <span data-testid="refine-error" className="text-xs text-red">{error}</span>
           )}
         </div>
       </form>
       {revisions.length > 0 && (
         <ul className="mt-3 space-y-1">
           {revisions.map(([rev, runId]) => (
-            <li key={rev} className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
-              <span>rev {rev}</span>
+            <li key={rev} className="flex items-center gap-2 text-[11px] text-muted">
+              <span className="mono">rev {rev}</span>
               <button
                 type="button"
                 data-testid={`revision-run-${rev}`}
                 onClick={() => navigate('runs', runId)}
-                className="text-[var(--accent-hover)] hover:underline"
+                className="text-accent-hover hover:underline"
               >
                 view run →
               </button>
@@ -438,9 +442,9 @@ function EvalPanel({ draft }: { draft: SkillDraft }) {
   })
 
   return (
-    <section data-testid="eval-panel" className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+    <section data-testid="eval-panel" className="rounded-xl border border-border bg-surface p-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+        <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
           Evaluations
         </h2>
         <button
@@ -449,25 +453,25 @@ function EvalPanel({ draft }: { draft: SkillDraft }) {
           onClick={() => evaluate.mutate()}
           disabled={evaluate.isPending || draft.status !== 'ready'}
           title={draft.status !== 'ready' ? 'Evaluation needs a ready draft' : undefined}
-          className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+          className="rounded-lg border border-border px-2.5 py-1 text-xs text-text transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
         >
           {evaluate.isPending ? 'starting…' : 'evaluate'}
         </button>
       </div>
       {evaluate.isError && (
-        <p data-testid="eval-error" className="mt-2 text-xs text-red-400">
+        <p data-testid="eval-error" className="mt-2 text-xs text-red">
           {(evaluate.error as Error).message}
         </p>
       )}
       {evals.length === 0 ? (
-        <p className="mt-2 text-xs italic text-[var(--muted)]">No evaluations yet.</p>
+        <p className="mt-2 text-xs italic text-muted">No evaluations yet.</p>
       ) : (
         <ul className="mt-2 space-y-1">
           {evals.map(ev => (
             <li
               key={ev.id}
               data-testid={`eval-row-${ev.id}`}
-              className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2.5 py-1.5 text-xs"
+              className="flex items-center gap-2 rounded-lg border border-border bg-raised px-2.5 py-1.5 text-xs"
             >
               <span
                 className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${EVAL_BADGE[ev.status]}`}
@@ -475,11 +479,11 @@ function EvalPanel({ draft }: { draft: SkillDraft }) {
                 {ev.status}
               </span>
               {ev.regression && (
-                <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-red-300">
-                  ⚠ regression
+                <span className="flex items-center gap-1 rounded bg-red/20 px-1.5 py-0.5 text-[10px] font-semibold text-red">
+                  <Icon name="warning" size={14} className="shrink-0" /> regression
                 </span>
               )}
-              <span className="mono text-[var(--muted)]">
+              <span className="mono text-muted">
                 {new Date(ev.createdAt).toLocaleString()}
               </span>
               <span className="ml-auto" />
@@ -488,7 +492,7 @@ function EvalPanel({ draft }: { draft: SkillDraft }) {
                   type="button"
                   data-testid={`eval-run-link-${ev.id}`}
                   onClick={() => navigate('runs', ev.runId!)}
-                  className="text-[10px] text-[var(--accent-hover)] hover:underline"
+                  className="text-[10px] text-accent-hover hover:underline"
                 >
                   view run →
                 </button>
@@ -527,14 +531,14 @@ function SaveBar({ draft }: { draft: SkillDraft }) {
     return (
       <section
         data-testid="save-bar"
-        className="flex items-center gap-3 rounded-xl border border-[color:rgba(52,211,153,0.28)] bg-[color:rgba(52,211,153,0.08)] px-4 py-3"
+        className="flex items-center gap-3 rounded-xl border border-green/30 bg-green/10 px-4 py-3"
       >
-        <span className="text-xs text-[var(--green)]">Saved to K's library.</span>
+        <span className="text-xs text-green">Saved to K's library.</span>
         <button
           type="button"
           data-testid="save-view-catalog"
           onClick={() => navigate('agents', 'skills')}
-          className="text-[11px] text-[var(--accent-hover)] hover:underline"
+          className="text-[11px] text-accent-hover hover:underline"
         >
           view in catalog →
         </button>
@@ -543,8 +547,8 @@ function SaveBar({ draft }: { draft: SkillDraft }) {
   }
 
   return (
-    <section data-testid="save-bar" className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+    <section data-testid="save-bar" className="rounded-xl border border-border bg-surface p-4">
+      <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
         Save to K library
       </h2>
       <form
@@ -568,14 +572,14 @@ function SaveBar({ draft }: { draft: SkillDraft }) {
           data-testid="save-submit"
           disabled={save.isPending || name.trim() === '' || draft.status !== 'ready'}
           title={draft.status !== 'ready' ? 'Save needs a ready draft' : undefined}
-          className="flex-shrink-0 rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="flex-shrink-0 rounded-lg bg-accent px-4 py-1.5 text-xs font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {save.isPending ? 'saving…' : 'save'}
         </button>
       </form>
       {save.isError && (
         // The 409 name-collision (and any other rejection) inline, verbatim.
-        <p data-testid="save-error" className="mt-2 text-xs text-red-400">
+        <p data-testid="save-error" className="mt-2 text-xs text-red">
           {(save.error as Error).message}
         </p>
       )}

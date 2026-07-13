@@ -24,12 +24,12 @@ export function LessonCard({
   return (
     <div
       data-testid={`memory-lesson-${lesson.id}`}
-      className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+      className="rounded-xl border border-border bg-surface px-4 py-3"
     >
-      <p className="text-sm text-[var(--text)]">{lesson.lesson}</p>
+      <p className="text-sm text-text">{lesson.lesson}</p>
 
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[var(--muted)]">
-        <span className="rounded bg-[var(--raised)] px-1.5 py-0.5">
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
+        <span className="rounded bg-raised px-1.5 py-0.5">
           {lesson.profileName ?? 'unassigned'}
         </span>
         <span className="mono">{lesson.runId ? lesson.runId.slice(0, 8) : 'no run'}</span>
@@ -43,14 +43,14 @@ export function LessonCard({
             onClick={() => onApprove?.(lesson.id)}
             disabled={busy}
             data-testid={`memory-approve-${lesson.id}`}
-            className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {busy ? '…' : '✓ Approve'}
           </button>
           <button
             onClick={() => onReject?.(lesson.id)}
             data-testid={`memory-reject-${lesson.id}`}
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--red)] transition-colors hover:bg-red/15"
+            className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-red transition-colors hover:bg-red/15"
           >
             Reject
           </button>

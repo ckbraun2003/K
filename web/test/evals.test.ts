@@ -107,30 +107,30 @@ describe('regressionBadge', () => {
   const regressed: BaselineCompare = { status: 'REGRESSION', deltas: { detPassRate: -0.2 } }
   const none: BaselineCompare = { status: 'no-baseline' }
   it('maps ok → green', () => {
-    expect(regressionBadge(ok)).toEqual({ label: 'ok', colorClass: 'bg-green-500/20 text-green-300' })
+    expect(regressionBadge(ok)).toEqual({ label: 'ok', colorClass: 'bg-green/20 text-green' })
   })
   it('maps REGRESSION → red', () => {
     expect(regressionBadge(regressed)).toEqual({
       label: 'REGRESSION',
-      colorClass: 'bg-red-500/20 text-red-300',
+      colorClass: 'bg-red/20 text-red',
     })
   })
   it('maps no-baseline → muted', () => {
     expect(regressionBadge(none)).toEqual({
       label: 'no baseline',
-      colorClass: 'bg-[var(--raised)] text-[var(--muted)]',
+      colorClass: 'bg-raised text-muted',
     })
   })
   it('maps undefined → muted', () => {
     expect(regressionBadge(undefined)).toEqual({
       label: 'no baseline',
-      colorClass: 'bg-[var(--raised)] text-[var(--muted)]',
+      colorClass: 'bg-raised text-muted',
     })
   })
   it('maps dry → neutral (never red) — a dry run is not compared to real baselines (F-025)', () => {
     expect(regressionBadge({ status: 'dry' })).toEqual({
       label: 'dry',
-      colorClass: 'bg-[var(--raised)] text-[var(--muted)]',
+      colorClass: 'bg-raised text-muted',
     })
   })
 })

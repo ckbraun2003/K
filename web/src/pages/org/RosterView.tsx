@@ -2,6 +2,13 @@ import { useQuery } from '@tanstack/react-query'
 import type { OrchestratorRosterPayload, OrchestratorRosterEntry } from '@k/shared'
 import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
+import { cn } from '../../lib/cn'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { StatusPill } from '../../ui/StatusPill'
+import { Button } from '../../ui/Button'
+import { EmptyState } from '../../ui/EmptyState'
+import { ErrorState } from '../../ui/ErrorState'
+import { SkeletonRow } from '../../ui/Skeleton'
 
 /**
  * Orchestrators roster (P5.3a) — the five discipline leads as slim cards. ONE batched
@@ -16,55 +23,56 @@ import { navigate } from '../../lib/route'
 export function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
   const { profile, live, wakes, recent } = entry
   return (
-    <div
-      className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+    <GlassPanel
+      // solid, not glass: the lead grid is unbounded (N leads) and >6 simultaneous
+      // backdrop-filter regions breaks the blur budget — same call as the fleet
+      // project grid (DEV-11, web/src/components/ProjectCard.tsx).
+      tier="solid"
+      interactive
+      className="px-4 py-3"
       data-testid={`orchestrator-card-${profile.id}`}
     >
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text)]">
+        <span className="min-w-0 flex-1 truncate text-body font-semibold text-text">
           {profile.name}
         </span>
       </div>
 
       {/* Recent-run health — REAL counts from the lead's activation history, never
-          an invented score/band. Rendered only when there is history to report. */}
+          an invented score/band. Rendered only when there is history to report.
+          NOTE: keep the literal `text-[var(--green)]` / `text-[var(--amber)]`
+          arbitrary-value forms — roster-view-card.test.tsx asserts the class
+          string CONTAINS the substring `--green` / `--amber`; the semantic
+          `text-green` / `text-amber` utilities do not contain that substring. */}
       {recent && recent.total > 0 && (
         <p
           data-testid={`orchestrator-recent-${profile.id}`}
-          className={`mt-1.5 text-[11px] ${recent.failed === 0 ? 'text-[var(--green)]' : 'text-[var(--amber)]'}`}
+          className={cn('mt-1.5 text-caption', recent.failed === 0 ? 'text-[var(--green)]' : 'text-[var(--amber)]')}
         >
           {recent.succeeded}/{recent.total} recent ✓{recent.failed > 0 && ` · ${recent.failed} failed`}
         </p>
       )}
 
-      <div className="mt-2 flex items-center gap-2 text-[11px] text-[var(--muted)]">
-        <span
-          className={
-            live
-              ? 'inline-flex items-center gap-1 rounded bg-[var(--raised)] px-1.5 py-0.5 font-semibold text-[var(--green)]'
-              : 'inline-flex items-center gap-1 rounded bg-[var(--raised)] px-1.5 py-0.5 text-[var(--muted)]'
-          }
-          data-testid={`orchestrator-status-${profile.id}`}
-        >
-          <span
-            className={`inline-block h-1.5 w-1.5 rounded-full ${live ? 'bg-[var(--green)]' : 'bg-[var(--muted)]'}`}
-            aria-hidden
-          />
-          {live ? 'live' : 'idle'}
+      <div className="mt-2 flex items-center gap-2 text-caption text-muted">
+        {/* StatusPill has no rest-prop passthrough, so the testid lives on a wrapper span. */}
+        <span data-testid={`orchestrator-status-${profile.id}`}>
+          <StatusPill status={live ? 'running' : 'idle'} label={live ? 'live' : 'idle'} />
         </span>
         <span>
-          {wakes} wake{wakes === 1 ? '' : 's'}
+          <span className="mono tabular-nums">{wakes}</span> wake{wakes === 1 ? '' : 's'}
         </span>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
+          icon="arrowRight"
           onClick={() => navigate('orchestrator', profile.id)}
           data-testid={`orchestrator-open-${profile.id}`}
-          className="ml-auto flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)]"
+          className="ml-auto flex-shrink-0"
         >
           Open
-        </button>
+        </Button>
       </div>
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -77,36 +85,54 @@ export default function RosterView() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="grid gap-3 sm:grid-cols-2">
-        <button data-testid="roster-card-k" onClick={() => navigate('home')} className="glass-tint rounded-panel p-4 text-left card-lift">
-          <div className="text-sm font-semibold">K</div>
-          <div className="text-xs text-[var(--muted)]">Secretary — your front door. Chat lives on Home.</div>
-        </button>
-        <button data-testid="roster-card-chief" onClick={() => navigate('agents', 'org', 'tree')} className="glass-tint rounded-panel p-4 text-left card-lift">
-          <div className="text-sm font-semibold">Chief</div>
-          <div className="text-xs text-[var(--muted)]">Manager — objectives & delegation. See the Tree view.</div>
-        </button>
+        <GlassPanel
+          as="button"
+          tier="panel"
+          interactive
+          data-testid="roster-card-k"
+          onClick={() => navigate('home')}
+          className="p-4 text-left"
+        >
+          <div className="text-body font-semibold text-text">K</div>
+          <div className="text-caption text-muted">Secretary — your front door. Chat lives on Home.</div>
+        </GlassPanel>
+        <GlassPanel
+          as="button"
+          tier="panel"
+          interactive
+          data-testid="roster-card-chief"
+          onClick={() => navigate('agents', 'org', 'tree')}
+          className="p-4 text-left"
+        >
+          <div className="text-body font-semibold text-text">Chief</div>
+          <div className="text-caption text-muted">Manager — objectives & delegation. See the Tree view.</div>
+        </GlassPanel>
       </div>
 
       <div className="mb-4 mt-4 flex items-center justify-between gap-3">
         {data && (
           <div
-            className="ml-auto flex items-center gap-2 text-[11px] text-[var(--muted)]"
+            className="ml-auto flex items-center gap-2 text-caption text-muted"
             data-testid="orchestrators-active"
           >
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--green)]" aria-hidden />
-            <span className="text-[var(--text)]">{data.activeLeads}</span>
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-green" aria-hidden />
+            <span className="mono tabular-nums text-text">{data.activeLeads}</span>
             <span>active</span>
           </div>
         )}
       </div>
 
-      {isLoading && <p className="text-xs italic text-[var(--muted)]">Loading orchestrators…</p>}
-      {isError && <p className="text-xs italic text-[var(--red)]">Failed to load orchestrators.</p>}
+      {isLoading && (
+        <div className="flex flex-col gap-1">
+          <SkeletonRow /><SkeletonRow /><SkeletonRow />
+        </div>
+      )}
+      {isError && <ErrorState message="Failed to load orchestrators." />}
 
       {data && data.leads.length === 0 && (
-        <p className="text-xs italic text-[var(--muted)]" data-testid="orchestrators-empty">
-          No orchestrator leads seeded yet.
-        </p>
+        <div data-testid="orchestrators-empty">
+          <EmptyState icon="agents" headline="No orchestrator leads seeded yet." />
+        </div>
       )}
 
       {data && data.leads.length > 0 && (

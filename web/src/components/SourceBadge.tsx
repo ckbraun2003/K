@@ -5,12 +5,19 @@ import type { SkillSourceKind } from '@k/shared'
  * kinds (D-069), shared by the catalog tabs and the CapabilityPicker so a
  * source reads the same everywhere. The plugin badge names the plugin (its
  * identity — "plugin" alone says nothing about what code the entry runs).
+ *
+ * Tag.tsx only ships 3 tints (neutral/accent/sky) — reusing it here would
+ * collapse these 4 distinct provenance hues onto fewer than 4 colors,
+ * defeating "read the source at a glance." Kept as a bespoke span, mapped onto
+ * the sanctioned palette: sky stays sky (k), green stays green (claude-user),
+ * yellow → amber (claude-project, nearest sanctioned hue), purple → blush/
+ * accent (claude-plugin, nearest sanctioned hue) — 4 distinct hues preserved.
  */
 export const SOURCE_BADGE: Record<SkillSourceKind, { label: string; className: string }> = {
-  'k': { label: 'K', className: 'bg-sky-500/20 text-sky-300' },
-  'claude-user': { label: 'user', className: 'bg-green-500/20 text-green-300' },
-  'claude-project': { label: 'project', className: 'bg-yellow-500/20 text-yellow-300' },
-  'claude-plugin': { label: 'plugin', className: 'bg-purple-500/20 text-purple-300' },
+  'k': { label: 'K', className: 'bg-accent-hover/20 text-accent-hover' },
+  'claude-user': { label: 'user', className: 'bg-green/20 text-green' },
+  'claude-project': { label: 'project', className: 'bg-amber/20 text-amber' },
+  'claude-plugin': { label: 'plugin', className: 'bg-accent/20 text-accent' },
 }
 
 export default function SourceBadge({

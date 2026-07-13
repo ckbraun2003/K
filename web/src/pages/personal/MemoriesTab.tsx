@@ -7,17 +7,17 @@ import { selectThread } from '../../lib/thread-select'
 import { relativeTime } from '../../lib/verify'
 import AutoTextarea from '../../components/AutoTextarea'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { Button, IconButton } from '../../ui/Button'
+import { SectionHeader } from '../../ui/SectionHeader'
+import { EmptyState } from '../../ui/EmptyState'
+import { SkeletonRow } from '../../ui/Skeleton'
+import { Tag } from '../../ui/Tag'
+import { Tooltip } from '../../ui/Tooltip'
+import { Icon } from '../../ui/Icon'
 
 // Mirrors HomePage.tsx's local (unexported) VIEW_KEY — the source-chat link
 // hands a thread off to Home's Chat sub-view exactly like ChatsTab's Open.
 const HOME_VIEW_KEY = 'k.home.view'
-
-const BTN =
-  'flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)] disabled:opacity-50'
-const BTN_DANGER =
-  'flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--red)] transition-colors hover:bg-red/15 disabled:opacity-50'
-const BTN_PRIMARY =
-  'self-end rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-50'
 
 /** Same handoff ChatsTab's Open performs — select the thread, remember 'chat'
  *  as Home's sub-view, and navigate there. */
@@ -47,7 +47,7 @@ export default function MemoriesTab() {
   const [editText, setEditText] = useState('')
   const [deleting, setDeleting] = useState<UserMemory | null>(null)
 
-  const { data, isError } = useQuery({ queryKey: ['user-memories'], queryFn: () => api.memories.list() })
+  const { data, isError, isPending } = useQuery({ queryKey: ['user-memories'], queryFn: () => api.memories.list() })
   const memories: UserMemory[] = data?.memories ?? []
 
   function invalidateMemories() {
@@ -110,11 +110,12 @@ export default function MemoriesTab() {
   }
 
   return (
-    <div data-testid="memories-tab" className="glass-tint rounded-panel flex-1 overflow-y-auto p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Memories</h2>
+    // Dense list — solid surface, no blur (Task 14 ChatView-rail precedent).
+    <div data-testid="memories-tab" className="surface-solid rounded-panel flex-1 overflow-y-auto p-5">
+      <SectionHeader label="Memories" count={memories.length} />
 
-      {/* Add card */}
-      <div className="mt-3 flex flex-col gap-2 rounded-lg border border-[var(--border)] p-3">
+      {/* Add card — always rendered, independent of the list's load state. */}
+      <div className="mt-3 flex flex-col gap-2 rounded-lg border border-border p-3">
         <AutoTextarea
           data-testid="memories-add-input"
           aria-label="New memory"
@@ -122,39 +123,50 @@ export default function MemoriesTab() {
           value={addText}
           onChange={e => setAddText(e.target.value)}
           onKeyDown={onAddKeyDown}
-          className="w-full resize-none rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+          className="w-full resize-none rounded border border-border bg-surface px-2 py-1.5 text-body text-text outline-none focus:border-accent-hover/35"
         />
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="sm"
           data-testid="memories-add"
+          className="self-end"
           disabled={!addText.trim() || add.isPending}
           onClick={submitAdd}
-          className={BTN_PRIMARY}
         >
           Add memory
-        </button>
+        </Button>
         {add.isError && (
-          <p data-testid="memories-add-error" className="text-[11px] text-[var(--red)]">
+          <p data-testid="memories-add-error" className="flex items-center gap-1.5 text-caption text-red">
+            <Icon name="warning" size={14} className="text-red" />
             {(add.error as Error).message}
           </p>
         )}
       </div>
 
-      {isError ? (
-        <p data-testid="memories-error" className="mt-3 text-xs italic text-[var(--red)]">
+      {isPending ? (
+        <div className="mt-3">
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </div>
+      ) : isError ? (
+        <p data-testid="memories-error" className="mt-3 flex items-center gap-1.5 text-caption text-red">
+          <Icon name="warning" size={14} className="text-red" />
           Failed to load memories.
         </p>
       ) : memories.length === 0 ? (
-        <p data-testid="memories-empty" className="mt-3 text-sm italic text-[var(--muted)]">
-          K will remember things from your chats here — or add one yourself.
-        </p>
+        // NO hint/action here — the test asserts this element's FULL textContent
+        // is exactly the headline sentence (the icon contributes no text nodes).
+        <div data-testid="memories-empty">
+          <EmptyState icon="docs" headline="K will remember things from your chats here — or add one yourself." />
+        </div>
       ) : (
         <div className="mt-3 flex flex-col gap-1.5">
           {memories.map(m => (
             <div
               key={m.id}
               data-testid={`memories-row-${m.id}`}
-              className="flex items-start gap-3 rounded-lg border border-[var(--border)] px-3 py-2"
+              className="flex items-start gap-3 rounded-lg border border-border px-3 py-2"
             >
               <div className="min-w-0 flex-1">
                 {editingId === m.id ? (
@@ -166,37 +178,44 @@ export default function MemoriesTab() {
                     onChange={e => setEditText(e.target.value)}
                     onKeyDown={e => onEditKeyDown(e, m.id)}
                     onBlur={() => setEditingId(null)}
-                    className="w-full resize-none rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-1 text-sm text-[var(--text)] outline-none"
+                    className="w-full resize-none rounded border border-border bg-surface px-1.5 py-1 text-body text-text outline-none"
                   />
                 ) : (
-                  <p className="whitespace-pre-wrap text-sm text-[var(--text)]">{m.content}</p>
+                  <p className="whitespace-pre-wrap text-body text-text">{m.content}</p>
                 )}
-                <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--muted)]">
+                <div className="mt-1 flex items-center gap-2 text-caption text-muted">
                   <span className="mono">{relativeTime(m.updatedAt)}</span>
                   {m.sourceThreadId && (
                     <button
                       type="button"
                       data-testid={`memories-source-${m.id}`}
                       onClick={() => openChat(m.sourceThreadId as string)}
-                      className="text-[var(--accent-hover)] hover:underline"
+                      className="hover:underline"
                     >
-                      → from chat
+                      <Tag tint="sky">→ from chat</Tag>
                     </button>
                   )}
                 </div>
               </div>
               <div className="flex flex-shrink-0 items-center gap-1.5">
-                <button type="button" data-testid={`memories-edit-${m.id}`} onClick={() => startEdit(m)} className={BTN}>
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  data-testid={`memories-delete-${m.id}`}
-                  onClick={() => setDeleting(m)}
-                  className={BTN_DANGER}
-                >
-                  Delete
-                </button>
+                <Tooltip content="Edit memory">
+                  <IconButton
+                    name="edit"
+                    label="Edit memory"
+                    variant="ghost"
+                    data-testid={`memories-edit-${m.id}`}
+                    onClick={() => startEdit(m)}
+                  />
+                </Tooltip>
+                <Tooltip content="Delete memory">
+                  <IconButton
+                    name="trash"
+                    label="Delete memory"
+                    variant="danger"
+                    data-testid={`memories-delete-${m.id}`}
+                    onClick={() => setDeleting(m)}
+                  />
+                </Tooltip>
               </div>
             </div>
           ))}

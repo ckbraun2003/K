@@ -433,41 +433,183 @@ component (Agents → Org → Tree at whole-org scope, orchestrator detail at on
 - **Interactions:** scroll = zoom, drag = pan, `f` = fit, search dims non-matches in place.
 - Health/status colors the graph — failing modules glow red, untested amber, healthy blush.
 
-## Design tokens (vivid midnight-glass — evolve, D-024)
+## Design tokens (vivid midnight-glass — UI Polish, D-114)
 
 Values remain the single source in `web/src/index.css` `:root`, mirrored into
-`web/tailwind.config.ts` and `core/src/ui-artifact.ts` (the `ui-demo` inline CSS). Change all three
-together.
+`web/tailwind.config.ts` (Tailwind's semantic `colors`/`borderRadius`/`fontSize`/`fontFamily`
+extensions) and `core/src/ui-artifact.ts` (the `ui-demo` inline CSS) — change all three together
+(D-024's rule, unchanged by this program).
 
-| Token | Value |
-|-------|-------|
-| bg / surface / raised | `#1a0f2e` / `#241640` / `#2e1b52` (midnight purple) |
-| hairline border | `1px #3a2a5c` |
-| text / muted | `#f4f0ff` / `#a99bc4` |
-| accent — fills / active / badges | **blush** `#ff8fc0` |
-| accent-hover — hover / active / focus | **sky** `#38bdf8` |
-| status | `#34d399` · `#fbbf24` · `#f87171` |
-| glass | bg `rgba(46,27,82,.55)` · border `rgba(255,143,192,.16)` · tint `rgba(255,143,192,.10)` · `blur(24px) saturate(180%)` |
-| type | Inter 13/14px UI · JetBrains Mono for numerals, ids, code |
-| radius | 18px panels · 14px controls · 10px small (rounder, liquid-glass) |
-| motion | 150ms ease-out micro · 250ms stage transitions · pulse only on genuinely live elements |
+**Palette** (unchanged): `bg` `#1b1030` / `surface` `#2a1a47` / `raised` `#33205c`; hairline border
+`#3a2a5c` / strong border `#4a3775`; `text` `#f4f0ff` / `muted` `#b3a6cd`; accent — **blush**
+`#ff8fc0` (fills/active pills/badges) — accent-hover — **sky** `#38bdf8` (hover/active/focus);
+`--on-accent` `#241640` (dark text on accent fills, WCAG AA — white-on-blush fails); status
+green/amber/red `#34d399`/`#fbbf24`/`#f87171`. The `--chart-1..8` + `--chart-other` dataviz palette
+is the same family with exactly ONE token changed this program: **`--chart-8`** `#818cf8` →
+**`#6366f1`** — a CVD validator run against the real dark surface (`#2a1a47`) found the adjacent
+chart-7↔chart-8 pair failing protanopia contrast (ΔE 1.1); the same-hue snap to `#6366f1` passes
+(ΔE 15.4). The validator's lightness-band check still fails all 8 chart tokens against a generic
+dark-surface heuristic — accepted as non-actionable: the palette is brand-locked, contrast ≥3:1
+still holds, and the dataviz mitigations (legend for ≥2-series charts, selective direct labels,
+text-token colors for text) carry the rest.
 
-**Rules:** color carries meaning or stays out; the accent is split — **blush** for fills/active,
-**sky** for hover/active/focus; **accent FILLS use dark `--bg` text** (white on light blush fails
-WCAG AA); glass is reserved for hero surfaces (Message Dock, dialogs, inspector, Home Chat) while
-dense data views stay opaque; every number is mono so columns of metrics align.
+**Glass tiers** (`@layer components`, `web/src/index.css`) — FOUR explicit tiers, picked by role,
+not a single hero/non-hero switch:
 
-## Component inventory (shadcn/ui base)
+| Class | Background | Blur | Radius | Used for |
+|-------|-----------|------|--------|----------|
+| `.glass-chrome` | `--glass-chrome-bg` rgba(42,26,71,.55) | `blur(24px) saturate(1.4)` | (caller's) | persistent shell chrome — Sidebar, TopBar, the Message Dock bar |
+| `.glass-panel` | `--glass-panel-bg` rgba(42,26,71,.72) | `blur(16px) saturate(1.2)` | 18px | in-flow cards/panels — widget cells, KPI tiles, summary cards |
+| `.glass-overlay` | `--glass-overlay-bg` rgba(51,32,92,.82) | `blur(28px) saturate(1.4)` | 18px | floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay |
+| `.surface-solid` | `--surface` (opaque) | none | 14px | dense repeated rows — fleet/roster grids, list rows |
 
-Card · Tabs · SegControl · Badge · Tooltip · Dialog (escalation confirm-cards only) · Table
-(runs/PRs) · Resizable panels (graph + inspector, orchestrator editors + authority-override panel) ·
-Sonner toasts (toast-with-link + the 5 s undo toast) — plus custom: **MessageDock** (bar/float, the
-one front-door composer), **DelegationTree** (one component, reused at whole-org and one-lead
-scope), MetricCard, ProjectCard, GraphCanvas, NodeInspector, RunConsole, ToolCall (rich console),
-AuthorityPanel (org-default in Settings · per-lead override on detail), CharterEditor, **MicButton**
-(push-to-talk), a **LocalModels** manager (catalog + pull progress + active selector), a slim
-OrgCard/roster card, and the **widget grid** (`WidgetShell` chrome + `WidgetErrorBoundary` per
-catalog widget).
+Each blurred tier carries an `@supports not (backdrop-filter: blur(1px))` opaque fallback
+(`.glass-chrome`→`--surface`, `.glass-panel`/`.glass-overlay`→`--raised`) so a browser without
+backdrop-filter support never renders transparent text-on-text.
+
+**Rules — supersedes D-013/D-024's hero-only-glass binary.** The old rule ("glass is reserved for
+hero surfaces… dense data views stay opaque") couldn't express *which* surface counts as hero or
+what happens when two glass surfaces would nest. The shipped rule is graded: **(1)** pick the tier
+by role (table above), not a single hero/non-hero split; **(2) no nested backdrop-filter, ever** —
+a glass element that is a DOM descendant of another glass element drops to `surface-solid` or a
+hand-rolled substitute (verified component-by-component during the build — e.g. TopBar's dock-
+launcher button and NotificationBell's popover stay `surface-solid` because both are DOM children
+of TopBar's own `glass-chrome` `<header>`); **(3)** a soft **≤6 simultaneously-blurred-regions-per-
+viewport budget**, checked by a per-wave visual pass at 1440×900 and a final whole-app sweep — a
+manual review discipline, not an automated test — that pushes a view over budget (an 11-tile KPI
+row, a large fleet/roster grid) onto `tier="solid"` instead; **(4)** dense data still defaults to
+opaque, unchanged from D-013/D-024.
+
+**Shadow ramp:** `--shadow-1` `0 2px 8px rgba(10,4,24,.35)` · `--shadow-2` `0 6px 24px
+rgba(10,4,24,.45)` · `--shadow-3` `0 16px 48px rgba(10,4,24,.60)` — chrome/panel/overlay use
+1/2/3 respectively (deeper tier, deeper shadow).
+
+**Motion tokens:** `--dur-1` 120ms · `--dur-2` 180ms · `--dur-3` 240ms · `--ease`
+`cubic-bezier(0.2,0,0,1)` — button/input transitions run on `--dur-1`; the skeleton shimmer sweep
+(below) is a separate 1.6s cycle; `prefers-reduced-motion` zeroes the ambient drift, live-glow
+pulse, and shimmer animations.
+
+**Type scale** (`web/tailwind.config.ts` `fontSize` extension, not in `index.css`): `display`
+24px/32px/600 · `title` 16px/24px/600 · `body` 14px/22px · `label` 12px/16px/500 · `caption`
+11px/14px · `micro` 10px/12px (the `.micro-label` CSS class layers on uppercase + 0.08em tracking +
+`--muted` for kicker/section-header text). `Inter Variable` (self-hosted
+`@fontsource-variable/inter`) for UI text, `JetBrains Mono` (self-hosted
+`@fontsource/jetbrains-mono`) for numerals/ids/code; `body { font-variant-numeric: tabular-nums; }`
+is global, plus an explicit `.mono` utility for monospace runs — every number is mono so columns of
+metrics align.
+
+**Radii:** `--radius-lg` 18px (panels) · `--radius` 14px (controls), mirrored as Tailwind
+`rounded-panel`/`rounded-control`; `--radius-sm` 10px (small surfaces — e.g. the skeleton shimmer,
+`index.css`'s `.shimmer` rule) is consumed directly via `border-radius: var(--radius-sm)`, with no
+Tailwind utility mirror. `rounded-pill` is a separate, unrelated Tailwind radius (`9999px`, fully
+round) for badges/dots/tags — not tied to the 10px small-radius value.
+
+**Runtime token access outside the DOM:** `web/src/lib/tokens.ts` exports a hand-kept
+`TOKEN_FALLBACKS` hex mirror of `index.css`'s `:root` plus `readToken(name)` (reads
+`getComputedStyle` when `window` exists, else the mirror) — used by the canvas-rendered
+graph/health surfaces and by jsdom tests, neither of which can resolve a live CSS custom property.
+`lib/tokens.ts` and `index.css` are the only two files exempt from the ui-token gate (below).
+
+## `web/src/ui/` primitive kit + Tabs/SegControl
+
+`web/src/ui/` is **14 files exporting 19 named primitives**, hand-authored on
+`@radix-ui/react-dialog` + `@radix-ui/react-tooltip` (unstyled behavior primitives) and Tailwind —
+not a shadcn/ui copy-paste base:
+
+| File | Exports | Notes |
+|------|---------|-------|
+| `Button.tsx` | `Button`, `IconButton` | 4 variants (primary/glass/ghost/danger) × 2 sizes (sm/md); `loading` swaps in `Spinner`; `IconButton` is a square `Button` wrapping one `Icon` with a required `label` |
+| `Dialog.tsx` | `Dialog` | Radix root/portal/overlay/content, `glass-overlay` tier, built-in title + close + footer slots |
+| `EmptyState.tsx` | `EmptyState` | icon bubble (its own `.glass-panel`) + headline + optional hint/action |
+| `ErrorState.tsx` | `ErrorState` | `role="alert"`, message + optional Retry `Button` |
+| `Field.tsx` | `Input`, `Textarea`, `Select` | one shared skin string + an `invalid` boolean → red border + `aria-invalid` |
+| `GlassPanel.tsx` | `GlassPanel` | polymorphic (`as`), `tier` ∈ chrome/panel/overlay/solid, `interactive` adds `.card-lift` hover |
+| `Icon.tsx` | `Icon`, `ICONS`, `IconName` | 33-entry `lucide-react` map (below) |
+| `KpiTile.tsx` | `KpiTile` | label/value/optional `delta` (`{pct, polarity}` — `goodUp`/`badUp` decides green vs red independent of the raw sign); `tier` ∈ panel/solid |
+| `SectionHeader.tsx` | `SectionHeader` | `.micro-label` kicker + optional count pill + right-aligned action slot; `as` ∈ `h2`/`h3`/`span` (default `span`) |
+| `Skeleton.tsx` | `Skeleton`, `SkeletonRow`, `SkeletonTile` | shimmer primitives (below) |
+| `Spinner.tsx` | `Spinner` | inline SVG ring, `role="status"` |
+| `StatusPill.tsx` | `StatusPill` | dot + label (below) |
+| `Tag.tsx` | `Tag` | 3 tints (neutral/accent/sky) + optional dismiss button |
+| `Tooltip.tsx` | `Tooltip` | Radix root, `glass-overlay` content, 300ms delay |
+
+**`Icon`'s 33-icon set** is the ONLY file in `web/src` importing from `lucide-react` — every other
+icon usage goes through `Icon`/`ICONS`/`IconName`, so the icon set is a closed, typed vocabulary
+rather than an open door to any lucide glyph. `size` is constrained to `14 | 16 | 20`; a `label`
+prop toggles between `aria-hidden` (decorative) and `aria-label` (meaningful).
+
+**`StatusPill`** merges `runStatusMeta` / `agentRunStatusMeta` / `delegationStatusMeta`
+(`lib/status.ts`, E-11/D-100 — each individually default-less/exhaustive over its own status union)
+into one lookup keyed by status string, with its own `?? idle` fallback so an unrecognized string
+never throws. It renders a small `aria-hidden` color **dot** (`meta.dot`) next to an uppercase
+**text label** (`meta.text` color, `meta.label` or a caller override) — precisely *dot + label*,
+not *icon + label*: the dot is a decorative color swatch, never a `lucide` `Icon` instance. The
+governing rule is broader than StatusPill alone — **color never carries meaning alone** — and both
+patterns satisfy it: StatusPill by always pairing its dot with a readable word, other status sites
+(e.g. `ProjectCard`'s CI line) by pairing a real `Icon` with visible text.
+
+Two shared components live in `web/src/components/`, not `web/src/ui/`, because they predate this
+program (P4 E-30) and were reskinned onto the new tokens rather than rebuilt:
+- **`Tabs.tsx`** — the one canonical underline tab bar (`role="tablist"`/`aria-selected`), generic
+  over a caller's value union.
+- **`SegControl.tsx`** — the one canonical pill segmented control (`role="group"`/`aria-pressed`),
+  with `size`/`activeTone`/per-option `icon`/`count`/`disabled`.
+
+Higher-level composite components — MessageDock, DelegationTree, RunConsole, ProjectCard, the
+fleet/project GraphCanvas + NodeInspector, MicButton, CharterEditor, the AuthorityPanel,
+LocalModels, and the widget grid's `WidgetShell`/`WidgetErrorBoundary` — are unchanged in structure
+by this program (restyled onto the tiers/tokens above, not rebuilt) and stay documented in their
+own sections earlier on this page (Message Dock, Agents hub, Runs, Knowledge graph spec, Settings +
+Help, Home — Overview).
+
+## Loading, empty & error states
+
+- **Initial / no-cached-data loads** (`isPending` on the view's primary `useQuery`) render the
+  **Skeleton primitives** (`Skeleton`, `SkeletonRow`, `SkeletonTile` — `web/src/ui/Skeleton.tsx`),
+  each an `aria-hidden` block driven by the `.shimmer` CSS class (`index.css`: a ~1.6s
+  linear-gradient sweep, `@keyframes shimmer`, disabled under `prefers-reduced-motion`).
+  `SkeletonTile` bakes in its own `.glass-panel` tier, so a caller already inside a `glass-panel`
+  ancestor cannot use it directly (nested backdrop-filter is banned) and must hand-roll bare
+  `Skeleton` pieces instead — `ActiveRunsWidget.tsx` is the reference pattern, inline-commented.
+  `EmptyState` has the same `.glass-panel`-icon-bubble limitation (its icon sits in a `glass-panel
+  rounded-pill` wrapper); `ErrorState` does not — its container is opaque (`bg-surface border
+  border-red/30`) with a bare, unwrapped icon, so it nests safely anywhere already. Widening
+  `EmptyState`/`SkeletonTile` to accept a `tier?: 'panel' | 'solid'` prop (mirroring
+  `KpiTile`/`GlassPanel`) is a tracked, unshipped follow-up (FU-2), not yet done.
+- **Background refetches** of an already-populated view (e.g. a `refetchInterval` poll) do **not**
+  show a skeleton or any shimmer/glint overlay — TanStack Query's default stale-while-revalidate
+  behavior swaps in fresh data silently once it lands. The `days`-windowed Insights tabs
+  additionally pass `placeholderData: keepPreviousData` so switching the 14/30/60-day toggle keeps
+  the outgoing window's numbers on screen (no flash-to-empty) until the new window resolves —
+  there is no separate visual affordance for "a refetch is in flight."
+- **Empty results** render `EmptyState` (icon + headline + optional hint/action); **fetch failures**
+  render `ErrorState` (`role="alert"`, message + optional Retry `Button`) — both `web/src/ui/`.
+
+## Governance: the ui-token gate (`web/test/ui-token-gate.test.ts`)
+
+- A vitest suite walks every `.ts(x)`/`.css` file under `web/src` (excluding `index.css` and
+  `lib/tokens.ts`) and fails any file matching a raw Tailwind palette utility (e.g. `text-red-500`,
+  `bg-slate-900` — regex over the full Tailwind color-name list) or a raw hex/rgb literal
+  (longest-alternative-first, so an 8/4-digit alpha hex can't slip past a shorter partial match).
+  Every color must instead resolve through a CSS custom property (`var(--…)`) or its Tailwind
+  semantic class (`bg-accent`, `text-red`, …).
+- `web/test/ui-token-allowlist.json` lists files still permitted to violate the gate. A second test
+  in the same suite asserts every listed file still exists **and still actually violates** — a
+  stale entry (a file since cleaned up) fails CI, so the list can only shrink honestly, never
+  accumulate dead exemptions.
+- The allowlist was seeded with the gate test itself (~task 3) and shrank wave by wave (primitives
+  batch removed `ConfirmDialog.tsx`; the palette task took it 10→9; later page waves took it to 2
+  remaining entries) until Task 22 (commit `fcc3284`) tokenized the last two files and reached
+  **`[]` — empty**. The suite today runs `it.each` over literally every source file with zero
+  exemptions.
+- `lib/tokens.ts` is the ONE file exempt from the gate entirely (`EXEMPT` set in
+  `ui-token-gate.test.ts`), for its `TOKEN_FALLBACKS` hex mirror (above). Every other file,
+  including `pages/TerminalPage.tsx`, is fully gate-compliant with zero exemption: xterm's canvas
+  theme option cannot consume a CSS `var()` directly, so `TerminalPage.tsx` reads the color via
+  `readToken('--terminal-bg')` (a JS read through `lib/tokens.ts`, not a raw literal) and its two
+  DOM-styled panes use `var(--terminal-bg)` inline — Task 22 (commit `fcc3284`) removed the file's
+  prior raw hex literals and moved it onto the token, which is why the allowlist could drop it and
+  still reach empty.
 
 ## Accessibility & quality bar
 

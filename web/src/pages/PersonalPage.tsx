@@ -29,7 +29,7 @@ export default function PersonalPage({ tab }: { tab?: string }) {
     { value: 'memories', label: 'Memories' },
   ]
   return (
-    <div className="flex h-full flex-col gap-3 p-4">
+    <div className="flex h-full flex-col gap-3 p-5">
       <Tabs items={items} value={active} onChange={v => navigate('personal', v)} ariaLabel="Personal" />
       {active === 'inbox' && <InboxTab />}
       {active === 'tasks' && <TasksTab />}

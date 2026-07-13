@@ -6,15 +6,17 @@ import { navigate } from '../../lib/route'
 import { selectThread, getSelectedThread } from '../../lib/thread-select'
 import { relativeTime } from '../../lib/verify'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { Button, IconButton } from '../../ui/Button'
+import { SectionHeader } from '../../ui/SectionHeader'
+import { EmptyState } from '../../ui/EmptyState'
+import { SkeletonRow } from '../../ui/Skeleton'
+import { Tag } from '../../ui/Tag'
+import { Tooltip } from '../../ui/Tooltip'
+import { Icon } from '../../ui/Icon'
 
 // Mirrors HomePage.tsx's local (unexported) VIEW_KEY — Open hands a thread off
 // to Home's Chat sub-view exactly the way MessageDock/ChatView itself would.
 const HOME_VIEW_KEY = 'k.home.view'
-
-const BTN =
-  'flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)] disabled:opacity-50'
-const BTN_DANGER =
-  'flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--red)] transition-colors hover:bg-red/15 disabled:opacity-50'
 
 /**
  * ChatsTab (Personal hub, UI Simplification Task 15) — the full thread
@@ -44,7 +46,7 @@ export default function ChatsTab() {
   const [deleting, setDeleting] = useState<KThreadSummary | null>(null)
   const [deleteError, setDeleteError] = useState<string | undefined>(undefined)
 
-  const { data, isError } = useQuery({
+  const { data, isError, isPending } = useQuery({
     queryKey: ['k-threads', 'all'],
     queryFn: () => api.threads.list(true),
   })
@@ -115,25 +117,32 @@ export default function ChatsTab() {
   }
 
   return (
-    <div data-testid="chats-tab" className="glass-tint rounded-panel flex-1 overflow-y-auto p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-        All chats · {threads.length}
-      </h2>
-      {isError ? (
-        <p data-testid="chats-error" className="mt-3 text-xs italic text-[var(--red)]">
+    // Dense list — solid surface, no blur (Task 14 ChatView-rail precedent).
+    <div data-testid="chats-tab" className="surface-solid rounded-panel flex-1 overflow-y-auto p-5">
+      <SectionHeader label="All chats" count={threads.length} />
+      {isPending ? (
+        <div className="mt-3 flex flex-col gap-1.5">
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </div>
+      ) : isError ? (
+        <p data-testid="chats-error" className="mt-3 flex items-center gap-1.5 text-caption text-red">
+          <Icon name="warning" size={14} className="text-red" />
           Failed to load chats.
         </p>
       ) : threads.length === 0 ? (
-        <p data-testid="chats-empty" className="mt-3 text-sm italic text-[var(--muted)]">
-          No chats yet — start one from Home.
-        </p>
+        <div data-testid="chats-empty">
+          <EmptyState icon="personal" headline="No chats yet" hint="Start one from Home." />
+        </div>
       ) : (
         <div className="mt-3 flex flex-col gap-1.5">
           {threads.map(t => (
             <div
               key={t.id}
               data-testid={`chats-row-${t.id}`}
-              className="flex items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2"
+              className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
             >
               <div className="min-w-0 flex-1">
                 {renamingId === t.id ? (
@@ -145,56 +154,60 @@ export default function ChatsTab() {
                     onChange={e => setRenameText(e.target.value)}
                     onKeyDown={e => onRenameKeyDown(e, t.id)}
                     onBlur={() => setRenamingId(null)}
-                    className="w-full min-w-0 rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-sm text-[var(--text)] outline-none"
+                    className="w-full min-w-0 rounded border border-border bg-surface px-1.5 py-0.5 text-body text-text outline-none"
                   />
                 ) : (
                   <div className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-medium text-[var(--text)]">{t.title ?? 'New chat'}</span>
+                    <span className="truncate text-body font-medium text-text">{t.title ?? 'New chat'}</span>
                     {t.archivedAt !== null && (
-                      <span
-                        data-testid={`chats-archived-${t.id}`}
-                        className="flex-shrink-0 rounded bg-amber/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--amber)]"
-                      >
-                        archived
+                      // Tag has no rest spread — the testid rides on a wrapper span. The amber
+                      // override is deliberate (no amber tint in Tag; archived keeps its warning
+                      // semantics, consistent with ChatView's archived chip).
+                      <span data-testid={`chats-archived-${t.id}`} className="flex-shrink-0">
+                        <Tag tint="neutral" className="bg-amber/20 text-amber border-amber/25 uppercase">archived</Tag>
                       </span>
                     )}
                   </div>
                 )}
-                {t.snippet && <div className="truncate text-xs text-[var(--muted)]">{t.snippet}</div>}
+                {t.snippet && <div className="truncate text-caption text-muted">{t.snippet}</div>}
                 {t.lastTurnAt != null && (
-                  <div className="mono text-[10px] text-[var(--muted)]">{relativeTime(t.lastTurnAt)}</div>
+                  <div className="mono text-caption text-muted">{relativeTime(t.lastTurnAt)}</div>
                 )}
               </div>
               <div className="flex flex-shrink-0 items-center gap-1.5">
-                <button type="button" data-testid={`chats-open-${t.id}`} onClick={() => openThread(t.id)} className={BTN}>
+                <Button variant="ghost" size="sm" data-testid={`chats-open-${t.id}`} onClick={() => openThread(t.id)}>
                   Open
-                </button>
-                <button
-                  type="button"
-                  data-testid={`chats-rename-${t.id}`}
-                  aria-label="Rename"
-                  onClick={() => startRename(t)}
-                  className={BTN}
-                >
-                  ✎
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Tooltip content="Rename">
+                  <IconButton
+                    name="edit"
+                    label="Rename"
+                    variant="ghost"
+                    data-testid={`chats-rename-${t.id}`}
+                    onClick={() => startRename(t)}
+                  />
+                </Tooltip>
+                {/* Text button, not an IconButton (documented deviation): the fixed ICONS set
+                    has no archive glyph, and the two-state Archive/Unarchive action reads
+                    clearer as text anyway. */}
+                <Button
+                  variant="ghost"
+                  size="sm"
                   data-testid={`chats-archive-${t.id}`}
                   disabled={toggleArchive.isPending}
                   onClick={() => toggleArchive.mutate(t)}
-                  className={BTN}
                 >
                   {t.archivedAt !== null ? 'Unarchive' : 'Archive'}
-                </button>
-                <button
-                  type="button"
-                  data-testid={`chats-delete-${t.id}`}
-                  onClick={() => openDelete(t)}
-                  className={BTN_DANGER}
-                >
-                  Delete
-                </button>
+                </Button>
+                <Tooltip content="Delete chat">
+                  <IconButton
+                    name="trash"
+                    label="Delete chat"
+                    variant="danger"
+                    data-testid={`chats-delete-${t.id}`}
+                    onClick={() => openDelete(t)}
+                  />
+                </Tooltip>
               </div>
             </div>
           ))}
@@ -207,7 +220,7 @@ export default function ChatsTab() {
         title="Delete chat"
         message={
           <>
-            Permanently delete <span className="font-semibold text-[var(--text)]">{deleting?.title ?? 'this chat'}</span>?
+            Permanently delete <span className="font-semibold text-text">{deleting?.title ?? 'this chat'}</span>?
             Its entire transcript is removed and cannot be recovered.
           </>
         }

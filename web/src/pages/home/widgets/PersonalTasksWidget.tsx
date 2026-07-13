@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { WorkItem } from '@k/shared'
 import { api } from '../../../lib/api'
+import { SectionHeader } from '../../../ui/SectionHeader'
+import { Icon } from '../../../ui/Icon'
+import { Skeleton } from '../../../ui/Skeleton'
 
 /**
  * PersonalTasksWidget (UI Simplification Task 13) — ports KHome's "Your
@@ -13,7 +16,7 @@ import { api } from '../../../lib/api'
 export default function PersonalTasksWidget() {
   const qc = useQueryClient()
   const [title, setTitle] = useState('')
-  const { data: items = [], isError } = useQuery<WorkItem[]>({
+  const { data: items = [], isError, isPending } = useQuery<WorkItem[]>({
     queryKey: ['k-work-items'],
     queryFn: () => api.k.workItems.list('personal'),
   })
@@ -40,11 +43,29 @@ export default function PersonalTasksWidget() {
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Personal tasks</h2>
-      {isError ? (
-        <p data-testid="widget-personal-tasks-error" className="text-xs italic text-[var(--red)]">Failed to load work items.</p>
+      <SectionHeader label="Personal tasks" />
+      {isPending ? (
+        // Hand-rolled (not <SkeletonTile>): that component bakes in its own
+        // glass-panel tier, which would nest backdrop-filter inside this cell's
+        // GlassPanel tier="panel" ancestor (OverviewView).
+        <div aria-hidden="true" className="flex flex-col gap-1.5">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Skeleton className="h-3.5 w-3.5 rounded-control" />
+              <Skeleton className="h-3.5 flex-1" />
+            </div>
+          ))}
+        </div>
+      ) : isError ? (
+        <p data-testid="widget-personal-tasks-error" className="text-caption text-red">Failed to load work items.</p>
       ) : items.length === 0 ? (
-        <p className="text-sm italic text-[var(--muted)]">No personal work items yet.</p>
+        // Hand-rolled (not <EmptyState>): this cell renders inside OverviewView's
+        // GlassPanel tier="panel" — EmptyState's own icon bubble is itself a
+        // glass-panel, which would nest backdrop-filter inside backdrop-filter.
+        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-4 text-center">
+          <Icon name="personal" size={20} className="text-muted" />
+          <p className="text-body font-medium text-text">No personal work items yet.</p>
+        </div>
       ) : (
         <div className="flex flex-col gap-1">
           {items.map(item => (
@@ -56,9 +77,9 @@ export default function PersonalTasksWidget() {
                 checked={item.status === 'done'}
                 disabled={toggleItem.isPending}
                 onChange={() => toggleItem.mutate(item)}
-                className="flex-shrink-0 accent-[var(--accent)]"
+                className="flex-shrink-0 accent-accent"
               />
-              <span className={`min-w-0 flex-1 truncate text-xs ${item.status === 'done' ? 'text-[var(--muted)] line-through' : 'text-[var(--text)]'}`}>
+              <span className={`min-w-0 flex-1 truncate text-body ${item.status === 'done' ? 'text-muted line-through' : 'text-text'}`}>
                 {item.title}
               </span>
             </div>
@@ -73,21 +94,22 @@ export default function PersonalTasksWidget() {
           onKeyDown={onKeyDown}
           placeholder="add a task…"
           aria-label="New work item title"
-          className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] placeholder-[var(--muted)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+          className="min-w-0 flex-1 rounded-control border border-border bg-surface px-2 py-1 text-body text-text outline-none placeholder:text-muted focus:border-accent/40"
         />
         <button
           type="button"
           data-testid="widget-personal-tasks-add"
           disabled={!title.trim() || addItem.isPending}
           onClick={() => addItem.mutate(title.trim())}
-          className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)] disabled:opacity-50"
+          className="flex-shrink-0 rounded-control border border-border px-2 py-1 text-body font-semibold text-accent-hover transition-colors hover:border-accent/40 disabled:opacity-50"
         >
           add
         </button>
       </div>
       {(toggleItem.isError || addItem.isError) && (
-        <p data-testid="widget-personal-tasks-mutation-error" className="text-[11px] text-[var(--red)]">
-          ⚠ {((toggleItem.error ?? addItem.error) as Error).message}
+        <p data-testid="widget-personal-tasks-mutation-error" className="flex items-center gap-1 text-caption text-red">
+          <Icon name="warning" size={14} />
+          {((toggleItem.error ?? addItem.error) as Error).message}
         </p>
       )}
     </div>

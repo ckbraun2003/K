@@ -4,6 +4,8 @@ import { useHomeLayout, fits } from '../../lib/home-layout'
 import { WIDGET_DEFS } from './widgets'
 import WidgetErrorBoundary from './WidgetErrorBoundary'
 import WidgetShell from './WidgetShell'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { Button } from '../../ui/Button'
 
 /**
  * OverviewView — Home's Overview tab (UI Simplification Task 12), replacing
@@ -50,45 +52,50 @@ export default function OverviewView() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex items-center justify-end gap-2">
-        {!loaded && <span className="text-[10px] text-[var(--muted)]">Loading layout...</span>}
-        <button
-          type="button"
-          data-testid="overview-customize"
+        {!loaded && <span className="text-micro text-muted">Loading layout...</span>}
+        <Button
+          variant="glass"
+          size="sm"
+          icon="edit"
           aria-pressed={customize}
+          data-testid="overview-customize"
           onClick={toggleCustomize}
-          className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-medium text-[var(--muted)] transition-colors hover:text-[var(--text)]"
         >
           {customize ? 'Done' : 'Customize'}
-        </button>
+        </Button>
       </div>
       <div className="grid flex-1 min-h-0 grid-cols-3 grid-rows-3 gap-3">
         {layout.widgets.map((w) => {
           const Def = WIDGET_DEFS[w.id]
           return (
-            <div
+            <GlassPanel
               key={w.id}
+              // Glass only while the layout stays at/below the default 5 widgets;
+              // customized layouts beyond that flip every cell solid so the
+              // viewport blur budget can't grow unbounded (DEV-15).
+              tier={layout.widgets.length <= 5 ? 'panel' : 'solid'}
               style={{ gridColumn: `${w.x + 1} / span ${w.w}`, gridRow: `${w.y + 1} / span ${w.h}` }}
-              className="glass-tint rounded-panel min-h-0 overflow-hidden"
+              className="min-h-0 overflow-hidden"
             >
               {customize ? <WidgetShell placement={w} layout={layout} onChange={save} /> : null}
               <WidgetErrorBoundary id={w.id}>
                 <Def.component />
               </WidgetErrorBoundary>
-            </div>
+            </GlassPanel>
           )
         })}
         {customize && emptyCells.map(({ x, y }) => (
           <div
             key={`empty-${x}-${y}`}
             style={{ gridColumn: `${x + 1} / span 1`, gridRow: `${y + 1} / span 1` }}
-            className="flex flex-col items-center justify-center gap-1 rounded-panel border border-dashed border-[var(--border)] p-2"
+            className="flex flex-col items-center justify-center gap-1 rounded-panel border border-dashed border-border p-2"
           >
             <button
               type="button"
               data-testid={`overview-add-${x}-${y}`}
               aria-label="Add widget"
               onClick={() => setPickerCell(prev => (prev && prev.x === x && prev.y === y ? null : { x, y }))}
-              className="text-lg leading-none text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+              className="text-lg leading-none text-muted transition-colors hover:text-text"
             >
               +
             </button>
@@ -100,7 +107,7 @@ export default function OverviewView() {
                     type="button"
                     data-testid={`overview-add-pick-${id}`}
                     onClick={() => addWidget(id, x, y)}
-                    className="rounded px-2 py-0.5 text-left text-[10px] text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+                    className="rounded-control px-2 py-0.5 text-left text-micro text-muted transition-colors hover:text-text"
                   >
                     {WIDGET_DEFS[id].title}
                   </button>

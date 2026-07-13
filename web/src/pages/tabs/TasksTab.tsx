@@ -6,6 +6,11 @@ import { cn } from '../../lib/cn'
 import { navigate } from '../../lib/route'
 import Toast from '../../components/Toast'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { Icon } from '../../ui/Icon'
+import { Button, IconButton } from '../../ui/Button'
+import { Spinner } from '../../ui/Spinner'
+import { Input } from '../../ui/Field'
+import { EmptyState } from '../../ui/EmptyState'
 
 interface Props {
   projectId: string
@@ -18,9 +23,9 @@ const STATUS_CYCLE: Record<ProjectTask['status'], ProjectTask['status']> = {
 }
 
 const STATUS_DOT: Record<ProjectTask['status'], string> = {
-  open:        'bg-[var(--amber)]',
-  in_progress: 'bg-[var(--accent)]',
-  done:        'bg-[var(--green)]',
+  open:        'bg-amber',
+  in_progress: 'bg-accent',
+  done:        'bg-green',
 }
 
 const STATUS_LABEL: Record<ProjectTask['status'], string> = {
@@ -168,45 +173,47 @@ export default function TasksTab({ projectId }: Props) {
   return (
     <div className="flex flex-col h-full">
       {/* Add task input */}
-      <div className="flex-shrink-0 px-4 py-3 border-b border-[var(--border)] flex items-center gap-2">
-        <input
+      <div className="flex-shrink-0 px-4 py-3 border-b border-border flex items-center gap-2">
+        <Input
           ref={inputRef}
           value={newTitle}
           onChange={e => setNewTitle(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="New task title…"
-          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none focus:border-[var(--accent)]"
+          className="flex-1"
         />
-        <button
+        <Button
+          variant="primary"
+          size="sm"
           onClick={handleAdd}
           disabled={!newTitle.trim() || createTask.isPending}
-          className="rounded-control bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
+          loading={createTask.isPending}
         >
           {createTask.isPending ? 'Adding…' : 'Add'}
-        </button>
+        </Button>
       </div>
 
       {/* Selection bar: select-all + clear */}
       {tasks.length > 0 && (
-        <div className="flex-shrink-0 px-4 py-1.5 border-b border-[var(--border)] flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-[11px] text-[var(--muted)] cursor-pointer select-none">
+        <div className="flex-shrink-0 px-4 py-1.5 border-b border-border flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-[11px] text-muted cursor-pointer select-none">
             <input
               type="checkbox"
               data-testid="tasks-select-all"
               checked={allSelected}
               ref={el => { if (el) el.indeterminate = someSelected }}
               onChange={toggleSelectAll}
-              className="h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
+              className="h-3.5 w-3.5 cursor-pointer accent-accent"
             />
             Select all
           </label>
           {selectedIds.size > 0 && (
-            <span className="text-[11px] text-[var(--muted)]">
+            <span className="text-[11px] text-muted">
               {selectedIds.size} selected ·{' '}
               <button
                 data-testid="tasks-header-clear"
                 onClick={clearSelection}
-                className="text-[var(--accent)] hover:underline"
+                className="text-accent hover:underline"
               >
                 clear
               </button>
@@ -218,14 +225,12 @@ export default function TasksTab({ projectId }: Props) {
       {/* Task list */}
       <div className="flex-1 overflow-y-auto">
         {tasks.length === 0 && (
-          <div className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-            No tasks yet. Add one above.
-          </div>
+          <EmptyState icon="personal" headline="No tasks yet." hint="Add one above." />
         )}
         {tasks.map(task => (
           <div
             key={task.id}
-            className="group flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--surface)] transition-colors"
+            className="group flex items-center gap-3 px-4 py-3 border-b border-border hover:bg-surface transition-colors"
           >
             {/* Multi-select checkbox (workflow delegation path) */}
             <input
@@ -234,25 +239,25 @@ export default function TasksTab({ projectId }: Props) {
               checked={selectedIds.has(task.id)}
               onChange={() => toggleSelect(task.id)}
               aria-label={`Select task: ${task.title}`}
-              className="flex-shrink-0 h-3.5 w-3.5 cursor-pointer accent-[var(--accent)]"
+              className="flex-shrink-0 h-3.5 w-3.5 cursor-pointer accent-accent"
             />
 
             {/* Status toggle */}
             <button
               onClick={() => updateStatus.mutate({ taskId: task.id, status: STATUS_CYCLE[task.status] })}
               title={`Status: ${STATUS_LABEL[task.status]} — click to advance`}
-              className="flex-shrink-0 flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border border-[var(--border)] hover:border-[var(--accent)] transition-colors"
+              className="flex-shrink-0 flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border border-border hover:border-accent transition-colors"
             >
               <span className={cn('w-2 h-2 rounded-full flex-shrink-0', STATUS_DOT[task.status])} />
-              <span className="text-[var(--muted)]">{STATUS_LABEL[task.status]}</span>
+              <span className="text-muted">{STATUS_LABEL[task.status]}</span>
             </button>
 
             {/* Title + time */}
             <div className="flex-1 min-w-0">
-              <p className={cn('text-sm text-[var(--text)] truncate', task.status === 'done' && 'line-through opacity-50')}>
+              <p className={cn('text-sm text-text truncate', task.status === 'done' && 'line-through opacity-50')}>
                 {task.title}
               </p>
-              <p className="font-mono text-[10px] text-[var(--muted)] flex items-center gap-1.5">
+              <p className="mono text-[10px] text-muted flex items-center gap-1.5">
                 <span>{formatTimeAgo(task.createdAt)}</span>
                 {task.issueNumber != null && (
                   <>
@@ -261,37 +266,39 @@ export default function TasksTab({ projectId }: Props) {
                       target="_blank"
                       rel="noreferrer"
                       onClick={e => e.stopPropagation()}
-                      className="text-[var(--accent)] hover:underline"
+                      className="text-accent hover:underline"
                     >
                       #{task.issueNumber}
                     </a>
-                    {task.issueState && <span className="text-[var(--muted)]">{task.issueState.toLowerCase()}</span>}
+                    {task.issueState && <span className="text-muted">{task.issueState.toLowerCase()}</span>}
                   </>
                 )}
               </p>
             </div>
 
             {/* Dispatch agent button — opens a confirm first (a per-row dispatch is a PAID run) */}
-            <button
+            <Button
               data-testid={`task-dispatch-btn-${task.id}`}
+              variant="glass"
+              size="sm"
+              icon="runs"
               onClick={() => setDispatchingTask(task)}
               disabled={pendingDispatchIds.has(task.id) || dispatchWorkflow.isPending}
               title="Quick single agent run for this task (use the checkboxes + bar below for a delegation workflow: implementer→review→orchestrator)"
-              className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 rounded-control border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs font-medium text-[var(--text)] hover:border-[var(--accent-hover)] hover:text-[var(--accent-hover)] transition-all disabled:opacity-40"
+              className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 transition-all"
             >
-              ▶ Dispatch agent
-            </button>
+              Dispatch agent
+            </Button>
 
             {/* Delete task */}
-            <button
+            <IconButton
               data-testid={`task-delete-btn-${task.id}`}
+              name="trash"
+              variant="ghost"
+              label={`Delete task: ${task.title}`}
               onClick={() => setDeletingTask(task)}
-              aria-label={`Delete task: ${task.title}`}
-              title="Delete task"
-              className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] hover:bg-red/15 hover:text-[var(--red)] transition-all"
-            >
-              🗑
-            </button>
+              className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 hover:bg-red/15 hover:text-red transition-all"
+            />
           </div>
         ))}
       </div>
@@ -302,28 +309,34 @@ export default function TasksTab({ projectId }: Props) {
           data-testid="tasks-workflow-bar"
           role="region"
           aria-label="Delegation workflow actions"
-          className="flex-shrink-0 px-4 py-3 border-t border-[var(--border)] flex items-center justify-between gap-3 bg-[var(--raised)]"
+          className="flex-shrink-0 px-4 py-3 border-t border-border flex items-center justify-between gap-3 bg-raised"
         >
           <div className="flex items-center gap-2">
-            <button
+            <Button
               data-testid="tasks-run-workflow"
+              variant="primary"
+              size="sm"
+              icon="runs"
+              loading={dispatchWorkflow.isPending}
               onClick={() => dispatchWorkflow.mutate([...selectedIds])}
               disabled={dispatchWorkflow.isPending || selectedIds.size === 0}
               title="Run a delegation workflow (implementer→review→orchestrator) across the selected tasks"
-              className="rounded-control bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
             >
               {dispatchWorkflow.isPending
                 ? 'Dispatching…'
-                : `▶ Run delegation workflow on ${selectedIds.size} selected`}
-            </button>
+                : `Run delegation workflow on ${selectedIds.size} selected`}
+            </Button>
             {dispatchWorkflow.isError && (
-              <span className="text-[11px] text-[var(--red)]">⚠ {(dispatchWorkflow.error as Error)?.message ?? String(dispatchWorkflow.error)}</span>
+              <span className="flex items-center gap-1 text-[11px] text-red">
+                <Icon name="warning" size={14} />
+                {(dispatchWorkflow.error as Error)?.message ?? String(dispatchWorkflow.error)}
+              </span>
             )}
           </div>
           <button
             data-testid="tasks-bar-clear"
             onClick={clearSelection}
-            className="text-[11px] text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+            className="text-[11px] text-muted hover:text-text transition-colors"
           >
             clear
           </button>
@@ -331,32 +344,39 @@ export default function TasksTab({ projectId }: Props) {
       )}
 
       {/* Footer: GitHub Issues sync */}
-      <div className="flex-shrink-0 px-4 py-3 border-t border-[var(--border)] flex items-center justify-between gap-3">
+      <div className="flex-shrink-0 px-4 py-3 border-t border-border flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button
             onClick={() => syncIssues.mutate()}
             disabled={syncIssues.isPending}
             title="Pull this project's GitHub issues into the task list"
-            className="text-xs text-[var(--text)] hover:text-[var(--accent)] transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 text-xs text-text hover:text-accent transition-colors disabled:opacity-40"
           >
+            {syncIssues.isPending && <Spinner size={14} />}
             {syncIssues.isPending ? 'Syncing…' : 'Sync with GitHub Issues'}
           </button>
           {syncIssues.isSuccess && syncIssues.data?.degraded && (
-            <span className="text-[11px] text-[var(--muted)]">gh unavailable — nothing synced</span>
+            <span className="text-[11px] text-muted">gh unavailable — nothing synced</span>
           )}
           {syncIssues.isSuccess && !syncIssues.data?.degraded && (
-            <span data-testid="tasks-sync-result" className="text-[11px] text-[var(--muted)]">
+            <span data-testid="tasks-sync-result" className="text-[11px] text-muted">
               {syncIssues.data && syncIssues.data.synced > 0
                 ? `Synced ${syncIssues.data.synced} issue${syncIssues.data.synced === 1 ? '' : 's'}`
                 : 'No new issues'}
             </span>
           )}
           {syncIssues.isError && (
-            <span className="text-[11px] text-[var(--red)]">⚠ {String(syncIssues.error)}</span>
+            <span className="flex items-center gap-1 text-[11px] text-red">
+              <Icon name="warning" size={14} />
+              {String(syncIssues.error)}
+            </span>
           )}
         </div>
         {createTask.isError && (
-          <span className="text-[11px] text-[var(--red)]">⚠ {String(createTask.error)}</span>
+          <span className="flex items-center gap-1 text-[11px] text-red">
+            <Icon name="warning" size={14} />
+            {String(createTask.error)}
+          </span>
         )}
       </div>
 
@@ -367,7 +387,7 @@ export default function TasksTab({ projectId }: Props) {
         message={
           <>
             Delegation workflow dispatched on{' '}
-            <span className="font-medium text-[var(--text)]">{dispatched?.count} task{dispatched?.count === 1 ? '' : 's'}</span>
+            <span className="font-medium text-text">{dispatched?.count} task{dispatched?.count === 1 ? '' : 's'}</span>
           </>
         }
         action={{
@@ -385,7 +405,7 @@ export default function TasksTab({ projectId }: Props) {
         message={
           <>
             Start a paid agent run for{' '}
-            <span className="font-semibold text-[var(--text)]">{dispatchingTask?.title}</span>? This
+            <span className="font-semibold text-text">{dispatchingTask?.title}</span>? This
             spends tokens.
           </>
         }
@@ -402,7 +422,7 @@ export default function TasksTab({ projectId }: Props) {
         title="Delete task"
         message={
           <>
-            Delete <span className="font-semibold text-[var(--text)]">{deletingTask?.title}</span>? This
+            Delete <span className="font-semibold text-text">{deletingTask?.title}</span>? This
             cannot be undone.
           </>
         }

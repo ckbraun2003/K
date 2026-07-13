@@ -2,6 +2,9 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import type { MetricsTimeseries, RoutingStats } from '@k/shared'
 import { api } from '../../lib/api'
 import TimeseriesChart from '../../components/TimeseriesChart'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { Skeleton } from '../../ui/Skeleton'
+import { EmptyState } from '../../ui/EmptyState'
 
 type Days = 14 | 30 | 60
 
@@ -64,12 +67,10 @@ export default function RoutingTab({ days }: { days: Days }) {
   return (
     <>
       {isLoading && !data && (
-        <div className="flex h-[180px] items-center justify-center text-sm text-[var(--muted)]">
-          loading…
-        </div>
+        <Skeleton className="h-[180px] w-full rounded-control" />
       )}
       {error && (
-        <div className="flex h-[180px] items-center justify-center text-sm text-[var(--red)]">
+        <div className="flex h-[180px] items-center justify-center text-caption text-red">
           {String((error as Error).message ?? error)}
         </div>
       )}
@@ -77,62 +78,58 @@ export default function RoutingTab({ days }: { days: Days }) {
       {data && (
         <>
           {/* recommendation banner */}
-          <div className="mb-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+          <GlassPanel className="mb-4 p-4">
+            <div className="micro-label mb-1">
               Recommendation
             </div>
-            <p className="text-sm text-[var(--text)]">{data.recommendation}</p>
-          </div>
+            <p className="text-body text-text">{data.recommendation}</p>
+          </GlassPanel>
 
           {groups.length === 0 ? (
-            <div className="flex h-[200px] items-center justify-center text-center text-sm text-[var(--muted)]">
-              No run history yet — routing insights appear once runs complete.
-            </div>
+            <EmptyState icon="insights" headline="No run history yet" hint="Routing insights appear once runs complete." />
           ) : (
             <>
               {/* per-model table */}
-              <div className="mb-4 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-                <table className="w-full text-sm">
+              <GlassPanel tier="solid" className="mb-4 overflow-hidden">
+                <table className="w-full text-caption">
                   <thead>
-                    <tr className="border-b border-[var(--border)] text-[10px] uppercase tracking-[0.08em] text-[var(--muted)]">
-                      <th className="px-3 py-2 text-left font-medium">Provider</th>
-                      <th className="px-3 py-2 text-left font-medium">Model</th>
-                      <th className="px-3 py-2 text-right font-medium">Runs</th>
-                      <th className="px-3 py-2 text-right font-medium">Success</th>
-                      <th className="px-3 py-2 text-right font-medium">Avg $</th>
-                      <th className="px-3 py-2 text-right font-medium">Total $</th>
-                      <th className="px-3 py-2 text-right font-medium">Avg latency</th>
+                    <tr className="micro-label border-b border-border [&>th]:font-medium">
+                      <th className="px-3 py-2 text-left">Provider</th>
+                      <th className="px-3 py-2 text-left">Model</th>
+                      <th className="px-3 py-2 text-right">Runs</th>
+                      <th className="px-3 py-2 text-right">Success</th>
+                      <th className="px-3 py-2 text-right">Avg $</th>
+                      <th className="px-3 py-2 text-right">Total $</th>
+                      <th className="px-3 py-2 text-right">Avg latency</th>
                     </tr>
                   </thead>
-                  <tbody className="font-mono tabular-nums">
+                  <tbody className="mono tabular-nums">
                     {groups.map(g => (
-                      <tr key={`${g.provider} ${g.model}`} className="border-b border-[var(--border)] last:border-0">
-                        <td className="px-3 py-2 text-left font-sans text-[var(--text)]">{g.provider}</td>
-                        <td className="px-3 py-2 text-left font-sans text-[var(--muted)]">{g.model}</td>
-                        <td className="px-3 py-2 text-right text-[var(--text)]">{g.runs}</td>
-                        <td className="px-3 py-2 text-right text-[var(--text)]">{formatSuccessRate(g.successRate)}</td>
-                        <td className="px-3 py-2 text-right text-[var(--muted)]">{formatCost(g.avgCostUsd)}</td>
-                        <td className="px-3 py-2 text-right text-[var(--text)]">{formatCostTotal(g.totalCostUsd)}</td>
-                        <td className="px-3 py-2 text-right text-[var(--muted)]">{formatLatency(g.avgLatencyMs)}</td>
+                      <tr key={`${g.provider} ${g.model}`} className="border-b border-border last:border-0">
+                        <td className="px-3 py-2 text-left font-sans text-text">{g.provider}</td>
+                        <td className="px-3 py-2 text-left font-sans text-muted">{g.model}</td>
+                        <td className="px-3 py-2 text-right text-text">{g.runs}</td>
+                        <td className="px-3 py-2 text-right text-text">{formatSuccessRate(g.successRate)}</td>
+                        <td className="px-3 py-2 text-right text-muted">{formatCost(g.avgCostUsd)}</td>
+                        <td className="px-3 py-2 text-right text-text">{formatCostTotal(g.totalCostUsd)}</td>
+                        <td className="px-3 py-2 text-right text-muted">{formatLatency(g.avgLatencyMs)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </GlassPanel>
 
               {/* trend chart (cost per model) */}
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+              <GlassPanel tier="solid" className="p-4">
+                <div className="micro-label mb-2">
                   Cost trend by model
                 </div>
                 {trend ? (
                   <TimeseriesChart data={trend} metric="costUsd" height={180} />
                 ) : (
-                  <div className="flex h-[180px] items-center justify-center text-sm text-[var(--muted)]">
-                    loading…
-                  </div>
+                  <Skeleton className="h-[180px] w-full rounded-control" />
                 )}
-              </div>
+              </GlassPanel>
             </>
           )}
         </>

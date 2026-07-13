@@ -11,6 +11,8 @@ import {
   errorShort,
 } from '../lib/terminal'
 import { coreWsBase } from '../lib/core-origin'
+import { cn } from '../lib/cn'
+import { readToken } from '../lib/tokens'
 
 // The dev fallback is DEV-only: in a prod build VITE_TERMINAL_TOKEN is `undefined`
 // (vite emits no token — see vite-token-defines.ts) and this resolves to '' so no
@@ -42,7 +44,7 @@ export default function TerminalPage() {
       cursorBlink: true,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
       fontSize: 13,
-      theme: { background: '#0b0e14' },
+      theme: { background: readToken('--terminal-bg') },
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
@@ -141,15 +143,16 @@ export default function TerminalPage() {
 
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
-      <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
-        <h2 className="text-sm font-semibold text-[var(--text)]">Terminal</h2>
-        <span className="text-xs text-[var(--muted)]">node-pty · /ws/terminal</span>
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+        <h2 className="text-sm font-semibold text-text">Terminal</h2>
+        <span className="text-xs text-muted">node-pty · /ws/terminal</span>
         {status !== 'connected' && (
           <span
             data-testid="terminal-status"
-            className={`ml-auto rounded bg-[var(--raised)] px-2 py-1 text-xs ${
-              status === 'error' ? 'text-[var(--accent-hover)]' : 'text-[var(--muted)]'
-            }`}
+            className={cn(
+              'ml-auto rounded bg-raised px-2 py-1 text-xs',
+              status === 'error' ? 'text-accent-hover' : 'text-muted',
+            )}
           >
             {status === 'error' ? errorShort(errorCode) : 'Connecting…'}
           </span>
@@ -158,12 +161,12 @@ export default function TerminalPage() {
       {/* Parent is `relative` so the status overlay scopes to this pane (not a
           full-screen modal — `absolute` is correct here, see lessons.md). */}
       <div className="relative min-h-0 flex-1">
-        <div ref={hostRef} className="h-full overflow-hidden p-2" style={{ background: '#0b0e14' }} />
+        <div ref={hostRef} className="h-full overflow-hidden p-2" style={{ background: 'var(--terminal-bg)' }} />
         {status !== 'connected' && (
           <div
             data-testid="terminal-overlay"
             className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-center"
-            style={{ background: '#0b0e14' }}
+            style={{ background: 'var(--terminal-bg)' }}
           >
             <p className={`max-w-md text-sm ${status === 'error' ? 'text-[var(--accent-hover)]' : 'text-[var(--muted)]'}`}>
               {status === 'error' ? error : 'Connecting to terminal…'}

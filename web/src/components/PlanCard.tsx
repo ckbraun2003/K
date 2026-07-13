@@ -11,11 +11,18 @@ import type { PlanDoc, RunPlan } from '@k/shared'
 import { api } from '../lib/api'
 import ConfirmDialog from './ConfirmDialog'
 import Toast from './Toast'
+import { Icon } from '../ui/Icon'
+import { Button } from '../ui/Button'
+import { Tag } from '../ui/Tag'
+import { Input, Textarea, Select } from '../ui/Field'
 
+// Risk level is NOT a canonical Run status — StatusPill doesn't cover it, so
+// this stays a bespoke semantic-token-tinted span (not Tag: green/amber/red
+// aren't in Tag's tint palette).
 const RISK_CLS: Record<PlanDoc['risk'], string> = {
-  low: 'bg-green/15 text-[var(--green)]',
-  medium: 'bg-amber/20 text-[var(--amber)]',
-  high: 'bg-red/15 text-[var(--red)]',
+  low: 'bg-green/15 text-green',
+  medium: 'bg-amber/20 text-amber',
+  high: 'bg-red/15 text-red',
 }
 
 export default function PlanCard({ runId }: { runId: string }) {
@@ -83,42 +90,75 @@ export default function PlanCard({ runId }: { runId: string }) {
   }
 
   return (
-    <div data-testid="plan-card" className="flex-shrink-0 border-t border-[var(--border)] px-5 py-3 space-y-2 max-h-[45%] overflow-y-auto">
+    <div
+      data-testid="plan-card"
+      // Glass-panel card (top-level flex child of RunConsole, same tier as the
+      // HITL answer box — not nested inside another glass ancestor). Amber
+      // border ties it to the "needs review" semantics (matches StatusPill's
+      // awaiting_plan color).
+      className="glass-panel flex-shrink-0 mx-5 mb-3 border-amber/25 px-5 py-3 space-y-2 max-h-[45%] overflow-y-auto"
+    >
       <div className="flex items-center gap-2">
-        <p className="text-xs font-medium text-[var(--amber)]">⏸ Plan ready — review before it implements.</p>
+        <p className="flex items-center gap-1.5 text-label font-medium text-amber">
+          <Icon name="warning" size={14} />
+          Plan ready — review before it implements.
+        </p>
         {plan.plan && (
-          <span data-testid="plan-risk" className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${RISK_CLS[plan.plan.risk]}`}>
+          <span data-testid="plan-risk" className={`text-micro px-1.5 py-0.5 rounded font-semibold ${RISK_CLS[plan.plan.risk]}`}>
             {plan.plan.risk} risk
           </span>
         )}
-        {plan.edited && <span className="text-[10px] text-[var(--muted)]">edited</span>}
+        {plan.edited && <span className="text-micro text-muted">edited</span>}
         <div className="ml-auto flex items-center gap-2">
           {!editing ? (
             <>
-              <button type="button" data-testid="plan-edit" disabled={!plan.plan} onClick={startEdit}
-                className="text-xs px-2.5 py-1 rounded font-semibold bg-amber/20 text-[var(--amber)] hover:bg-amber/30 disabled:opacity-40 transition-colors">
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="plan-edit"
+                disabled={!plan.plan}
+                onClick={startEdit}
+                className="bg-amber/20 text-amber hover:bg-amber/30 hover:text-amber"
+              >
                 Edit plan
-              </button>
-              <button type="button" data-testid="plan-discard" onClick={() => { setActionError(null); setConfirm('discard') }}
-                className="text-xs px-2.5 py-1 rounded font-semibold bg-red/15 text-[var(--red)] hover:bg-red/25 transition-colors">
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                data-testid="plan-discard"
+                onClick={() => { setActionError(null); setConfirm('discard') }}
+              >
                 Discard
-              </button>
-              <button type="button" data-testid="plan-approve" onClick={() => { setActionError(null); setConfirm('approve') }}
-                className="text-xs px-2.5 py-1 rounded font-semibold bg-green/20 text-[var(--green)] hover:bg-green/30 transition-colors">
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="plan-approve"
+                onClick={() => { setActionError(null); setConfirm('approve') }}
+                className="bg-green/20 text-green hover:bg-green/30 hover:text-green"
+              >
                 Approve → run
-              </button>
+              </Button>
             </>
           ) : (
             <>
-              <button type="button" onClick={() => { setEditing(false); setDraft(null); setFilesText('') }}
-                className="text-xs px-2.5 py-1 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)] transition-colors">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="border border-border"
+                onClick={() => { setEditing(false); setDraft(null); setFilesText('') }}
+              >
                 Cancel
-              </button>
-              <button type="button" data-testid="plan-save" disabled={save.isPending || !draft || draft.steps.some(s => !(s.title ?? '').trim())}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                data-testid="plan-save"
+                disabled={save.isPending || !draft || draft.steps.some(s => !(s.title ?? '').trim())}
                 onClick={() => draft && save.mutate({ ...draft, files: filesText.split('\n').map(f => f.trim()).filter(Boolean) })}
-                className="text-xs px-2.5 py-1 rounded font-semibold bg-accent/20 text-[var(--accent-hover)] hover:bg-accent/30 disabled:opacity-40 transition-colors">
+              >
                 {save.isPending ? 'Saving…' : 'Save plan'}
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -128,61 +168,88 @@ export default function PlanCard({ runId }: { runId: string }) {
         <div className="space-y-2">
           <ol className="space-y-1">
             {doc.steps.map((s, i) => (
-              <li key={i} data-testid={`plan-step-${i}`} className="flex items-start gap-2 text-xs text-[var(--text)]">
-                <span className="mono text-[10px] text-[var(--muted)] mt-0.5">{i + 1}.</span>
+              <li key={i} data-testid={`plan-step-${i}`} className="flex items-start gap-2 text-label text-text">
+                <span className="mono tabular-nums text-micro text-muted mt-0.5">{i + 1}.</span>
                 {editing ? (
                   <span className="flex-1 space-y-1">
-                    <input value={s.title} onChange={e => patchStep(i, 'title', e.target.value)} aria-label={`Step ${i + 1} title`}
-                      className="glow-focus w-full rounded-control border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] outline-none" />
-                    <input value={s.detail ?? ''} onChange={e => patchStep(i, 'detail', e.target.value)} placeholder="detail (optional)" aria-label={`Step ${i + 1} detail`}
-                      className="w-full rounded-control border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--muted)] outline-none" />
-                    <button type="button" onClick={() => setDraft(d => d && { ...d, steps: d.steps.filter((_, j) => j !== i) })}
+                    <Input
+                      value={s.title}
+                      onChange={e => patchStep(i, 'title', e.target.value)}
+                      aria-label={`Step ${i + 1} title`}
+                      className="w-full"
+                    />
+                    <Input
+                      value={s.detail ?? ''}
+                      onChange={e => patchStep(i, 'detail', e.target.value)}
+                      placeholder="detail (optional)"
+                      aria-label={`Step ${i + 1} detail`}
+                      className="w-full text-caption text-muted"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setDraft(d => d && { ...d, steps: d.steps.filter((_, j) => j !== i) })}
                       disabled={doc.steps.length <= 1}
-                      className="text-[10px] text-[var(--muted)] hover:text-[var(--red)] disabled:opacity-40">remove step</button>
+                      className="text-micro text-muted hover:text-red disabled:opacity-40"
+                    >
+                      remove step
+                    </button>
                   </span>
                 ) : (
                   <span className="flex-1">
                     <span className="font-medium">{s.title}</span>
-                    {s.detail && <span className="text-[var(--muted)]"> — {s.detail}</span>}
+                    {s.detail && <span className="text-muted"> — {s.detail}</span>}
                   </span>
                 )}
               </li>
             ))}
           </ol>
           {editing && (
-            <button type="button" onClick={() => setDraft(d => d && { ...d, steps: [...d.steps, { title: '' }] })}
-              className="text-[11px] text-[var(--accent-hover)] hover:underline">+ add step</button>
+            <button
+              type="button"
+              onClick={() => setDraft(d => d && { ...d, steps: [...d.steps, { title: '' }] })}
+              className="text-caption text-accent-hover hover:underline"
+            >
+              + add step
+            </button>
           )}
           {editing ? (
             <div className="flex items-center gap-3">
-              <label className="text-[11px] text-[var(--muted)]">
+              <label className="text-caption text-muted">
                 Files (one per line)
-                <textarea value={filesText} rows={Math.min(4, filesText.split('\n').length + 1)}
+                <Textarea
+                  value={filesText}
+                  rows={Math.min(4, filesText.split('\n').length + 1)}
                   onChange={e => setFilesText(e.target.value)}
-                  className="mono block w-72 mt-1 rounded-control border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--text)] outline-none" />
+                  className="mono block w-72 mt-1 text-caption"
+                />
               </label>
-              <label className="text-[11px] text-[var(--muted)]">
+              <label className="text-caption text-muted">
                 Risk
-                <select value={draft!.risk} onChange={e => setDraft(d => d && { ...d, risk: e.target.value as PlanDoc['risk'] })}
-                  className="block mt-1 rounded-control border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]">
-                  <option value="low">low</option><option value="medium">medium</option><option value="high">high</option>
-                </select>
+                <Select
+                  value={draft!.risk}
+                  onChange={e => setDraft(d => d && { ...d, risk: e.target.value as PlanDoc['risk'] })}
+                  className="block mt-1 text-label"
+                >
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </Select>
               </label>
             </div>
           ) : (
             doc.files.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {doc.files.map(f => (
-                  <span key={f} className="mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--raised)] text-[var(--muted)]">{f}</span>
+                  <Tag key={f} tint="neutral" className="mono">{f}</Tag>
                 ))}
               </div>
             )
           )}
-          {!editing && doc.notes && <p className="text-[11px] text-[var(--muted)]">{doc.notes}</p>}
+          {!editing && doc.notes && <p className="text-caption text-muted">{doc.notes}</p>}
         </div>
       ) : (
         // Degraded: the model skipped the fenced json — show its words verbatim.
-        <pre data-testid="plan-raw" className="mono whitespace-pre-wrap text-[11px] text-[var(--muted)] max-h-40 overflow-y-auto">{plan.raw}</pre>
+        <pre data-testid="plan-raw" className="mono whitespace-pre-wrap text-caption text-muted max-h-40 overflow-y-auto">{plan.raw}</pre>
       )}
 
       <ConfirmDialog

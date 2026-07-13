@@ -6,11 +6,16 @@ import { navigate } from '../lib/route'
 import { leadNode } from '../lib/delegation'
 import { relativeTime } from '../lib/verify'
 import { runStatusMeta } from '../lib/status'
+import { cn } from '../lib/cn'
 import DelegationTree from '../components/DelegationTree'
 import CapabilityPicker from '../components/CapabilityPicker'
 import SegControl from '../components/SegControl'
 import { LessonCard } from '../components/LessonCard'
 import type { MemoryLesson } from '../lib/memory'
+import { Icon } from '../ui/Icon'
+import { Button } from '../ui/Button'
+import { Spinner } from '../ui/Spinner'
+import { EmptyState } from '../ui/EmptyState'
 
 /**
  * Orchestrator detail (P5.3a) — a single discipline lead's authority editor (left,
@@ -50,21 +55,15 @@ const MEMORY_STATUS_TABS: { id: LessonStatus; label: string }[] = [
 function NotFound({ id }: { id?: string }) {
   return (
     <div className="h-full overflow-y-auto p-5">
-      <button
-        type="button"
-        onClick={() => navigate('agents', 'org', 'roster')}
-        className="text-[11px] text-[var(--accent-hover)] hover:underline"
-      >
-        ← Orchestrators
-      </button>
-      <div
-        className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 text-center"
-        data-testid="orchestrator-notfound"
-      >
-        <p className="text-sm font-semibold text-[var(--text)]">Orchestrator not found</p>
-        <p className="mt-1 text-xs text-[var(--muted)]">
-          {id ? `No lead with id "${id}".` : 'No orchestrator selected.'}
-        </p>
+      <Button variant="ghost" size="sm" icon="arrowLeft" onClick={() => navigate('agents', 'org', 'roster')}>
+        Orchestrators
+      </Button>
+      <div className="mt-6 rounded-panel border border-border bg-surface p-6" data-testid="orchestrator-notfound">
+        <EmptyState
+          icon="warning"
+          headline="Orchestrator not found"
+          hint={id ? `No lead with id "${id}".` : 'No orchestrator selected.'}
+        />
       </div>
     </div>
   )
@@ -139,8 +138,8 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
   if (!id || isError) return <NotFound id={id} />
   if (isLoading || !detail) {
     return (
-      <div className="h-full overflow-y-auto p-5">
-        <p className="text-xs italic text-[var(--muted)]">Loading orchestrator…</p>
+      <div className="flex h-full items-center gap-2 overflow-y-auto p-5 text-xs text-muted">
+        <Spinner size={16} /> Loading orchestrator…
       </div>
     )
   }
@@ -153,15 +152,11 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mb-4 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => navigate('agents', 'org', 'roster')}
-          className="text-[11px] text-[var(--accent-hover)] hover:underline"
-        >
-          ← Orchestrators
-        </button>
-        <h1 className="text-sm font-semibold text-[var(--text)]">{profile.name}</h1>
-        <span className="rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--on-accent)]">
+        <Button variant="ghost" size="sm" icon="arrowLeft" onClick={() => navigate('agents', 'org', 'roster')}>
+          Orchestrators
+        </Button>
+        <h1 className="text-title text-text">{profile.name}</h1>
+        <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-on-accent">
           {profile.tier}
         </span>
         {/* The model the NEXT dispatch will actually use — override vs runtime
@@ -169,7 +164,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
         {detail.effectiveModel && (
           <span
             data-testid="orchestrator-effective-model"
-            className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]"
+            className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted"
           >
             {detail.effectiveModel.source === 'override'
               ? `override: ${detail.effectiveModel.model}`
@@ -180,10 +175,11 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
         {detail.recent && detail.recent.total > 0 && (
           <span
             data-testid="orchestrator-detail-recent"
-            className={`text-[11px] ${detail.recent.failed === 0 ? 'text-[var(--green)]' : 'text-[var(--amber)]'}`}
+            className={cn('inline-flex items-center gap-1 text-[11px]', detail.recent.failed === 0 ? 'text-green' : 'text-amber')}
           >
-            {detail.recent.succeeded}/{detail.recent.total} recent ✓
-            {detail.recent.failed > 0 && ` · ${detail.recent.failed} failed`}
+            <span className="mono">{detail.recent.succeeded}/{detail.recent.total}</span> recent{' '}
+            <Icon name="check" size={14} className="text-green" />
+            {detail.recent.failed > 0 && <span className="mono">· {detail.recent.failed} failed</span>}
           </span>
         )}
         {/* Recent measured-cost actuals (E-13 lens) — median/p90 of ACTUAL stored run
@@ -193,11 +189,11 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
             third, distinct state: an explicit muted indicator, so "couldn't load" never
             masquerades as "no samples yet". */}
         {recentActualsError ? (
-          <span data-testid="orch-recent-cost-error" className="text-[11px] italic text-[var(--muted)]">
+          <span data-testid="orch-recent-cost-error" className="text-[11px] italic text-muted">
             cost data unavailable
           </span>
         ) : recentActuals && recentActuals.n > 0 ? (
-          <span data-testid="orch-recent-cost" className="mono text-[11px] text-[var(--muted)]">
+          <span data-testid="orch-recent-cost" className="mono text-[11px] text-muted">
             {`recent: median $${(recentActuals.medianCostUsd ?? 0).toFixed(4)} · p90 $${(recentActuals.p90CostUsd ?? 0).toFixed(4)} (n=${recentActuals.n}, ${recentActuals.windowDays}d)`}
           </span>
         ) : null}
@@ -205,7 +201,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left — tabbed authority editor. */}
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        <section className="rounded-panel border border-border bg-surface p-4">
           <div className="mb-3">
             <SegControl<Tab>
               ariaLabel="Authority"
@@ -219,16 +215,16 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
           {tab === 'charter' && (
             <div data-testid="orchestrator-panel-charter" className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
                   Charter
                 </span>
-                <span className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[11px] text-[var(--text)]">
+                <span className="mono rounded bg-raised px-1.5 py-0.5 text-[11px] text-text">
                   {profile.charter}
                 </span>
               </div>
-              <p className="text-xs text-[var(--muted)]">
+              <p className="text-xs text-muted">
                 The charter prompt is tier-bound to{' '}
-                <span className="mono text-[var(--text)]">
+                <span className="mono text-text">
                   agent-config/tiers/{profile.charter}.charter.md
                 </span>{' '}
                 and shared across all orchestrator-tier leads. Editing a per-lead charter is deferred.
@@ -256,14 +252,14 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
             <div data-testid="orchestrator-panel-tools" className="space-y-2">
               <div className="space-y-1">
                 {profile.allowedTools.length === 0 ? (
-                  <p className="text-xs italic text-[var(--muted)]">No tools granted.</p>
+                  <p className="text-xs italic text-muted">No tools granted.</p>
                 ) : (
                   profile.allowedTools.map(tool => (
                     <div
                       key={tool}
-                      className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs"
+                      className="flex items-center gap-2 rounded-lg border border-border bg-raised px-3 py-1.5 text-xs"
                     >
-                      <span className="mono min-w-0 flex-1 truncate text-[var(--text)]">{tool}</span>
+                      <span className="mono min-w-0 flex-1 truncate text-text">{tool}</span>
                       <button
                         type="button"
                         role="switch"
@@ -271,7 +267,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                         disabled={mutation.isPending}
                         onClick={() => patch({ allowedTools: profile.allowedTools.filter(t => t !== tool) })}
                         data-testid={`orchestrator-tool-toggle-${tool}`}
-                        className="flex-shrink-0 rounded-full border border-[var(--green)]/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--green)] disabled:opacity-50"
+                        className="flex-shrink-0 rounded-full border border-green/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green disabled:opacity-50"
                       >
                         on
                       </button>
@@ -295,7 +291,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                   placeholder="add tool by name"
                   list="orchestrator-tool-suggestions"
                   data-testid="orchestrator-tool-input"
-                  className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+                  className="min-w-0 flex-1 rounded-lg border border-border bg-raised px-2 py-1 text-xs text-text outline-none focus:border-accent-hover/35"
                 />
                 <datalist id="orchestrator-tool-suggestions">
                   {(orgDefault?.allowedTools ?? [])
@@ -305,12 +301,12 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                 <button
                   type="submit"
                   disabled={mutation.isPending || toolInput.trim() === ''}
-                  className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] disabled:opacity-50"
+                  className="flex-shrink-0 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold text-accent-hover disabled:opacity-50"
                 >
                   add
                 </button>
               </form>
-              <p className="text-[11px] text-[var(--muted)]">
+              <p className="text-[11px] text-muted">
                 Suggestions come from the org-default profile's grants. Adds are validated
                 server-side against the orchestrator tier ceiling — a tool beyond the tier
                 allowlist is rejected.
@@ -329,7 +325,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                 busy={mutation.isPending}
                 testidPrefix="orchestrator-mcp"
               />
-              <p className="text-[11px] text-[var(--muted)]">
+              <p className="text-[11px] text-muted">
                 Authority is re-resolved and grant-guarded server-side: mounting an MCP server
                 requires a matching allowlist grant, or the change is rejected.
               </p>
@@ -350,7 +346,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                 onChange={setMemoryStatus}
               />
               {lessons.length === 0 ? (
-                <p className="text-xs italic text-[var(--muted)]" data-testid="orchestrator-memory-empty">
+                <p className="text-xs italic text-muted" data-testid="orchestrator-memory-empty">
                   No {memoryStatus} lessons for this lead.
                 </p>
               ) : (
@@ -366,13 +362,13 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                   ))}
                 </div>
               )}
-              <p className="text-[11px] text-[var(--muted)]">
+              <p className="text-[11px] text-muted">
                 This lead only — the{' '}
                 <button
                   type="button"
                   data-testid="orchestrator-memory-link"
                   onClick={() => navigate('personal', 'inbox')}
-                  className="text-[var(--accent-hover)] hover:underline"
+                  className="text-accent-hover hover:underline"
                 >
                   Inbox
                 </button>{' '}
@@ -386,7 +382,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
           {tab === 'runs' && (
             <div data-testid="orchestrator-panel-runs" className="space-y-2">
               {(detail.recentRuns ?? []).length === 0 ? (
-                <p className="text-xs italic text-[var(--muted)]" data-testid="orchestrator-runs-empty">
+                <p className="text-xs italic text-muted" data-testid="orchestrator-runs-empty">
                   No recent runs for this lead.
                 </p>
               ) : (
@@ -399,14 +395,14 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                           type="button"
                           onClick={() => navigate('runs', run.id)}
                           data-testid={`orchestrator-run-${run.id}`}
-                          className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-left text-xs transition-colors hover:border-[var(--accent)]"
+                          className="flex w-full items-center gap-2 rounded-lg border border-border bg-raised px-3 py-1.5 text-left text-xs transition-colors hover:border-accent"
                         >
-                          <span className="mono text-[var(--text)]">{run.id.slice(0, 8)}</span>
+                          <span className="mono text-text">{run.id.slice(0, 8)}</span>
                           <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${meta.badge}`}>
                             {meta.label}
                           </span>
-                          <span className="text-[var(--muted)]">{relativeTime(run.createdAt)}</span>
-                          <span className="mono ml-auto text-[var(--text)]">${run.costUsd.toFixed(4)}</span>
+                          <span className="text-muted">{relativeTime(run.createdAt)}</span>
+                          <span className="mono ml-auto text-text">${run.costUsd.toFixed(4)}</span>
                         </button>
                       </li>
                     )
@@ -420,16 +416,17 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
           {errorMsg && (
             <p
               data-testid="orchestrator-error"
-              className="mt-3 rounded-lg border border-[var(--red)]/40 bg-[var(--raised)] px-3 py-2 text-[11px] text-[var(--red)]"
+              className="mt-3 flex items-start gap-2 rounded-lg border border-red/40 bg-red/10 px-3 py-2 text-[11px] text-red"
             >
-              {errorMsg}
+              <Icon name="warning" size={14} className="mt-0.5 shrink-0" />
+              <span>{errorMsg}</span>
             </p>
           )}
         </section>
 
         {/* Right — live delegation tree (reused component + builder). */}
         <section>
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
             Live delegation
           </h2>
           <DelegationTree root={leadNode(detail)} />

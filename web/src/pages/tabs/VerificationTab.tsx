@@ -16,6 +16,10 @@ import {
   BREAKDOWN_MAX,
   SEVERITY_DOT,
 } from '../../lib/verify'
+import { Icon } from '../../ui/Icon'
+import { Button } from '../../ui/Button'
+import { Spinner } from '../../ui/Spinner'
+import { EmptyState } from '../../ui/EmptyState'
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -63,47 +67,60 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
     <div className="p-5">
       {/* Actions */}
       <div className="flex items-center gap-2">
-        <button
+        <Button
+          variant="primary"
+          size="sm"
           onClick={() => reRun.mutate()}
           disabled={pending}
+          loading={reRun.isPending}
           data-testid="verify-rerun"
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity duration-150 hover:opacity-90 disabled:opacity-40"
         >
-          {reRun.isPending ? 'verifying…' : '▶ Re-run'}
-        </button>
-        <button
+          {reRun.isPending ? 'verifying…' : 'Re-run'}
+        </Button>
+        <Button
+          variant="glass"
+          size="sm"
           onClick={() => deepVerify.mutate()}
           disabled={pending}
+          loading={deepVerify.isPending}
           data-testid="verify-deep"
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors duration-150 hover:border-[var(--accent)] disabled:opacity-40"
         >
           {deepVerify.isPending ? 'dispatching…' : 'Deep verify'}
-        </button>
+        </Button>
         {error && (
-          <span className="text-[11px] text-[var(--red)]">⚠ {String(error)}</span>
+          <span className="flex items-center gap-1 text-[11px] text-red">
+            <Icon name="warning" size={14} />
+            {String(error)}
+          </span>
         )}
       </div>
 
       {isLoading ? (
-        <p className="mt-10 text-center text-sm text-[var(--muted)]">Loading reports…</p>
+        <div className="mt-10 flex items-center justify-center gap-2 text-sm text-muted">
+          <Spinner size={16} /> Loading reports…
+        </div>
       ) : !latest ? (
-        <p className="mt-10 text-center text-sm text-[var(--muted)]">
-          No verification reports yet. Run a verification to score this project.
-        </p>
+        <div className="mt-10">
+          <EmptyState
+            icon="check"
+            headline="No verification reports yet."
+            hint="Run a verification to score this project."
+          />
+        </div>
       ) : (
         <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px]">
           {/* Left column */}
           <div className="space-y-5">
             {/* Score + breakdown */}
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div className="rounded-panel border border-border bg-surface p-4">
               <div className="flex items-baseline gap-3">
                 <span className={cn('mono text-3xl font-semibold', scoreColor(latest.score))}>
                   {latest.score ?? '—'}
                 </span>
-                <span className="text-xs text-[var(--muted)]">
+                <span className="text-xs text-muted">
                   {latest.score == null ? 'insufficient signal' : '/ 100 health'}
                 </span>
-                <span className="ml-auto text-[11px] text-[var(--muted)]">
+                <span className="ml-auto text-[11px] text-muted">
                   {formatTimeAgo(latest.completedAt ?? latest.startedAt)}
                 </span>
               </div>
@@ -119,14 +136,14 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
                       return (
                         <div key={key} data-testid={`bar-${key}`}>
                           <div className="flex items-center justify-between text-[11px]">
-                            <span className="text-[var(--muted)]">{label}</span>
-                            <span className="mono text-[var(--muted)]">
+                            <span className="text-muted">{label}</span>
+                            <span className="mono text-muted">
                               {value == null ? 'not measured' : `${value}/${max}`}
                             </span>
                           </div>
-                          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--raised)]">
+                          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-raised">
                             <motion.div
-                              className="h-full rounded-full bg-[var(--accent)]"
+                              className="h-full rounded-full bg-accent"
                               initial={{ width: 0 }}
                               animate={{ width: `${pct * 100}%` }}
                               transition={{ duration: 0.15, ease: 'easeOut' }}
@@ -138,19 +155,19 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
                   </div>
                 )
               })() : (
-                <p className="mt-3 text-[11px] text-[var(--muted)]">
+                <p className="mt-3 text-[11px] text-muted">
                   No score breakdown on this report.
                 </p>
               )}
             </div>
 
             {/* Findings */}
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+            <div className="rounded-panel border border-border bg-surface p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
                 Findings
               </h3>
               {grouped.length === 0 ? (
-                <p className="mt-2 text-xs text-[var(--muted)]">No findings — clean report.</p>
+                <p className="mt-2 text-xs text-muted">No findings — clean report.</p>
               ) : (
                 <div className="mt-3 space-y-2">
                   {grouped.map(group =>
@@ -165,8 +182,8 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
                             SEVERITY_DOT[group.severity],
                           )}
                         />
-                        <p className="text-xs text-[var(--text)]">
-                          <span className="mono text-[var(--muted)]">{f.area}</span>
+                        <p className="text-xs text-text">
+                          <span className="mono text-muted">{f.area}</span>
                           {' · '}
                           {f.message}
                         </p>
@@ -178,17 +195,17 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
             </div>
 
             {/* Fixes applied */}
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+            <div className="rounded-panel border border-border bg-surface p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
                 Fixes applied
               </h3>
               {latest.fixesApplied.length === 0 ? (
-                <p className="mt-2 text-xs text-[var(--muted)]">No fixes applied this run.</p>
+                <p className="mt-2 text-xs text-muted">No fixes applied this run.</p>
               ) : (
                 <ul className="mt-3 space-y-1.5">
                   {latest.fixesApplied.map((fix, i) => (
-                    <li key={`${i}-${fix}`} className="flex items-start gap-2 text-xs text-[var(--text)]">
-                      <span className="text-[var(--green)]">✓</span>
+                    <li key={`${i}-${fix}`} className="flex items-start gap-2 text-xs text-text">
+                      <Icon name="check" size={14} className="text-green" />
                       {fix}
                     </li>
                   ))}
@@ -198,8 +215,8 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
           </div>
 
           {/* Right column: history with sparkline trend */}
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+          <div className="rounded-panel border border-border bg-surface p-4">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
               History
             </h3>
             <ol className="mt-3 space-y-2">
@@ -208,17 +225,17 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
                 .map(r => {
                   const trend = trendIndicator(reports, r.id)
                   const trendColor = trend.includes('▲')
-                    ? 'text-[var(--green)]'
+                    ? 'text-green'
                     : trend.includes('▼')
-                      ? 'text-[var(--red)]'
-                      : 'text-[var(--muted)]'
+                      ? 'text-red'
+                      : 'text-muted'
                   return (
                     <li key={r.id} className="flex items-center gap-2 text-xs">
                       <span className={cn('mono font-semibold', scoreColor(r.score))}>{r.score ?? '—'}</span>
                       <span className={cn('mono text-[10px]', trendColor)}>{trend}</span>
-                      <span className="text-[var(--muted)]">{formatTimeAgo(r.startedAt)}</span>
+                      <span className="text-muted">{formatTimeAgo(r.startedAt)}</span>
                       {r.id === latest.id && (
-                        <span className="ml-auto text-[10px] text-[var(--accent)]">latest</span>
+                        <span className="ml-auto text-[10px] text-accent">latest</span>
                       )}
                     </li>
                   )

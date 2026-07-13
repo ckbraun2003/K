@@ -14,6 +14,11 @@ import RunTree from '../../components/RunTree'
 import AutoTextarea from '../../components/AutoTextarea'
 import Toast from '../../components/Toast'
 import SegControl from '../../components/SegControl'
+import { Button } from '../../ui/Button'
+import { Tag } from '../../ui/Tag'
+import { Input, Select } from '../../ui/Field'
+import { EmptyState } from '../../ui/EmptyState'
+import { ErrorState } from '../../ui/ErrorState'
 
 type Tab = 'defined' | 'run'
 
@@ -144,14 +149,14 @@ function RunTreeSection({ initialRunId }: { initialRunId?: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <label htmlFor="wf-run-picker" className="text-xs text-[var(--muted)]">
+        <label htmlFor="wf-run-picker" className="text-caption text-muted">
           Run
         </label>
-        <select
+        <Select
           id="wf-run-picker"
           value={selectedRunId ?? ''}
           onChange={e => pick(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.45)]"
+          className="min-w-0 flex-1 text-label"
         >
           {!selectedRunId && <option value="">Select a run…</option>}
           {pickerRuns.map(r => (
@@ -159,26 +164,22 @@ function RunTreeSection({ initialRunId }: { initialRunId?: string }) {
               {runOptionLabel(r)}
             </option>
           ))}
-        </select>
+        </Select>
         {/* Widen the picker from workflow-dispatched runs to every run. */}
-        <button
-          type="button"
+        <Button
+          variant="glass"
+          size="sm"
           data-testid="wf-picker-all"
           aria-pressed={showAll}
           onClick={() => setShowAll(s => !s)}
-          className={cn(
-            'flex-shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors',
-            showAll
-              ? 'border-[color:rgba(56,189,248,0.45)] text-[var(--accent-hover)]'
-              : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]',
-          )}
+          className={cn('flex-shrink-0', showAll ? 'border-accent-hover/45 text-accent-hover' : 'text-muted')}
         >
           All runs
-        </button>
+        </Button>
       </div>
 
       {pickerRuns.length === 0 && !showAll && (runs?.length ?? 0) > 0 && (
-        <p className="text-xs italic text-[var(--muted)]" data-testid="wf-picker-empty">
+        <p className="text-label italic text-muted" data-testid="wf-picker-empty">
           No workflow-dispatched runs yet — toggle All runs.
         </p>
       )}
@@ -195,7 +196,7 @@ function RunTreeSection({ initialRunId }: { initialRunId?: string }) {
           <RunTree key={selectedRunId} tree={tree} />
         </div>
       ) : (
-        <p className="text-xs italic text-[var(--muted)]">
+        <p className="text-label italic text-muted">
           {runs && runs.length === 0 ? 'No runs yet.' : 'Select a run to view its sub-agent tree.'}
         </p>
       )}
@@ -219,11 +220,11 @@ function DefinitionsSection() {
     if (!selectedId && defs && defs.length > 0) setSelectedId(defs[0].id)
   }, [defs, selectedId])
 
-  if (isLoading) return <p className="text-xs italic text-[var(--muted)]">Loading definitions…</p>
-  if (isError) return <p className="text-xs italic text-[var(--red)]">Failed to load workflow definitions.</p>
+  if (isLoading) return <p className="text-label italic text-muted">Loading definitions…</p>
+  if (isError) return <ErrorState message="Failed to load workflow definitions." />
   if (!defs || defs.length === 0) {
     return (
-      <p className="text-xs italic text-[var(--muted)]" data-testid="workflow-defs-empty">
+      <p className="text-label italic text-muted" data-testid="workflow-defs-empty">
         No workflow definitions seeded yet.
       </p>
     )
@@ -233,9 +234,10 @@ function DefinitionsSection() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      {/* Left — the definitions list. */}
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Definitions</h2>
+      {/* Left — the definitions list. Opaque surface (not glass — this is a
+          scrolling list panel, matches "dense data never sits on blur"). */}
+      <section className="surface-solid p-4">
+        <h2 className="micro-label mb-3">Definitions</h2>
         <ul className="space-y-1">
           {defs.map(def => (
             <li key={def.id}>
@@ -245,14 +247,14 @@ function DefinitionsSection() {
                 data-testid={`workflow-def-row-${def.id}`}
                 aria-pressed={def.id === selected.id}
                 className={cn(
-                  'w-full rounded-lg border px-3 py-2 text-left transition-colors',
+                  'w-full rounded-control border px-3 py-2 text-left transition-colors',
                   def.id === selected.id
-                    ? 'border-[color:rgba(56,189,248,0.45)] bg-[var(--raised)]'
-                    : 'border-[var(--border)] hover:border-[color:rgba(56,189,248,0.25)]',
+                    ? 'border-accent-hover/45 bg-raised'
+                    : 'border-border hover:border-accent-hover/25',
                 )}
               >
-                <span className="block truncate text-sm font-semibold text-[var(--text)]">{def.name}</span>
-                <span className="mono mt-0.5 block truncate text-[11px] text-[var(--muted)]">
+                <span className="block truncate text-body font-semibold text-text">{def.name}</span>
+                <span className="mono mt-0.5 block truncate text-caption text-muted">
                   {roleChain(def.roles)}
                 </span>
               </button>
@@ -262,13 +264,13 @@ function DefinitionsSection() {
       </section>
 
       {/* Right — preview of the selected definition. */}
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" data-testid="workflow-def-preview">
+      <section className="surface-solid p-4" data-testid="workflow-def-preview">
         <div className="mb-3 flex items-center gap-2">
-          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text)]">{selected.name}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-body font-semibold text-text">{selected.name}</h2>
           {selected.crossProject && (
-            <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--on-accent)]">
+            <Tag tint="accent" className="flex-shrink-0 text-micro uppercase tracking-wide">
               cross-project
-            </span>
+            </Tag>
           )}
         </div>
 
@@ -276,22 +278,21 @@ function DefinitionsSection() {
         <div className="flex flex-wrap items-center gap-1.5">
           {selected.roles.map((role, i) => (
             <span key={role.id} className="flex items-center gap-1.5">
-              <span className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-[11px] font-semibold text-[var(--text)]">
-                {role.label}
-              </span>
-              {i < selected.roles.length - 1 && <span className="text-[var(--muted)]">→</span>}
+              <Tag tint="neutral" className="text-caption font-semibold">{role.label}</Tag>
+              {i < selected.roles.length - 1 && <span className="text-muted">→</span>}
             </span>
           ))}
         </div>
 
-        <button
-          type="button"
+        <Button
+          variant="glass"
+          size="sm"
           onClick={() => navigate('agents', 'pipelines', selected.id)}
           data-testid="workflow-def-open"
-          className="mt-4 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)]"
+          className="mt-4"
         >
           Open
-        </button>
+        </Button>
       </section>
     </div>
   )
@@ -305,7 +306,7 @@ function WorkflowsList() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mb-5 flex items-center justify-between gap-3">
-        <h1 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Workflows</h1>
+        <h1 className="micro-label">Workflows</h1>
         <SegControl<'defined' | 'run'>
           ariaLabel="Workflows view"
           options={[{ label: 'Defined workflow', value: 'defined' }, { label: 'Run tree', value: 'run' }]}
@@ -316,7 +317,7 @@ function WorkflowsList() {
 
       {tab === 'defined' ? (
         <section>
-          <p className="mb-4 max-w-2xl text-xs text-[var(--muted)]">
+          <p className="mb-4 max-w-2xl text-label text-muted">
             The named workflow templates. Select a definition to preview its role chain, or open it to edit.
           </p>
           <DefinitionsSection />
@@ -427,9 +428,11 @@ function RunWorkflowDialog({
           className="fixed inset-0 z-50 flex items-center justify-center px-4"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         >
-          {/* Backdrop click cancels — but not mid-dispatch (same rationale as Esc). */}
+          {/* Backdrop click cancels — but not mid-dispatch (same rationale as Esc).
+              Matches the shared Dialog primitive's overlay treatment (bg-bg-deep/60,
+              no blur — the ONE blurred layer here is the card itself). */}
           <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            className="absolute inset-0 bg-bg-deep/60"
             onClick={() => { if (!dispatch.isPending) onClose() }}
           />
           <motion.div
@@ -438,53 +441,53 @@ function RunWorkflowDialog({
             aria-modal="true"
             aria-labelledby={headingId}
             data-testid="workflow-run-dialog"
-            className="relative w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"
+            className="glass-overlay relative w-full max-w-sm p-5"
             initial={{ y: 12, scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 12, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
           >
-            <h3 id={headingId} className="text-sm font-semibold text-[var(--text)]">
+            <h3 id={headingId} className="text-title">
               Run this workflow
             </h3>
 
             {/* Step 1 — project. */}
             <div className="mt-3">
-              <label className="mb-1 block text-[11px] text-[var(--muted)]">Project</label>
+              <label className="mb-1 block text-caption text-muted">Project</label>
               {projects && projects.length === 0 ? (
-                <p className="text-xs italic text-[var(--muted)]">No projects registered.</p>
+                <p className="text-label italic text-muted">No projects registered.</p>
               ) : (
-                <select
+                <Select
                   data-testid="workflow-run-project"
                   aria-label="Project"
                   disabled={projectsLoading}
                   value={projectId}
                   onChange={e => { setProjectId(e.target.value); setChecked(new Set()) }}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)] disabled:opacity-50"
+                  className="w-full text-label disabled:opacity-50"
                 >
                   <option value="">{projectsLoading ? 'loading projects…' : 'Select a project…'}</option>
                   {(projects ?? []).map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
-                </select>
+                </Select>
               )}
             </div>
 
             {/* Step 2 — the project's OPEN tasks. */}
             {projectId !== '' && (
               <div className="mt-3">
-                <label className="mb-1 block text-[11px] text-[var(--muted)]">Open tasks</label>
+                <label className="mb-1 block text-caption text-muted">Open tasks</label>
                 {openTasks.length === 0 ? (
-                  <p className="text-xs italic text-[var(--muted)]">No open tasks in this project.</p>
+                  <p className="text-label italic text-muted">No open tasks in this project.</p>
                 ) : (
                   <ul className="max-h-48 space-y-1 overflow-y-auto">
                     {openTasks.map(t => (
                       <li key={t.id}>
-                        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1.5 text-xs text-[var(--text)]">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-control border border-border bg-raised px-2 py-1.5 text-label text-text">
                           <input
                             type="checkbox"
                             data-testid={`workflow-run-task-${t.id}`}
                             checked={checked.has(t.id)}
                             onChange={() => toggleTask(t.id)}
-                            className="flex-shrink-0 accent-[var(--accent)]"
+                            className="flex-shrink-0 accent-accent"
                           />
                           <span className="min-w-0 flex-1 truncate">{t.title}</span>
                         </label>
@@ -496,27 +499,31 @@ function RunWorkflowDialog({
             )}
 
             {dispatch.isError && (
-              <p data-testid="workflow-run-error" className="mt-3 text-xs text-[var(--red)]">
+              <p data-testid="workflow-run-error" className="mt-3 text-label text-red">
                 {(dispatch.error as Error).message}
               </p>
             )}
 
             <div className="mt-4 flex items-center justify-end gap-2">
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={onClose}
                 disabled={dispatch.isPending}
-                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)] disabled:opacity-50"
+                className="border border-border"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                icon="bolt"
                 data-testid="workflow-run-fire"
                 disabled={checked.size === 0 || dispatch.isPending}
                 onClick={() => dispatch.mutate()}
-                className="rounded-lg border border-accent/50 bg-accent/20 px-4 py-1.5 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:bg-accent/30 disabled:opacity-50"
               >
                 {dispatch.isPending ? '…' : 'Run'}
-              </button>
+              </Button>
             </div>
           </motion.div>
         </motion.div>
@@ -528,21 +535,15 @@ function RunWorkflowDialog({
 function NotFound({ id }: { id?: string }) {
   return (
     <div className="h-full overflow-y-auto p-5">
-      <button
-        type="button"
-        onClick={() => navigate('runs', 'workflows')}
-        className="text-[11px] text-[var(--accent-hover)] hover:underline"
-      >
+      <Button variant="ghost" size="sm" onClick={() => navigate('runs', 'workflows')}>
         ← Workflows
-      </button>
-      <div
-        className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 text-center"
-        data-testid="workflow-detail-notfound"
-      >
-        <p className="text-sm font-semibold text-[var(--text)]">Workflow not found</p>
-        <p className="mt-1 text-xs text-[var(--muted)]">
-          {id ? `No workflow definition with id "${id}".` : 'No workflow selected.'}
-        </p>
+      </Button>
+      <div className="mt-6" data-testid="workflow-detail-notfound">
+        <EmptyState
+          icon="warning"
+          headline="Workflow not found"
+          hint={id ? `No workflow definition with id "${id}".` : 'No workflow selected.'}
+        />
       </div>
     </div>
   )
@@ -598,7 +599,7 @@ function WorkflowEditor({ id }: { id?: string }) {
   if (isLoading || !detail) {
     return (
       <div className="h-full overflow-y-auto p-5">
-        <p className="text-xs italic text-[var(--muted)]">Loading workflow…</p>
+        <p className="text-label italic text-muted">Loading workflow…</p>
       </div>
     )
   }
@@ -610,57 +611,55 @@ function WorkflowEditor({ id }: { id?: string }) {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mb-4 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => navigate('runs', 'workflows')}
-          className="text-[11px] text-[var(--accent-hover)] hover:underline"
-        >
+        <Button variant="ghost" size="sm" onClick={() => navigate('runs', 'workflows')}>
           ← Workflows
-        </button>
-        <h1 className="text-sm font-semibold text-[var(--text)]">{detail.name}</h1>
+        </Button>
+        <h1 className="text-title">{detail.name}</h1>
         {detail.crossProject && (
-          <span className="rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--on-accent)]">
+          <Tag tint="accent" className="text-micro uppercase tracking-wide">
             cross-project
-          </span>
+          </Tag>
         )}
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="sm"
+          icon="bolt"
           data-testid="workflow-run-open"
           onClick={() => setRunOpen(true)}
-          className="ml-auto rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:bg-accent/30"
+          className="ml-auto"
         >
-          ⚡ Run this workflow
-        </button>
+          Run this workflow
+        </Button>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left — role graph (read-only) + name + cross-project. */}
         <section className="space-y-4">
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Role graph</h2>
+          <div className="surface-solid p-4">
+            <h2 className="micro-label mb-3">Role graph</h2>
             {detail.roles.length === 0 ? (
-              <p className="text-xs italic text-[var(--muted)]">No roles defined.</p>
+              <p className="text-label italic text-muted">No roles defined.</p>
             ) : (
               <ol className="space-y-1">
                 {detail.roles.map((role, i) => (
                   <li
                     key={role.id}
                     data-testid={`workflow-role-${role.id}`}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2"
+                    className="rounded-control border border-border bg-raised px-3 py-2"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-semibold text-[var(--muted)]">{i + 1}</span>
-                      <span className="text-xs font-semibold text-[var(--text)]">{role.label}</span>
+                      <span className="mono tabular-nums text-micro text-muted">{i + 1}</span>
+                      <span className="text-label font-semibold text-text">{role.label}</span>
                     </div>
-                    <p className="mt-0.5 text-[11px] text-[var(--muted)]">{role.description}</p>
+                    <p className="mt-0.5 text-caption text-muted">{role.description}</p>
                   </li>
                 ))}
               </ol>
             )}
           </div>
 
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Name</h2>
+          <div className="surface-solid p-4">
+            <h2 className="micro-label mb-2">Name</h2>
             <form
               className="flex gap-2"
               onSubmit={e => {
@@ -668,27 +667,29 @@ function WorkflowEditor({ id }: { id?: string }) {
                 if (nameDirty) mutation.mutate({ name: nameDraft.trim() })
               }}
             >
-              <input
+              <Input
                 value={nameDraft}
                 onChange={e => setNameDraft(e.target.value)}
                 data-testid="workflow-detail-name"
-                className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+                className="min-w-0 flex-1"
               />
-              <button
+              <Button
                 type="submit"
+                variant="ghost"
+                size="sm"
                 disabled={mutation.isPending || !nameDirty}
-                className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] disabled:opacity-50"
+                className="flex-shrink-0 border border-border"
               >
                 Rename
-              </button>
+              </Button>
             </form>
           </div>
 
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+          <div className="surface-solid p-4">
             <div className="flex items-center gap-2">
               <div className="min-w-0 flex-1">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Cross-project</h2>
-                <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+                <h2 className="micro-label">Cross-project</h2>
+                <p className="mt-0.5 text-caption text-muted">
                   Reserved flag — may this workflow reach outside the current project? Execution deferred.
                 </p>
               </div>
@@ -699,11 +700,10 @@ function WorkflowEditor({ id }: { id?: string }) {
                 disabled={mutation.isPending}
                 onClick={() => mutation.mutate({ crossProject: !detail.crossProject })}
                 data-testid="workflow-detail-crossproject"
-                className={
-                  detail.crossProject
-                    ? 'flex-shrink-0 rounded-full border border-[var(--green)]/50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--green)] disabled:opacity-50'
-                    : 'flex-shrink-0 rounded-full border border-[var(--border)] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)] disabled:opacity-50'
-                }
+                className={cn(
+                  'flex-shrink-0 rounded-pill border px-2.5 py-0.5 text-micro font-semibold uppercase tracking-wide disabled:opacity-50',
+                  detail.crossProject ? 'border-green/50 text-green' : 'border-border text-muted',
+                )}
               >
                 {detail.crossProject ? 'on' : 'off'}
               </button>
@@ -712,30 +712,31 @@ function WorkflowEditor({ id }: { id?: string }) {
         </section>
 
         {/* Right — prompt scaffold editor. */}
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        <section className="surface-solid p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Prompt scaffold</h2>
-              <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+              <h2 className="micro-label">Prompt scaffold</h2>
+              <p className="mt-0.5 text-caption text-muted">
                 <span className="mono">{'{{CHECKLIST}}'}</span> is replaced with the numbered todo list at dispatch.
               </p>
             </div>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               disabled={mutation.isPending || !scaffoldDirty}
               onClick={() => mutation.mutate({ promptScaffold: scaffoldDraft })}
               data-testid="workflow-detail-save"
-              className="flex-shrink-0 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-4 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[color:rgba(56,189,248,0.35)] disabled:opacity-40"
+              className="flex-shrink-0 border border-border"
             >
               Save
-            </button>
+            </Button>
           </div>
           <AutoTextarea
             value={scaffoldDraft}
             onChange={e => setScaffoldDraft(e.target.value)}
             maxHeight={520}
             data-testid="workflow-detail-scaffold"
-            className="mono w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-[12px] leading-relaxed text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.45)]"
+            className="mono w-full rounded-control border border-border bg-surface p-3 text-label leading-relaxed text-text outline-none focus-visible:glow-focus"
           />
         </section>
       </div>
@@ -743,7 +744,7 @@ function WorkflowEditor({ id }: { id?: string }) {
       {errorMsg && (
         <p
           data-testid="workflow-detail-error"
-          className="mt-3 rounded-lg border border-[var(--red)]/40 bg-[var(--raised)] px-3 py-2 text-[11px] text-[var(--red)]"
+          className="mt-3 rounded-control border border-red/40 bg-raised px-3 py-2 text-caption text-red"
         >
           {errorMsg}
         </p>

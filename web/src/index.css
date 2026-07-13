@@ -4,12 +4,14 @@
 
 :root {
   /* vivid midnight-glass tokens — bible §6 (D-011) */
-  --bg: #1a0f2e;       /* saturated midnight purple base */
-  --surface: #241640;  /* cards, panels */
-  --raised: #2e1b52;   /* inputs, raised controls */
+  --bg: #1b1030;       /* saturated midnight purple base */
+  --bg-deep: #140b26;
+  --surface: #2a1a47;  /* cards, panels */
+  --raised: #33205c;   /* inputs, raised controls */
   --border: #3a2a5c;   /* hairline, lifted into the purple */
+  --border-strong: #4a3775;
   --text: #f4f0ff;
-  --muted: #a99bc4;
+  --muted: #b3a6cd;
   --accent: #ff8fc0;        /* blush pink — accent fills, active pills, badges, links */
   --accent-hover: #38bdf8;  /* sky blue — hover/active transition colour */
   --on-accent: #241640;     /* dark text on accent-filled chips (WCAG dark-on-light) */
@@ -17,21 +19,29 @@
   --amber: #fbbf24;
   --red: #f87171;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* xterm pane — deliberately darker than --bg-deep for terminal legibility */
+  --terminal-bg: #0b0e14;
   /* chart palette — retuned into the purple/blush/sky family */
   --chart-1: #ff8fc0; --chart-2: #34d399; --chart-3: #fbbf24; --chart-4: #38bdf8;
-  --chart-5: #a855f7; --chart-6: #f87171; --chart-7: #c084fc; --chart-8: #818cf8;
+  --chart-5: #a855f7; --chart-6: #f87171; --chart-7: #c084fc; --chart-8: #6366f1;
   --chart-other: #4c3a6e;
   /* radii — rounder, liquid-glass */
   --radius-lg: 18px;
   --radius: 14px;
   --radius-sm: 10px;
-  /* liquid-glass tokens — HERO surfaces only (bible §6); dense views stay opaque.
-     A translucent midnight-purple pane, a translucent-blush hairline, a faint top
-     sheen, and a blush wash tint for the most prominent surfaces. */
-  --glass-bg: rgba(46, 27, 82, 0.55);
-  --glass-border: rgba(255, 143, 192, 0.16);
-  --glass-highlight: rgba(255, 255, 255, 0.08);
-  --glass-tint: rgba(255, 143, 192, 0.10);
+  /* glass tiers, shadow ramp, motion tokens — task 4 (bible §6). The tier
+     border keeps its -tier- name from the migration era, when a legacy
+     --glass-border (removed in task 22) still occupied the plain name. */
+  --glass-chrome-bg: rgba(42, 26, 71, 0.55);
+  --glass-panel-bg: rgba(42, 26, 71, 0.72);
+  --glass-overlay-bg: rgba(51, 32, 92, 0.82);
+  --glass-tier-border: rgba(179, 166, 205, 0.14);
+  --glass-sheen: rgba(255, 255, 255, 0.07);
+  --shadow-1: 0 2px 8px rgba(10, 4, 24, 0.35);
+  --shadow-2: 0 6px 24px rgba(10, 4, 24, 0.45);
+  --shadow-3: 0 16px 48px rgba(10, 4, 24, 0.60);
+  --dur-1: 120ms; --dur-2: 180ms; --dur-3: 240ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 * { box-sizing: border-box; }
@@ -46,6 +56,8 @@ html, body, #root {
   font-size: 14px;
 }
 
+body { font-variant-numeric: tabular-nums; }
+
 .mono { font-family: var(--font-mono); }
 
 /* ── flare layer ──────────────────────────────────────────────────────────── */
@@ -58,9 +70,12 @@ html, body, #root {
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(62rem 42rem at 72% -12%, rgba(255, 143, 192, 0.12), transparent 60%),
-    radial-gradient(52rem 36rem at 8% 112%, rgba(56, 189, 248, 0.10), transparent 60%);
-  animation: ambient-drift 24s ease-in-out infinite alternate;
+    radial-gradient(58rem 46rem at 25% 25%, rgba(168, 85, 247, 0.10), transparent 60%),
+    radial-gradient(54rem 42rem at 100% 30%, rgba(255, 143, 192, 0.07), transparent 60%),
+    radial-gradient(54rem 40rem at 35% 100%, rgba(56, 189, 248, 0.06), transparent 60%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
+    var(--bg-deep);
+  animation: ambient-drift 72s ease-in-out infinite alternate;
   /* Promote to its own compositor layer so the continuously-animating ambient
      drift doesn't repaint the now-glass ActivityStrip above it (60fps mitigation). */
   will-change: transform;
@@ -81,9 +96,12 @@ html, body, #root {
   100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
 }
 
-/* Focused command bar gets a soft sky-blue ring (the interactive-highlight colour) */
-.glow-focus {
-  box-shadow: 0 0 0 1px var(--accent-hover), 0 0 26px -6px rgba(56, 189, 248, 0.5);
+/* Focused command bar gets a soft sky-blue ring (the interactive-highlight colour).
+   Lives in @layer utilities so variant prefixes (focus-visible:glow-focus) work. */
+@layer utilities {
+  .glow-focus {
+    box-shadow: 0 0 0 1px var(--accent-hover), 0 0 26px -6px rgba(56, 189, 248, 0.5);
+  }
 }
 
 /* Card hover lift — 150ms, hairline transitions to the sky-blue highlight */
@@ -96,47 +114,39 @@ html, body, #root {
   box-shadow: 0 10px 32px -14px rgba(56, 189, 248, 0.4);
 }
 
-/* ── liquid glass ───────────────────────────────────────────────────────────
-   Apple-style translucent material, reserved for HERO surfaces (command bar,
-   dialogs, inspector, activity strip). DENSE data views (tables/lists/grids/
-   the graph canvas) deliberately stay opaque & precision-minimal. */
-.glass {
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  /* top sheen sitting just inside the hairline border, plus a soft lift shadow */
-  box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 12px 40px -22px rgba(0, 0, 0, 0.6);
-}
-
-/* A blush-washed variant for the most prominent hero surfaces. */
-.glass-tint {
-  background: linear-gradient(var(--glass-tint), var(--glass-tint)), var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 12px 40px -22px rgba(0, 0, 0, 0.6);
-}
-
-/* A heavier variant for full-attention surfaces (centered dialogs). */
-.glass-strong {
-  background: rgba(36, 22, 64, 0.82);
-  border: 1px solid var(--glass-border);
-  -webkit-backdrop-filter: blur(32px) saturate(190%);
-  backdrop-filter: blur(32px) saturate(190%);
-  box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 28px 64px -24px rgba(0, 0, 0, 0.7);
-}
-
-/* Rounded-surface conventions (liquid-glass): panels are softer than controls. */
+/* Rounded-surface conventions: panels are softer than controls. */
 .rounded-panel { border-radius: var(--radius-lg); }
 .rounded-control { border-radius: var(--radius); }
 
-/* Graceful degradation: browsers without backdrop-filter get a solid raised
-   surface so glass panes never render as near-transparent unreadable boxes. */
-@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .glass, .glass-tint { background: var(--raised); border-color: var(--border); }
-  .glass-strong { background: var(--surface); border-color: var(--border); }
+/* ── glass tiers (task 4) ─────────────────────────────────────────────────────
+   In @layer components so Tailwind hoists them BEFORE utilities in the cascade:
+   a plain utility (rounded-pill, border-red/30, …) on the same element must win
+   over the tier skin without !important. */
+@layer components {
+  .glass-chrome, .glass-panel, .glass-overlay {
+    border: 1px solid var(--glass-tier-border);
+    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
+  }
+  .glass-chrome { background: var(--glass-chrome-bg);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); }
+  .glass-panel { background: var(--glass-panel-bg);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
+    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-2); }
+  .glass-overlay { background: var(--glass-overlay-bg);
+    -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4);
+    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-3); }
+  .surface-solid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .micro-label { font-size: 10px; line-height: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; font-weight: 500; color: var(--muted); }
+  .shimmer { background: linear-gradient(90deg, var(--raised) 25%, var(--border) 50%, var(--raised) 75%);
+    background-size: 200% 100%; animation: shimmer 1.6s var(--ease) infinite; border-radius: var(--radius-sm); }
 }
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .glass-chrome { background: var(--surface); }
+  .glass-panel, .glass-overlay { background: var(--raised); }
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .shimmer { animation: none; } }
 
 /* ── chrome ───────────────────────────────────────────────────────────────── */
 

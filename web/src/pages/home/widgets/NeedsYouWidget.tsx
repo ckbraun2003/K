@@ -3,6 +3,8 @@ import type { InboxItemKind } from '@k/shared'
 import { EMPTY_INBOX } from '../../../lib/inbox-query'
 import { api } from '../../../lib/api'
 import { navigate } from '../../../lib/route'
+import { SectionHeader } from '../../../ui/SectionHeader'
+import { Skeleton } from '../../../ui/Skeleton'
 
 /**
  * NeedsYouWidget (UI Simplification Task 13) — the rail badge's per-kind
@@ -32,7 +34,7 @@ const SECTION_LABEL: Record<InboxItemKind, string> = {
 }
 
 export default function NeedsYouWidget() {
-  const { data, isError } = useQuery({ queryKey: NEEDS_YOU_KEY, queryFn: () => api.inbox.list() })
+  const { data, isError, isPending } = useQuery({ queryKey: NEEDS_YOU_KEY, queryFn: () => api.inbox.list() })
   const box = data ?? EMPTY_INBOX
 
   return (
@@ -40,29 +42,40 @@ export default function NeedsYouWidget() {
       type="button"
       data-testid="widget-needs-you"
       onClick={() => navigate('personal', 'inbox')}
-      className="flex h-full w-full flex-col gap-2 overflow-y-auto p-3 text-left transition-colors hover:bg-[var(--raised)]"
+      className="flex h-full w-full flex-col gap-2 overflow-y-auto p-3 text-left transition-colors hover:bg-raised"
     >
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Needs you</h2>
+      <SectionHeader label="Needs you" />
       {/* The count headline is DATA-DERIVED, so it is gated on !isError alongside the chips —
           a failed fetch must render error-only, never a fabricated "0 items" above the error
           line (mirrors CostTodayWidget/ActiveRunsWidget's no-fake-zero posture). */}
-      {isError ? (
-        <p data-testid="widget-needs-you-error" className="text-xs italic text-[var(--red)]">Failed to load inbox.</p>
+      {isPending ? (
+        // Hand-rolled (not <SkeletonTile>): that component bakes in its own
+        // glass-panel tier, which would nest backdrop-filter inside this cell's
+        // GlassPanel tier="panel" ancestor (OverviewView).
+        <div aria-hidden="true" className="space-y-2">
+          <Skeleton className="h-7 w-14" />
+          <div className="flex gap-1">
+            <Skeleton className="h-5 w-24 rounded-pill" />
+            <Skeleton className="h-5 w-20 rounded-pill" />
+          </div>
+        </div>
+      ) : isError ? (
+        <p data-testid="widget-needs-you-error" className="text-caption text-red">Failed to load inbox.</p>
       ) : (
         <>
           <div className="flex items-baseline gap-1.5">
-            <span className="mono text-2xl font-semibold text-[var(--text)]">{box.total}</span>
-            <span className="text-xs text-[var(--muted)]">item{box.total === 1 ? '' : 's'}</span>
+            <span className="mono text-display text-text">{box.total}</span>
+            <span className="text-caption text-muted">item{box.total === 1 ? '' : 's'}</span>
           </div>
           {box.total === 0 ? (
-            <p className="text-xs italic text-[var(--muted)]">Inbox zero.</p>
+            <p className="text-caption text-muted">Inbox zero.</p>
           ) : (
             <div className="flex flex-wrap gap-1">
               {SECTION_ORDER.filter(kind => box.counts[kind] > 0).map(kind => (
                 <span
                   key={kind}
                   data-testid={`widget-needs-you-chip-${kind}`}
-                  className="rounded-full bg-amber/15 px-2 py-0.5 text-[10px] font-medium text-[var(--amber)]"
+                  className="rounded-pill bg-amber/15 px-2 py-0.5 text-micro font-medium text-amber"
                 >
                   {SECTION_LABEL[kind]} · {box.counts[kind]}
                 </span>

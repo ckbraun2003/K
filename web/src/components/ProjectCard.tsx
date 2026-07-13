@@ -3,6 +3,9 @@ import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
 import { formatTimeAgo, relativeTime } from '../lib/verify'
 import HealthRubric from './HealthRubric'
+import { GlassPanel } from '../ui/GlassPanel'
+import { Icon } from '../ui/Icon'
+import { Button, IconButton } from '../ui/Button'
 
 // A health score below this flags the card for attention alongside failing CI.
 const LOW_HEALTH_THRESHOLD = 50
@@ -50,62 +53,83 @@ export default function ProjectCard({
   const goVerify = () => navigate('verify', project.id)
 
   return (
-    <div
+    <GlassPanel
+      // solid, not glass: the fleet grid is unbounded (2-3 cols × N projects) and
+      // >6 simultaneous backdrop-filter regions breaks the blur budget (DEV-11).
+      tier="solid"
+      interactive
       data-testid={`project-card-${project.id}`}
       role="button"
       tabIndex={0}
       onClick={goWorkspace}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goWorkspace() } }}
-      className={cn(
-        'card-lift group relative cursor-pointer rounded-panel border bg-[var(--surface)] p-4',
-        attention ? 'border-amber/40' : 'border-[var(--border)]'
-      )}
+      className={cn('group relative p-4', attention && 'border-amber/40')}
     >
       {onDelete && (
-        <button
+        // variant="ghost" (not the IconButton default "glass") — this card is
+        // itself a GlassPanel (backdrop-filter); a glass-chrome child button
+        // would be a nested blur, which the design system forbids.
+        <IconButton
+          name="trash"
+          label={`Delete project ${project.name}`}
+          variant="ghost"
           data-testid={`project-delete-btn-${project.id}`}
           onClick={e => { e.stopPropagation(); onDelete() }}
-          aria-label={`Delete project ${project.name}`}
-          title="Delete project"
-          className="absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] opacity-0 transition-all duration-150 hover:bg-red/15 hover:text-[var(--red)] focus:opacity-100 group-hover:opacity-100"
-        >
-          🗑
-        </button>
+          className="absolute right-2.5 top-2.5 opacity-0 hover:bg-red/15 hover:text-red focus:opacity-100 group-hover:opacity-100"
+        />
       )}
       <div className="flex items-center gap-2 pr-7">
         <span
           className={cn('h-2 w-2 rounded-full', {
-            'bg-[var(--green)]': ci === 'passing',
-            'bg-[var(--amber)] glow-live': ci === 'failing',
-            'bg-[var(--muted)]': ci === 'unknown',
+            'bg-green': ci === 'passing',
+            'bg-amber glow-live': ci === 'failing',
+            'bg-muted': ci === 'unknown',
           })}
         />
-        <span className="truncate text-sm font-semibold text-[var(--text)]">{project.name}</span>
+        <span className="truncate text-title text-text">{project.name}</span>
         {project.healthScore != null && (
           <span className="ml-auto">
             <HealthRubric score={project.healthScore} showScore />
           </span>
         )}
       </div>
-      <p className="mt-1.5 text-xs text-[var(--muted)]">
+      <p className="mt-1.5 text-caption text-muted">
         {project.githubRemote ? (
           <>
-            <span className={ci === 'failing' ? 'text-[var(--amber)]' : ''}>
-              CI {ci === 'passing' ? '✓' : ci === 'failing' ? '✗ failing' : '—'}
+            <span className={cn('inline-flex items-center gap-1', ci === 'failing' && 'text-amber')}>
+              <span>CI</span>
+              {ci === 'passing' && (
+                <span className="inline-flex items-center gap-1">
+                  <Icon name="check" size={14} className="text-green" />
+                  passing
+                </span>
+              )}
+              {ci === 'failing' && (
+                <span className="inline-flex items-center gap-1">
+                  <Icon name="close" size={14} className="text-amber" />
+                  failing
+                </span>
+              )}
+              {ci === 'unknown' && <span>—</span>}
             </span>
-            {' · '}{openPrs} open PR{openPrs === 1 ? '' : 's'}
+            {' · '}
+            <span className="inline-flex items-center gap-1">
+              <Icon name="pr" size={14} />
+              <span><span className="mono">{openPrs}</span> open PR{openPrs === 1 ? '' : 's'}</span>
+            </span>
           </>
         ) : (
           'no GitHub remote — registry invariant unmet'
         )}
       </p>
-      <p className="mono mt-2 truncate text-[10px] text-[var(--muted)] opacity-60">{project.localPath}</p>
+      <p className="mono mt-2 truncate text-caption text-muted">{project.localPath}</p>
       {pathMissing && (
         <p
           data-testid={`project-card-pathmissing-${project.id}`}
-          className="mt-2 rounded-control border border-[var(--red)]/40 bg-[var(--red)]/10 px-2 py-1 text-[10px] font-medium text-[var(--red)]"
+          className="mt-2 flex items-center gap-1.5 rounded-control border border-red/40 bg-red/10 px-2 py-1 text-micro font-medium text-red"
         >
-          ⚠ path missing — the repo folder is gone; workspace actions are disabled
+          <Icon name="warning" size={14} className="text-red" />
+          path missing — the repo folder is gone; workspace actions are disabled
         </p>
       )}
       {lastRun && (
@@ -121,16 +145,18 @@ export default function ProjectCard({
         <span className={cn('text-[10px]', lowHealth ? 'text-[var(--amber)]' : 'text-[var(--muted)]')}>
           {formatTimeAgo(project.lastVerifiedAt)}
         </span>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           data-testid={`project-verify-btn-${project.id}`}
           onClick={e => { e.stopPropagation(); if (!pathMissing) goVerify() }}
           disabled={pathMissing}
           title={pathMissing ? 'Path missing — restore the repo folder to verify' : undefined}
-          className="text-[11px] font-medium text-[var(--accent-hover)] transition-opacity duration-150 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+          className="text-accent-hover hover:text-accent-hover"
         >
-          ▶ Run verification
-        </button>
+          Run verification
+        </Button>
       </div>
-    </div>
+    </GlassPanel>
   )
 }

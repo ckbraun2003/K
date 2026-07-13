@@ -32,7 +32,7 @@ export default function OrgPage({ seg }: { seg?: string }) {
   return (
     <div data-testid="org-page" className="flex h-full flex-col">
       <header className="flex flex-wrap items-center gap-3 px-5 pt-5">
-        <h1 className="text-sm font-semibold text-[var(--text)]">Org</h1>
+        <h1 className="text-display text-text">Org</h1>
         <AutonomyStatusChip />
         <div className="ml-auto">
           <SegControl<OrgSeg>

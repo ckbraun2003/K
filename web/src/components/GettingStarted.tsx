@@ -3,6 +3,8 @@ import { motion } from 'framer-motion'
 import type { Project } from '@k/shared'
 import { navigate } from '../lib/route'
 import { staggerContainer, staggerItem, microLift } from '../lib/motion'
+import { Icon } from '../ui/Icon'
+import { IconButton } from '../ui/Button'
 
 const DISMISS_KEY = 'k:getting-started-dismissed'
 
@@ -90,24 +92,25 @@ export default function GettingStarted({
       variants={staggerContainer}
       initial="hidden"
       animate="visible"
-      className="glass relative mt-3 overflow-hidden rounded-xl p-5"
+      className="glass-panel relative mt-3 overflow-hidden rounded-xl p-5"
       aria-label="Getting started"
     >
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-[var(--text)]">Getting started</h2>
-            <p className="mt-0.5 text-xs text-[var(--muted)]">
+            <h2 className="text-sm font-semibold text-text">Getting started</h2>
+            <p className="mt-0.5 text-xs text-muted">
               Three steps to a working harness.
             </p>
           </div>
           {!forceOpen && (
-            <button
+            <IconButton
+              name="close"
+              label="Dismiss getting started"
+              variant="ghost"
+              size="sm"
               onClick={dismiss}
-              className="-mr-1 -mt-1 rounded p-1 text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-              aria-label="Dismiss getting started"
-            >
-              ✕
-            </button>
+              className="-mr-1 -mt-1"
+            />
           )}
         </div>
 
@@ -116,28 +119,28 @@ export default function GettingStarted({
             <motion.div
               key={step.n}
               variants={staggerItem}
-              className="flex flex-col rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"
+              className="flex flex-col rounded-lg border border-border bg-surface p-4"
             >
               <div className="flex items-center gap-2">
                 <span
                   className={
                     step.done
-                      ? 'flex h-5 w-5 items-center justify-center rounded-full bg-[var(--green)] text-[10px] font-bold text-[var(--bg)]'
-                      : 'flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] text-[10px] font-semibold text-[var(--muted)]'
+                      ? 'flex h-5 w-5 items-center justify-center rounded-full bg-green text-bg'
+                      : 'flex h-5 w-5 items-center justify-center rounded-full border border-border text-[10px] font-semibold text-muted'
                   }
                 >
-                  {step.done ? '✓' : step.n}
+                  {step.done ? <Icon name="check" size={14} /> : step.n}
                 </span>
-                <span className="text-xs font-semibold text-[var(--text)]">{step.title}</span>
+                <span className="text-xs font-semibold text-text">{step.title}</span>
               </div>
-              <p className="mt-2 flex-1 text-[11px] leading-snug text-[var(--muted)]">{step.body}</p>
+              <p className="mt-2 flex-1 text-[11px] leading-snug text-muted">{step.body}</p>
               <motion.button
                 {...microLift}
                 onClick={step.action}
                 className={
                   step.n === 1 && !step.done
-                    ? 'mt-3 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[11px] font-semibold text-[var(--bg)] transition-opacity hover:opacity-90'
-                    : 'mt-3 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-[11px] font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)]'
+                    ? 'mt-3 rounded-lg bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg transition-opacity hover:opacity-90'
+                    : 'mt-3 rounded-lg border border-border bg-raised px-3 py-1.5 text-[11px] font-semibold text-text transition-colors hover:border-accent'
                 }
               >
                 {step.cta} →

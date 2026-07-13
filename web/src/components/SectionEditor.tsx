@@ -34,12 +34,12 @@ export default function SectionEditor({ slug }: { slug: string }) {
   if (sections.length === 0) return null // non-bible artifact — no editable sections
 
   return (
-    <div data-testid="section-editor" className="flex flex-col gap-2 border-t border-[var(--border)] p-3">
+    <div data-testid="section-editor" className="flex flex-col gap-2 border-t border-border p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold text-[var(--text)]">Edit sections</span>
+        <span className="text-xs font-semibold text-text">Edit sections</span>
         <select
           data-testid="section-editor-select"
-          className="rounded border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)]"
+          className="rounded border border-border bg-raised px-2 py-1 text-xs text-text"
           value={activeSlug ?? ''}
           onChange={(e) => {
             const next = sections.find((s) => s.slug === e.target.value) ?? null
@@ -51,13 +51,13 @@ export default function SectionEditor({ slug }: { slug: string }) {
           <option value="">Choose a section…</option>
           {sections.map((s) => <option key={s.slug} value={s.slug}>{s.title}</option>)}
         </select>
-        {savedAt && <span className="text-[10px] text-[var(--green)]">saved · recompiled {new Date(savedAt).toLocaleTimeString()}</span>}
+        {savedAt && <span className="text-[10px] text-green">saved · recompiled {new Date(savedAt).toLocaleTimeString()}</span>}
       </div>
       {active && (
         <>
           <textarea
             data-testid="section-editor-body"
-            className="min-h-40 w-full rounded border border-[var(--border)] bg-[var(--bg)] p-2 font-mono text-xs text-[var(--text)]"
+            className="min-h-40 w-full rounded border border-border bg-bg p-2 font-mono text-xs text-text"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
           />
@@ -67,11 +67,11 @@ export default function SectionEditor({ slug }: { slug: string }) {
               data-testid="section-editor-save"
               disabled={save.isPending || draft === active.body}
               onClick={() => save.mutate()}
-              className="rounded bg-[var(--accent)] px-3 py-1 text-xs text-[var(--on-accent)] disabled:opacity-50"
+              className="rounded bg-accent px-3 py-1 text-xs text-on-accent disabled:opacity-50"
             >
               {save.isPending ? 'Saving…' : 'Save section'}
             </button>
-            {save.isError && <span className="text-[10px] text-[var(--red)]">save failed</span>}
+            {save.isError && <span className="text-[10px] text-red">save failed</span>}
           </div>
         </>
       )}

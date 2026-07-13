@@ -189,10 +189,10 @@ export default function MicButton({ onTranscript, disabled, title, className }: 
         'inline-grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg border outline-none transition-colors',
         recordingNow
           // Accent FILL → dark --bg text for WCAG contrast (see ui-demo .micbtn.rec).
-          ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--bg)]'
+          ? 'border-accent bg-accent text-bg'
           : status === 'error'
-            ? 'border-[color:rgba(248,113,113,0.5)] bg-[var(--surface)] text-[var(--red)]'
-            : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-accent/50 hover:text-[var(--accent-hover)]',
+            ? 'border-red/50 bg-surface text-red'
+            : 'border-border bg-surface text-muted hover:border-accent/50 hover:text-accent-hover',
         'disabled:cursor-not-allowed disabled:opacity-40',
         className,
       )}

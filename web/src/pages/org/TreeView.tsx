@@ -4,12 +4,18 @@ import type { ChiefOrgPayload, Assignment, AgentRun, DelegationNode } from '@k/s
 import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { relativeTime } from '../../lib/verify'
+import { cn } from '../../lib/cn'
 import { useAskK } from '../../lib/useAskK'
 import { fullOrgToDelegationTree } from '../../lib/delegation'
-import { agentRunStatusMeta } from '../../lib/status'
 import DelegationTree from '../../components/DelegationTree'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import Toast from '../../components/Toast'
+import { Button } from '../../ui/Button'
+import { Select } from '../../ui/Field'
+import { Icon } from '../../ui/Icon'
+import { StatusPill } from '../../ui/StatusPill'
+import { ErrorState } from '../../ui/ErrorState'
+import { SkeletonRow } from '../../ui/Skeleton'
 
 /**
  * Chief org home (P5.2a read → C2 actuation) — objectives · delegation tree ·
@@ -52,23 +58,27 @@ export function ObjectiveRow({
   const dirty = sel !== '' && selName !== assignment.lead
   return (
     <div
-      className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2"
+      className="rounded-control border border-border bg-raised px-3 py-2"
       data-testid={`chief-objective-${assignment.id}`}
     >
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text)]">
+        <span className="min-w-0 flex-1 truncate text-body font-medium text-text">
           {assignment.objective}
         </span>
-        <span className="flex-shrink-0 rounded bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--on-accent)]">
+        <span className="flex-shrink-0 rounded-pill bg-accent px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-on-accent">
           {assignment.lead}
         </span>
       </div>
       {/* Status + created-at — an objective is 'dispatched' once its lead run exists,
-          else still 'pending' (F-083). */}
-      <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--muted)]">
+          else still 'pending' (F-083). A non-canonical two-value taxonomy (not a
+          Run/AgentRun/DelegationNode status), so a token-tint span, not StatusPill. */}
+      <div className="mt-1 flex items-center gap-2 text-micro text-muted">
         <span
           data-testid={`chief-objective-status-${assignment.id}`}
-          className="rounded bg-[var(--surface)] px-1.5 py-0.5 font-semibold uppercase tracking-wide"
+          className={cn(
+            'rounded-pill px-1.5 py-0.5 font-semibold uppercase tracking-wide',
+            assignment.leadRunId ? 'bg-green/15 text-green' : 'bg-raised text-muted',
+          )}
         >
           {assignment.leadRunId ? 'dispatched' : 'pending'}
         </span>
@@ -77,7 +87,7 @@ export function ObjectiveRow({
         </span>
       </div>
       {(assignment.workflow || assignment.projects.length > 0 || assignment.note) && (
-        <p className="mt-1 truncate text-[11px] text-[var(--muted)]">
+        <p className="mt-1 truncate text-caption text-muted">
           {assignment.workflow && <span>workflow: {assignment.workflow}</span>}
           {assignment.workflow && assignment.projects.length > 0 && <span> · </span>}
           {assignment.projects.length > 0 && <span>projects: {assignment.projects.join(', ')}</span>}
@@ -88,27 +98,28 @@ export function ObjectiveRow({
       )}
       {/* Reassign — enabled only when the selection actually moves the lead. */}
       <div className="mt-1.5 flex items-center gap-2">
-        <select
+        <Select
           data-testid={`chief-reassign-select-${assignment.id}`}
           aria-label="Reassign lead"
           value={sel}
           onChange={e => setSel(e.target.value)}
-          className="rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[11px] text-[var(--muted)]"
+          className="h-7 py-0.5 text-label"
         >
           {!current && <option value="">pick a lead…</option>}
           {leads.map(l => (
             <option key={l.id} value={l.id}>{l.name}</option>
           ))}
-        </select>
-        <button
-          type="button"
+        </Select>
+        <Button
+          variant="ghost"
+          size="sm"
           data-testid={`chief-reassign-${assignment.id}`}
           disabled={!dirty}
           onClick={() => onReassign(assignment, sel)}
-          className="rounded border border-[var(--border)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)] disabled:opacity-40"
+          className="text-accent-hover hover:text-accent-hover"
         >
           Reassign
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -116,26 +127,25 @@ export function ObjectiveRow({
 
 /** One autonomous-wake row (an AgentRun). Links into the run when it reached one. */
 function WakeRow({ wake }: { wake: AgentRun }) {
-  const statusClass = agentRunStatusMeta(wake.status).text
   return (
-    <li className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-2 text-xs">
-      <span className="flex-shrink-0 rounded bg-[var(--surface)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted)]">
+    <li className="flex items-center gap-2 rounded-control border border-border bg-raised px-3 py-2 text-caption">
+      <span className="flex-shrink-0 rounded-pill bg-surface px-1.5 py-0.5 text-micro uppercase tracking-wide text-muted">
         {wake.trigger}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[var(--text)]">{wake.goal ?? '(no goal)'}</span>
+      <span className="min-w-0 flex-1 truncate text-text">{wake.goal ?? '(no goal)'}</span>
       {wake.runId && (
         <button
           type="button"
           onClick={() => navigate('runs', wake.runId ?? undefined)}
-          className="flex-shrink-0 text-[var(--accent-hover)] hover:underline"
+          className="flex-shrink-0 text-accent-hover hover:underline"
         >
           view run
         </button>
       )}
-      <span className={`flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide ${statusClass}`}>
-        {wake.status}
-      </span>
-      <span className="flex-shrink-0 text-[10px] text-[var(--muted)]">{relativeTime(wake.createdAt)}</span>
+      {/* AgentRunStatus (running/completed/failed) is fully covered by StatusPill's
+          canonical literal set — no local status→color map needed here. */}
+      <StatusPill status={wake.status} />
+      <span className="flex-shrink-0 text-micro text-muted">{relativeTime(wake.createdAt)}</span>
     </li>
   )
 }
@@ -206,28 +216,30 @@ export default function TreeView() {
     const actions: React.ReactNode[] = []
     if (node.kind === 'lead') {
       actions.push(
-        <button
+        <Button
           key="open"
-          type="button"
+          variant="ghost"
+          size="sm"
           data-testid="chief-open-lead"
           onClick={() => navigate('orchestrator', node.id)}
-          className="rounded border border-[var(--border)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)]"
+          className="text-accent-hover hover:text-accent-hover"
         >
           Open lead →
-        </button>,
+        </Button>,
       )
     }
     if (node.runId) {
       actions.push(
-        <button
+        <Button
           key="view"
-          type="button"
+          variant="ghost"
+          size="sm"
           data-testid="chief-view-run"
           onClick={() => navigate('runs', node.runId)}
-          className="rounded border border-[var(--border)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)]"
+          className="text-accent-hover hover:text-accent-hover"
         >
           View run →
-        </button>,
+        </Button>,
       )
     }
     // 'queued' is live too — the server's LIVE_RUN_STATUSES includes it, so a queued
@@ -237,15 +249,15 @@ export default function TreeView() {
     if (node.kind === 'lead' && (node.status === 'running' || node.status === 'queued') && node.runId) {
       const runId = node.runId
       actions.push(
-        <button
+        <Button
           key="stop"
-          type="button"
+          variant="danger"
+          size="sm"
           data-testid="chief-stop-run"
           onClick={() => setStopRun({ runId, label: node.label })}
-          className="rounded border border-[var(--red)]/50 px-2 py-0.5 text-[11px] font-semibold text-[var(--red)] transition-colors hover:bg-red/15"
         >
           Stop run
-        </button>,
+        </Button>,
       )
     }
     return actions.length > 0 ? <>{actions}</> : null
@@ -256,49 +268,54 @@ export default function TreeView() {
       <div className="mb-4 flex items-center justify-between gap-3">
         {/* THIN health line (payload.health) — leads active, not a full strip. */}
         {data && (
-          <div className="ml-auto flex items-center gap-2 text-[11px] text-[var(--muted)]" data-testid="chief-health">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--green)]" aria-hidden />
-            <span className="text-[var(--text)]">{data.health.leadsActive}</span>
+          <div className="ml-auto flex items-center gap-2 text-caption text-muted" data-testid="chief-health">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-green" aria-hidden />
+            <span className="mono tabular-nums text-text">{data.health.leadsActive}</span>
             <span>lead{data.health.leadsActive === 1 ? '' : 's'} active</span>
           </div>
         )}
       </div>
 
-      {isLoading && <p className="text-xs italic text-[var(--muted)]">Loading org status…</p>}
-      {isError && <p className="text-xs italic text-[var(--red)]">Failed to load org status.</p>}
+      {isLoading && (
+        <div className="flex flex-col gap-1">
+          <SkeletonRow /><SkeletonRow /><SkeletonRow />
+        </div>
+      )}
+      {isError && <ErrorState message="Failed to load org status." />}
 
       {data && tree && (
         <div className="space-y-6">
           {/* Hand the Chief work — a forced-route ask through the shared front door. */}
-          <section data-testid="chief-hand-composer" className="glass-tint rounded-panel p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+          <section data-testid="chief-hand-composer" className="glass-panel p-4">
+            <h2 className="text-label uppercase tracking-wide text-muted">
               Hand Chief work
             </h2>
-            <div className="mt-2 flex items-center gap-2 rounded-control border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
-              <span className="text-[var(--accent)]">⚡</span>
+            <div className="mt-2 flex items-center gap-2 rounded-control border border-border bg-surface px-3 py-2">
+              <Icon name="bolt" size={16} className="text-accent" />
               <input
                 value={handQuery}
                 onChange={e => setHandQuery(e.target.value)}
                 onKeyDown={onHandKeyDown}
                 placeholder="Describe an objective for the Chief to delegate…"
                 aria-label="Hand Chief work"
-                className="flex-1 bg-transparent text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
+                className="flex-1 bg-transparent text-body text-text placeholder:text-muted outline-none"
               />
-              <button
+              <Button
+                variant="primary"
+                size="sm"
                 data-testid="chief-hand-send"
-                type="button"
                 onClick={() => void submitHand()}
                 disabled={!handQuery.trim() || hand.busy}
-                className="rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-medium text-[var(--accent-hover)] transition-colors duration-100 hover:bg-accent/30 disabled:opacity-50"
               >
                 Send
-              </button>
+              </Button>
             </div>
             {/* Static + honest: the route is FORCED, so no classifier preview here. */}
-            <p className="mt-1.5 text-[11px] text-[var(--muted)]">will hand to Chief</p>
+            <p className="mt-1.5 text-caption text-muted">will hand to Chief</p>
             {hand.error && (
-              <p data-testid="chief-hand-error" className="mt-1.5 text-[11px] text-[var(--red)]">
-                ⚠ {hand.error}
+              <p data-testid="chief-hand-error" className="mt-1.5 flex items-center gap-1 text-caption text-red">
+                <Icon name="warning" size={14} className="text-red" />
+                {hand.error}
               </p>
             )}
           </section>
@@ -306,11 +323,11 @@ export default function TreeView() {
           {/* Two-column split: Objectives + whole-org delegation tree. */}
           <div className="grid gap-6 lg:grid-cols-2">
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              <h2 className="mb-2 text-label uppercase tracking-wide text-muted">
                 Objectives
               </h2>
               {data.assignments.length === 0 ? (
-                <p className="text-xs italic text-[var(--muted)]" data-testid="chief-objectives-empty">
+                <p className="text-caption italic text-muted" data-testid="chief-objectives-empty">
                   No objectives yet — the Chief has not assigned any leads.
                 </p>
               ) : (
@@ -331,7 +348,7 @@ export default function TreeView() {
             </section>
 
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              <h2 className="mb-2 text-label uppercase tracking-wide text-muted">
                 Delegation tree
               </h2>
               <DelegationTree root={tree} renderActions={renderActions} />
@@ -340,11 +357,11 @@ export default function TreeView() {
 
           {/* Autonomous-wake history. */}
           <section>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            <h2 className="mb-2 text-label uppercase tracking-wide text-muted">
               Autonomous wakes
             </h2>
             {data.chiefWakes.length === 0 ? (
-              <p className="text-xs italic text-[var(--muted)]" data-testid="chief-wakes-empty">
+              <p className="text-caption italic text-muted" data-testid="chief-wakes-empty">
                 The Chief has not woken autonomously yet.
               </p>
             ) : (
@@ -367,8 +384,8 @@ export default function TreeView() {
           reassign ? (
             <>
               Reassign &ldquo;{reassign.assignment.objective}&rdquo; from{' '}
-              <span className="text-[var(--text)]">{reassign.assignment.lead}</span> to{' '}
-              <span className="text-[var(--text)]">
+              <span className="text-text">{reassign.assignment.lead}</span> to{' '}
+              <span className="text-text">
                 {leadOptions.find(l => l.id === reassign.leadProfileId)?.name ?? reassign.leadProfileId}
               </span>
               ?
@@ -399,8 +416,8 @@ export default function TreeView() {
         message={
           stopRun ? (
             <>
-              Kill <span className="text-[var(--text)]">{stopRun.label}</span>&rsquo;s live run{' '}
-              <span className="mono">{stopRun.runId.slice(0, 8)}</span>? In-flight work is lost.
+              Kill <span className="text-text">{stopRun.label}</span>&rsquo;s live run{' '}
+              <span className="mono tabular-nums">{stopRun.runId.slice(0, 8)}</span>? In-flight work is lost.
             </>
           ) : (
             ''
@@ -423,12 +440,12 @@ export default function TreeView() {
         resetKey={hand.pendingUndo?.key}
         message={
           <>
-            Handed to <span className="text-[var(--text)]">Chief</span>{' '}
+            Handed to <span className="text-text">Chief</span>{' '}
             <button
               type="button"
               data-testid="chief-hand-view-run"
               onClick={() => { if (hand.pendingUndo?.runId) navigate('runs', hand.pendingUndo.runId) }}
-              className="text-[var(--accent-hover)] transition-colors hover:underline"
+              className="text-accent-hover transition-colors hover:underline"
             >
               View run →
             </button>

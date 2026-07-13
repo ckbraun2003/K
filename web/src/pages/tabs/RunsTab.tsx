@@ -6,6 +6,7 @@ import { onWsMessage } from '../../lib/ws'
 import { cn } from '../../lib/cn'
 import { runStatusMeta } from '../../lib/status'
 import RunConsole from '../../components/RunConsole'
+import { EmptyState } from '../../ui/EmptyState'
 
 interface Props {
   projectId: string
@@ -40,13 +41,13 @@ export default function RunsTab({ projectId }: Props) {
   return (
     <div className="flex flex-col h-full">
       {/* Run list */}
-      <div className={cn('flex-shrink-0 overflow-y-auto border-b border-[var(--border)]', selectedId ? 'max-h-64' : 'flex-1')}>
+      <div className={cn('flex-shrink-0 overflow-y-auto border-b border-border', selectedId ? 'max-h-64' : 'flex-1')}>
         {runs.length === 0 && (
-          <div className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-            No runs for this project yet.
-            <br />
-            Use the Tasks tab to dispatch an agent run.
-          </div>
+          <EmptyState
+            icon="runs"
+            headline="No runs for this project yet."
+            hint="Use the Tasks tab to dispatch an agent run."
+          />
         )}
         {runs.map(run => {
           const isSelected = selectedId === run.id
@@ -63,8 +64,8 @@ export default function RunsTab({ projectId }: Props) {
                 }
               }}
               className={cn(
-                'w-full text-left px-4 py-3 border-b border-[var(--border)] hover:bg-[var(--surface)] transition-colors cursor-pointer',
-                isSelected && 'bg-[var(--surface)] border-l-2 border-l-[var(--accent)]'
+                'w-full text-left px-4 py-3 border-b border-border hover:bg-surface transition-colors cursor-pointer',
+                isSelected && 'bg-surface border-l-2 border-l-accent'
               )}
             >
               <div className="flex items-center gap-2 mb-1">
@@ -72,12 +73,12 @@ export default function RunsTab({ projectId }: Props) {
                 <span className={cn('text-xs px-1.5 py-0.5 rounded font-medium', runStatusMeta(run.status).badge)}>
                   {runStatusMeta(run.status).label}
                 </span>
-                <span className="font-mono text-xs text-[var(--muted)] ml-auto">
+                <span className="mono text-xs text-muted ml-auto">
                   ${run.costUsd.toFixed(4)}
                 </span>
               </div>
-              <p className="text-sm text-[var(--text)] truncate">{run.prompt}</p>
-              <p className="font-mono text-xs text-[var(--muted)] mt-0.5">
+              <p className="text-sm text-text truncate">{run.prompt}</p>
+              <p className="mono text-xs text-muted mt-0.5">
                 {new Date(run.createdAt).toLocaleString()} · {run.model}
               </p>
             </div>
@@ -87,7 +88,7 @@ export default function RunsTab({ projectId }: Props) {
 
       {/* Inline console */}
       {selectedId && (
-        <div className="flex-1 overflow-hidden border-t border-[var(--border)]">
+        <div className="flex-1 overflow-hidden border-t border-border">
           <RunConsole runId={selectedId} />
         </div>
       )}

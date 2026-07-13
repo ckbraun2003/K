@@ -2,10 +2,11 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import type { MetricsTimeseries, MetricsQualityTimeseries } from '@k/shared'
 import { api } from '../../lib/api'
 import { computeDeltas, detectAnomalies, type DeltaInput, type DeltaResult } from '../../lib/insights-deltas'
+import { KpiTile } from '../../ui/KpiTile'
+import { SkeletonTile } from '../../ui/Skeleton'
+import { EmptyState } from '../../ui/EmptyState'
 
 type Days = 14 | 30 | 60
-
-const TONE_CLASS = { good: 'text-[var(--green)]', bad: 'text-[var(--red)]', neutral: 'text-[var(--muted)]' } as const
 
 // Per-metric presentation of the (measured) tile value. Formatting is presentation-only and
 // lives here so insights-deltas.ts stays pure numbers (no price coupling, no display concerns).
@@ -26,14 +27,16 @@ function splitHalf<T>(arr: T[]): [T[], T[]] {
 }
 
 function DeltaTile({ d }: { d: DeltaResult }) {
-  const pct = d.deltaPct == null ? 'new' : `${d.deltaPct >= 0 ? '+' : ''}${(d.deltaPct * 100).toFixed(0)}%`
-  const arrow = d.trend === 'up' ? '▲' : d.trend === 'down' ? '▼' : '–'
   const value = (VALUE_FMT[d.key] ?? String)(d.current)
+  // KpiTile does its own rounding-free `{delta.pct}%` — pre-round to match the old .toFixed(0)
+  // display. No baseline (deltaPct == null) omits the delta prop rather than fabricating one.
+  const delta = d.deltaPct == null ? undefined : {
+    pct: Math.round(d.deltaPct * 100),
+    polarity: (d.higherIsBetter ? 'goodUp' : 'badUp') as 'goodUp' | 'badUp',
+  }
   return (
-    <div data-testid={`delta-${d.key}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
-      <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">{d.label}</div>
-      <div className="mt-1 text-lg text-[var(--text)]">{value}</div>
-      <div className={`text-[11px] ${TONE_CLASS[d.tone]}`}>{arrow} {pct}</div>
+    <div data-testid={`delta-${d.key}`}>
+      <KpiTile label={d.label} value={value} delta={delta} />
     </div>
   )
 }
@@ -102,21 +105,25 @@ export default function OverviewTab({ days }: { days: Days }) {
   return (
     <div data-testid="insights-overview" className="flex flex-col gap-4">
       {deltas.length === 0 && loading ? (
-        <div className="text-xs text-[var(--muted)]">loading…</div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => <SkeletonTile key={i} />)}
+        </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {deltas.map((d) => <DeltaTile key={d.key} d={d} />)}
           {deltas.length === 0 && (
-            <div className="col-span-full text-xs text-[var(--muted)]">No measured metrics in the last {days} days.</div>
+            <div className="col-span-full">
+              <EmptyState icon="insights" headline="No measured metrics" hint={`Nothing measured in the last ${days} days.`} />
+            </div>
           )}
         </div>
       )}
       <section data-testid="overview-anomalies">
-        <h2 className="mb-2 text-xs font-semibold text-[var(--text)]">Anomalies</h2>
+        <h2 className="mb-2 text-caption font-semibold text-text">Anomalies</h2>
         {anomalies.length === 0
-          ? <div className="text-xs text-[var(--muted)]">No anomalies in the last {days} days.</div>
+          ? <div className="text-caption text-muted">No anomalies in the last {days} days.</div>
           : anomalies.map((a) => (
-              <div key={a.key} data-testid={`anomaly-${a.key}`} className={`text-xs ${a.severity === 'critical' ? 'text-[var(--red)]' : 'text-[var(--amber)]'}`}>{a.reason}</div>
+              <div key={a.key} data-testid={`anomaly-${a.key}`} className={`text-caption ${a.severity === 'critical' ? 'text-red' : 'text-amber'}`}>{a.reason}</div>
             ))}
       </section>
     </div>

@@ -5,6 +5,10 @@ import { api, type BibleSectionView } from '../../lib/api'
 import { cn } from '../../lib/cn'
 import DocViewer from '../../components/DocViewer'
 import Toast from '../../components/Toast'
+import { Icon, type IconName } from '../../ui/Icon'
+import { Button, IconButton } from '../../ui/Button'
+import { Select } from '../../ui/Field'
+import { EmptyState } from '../../ui/EmptyState'
 
 /**
  * Project Artifacts tab (formerly "Bible"). Presents THIS project's artifacts as a
@@ -154,10 +158,10 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
     },
   })
 
-  function artifactBadge(tags: string[]): string {
-    if (tags.includes('bible')) return '📖'
-    if (tags.includes('ui') || tags.includes('demo')) return '🖥'
-    return '📄'
+  function artifactBadge(tags: string[]): IconName {
+    if (tags.includes('bible')) return 'docs'
+    if (tags.includes('ui') || tags.includes('demo')) return 'monitor'
+    return 'file'
   }
 
   const savePending = saveMd.isPending || saveSection.isPending
@@ -166,41 +170,47 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
   return (
     <div className="flex h-full flex-col">
       {/* ── Toolbar ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 border-b border-[var(--border)] px-5 py-3">
-        <button
+      <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+        <Button
+          variant="primary"
+          size="sm"
+          icon="bolt"
           onClick={() => compile.mutate()}
           disabled={compile.isPending}
-          className="rounded-control bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
+          loading={compile.isPending}
         >
-          {compile.isPending ? 'Compiling…' : '⚡ Recompile bible'}
-        </button>
+          {compile.isPending ? 'Compiling…' : 'Recompile bible'}
+        </Button>
 
         {mine.length > 0 && (
-          <select
+          <Select
             onChange={e => { if (e.target.value) openEditor(e.target.value); e.target.value = '' }}
             defaultValue=""
             aria-label="Edit an artifact"
             data-testid="artifact-edit-select"
-            className="mono cursor-pointer rounded-control border border-[var(--border)] bg-[var(--raised)] px-2.5 py-2 text-xs text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-hover)]"
+            className="mono w-auto cursor-pointer text-xs"
           >
             <option value="" disabled>Edit…</option>
             {mine.map(a => (
               <option key={a.slug} value={a.slug}>{a.title ?? a.slug}</option>
             ))}
-          </select>
+          </Select>
         )}
 
         {compile.error && (
-          <span className="text-[11px] text-[var(--red)]">⚠ {String(compile.error)}</span>
+          <span className="flex items-center gap-1 text-[11px] text-red">
+            <Icon name="warning" size={14} />
+            {String(compile.error)}
+          </span>
         )}
       </div>
 
       {/* ── Gallery rail + viewer ────────────────────────────────────────── */}
       <div className="flex min-h-0 flex-1">
-        <aside className="w-56 flex-shrink-0 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)]">
-          {isLoading && <p className="px-4 py-3 text-xs text-[var(--muted)]">Loading…</p>}
+        <aside className="w-56 flex-shrink-0 overflow-y-auto border-r border-border bg-surface">
+          {isLoading && <p className="px-4 py-3 text-xs text-muted">Loading…</p>}
           {!isLoading && mine.length === 0 && (
-            <p className="px-4 py-3 text-xs text-[var(--muted)]">No artifacts yet.</p>
+            <p className="px-4 py-3 text-xs text-muted">No artifacts yet.</p>
           )}
           {mine.map(a => {
             const isActive = a.slug === activeSlug
@@ -210,16 +220,17 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
                 onClick={() => setSelected(a.slug)}
                 aria-current={isActive ? 'true' : undefined}
                 className={cn(
-                  'block w-full border-b border-[var(--border)] px-4 py-2.5 text-left transition-colors duration-150',
+                  'block w-full border-b border-border px-4 py-2.5 text-left transition-colors duration-150',
                   isActive
-                    ? 'border-l-2 border-l-[var(--accent)] bg-[color:rgba(255,143,192,0.10)]'
-                    : 'hover:bg-[var(--raised)]',
+                    ? 'border-l-2 border-l-accent bg-accent/10'
+                    : 'hover:bg-raised',
                 )}
               >
-                <span className="block truncate text-sm text-[var(--text)]">
-                  <span className="mr-1.5">{artifactBadge(a.tags)}</span>{a.title ?? a.slug}
+                <span className="flex items-center gap-1.5 text-sm text-text">
+                  <Icon name={artifactBadge(a.tags)} size={14} className="flex-shrink-0 text-muted" />
+                  <span className="truncate">{a.title ?? a.slug}</span>
                 </span>
-                <span className="mono text-[10px] text-[var(--muted)]">
+                <span className="mono text-[10px] text-muted">
                   {new Date(a.updatedAt).toLocaleDateString()}
                 </span>
               </button>
@@ -231,16 +242,15 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
           {activeSlug ? (
             <DocViewer slug={activeSlug} />
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-[var(--muted)]">
-              <p>No compiled artifacts for this project yet.</p>
-              <button
-                onClick={() => compile.mutate()}
-                disabled={compile.isPending}
-                className="rounded-control bg-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
-              >
-                {compile.isPending ? 'Compiling…' : '⚡ Compile bible'}
-              </button>
-            </div>
+            <EmptyState
+              icon="docs"
+              headline="No compiled artifacts for this project yet."
+              action={
+                <Button variant="primary" size="sm" icon="bolt" onClick={() => compile.mutate()} disabled={compile.isPending} loading={compile.isPending}>
+                  {compile.isPending ? 'Compiling…' : 'Compile bible'}
+                </Button>
+              }
+            />
           )}
         </section>
       </div>
@@ -248,38 +258,38 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
       {/* ── Editor (modal overlay) ──────────────────────────────────────── */}
       {editingSlug && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="flex w-full max-w-3xl flex-col rounded-panel border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-              <span className="mono text-xs text-[var(--muted)]">
+          <div className="flex w-full max-w-3xl flex-col rounded-panel border border-border bg-surface shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <span className="mono text-xs text-muted">
                 {editingIsBible ? 'Editing bible section' : 'Editing'}:{' '}
-                <span className="text-[var(--text)]">
+                <span className="text-text">
                   {editingIsBible ? (activeSection?.slug ?? editingSlug) : editingSlug}
                 </span>
               </span>
-              <button onClick={closeEditor} className="text-[var(--muted)] hover:text-[var(--text)]" aria-label="Close editor">✕</button>
+              <IconButton name="close" variant="ghost" label="Close editor" onClick={closeEditor} />
             </div>
 
             {editingIsBible && (
-              <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-2">
-                <label className="mono text-[11px] text-[var(--muted)]">Section</label>
-                <select
+              <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+                <label className="mono text-[11px] text-muted">Section</label>
+                <Select
                   value={activeSection?.slug ?? ''}
                   onChange={e => { setSectionSlug(e.target.value); setSectionBody(null); setEditError(null) }}
                   aria-label="Choose a bible section to edit"
                   data-testid="bible-section-select"
-                  className="mono cursor-pointer rounded-control border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-hover)]"
+                  className="mono w-auto cursor-pointer text-xs"
                 >
                   {sections.map(s => (
                     <option key={s.slug} value={s.slug}>{s.icon} {s.title}</option>
                   ))}
-                </select>
+                </Select>
               </div>
             )}
 
             {editorLoading ? (
-              <p className="p-6 text-center text-sm text-[var(--muted)]">Loading…</p>
+              <p className="p-6 text-center text-sm text-muted">Loading…</p>
             ) : editingIsBible && sections.length === 0 ? (
-              <p className="p-6 text-center text-sm text-[var(--muted)]">
+              <p className="p-6 text-center text-sm text-muted">
                 This bible has no editable sections yet — compile it first.
               </p>
             ) : (
@@ -289,12 +299,20 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
                   onChange={e => (editingIsBible ? setSectionBody(e.target.value) : setEditMd(e.target.value))}
                   spellCheck={false}
                   data-testid="artifact-editor-textarea"
-                  className="mono min-h-[400px] w-full resize-y bg-[var(--raised)] px-4 py-3 text-xs text-[var(--text)] focus:outline-none"
+                  className="mono min-h-[400px] w-full resize-y bg-raised px-4 py-3 text-xs text-text focus:outline-none"
                 />
-                {editError && <p className="px-4 py-1 text-[11px] text-[var(--red)]" data-testid="artifact-editor-error">⚠ {editError}</p>}
-                <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
-                  <button onClick={closeEditor} className="rounded-control border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs text-[var(--text)] hover:border-[var(--accent-hover)]">Cancel</button>
-                  <button
+                {editError && (
+                  <p className="flex items-center gap-1 px-4 py-1 text-[11px] text-red" data-testid="artifact-editor-error">
+                    <Icon name="warning" size={14} />
+                    {editError}
+                  </p>
+                )}
+                <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+                  <Button variant="ghost" size="sm" onClick={closeEditor}>Cancel</Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={savePending}
                     onClick={() =>
                       editingIsBible
                         ? activeSection && saveSection.mutate({ section: activeSection.slug, body: sectionDisplay })
@@ -302,10 +320,9 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
                     }
                     disabled={savePending || (editingIsBible && !activeSection)}
                     data-testid="artifact-save-btn"
-                    className="rounded-control bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
                   >
                     {savePending ? 'Saving…' : 'Save'}
-                  </button>
+                  </Button>
                 </div>
               </>
             )}

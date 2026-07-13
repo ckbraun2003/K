@@ -125,7 +125,7 @@ describe('seedUiDemo — Command Deck', () => {
     expect(html).not.toContain('<link ')                        // no external stylesheet/font links
     // reflects the vivid midnight-glass palette (D-011): midnight-purple base + blush accent
     expect(html).toContain('backdrop-filter')
-    expect(html).toContain('#1a0f2e')
+    expect(html).toContain('#140b26')
     expect(html).toContain('#ff8fc0')
   })
 })
@@ -168,19 +168,18 @@ describe('uiDemoHtml — Phase 5 full-scale "Agentic Org" demo', () => {
     expect(html).not.toMatch(/\bfetch\(/)
     // required palette literals (also asserted for the seed artifact)
     expect(html).toContain('backdrop-filter')
-    expect(html).toContain('#1a0f2e')
+    expect(html).toContain('#140b26')
     expect(html).toContain('#ff8fc0')
   })
 
   it('applies the warmed token deltas + a11y / motion rules from the brief', () => {
     // warmed additions
     expect(html).toContain('#1b1030')   // warmed --bg
-    expect(html).toContain('#ffb0d2')   // --accent-soft (blush text on dark)
-    expect(html).toContain('#ffd9a8')   // --warm-glow (K-home greeting)
-    expect(html).toContain('--surface-warm')
-    expect(html).toContain('--lead-fe')
-    // dark --bg ink on blush fills, never white-on-blush
-    expect(html).toContain('color: var(--ink)')
+    expect(html).toContain('--border-strong')   // shipped border-strong token
+    expect(html).toContain('--glass-panel-bg')  // 4-tier glass system
+    expect(html).toContain('--chart-1')          // ordinal chart palette (replaces lead hues)
+    // dark --on-accent text on blush fills, never white-on-blush
+    expect(html).toContain('color: var(--on-accent)')
     // motion + responsive + focus
     expect(html).toContain('@media (prefers-reduced-motion: reduce)')
     expect(html).toMatch(/max-width:\s*720px/)
