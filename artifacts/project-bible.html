@@ -201,7 +201,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-13 16:32</span><br>
+      compiled <span class="mono">2026-07-13 18:58</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -4101,7 +4101,7 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
         <span class="section-icon">⌘</span>
         <h1>Operations</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-05</span>
+        <span class="section-updated mono">updated 2026-07-13</span>
       </header>
       <h2>Running locally</h2>
 <pre><code class="language-bash"># Prerequisites: Node 20, pnpm 10, claude CLI authenticated, gh CLI authenticated
@@ -4111,6 +4111,18 @@ pnpm --filter @k/core dev    # core API + WS  → http://localhost:3001
 pnpm --filter @k/web dev     # dashboard      → http://localhost:5173
 pnpm dev                     # both in parallel
 </code></pre>
+<h3>Dev-stack hygiene</h3>
+<ul>
+<li><code>pnpm --filter @k/core dev</code> is <strong>non-watch by default</strong> (F4) — one boot, no auto-restart on file
+save. Hot-restart-on-save is opt-in: <code>pnpm --filter @k/core dev:watch</code>.</li>
+<li>Never leave a dev stack (watched or not) running across a <code>git merge</code>/rebase, or while hand-editing
+schema/migrations in <code>core/src/db.ts</code> — an in-place restart can boot mid-edit and stamp a schema
+version before its migration exists (see the poisoned-stamp incident under Schema migrations).</li>
+<li>Before merging anything that touches <code>core/src/db.ts</code>, run <code>pnpm smoke:upgrade</code>
+(<code>core/scripts/upgrade-smoke.mjs</code>) — it copies the real dev DB to a temp dir, boots the merged core
+against the copy on port 3299, and polls <code>/api/runs</code> + <code>/api/profiles</code>, proving the <strong>upgrade</strong>
+path boots (not just a fresh install).</li>
+</ul>
 <h2>Environment (<code>core/.env</code>)</h2>
 <pre><code>PORT=3001
 HOST=127.0.0.1                        # loopback default; only set 0.0.0.0 behind Tailscale / an auth proxy (see Remote access)
@@ -4143,7 +4155,7 @@ recon finding that the Claude default model was an env-frozen <code>const</code>
 </thead>
 <tbody><tr>
 <td>SQLite (runs, events, artifacts, projects, verification)</td>
-<td><code>core/data/k.db</code> (WAL)</td>
+<td><code>data/k.db</code> (WAL)</td>
 <td>no</td>
 </tr>
 <tr>
@@ -4195,6 +4207,9 @@ recon finding that the Claude default model was an env-frozen <code>const</code>
 <p><code>artifacts/</code> and <code>tasks/</code> are <strong>K-system directories</strong> — the same hidden, gitignored names in every
 managed project (<code>onboard.ts ensureGitignore</code> adds them); bibles scaffold into <code>artifacts/bible/</code>.
 K's own bible therefore lives on-disk as a living spec and is <strong>not</strong> under version control.</p>
+<p><strong><code>data/k.db</code> is a dev database</strong> — disposable test/dev data only, never personal data; the only
+registered project is the K repo itself (<code>jarvis-core</code> → the repo root). Treat it as expendable: if
+it needs wiping to recover from a bad state, wipe it.</p>
 <h2>Bible workflow</h2>
 <ul>
 <li>Edit a section under <code>artifacts/bible/sections/</code> (update its <code>updated:</code> frontmatter).</li>
@@ -4346,7 +4361,7 @@ gitignored data dir.</p>
 <h2>Troubleshooting</h2>
 <ul>
 <li><strong>Stale worktree after a crash.</strong> A crashed or killed run can leave a <code>.worktrees/&lt;runId&gt;</code> directory behind. On boot, <code>reconcileOnBoot</code> (core/src/supervisor.ts, wired in index.ts) auto-reconciles runs stuck in <code>running</code>/<code>queued</code> to <code>interrupted</code>, removes orphaned <code>.worktrees/*</code> dirs, <strong>then</strong> runs <code>git worktree prune</code> — the prune runs <strong>after</strong> dir removal (W10b/F-091) so a crash-orphaned worktree's metadata is reclaimed the same boot. On Windows, <code>removeWorktree</code> retries an <code>EBUSY</code> (3× backoff) before a best-effort swallow (the happy path adds no delay); a file lock that still blocks removal is logged non-fatal — if a stale dir persists, close any process holding it and run <code>git worktree prune</code> manually, then delete the directory.</li>
-<li><strong>SQLite "database is locked".</strong> <code>core/data/k.db</code> runs in WAL mode. A first boot after a new schema migration, or two core processes pointing at the same DB, can race and surface a lock. Run a single core process, and start the dev server <strong>stopped</strong> for the first boot after a migration (see Schema migrations). The <code>-wal</code>/<code>-shm</code> sidecar files are normal and are checkpointed automatically.</li>
+<li><strong>SQLite "database is locked".</strong> <code>data/k.db</code> runs in WAL mode. A first boot after a new schema migration, or two core processes pointing at the same DB, can race and surface a lock. Run a single core process, and start the dev server <strong>stopped</strong> for the first boot after a migration (see Schema migrations). The <code>-wal</code>/<code>-shm</code> sidecar files are normal and are checkpointed automatically.</li>
 <li><strong>Port already in use.</strong> The core binds <code>PORT</code> (default 3001) and the web dev server binds 5173. If either is taken (<code>EADDRINUSE</code>), stop the other process or change <code>PORT</code> in <code>core/.env</code> (and <code>CORS_ORIGIN</code> to match the web origin). On Windows, find the holder with <code>netstat -ano | findstr :3001</code>.</li>
 <li><strong>A registered project's folder was moved/deleted.</strong> The GitHub poller <strong>skips</strong> a project whose <code>localPath</code> no longer exists instead of erroring every cycle (one warn per boot per project; the row is never deleted or mutated), and the read surface stamps an additive <code>Project.pathMissing</code> so the UI can say why (P5.7, D-058). Re-register or restore the path to resume polling.</li>
 </ul>
@@ -4559,6 +4574,30 @@ retries on the next open. <strong>Bump discipline (documented at the constant in
 <code>SCHEMA_VERSION</code> — an older-stamped DB then re-runs the scan and is re-stamped.
 The per-step guards stay as belt-and-suspenders for the slow path and for
 concurrent first-boots racing before the stamp lands.</p>
+<p><strong>Sentinel guard against a poisoned stamp (F1).</strong> The fast path above trusts <code>PRAGMA user_version</code>
+blindly, which only holds if the stamp and the actual schema agree. <code>migrate()</code> now checks a
+<strong>sentinel column</strong> (<code>SCHEMA_SENTINEL = { table: 'projects', column: 'budget_daily_usd' }</code>, updated
+alongside every <code>SCHEMA_VERSION</code> bump) before honoring a matching stamp: if the sentinel column
+doesn't actually exist on <code>projects</code>, the stamp is treated as poisoned — <code>migrate()</code> logs a warning
+and falls through to the full <code>migrateSlow()</code> rescan regardless of what <code>user_version</code> says. Because
+that rescan is idempotent (guarded ALTERs), it self-heals every missing column and re-stamps
+correctly with no manual intervention.</p>
+<p><strong>The 2026-07-13 poisoned-stamp incident (motivating F1).</strong> The dev DB (<code>data/k.db</code>, repo root) was
+found stamped <code>user_version = 12</code> with <strong>zero</strong> of the v12 columns present. Mechanism: a
+<code>pnpm --filter @k/core dev:watch</code> process was running against the real DB during schema editing; an
+intermediate save hot-restarted core mid-edit and stamped 12 before the v12 migration block existed
+in <code>migrateSlow()</code>. The pre-F1 fast path trusted that stamp unconditionally, so <code>migrate()</code> returned
+immediately on every later boot and the DB was never repaired. After the P5 merge landed, module-level
+<code>db.prepare()</code> statements referencing v12 columns crashed core at import
+(<code>SqliteError: no such column: budget_daily_usd</code>) → crash-loop → every <code>/api</code> route <code>503</code> — the whole
+backend appeared dead. CI, all test suites, and live smokes all exercise fresh DBs
+(<code>CREATE TABLE IF NOT EXISTS</code>), so none of them could have caught an upgrade-path bug like this — see
+<code>pnpm smoke:upgrade</code> under Dev-stack hygiene, which now closes that gap.</p>
+<p><strong>Recovery procedure</strong> for a DB found in this state: stop every process pointed at it, force the
+stamp back to zero (<code>PRAGMA user_version = 0</code>), then boot core <strong>once</strong> with the rest of the stack
+stopped — the migration scan runs unconditionally at <code>user_version = 0</code>, and being idempotent, heals
+every missing column and re-stamps to the current <code>SCHEMA_VERSION</code>. With F1 in place this manual
+recovery is now also the automatic behavior the next time a poisoned stamp is opened.</p>
 <p><strong>One-shot, flag-guarded migrations (P5.7).</strong> Some evolutions cannot be
 plain-idempotent ALTERs and run exactly once, guarded by an <code>app_config</code> flag
 (re-checked <em>inside</em> an IMMEDIATE transaction, so racing processes no-op):</p>
