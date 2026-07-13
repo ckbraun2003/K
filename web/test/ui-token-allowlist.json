@@ -1,0 +1,13 @@
+[
+  "components/ConfirmDialog.tsx",
+  "components/DocViewer.tsx",
+  "components/SourceBadge.tsx",
+  "lib/evals.ts",
+  "pages/SkillCreatorPage.tsx",
+  "pages/insights/EvalsTab.tsx",
+  "pages/skills/AutomationsTab.tsx",
+  "pages/skills/CatalogTab.tsx",
+  "pages/skills/McpTab.tsx",
+  "pages/tabs/KnowledgeGraphTab.tsx",
+  "pages/TerminalPage.tsx"
+]
