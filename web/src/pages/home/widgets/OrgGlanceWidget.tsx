@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import type { ChiefOrgPayload } from '@k/shared'
 import { api } from '../../../lib/api'
 import { navigate } from '../../../lib/route'
+import { SectionHeader } from '../../../ui/SectionHeader'
+import { Skeleton } from '../../../ui/Skeleton'
 
 /**
  * OrgGlanceWidget (UI Simplification Task 13) — ports KHome's glance line
@@ -18,7 +20,7 @@ import { navigate } from '../../../lib/route'
  * D-026 honesty posture (real data only, never a synthesized band).
  */
 export default function OrgGlanceWidget() {
-  const { data: org, isError } = useQuery<ChiefOrgPayload>({ queryKey: ['chief-org'], queryFn: () => api.chief.org() })
+  const { data: org, isError, isPending } = useQuery<ChiefOrgPayload>({ queryKey: ['chief-org'], queryFn: () => api.chief.org() })
   const leadsActive = org?.health.leadsActive ?? 0
   const objectives = org?.assignments.length ?? 0
 
@@ -29,17 +31,24 @@ export default function OrgGlanceWidget() {
       onClick={() => navigate('agents', 'org', 'tree')}
       className="flex h-full w-full flex-col gap-2 overflow-y-auto p-3 text-left transition-colors hover:bg-[var(--raised)]"
     >
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Org at a glance</h2>
-      {isError ? (
-        <p data-testid="widget-org-glance-error" className="text-xs italic text-[var(--red)]">org status unavailable</p>
+      <SectionHeader label="Org at a glance" />
+      {isPending ? (
+        // Hand-rolled (not <SkeletonTile>): that component bakes in its own
+        // glass-panel tier, which would nest backdrop-filter inside this cell's
+        // GlassPanel tier="panel" ancestor (OverviewView).
+        <div aria-hidden="true">
+          <Skeleton className="h-4 w-40" />
+        </div>
+      ) : isError ? (
+        <p data-testid="widget-org-glance-error" className="text-caption text-red">org status unavailable</p>
       ) : (
-        <p className="text-sm text-[var(--muted)]">
-          <span className="text-[var(--text)]">{leadsActive}</span> lead{leadsActive === 1 ? '' : 's'} active
+        <p className="text-body text-muted">
+          <span className="mono text-text">{leadsActive}</span> lead{leadsActive === 1 ? '' : 's'} active
           {' · '}
-          <span className="text-[var(--text)]">{objectives}</span> objective{objectives === 1 ? '' : 's'} in flight
+          <span className="mono text-text">{objectives}</span> objective{objectives === 1 ? '' : 's'} in flight
         </p>
       )}
-      <span className="mt-auto text-[11px] text-[var(--accent-hover)]">Chief →</span>
+      <span className="mt-auto text-caption text-accent-hover">Chief →</span>
     </button>
   )
 }

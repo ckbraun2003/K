@@ -4,6 +4,9 @@ import { RUNS_LIST_KEY, runsListQueryFn, isActiveRun, isParkedRun } from '../../
 import { runStatusMeta } from '../../../lib/status'
 import { cleanRunPrompt } from '../../../lib/prompt'
 import { navigate } from '../../../lib/route'
+import { SectionHeader } from '../../../ui/SectionHeader'
+import { Icon } from '../../../ui/Icon'
+import { Skeleton } from '../../../ui/Skeleton'
 
 /**
  * ActiveRunsWidget (UI Simplification Task 13) — ports ActivityStrip's
@@ -22,7 +25,7 @@ import { navigate } from '../../../lib/route'
  * ("awaiting input" / "plan ready") and a running row always reads green.
  */
 export default function ActiveRunsWidget() {
-  const { data: runs = [], isError } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn, refetchInterval: 10_000 })
+  const { data: runs = [], isError, isPending } = useQuery<Run[]>({ queryKey: RUNS_LIST_KEY, queryFn: runsListQueryFn, refetchInterval: 10_000 })
 
   const parked = runs.filter(isParkedRun)
   const active = runs.filter(isActiveRun)
@@ -30,11 +33,30 @@ export default function ActiveRunsWidget() {
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Active runs</h2>
-      {isError ? (
-        <p data-testid="widget-active-runs-error" className="text-xs italic text-[var(--red)]">Failed to load runs.</p>
+      <SectionHeader label="Active runs" />
+      {isPending ? (
+        // Hand-rolled (not <SkeletonTile>): that component bakes in its own
+        // glass-panel tier, which would nest backdrop-filter inside this cell's
+        // GlassPanel tier="panel" ancestor (OverviewView).
+        <div aria-hidden="true" className="flex flex-col gap-1.5">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2 px-1.5 py-1">
+              <Skeleton className="h-1.5 w-1.5 rounded-pill" />
+              <Skeleton className="h-3 flex-1" />
+              <Skeleton className="h-3 w-12 rounded-pill" />
+            </div>
+          ))}
+        </div>
+      ) : isError ? (
+        <p data-testid="widget-active-runs-error" className="text-caption text-red">Failed to load runs.</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm italic text-[var(--muted)]">Idle — no agents running.</p>
+        // Hand-rolled (not <EmptyState>): this cell renders inside OverviewView's
+        // GlassPanel tier="panel" — EmptyState's own icon bubble is itself a
+        // glass-panel, which would nest backdrop-filter inside backdrop-filter.
+        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-4 text-center">
+          <Icon name="runs" size={20} className="text-muted" />
+          <p className="text-body font-medium text-text">Idle — dispatch with ⌘K</p>
+        </div>
       ) : (
         <div className="flex flex-col gap-1">
           {rows.map(r => {
@@ -45,11 +67,11 @@ export default function ActiveRunsWidget() {
                 type="button"
                 data-testid="widget-active-runs-row"
                 onClick={() => navigate('runs', r.id)}
-                className="flex items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors hover:bg-[var(--raised)]"
+                className="flex items-center gap-2 rounded-control px-1.5 py-1 text-left text-body transition-colors hover:bg-raised"
               >
-                <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${meta.dot}`} />
-                <span className="min-w-0 flex-1 truncate text-[var(--text)]">{cleanRunPrompt(r.prompt)}</span>
-                <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${meta.badge}`}>
+                <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-pill ${meta.dot}`} />
+                <span className="min-w-0 flex-1 truncate text-text">{cleanRunPrompt(r.prompt)}</span>
+                <span className={`flex-shrink-0 rounded-pill px-1.5 py-0.5 text-micro font-medium ${meta.badge}`}>
                   {meta.label}
                 </span>
               </button>

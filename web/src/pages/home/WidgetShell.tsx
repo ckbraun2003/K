@@ -1,6 +1,7 @@
 import type { HomeLayout, HomeWidgetPlacement } from '@k/shared'
 import SegControl from '../../components/SegControl'
 import { fits } from '../../lib/home-layout'
+import { IconButton } from '../../ui/Button'
 
 type SizeKey = '1x1' | '2x1' | '1x2' | '2x2'
 const SIZES: Array<{ key: SizeKey; w: 1 | 2; h: 1 | 2 }> = [
@@ -43,8 +44,8 @@ export default function WidgetShell({ placement, layout, onChange }: Props) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1 border-b border-[var(--border)] bg-[var(--bg)]/70 p-1 text-[10px]">
-      <span className="mr-auto truncate font-medium text-[var(--text)]">{placement.id}</span>
+    <div className="flex flex-wrap items-center gap-1 border-b border-border bg-bg/70 p-1 text-micro">
+      <span className="mr-auto truncate font-medium text-text">{placement.id}</span>
       <SegControl<SizeKey>
         size="sm"
         activeTone="accent"
@@ -67,21 +68,21 @@ export default function WidgetShell({ placement, layout, onChange }: Props) {
           const [x, y] = e.target.value.split(',').map(Number)
           replace({ ...placement, x, y })
         }}
-        className="rounded border border-[var(--border)] bg-transparent px-1 py-0.5 text-[var(--muted)]"
+        className="rounded-control border border-border bg-transparent px-1 py-0.5 text-muted"
       >
         {moveCells.map(({ x, y }) => (
           <option key={`${x}-${y}`} value={`${x},${y}`}>{x},{y}</option>
         ))}
       </select>
-      <button
-        type="button"
+      <IconButton
+        name="close"
+        label={`Remove ${placement.id}`}
+        variant="ghost"
+        size="sm"
         data-testid={`widget-remove-${placement.id}`}
-        aria-label={`Remove ${placement.id}`}
         onClick={remove}
-        className="px-1 text-[var(--red)] transition-opacity hover:opacity-80"
-      >
-        &times;
-      </button>
+        className="text-red hover:bg-red/10 hover:text-red"
+      />
     </div>
   )
 }

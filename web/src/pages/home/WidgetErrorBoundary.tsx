@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import type { HomeWidgetId } from '@k/shared'
+import { Icon } from '../../ui/Icon'
 
 /**
  * Per-cell error boundary (UI Simplification Task 12) — wraps a widget's
@@ -33,7 +34,8 @@ export default class WidgetErrorBoundary extends Component<Props, State> {
   render(): ReactNode {
     if (this.state.hasError) {
       return (
-        <div data-testid={`widget-error-${this.props.id}`} className="p-3 text-xs text-[var(--red)]">
+        <div data-testid={`widget-error-${this.props.id}`} className="flex items-center gap-1.5 p-3 text-caption text-red">
+          <Icon name="warning" size={14} />
           This widget hit an error. The rest of Home is fine.
         </div>
       )

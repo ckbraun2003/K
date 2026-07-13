@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import type { CostRollup } from '@k/shared'
 import { api } from '../../../lib/api'
 import MetricCard from '../../../components/MetricCard'
+import { SectionHeader } from '../../../ui/SectionHeader'
+import { Skeleton } from '../../../ui/Skeleton'
 
 const COST_ROLLUP_DAYS = 14
 
@@ -34,7 +36,7 @@ function todayUtcKey(): string {
  * $0.0000 would be indistinguishable from an honest zero-spend day (D-026).
  */
 export default function CostTodayWidget() {
-  const { data, isError } = useQuery<CostRollup>({
+  const { data, isError, isPending } = useQuery<CostRollup>({
     queryKey: COST_TODAY_KEY,
     queryFn: () => api.metrics.costRollup({ days: COST_ROLLUP_DAYS, groupBy: 'day' }),
   })
@@ -46,9 +48,18 @@ export default function CostTodayWidget() {
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3" data-testid="widget-cost-today">
-      <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Cost today</h2>
-      {isError ? (
-        <p data-testid="widget-cost-today-error" className="text-xs italic text-[var(--red)]">Failed to load cost data.</p>
+      <SectionHeader label="Cost today" />
+      {isPending ? (
+        // Hand-rolled (not <SkeletonTile>): that component bakes in its own
+        // glass-panel tier, which would nest backdrop-filter inside this cell's
+        // GlassPanel tier="panel" ancestor (OverviewView).
+        <div aria-hidden="true" className="space-y-3">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-7 w-32" />
+          <Skeleton className="h-3 w-full" />
+        </div>
+      ) : isError ? (
+        <p data-testid="widget-cost-today-error" className="text-caption text-red">Failed to load cost data.</p>
       ) : (
         <MetricCard label="Measured, billed" value={`$${todayCostUsd.toFixed(4)}`} spark={spark} accent />
       )}

@@ -5,6 +5,11 @@ import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { useSelectedThread, selectThread, getSelectedThread } from '../../lib/thread-select'
 import { relativeTime } from '../../lib/verify'
+import { SectionHeader } from '../../ui/SectionHeader'
+import { EmptyState } from '../../ui/EmptyState'
+import { SkeletonRow } from '../../ui/Skeleton'
+import { Button, IconButton } from '../../ui/Button'
+import { Tag } from '../../ui/Tag'
 
 /** A thrown `api.threads.get` error that means the thread is DELETED (a 404) — the not-found
  *  route answers `{ error: 'not found' }`, a bare non-ok falls back to `404 <statusText>`. Lets
@@ -60,7 +65,7 @@ export default function ChatView() {
   const [archivedSelection, setArchivedSelection] = useState<string | null>(null)
   const tailRef = useRef<HTMLDivElement>(null)
 
-  const { data: threadsData, isError: threadsFailed, isSuccess: threadsLoaded } = useQuery({
+  const { data: threadsData, isError: threadsFailed, isSuccess: threadsLoaded, isPending: threadsPending } = useQuery({
     queryKey: ['k-threads'],
     queryFn: () => api.threads.list(),
   })
@@ -171,77 +176,100 @@ export default function ChatView() {
     if (e.key === 'Escape') setRenamingId(null)
   }
 
+  // Exactly one "+ New chat" trigger is ever visible: the header action covers
+  // loading/failed/populated, and the rail's own EmptyState (0 threads, settled)
+  // supplies the CTA in that one remaining case — never both at once.
+  const showHeaderNewChat = threadsPending || threadsFailed || threads.length > 0
+
   return (
     <div className="flex min-h-0 flex-1 gap-3">
       {/* Thread list */}
-      <div className="glass-tint rounded-panel w-64 shrink-0 overflow-y-auto">
-        <button
-          type="button"
-          data-testid="chat-new"
-          onClick={() => selectThread(null)}
-          className="block w-full px-3 py-2 text-left text-xs font-medium text-[var(--accent-hover)] transition-colors duration-100 hover:bg-[var(--raised)]"
-        >
-          + New chat
-        </button>
-        {threads.map(t => {
-          const isSelected = t.id === effectiveId
-          return (
-            <div
-              key={t.id}
-              data-testid={`chat-thread-row-${t.id}`}
-              className={`group flex items-center gap-1 border-l-2 px-3 py-2 ${
-                isSelected ? 'border-accent/50 bg-accent/10' : 'border-transparent hover:bg-[var(--raised)]'
-              }`}
-            >
-              {renamingId === t.id ? (
-                <input
-                  autoFocus
-                  data-testid={`chat-rename-input-${t.id}`}
-                  aria-label="Rename chat"
-                  value={renameText}
-                  onChange={e => setRenameText(e.target.value)}
-                  onKeyDown={e => onRenameKeyDown(e, t.id)}
-                  onBlur={() => setRenamingId(null)}
-                  className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--surface)] px-1 py-0.5 text-xs text-[var(--text)] outline-none"
-                />
-              ) : (
-                <button type="button" onClick={() => selectThread(t.id)} className="min-w-0 flex-1 text-left">
-                  <div className="truncate text-xs font-medium text-[var(--text)]">{t.title ?? 'New chat'}</div>
-                  {t.snippet && <div className="truncate text-xs text-[var(--muted)]">{t.snippet}</div>}
-                  {t.lastTurnAt != null && (
-                    <div className="mono text-[10px] text-[var(--muted)]">{relativeTime(t.lastTurnAt)}</div>
-                  )}
-                </button>
-              )}
-              <button
-                type="button"
-                data-testid={`chat-rename-${t.id}`}
-                aria-label="Rename"
-                title="Rename"
-                onClick={() => startRename(t)}
-                className="shrink-0 text-[var(--muted)] opacity-0 transition-opacity duration-100 hover:text-[var(--text)] group-hover:opacity-100"
+      <div className="surface-solid rounded-panel flex w-64 shrink-0 flex-col overflow-y-auto">
+        <div className="px-2 pt-2">
+          <SectionHeader
+            label="Chats"
+            action={showHeaderNewChat ? (
+              <Button
+                variant="glass"
+                size="sm"
+                icon="plus"
+                data-testid="chat-new"
+                onClick={() => selectThread(null)}
               >
-                ✎
-              </button>
-              <button
-                type="button"
-                data-testid={`chat-archive-${t.id}`}
-                aria-label="Archive"
-                title="Archive"
-                onClick={() => archive.mutate(t.id)}
-                className="shrink-0 text-[var(--muted)] opacity-0 transition-opacity duration-100 hover:text-[var(--red)] group-hover:opacity-100"
-              >
-                ⌫
-              </button>
+                New chat
+              </Button>
+            ) : undefined}
+          />
+        </div>
+        <div className="flex-1 px-2 pb-2">
+          {threadsPending ? (
+            <div className="space-y-0.5">
+              {Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)}
             </div>
-          )
-        })}
+          ) : threadsLoaded && threads.length === 0 ? (
+            <EmptyState
+              icon="personal"
+              headline="No chats yet"
+              action={<Button icon="plus" onClick={() => selectThread(null)}>New chat</Button>}
+            />
+          ) : (
+            threads.map(t => {
+              const isSelected = t.id === effectiveId
+              return (
+                <div
+                  key={t.id}
+                  data-testid={`chat-thread-row-${t.id}`}
+                  className={`group flex items-center gap-1 rounded-control border-l-2 px-3 py-2 ${
+                    isSelected ? 'border-accent/50 bg-accent/10' : 'border-transparent hover:bg-raised'
+                  }`}
+                >
+                  {renamingId === t.id ? (
+                    <input
+                      autoFocus
+                      data-testid={`chat-rename-input-${t.id}`}
+                      aria-label="Rename chat"
+                      value={renameText}
+                      onChange={e => setRenameText(e.target.value)}
+                      onKeyDown={e => onRenameKeyDown(e, t.id)}
+                      onBlur={() => setRenamingId(null)}
+                      className="min-w-0 flex-1 rounded-control border border-border bg-surface px-1.5 py-1 text-body text-text outline-none"
+                    />
+                  ) : (
+                    <button type="button" onClick={() => selectThread(t.id)} className="min-w-0 flex-1 text-left">
+                      <div className="truncate text-body font-medium text-text">{t.title ?? 'New chat'}</div>
+                      {t.snippet && <div className="truncate text-caption text-muted">{t.snippet}</div>}
+                      {t.lastTurnAt != null && (
+                        <div className="mono text-caption text-muted">{relativeTime(t.lastTurnAt)}</div>
+                      )}
+                    </button>
+                  )}
+                  <IconButton
+                    name="edit"
+                    label="Rename"
+                    variant="ghost"
+                    data-testid={`chat-rename-${t.id}`}
+                    onClick={() => startRename(t)}
+                    className="shrink-0 opacity-0 transition-[opacity,transform,filter,background-color,border-color] duration-100 group-hover:opacity-100"
+                  />
+                  <IconButton
+                    name="trash"
+                    label="Archive"
+                    variant="ghost"
+                    data-testid={`chat-archive-${t.id}`}
+                    onClick={() => archive.mutate(t.id)}
+                    className="shrink-0 opacity-0 transition-[opacity,transform,filter,background-color,border-color] duration-100 hover:text-red group-hover:opacity-100"
+                  />
+                </div>
+              )
+            })
+          )}
+        </div>
       </div>
 
       {/* Transcript */}
-      <div className="glass-tint rounded-panel flex-1 overflow-y-auto p-4">
+      <div className="surface-solid rounded-panel flex-1 overflow-y-auto p-4">
         {effectiveId === null ? (
-          <p data-testid="chat-empty" className="text-sm italic text-[var(--muted)]">
+          <p data-testid="chat-empty" className="text-body text-muted">
             Start a new conversation — the bar below sends to it.
           </p>
         ) : (
@@ -250,11 +278,11 @@ export default function ChatView() {
               <div className="flex items-center gap-1.5">
                 <span
                   data-testid="chat-archived-indicator"
-                  className="flex-shrink-0 rounded bg-amber/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--amber)]"
+                  className="flex-shrink-0 rounded-pill bg-amber/20 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-amber"
                 >
                   archived
                 </span>
-                <span className="text-[10px] text-[var(--muted)]">Sending restores this chat.</span>
+                <span className="text-micro text-muted">Sending restores this chat.</span>
               </div>
             )}
             {turns.map(t => (
@@ -263,26 +291,21 @@ export default function ChatView() {
                 data-testid={t.role === 'user' ? 'chat-turn-user' : 'chat-turn-k'}
                 className={`flex flex-col gap-0.5 ${t.role === 'user' ? 'items-end' : 'items-start'}`}
               >
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                <span className="text-caption font-semibold uppercase tracking-wide text-muted">
                   {t.role === 'user' ? 'You' : 'K'}
                 </span>
                 <div
-                  className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
+                  className={`max-w-[85%] whitespace-pre-wrap rounded-control px-3 py-2 text-body ${
                     t.role === 'user'
-                      ? 'bg-accent/15 text-[var(--text)]'
-                      : 'border border-[var(--border)] bg-[var(--raised)] text-[var(--text)]'
+                      ? 'bg-accent/15 text-text'
+                      : 'border border-border bg-raised text-text'
                   }`}
                 >
                   {t.text}
                 </div>
                 {t.runId && (
-                  <button
-                    type="button"
-                    data-testid="chat-run-chip"
-                    onClick={() => navigate('runs', t.runId!)}
-                    className="text-xs text-[var(--accent-hover)] transition-colors duration-100 hover:text-[var(--text)]"
-                  >
-                    → view run
+                  <button type="button" data-testid="chat-run-chip" onClick={() => navigate('runs', t.runId!)}>
+                    <Tag tint="sky">→ view run</Tag>
                   </button>
                 )}
               </div>

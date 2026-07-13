@@ -35,7 +35,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 p-4">
+    <div className="flex h-full flex-col gap-3 p-5">
       <SegControl<HomeView>
         ariaLabel="Home view"
         value={view}
