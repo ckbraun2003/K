@@ -3,6 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Note, KSchedule, WorkItem } from '@k/shared'
 import { api } from '../../lib/api'
 import SegControl from '../../components/SegControl'
+import { Button } from '../../ui/Button'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { SectionHeader } from '../../ui/SectionHeader'
+import { SkeletonRow } from '../../ui/Skeleton'
+import { StatusPill } from '../../ui/StatusPill'
+import { Icon } from '../../ui/Icon'
 
 type Scope = 'personal' | 'org'
 
@@ -36,12 +42,12 @@ export default function TasksTab() {
   const [scope, setScope] = useState<Scope>('personal')
   const [newItemTitle, setNewItemTitle] = useState('')
 
-  const { data: items = [], isError: itemsError } = useQuery<WorkItem[]>({
+  const { data: items = [], isError: itemsError, isPending: itemsPending } = useQuery<WorkItem[]>({
     queryKey: ['k-work-items', 'all'],
     queryFn: () => api.k.workItems.list(),
   })
-  const { data: notes = [], isError: notesError } = useQuery<Note[]>({ queryKey: ['k-notes'], queryFn: () => api.k.notes() })
-  const { data: schedule, isError: scheduleError } = useQuery<KSchedule>({ queryKey: ['k-schedule'], queryFn: () => api.k.schedule() })
+  const { data: notes = [], isError: notesError, isPending: notesPending } = useQuery<Note[]>({ queryKey: ['k-notes'], queryFn: () => api.k.notes() })
+  const { data: schedule, isError: scheduleError, isPending: schedulePending } = useQuery<KSchedule>({ queryKey: ['k-schedule'], queryFn: () => api.k.schedule() })
 
   const toggleItem = useMutation({
     mutationFn: (item: WorkItem) => api.k.workItems.setStatus(item.id, item.status === 'done' ? 'open' : 'done'),
@@ -71,23 +77,32 @@ export default function TasksTab() {
   return (
     <div className="grid flex-1 gap-4 overflow-y-auto lg:grid-cols-2">
       {/* Left: work items — both scopes fetched, filtered client-side. */}
-      <section data-testid="tasks-workitems" className="glass-tint rounded-panel p-4">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Your work</h2>
-          <SegControl<Scope>
-            ariaLabel="Work item scope"
-            options={[{ label: 'Personal', value: 'personal' }, { label: 'Org', value: 'org' }]}
-            value={scope}
-            onChange={setScope}
-            size="sm"
-          />
-        </div>
-        {itemsError ? (
-          <p data-testid="tasks-workitems-error" className="mt-3 text-xs italic text-[var(--red)]">
+      <GlassPanel as="section" tier="panel" data-testid="tasks-workitems" className="rounded-panel p-4">
+        <SectionHeader
+          label="Your work"
+          action={
+            <SegControl<Scope>
+              ariaLabel="Work item scope"
+              options={[{ label: 'Personal', value: 'personal' }, { label: 'Org', value: 'org' }]}
+              value={scope}
+              onChange={setScope}
+              size="sm"
+            />
+          }
+        />
+        {itemsPending ? (
+          <div className="mt-3">
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </div>
+        ) : itemsError ? (
+          <p data-testid="tasks-workitems-error" className="mt-3 flex items-center gap-1.5 text-caption text-red">
+            <Icon name="warning" size={14} className="text-red" />
             Failed to load work items.
           </p>
         ) : filtered.length === 0 ? (
-          <p className="mt-3 text-sm italic text-[var(--muted)]">No {scope} work items yet.</p>
+          <p className="mt-3 text-body text-muted">No {scope} work items yet.</p>
         ) : (
           <div className="mt-3 space-y-1.5">
             {filtered.map(item => (
@@ -99,18 +114,18 @@ export default function TasksTab() {
                   checked={item.status === 'done'}
                   disabled={toggleItem.isPending}
                   onChange={() => toggleItem.mutate(item)}
-                  className="flex-shrink-0 accent-[var(--accent)]"
+                  className="flex-shrink-0 accent-accent"
                 />
                 <span
-                  className={`min-w-0 flex-1 truncate text-sm ${item.status === 'done' ? 'text-[var(--muted)] line-through' : 'text-[var(--text)]'}`}
+                  className={`min-w-0 flex-1 truncate text-body ${item.status === 'done' ? 'text-muted line-through' : 'text-text'}`}
                 >
                   {item.title}
                 </span>
-                {/* A pill only for the in-between states — open/done read from the checkbox. */}
+                {/* A pill only for the in-between states — open/done read from the checkbox.
+                    Work-item statuses like 'blocked' aren't in StatusPill's canonical set:
+                    the neutral idle-look fallback with the honest literal label is intentional. */}
                 {item.status !== 'open' && item.status !== 'done' && (
-                  <span className="flex-shrink-0 rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--amber)]">
-                    {item.status}
-                  </span>
+                  <StatusPill status={item.status} label={item.status} className="flex-shrink-0" />
                 )}
               </div>
             ))}
@@ -131,86 +146,100 @@ export default function TasksTab() {
               onKeyDown={onAddItemKeyDown}
               placeholder="add a work item…"
               aria-label="New work item title"
-              className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] placeholder-[var(--muted)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+              className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-caption text-text placeholder-muted outline-none focus:border-accent-hover/35"
             />
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               data-testid="tasks-workitem-add"
-              type="button"
+              className="flex-shrink-0"
               disabled={!newItemTitle.trim() || addItem.isPending}
               onClick={() => addItem.mutate(newItemTitle.trim())}
-              className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[color:rgba(56,189,248,0.35)] disabled:opacity-50"
             >
-              add
-            </button>
+              Add
+            </Button>
           </div>
         ) : (
-          <p data-testid="tasks-workitem-add-org-hint" className="mt-3 text-[11px] italic text-[var(--muted)]">
+          <p data-testid="tasks-workitem-add-org-hint" className="mt-3 text-caption text-muted">
             Org items are created by the org — switch to Personal to add one.
           </p>
         )}
         {/* Mutation failures surface inline — never a silently-lost toggle/add. */}
         {(toggleItem.isError || addItem.isError) && (
-          <p data-testid="tasks-workitem-error" className="mt-2 text-[11px] text-[var(--red)]">
-            ⚠ {((toggleItem.error ?? addItem.error) as Error).message}
+          <p data-testid="tasks-workitem-error" className="mt-2 flex items-center gap-1.5 text-caption text-red">
+            <Icon name="warning" size={14} className="text-red" />
+            {((toggleItem.error ?? addItem.error) as Error).message}
           </p>
         )}
-      </section>
+      </GlassPanel>
 
       {/* Right: Notes + Schedule, stacked. */}
       <div className="flex flex-col gap-4">
-        <section data-testid="tasks-notes" className="glass-tint rounded-panel p-4">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Notes</h2>
-          {notesError ? (
-            <p data-testid="tasks-notes-error" className="mt-3 text-xs italic text-[var(--red)]">
+        <GlassPanel as="section" tier="panel" data-testid="tasks-notes" className="rounded-panel p-4">
+          <SectionHeader label="Notes" />
+          {notesPending ? (
+            <div className="mt-3">
+              <SkeletonRow />
+              <SkeletonRow />
+            </div>
+          ) : notesError ? (
+            <p data-testid="tasks-notes-error" className="mt-3 flex items-center gap-1.5 text-caption text-red">
+              <Icon name="warning" size={14} className="text-red" />
               Failed to load notes.
             </p>
           ) : notes.length === 0 ? (
-            <p className="mt-3 text-sm italic text-[var(--muted)]">No notes yet — ask K to take one.</p>
+            <p className="mt-3 text-body text-muted">No notes yet — ask K to take one.</p>
           ) : (
             <ul className="mt-3 space-y-1.5">
               {notes.map(n => (
                 <li
                   key={n.id}
-                  className={`truncate text-sm ${n.done ? 'text-[var(--muted)] line-through' : 'text-[var(--text)]'}`}
+                  className={`truncate text-body ${n.done ? 'text-muted line-through' : 'text-text'}`}
                 >
-                  {n.done && <span className="mr-1 text-[var(--green)]">✓</span>}
+                  {n.done && <span className="mr-1 text-green">✓</span>}
                   {n.body}
                 </li>
               ))}
             </ul>
           )}
-        </section>
+        </GlassPanel>
 
-        <section data-testid="tasks-schedule" className="glass-tint rounded-panel p-4">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Schedule</h2>
-          {scheduleError ? (
-            <p data-testid="tasks-schedule-error" className="mt-3 text-xs italic text-[var(--red)]">
+        <GlassPanel as="section" tier="panel" data-testid="tasks-schedule" className="rounded-panel p-4">
+          <SectionHeader label="Schedule" />
+          {schedulePending ? (
+            <div className="mt-3">
+              <SkeletonRow />
+              <SkeletonRow />
+            </div>
+          ) : scheduleError ? (
+            <p data-testid="tasks-schedule-error" className="mt-3 flex items-center gap-1.5 text-caption text-red">
+              <Icon name="warning" size={14} className="text-red" />
               Failed to load schedule.
             </p>
           ) : (schedule?.events.length ?? 0) === 0 && (schedule?.reminders.length ?? 0) === 0 ? (
-            <p className="mt-3 text-sm italic text-[var(--muted)]">Nothing scheduled.</p>
+            <p className="mt-3 text-body text-muted">Nothing scheduled.</p>
           ) : (
             <ul className="mt-3 space-y-1.5">
               {(schedule?.events ?? []).map(ev => (
-                <li key={ev.id} className="flex items-baseline gap-2 text-sm">
-                  <span className="mono flex-shrink-0 text-[11px] text-[var(--muted)]">{shortWhen(ev.startsAt)}</span>
-                  <span className="min-w-0 truncate text-[var(--text)]">{ev.title}</span>
+                <li key={ev.id} className="flex items-baseline gap-2 text-body">
+                  <span className="mono flex-shrink-0 text-caption text-muted">{shortWhen(ev.startsAt)}</span>
+                  <span className="min-w-0 truncate text-text">{ev.title}</span>
                 </li>
               ))}
               {(schedule?.reminders ?? []).map(r => (
-                <li key={r.id} className="flex items-baseline gap-2 text-sm">
+                <li key={r.id} className="flex items-baseline gap-2 text-body">
                   {/* Overdue tinted red — the most important thing on the card. */}
-                  <span className={`mono flex-shrink-0 text-[11px] ${r.remindAt < now ? 'text-[var(--red)]' : 'text-[var(--muted)]'}`}>
+                  <span className={`mono flex-shrink-0 text-caption ${r.remindAt < now ? 'text-red' : 'text-muted'}`}>
                     {shortWhen(r.remindAt)}
                   </span>
-                  <span className={`min-w-0 truncate ${r.remindAt < now ? 'text-[var(--red)]' : 'text-[var(--text)]'}`}>
+                  <span className={`min-w-0 truncate ${r.remindAt < now ? 'text-red' : 'text-text'}`}>
                     ⏰ {r.text}
                   </span>
                 </li>
               ))}
             </ul>
           )}
-        </section>
+        </GlassPanel>
       </div>
     </div>
   )

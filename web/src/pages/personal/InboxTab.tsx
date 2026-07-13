@@ -6,6 +6,13 @@ import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { relativeTime } from '../../lib/verify'
 import Toast from '../../components/Toast'
+import { Button } from '../../ui/Button'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { SectionHeader } from '../../ui/SectionHeader'
+import { EmptyState } from '../../ui/EmptyState'
+import { SkeletonRow } from '../../ui/Skeleton'
+import { Tag } from '../../ui/Tag'
+import { Icon } from '../../ui/Icon'
 
 // Render order + section headings — plans/replies first (they hold a live process),
 // then review, then the async approve queues (lessons, MCP trust).
@@ -14,12 +21,6 @@ const SECTION_LABEL: Record<InboxItemKind, string> = {
   plan_pending: 'Plans to approve', input_needed: 'Runs waiting on your reply',
   review_ready: 'Ready for review', lesson_pending: 'Lessons to approve', mcp_trust: 'MCP servers to trust',
 }
-
-// Shared button shells — filled accents carry dark ink (text-[var(--bg)]) for contrast
-// on the bright green/amber tokens; the secondary is an outlined amber (destructive-ish).
-const BTN_PRIMARY = 'rounded-lg bg-[var(--green)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-50'
-const BTN_SECONDARY = 'rounded-lg border border-[var(--amber)]/40 px-3 py-1.5 text-xs font-semibold text-[var(--amber)] transition-colors hover:bg-amber/15 disabled:opacity-50'
-const BTN_NEUTRAL = 'rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[var(--accent)]'
 
 interface Handlers {
   approveLesson: (lessonId: string) => void
@@ -35,7 +36,7 @@ export default function InboxTab() {
   const [toast, setToast] = useState<string | null>(null)
   // The ONE shared inbox query (rail badge + this page key off it, so the page adds
   // zero extra fetches — inbox-query.ts). Undefined while loading → EMPTY (zero state).
-  const { data } = useQuery({ queryKey: INBOX_KEY, queryFn: inboxQueryFn })
+  const { data, isError, isPending } = useQuery({ queryKey: INBOX_KEY, queryFn: inboxQueryFn })
   const box = data ?? EMPTY_INBOX
 
   const fail = (verb: string) => (e: unknown) => setToast(`${verb} failed: ${(e as Error).message}`)
@@ -83,12 +84,21 @@ export default function InboxTab() {
 
   return (
     <div data-testid="inbox-page" className="h-full overflow-y-auto p-5">
-      {box.total === 0 ? (
-        <div
-          data-testid="inbox-zero"
-          className="flex flex-1 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] py-16 text-sm text-[var(--muted)]"
-        >
-          Inbox zero — nothing needs you.
+      {isPending ? (
+        <div className="flex flex-col gap-2">
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </div>
+      ) : isError ? (
+        <p data-testid="inbox-error" className="flex items-center gap-1.5 text-caption text-red">
+          <Icon name="warning" size={14} className="text-red" />
+          Failed to load inbox.
+        </p>
+      ) : box.total === 0 ? (
+        <div data-testid="inbox-zero">
+          <EmptyState icon="check" headline="Inbox zero — nothing needs you." />
         </div>
       ) : (
         <div className="flex flex-col gap-6">
@@ -98,17 +108,10 @@ export default function InboxTab() {
             const items = box.items.filter(i => i.kind === kind)
             return (
               <section key={kind} data-testid={`inbox-section-${kind}`}>
-                <div className="mb-2 flex items-center gap-2">
-                  <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-                    {SECTION_LABEL[kind]}
-                  </h2>
-                  <span className="rounded-full bg-[var(--raised)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
-                    {count}
-                  </span>
-                </div>
+                <SectionHeader label={SECTION_LABEL[kind]} count={count} />
                 <div className="flex flex-col gap-2">
                   {items.map(item => (
-                    <InboxCard key={item.id} item={item} handlers={handlers} />
+                    <InboxCard key={item.id} item={item} handlers={handlers} total={box.total} />
                   ))}
                 </div>
               </section>
@@ -124,24 +127,28 @@ export default function InboxTab() {
 
 // ── One inbox row card (LessonCard look: left = title + subtitle, right = actions) ──
 
-function InboxCard({ item, handlers }: { item: InboxItem; handlers: Handlers }) {
+function InboxCard({ item, handlers, total }: { item: InboxItem; handlers: Handlers; total: number }) {
   return (
-    <div
+    // DEV-15 (Task 14 precedent) — blur budget: >5 glass cards would exceed the
+    // ≤6-blurred-regions constraint, so a longer list degrades to the solid tier.
+    <GlassPanel
+      interactive
+      tier={total <= 5 ? 'panel' : 'solid'}
       data-testid={`inbox-card-${item.id}`}
-      className="flex items-start justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+      className="flex items-start justify-between gap-3 px-4 py-3"
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-[var(--text)]" title={item.title}>{item.title}</p>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted)]">
+        <p className="truncate text-body text-text" title={item.title}>{item.title}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-muted">
           <span>{item.projectName ?? '—'}</span>
-          <span>· {relativeTime(item.ts)}</span>
+          <span className="mono">· {relativeTime(item.ts)}</span>
           <CardMeta item={item} />
         </div>
       </div>
       <div className="flex flex-shrink-0 items-center gap-2">
         <CardActions item={item} handlers={handlers} />
       </div>
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -151,19 +158,19 @@ function CardMeta({ item }: { item: InboxItem }) {
     case 'plan_pending':
       return (
         <>
-          {item.risk && <span className="rounded bg-[var(--raised)] px-1.5 py-0.5">{item.risk} risk</span>}
-          {item.steps != null && <span className="rounded bg-[var(--raised)] px-1.5 py-0.5">{item.steps} steps</span>}
-          {item.edited && <span className="rounded bg-[var(--raised)] px-1.5 py-0.5">edited</span>}
+          {item.risk && <Tag tint="neutral">{item.risk} risk</Tag>}
+          {item.steps != null && <Tag tint="neutral" className="mono">{item.steps} steps</Tag>}
+          {item.edited && <Tag tint="neutral">edited</Tag>}
         </>
       )
     case 'input_needed':
-      return <span className="mono rounded bg-[var(--raised)] px-1.5 py-0.5">{item.model}</span>
+      return <Tag tint="neutral" className="mono">{item.model}</Tag>
     case 'review_ready':
-      return item.verifyStatus ? <span className="rounded bg-[var(--raised)] px-1.5 py-0.5">verify {item.verifyStatus}</span> : null
+      return item.verifyStatus ? <Tag tint="neutral">verify {item.verifyStatus}</Tag> : null
     case 'lesson_pending':
-      return <span className="rounded bg-[var(--raised)] px-1.5 py-0.5">{item.profileName ?? 'unassigned'}</span>
+      return <Tag tint="neutral">{item.profileName ?? 'unassigned'}</Tag>
     case 'mcp_trust':
-      return <span className="mono rounded bg-[var(--raised)] px-1.5 py-0.5">{item.sourceKind}</span>
+      return <Tag tint="neutral" className="mono">{item.sourceKind}</Tag>
   }
 }
 
@@ -171,72 +178,78 @@ function CardActions({ item, handlers }: { item: InboxItem; handlers: Handlers }
   switch (item.kind) {
     case 'plan_pending':
       return (
-        <button data-testid={`inbox-open-${item.id}`} onClick={() => navigate('runs', item.runId)} className={BTN_NEUTRAL}>
+        <Button variant="ghost" size="sm" data-testid={`inbox-open-${item.id}`} onClick={() => navigate('runs', item.runId)}>
           Review plan
-        </button>
+        </Button>
       )
     case 'input_needed':
       return (
-        <button data-testid={`inbox-open-${item.id}`} onClick={() => navigate('runs', item.runId)} className={BTN_NEUTRAL}>
+        <Button variant="ghost" size="sm" data-testid={`inbox-open-${item.id}`} onClick={() => navigate('runs', item.runId)}>
           Reply
-        </button>
+        </Button>
       )
     case 'review_ready':
       return (
         <>
-          <button data-testid={`inbox-open-${item.id}`} onClick={() => navigate('runs', item.runId)} className={BTN_NEUTRAL}>
+          <Button variant="ghost" size="sm" data-testid={`inbox-open-${item.id}`} onClick={() => navigate('runs', item.runId)}>
             Open review
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             data-testid={`inbox-dismiss-${item.id}`}
             disabled={handlers.busy}
             onClick={() => handlers.dismissReview(item.runId)}
-            className={BTN_SECONDARY}
           >
             Dismiss
-          </button>
+          </Button>
         </>
       )
     case 'lesson_pending':
       return (
         <>
-          <button
+          <Button
+            variant="primary"
+            size="sm"
+            icon="check"
             data-testid={`inbox-approve-${item.id}`}
             disabled={handlers.busy}
             onClick={() => handlers.approveLesson(item.lessonId)}
-            className={BTN_PRIMARY}
           >
-            ✓ Approve
-          </button>
-          <button
+            Approve
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             data-testid={`inbox-dismiss-${item.id}`}
             disabled={handlers.busy}
             onClick={() => handlers.rejectLesson(item.lessonId)}
-            className={BTN_SECONDARY}
           >
             Reject
-          </button>
+          </Button>
         </>
       )
     case 'mcp_trust':
       return (
         <>
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             data-testid={`inbox-approve-${item.id}`}
             disabled={handlers.busy}
             onClick={() => handlers.trustMcp(item.qualifiedKey)}
-            className={BTN_PRIMARY}
           >
             Trust
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             data-testid={`inbox-dismiss-${item.id}`}
             disabled={handlers.busy}
             onClick={() => handlers.dismissMcp(item.qualifiedKey)}
-            className={BTN_SECONDARY}
           >
             Dismiss
-          </button>
+          </Button>
         </>
       )
   }
