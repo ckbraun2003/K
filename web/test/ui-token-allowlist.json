@@ -1,5 +1,4 @@
 [
-  "components/ConfirmDialog.tsx",
   "components/DocViewer.tsx",
   "components/SourceBadge.tsx",
   "lib/evals.ts",

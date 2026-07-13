@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Dialog } from '../ui/Dialog'
+import { Button } from '../ui/Button'
 import { useFocusTrap } from '../lib/useFocusTrap'
 
 interface Props {
@@ -19,9 +20,9 @@ interface Props {
 }
 
 /**
- * Destructive-action confirm modal. Matches the hybrid-glass overlay style used
- * by the project-register dialog (fixed inset-0 z-50, backdrop, spring card).
- * Enter confirms, Escape cancels — consistent with the ⌘K confirm card.
+ * Destructive-action confirm modal, built on the shared Radix `<Dialog>` +
+ * `<Button variant="danger">` primitives. Enter confirms, Escape cancels —
+ * consistent with the ⌘K confirm card.
  */
 export default function ConfirmDialog({
   open,
@@ -35,71 +36,107 @@ export default function ConfirmDialog({
   onCancel,
 }: Props) {
   const confirmRef = useRef<HTMLButtonElement>(null)
-  const cardRef = useRef<HTMLDivElement>(null)
-  const headingId = useId()
+  const footerRef = useRef<HTMLDivElement | null>(null)
 
-  // a11y: keep Tab/Shift+Tab cycling inside the modal while it's open.
-  useFocusTrap(cardRef, open)
+  // Dialog's content is Radix-portaled, and the Portal itself defers actually
+  // mounting into the DOM by one render pass (it starts `mounted=false` and
+  // flips true via its own effect) — so on the render where `open` first
+  // becomes true, `footerRef.current` is still null. useFocusTrap's effect
+  // only ever runs once per `active` transition (its deps are [ref, active]),
+  // so if it ran while the ref was still null it would never attach at all.
+  // Gate `active` on the footer actually being in the DOM so the hook's
+  // effect fires (for the first time) only once that's guaranteed true.
+  const [footerMounted, setFooterMounted] = useState(false)
+  const footerCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    footerRef.current = node
+    // Reset on detach (dialog close unmounts the Radix-portaled footer while
+    // this component instance persists across ~15 call sites toggling `open`)
+    // so the next open cycle re-arms the trap: the ref attaches -> this flips
+    // true -> useFocusTrap's effect (deps [ref, active]) re-runs with a live
+    // node. Without this reset, `open && footerMounted` would already be true
+    // the instant `open` flips on reopen — one render before Radix remounts
+    // the footer — so the effect would fire once against a null ref and never
+    // retry.
+    setFooterMounted(node !== null)
+  }, [])
 
-  // Focus the confirm button on open and wire global Enter/Escape so keyboard
-  // handling matches the other dialogs even when focus is elsewhere.
+  // a11y: keep Tab/Shift+Tab cycling between the footer's own two controls
+  // (Cancel/Confirm) — scoped narrower than Dialog's built-in trap (which also
+  // cycles through the header's Close button) to match the house two-button
+  // convention. A raw `addEventListener` on the footer fires during native
+  // event bubbling before React's synthetic dispatch reaches Radix's own
+  // FocusScope handler higher up, so this wins at the wrap boundaries without
+  // fighting Radix.
+  useFocusTrap(footerRef, open && footerMounted)
+
+  // Focus the confirm button on open and wire a global Enter so keyboard
+  // handling matches the other dialogs even when focus is elsewhere. Radix's
+  // FocusScope sets its container via a ref-callback-triggered state update,
+  // so its own mount auto-focus (which lands on the header Close button, the
+  // first tabbable element) runs in a *cascading* render/effect pass — it is
+  // not reliably ordered against a plain parent `useEffect`. Deferring via
+  // rAF guarantees this runs after that settles, so it always wins.
   useEffect(() => {
     if (!open) return
-    confirmRef.current?.focus()
+    const raf = requestAnimationFrame(() => confirmRef.current?.focus())
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { e.preventDefault(); onCancel() }
       if (e.key === 'Enter') { e.preventDefault(); if (!busy) onConfirm() }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, busy, onConfirm, onCancel])
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey) }
+  }, [open, busy, onConfirm])
 
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center px-4"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    <Dialog
+      open={open}
+      onOpenChange={(o) => { if (!o) onCancel() }}
+      title={title}
+      footer={
+        // Radix's own FocusScope wraps the whole dialog (header+body+footer)
+        // trapped, with its own Tab handler — after useFocusTrap's raw
+        // listener above has already wrapped focus within the footer's two
+        // buttons, that same Tab keydown still reaches Radix's handler via
+        // React's synthetic dispatch (native propagation isn't stopped by a
+        // plain addEventListener). Against the full-dialog tabbable edges
+        // (Close is first, Confirm is last) it can re-process the same key
+        // and fight the footer-scoped trap. Stop it here at the boundary —
+        // but only while useFocusTrap is actually armed (`footerMounted`);
+        // otherwise this would blind Radix's own containment on a render
+        // where the footer-scoped trap isn't attached to anything.
+        <div
+          ref={footerCallbackRef}
+          className="contents"
+          onKeyDown={e => { if (e.key === 'Tab' && footerMounted) e.stopPropagation() }}
         >
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
-          <motion.div
-            ref={cardRef}
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby={headingId}
-            data-testid={testid}
-            className="relative w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"
-            initial={{ y: 12, scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 12, scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            data-testid={testid ? `${testid}-cancel` : undefined}
           >
-            <h3 id={headingId} className="text-sm font-semibold text-[var(--text)]">{title}</h3>
-            <div className="mt-1.5 text-xs text-[var(--muted)]">{message}</div>
-            {error && (
-              <p data-testid={testid ? `${testid}-error` : undefined} className="mt-3 text-xs text-red-400">
-                {error}
-              </p>
-            )}
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                onClick={onCancel}
-                data-testid={testid ? `${testid}-cancel` : undefined}
-                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-              >
-                Cancel
-              </button>
-              <button
-                ref={confirmRef}
-                onClick={onConfirm}
-                disabled={busy}
-                data-testid={testid ? `${testid}-confirm` : undefined}
-                className="rounded-lg bg-red/20 px-4 py-1.5 text-xs font-semibold text-[var(--red)] transition-colors hover:bg-red/30 disabled:opacity-50"
-              >
-                {busy ? '…' : confirmLabel}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+            Cancel
+          </Button>
+          <Button
+            ref={confirmRef}
+            variant="danger"
+            size="sm"
+            onClick={onConfirm}
+            disabled={busy}
+            data-testid={testid ? `${testid}-confirm` : undefined}
+          >
+            {busy ? '…' : confirmLabel}
+          </Button>
+        </div>
+      }
+    >
+      <div data-testid={testid}>
+        {message}
+        {error && (
+          <p data-testid={testid ? `${testid}-error` : undefined} className="mt-3 text-caption text-red">
+            {error}
+          </p>
+        )}
+      </div>
+    </Dialog>
   )
 }
