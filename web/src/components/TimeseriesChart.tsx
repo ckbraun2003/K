@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react'
 import type { MetricsTimeseries } from '@k/shared'
 import { stackDays, formatMetricValue, metricLabel, axisTickIndices, type Metric } from '../lib/chart'
+import { EmptyState } from '../ui/EmptyState'
+
+// Recessive gridlines drawn behind the bars (SVG y is top-down; 20/40/60/80 = 80/60/40/20% of maxTotal).
+const GRIDLINE_YS = [20, 40, 60, 80]
 
 interface Props {
   data: MetricsTimeseries
@@ -45,64 +49,119 @@ export default function TimeseriesChart({ data, metric, height = 180 }: Props) {
     return s.total[metric] !== 0
   }), [data, metric, hoverIndex])
 
+  // Clamped percentage-left position for the floating hover tooltip, so it never
+  // overflows the chart's left/right edge.
+  const tooltipLeftPct = hoverIndex !== null
+    ? Math.min(92, Math.max(8, n === 1 ? 50 : ((hoverIndex + 0.5) / n) * 100))
+    : 0
+
   return (
     <div>
       {/* max-value annotation */}
-      <div className="mb-1 text-[10px] font-mono text-[var(--muted)]">
+      <div className="mb-1 mono text-micro text-muted">
         max {formatMetricValue(metric, maxTotal)}
       </div>
 
       {/* SVG chart */}
       <div style={{ height }} className="relative w-full">
         {isEmpty ? (
-          <div className="flex h-full w-full items-center justify-center text-sm text-[var(--muted)]">
-            no runs in window
+          <div className="flex h-full w-full items-center justify-center">
+            <EmptyState icon="insights" headline="No runs in this window" />
           </div>
         ) : (
-          <svg
-            width="100%"
-            height={height}
-            viewBox={`0 0 ${viewW} 100`}
-            preserveAspectRatio="none"
-            onMouseLeave={() => setHoverIndex(null)}
-            role="img"
-            aria-label={`${metricLabel(metric)} per day, stacked by ${data.groupBy}`}
-            className="block"
-          >
-            {/* stacked bars */}
-            {days.map((day, di) => (
-              day.segments.map(seg => {
-                const svgY0 = 100 - seg.y1   // SVG y is top-down; y1 is top of bar
-                const svgY1 = 100 - seg.y0   // y0 is bottom of bar
-                const rectH = svgY1 - svgY0
-                if (rectH <= 0) return null
-                return (
-                  <rect
-                    key={`${di}-${seg.key}`}
-                    x={di * 10 + 1.5}
-                    y={svgY0}
-                    width={barWidth}
-                    height={rectH}
-                    fill={seriesFill(seg.key, seg.seriesIndex)}
-                  />
-                )
-              })
-            ))}
+          <>
+            <svg
+              width="100%"
+              height={height}
+              viewBox={`0 0 ${viewW} 100`}
+              preserveAspectRatio="none"
+              onMouseLeave={() => setHoverIndex(null)}
+              role="img"
+              aria-label={`${metricLabel(metric)} per day, stacked by ${data.groupBy}`}
+              className="block"
+            >
+              {/* recessive gridlines — drawn behind the bars */}
+              {GRIDLINE_YS.map(y => (
+                <line
+                  key={y}
+                  x1={0} y1={y} x2={viewW} y2={y}
+                  stroke="var(--border)"
+                  strokeOpacity={0.4}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
 
-            {/* hover overlay rects */}
-            {n > 0 && Array.from({ length: n }, (_, di) => (
-              <rect
-                key={`overlay-${di}`}
-                x={di * 10 + 1.5}
-                y={0}
-                width={barWidth}
-                height={100}
-                fill={hoverIndex === di ? 'rgba(255,255,255,0.04)' : 'transparent'}
-                onMouseEnter={() => setHoverIndex(di)}
-                style={{ cursor: 'crosshair' }}
-              />
-            ))}
-          </svg>
+              {/* stacked bars */}
+              {days.map((day, di) => (
+                day.segments.map(seg => {
+                  const svgY0 = 100 - seg.y1   // SVG y is top-down; y1 is top of bar
+                  const svgY1 = 100 - seg.y0   // y0 is bottom of bar
+                  const rectH = svgY1 - svgY0
+                  if (rectH <= 0) return null
+                  return (
+                    <rect
+                      key={`${di}-${seg.key}`}
+                      x={di * 10 + 1.5}
+                      y={svgY0}
+                      width={barWidth}
+                      height={rectH}
+                      fill={seriesFill(seg.key, seg.seriesIndex)}
+                    />
+                  )
+                })
+              ))}
+
+              {/* hover overlay rects */}
+              {n > 0 && Array.from({ length: n }, (_, di) => (
+                <rect
+                  key={`overlay-${di}`}
+                  x={di * 10 + 1.5}
+                  y={0}
+                  width={barWidth}
+                  height={100}
+                  fill={hoverIndex === di ? 'rgba(255,255,255,0.04)' : 'transparent'}
+                  onMouseEnter={() => setHoverIndex(di)}
+                  style={{ cursor: 'crosshair' }}
+                />
+              ))}
+
+              {/* hover crosshair */}
+              {hoverIndex !== null && (
+                <line
+                  x1={hoverIndex * 10 + 5} y1={0}
+                  x2={hoverIndex * 10 + 5} y2={100}
+                  stroke="var(--border-strong)"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+            </svg>
+
+            {/* floating hover tooltip */}
+            {hoverIndex !== null && (
+              <div
+                className="glass-overlay pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-control px-2 py-1.5"
+                style={{ left: `${tooltipLeftPct}%` }}
+              >
+                <div className="mono text-micro text-muted">{data.dates[hoverIndex]}</div>
+                {detailSeries.map(s => {
+                  const origIdx = data.series.indexOf(s)
+                  const val = s.points[hoverIndex][metric]
+                  return (
+                    <div key={s.key} className="mt-0.5 flex items-center gap-1.5">
+                      <span
+                        className="inline-block h-1.5 w-1.5 rounded-full flex-shrink-0"
+                        style={{ background: seriesFill(s.key, origIdx) }}
+                      />
+                      <span className="text-caption text-muted truncate max-w-[100px]">{s.label}</span>
+                      <span className="mono tabular-nums text-caption text-text">
+                        {formatMetricValue(metric, val)}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -114,7 +173,7 @@ export default function TimeseriesChart({ data, metric, height = 180 }: Props) {
             return (
               <span
                 key={i}
-                className="mono absolute text-[10px] text-[var(--muted)]"
+                className="mono absolute text-micro text-muted"
                 style={{
                   left: `${pct}%`,
                   transform: i === 0 ? 'none' : i === n - 1 ? 'translateX(-100%)' : 'translateX(-50%)',
@@ -127,18 +186,23 @@ export default function TimeseriesChart({ data, metric, height = 180 }: Props) {
         </div>
       )}
 
-      {/* Detail / legend row — fixed height to avoid layout jump */}
-      <div className="mt-3 min-h-[4.5rem] border-t border-[var(--border)] pt-2">
+      {/* Detail / legend row — fixed height to avoid layout jump. A bare value for 0-1 series;
+          swatch + label + value (a proper legend key) once ≥2 series are present. */}
+      <div className="mt-3 min-h-[4.5rem] border-t border-border pt-2">
         {hovered && hoverIndex !== null && (
-          <div className="mb-1 text-[10px] font-mono text-[var(--muted)]">
+          <div className="mb-1 mono text-micro text-muted">
             {data.dates[hoverIndex]}
           </div>
         )}
         {detailSeries.length === 0 ? (
-          <span className="text-[10px] text-[var(--muted)]">—</span>
+          <span className="text-micro text-muted">—</span>
+        ) : detailSeries.length === 1 ? (
+          <span className="mono tabular-nums text-caption text-text">
+            {formatMetricValue(metric, hovered && hoverIndex !== null ? detailSeries[0].points[hoverIndex][metric] : detailSeries[0].total[metric])}
+          </span>
         ) : (
           <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {detailSeries.map((s, si) => {
+            {detailSeries.map((s) => {
               // find original series index for color
               const origIdx = data.series.indexOf(s)
               const val = hovered && hoverIndex !== null
@@ -150,8 +214,8 @@ export default function TimeseriesChart({ data, metric, height = 180 }: Props) {
                     className="inline-block h-2 w-2 rounded-full flex-shrink-0"
                     style={{ background: seriesFill(s.key, origIdx) }}
                   />
-                  <span className="text-[11px] text-[var(--muted)] truncate max-w-[120px]">{s.label}</span>
-                  <span className="mono text-[11px] text-[var(--text)]">
+                  <span className="text-caption text-muted truncate max-w-[120px]">{s.label}</span>
+                  <span className="mono tabular-nums text-caption text-text">
                     {formatMetricValue(metric, val)}
                   </span>
                 </div>

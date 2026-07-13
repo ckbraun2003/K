@@ -5,9 +5,12 @@ import { api } from '../../lib/api'
 import { formatCompact, formatUsd, tileValue, weightedSuccessRate, weightedErrorRate, weightedAvgLatencyMs } from '../../lib/format-metrics'
 import TimeseriesChart from '../../components/TimeseriesChart'
 import QualityTrendChart from '../../components/QualityTrendChart'
-import MetricCard from '../../components/MetricCard'
 import SegControl from '../../components/SegControl'
 import type { Metric } from '../../lib/chart'
+import { KpiTile } from '../../ui/KpiTile'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { Skeleton } from '../../ui/Skeleton'
+import { EmptyState } from '../../ui/EmptyState'
 
 /** Latency (ms) → '1.2s' for the KPI tiles. */
 function fmtLatencySecs(ms: number): string {
@@ -52,30 +55,34 @@ function CostBreakdown({
   const max = rows.length > 0 ? rows[0].s.total.costUsd : 0
 
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{title}</h2>
+    <GlassPanel tier="solid" className="p-4">
+      <h2 className="micro-label mb-3">{title}</h2>
       {error ? (
-        <div className="text-sm text-[var(--red)]">{String((error as Error).message ?? error)}</div>
+        <div className="text-caption text-red">{String((error as Error).message ?? error)}</div>
       ) : isLoading && !data ? (
-        <div className="text-sm text-[var(--muted)]">loading…</div>
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-full" />
+        </div>
       ) : rows.length === 0 ? (
-        <div className="text-sm text-[var(--muted)]">no cost in window</div>
+        <EmptyState icon="insights" headline="No cost in this window" />
       ) : (
         <div className="space-y-2">
           {rows.map(({ s, seriesIndex }) => {
             const pct = max > 0 ? (s.total.costUsd / max) * 100 : 0
             return (
               <div key={s.key} className="flex items-center gap-3">
-                <span className="w-28 flex-shrink-0 truncate text-xs text-[var(--text)]" title={s.label}>
+                <span className="w-28 flex-shrink-0 truncate text-caption text-text" title={s.label}>
                   {s.label}
                 </span>
-                <div className="relative h-3 flex-1 overflow-hidden rounded bg-[var(--raised)]">
+                <div className="relative h-3 flex-1 overflow-hidden rounded bg-raised">
                   <div
                     className="absolute inset-y-0 left-0 rounded"
                     style={{ width: `${pct}%`, background: barColor(s.key, seriesIndex) }}
                   />
                 </div>
-                <span className="mono w-16 flex-shrink-0 text-right text-xs text-[var(--text)]">
+                <span className="mono tabular-nums w-16 flex-shrink-0 text-right text-caption text-text">
                   {formatUsd(s.total.costUsd)}
                 </span>
               </div>
@@ -83,7 +90,7 @@ function CostBreakdown({
           })}
         </div>
       )}
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -109,16 +116,16 @@ function TrendCard({
   fixedMax?: number
 }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{title}</h2>
+    <GlassPanel tier="solid" className="p-4">
+      <h2 className="micro-label mb-3">{title}</h2>
       {error ? (
-        <div className="text-sm text-[var(--red)]">{String((error as Error).message ?? error)}</div>
+        <div className="text-caption text-red">{String((error as Error).message ?? error)}</div>
       ) : isLoading && !data ? (
-        <div className="flex h-[120px] items-center justify-center text-sm text-[var(--muted)]">loading…</div>
+        <Skeleton className="h-[120px] w-full rounded-control" />
       ) : data ? (
         <QualityTrendChart data={data} field={field} color={color} format={format} fixedMax={fixedMax} />
       ) : null}
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -218,22 +225,22 @@ export default function ChartsTab({ days }: { days: Days }) {
     <>
       {/* KPI tile row — summary rollups + weighted routing aggregates */}
       <div className="mb-4 flex flex-wrap gap-3">
-        <MetricCard label="Today · Cost" value={tileValue(summaryLoading, formatUsd(todayCost))} spark={daily.map(d => d.costUsd)} />
-        <MetricCard label="Today · Runs" value={tileValue(summaryLoading, String(todayRuns))} spark={daily.map(d => d.runs)} />
-        <MetricCard label="Today · Tokens" value={tileValue(summaryLoading, formatCompact(todayTokens))} spark={daily.map(d => d.tokens)} />
-        <MetricCard label="Active runs" value={tileValue(summaryLoading, String(activeRuns))} accent={activeRuns > 0} />
-        <MetricCard label="Total runs" value={tileValue(summaryLoading, String(totalRuns))} />
-        <MetricCard label="14d · Cost" value={tileValue(summaryLoading, formatUsd(cost14d))} spark={daily.map(d => d.costUsd)} />
-        <MetricCard
+        <KpiTile tier="solid" className="min-w-[150px] flex-1" label="Today · Cost" value={tileValue(summaryLoading, formatUsd(todayCost))} />
+        <KpiTile tier="solid" className="min-w-[150px] flex-1" label="Today · Runs" value={tileValue(summaryLoading, String(todayRuns))} />
+        <KpiTile tier="solid" className="min-w-[150px] flex-1" label="Today · Tokens" value={tileValue(summaryLoading, formatCompact(todayTokens))} />
+        <KpiTile tier="solid" className="min-w-[150px] flex-1" label="Active runs" value={tileValue(summaryLoading, String(activeRuns))} />
+        <KpiTile tier="solid" className="min-w-[150px] flex-1" label="Total runs" value={tileValue(summaryLoading, String(totalRuns))} />
+        <KpiTile tier="solid" className="min-w-[150px] flex-1" label="14d · Cost" value={tileValue(summaryLoading, formatUsd(cost14d))} />
+        <KpiTile
+          tier="solid"
+          className="min-w-[150px] flex-1"
           label="Success rate"
           value={tileValue(routingLoading, `${(successRate * 100).toFixed(1)}%`)}
-          accent={terminalRuns > 0 && successRate >= 0.9}
-          tone="positive"
         />
-        <MetricCard label="Avg latency" value={tileValue(routingLoading, fmtLatencySecs(avgLatencyMs))} />
-        <MetricCard label="Latency p50" value={tileValue(routingLoading, fmtLatencySecs(latencyP50Ms))} />
-        <MetricCard label="Latency p95" value={tileValue(routingLoading, fmtLatencySecs(latencyP95Ms))} />
-        <MetricCard label="Error rate" value={tileValue(routingLoading, `${(errorRate * 100).toFixed(1)}%`)} />
+        <KpiTile tier="solid" className="min-w-[150px] flex-1" label="Avg latency" value={tileValue(routingLoading, fmtLatencySecs(avgLatencyMs))} />
+        <KpiTile tier="solid" className="min-w-[150px] flex-1" label="Latency p50" value={tileValue(routingLoading, fmtLatencySecs(latencyP50Ms))} />
+        <KpiTile tier="solid" className="min-w-[150px] flex-1" label="Latency p95" value={tileValue(routingLoading, fmtLatencySecs(latencyP95Ms))} />
+        <KpiTile tier="solid" className="min-w-[150px] flex-1" label="Error rate" value={tileValue(routingLoading, `${(errorRate * 100).toFixed(1)}%`)} />
       </div>
 
       {/* controls row — groupBy + metric pickers (the shared window lives in the Insights shell) */}
@@ -259,21 +266,19 @@ export default function ChartsTab({ days }: { days: Days }) {
       </div>
 
       {/* chart card */}
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+      <GlassPanel tier="solid" className="p-4">
         {isLoading && !data && (
-          <div className="flex h-[180px] items-center justify-center text-sm text-[var(--muted)]">
-            loading…
-          </div>
+          <Skeleton className="h-[180px] w-full rounded-control" />
         )}
         {error && (
-          <div className="flex h-[180px] items-center justify-center text-sm text-[var(--red)]">
+          <div className="flex h-[180px] items-center justify-center text-caption text-red">
             {String((error as Error).message ?? error)}
           </div>
         )}
         {data && (
           <TimeseriesChart data={data} metric={metric} height={180} />
         )}
-      </div>
+      </GlassPanel>
 
       {/* ranked cost breakdowns — all three groupings, bars not charts */}
       <div className="mt-4 grid gap-4 lg:grid-cols-3">

@@ -25,10 +25,10 @@ export default function InsightsPage({ tab }: { tab?: string }) {
   const [days, setDays] = useState<Days>(14)
   return (
     <div data-testid="insights-page" className="h-full overflow-y-auto p-5">
-      <header className="mb-3 flex flex-wrap items-center gap-3">
-        <h1 className="text-sm font-semibold text-[var(--text)]">Insights</h1>
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Tabs<InsightsTab> items={TABS} value={active} onChange={(t) => navigate('insights', t)} ariaLabel="Insights sections" />
         {active !== 'evals' && (
-          <div className="ml-auto">
+          <div>
             {/* SegControl is generic over a STRING union (W0 frozen contract), so the numeric
                 window is carried as a string here and coerced back to Days for the tabs. */}
             <SegControl<string>
@@ -40,8 +40,7 @@ export default function InsightsPage({ tab }: { tab?: string }) {
           </div>
         )}
       </header>
-      <Tabs<InsightsTab> items={TABS} value={active} onChange={(t) => navigate('insights', t)} ariaLabel="Insights sections" />
-      <div className="mt-4">
+      <div>
         {active === 'overview' && <OverviewTab days={days} />}
         {active === 'charts' && <ChartsTab days={days} />}
         {active === 'routing' && <RoutingTab days={days} />}

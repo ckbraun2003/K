@@ -6,6 +6,10 @@ import { cn } from '../../lib/cn'
 import { relativeTime } from '../../lib/verify'
 import { useFocusTrap } from '../../lib/useFocusTrap'
 import Toast from '../../components/Toast'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { StatusPill } from '../../ui/StatusPill'
+import { Skeleton, SkeletonRow } from '../../ui/Skeleton'
+import { EmptyState } from '../../ui/EmptyState'
 import {
   formatPct,
   formatScore,
@@ -30,6 +34,14 @@ function Badge({ label, className }: { label: string; className: string }) {
     </span>
   )
 }
+
+// The eval-run status domain is a SUBSET of RunStatus (queued/running/awaiting_input/
+// awaiting_plan/done/error/killed/interrupted, per lib/evals.ts's KNOWN_RUN_STATUSES) — every
+// member is covered by StatusPill's canonical map. Guarded defensively so a future unknown eval
+// status degrades to the existing raw-colored badge instead of StatusPill's silent 'idle' fallback.
+const STATUS_PILL_KNOWN = new Set([
+  'queued', 'running', 'awaiting_input', 'awaiting_plan', 'done', 'error', 'killed', 'interrupted',
+])
 
 // ─── Tab ───────────────────────────────────────────────────────────────────────
 
@@ -62,76 +74,87 @@ export default function EvalsTab() {
     <>
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-          Evals · {systems.length} systems
+        <h2 className="micro-label">
+          Evals · <span className="mono tabular-nums">{systems.length}</span> systems
         </h2>
         <button
           onClick={() => { startMutation.reset(); setDialogOpen(true) }}
           data-testid="evals-open-run"
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity duration-150 hover:opacity-90"
+          className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-on-accent transition-opacity duration-150 hover:opacity-90"
         >
           ▶ Run evals
         </button>
       </div>
 
-      <p className="mt-2 text-xs text-[var(--muted)]">
-        A <span className="font-medium text-[var(--text)]">real run spends tokens</span> and is gated
+      <p className="mt-2 text-caption text-muted">
+        A <span className="font-medium text-text">real run spends tokens</span> and is gated
         behind an explicit toggle. Dry runs fabricate results and are free.
       </p>
 
       {/* Systems */}
       <section className="mt-4">
-        <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+        <h3 className="micro-label mb-2">
           Systems
         </h3>
         <div className="flex flex-col gap-2">
-          {systemsLoading && <p className="text-sm text-[var(--muted)]">Loading…</p>}
+          {systemsLoading && (
+            <GlassPanel tier="solid" className="px-4 py-1">
+              <SkeletonRow />
+              <SkeletonRow />
+            </GlassPanel>
+          )}
           {!systemsLoading && systems.length === 0 && (
-            <p className="text-sm text-[var(--muted)]">No eval systems seeded yet.</p>
+            <EmptyState icon="insights" headline="No eval systems seeded yet." />
           )}
           {systems.map(s => (
-            <div
+            <GlassPanel
               key={s.id}
+              tier="solid"
               data-testid={`evals-system-${s.id}`}
-              className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+              className="flex items-center gap-3 px-4 py-3"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="truncate text-sm font-medium text-[var(--text)]">{s.title}</span>
-                  <span className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
+                  <span className="truncate text-body font-medium text-text">{s.title}</span>
+                  <span className="mono rounded bg-raised px-1.5 py-0.5 text-micro text-muted">
                     {s.id}
                   </span>
-                  {!s.enabled && <Badge label="disabled" className="bg-[var(--raised)] text-[var(--muted)]" />}
+                  {!s.enabled && <Badge label="disabled" className="bg-raised text-muted" />}
                 </div>
                 {s.job && s.job !== s.title && (
-                  <p className="mt-0.5 truncate text-xs text-[var(--muted)]">{s.job}</p>
+                  <p className="mt-0.5 truncate text-caption text-muted">{s.job}</p>
                 )}
               </div>
-              <span className="flex-shrink-0 text-xs text-[var(--muted)]">{s.caseCount} cases</span>
-            </div>
+              <span className="flex-shrink-0 text-caption text-muted"><span className="mono tabular-nums">{s.caseCount}</span> cases</span>
+            </GlassPanel>
           ))}
         </div>
       </section>
 
       {/* Runs */}
       <section className="mt-6">
-        <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+        <h3 className="micro-label mb-2">
           Runs
         </h3>
         <div className="flex flex-col gap-2">
-          {runsLoading && <p className="text-sm text-[var(--muted)]">Loading…</p>}
+          {runsLoading && (
+            <GlassPanel tier="solid" className="px-4 py-1">
+              <SkeletonRow />
+              <SkeletonRow />
+            </GlassPanel>
+          )}
           {!runsLoading && runs.length === 0 && (
-            <p className="text-sm text-[var(--muted)]">No eval runs yet. Start one above.</p>
+            <EmptyState icon="insights" headline="No eval runs yet." hint="Start one above." />
           )}
           {runs.map(run => (
-            <div key={run.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+            <GlassPanel key={run.id} tier="solid">
               <RunSummaryRow
                 run={run}
                 expanded={expandedRun === run.id}
                 onToggle={() => setExpandedRun(id => (id === run.id ? null : run.id))}
               />
               {expandedRun === run.id && <RunDetail runId={run.id} dry={run.dry} />}
-            </div>
+            </GlassPanel>
           ))}
         </div>
       </section>
@@ -234,7 +257,7 @@ function RunDialog({
             aria-modal="true"
             aria-label="Run evals"
             data-testid="evals-run-dialog"
-            className="relative w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 outline-none"
+            className="relative w-full max-w-md glass-overlay p-5 outline-none"
             initial={{ y: 12, scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 12, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
           >
@@ -259,7 +282,7 @@ function RunDialog({
                     onChange={() => toggleSystem(s.id)}
                   />
                   <span className="truncate">{s.title}</span>
-                  <span className="ml-auto text-[10px] text-[var(--muted)]">{s.caseCount}</span>
+                  <span className="mono tabular-nums ml-auto text-micro text-muted">{s.caseCount}</span>
                 </label>
               ))}
             </div>
@@ -287,12 +310,12 @@ function RunDialog({
               </p>
             )}
 
-            {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+            {error && <p className="mt-3 text-xs text-red">{error}</p>}
 
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 onClick={onClose}
-                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted transition-colors hover:text-text"
               >
                 Cancel
               </button>
@@ -303,8 +326,8 @@ function RunDialog({
                 className={cn(
                   'rounded-lg px-4 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90 disabled:opacity-50',
                   realRun
-                    ? 'bg-red/20 text-[var(--red)]'
-                    : 'bg-[var(--accent)] text-[var(--bg)]',
+                    ? 'bg-red/20 text-red'
+                    : 'bg-accent text-on-accent',
                 )}
               >
                 {busy ? '…' : realRun ? 'Run (spends tokens)' : 'Run dry (free)'}
@@ -336,27 +359,31 @@ export function RunSummaryRow({
       data-testid={`evals-run-row-${run.id}`}
       className="flex w-full items-center gap-3 px-4 py-3 text-left"
     >
-      <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${runStatusColor(run.status)}`}>
-        {run.status}
-      </span>
+      {STATUS_PILL_KNOWN.has(run.status) ? (
+        <StatusPill status={run.status} />
+      ) : (
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${runStatusColor(run.status)}`}>
+          {run.status}
+        </span>
+      )}
       <Badge
         label={run.dry ? 'dry' : 'REAL'}
-        className={run.dry ? 'bg-[var(--raised)] text-[var(--muted)]' : 'bg-amber/20 text-[var(--amber)]'}
+        className={run.dry ? 'bg-raised text-muted' : 'bg-amber/20 text-[var(--amber)]'}
       />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {/* Label the count as JOBS DONE, not a pass ratio — "N/N" is completion, not all-green (F-044).
             The honest pass/fail tally lives in the expanded Results section below. */}
-        <span className="mono text-xs text-[var(--muted)]">{prog.label} jobs</span>
-        <div className="h-1 w-24 overflow-hidden rounded-full bg-[var(--raised)]">
+        <span className="text-caption text-muted"><span className="mono tabular-nums">{prog.label}</span> jobs</span>
+        <div className="h-1 w-24 overflow-hidden rounded-full bg-raised">
           <div
-            className="h-full rounded-full bg-[var(--accent)]"
+            className="h-full rounded-full bg-accent"
             style={{ width: `${Math.round(prog.pct * 100)}%` }}
           />
         </div>
       </div>
-      <span className="flex-shrink-0 text-xs text-[var(--muted)]">{formatCost(run.totalCostUsd)}</span>
-      <span className="flex-shrink-0 text-[10px] text-[var(--muted)]">{relativeTime(run.createdAt)}</span>
-      <span className="flex-shrink-0 text-[10px] text-[var(--accent-hover)]">{expanded ? '▾' : '▸'}</span>
+      <span className="mono tabular-nums flex-shrink-0 text-caption text-muted">{formatCost(run.totalCostUsd)}</span>
+      <span className="mono flex-shrink-0 text-micro text-muted">{relativeTime(run.createdAt)}</span>
+      <span className="flex-shrink-0 text-micro text-accent-hover">{expanded ? '▾' : '▸'}</span>
     </button>
   )
 }
@@ -382,7 +409,7 @@ export function FreezeBaselinesButton({
       disabled={disabled || dry}
       data-testid="evals-freeze-baselines"
       title={dry ? 'Dry runs fabricate results — freezing them would poison real baselines' : undefined}
-      className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+      className="rounded-lg border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
     >
       {pending ? '…' : '❄ freeze baselines'}
     </button>
@@ -428,11 +455,11 @@ function RunDetail({ runId, dry }: { runId: string; dry: boolean }) {
     : (compare.data ?? report?.regression ?? {})
 
   return (
-    <div className="border-t border-[var(--border)] px-4 py-3">
+    <div className="border-t border-border px-4 py-3">
       {/* System metrics */}
       <div className="mb-4">
         <div className="mb-2 flex items-center justify-between">
-          <h4 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+          <h4 className="micro-label">
             Pass-rate · discrimination · regression
           </h4>
           <FreezeBaselinesButton
@@ -442,21 +469,21 @@ function RunDetail({ runId, dry }: { runId: string; dry: boolean }) {
             onFreeze={() => freezeMutation.mutate()}
           />
         </div>
-        {detail.isLoading && <p className="text-xs text-[var(--muted)]">Loading report…</p>}
-        {detail.isError && <p className="text-xs text-red-400">Failed to load report.</p>}
+        {detail.isLoading && <Skeleton className="h-24 w-full rounded-control" />}
+        {detail.isError && <p className="text-xs text-red">Failed to load report.</p>}
         {detail.data && !report && (
-          <p className="text-xs text-[var(--muted)]">Report pending — the run is still in progress.</p>
+          <p className="text-xs text-muted">Report pending — the run is still in progress.</p>
         )}
         {report && <SystemMetricsTable perSystem={report.perSystem} regression={regression} />}
       </div>
 
       {/* Raw results */}
       <div>
-        <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+        <h4 className="micro-label mb-2">
           Results
         </h4>
-        {results.isLoading && <p className="text-xs text-[var(--muted)]">Loading results…</p>}
-        {results.isError && <p className="text-xs text-red-400">Failed to load results.</p>}
+        {results.isLoading && <Skeleton className="h-24 w-full rounded-control" />}
+        {results.isError && <p className="text-xs text-red">Failed to load results.</p>}
         {results.data && <EvalResultsTable rows={results.data} />}
       </div>
 
@@ -483,20 +510,24 @@ export function SystemMetricsTable({
 }) {
   const ids = Object.keys(perSystem)
   if (ids.length === 0) {
-    return <p data-testid="evals-metrics-empty" className="text-xs text-[var(--muted)]">No per-system metrics.</p>
+    return (
+      <div data-testid="evals-metrics-empty">
+        <EmptyState icon="insights" headline="No per-system metrics." />
+      </div>
+    )
   }
   return (
-    <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-      <table data-testid="evals-metrics-table" className="w-full text-xs">
+    <GlassPanel tier="solid" className="overflow-x-auto">
+      <table data-testid="evals-metrics-table" className="w-full text-caption">
         <thead>
-          <tr className="border-b border-[var(--border)] text-left text-[var(--muted)]">
-            <th className="px-3 py-2 font-medium">System</th>
-            <th className="px-3 py-2 font-medium">real judge</th>
-            <th className="px-3 py-2 font-medium">real det</th>
-            <th className="px-3 py-2 font-medium">degraded det</th>
-            <th className="px-3 py-2 font-medium">disc judge</th>
-            <th className="px-3 py-2 font-medium">discrimination</th>
-            <th className="px-3 py-2 font-medium">regression</th>
+          <tr className="micro-label border-b border-border [&>th]:font-medium">
+            <th className="px-3 py-2 text-left">System</th>
+            <th className="px-3 py-2 text-left">real judge</th>
+            <th className="px-3 py-2 text-left">real det</th>
+            <th className="px-3 py-2 text-left">degraded det</th>
+            <th className="px-3 py-2 text-left">disc judge</th>
+            <th className="px-3 py-2 text-left">discrimination</th>
+            <th className="px-3 py-2 text-left">regression</th>
           </tr>
         </thead>
         <tbody>
@@ -508,13 +539,13 @@ export function SystemMetricsTable({
               <tr
                 key={sysId}
                 data-testid={`evals-metric-row-${sysId}`}
-                className="border-b border-[var(--border)] last:border-0"
+                className="border-b border-border last:border-0"
               >
-                <td className="px-3 py-2 font-medium text-[var(--text)]">{sysId}</td>
-                <td className="px-3 py-2 text-[var(--text)]">{formatScore(m.real.judgeMean)}</td>
-                <td className="px-3 py-2 text-[var(--text)]">{formatPct(m.real.detPassRate)}</td>
-                <td className="px-3 py-2 text-[var(--muted)]">{formatPct(m.degraded.detPassRate)}</td>
-                <td className="px-3 py-2 text-[var(--text)]">{formatScore(m.discriminationJudge)}</td>
+                <td className="px-3 py-2 font-medium text-text">{sysId}</td>
+                <td className="mono tabular-nums px-3 py-2 text-text">{formatScore(m.real.judgeMean)}</td>
+                <td className="mono tabular-nums px-3 py-2 text-text">{formatPct(m.real.detPassRate)}</td>
+                <td className="mono tabular-nums px-3 py-2 text-muted">{formatPct(m.degraded.detPassRate)}</td>
+                <td className="mono tabular-nums px-3 py-2 text-text">{formatScore(m.discriminationJudge)}</td>
                 <td className={`px-3 py-2 font-semibold ${disc.colorClass}`}>{disc.label}</td>
                 <td className="px-3 py-2">
                   <Badge label={reg.label} className={reg.colorClass} />
@@ -524,7 +555,7 @@ export function SystemMetricsTable({
           })}
         </tbody>
       </table>
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -532,35 +563,39 @@ export function SystemMetricsTable({
 
 export function EvalResultsTable({ rows }: { rows: EvalResultRow[] }) {
   if (rows.length === 0) {
-    return <p data-testid="evals-results-empty" className="text-xs text-[var(--muted)]">No results.</p>
+    return (
+      <div data-testid="evals-results-empty">
+        <EmptyState icon="insights" headline="No results." />
+      </div>
+    )
   }
   // Honest pass/fail tally — distinguishes PASSED from merely COMPLETED (the run-row "N/N" count) so a
   // run with failures no longer reads as all-green (F-044).
   const tally = resultTally(rows)
   return (
-    <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+    <GlassPanel tier="solid" className="overflow-x-auto">
       <div
         data-testid="evals-results-tally"
-        className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-1.5 text-[11px]"
+        className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-caption"
       >
-        <span className="font-semibold text-[var(--green)]">{tally.passed} passed</span>
+        <span className="font-semibold text-green"><span className="mono tabular-nums">{tally.passed}</span> passed</span>
         {tally.failed > 0 && (
-          <span className="font-semibold text-[var(--red)]">· {tally.failed} failed</span>
+          <span className="font-semibold text-red">· <span className="mono tabular-nums">{tally.failed}</span> failed</span>
         )}
-        <span className="text-[var(--muted)]">· {tally.total} total</span>
+        <span className="text-muted">· <span className="mono tabular-nums">{tally.total}</span> total</span>
       </div>
-      <table data-testid="evals-results-table" className="w-full text-xs">
+      <table data-testid="evals-results-table" className="w-full text-caption">
         <thead>
-          <tr className="border-b border-[var(--border)] text-left text-[var(--muted)]">
-            <th className="px-3 py-2 font-medium">System · case</th>
-            <th className="px-3 py-2 font-medium">model</th>
-            <th className="px-3 py-2 font-medium">variant</th>
-            <th className="px-3 py-2 font-medium">det</th>
-            <th className="px-3 py-2 font-medium">det score</th>
-            <th className="px-3 py-2 font-medium">judge</th>
-            <th className="px-3 py-2 font-medium">cost</th>
-            <th className="px-3 py-2 font-medium">turns</th>
-            <th className="px-3 py-2 font-medium">error</th>
+          <tr className="micro-label border-b border-border [&>th]:font-medium">
+            <th className="px-3 py-2 text-left">System · case</th>
+            <th className="px-3 py-2 text-left">model</th>
+            <th className="px-3 py-2 text-left">variant</th>
+            <th className="px-3 py-2 text-left">det</th>
+            <th className="px-3 py-2 text-left">det score</th>
+            <th className="px-3 py-2 text-left">judge</th>
+            <th className="px-3 py-2 text-left">cost</th>
+            <th className="px-3 py-2 text-left">turns</th>
+            <th className="px-3 py-2 text-left">error</th>
           </tr>
         </thead>
         <tbody>
@@ -568,31 +603,31 @@ export function EvalResultsTable({ rows }: { rows: EvalResultRow[] }) {
             <tr
               key={r.id}
               data-testid={`evals-result-row-${r.id}`}
-              className="border-b border-[var(--border)] last:border-0"
+              className="border-b border-border last:border-0"
             >
-              <td className="px-3 py-2 text-[var(--text)]">
+              <td className="px-3 py-2 text-text">
                 <span className="font-medium">{r.systemId}</span>
-                <span className="text-[var(--muted)]"> · {r.caseId}</span>
+                <span className="text-muted"> · {r.caseId}</span>
               </td>
-              <td className="px-3 py-2 mono text-[var(--muted)]">{r.model}</td>
+              <td className="px-3 py-2 mono text-muted">{r.model}</td>
               <td className="px-3 py-2">
                 <Badge
                   label={r.variant}
                   className={
                     r.variant === 'degraded'
                       ? 'bg-amber/20 text-[var(--amber)]'
-                      : 'bg-[var(--raised)] text-[var(--muted)]'
+                      : 'bg-raised text-muted'
                   }
                 />
               </td>
-              <td className="px-3 py-2 text-[var(--text)]">{detPassGlyph(r.detPass)}</td>
-              <td className="px-3 py-2 text-[var(--text)]">{formatScore(r.detScore)}</td>
-              <td className="px-3 py-2 text-[var(--text)]">{formatScore(r.judgeOverall)}</td>
-              <td className="px-3 py-2 text-[var(--muted)]">{formatCost(r.costUsd)}</td>
-              <td className="px-3 py-2 text-[var(--muted)]">{r.numTurns ?? '—'}</td>
+              <td className="px-3 py-2 text-text">{detPassGlyph(r.detPass)}</td>
+              <td className="mono tabular-nums px-3 py-2 text-text">{formatScore(r.detScore)}</td>
+              <td className="mono tabular-nums px-3 py-2 text-text">{formatScore(r.judgeOverall)}</td>
+              <td className="mono tabular-nums px-3 py-2 text-muted">{formatCost(r.costUsd)}</td>
+              <td className="mono tabular-nums px-3 py-2 text-muted">{r.numTurns ?? '—'}</td>
               <td
                 data-testid={r.error ? `evals-result-error-${r.id}` : undefined}
-                className="px-3 py-2 text-red-400"
+                className="px-3 py-2 text-red"
               >
                 {r.error ?? ''}
               </td>
@@ -600,6 +635,6 @@ export function EvalResultsTable({ rows }: { rows: EvalResultRow[] }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </GlassPanel>
   )
 }

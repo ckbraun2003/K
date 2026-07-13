@@ -1,6 +1,10 @@
 import { useMemo } from 'react'
 import type { MetricsQualityTimeseries } from '@k/shared'
 import { qualityBars, qualityBarRenderHeight, axisTickIndices } from '../lib/chart'
+import { EmptyState } from '../ui/EmptyState'
+
+// Recessive gridlines drawn behind the bars — same scale convention as TimeseriesChart.
+const GRIDLINE_YS = [20, 40, 60, 80]
 
 interface Props {
   data: MetricsQualityTimeseries
@@ -50,17 +54,17 @@ export default function QualityTrendChart({ data, field, color, format, fixedMax
     <div>
       {/* headline current value + scale annotation */}
       <div className="mb-1 flex items-baseline justify-between">
-        <span className="mono text-lg font-semibold text-[var(--text)]">
+        <span className="mono tabular-nums text-lg font-semibold text-text">
           {latest === null ? '—' : format(latest)}
         </span>
-        <span className="text-[10px] font-mono text-[var(--muted)]">max {format(max)}</span>
+        <span className="mono text-micro text-muted">max {format(max)}</span>
       </div>
 
       {/* SVG bars */}
       <div style={{ height }} className="relative w-full">
         {isEmpty ? (
-          <div className="flex h-full w-full items-center justify-center text-sm text-[var(--muted)]">
-            no data in window
+          <div className="flex h-full w-full items-center justify-center">
+            <EmptyState icon="insights" headline="No runs in this window" />
           </div>
         ) : (
           <svg
@@ -72,6 +76,17 @@ export default function QualityTrendChart({ data, field, color, format, fixedMax
             aria-label={`${field === 'successRate' ? 'Success rate' : 'Latency'} per day`}
             className="block"
           >
+            {/* recessive gridlines — drawn behind the bars */}
+            {GRIDLINE_YS.map(y => (
+              <line
+                key={y}
+                x1={0} y1={y} x2={viewW} y2={y}
+                stroke="var(--border)"
+                strokeOpacity={0.4}
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+
             {bars.map(b => {
               // A null day is a GAP (no bar); a REAL value — incl. a genuine 0%/0ms day —
               // gets a min-visible sliver so a total-failure day is not mistaken for a gap.
@@ -99,7 +114,7 @@ export default function QualityTrendChart({ data, field, color, format, fixedMax
             return (
               <span
                 key={i}
-                className="mono absolute text-[10px] text-[var(--muted)]"
+                className="mono absolute text-micro text-muted"
                 style={{
                   left: `${pct}%`,
                   transform: i === 0 ? 'none' : i === n - 1 ? 'translateX(-100%)' : 'translateX(-50%)',
