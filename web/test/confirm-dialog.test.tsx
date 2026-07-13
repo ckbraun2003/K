@@ -1,10 +1,13 @@
 /**
- * ConfirmDialog — focus behavior (wave C1 a11y): the confirm button auto-focuses
- * on open, and the useFocusTrap wiring wraps Tab at the boundaries (DOM order is
- * Cancel then Confirm, so Confirm is the LAST focusable and Cancel the FIRST):
- *   - Tab on Confirm (last) wraps forward to Cancel (first)
- *   - Shift+Tab on Cancel (first) wraps back to Confirm (last)
- * The trap only intercepts at the wrap boundaries — interior tabbing stays native.
+ * ConfirmDialog — focus behavior. The confirm button auto-focuses on open.
+ * FU-1: Tab containment used to be narrowed to just Cancel/Confirm by a
+ * second, hand-rolled trap that also blinded Radix's own FocusScope at the
+ * wrap boundary — which meant the header Close button could never be
+ * reached by keyboard at all. That narrowing is gone; Tab order is now
+ * whatever Radix's FocusScope produces over the whole dialog (Close, then
+ * Cancel, then Confirm), same as every other Dialog-based modal
+ * (RewindDialog has no Tab-wrap tests of its own for the same reason: this
+ * is Radix's contract to keep, not ours to assert keydown-by-keydown).
  */
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
@@ -47,24 +50,39 @@ describe('ConfirmDialog focus trap', () => {
     await waitFor(() => expect(document.activeElement).toBe(confirm))
   })
 
-  it('Tab on the last focusable (confirm) wraps to the first (cancel)', async () => {
+  it('the header Close button is reachable by keyboard (FU-1: no longer trapped out)', async () => {
     renderDialog()
     const confirm = screen.getByTestId('cd-confirm')
+    await waitFor(() => expect(document.activeElement).toBe(confirm))
+    // Under the old footer-scoped trap this button was never a wrap target at
+    // all — Tab/Shift+Tab only ever cycled Cancel<->Confirm. It must at least
+    // exist, be enabled, and sit before Cancel/Confirm in DOM (tab) order.
+    const close = screen.getByRole('button', { name: 'Close' })
     const cancel = screen.getByTestId('cd-cancel')
+    expect((close as HTMLButtonElement).disabled).toBe(false)
+    expect(
+      close.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('Tab on the last focusable (confirm) wraps to the first (close) — Radix FocusScope', async () => {
+    renderDialog()
+    const confirm = screen.getByTestId('cd-confirm')
+    const close = screen.getByRole('button', { name: 'Close' })
     await waitFor(() => expect(document.activeElement).toBe(confirm))
 
     fireEvent.keyDown(confirm, { key: 'Tab' })
-    expect(document.activeElement).toBe(cancel)
+    expect(document.activeElement).toBe(close)
   })
 
-  it('Shift+Tab on the first focusable (cancel) wraps to the last (confirm)', async () => {
+  it('Shift+Tab on the first focusable (close) wraps to the last (confirm) — Radix FocusScope', async () => {
     renderDialog()
     const confirm = screen.getByTestId('cd-confirm')
-    const cancel = screen.getByTestId('cd-cancel')
+    const close = screen.getByRole('button', { name: 'Close' })
     await waitFor(() => expect(document.activeElement).toBe(confirm))
 
-    cancel.focus()
-    fireEvent.keyDown(cancel, { key: 'Tab', shiftKey: true })
+    close.focus()
+    fireEvent.keyDown(close, { key: 'Tab', shiftKey: true })
     expect(document.activeElement).toBe(confirm)
   })
 })
