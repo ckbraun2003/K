@@ -11,6 +11,7 @@ export const TOKEN_FALLBACKS: Record<string, string> = {
   '--chart-1': '#ff8fc0', '--chart-2': '#34d399', '--chart-3': '#fbbf24',
   '--chart-4': '#38bdf8', '--chart-5': '#a855f7', '--chart-6': '#f87171',
   '--chart-7': '#c084fc', '--chart-8': '#6366f1', '--chart-other': '#4c3a6e',
+  '--terminal-bg': '#0b0e14',
 }
 
 export function readToken(name: string): string {

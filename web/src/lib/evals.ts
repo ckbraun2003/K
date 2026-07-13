@@ -176,12 +176,12 @@ export function discriminationStatus(
 export function regressionBadge(
   c: BaselineCompare | undefined,
 ): { label: string; colorClass: string } {
-  if (c?.status === 'ok') return { label: 'ok', colorClass: 'bg-green-500/20 text-green-300' }
+  if (c?.status === 'ok') return { label: 'ok', colorClass: 'bg-green/20 text-green' }
   if (c?.status === 'REGRESSION')
-    return { label: 'REGRESSION', colorClass: 'bg-red-500/20 text-red-300' }
+    return { label: 'REGRESSION', colorClass: 'bg-red/20 text-red' }
   // A dry run never compares fabricated results to real baselines — show a neutral, non-red badge.
-  if (c?.status === 'dry') return { label: 'dry', colorClass: 'bg-[var(--raised)] text-[var(--muted)]' }
-  return { label: 'no baseline', colorClass: 'bg-[var(--raised)] text-[var(--muted)]' }
+  if (c?.status === 'dry') return { label: 'dry', colorClass: 'bg-raised text-muted' }
+  return { label: 'no baseline', colorClass: 'bg-raised text-muted' }
 }
 
 /**

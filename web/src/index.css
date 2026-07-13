@@ -19,6 +19,8 @@
   --amber: #fbbf24;
   --red: #f87171;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* xterm pane — deliberately darker than --bg-deep for terminal legibility */
+  --terminal-bg: #0b0e14;
   /* chart palette — retuned into the purple/blush/sky family */
   --chart-1: #ff8fc0; --chart-2: #34d399; --chart-3: #fbbf24; --chart-4: #38bdf8;
   --chart-5: #a855f7; --chart-6: #f87171; --chart-7: #c084fc; --chart-8: #6366f1;
@@ -27,24 +29,12 @@
   --radius-lg: 18px;
   --radius: 14px;
   --radius-sm: 10px;
-  /* liquid-glass tokens — HERO surfaces only (bible §6); dense views stay opaque.
-     A translucent midnight-purple pane, a translucent-blush hairline, a faint top
-     sheen, and a blush wash tint for the most prominent surfaces. */
-  --glass-bg: rgba(46, 27, 82, 0.55);
-  --glass-border: rgba(255, 143, 192, 0.16);
-  --glass-highlight: rgba(255, 255, 255, 0.08);
-  --glass-tint: rgba(255, 143, 192, 0.10);
-  /* glass tiers, shadow ramp, motion tokens — task 4 (bible §6) */
+  /* glass tiers, shadow ramp, motion tokens — task 4 (bible §6). The tier
+     border keeps its -tier- name from the migration era, when a legacy
+     --glass-border (removed in task 22) still occupied the plain name. */
   --glass-chrome-bg: rgba(42, 26, 71, 0.55);
   --glass-panel-bg: rgba(42, 26, 71, 0.72);
   --glass-overlay-bg: rgba(51, 32, 92, 0.82);
-  /* NOTE: brief names this token --glass-border, which collides with the
-     pre-existing legacy --glass-border (rgba(255, 143, 192, 0.16), blush-
-     tinted, used by .glass/.glass-tint/.glass-strong). Redeclaring the same
-     name here would last-win in the :root cascade and silently retint the
-     legacy hero-glass classes, violating "legacy vars REMAIN untouched until
-     Task 22". Renamed to --glass-tier-border (same rgba value the brief
-     specifies) and referenced under that name in the new tier classes below. */
   --glass-tier-border: rgba(179, 166, 205, 0.14);
   --glass-sheen: rgba(255, 255, 255, 0.07);
   --shadow-1: 0 2px 8px rgba(10, 4, 24, 0.35);
@@ -124,47 +114,9 @@ body { font-variant-numeric: tabular-nums; }
   box-shadow: 0 10px 32px -14px rgba(56, 189, 248, 0.4);
 }
 
-/* ── liquid glass ───────────────────────────────────────────────────────────
-   Apple-style translucent material, reserved for HERO surfaces (command bar,
-   dialogs, inspector, activity strip). DENSE data views (tables/lists/grids/
-   the graph canvas) deliberately stay opaque & precision-minimal. */
-.glass {
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  /* top sheen sitting just inside the hairline border, plus a soft lift shadow */
-  box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 12px 40px -22px rgba(0, 0, 0, 0.6);
-}
-
-/* A blush-washed variant for the most prominent hero surfaces. */
-.glass-tint {
-  background: linear-gradient(var(--glass-tint), var(--glass-tint)), var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 12px 40px -22px rgba(0, 0, 0, 0.6);
-}
-
-/* A heavier variant for full-attention surfaces (centered dialogs). */
-.glass-strong {
-  background: rgba(36, 22, 64, 0.82);
-  border: 1px solid var(--glass-border);
-  -webkit-backdrop-filter: blur(32px) saturate(190%);
-  backdrop-filter: blur(32px) saturate(190%);
-  box-shadow: inset 0 1px 0 0 var(--glass-highlight), 0 28px 64px -24px rgba(0, 0, 0, 0.7);
-}
-
-/* Rounded-surface conventions (liquid-glass): panels are softer than controls. */
+/* Rounded-surface conventions: panels are softer than controls. */
 .rounded-panel { border-radius: var(--radius-lg); }
 .rounded-control { border-radius: var(--radius); }
-
-/* Graceful degradation: browsers without backdrop-filter get a solid raised
-   surface so glass panes never render as near-transparent unreadable boxes. */
-@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .glass, .glass-tint { background: var(--raised); border-color: var(--border); }
-  .glass-strong { background: var(--surface); border-color: var(--border); }
-}
 
 /* ── glass tiers (task 4) ─────────────────────────────────────────────────────
    In @layer components so Tailwind hoists them BEFORE utilities in the cascade:
