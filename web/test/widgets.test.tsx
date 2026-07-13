@@ -155,6 +155,10 @@ describe('widget catalog', () => {
     mockRunsList.mockResolvedValue([RUN_RUNNING, RUN_PARKED])
     renderWidget(<ActiveRunsWidget />)
 
+    // FU-4: widget SectionHeaders are a real heading (h2), not an inert <span> —
+    // Overview's widgets sit directly under TopBar's page h1.
+    expect((await screen.findByText('Active runs')).tagName).toBe('H2')
+
     const rows = await screen.findAllByTestId('widget-active-runs-row')
     expect(rows).toHaveLength(2)
 

@@ -48,7 +48,7 @@ export default function CostTodayWidget() {
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3" data-testid="widget-cost-today">
-      <SectionHeader label="Cost today" />
+      <SectionHeader label="Cost today" as="h2" />
       {isPending ? (
         // FU-2: tier="solid" avoids nesting glass-panel inside this cell's
         // GlassPanel tier="panel" ancestor (OverviewView) — backdrop-filter

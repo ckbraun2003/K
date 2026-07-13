@@ -106,6 +106,8 @@ describe('ChatView', () => {
     selectThread('kt-2')
     renderChat()
 
+    // FU-4: the rail's SectionHeader is a real heading (h2), not an inert <span>.
+    expect((await screen.findByText('Chats')).tagName).toBe('H2')
     await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-2')).toBeTruthy())
     const rows = screen.getAllByTestId(/^chat-thread-row-/)
     expect(rows.map(r => r.getAttribute('data-testid'))).toEqual(['chat-thread-row-kt-2', 'chat-thread-row-kt-1'])

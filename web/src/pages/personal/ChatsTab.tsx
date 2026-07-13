@@ -119,7 +119,7 @@ export default function ChatsTab() {
   return (
     // Dense list — solid surface, no blur (Task 14 ChatView-rail precedent).
     <div data-testid="chats-tab" className="surface-solid rounded-panel flex-1 overflow-y-auto p-5">
-      <SectionHeader label="All chats" count={threads.length} />
+      <SectionHeader label="All chats" as="h2" count={threads.length} />
       {isPending ? (
         <div className="mt-3 flex flex-col gap-1.5">
           <SkeletonRow />

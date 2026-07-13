@@ -112,7 +112,7 @@ export default function MemoriesTab() {
   return (
     // Dense list — solid surface, no blur (Task 14 ChatView-rail precedent).
     <div data-testid="memories-tab" className="surface-solid rounded-panel flex-1 overflow-y-auto p-5">
-      <SectionHeader label="Memories" count={memories.length} />
+      <SectionHeader label="Memories" as="h2" count={memories.length} />
 
       {/* Add card — always rendered, independent of the list's load state. */}
       <div className="mt-3 flex flex-col gap-2 rounded-lg border border-border p-3">

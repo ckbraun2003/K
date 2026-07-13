@@ -188,6 +188,7 @@ export default function ChatView() {
         <div className="px-2 pt-2">
           <SectionHeader
             label="Chats"
+            as="h2"
             action={showHeaderNewChat ? (
               <Button
                 variant="glass"

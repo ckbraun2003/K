@@ -16,7 +16,7 @@ export default function NotesWidget() {
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
-      <SectionHeader label="Notes" />
+      <SectionHeader label="Notes" as="h2" />
       {isPending ? (
         // Hand-rolled (not <SkeletonTile>): that component bakes in its own
         // glass-panel tier, which would nest backdrop-filter inside this cell's

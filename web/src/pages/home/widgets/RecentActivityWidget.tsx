@@ -36,6 +36,7 @@ export default function RecentActivityWidget() {
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
       <SectionHeader
         label="Recent activity"
+        as="h2"
         action={(
           <button
             type="button"

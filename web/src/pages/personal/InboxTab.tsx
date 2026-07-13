@@ -136,7 +136,7 @@ export default function InboxTab() {
             const items = box.items.filter(i => i.kind === kind)
             return (
               <section key={kind} data-testid={`inbox-section-${kind}`}>
-                <SectionHeader label={SECTION_LABEL[kind]} count={count} />
+                <SectionHeader label={SECTION_LABEL[kind]} as="h2" count={count} />
                 <div className="flex flex-col gap-2">
                   {items.map(item => (
                     <InboxCard key={item.id} item={item} handlers={handlers} total={box.total} />

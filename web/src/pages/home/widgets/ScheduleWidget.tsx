@@ -26,7 +26,7 @@ export default function ScheduleWidget() {
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
-      <SectionHeader label="Schedule" />
+      <SectionHeader label="Schedule" as="h2" />
       {isPending ? (
         // Hand-rolled (not <SkeletonTile>): that component bakes in its own
         // glass-panel tier, which would nest backdrop-filter inside this cell's
