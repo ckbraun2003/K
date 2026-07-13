@@ -35,8 +35,17 @@ export default defineConfig({
     poolOptions: { forks: { singleFork: true } },
     env: {
       // Honor an external override (parallel agent teams isolate per run);
-      // default to a dir separate from the gating suite when unset.
-      K_DATA_DIR: process.env.K_DATA_DIR ?? path.join(os.tmpdir(), 'k-core-regressions-data'),
+      // default to a dir separate from the gating suite when unset. NEVER the
+      // repo's live data dir, though (H-1 guard — same rationale as
+      // vitest.config.ts: an inherited live K_DATA_DIR must not bind a
+      // regressions run to the real DB). Case-insensitive (Windows paths).
+      K_DATA_DIR: (() => {
+        const ext = process.env.K_DATA_DIR
+        const live = path.resolve(here, '../data').toLowerCase()
+        if (ext && path.resolve(ext).toLowerCase() !== live) return ext
+        if (ext) console.warn('[vitest] K_DATA_DIR pointed at the LIVE data dir — overriding to a temp dir (H-1 guard)')
+        return path.join(os.tmpdir(), 'k-core-regressions-data')
+      })(),
       HARNESS_TOKEN: 'dev-token-change-me',
     },
   },

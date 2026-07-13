@@ -676,6 +676,19 @@ export function reconcileOnBoot(): void {
 // so the final exit is reported as 'done', not 'killed'/'error'.
 const endingRuns = new Set<string>()
 
+/** Env for a managed run's CLI child. Everything the core inherited EXCEPT the
+ *  live-stack pointers: K_DATA_DIR (H-1 — in-run `pnpm core test` bound vitest to
+ *  the LIVE DB), PORT, HARNESS_TOKEN (credential/port leak to agent code). The
+ *  run's MCP children still get K_DATA_DIR/K_RUN_ID explicitly via mcp.json env
+ *  (agent-config synthesis) — this scrub does not affect them. */
+export function runChildEnv(
+  base: NodeJS.ProcessEnv,
+  extra: Record<string, string | undefined>,
+): NodeJS.ProcessEnv {
+  const { K_DATA_DIR: _kd, PORT: _p, HARNESS_TOKEN: _ht, ...rest } = base
+  return { ...rest, ...extra }
+}
+
 /** True when a stream-json line marks the end of an agent turn (`{type:"result"}`).
  *  In interactive mode this is the boundary where we park the run at awaiting_input
  *  instead of completing it (the process stays alive on stdin). */
@@ -871,13 +884,20 @@ async function runAgent(
               }
             : undefined,
         }),
-        // Point CLAUDE_CONFIG_DIR at the synthesized dir (+ resolved auth) for claude;
-        // K_RUN_ID identifies the run to the kstore MCP child (it also reads it from
-        // mcp.json env; the spawn env is the process-wide, defense-in-depth copy, and
-        // K_DATA_DIR already propagates via ...process.env). legacy ollama keeps
-        // today's env-free spawn options byte-for-byte unchanged.
+        // Point CLAUDE_CONFIG_DIR at the synthesized dir (+ resolved auth) for claude,
+        // scrubbed of the live-stack pointers (H-1: runChildEnv strips K_DATA_DIR/PORT/
+        // HARNESS_TOKEN — a lead running `pnpm core test` inside a Claude run must not
+        // bind vitest to the LIVE data dir, and HARNESS_TOKEN/PORT are a credential/port
+        // leak to agent-authored code). K_RUN_ID identifies the run to the kstore MCP
+        // child (it also reads it from mcp.json env — this is the process-wide,
+        // defense-in-depth copy). legacy ollama (`else` below) is EXEMPT from the
+        // scrub: that branch spawns the plain `ollama run <model> <prompt>` binary,
+        // which has no bash/tool/file-write access and executes no agent-authored
+        // code — there is nothing there that can act on a leaked K_DATA_DIR/PORT/
+        // HARNESS_TOKEN, so it keeps today's env-free spawn options byte-for-byte
+        // unchanged.
         synth
-          ? { cwd, reject: false, all: true, env: { ...process.env, CLAUDE_CONFIG_DIR: synth.configDir, K_RUN_ID: run.id, ...synth.authEnv } }
+          ? { cwd, reject: false, all: true, env: runChildEnv(process.env, { CLAUDE_CONFIG_DIR: synth.configDir, K_RUN_ID: run.id, ...synth.authEnv }) }
           : { cwd, reject: false, all: true }
       )
 
