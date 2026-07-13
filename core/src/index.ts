@@ -62,6 +62,8 @@ import { startProposalCollectors } from './proposal-collectors.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
 import { startBudgetBroadcast } from './budget-governor.js'
 import { startBacklogRelay } from './backlog-relay.js'
+import { startSelfHeal } from './self-heal.js'
+import { startLessonProposals } from './lesson-proposals.js'
 import { getProject, listProjects, warnStaleProjectPaths } from './projects.js'
 import { reconcileOnBoot, REPO_ROOT } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
@@ -114,6 +116,10 @@ let stopBacklogRelay: (() => void) | undefined
 let stopRunVerify: (() => void) | null = null
 // Same, for the E-19 notification engine (rules-gated run/verify → notifications; W0 stub).
 let stopNotifications: (() => void) | null = null
+// Same, for the E-18 self-heal engine (terminal-failed org run → classify → retry/park).
+let stopSelfHeal: (() => void) | undefined
+// Same, for the E-27 lesson-proposal cron (repeated verify failures → gated pending lessons).
+let stopLessonProposals: (() => void) | undefined
 // Releases the single-instance lock file (set in start(); undefined in tests).
 let releaseInstanceLock: (() => void) | undefined
 
@@ -347,6 +353,8 @@ export async function buildApp() {
     stopLeadDispatchRelay?.()
     stopBudgetBroadcast?.()
     stopBacklogRelay?.()
+    stopSelfHeal?.()
+    stopLessonProposals?.()
     releaseInstanceLock?.()
   })
   return app
@@ -520,6 +528,14 @@ async function start() {
   // oldest item under the default orchestrator. Inert until the operator enables it
   // (autonomySettings.enabled + backlogAutoPull, default OFF). Opt out: BACKLOG_RELAY=0.
   stopBacklogRelay = startBacklogRelay()
+  // E-18 self-healing runs: on a terminal FAILED org/auto run, classify and (if the operator
+  // enabled Autonomy + Self-heal, budget permitting) retry with a model fallback, else park an
+  // Inbox proposal. Inert until autonomy is enabled; subscribes to the run-update bus.
+  stopSelfHeal = startSelfHeal()
+  // E-27 eval/verification-derived lessons: an hourly cron groups repeated verify failures by
+  // signature and proposes ONE deduped, capped pending lesson each through the existing D-041
+  // gate. Gated inside proposeLessons by autonomy enabled && proposals; LESSON_PROPOSALS=0 opts out.
+  stopLessonProposals = startLessonProposals()
   startOllamaProbe()  // no-op unless ENABLE_OLLAMA; keeps router reachability fresh
   console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
   console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)
