@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { KSchedule } from '@k/shared'
 import { api } from '../../../lib/api'
 import { SectionHeader } from '../../../ui/SectionHeader'
-import { Icon } from '../../../ui/Icon'
+import { EmptyState } from '../../../ui/EmptyState'
 import { Skeleton } from '../../../ui/Skeleton'
 
 /** Short "Jul 2 · 14:00" stamp for schedule rows — same formatting KHome uses. */
@@ -26,7 +26,7 @@ export default function ScheduleWidget() {
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
-      <SectionHeader label="Schedule" />
+      <SectionHeader label="Schedule" as="h2" />
       {isPending ? (
         // Hand-rolled (not <SkeletonTile>): that component bakes in its own
         // glass-panel tier, which would nest backdrop-filter inside this cell's
@@ -42,13 +42,10 @@ export default function ScheduleWidget() {
       ) : isError ? (
         <p data-testid="widget-schedule-error" className="text-caption text-red">Failed to load schedule.</p>
       ) : events.length === 0 && reminders.length === 0 ? (
-        // Hand-rolled (not <EmptyState>): this cell renders inside OverviewView's
-        // GlassPanel tier="panel" — EmptyState's own icon bubble is itself a
-        // glass-panel, which would nest backdrop-filter inside backdrop-filter.
-        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-4 text-center">
-          <Icon name="timeline" size={20} className="text-muted" />
-          <p className="text-body font-medium text-text">Nothing scheduled.</p>
-        </div>
+        // FU-2: tier="solid" avoids nesting glass-panel (EmptyState's default
+        // icon bubble) inside this cell's GlassPanel tier="panel" ancestor
+        // (OverviewView) — backdrop-filter can't stack on itself.
+        <EmptyState tier="solid" icon="timeline" headline="Nothing scheduled." className="flex-1 gap-1.5 py-4" />
       ) : (
         <ul className="space-y-1">
           {events.map(ev => (

@@ -4,7 +4,7 @@ import { api } from '../../../lib/api'
 import { navigate } from '../../../lib/route'
 import HealthRubric from '../../../components/HealthRubric'
 import { SectionHeader } from '../../../ui/SectionHeader'
-import { Icon } from '../../../ui/Icon'
+import { EmptyState } from '../../../ui/EmptyState'
 import { Skeleton } from '../../../ui/Skeleton'
 
 /**
@@ -22,7 +22,7 @@ export default function ProjectHealthWidget() {
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
-      <SectionHeader label="Project health" />
+      <SectionHeader label="Project health" as="h2" />
       {isPending ? (
         // Hand-rolled (not <SkeletonTile>): that component bakes in its own
         // glass-panel tier, which would nest backdrop-filter inside this cell's
@@ -38,13 +38,10 @@ export default function ProjectHealthWidget() {
       ) : isError ? (
         <p data-testid="widget-project-health-error" className="text-caption text-red">Failed to load projects.</p>
       ) : projects.length === 0 ? (
-        // Hand-rolled (not <EmptyState>): this cell renders inside OverviewView's
-        // GlassPanel tier="panel" — EmptyState's own icon bubble is itself a
-        // glass-panel, which would nest backdrop-filter inside backdrop-filter.
-        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-4 text-center">
-          <Icon name="projects" size={20} className="text-muted" />
-          <p className="text-body font-medium text-text">No projects registered yet.</p>
-        </div>
+        // FU-2: tier="solid" avoids nesting glass-panel (EmptyState's default
+        // icon bubble) inside this cell's GlassPanel tier="panel" ancestor
+        // (OverviewView) — backdrop-filter can't stack on itself.
+        <EmptyState tier="solid" icon="projects" headline="No projects registered yet." className="flex-1 gap-1.5 py-4" />
       ) : (
         <div className="flex flex-col gap-1">
           {projects.map(p => (

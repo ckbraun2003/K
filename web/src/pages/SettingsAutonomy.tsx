@@ -138,6 +138,7 @@ export function AutonomousOrgSection() {
                 value={Math.round(data.budgetWarnPct * 100)}
                 disabled={mutation.isPending}
                 onChange={e => mutation.mutate({ budgetWarnPct: Number(e.target.value) / 100 })}
+                className="accent-[var(--accent)]"
               />
             </label>
           </div>

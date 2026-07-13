@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
-import { useFocusTrap } from '../lib/useFocusTrap'
 
 interface Props {
   open: boolean
@@ -36,38 +35,15 @@ export default function ConfirmDialog({
   onCancel,
 }: Props) {
   const confirmRef = useRef<HTMLButtonElement>(null)
-  const footerRef = useRef<HTMLDivElement | null>(null)
 
-  // Dialog's content is Radix-portaled, and the Portal itself defers actually
-  // mounting into the DOM by one render pass (it starts `mounted=false` and
-  // flips true via its own effect) — so on the render where `open` first
-  // becomes true, `footerRef.current` is still null. useFocusTrap's effect
-  // only ever runs once per `active` transition (its deps are [ref, active]),
-  // so if it ran while the ref was still null it would never attach at all.
-  // Gate `active` on the footer actually being in the DOM so the hook's
-  // effect fires (for the first time) only once that's guaranteed true.
-  const [footerMounted, setFooterMounted] = useState(false)
-  const footerCallbackRef = useCallback((node: HTMLDivElement | null) => {
-    footerRef.current = node
-    // Reset on detach (dialog close unmounts the Radix-portaled footer while
-    // this component instance persists across ~15 call sites toggling `open`)
-    // so the next open cycle re-arms the trap: the ref attaches -> this flips
-    // true -> useFocusTrap's effect (deps [ref, active]) re-runs with a live
-    // node. Without this reset, `open && footerMounted` would already be true
-    // the instant `open` flips on reopen — one render before Radix remounts
-    // the footer — so the effect would fire once against a null ref and never
-    // retry.
-    setFooterMounted(node !== null)
-  }, [])
-
-  // a11y: keep Tab/Shift+Tab cycling between the footer's own two controls
-  // (Cancel/Confirm) — scoped narrower than Dialog's built-in trap (which also
-  // cycles through the header's Close button) to match the house two-button
-  // convention. A raw `addEventListener` on the footer fires during native
-  // event bubbling before React's synthetic dispatch reaches Radix's own
-  // FocusScope handler higher up, so this wins at the wrap boundaries without
-  // fighting Radix.
-  useFocusTrap(footerRef, open && footerMounted)
+  // FU-1: Tab containment is left entirely to Radix's own FocusScope (which
+  // wraps the whole dialog — Close, then Cancel, then Confirm), matching
+  // RewindDialog and every other Dialog-based modal. This used to narrow the
+  // trap to just Cancel/Confirm via a second, hand-rolled useFocusTrap plus a
+  // stopPropagation hack to blind Radix's own handler at the boundary — which
+  // had the side effect of making the header Close button unreachable by
+  // keyboard (Tab could never land on it at all), a real a11y regression
+  // relative to every other dialog in the app.
 
   // Focus the confirm button on open and wire a global Enter so keyboard
   // handling matches the other dialogs even when focus is elsewhere. Radix's
@@ -92,22 +68,7 @@ export default function ConfirmDialog({
       onOpenChange={(o) => { if (!o) onCancel() }}
       title={title}
       footer={
-        // Radix's own FocusScope wraps the whole dialog (header+body+footer)
-        // trapped, with its own Tab handler — after useFocusTrap's raw
-        // listener above has already wrapped focus within the footer's two
-        // buttons, that same Tab keydown still reaches Radix's handler via
-        // React's synthetic dispatch (native propagation isn't stopped by a
-        // plain addEventListener). Against the full-dialog tabbable edges
-        // (Close is first, Confirm is last) it can re-process the same key
-        // and fight the footer-scoped trap. Stop it here at the boundary —
-        // but only while useFocusTrap is actually armed (`footerMounted`);
-        // otherwise this would blind Radix's own containment on a render
-        // where the footer-scoped trap isn't attached to anything.
-        <div
-          ref={footerCallbackRef}
-          className="contents"
-          onKeyDown={e => { if (e.key === 'Tab' && footerMounted) e.stopPropagation() }}
-        >
+        <>
           <Button
             variant="ghost"
             size="sm"
@@ -126,7 +87,7 @@ export default function ConfirmDialog({
           >
             {busy ? '…' : confirmLabel}
           </Button>
-        </div>
+        </>
       }
     >
       <div data-testid={testid}>

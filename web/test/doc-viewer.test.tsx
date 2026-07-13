@@ -6,7 +6,7 @@
  * not navigate). Tests the pure transform + that the rendered iframe carries it.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Artifact } from '@k/shared'
 import { withInDocBase } from '../src/components/DocViewer'
@@ -64,5 +64,17 @@ describe('DocViewer html view', () => {
     renderViewer()
     const iframe = (await screen.findByTitle('Bible')) as HTMLIFrameElement
     expect(iframe.getAttribute('srcdoc')).toContain('<base href="about:srcdoc">')
+  })
+})
+
+describe('DocViewer markdown view (FU-5)', () => {
+  it('wraps ReactMarkdown output in the .doc-markdown token-CSS class, never the inert Tailwind-Typography prose-* classes', async () => {
+    const { container } = renderViewer()
+    await screen.findByTitle('Bible') // default view is 'html' — wait for the first render to settle
+    fireEvent.click(screen.getByText('.md'))
+    const wrapper = await screen.findByText('Bible', { selector: 'h1' })
+    const markdownRoot = wrapper.closest('.doc-markdown')
+    expect(markdownRoot).toBeTruthy()
+    expect(markdownRoot?.className).not.toMatch(/\bprose\b/)
   })
 })

@@ -71,6 +71,7 @@ export default function ProjectsPage() {
     <div className="h-full overflow-y-auto px-6 py-6">
       <SectionHeader
         label="Fleet"
+        as="h2"
         count={projects.length}
         action={
           <Button variant="primary" icon="plus" data-testid="register-open" onClick={() => setOpen(true)}>

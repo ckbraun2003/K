@@ -76,5 +76,9 @@ describe('Sidebar runs badge — parked runs count (F-055)', () => {
     renderSidebar(false)
     const badge = await screen.findByTestId('sidebar-runs-badge')
     expect(badge.textContent).toBe('2')
+    // LOW-2: the title must name the SAME count the badge shows (2), not just the
+    // parked subset (1) — a bare "1 run awaiting your input" title on a badge
+    // reading "2" reads as a mismatch/typo.
+    expect(badge.getAttribute('title')).toBe('2 runs — 1 awaiting your input')
   })
 })
