@@ -4,7 +4,20 @@
  * 24h window. Zero forecasting: no price×token math, no projection. Org cap lives
  * in autonomy settings; per-project caps on projects.budget_daily_usd. A dispatch
  * is "parked" = refused with a budget_capped reason (no queue); the operator raises
- * the cap to proceed. Applies to manual AND autonomous dispatches (always-on safety).
+ * the cap to proceed. Always-on: the cap gates even when autonomy is disabled.
+ *
+ * COVERAGE (kept HONEST — the gate is not universal):
+ *   GATED (consult budgetGate before dispatch):
+ *     - autonomous/org startAgentRun dispatches — schedule, event, and operator→Chief
+ *       delegation triggers (agent-runs.ts);
+ *     - autonomous scheduled/event SKILL runs, which reach startRun directly, NOT via
+ *       startAgentRun (skills.ts startScheduler + startEventListener — E-17 e17 fix);
+ *     - manual dispatch via POST /api/runs (routes/runs.ts → 429).
+ *   NOT GATED (deliberate):
+ *     - interactive / persistent-session K-secretary turns — the operator must always
+ *       be able to reach K to raise the cap;
+ *     - operator-initiated action routes (rewind / review-fix / deep-verify / workflows)
+ *       and the operator "run skill now" trigger — a TRACKED FOLLOW-UP, not yet gated.
  */
 import type { BudgetStatus, BudgetScopeStatus } from '@k/shared'
 import { budgetDb, projectsDb } from './db.js'
