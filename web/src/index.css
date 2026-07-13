@@ -166,30 +166,34 @@ body { font-variant-numeric: tabular-nums; }
   .glass-strong { background: var(--surface); border-color: var(--border); }
 }
 
-/* ── glass tiers (task 4) ─────────────────────────────────────────────────── */
-
-.glass-chrome, .glass-panel, .glass-overlay {
-  border: 1px solid var(--glass-tier-border);
-  box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
+/* ── glass tiers (task 4) ─────────────────────────────────────────────────────
+   In @layer components so Tailwind hoists them BEFORE utilities in the cascade:
+   a plain utility (rounded-pill, border-red/30, …) on the same element must win
+   over the tier skin without !important. */
+@layer components {
+  .glass-chrome, .glass-panel, .glass-overlay {
+    border: 1px solid var(--glass-tier-border);
+    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
+  }
+  .glass-chrome { background: var(--glass-chrome-bg);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); }
+  .glass-panel { background: var(--glass-panel-bg);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
+    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-2); }
+  .glass-overlay { background: var(--glass-overlay-bg);
+    -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4);
+    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-3); }
+  .surface-solid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .micro-label { font-size: 10px; line-height: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; font-weight: 500; color: var(--muted); }
+  .shimmer { background: linear-gradient(90deg, var(--raised) 25%, var(--border) 50%, var(--raised) 75%);
+    background-size: 200% 100%; animation: shimmer 1.6s var(--ease) infinite; border-radius: var(--radius-sm); }
 }
-.glass-chrome { background: var(--glass-chrome-bg);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); }
-.glass-panel { background: var(--glass-panel-bg);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
-  border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-2); }
-.glass-overlay { background: var(--glass-overlay-bg);
-  -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4);
-  border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-3); }
-.surface-solid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .glass-chrome { background: var(--surface); }
   .glass-panel, .glass-overlay { background: var(--raised); }
 }
-.micro-label { font-size: 10px; line-height: 12px; letter-spacing: 0.08em;
-  text-transform: uppercase; font-weight: 500; color: var(--muted); }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-.shimmer { background: linear-gradient(90deg, var(--raised) 25%, var(--border) 50%, var(--raised) 75%);
-  background-size: 200% 100%; animation: shimmer 1.6s var(--ease) infinite; border-radius: var(--radius-sm); }
 @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; } }
 
 /* ── chrome ───────────────────────────────────────────────────────────────── */
