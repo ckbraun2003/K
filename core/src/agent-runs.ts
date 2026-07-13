@@ -28,6 +28,7 @@ import { claudeDefaultModel } from './config-store.js'
 import { startRun } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
 import { agentRunsDb } from './db.js'
+import { budgetGate, BudgetCapError } from './budget-governor.js'
 import type { AgentRunTrigger } from '@k/shared'
 
 /** How a profile was activated (bible §03). The canonical union lives in @k/shared
@@ -86,6 +87,18 @@ export async function startAgentRun(
 
   const prompt = opts.goal ?? opts.thread
   if (!prompt) throw new Error('startAgentRun requires a goal or thread')
+
+  // E-17 budget governor: refuse a NEW autonomous/org dispatch when the org OR the
+  // scoped project is at its measured cap. INTERACTIVE / persistent-session K-secretary
+  // turns are EXEMPT — the operator must always be able to reach K to raise the cap. An
+  // operator→Chief delegation (trigger 'delegation') IS a paid org dispatch and IS gated;
+  // its caller (k-thread.ts::delegateToChief) catches BudgetCapError → explanatory K turn
+  // → 429. Thrown BEFORE the tracking-row insert, so a capped dispatch leaves no row.
+  const gated = opts.trigger !== 'user-message' && !opts.interactive && !opts.persistentSession
+  if (gated) {
+    const g = budgetGate({ projectId: opts.projectId })
+    if (!g.allowed) throw new BudgetCapError(g.scope, g.capUsd, g.spentUsd)
+  }
 
   // 1. Insert the tracking row (status 'running', no runId yet).
   const agentRunId = randomUUID()

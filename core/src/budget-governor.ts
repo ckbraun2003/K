@@ -9,6 +9,8 @@
 import type { BudgetStatus, BudgetScopeStatus } from '@k/shared'
 import { budgetDb, projectsDb } from './db.js'
 import { autonomySettings } from './config-store.js'
+import { eventBus } from './events.js'
+import { isTerminalRunStatus } from './run-lifecycle.js'
 
 export const BUDGET_WINDOW_MS = 24 * 3_600_000
 
@@ -68,4 +70,18 @@ export class BudgetCapError extends Error {
     super(`budget_capped: ${scope} cap $${capUsd} reached (measured $${spentUsd.toFixed(2)} in 24h)`)
     this.name = 'BudgetCapError'
   }
+}
+
+/**
+ * Boot-wired: broadcast the measured budget status once per run TERMINAL — the only
+ * moment runs.cost_usd is finalized (supervisor finalizes on success AND error, both
+ * routed through emitRunUpdate). Subscribing to the run-update stream but gating on
+ * isTerminalRunStatus avoids re-running the SUM/COUNT queries on every interim tick.
+ * Returns the unsubscribe teardown (wired next to the other schedulers in index.ts).
+ */
+export function startBudgetBroadcast(): () => void {
+  return eventBus.onRunUpdate(r => {
+    if (!isTerminalRunStatus(r.status)) return
+    eventBus.broadcast({ type: 'budget_update', status: budgetStatus() })
+  })
 }

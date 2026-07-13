@@ -11,6 +11,7 @@ import { deriveNarrative, narrativeBullets } from '../narrative.js'
 import { httpTransport } from '../ollama-agent/transport.js'
 import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel } from '../config-store.js'
+import { budgetGate } from '../budget-governor.js'
 
 // E-08: cap the on-GET local-model bullet call so a stuck/looping model can't hang
 // the request; on timeout the card degrades to 'unavailable' (never blocks/500s).
@@ -56,6 +57,17 @@ export async function runsRoutes(app: FastifyInstance) {
     // 400 (client contract error) instead of letting startRun throw -> a 500.
     if (planGate === true && interactive === true) {
       return sendError(reply, 400, 'planGate is not compatible with interactive dispatch')
+    }
+    // E-17 budget governor: refuse a manual dispatch when the org OR the scoped project
+    // is at its measured cap (always-on safety, same policy as autonomous dispatches).
+    // 429 (not 400/500): a transient, operator-resolvable state — raise the cap in
+    // Settings → Autonomous Org, or wait for the 24h window to roll off.
+    const g = budgetGate({ projectId })
+    if (!g.allowed) {
+      return reply.status(429).send({
+        error: g.scope === 'org' ? 'org budget cap reached' : 'project budget cap reached',
+        scope: g.scope, capUsd: g.capUsd, spentUsd: g.spentUsd,
+      })
     }
     try {
       const run = await startRun(prompt, {
