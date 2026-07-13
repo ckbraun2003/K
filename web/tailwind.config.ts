@@ -5,17 +5,20 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: '#1a0f2e',
-        surface: '#241640',
-        raised: '#2e1b52',
-        border: '#3a2a5c',
-        text: '#f4f0ff',
-        muted: '#a99bc4',
-        // accent = blush pink (fills/active); accent-hover = sky blue (hover/active transition)
-        accent: { DEFAULT: '#ff8fc0', hover: '#38bdf8' },
-        green: '#34d399',
-        amber: '#fbbf24',
-        red: '#f87171',
+        bg: 'rgb(from var(--bg) r g b / <alpha-value>)',
+        'bg-deep': 'rgb(from var(--bg-deep) r g b / <alpha-value>)',
+        surface: 'rgb(from var(--surface) r g b / <alpha-value>)',
+        raised: 'rgb(from var(--raised) r g b / <alpha-value>)',
+        border: 'rgb(from var(--border) r g b / <alpha-value>)',
+        'border-strong': 'rgb(from var(--border-strong) r g b / <alpha-value>)',
+        text: 'rgb(from var(--text) r g b / <alpha-value>)',
+        muted: 'rgb(from var(--muted) r g b / <alpha-value>)',
+        accent: 'rgb(from var(--accent) r g b / <alpha-value>)',
+        'accent-hover': 'rgb(from var(--accent-hover) r g b / <alpha-value>)',
+        'on-accent': 'rgb(from var(--on-accent) r g b / <alpha-value>)',
+        green: 'rgb(from var(--green) r g b / <alpha-value>)',
+        amber: 'rgb(from var(--amber) r g b / <alpha-value>)',
+        red: 'rgb(from var(--red) r g b / <alpha-value>)',
       },
       borderRadius: {
         panel: '18px',

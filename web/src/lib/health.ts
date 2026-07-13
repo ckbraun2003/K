@@ -1,3 +1,5 @@
+import { readToken } from './tokens'
+
 /**
  * E-12: the SINGLE health-score → color/label rubric. Replaces the drifting copies
  * in verify.ts, ProjectVerification, FleetGraphPage (hex), ProjectWorkspace, and
@@ -16,10 +18,10 @@ export interface HealthRubricInfo {
 }
 
 const BANDS: Record<HealthBand, Omit<HealthRubricInfo, 'band'>> = {
-  unknown:  { label: 'unknown',  text: 'text-[var(--muted)]', dot: 'bg-[var(--muted)]', hex: '#a99bc4' },
-  healthy:  { label: 'healthy',  text: 'text-[var(--green)]', dot: 'bg-[var(--green)]', hex: '#34d399' },
-  warn:     { label: 'warn',     text: 'text-[var(--amber)]', dot: 'bg-[var(--amber)]', hex: '#fbbf24' },
-  critical: { label: 'critical', text: 'text-[var(--red)]',   dot: 'bg-[var(--red)]',   hex: '#f87171' },
+  unknown:  { label: 'unknown',  text: 'text-[var(--muted)]', dot: 'bg-[var(--muted)]', hex: readToken('--muted') },
+  healthy:  { label: 'healthy',  text: 'text-[var(--green)]', dot: 'bg-[var(--green)]', hex: readToken('--green') },
+  warn:     { label: 'warn',     text: 'text-[var(--amber)]', dot: 'bg-[var(--amber)]', hex: readToken('--amber') },
+  critical: { label: 'critical', text: 'text-[var(--red)]',   dot: 'bg-[var(--red)]',   hex: readToken('--red') },
 }
 
 export function healthRubric(score: number | null): HealthRubricInfo {

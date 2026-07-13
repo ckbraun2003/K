@@ -4,12 +4,14 @@
 
 :root {
   /* vivid midnight-glass tokens — bible §6 (D-011) */
-  --bg: #1a0f2e;       /* saturated midnight purple base */
-  --surface: #241640;  /* cards, panels */
-  --raised: #2e1b52;   /* inputs, raised controls */
+  --bg: #1b1030;       /* saturated midnight purple base */
+  --bg-deep: #140b26;
+  --surface: #2a1a47;  /* cards, panels */
+  --raised: #33205c;   /* inputs, raised controls */
   --border: #3a2a5c;   /* hairline, lifted into the purple */
+  --border-strong: #4a3775;
   --text: #f4f0ff;
-  --muted: #a99bc4;
+  --muted: #b3a6cd;
   --accent: #ff8fc0;        /* blush pink — accent fills, active pills, badges, links */
   --accent-hover: #38bdf8;  /* sky blue — hover/active transition colour */
   --on-accent: #241640;     /* dark text on accent-filled chips (WCAG dark-on-light) */

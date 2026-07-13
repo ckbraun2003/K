@@ -4,6 +4,7 @@
 // @ts-expect-error d3-force-3d has no bundled type declarations
 import { forceCollide } from 'd3-force-3d'
 import type { GraphNodeEnrichment, WsMessage } from '@k/shared'
+import { readToken } from './tokens'
 
 // ─── Knowledge-graph render helpers (pure, unit-tested in web/test/graph.test.ts) ──
 
@@ -16,13 +17,12 @@ export type GraphNode = {
   [key: string]: unknown
 }
 
-// Canonical node colours, shared by the per-node colour function and the legend so
-// they can never drift apart.
+// Canonical node colours via readToken; maintains backward compatibility with tests.
 export const GRAPH_COLORS = {
-  failing: '#f87171', // has critical/error findings
-  untested: '#fbbf24', // amber — no last run / explicitly untested
-  ok: '#ff8fc0', // blush accent — healthy
-  dim: '#4c3a6e', // muted purple — filtered out
+  failing: readToken('--red'),
+  untested: readToken('--amber'),
+  ok: readToken('--accent'),
+  dim: readToken('--chart-other'),
 } as const
 
 export const GRAPH_LEGEND: { color: string; label: string }[] = [
@@ -69,9 +69,18 @@ export function nodeColor(node: GraphNode, filter: string): string {
 // interaction (cooldownTicks settles the sim), so the glow cost isn't continuous.
 
 /** Canvas background for every graph — the new midnight-purple base. */
-export const GRAPH_BG = '#1a0f2e'
+export const GRAPH_BG = readToken('--bg')
 /** Visible edge colour — sky-blue, semi-transparent, so links read on the dark canvas. */
-export const GRAPH_LINK_COLOR = 'rgba(56, 189, 248, 0.4)'
+export const GRAPH_LINK_COLOR = `rgba(${hexToRgb(readToken('--accent-hover'))}, 0.4)`
+
+function hexToRgb(hex: string): string {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  if (!result) return '56, 189, 248'
+  const r = parseInt(result[1], 16)
+  const g = parseInt(result[2], 16)
+  const b = parseInt(result[3], 16)
+  return `${r}, ${g}, ${b}`
+}
 
 type XYNode = { x?: number; y?: number; label?: string; id?: string | number }
 
