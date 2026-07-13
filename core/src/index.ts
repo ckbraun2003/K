@@ -59,6 +59,7 @@ import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
+import { startSelfHeal } from './self-heal.js'
 import { getProject, listProjects, warnStaleProjectPaths } from './projects.js'
 import { reconcileOnBoot, REPO_ROOT } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
@@ -105,6 +106,8 @@ let stopLeadDispatchRelay: (() => void) | undefined
 let stopRunVerify: (() => void) | null = null
 // Same, for the E-19 notification engine (rules-gated run/verify → notifications; W0 stub).
 let stopNotifications: (() => void) | null = null
+// Same, for the E-18 self-heal engine (terminal-failed org run → classify → retry/park).
+let stopSelfHeal: (() => void) | undefined
 // Releases the single-instance lock file (set in start(); undefined in tests).
 let releaseInstanceLock: (() => void) | undefined
 
@@ -335,6 +338,7 @@ export async function buildApp() {
     stopNotifications?.()
     stopChiefWake?.()
     stopLeadDispatchRelay?.()
+    stopSelfHeal?.()
     releaseInstanceLock?.()
   })
   return app
@@ -494,6 +498,10 @@ async function start() {
   // Drain the DB-backed lead-dispatch intent queue in this long-lived process (so a lead
   // run + its report-back outlive the ephemeral mgmt-server child). Default ON; LEAD_DISPATCH_RELAY=0.
   stopLeadDispatchRelay = startLeadDispatchRelay()
+  // E-18 self-healing runs: on a terminal FAILED org/auto run, classify and (if the operator
+  // enabled Autonomy + Self-heal, budget permitting) retry with a model fallback, else park an
+  // Inbox proposal. Inert until autonomy is enabled; subscribes to the run-update bus.
+  stopSelfHeal = startSelfHeal()
   startOllamaProbe()  // no-op unless ENABLE_OLLAMA; keeps router reachability fresh
   console.log(`\n⚡ Harness core running → http://localhost:${PORT}`)
   console.log(`   WebSocket gateway  → ws://localhost:${PORT}/ws`)
