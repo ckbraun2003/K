@@ -201,7 +201,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-13 18:42</span><br>
+      compiled <span class="mono">2026-07-13 18:58</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -4361,7 +4361,7 @@ gitignored data dir.</p>
 <h2>Troubleshooting</h2>
 <ul>
 <li><strong>Stale worktree after a crash.</strong> A crashed or killed run can leave a <code>.worktrees/&lt;runId&gt;</code> directory behind. On boot, <code>reconcileOnBoot</code> (core/src/supervisor.ts, wired in index.ts) auto-reconciles runs stuck in <code>running</code>/<code>queued</code> to <code>interrupted</code>, removes orphaned <code>.worktrees/*</code> dirs, <strong>then</strong> runs <code>git worktree prune</code> — the prune runs <strong>after</strong> dir removal (W10b/F-091) so a crash-orphaned worktree's metadata is reclaimed the same boot. On Windows, <code>removeWorktree</code> retries an <code>EBUSY</code> (3× backoff) before a best-effort swallow (the happy path adds no delay); a file lock that still blocks removal is logged non-fatal — if a stale dir persists, close any process holding it and run <code>git worktree prune</code> manually, then delete the directory.</li>
-<li><strong>SQLite "database is locked".</strong> <code>core/data/k.db</code> runs in WAL mode. A first boot after a new schema migration, or two core processes pointing at the same DB, can race and surface a lock. Run a single core process, and start the dev server <strong>stopped</strong> for the first boot after a migration (see Schema migrations). The <code>-wal</code>/<code>-shm</code> sidecar files are normal and are checkpointed automatically.</li>
+<li><strong>SQLite "database is locked".</strong> <code>data/k.db</code> runs in WAL mode. A first boot after a new schema migration, or two core processes pointing at the same DB, can race and surface a lock. Run a single core process, and start the dev server <strong>stopped</strong> for the first boot after a migration (see Schema migrations). The <code>-wal</code>/<code>-shm</code> sidecar files are normal and are checkpointed automatically.</li>
 <li><strong>Port already in use.</strong> The core binds <code>PORT</code> (default 3001) and the web dev server binds 5173. If either is taken (<code>EADDRINUSE</code>), stop the other process or change <code>PORT</code> in <code>core/.env</code> (and <code>CORS_ORIGIN</code> to match the web origin). On Windows, find the holder with <code>netstat -ano | findstr :3001</code>.</li>
 <li><strong>A registered project's folder was moved/deleted.</strong> The GitHub poller <strong>skips</strong> a project whose <code>localPath</code> no longer exists instead of erroring every cycle (one warn per boot per project; the row is never deleted or mutated), and the read surface stamps an additive <code>Project.pathMissing</code> so the UI can say why (P5.7, D-058). Re-register or restore the path to resume polling.</li>
 </ul>
