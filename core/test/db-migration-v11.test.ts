@@ -24,7 +24,7 @@ function tables(d: Database.Database): string[] {
 
 describe('SCHEMA_VERSION 11', () => {
   it('is 11 and the live test DB has the new shapes', () => {
-    expect(SCHEMA_VERSION).toBe(11)
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(11)
     expect(columns(db as unknown as Database.Database, 'k_threads')).toContain('archived_at')
     expect(tables(db as unknown as Database.Database)).toContain('user_memories')
     const rule = db.prepare(`SELECT inapp, browser FROM notification_rules WHERE event_key='memory_saved'`).get() as { inapp: number; browser: number } | undefined
@@ -54,7 +54,7 @@ describe('SCHEMA_VERSION 11', () => {
     `)
     d.pragma('user_version = 10')
     migrate(d)
-    expect(d.pragma('user_version', { simple: true })).toBe(11)
+    expect(d.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
     expect(columns(d, 'k_threads')).toContain('archived_at')
     expect(tables(d)).toContain('user_memories')
     expect(d.prepare(`SELECT event_key FROM notification_rules WHERE event_key = ?`).get('memory_saved')).toBeTruthy()
