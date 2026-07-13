@@ -63,7 +63,7 @@ function fullInbox(): InboxPayload {
   ]
   return {
     items,
-    counts: { plan_pending: 1, input_needed: 1, lesson_pending: 1, mcp_trust: 1, review_ready: 1 },
+    counts: { plan_pending: 1, input_needed: 1, lesson_pending: 1, mcp_trust: 1, review_ready: 1, proposal: 0 },
     total: 5,
   }
 }

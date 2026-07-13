@@ -42,6 +42,10 @@ import { notificationsRoutes } from './routes/notifications.js'
 import { mergeRoutes } from './routes/merge.js'
 import { feedRoutes } from './routes/feed.js'
 import { systemRoutes } from './routes/system.js'
+import { autonomySettingsRoutes } from './routes/autonomy-settings.js'
+import { budgetRoutes } from './routes/budget.js'
+import { routinesRoutes } from './routes/routines.js'
+import { retryMetricsRoutes } from './routes/retry-metrics.js'
 import { registerRunVerify } from './run-verify.js'
 import { registerNotifications } from './notify.js'
 import { sweepCheckpointRefs } from './checkpoints.js'
@@ -183,6 +187,10 @@ export async function buildApp() {
   await app.register(mergeRoutes)
   await app.register(feedRoutes)
   await app.register(systemRoutes)
+  await app.register(autonomySettingsRoutes)
+  await app.register(budgetRoutes)
+  await app.register(routinesRoutes)
+  await app.register(retryMetricsRoutes)
 
   // ── WebSocket gateway ───────────────────────────────────────────────────────
 
