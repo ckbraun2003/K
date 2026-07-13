@@ -96,17 +96,13 @@ export default function DocViewer({ slug }: Props) {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {view === 'md' && (
-          <div className="px-6 py-5 prose prose-invert prose-sm max-w-none
-            prose-headings:text-text prose-headings:font-bold
-            prose-p:text-text prose-p:leading-relaxed
-            prose-a:text-accent
-            prose-code:text-accent-hover prose-code:bg-surface prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-            prose-pre:bg-surface prose-pre:border prose-pre:border-border
-            prose-blockquote:border-l-accent prose-blockquote:text-muted
-            prose-th:text-muted prose-th:text-xs prose-th:uppercase
-            prose-td:text-text prose-td:text-sm
-            prose-li:text-text
-          ">
+          // FU-5: this project has no @tailwindcss/typography plugin registered
+          // (tailwind.config.ts `plugins: []`), so every `prose*` utility below
+          // was inert — Tailwind never generated CSS for an unregistered plugin
+          // class, and `ui-token-gate.test.ts` doesn't scan for it (bracket/
+          // plugin-class syntax, not raw palette/hex). `.doc-markdown` is real,
+          // token-CSS (index.css @layer components) that actually renders.
+          <div className="doc-markdown px-6 py-5">
             <ReactMarkdown>{artifact.md}</ReactMarkdown>
           </div>
         )}
