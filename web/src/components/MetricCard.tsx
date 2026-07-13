@@ -41,6 +41,11 @@ export default function MetricCard({ label, value, spark, accent, tone = 'accent
   const display = useTicker(value)
   const positive = accent && tone === 'positive'
   const pink = accent && tone === 'accent'
+  // M-3: the sparkline must read the SAME tone as the headline number — it
+  // previously always defaulted to the brand accent color regardless of
+  // `tone`, so e.g. a green "positive" card's number was green but its
+  // sparkline squiggle stayed pink.
+  const sparkStroke = positive ? 'var(--green)' : pink ? 'var(--accent-hover)' : 'var(--muted)'
   return (
     <div
       className={cn(
@@ -49,23 +54,23 @@ export default function MetricCard({ label, value, spark, accent, tone = 'accent
         // glass tier here would nest backdrop-filter (T25 I-1; legacy glass-tint
         // was deleted in T22).
         pink && 'bg-accent/10 border-accent/25',
-        positive && 'border-[color:rgba(52,211,153,0.28)] bg-[color:rgba(52,211,153,0.08)]',
-        !accent && 'border-[var(--border)] bg-[var(--surface)]',
+        positive && 'border-green/[0.28] bg-green/[0.08]',
+        !accent && 'border-border bg-surface',
       )}
     >
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{label}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{label}</span>
       <div className="mt-1 flex items-end justify-between gap-2">
         <span
           className={cn(
             'mono text-2xl font-semibold',
-            pink && 'text-[var(--accent-hover)]',
-            positive && 'text-[var(--green)]',
-            !accent && 'text-[var(--text)]',
+            pink && 'text-accent-hover',
+            positive && 'text-green',
+            !accent && 'text-text',
           )}
         >
           {display}
         </span>
-        {spark && <Sparkline values={spark} />}
+        {spark && <Sparkline values={spark} stroke={sparkStroke} />}
       </div>
     </div>
   )

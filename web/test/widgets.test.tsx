@@ -249,7 +249,12 @@ describe('widget catalog', () => {
     expect(text).not.toContain('est')
     // The 14-day sparkline (Sparkline renders a bare <svg> even with 1 point, and a
     // polyline once there are 2+ points — this fixture has 2 buckets).
-    expect(container.querySelectorAll('svg polyline').length).toBeGreaterThan(0)
+    const polylines = container.querySelectorAll('svg polyline')
+    expect(polylines.length).toBeGreaterThan(0)
+    // M-3: MetricCard renders with no `tone` (defaults to 'accent'), whose headline
+    // number is colored --accent-hover — the sparkline must match, not the brand
+    // --accent pink it used to default to regardless of tone.
+    expect(polylines[0].getAttribute('stroke')).toBe('var(--accent-hover)')
   })
 
   it('CostTodayWidget: with no matching bucket for today, headline reads $0 (never a borrowed days total)', async () => {
