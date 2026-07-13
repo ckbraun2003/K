@@ -26,10 +26,11 @@ import { Skeleton } from '../../../ui/Skeleton'
  * two-widget-only string map; see task report).
  */
 const NEEDS_YOU_KEY = ['inbox', 'widget'] as const
-const SECTION_ORDER: InboxItemKind[] = ['plan_pending', 'input_needed', 'review_ready', 'lesson_pending', 'mcp_trust']
+const SECTION_ORDER: InboxItemKind[] = ['plan_pending', 'input_needed', 'review_ready', 'proposal', 'lesson_pending', 'mcp_trust']
 const SECTION_LABEL: Record<InboxItemKind, string> = {
   plan_pending: 'Plans to approve', input_needed: 'Runs waiting on your reply',
-  review_ready: 'Ready for review', lesson_pending: 'Lessons to approve', mcp_trust: 'MCP servers to trust',
+  review_ready: 'Ready for review', proposal: 'Proposals to approve',
+  lesson_pending: 'Lessons to approve', mcp_trust: 'MCP servers to trust',
 }
 
 export default function NeedsYouWidget() {

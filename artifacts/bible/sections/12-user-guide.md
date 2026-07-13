@@ -2,7 +2,7 @@
 title: User Guide
 icon: "❔"
 status: active
-updated: 2026-07-05
+updated: 2026-07-13
 ---
 
 The mental model is **you direct an agent organization**: you talk to **K** (a friendly secretary),
@@ -134,6 +134,34 @@ you opt it in, and K never modifies your `~/.claude`.
    it with the same eval harness real skills use → **save**, which lands it in K's own library
    (`agent-config/skills/`) and registers it in the catalog. Until you save, the header honestly
    reads "agent-generated draft — not saved".
+
+## Setting up the Autonomous Org
+
+By default the org does nothing on its own — it acts only when you talk to K or dispatch a run.
+**Phase 5 (Autonomy)** lets the org generate its own work, pull it, retry its own failures, and cap
+its own spend, all behind **one switch that ships OFF**. Turn it on from **Settings → Autonomous Org**:
+
+1. **Flip the master toggle on.** Nothing autonomous runs until you do — a fresh install is inert.
+   Toggling applies immediately, no restart.
+2. **Pick which behaviors you want** (each needs the master on): **Generate proposals** (K's
+   deterministic collectors watch CI, verification, open issues, and bible staleness and drop
+   suggestions into **Personal → Inbox** as proposal cards — approve one to add it to the backlog,
+   dismiss to stop it nagging), **Auto-pull backlog** (the org claims the oldest approved backlog item
+   and dispatches it, up to your **max-concurrency**), and **Self-heal failed runs** (a failed
+   autonomous run is retried once on a fallback model, or parked in your Inbox with a one-line
+   diagnosis).
+3. **Set a budget cap (recommended even with autonomy off).** The **org daily budget cap** is a
+   *safety* cap on **measured** spend over a rolling 24h window — it applies to manual and autonomous
+   dispatches alike, so it protects you even when the master is off. At the cap a dispatch is refused
+   with a reason (not queued); raise the cap to proceed. Your own interactive chats with K are never
+   budget-blocked. Per-project caps live on each project. There is **no forecasting** — only real,
+   measured cost.
+4. **Watch it on Insights → Charts** — a **budget burn-down** (measured, 24h) and a **retry-rate**
+   chart show what the autonomy is spending and how often it is self-correcting.
+
+Two honest limits worth knowing: a project-scoped proposal is **one-shot per project** (once it
+exists in any state, a later recurrence won't re-appear until the row clears), and an Inbox **dismiss
+has no undo**. Both are deliberate for this first, default-OFF cut.
 
 ## Troubleshooting
 

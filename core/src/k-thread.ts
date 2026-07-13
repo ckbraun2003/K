@@ -20,6 +20,7 @@ import { routeForMessage, routeForTarget } from '@k/shared'
 import { kThreadsDb, runsDb, eventsDb, mgmtDb, db } from './db.js'
 import { eventBus } from './events.js'
 import { startAgentRun } from './agent-runs.js'
+import { BudgetCapError } from './budget-governor.js'
 import { kill } from './supervisor.js'
 import { leadRosterHint } from './chief-dispatch.js'
 import { isTerminalRunStatus, trackSupervisedRun } from './run-lifecycle.js'
@@ -491,7 +492,26 @@ async function delegateToChief(
   // human ask would be worse. mgmt rows are per-run_id scoped, so a concurrent chief run
   // can't corrupt another's store; the self-wake guard still stops this run's terminal from
   // re-waking the Chief (its agent_runs.profile_id === 'chief').
-  const { agentRunId, runId } = await startAgentRun('chief', { trigger: 'delegation', goal, model })
+  // E-17: an operator→Chief delegation IS a paid org dispatch, so startAgentRun gates it
+  // (trigger 'delegation' is not exempt). A raw BudgetCapError would otherwise escape askK
+  // as an opaque 500 while the operator's durable user turn sits with no run — so append an
+  // explanatory K turn (visible in the chat) and RE-THROW; the K ask route maps it to a
+  // clean 429. Any other dispatch failure propagates unchanged (startAgentRun already rolled
+  // its own tracking row back to 'failed'; the durable user turn stays, per the cold path).
+  let agentRunId: string, runId: string
+  try {
+    ;({ agentRunId, runId } = await startAgentRun('chief', { trigger: 'delegation', goal, model }))
+  } catch (e) {
+    if (e instanceof BudgetCapError) {
+      appendTurn(
+        thread.id, 'k',
+        `Budget capped — the org has reached its measured daily cap ($${e.capUsd}). ` +
+          'Raise it in Settings → Autonomous Org to dispatch.',
+        null,
+      )
+    }
+    throw e
+  }
   // Link the ask to the Chief run (the durable parent→child delegation record) and
   // acknowledge the hand-up on the thread so the operator sees the route was taken.
   kThreadsDb.patchTurnRunId.run(runId, userTurn.id)

@@ -2,7 +2,7 @@
 title: Verification System
 icon: "✓"
 status: active
-updated: 2026-07-04
+updated: 2026-07-13
 ---
 
 Verification is **two-layer** (decision D-004): machines check what machines are good at; agents judge what requires judgment.
@@ -187,5 +187,62 @@ every open. Everything else — building, seeding, the dashboard, all tests — 
 this phase (rewiring it onto the behavioral subsystem is a deferred follow-on); the new subsystem stands
 alongside it. **P5 extension:** it is built to add **DB-sourced `AgentProfile`s** as eval systems, so the
 agent org can be evaluated as it comes online.
+
+## Autonomy — deterministic proposals, self-heal & eval-derived lessons (BUILT — P5 Autonomy)
+
+P5 turns verification signals into **autonomous org work** — but only when the operator enables it
+(§03, *The Autonomous Org*; master `enabled` + the per-behavior sub-toggles). Everything here is
+**deterministic** (no model in the loop) and **default-OFF**.
+
+### E-14 proposal collectors — zero-token, from the signals verification already writes
+
+Four **collectors** run on a 15-minute cron (`core/src/proposal-collectors.ts`) under
+`enabled && proposals`, each reading a signal the harness already stores and emitting a **proposal**
+— an `org`-scoped `work_item` created `status='blocked'` (awaiting approval) with a `source` +
+`source_key` (§04). They spend **zero tokens** (pure SQL/derivation, no dispatch):
+
+| Collector `source` | Reads | Proposes |
+|--------------------|-------|----------|
+| **`ci_failed`** | the `github_cache` CI payload | "fix failing CI" for a project whose latest decisive CI failed |
+| **`verify_finding`** | `verify_results` | "address the open critical finding" for a project with a failing verification |
+| **`open_issue`** | project `work_items` mirrored from GitHub issues | "triage/close" an open issue |
+| **`stale_bible`** | `bibleFreshnessDays` (`verify.ts`) | "refresh the bible" for a project whose bible has gone stale |
+
+Proposals are **deduped by a partial-unique `source_key` index** and **open-capped (20)**. They
+surface in **Personal → Inbox** as proposal cards (§08): **approve → `open`** (the item enters the
+backlog, from which E-15 auto-pull can claim it — §04); **dismiss → `cancelled`** (STICKY — the
+`source_key` still resolves the cancelled row, so the collector never re-nags). **Honest limitation
+(D-111):** the project-keyed `source_key` (`<source>:<projectId>` for ci_failed/verify_finding/
+stale_bible; `open_issue` keys per issue) has **no run/date discriminator**, so such a proposal is
+effectively **ONE-SHOT per project** — once a row exists in any status (incl. approved/done or
+dismissed) a genuine later recurrence is **not** re-surfaced until the row clears — and there is **no
+undo** on inbox dismiss. This is deliberate for the default-OFF first cut (continuous re-nagging would
+be worse), tracked as a follow-up — it is NOT continuous monitoring.
+
+### E-18 self-heal — classify a failed run, retry with a fallback or park
+
+On a **terminal FAILED** org/auto run, `core/src/self-heal.ts::onRunTerminalForHeal` (gated
+`enabled && selfHeal`) classifies the failure **deterministically** from the run's last error-event
+text (`failure-classifier.ts`; a clean non-zero exit persists no error event → `'unknown'` → park).
+If the class is **retryable AND `retry_count < 2` AND a model fallback exists AND there is budget
+headroom**, it **RETRIES with the fallback model** — preserving the original `cwd`, stamping
+`retry_of` / `retry_count` lineage, and emitting a `run_retried` WS event — else it **PARKS** an Inbox
+proposal carrying a one-line deterministic diagnosis. **Killed/interrupted runs are skipped** (an
+operator cancel is not a failure). **Honest note:** a self-heal park is inserted with
+`source:'verify_finding'` (the proposal-source enum has no `self_heal` member), so it renders under
+the Inbox "Verify" chip; its `source_key` **is** run-discriminated (`self_heal:<runId>`), so unlike
+the project-keyed collectors above it is not one-shot-per-project. Approving a self-heal park
+dispatches a **NEW default-orchestrator run** with the diagnosis as its goal (not a literal re-run of
+the failed process). The **retry-rate** metric (§13) becomes real off `runs.retry_of`.
+
+### E-27 eval-derived lessons — memory layer C's first slice, on the D-041 gate
+
+Repeated (**≥2**) same-signature failures produce **ONE** deduped, capped (**10**) **PENDING**
+`agent_memory` lesson through the **existing D-041 lesson gate** — reusing the `lesson_pending` inbox
+kind, **no new UI** (`core/src/lesson-proposals.ts`; §04, memory layer C). Because it rides the human
+gate, a machine-derived lesson still needs operator approval before it joins a profile's memory —
+nothing self-modifies its brain. **Scope (honest, D-113):** implemented off **`verify_results`
+only**; **`eval_results` is DEFERRED** (it has no free-text failure-reason column to signature on) as
+a documented extension point.
 
 <!-- @live:recent-runs -->

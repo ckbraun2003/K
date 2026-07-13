@@ -2,7 +2,7 @@
 title: Workflows & Memory
 icon: "⟲"
 status: active
-updated: 2026-07-05
+updated: 2026-07-13
 ---
 
 > **Status — BUILT (Phase 5, finalized P5.7).** The single hardcoded delegation loop
@@ -176,7 +176,7 @@ outcome, not just the Chief's mid-turn status — completing the up-chain the do
 |-------|------|--------|
 | **A — tool-based lessons + gated reflection** | a managed agent calls kstore `lesson_propose` to propose ONE lesson; it lands **pending** in the `agent_memory` table and the **operator approves (or rejects)** it before it joins memory; `lesson_list` reads them back (run-scoped) | **BUILT (Phase 5)** — kstore tool + `agent_memory` table + operator gate surface (P5.1b) |
 | **B — structured store + retrieval** | a structured lesson store with **relevance retrieval** and **outcome-weighting** (favor lessons that led to good outcomes), mirroring how ModelRouter weights run-outcome data | PLANNED — grow into |
-| **C — verification/eval-derived lessons** | lessons derived automatically from **verification and eval** signals (a regression or a failed audit writes a lesson) | PLANNED — grow into |
+| **C — verification/eval-derived lessons** | lessons derived automatically from **verification and eval** signals (a regression or a failed audit writes a lesson) | **PARTIAL (P5 Autonomy, E-27, D-113)** — a deterministic collector turns repeated (≥2) same-signature failures into ONE deduped, capped (10) **pending** `agent_memory` lesson **through the layer-A gate above** (the `lesson_pending` inbox, no new UI); scoped to **`verify_results` only** (`eval_results` deferred — no failure-reason column). Retrieval/weighting stays layer B |
 
 **The gated reflection (layer A) is the key primitive.** A run ends → the profile proposes one
 candidate lesson from what it learned → it is held **pending** → the operator approves (or rejects)
@@ -244,6 +244,28 @@ WorkItem {                     // BUILT — @k/shared (unified store; scope enum
 The durable scopes also have an operator HTTP surface — **`GET/POST/PATCH /api/k/work-items`**
 (bearer-authed, `personal`+`org` only; `run` and `project` rows are unreachable there by design) —
 which is what K-home's *Your work* card reads and writes (§08).
+
+### Proposals → backlog → auto-pull (BUILT — P5 Autonomy, E-14/E-15)
+
+The autonomous org's work queue is **the same `org`-scoped `work_items` store, not a new table**. A
+**proposal** is an `org` item created `status='blocked'` with a `source` + `source_key` (the two P5
+columns): deterministic zero-token collectors write them from CI/verify/issue/bible signals (§07), and
+a self-heal park writes one from a failed run (§07). Its lifecycle rides the ordinary status enum:
+
+- **`blocked`** = an unapproved proposal — surfaced in **Personal → Inbox** as a proposal card (§08),
+  **deduped by a partial-unique `source_key` index**, open-capped (20).
+- **approve → `open`** — the item **enters the backlog** (the backlog *is* the set of `open` org
+  items, ordered `created_at ASC`); **dismiss → `cancelled`** (STICKY — the `source_key` still resolves
+  the cancelled row, so the collector never re-nags; no undo on dismiss — D-111).
+- **auto-pull → `in_progress`** — **E-15**, an interval relay (`core/src/backlog-relay.ts`, gated
+  `enabled && backlogAutoPull`) **CAS-claims** the oldest `open` org item (`open→in_progress`, mirroring
+  the lead-dispatch relay's atomic claim so overlapping drains can't double-pull), governed by the
+  **budget gate** (§13) + the autonomy **max-concurrency** cap, then dispatches it under the
+  **default orchestrator**. The dispatched run id is stamped back onto the claimed item.
+
+So the loop is: a signal → a **blocked** proposal → the operator **approves** it into the **open**
+backlog → the relay **claims + dispatches** it — every step a status transition on one row, no new
+table, all inert while autonomy is OFF (§03).
 
 > **How it got here (the collapse, completed).** The `scope` discriminator landed as the D-026
 > down-payment (P5.1d1, **D-045**); the **storage collapse** followed (P5.1d2a, **D-048**):

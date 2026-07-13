@@ -188,11 +188,30 @@ export function makeInboxInvalidator(
   qc: Pick<QueryClient, 'invalidateQueries'>,
 ): (msg: WsMessage) => void {
   return (msg: WsMessage) => {
-    if (msg.type === 'run_update' || msg.type === 'notification' || msg.type === 'capabilities_update') {
+    if (msg.type === 'run_update' || msg.type === 'notification' || msg.type === 'capabilities_update' || msg.type === 'proposal_update') {
       void qc.invalidateQueries({ queryKey: ['inbox'] })
     }
     if (msg.type === 'notification') {
       void qc.invalidateQueries({ queryKey: ['notifications'] })
+    }
+  }
+}
+
+/**
+ * P5 autonomy live invalidation. E-17 `budget_update` (a measured dispatch spent
+ * or a cap moved) → refresh the ['budget'] status; E-18 `run_retried` (a failed
+ * run was auto-retried) → refresh ['runs'] and the ['retry-rate'] series. Proposal
+ * traffic rides makeInboxInvalidator (the proposal count lives in the inbox payload).
+ * Stub seam — lanes A/D fill the query readers.
+ */
+export function makeAutonomyInvalidator(
+  qc: Pick<QueryClient, 'invalidateQueries'>,
+): (msg: WsMessage) => void {
+  return (msg: WsMessage) => {
+    if (msg.type === 'budget_update') { void qc.invalidateQueries({ queryKey: ['budget'] }); return }
+    if (msg.type === 'run_retried') {
+      void qc.invalidateQueries({ queryKey: ['runs'] })
+      void qc.invalidateQueries({ queryKey: ['retry-rate'] })
     }
   }
 }

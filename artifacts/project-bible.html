@@ -201,7 +201,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-13 10:33</span><br>
+      compiled <span class="mono">2026-07-13 16:32</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -571,7 +571,7 @@ a tier is allowed to do.</p>
         <span class="section-icon">❖</span>
         <h1>Agent Organization</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-05</span>
+        <span class="section-updated mono">updated 2026-07-13</span>
       </header>
       <blockquote>
 <p><strong>Status — PARTIALLY BUILT (Phase 5).</strong> This section is the design of record for the agent
@@ -587,7 +587,9 @@ profiles (K · Chief · the default orchestrator · the five discipline leads), 
 run-lifecycle seam). <strong>The Chief now wakes autonomously</strong> (P5.2b, D-044): a scheduler tick or a
 subscribed run-completion event fires <code>startAgentRun('chief', …)</code>, debounced + already-running- +
 self-wake-guarded — and, since P5.7, <strong>governed</strong> (org-relevant terminals only, a rolling-hour rate
-cap, and a kill switch — D-057; see <em>Autonomous wake</em> below). The K→Chief→lead delegation
+cap, and a kill switch — D-057; see <em>Autonomous wake</em> below), and since <strong>P5 Autonomy</strong> the wake —
+together with proposals, backlog auto-pull, and self-heal — is <strong>gated behind a persisted, default-OFF
+operator choice</strong> (Settings → Autonomous Org, D-107..D-109; see <em>The Autonomous Org</em> below). The K→Chief→lead delegation
 <strong>dispatch</strong> and named workflow definitions are <strong>built</strong> (D-046 → D-051, D-047), and the
 per-profile authority rows are <strong>enforced at synthesis</strong> (P5.7, D-054). <strong>Still planned:</strong> K as an
 autonomously-woken tier, wiring the real Google connectors, and memory layers B/C. Where a
@@ -835,14 +837,44 @@ cost/park leak, subsumes H10); <code>cli_session_id</code> is persisted only on 
 ephemeral config, interactive HITL park). The route surfaced when composing is a deterministic
 <code>routeForMessage</code> <strong>preview</strong> (client and server agree via <code>@k/shared</code>); K's runtime tool/hand-up
 decision is authoritative.</p>
+<h3>The Autonomous Org — one persisted, default-OFF operator choice (BUILT — P5 Autonomy, D-107..D-109)</h3>
+<p>The whole autonomous stack is off until the operator turns it on. A new <strong>Settings → Autonomous Org</strong>
+section (<code>web/src/pages/SettingsAutonomy.tsx</code>) is the single front door: a master <strong>enabled</strong> toggle
+(<strong>default OFF</strong>), three sub-toggles (<strong>Generate proposals</strong> · <strong>Auto-pull backlog</strong> · <strong>Self-heal
+failed runs</strong>), a <strong>max-concurrency</strong> cap, an <strong>org daily budget cap</strong> + <strong>warn %</strong>. It persists as
+one JSON blob in <code>app_config</code> under <code>autonomy.settings</code> (mirroring <code>home_layout</code>), read/written through
+<code>config-store.ts::autonomySettings()</code> / <code>setAutonomySettings()</code>. Agents→Org carries only a <strong>read-only
+autonomy status chip</strong> (OFF/ON) that deep-links here — no duplicated controls (metric-uniqueness).</p>
+<p><strong>The master gates the whole stack (D-108).</strong> <code>autonomySettings().enabled</code> (default <code>false</code>) gates all
+FOUR autonomous behaviors; each sub-toggle additionally requires <code>enabled</code>:</p>
+<ul>
+<li><strong>Chief auto-wake</strong> — <code>chiefWakeEnabled()</code> returns <code>enabled</code> (below).</li>
+<li><strong>Proposal collectors (E-14)</strong> — run only under <code>enabled &amp;&amp; proposals</code>.</li>
+<li><strong>Backlog auto-pull (E-15)</strong> — the relay claims only under <code>enabled &amp;&amp; backlogAutoPull</code>.</li>
+<li><strong>Self-heal (E-18)</strong> — a failed org/auto run retries only under <code>enabled &amp;&amp; selfHeal</code>.</li>
+</ul>
+<p>So a <strong>fresh DB is inert</strong> — nothing autonomous fires until the operator opts in, and toggling ON works
+<strong>at runtime with no restart</strong> (the schedulers always wire at boot and gate on the persisted setting per
+tick). <strong>The one exception is the budget governor (E-17):</strong> a <em>safety cap</em>, not an autonomous behavior,
+so once a cap is set it applies to manual AND autonomous dispatches <strong>even while autonomy is OFF</strong> —
+gating it behind the master would let disabling autonomy silently remove the operator's own spend cap
+(D-108, D-112). The rest of the E-14..E-18/E-27 stack — proposals → backlog → auto-pull, self-heal, and
+eval-derived lessons — is specified in §07 (collectors + self-heal) and §04 (the backlog work-items loop</p>
+<ul>
+<li>memory layer C); its budget/retry observability is §13; its surfaces are §08.</li>
+</ul>
 <h3>Autonomous wake — the Chief wakes itself (BUILT — P5.2b, D-044)</h3>
 <p>The Chief no longer waits to be spoken to: <strong><code>core/src/chief-wake.ts</code></strong> wires the reused Phase-3
 <strong>node-cron scheduler</strong> (a <code>*/15 * * * *</code> tick, <code>CHIEF_WAKE_CRON</code>) <strong>and</strong> the <strong>EventBus</strong>
 (<code>onRunUpdate</code>, on a terminal run) straight into the existing <code>startAgentRun('chief', { trigger })</code>
 primitive — it rebuilds neither the scheduler nor the activation path. A schedule tick fires a
 <code>trigger:'schedule'</code> wake; a subscribed run-completion fires a <code>trigger:'event'</code> wake. <code>startChiefWake()</code>
-is wired at boot in <code>index.ts</code> (returns a stop fn torn down on <code>onClose</code>; default ON, <code>CHIEF_WAKE=0</code>
-opts out).</p>
+is wired at boot in <code>index.ts</code> (returns a stop fn torn down on <code>onClose</code>). <strong>Since P5 the wake is
+gated on a persisted operator choice, not the env</strong> (D-107..D-109): <code>chiefWakeEnabled()</code> reads
+<code>autonomySettings().enabled</code> (<strong>default OFF</strong>), the scheduler ALWAYS wires + gates per tick (so
+enabling it at runtime needs no restart), and the old <code>CHIEF_WAKE</code> env is deprecated warn-only (a
+one-time boot warning if it is set; it no longer defaults autonomy on and no migration writes a
+persisted <code>true</code> from it). See <em>The Autonomous Org</em> below.</p>
 <p>The wake is bounded by <strong>two guards + a self-wake guard</strong>, and a <strong>failure-degrade</strong>:</p>
 <ul>
 <li><strong>Min-interval debounce</strong> (Guard A) — a burst of ticks/events collapses to one wake (the debounce
@@ -1088,7 +1120,7 @@ only (§04).</p>
         <span class="section-icon">⟲</span>
         <h1>Workflows &amp; Memory</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-05</span>
+        <span class="section-updated mono">updated 2026-07-13</span>
       </header>
       <blockquote>
 <p><strong>Status — BUILT (Phase 5, finalized P5.7).</strong> The single hardcoded delegation loop
@@ -1265,7 +1297,7 @@ outcome, not just the Chief's mid-turn status — completing the up-chain the do
 <tr>
 <td><strong>C — verification/eval-derived lessons</strong></td>
 <td>lessons derived automatically from <strong>verification and eval</strong> signals (a regression or a failed audit writes a lesson)</td>
-<td>PLANNED — grow into</td>
+<td><strong>PARTIAL (P5 Autonomy, E-27, D-113)</strong> — a deterministic collector turns repeated (≥2) same-signature failures into ONE deduped, capped (10) <strong>pending</strong> <code>agent_memory</code> lesson <strong>through the layer-A gate above</strong> (the <code>lesson_pending</code> inbox, no new UI); scoped to <strong><code>verify_results</code> only</strong> (<code>eval_results</code> deferred — no failure-reason column). Retrieval/weighting stays layer B</td>
 </tr>
 </tbody></table>
 <p><strong>The gated reflection (layer A) is the key primitive.</strong> A run ends → the profile proposes one
@@ -1348,6 +1380,26 @@ point: every task surface (K-home work items, a project's Tasks tab) reads from 
 <p>The durable scopes also have an operator HTTP surface — <strong><code>GET/POST/PATCH /api/k/work-items</code></strong>
 (bearer-authed, <code>personal</code>+<code>org</code> only; <code>run</code> and <code>project</code> rows are unreachable there by design) —
 which is what K-home's <em>Your work</em> card reads and writes (§08).</p>
+<h3>Proposals → backlog → auto-pull (BUILT — P5 Autonomy, E-14/E-15)</h3>
+<p>The autonomous org's work queue is <strong>the same <code>org</code>-scoped <code>work_items</code> store, not a new table</strong>. A
+<strong>proposal</strong> is an <code>org</code> item created <code>status='blocked'</code> with a <code>source</code> + <code>source_key</code> (the two P5
+columns): deterministic zero-token collectors write them from CI/verify/issue/bible signals (§07), and
+a self-heal park writes one from a failed run (§07). Its lifecycle rides the ordinary status enum:</p>
+<ul>
+<li><strong><code>blocked</code></strong> = an unapproved proposal — surfaced in <strong>Personal → Inbox</strong> as a proposal card (§08),
+<strong>deduped by a partial-unique <code>source_key</code> index</strong>, open-capped (20).</li>
+<li><strong>approve → <code>open</code></strong> — the item <strong>enters the backlog</strong> (the backlog <em>is</em> the set of <code>open</code> org
+items, ordered <code>created_at ASC</code>); <strong>dismiss → <code>cancelled</code></strong> (STICKY — the <code>source_key</code> still resolves
+the cancelled row, so the collector never re-nags; no undo on dismiss — D-111).</li>
+<li><strong>auto-pull → <code>in_progress</code></strong> — <strong>E-15</strong>, an interval relay (<code>core/src/backlog-relay.ts</code>, gated
+<code>enabled &amp;&amp; backlogAutoPull</code>) <strong>CAS-claims</strong> the oldest <code>open</code> org item (<code>open→in_progress</code>, mirroring
+the lead-dispatch relay's atomic claim so overlapping drains can't double-pull), governed by the
+<strong>budget gate</strong> (§13) + the autonomy <strong>max-concurrency</strong> cap, then dispatches it under the
+<strong>default orchestrator</strong>. The dispatched run id is stamped back onto the claimed item.</li>
+</ul>
+<p>So the loop is: a signal → a <strong>blocked</strong> proposal → the operator <strong>approves</strong> it into the <strong>open</strong>
+backlog → the relay <strong>claims + dispatches</strong> it — every step a status transition on one row, no new
+table, all inert while autonomy is OFF (§03).</p>
 <blockquote>
 <p><strong>How it got here (the collapse, completed).</strong> The <code>scope</code> discriminator landed as the D-026
 down-payment (P5.1d1, <strong>D-045</strong>); the <strong>storage collapse</strong> followed (P5.1d2a, <strong>D-048</strong>):
@@ -1572,7 +1624,7 @@ readback.</p>
         <span class="section-icon">✓</span>
         <h1>Verification System</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-04</span>
+        <span class="section-updated mono">updated 2026-07-13</span>
       </header>
       <p>Verification is <strong>two-layer</strong> (decision D-004): machines check what machines are good at; agents judge what requires judgment.</p>
 <h2>Layer 1 — Deterministic CI (GitHub Actions)</h2>
@@ -1741,6 +1793,76 @@ every open. Everything else — building, seeding, the dashboard, all tests — 
 this phase (rewiring it onto the behavioral subsystem is a deferred follow-on); the new subsystem stands
 alongside it. <strong>P5 extension:</strong> it is built to add <strong>DB-sourced <code>AgentProfile</code>s</strong> as eval systems, so the
 agent org can be evaluated as it comes online.</p>
+<h2>Autonomy — deterministic proposals, self-heal &amp; eval-derived lessons (BUILT — P5 Autonomy)</h2>
+<p>P5 turns verification signals into <strong>autonomous org work</strong> — but only when the operator enables it
+(§03, <em>The Autonomous Org</em>; master <code>enabled</code> + the per-behavior sub-toggles). Everything here is
+<strong>deterministic</strong> (no model in the loop) and <strong>default-OFF</strong>.</p>
+<h3>E-14 proposal collectors — zero-token, from the signals verification already writes</h3>
+<p>Four <strong>collectors</strong> run on a 15-minute cron (<code>core/src/proposal-collectors.ts</code>) under
+<code>enabled &amp;&amp; proposals</code>, each reading a signal the harness already stores and emitting a <strong>proposal</strong>
+— an <code>org</code>-scoped <code>work_item</code> created <code>status='blocked'</code> (awaiting approval) with a <code>source</code> +
+<code>source_key</code> (§04). They spend <strong>zero tokens</strong> (pure SQL/derivation, no dispatch):</p>
+<table>
+<thead>
+<tr>
+<th>Collector <code>source</code></th>
+<th>Reads</th>
+<th>Proposes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong><code>ci_failed</code></strong></td>
+<td>the <code>github_cache</code> CI payload</td>
+<td>"fix failing CI" for a project whose latest decisive CI failed</td>
+</tr>
+<tr>
+<td><strong><code>verify_finding</code></strong></td>
+<td><code>verify_results</code></td>
+<td>"address the open critical finding" for a project with a failing verification</td>
+</tr>
+<tr>
+<td><strong><code>open_issue</code></strong></td>
+<td>project <code>work_items</code> mirrored from GitHub issues</td>
+<td>"triage/close" an open issue</td>
+</tr>
+<tr>
+<td><strong><code>stale_bible</code></strong></td>
+<td><code>bibleFreshnessDays</code> (<code>verify.ts</code>)</td>
+<td>"refresh the bible" for a project whose bible has gone stale</td>
+</tr>
+</tbody></table>
+<p>Proposals are <strong>deduped by a partial-unique <code>source_key</code> index</strong> and <strong>open-capped (20)</strong>. They
+surface in <strong>Personal → Inbox</strong> as proposal cards (§08): <strong>approve → <code>open</code></strong> (the item enters the
+backlog, from which E-15 auto-pull can claim it — §04); <strong>dismiss → <code>cancelled</code></strong> (STICKY — the
+<code>source_key</code> still resolves the cancelled row, so the collector never re-nags). <strong>Honest limitation
+(D-111):</strong> the project-keyed <code>source_key</code> (<code>&lt;source&gt;:&lt;projectId&gt;</code> for ci_failed/verify_finding/
+stale_bible; <code>open_issue</code> keys per issue) has <strong>no run/date discriminator</strong>, so such a proposal is
+effectively <strong>ONE-SHOT per project</strong> — once a row exists in any status (incl. approved/done or
+dismissed) a genuine later recurrence is <strong>not</strong> re-surfaced until the row clears — and there is <strong>no
+undo</strong> on inbox dismiss. This is deliberate for the default-OFF first cut (continuous re-nagging would
+be worse), tracked as a follow-up — it is NOT continuous monitoring.</p>
+<h3>E-18 self-heal — classify a failed run, retry with a fallback or park</h3>
+<p>On a <strong>terminal FAILED</strong> org/auto run, <code>core/src/self-heal.ts::onRunTerminalForHeal</code> (gated
+<code>enabled &amp;&amp; selfHeal</code>) classifies the failure <strong>deterministically</strong> from the run's last error-event
+text (<code>failure-classifier.ts</code>; a clean non-zero exit persists no error event → <code>'unknown'</code> → park).
+If the class is <strong>retryable AND <code>retry_count &lt; 2</code> AND a model fallback exists AND there is budget
+headroom</strong>, it <strong>RETRIES with the fallback model</strong> — preserving the original <code>cwd</code>, stamping
+<code>retry_of</code> / <code>retry_count</code> lineage, and emitting a <code>run_retried</code> WS event — else it <strong>PARKS</strong> an Inbox
+proposal carrying a one-line deterministic diagnosis. <strong>Killed/interrupted runs are skipped</strong> (an
+operator cancel is not a failure). <strong>Honest note:</strong> a self-heal park is inserted with
+<code>source:'verify_finding'</code> (the proposal-source enum has no <code>self_heal</code> member), so it renders under
+the Inbox "Verify" chip; its <code>source_key</code> <strong>is</strong> run-discriminated (<code>self_heal:&lt;runId&gt;</code>), so unlike
+the project-keyed collectors above it is not one-shot-per-project. Approving a self-heal park
+dispatches a <strong>NEW default-orchestrator run</strong> with the diagnosis as its goal (not a literal re-run of
+the failed process). The <strong>retry-rate</strong> metric (§13) becomes real off <code>runs.retry_of</code>.</p>
+<h3>E-27 eval-derived lessons — memory layer C's first slice, on the D-041 gate</h3>
+<p>Repeated (<strong>≥2</strong>) same-signature failures produce <strong>ONE</strong> deduped, capped (<strong>10</strong>) <strong>PENDING</strong>
+<code>agent_memory</code> lesson through the <strong>existing D-041 lesson gate</strong> — reusing the <code>lesson_pending</code> inbox
+kind, <strong>no new UI</strong> (<code>core/src/lesson-proposals.ts</code>; §04, memory layer C). Because it rides the human
+gate, a machine-derived lesson still needs operator approval before it joins a profile's memory —
+nothing self-modifies its brain. <strong>Scope (honest, D-113):</strong> implemented off <strong><code>verify_results</code>
+only</strong>; <strong><code>eval_results</code> is DEFERRED</strong> (it has no free-text failure-reason column to signature on) as
+a documented extension point.</p>
 <div class="live-empty">— no run data yet —</div>
 
     </section>
@@ -2037,7 +2159,7 @@ the one agent that actually talks to them.</p>
 </thead>
 <tbody><tr>
 <td><strong>Org</strong> (default)</td>
-<td>the roster of leads behind a <strong>Roster / Tree / Graph</strong> <code>SegControl</code> (<code>OrgPage</code>) — unchanged from P4's "one org surface" (D-096): Roster is slim cards, Tree is the whole-org DelegationTree, Graph is the fleet 3D graph</td>
+<td>the roster of leads behind a <strong>Roster / Tree / Graph</strong> <code>SegControl</code> (<code>OrgPage</code>) — unchanged from P4's "one org surface" (D-096): Roster is slim cards, Tree is the whole-org DelegationTree, Graph is the fleet 3D graph. Carries a <strong>read-only autonomy status chip</strong> (Autonomy OFF/ON) deep-linking to Settings → Autonomous Org — no duplicated controls (P5 Autonomy, D-107)</td>
 </tr>
 <tr>
 <td><strong>Skills</strong></td>
@@ -2064,6 +2186,12 @@ TrustDialog) · Hooks (read-only host-hook visibility) · Automations (triggers,
 history) — headed by the <code>CapabilityStatRow</code> totals strip. Content is unchanged from the
 host-integration program (D-069..D-071); only its address moved from a standalone rail entry to
 Agents → Skills.</p>
+<p><strong>Routines are first-class on the Automations tab (P5 Autonomy, E-16, D-110).</strong> No new table and no
+new rail slot — the existing node-cron Automations registry (over the <code>skills</code> table) gains: an
+<strong>NL→cron helper</strong> (RULES-ONLY, no model — an unmappable phrase returns <code>400</code> at the route boundary,
+never a guess), a <strong>next-run</strong> display, and a <strong>measured cost per routine</strong> (summed from its run
+history via a JOIN to <code>runs.cost_usd</code> — measured actuals, never estimated). A routine <em>is</em> a
+schedule-triggered skill, so it needs derived next-run + measured cost, not a new entity.</p>
 <h2>Runs (rail entry, now a plain master-detail)</h2>
 <p><strong>Runs no longer carries a Workflows sub-tab</strong> — that content moved to Agents → Pipelines (above),
 so <code>RunsPage</code> is now exactly a <code>RunList</code> + <code>RunConsole</code> split with nothing else. Runs render as
@@ -2075,7 +2203,8 @@ a <strong><code>ctx X / Y · Z%</code></strong> pressure meter. (Internals in §
 <h2>Insights (4 tabs, unchanged)</h2>
 <p><strong>Overview</strong> (deterministic deltas + z-score anomalies, measured-only, no LLM) · <strong>Charts</strong>
 (tokens/cost/run trends, KPI tiles, cost-by-lead, error-rate, latency p50/p95, success+latency day
-trends) · <strong>Routing</strong> (model-routing outcomes — cost/latency/success by provider+model) · <strong>Evals</strong>
+trends, plus <strong>P5 Autonomy's budget burn-down — measured 24h, zero-forecast — and retry-rate</strong>
+charts, §13) · <strong>Routing</strong> (model-routing outcomes — cost/latency/success by provider+model) · <strong>Evals</strong>
 (the behavioral eval subsystem, §07). A shared 14/30/60-day window <code>SegControl</code> covers
 Overview/Charts/Routing; Evals runs its own independent view. Content and internals are unchanged
 from P4 — only the address moved from 3 standalone rail entries (Metrics/Routing/Evals) to 3 of
@@ -2232,13 +2361,22 @@ every web health surface (ProjectCard, FleetGraph, ProjectVerification, ProjectW
 <code>pnpm bible</code> compile time into a committed generated module (<code>web/src/generated/glossary.ts</code>).</p>
 <h2>Notifications + the Personal Inbox</h2>
 <ul>
-<li><strong>The Inbox tab (Personal) is THE "needs-YOU" surface.</strong> A <strong>UNION over five sources</strong> — plan
+<li><strong>The Inbox tab (Personal) is THE "needs-YOU" surface.</strong> A <strong>UNION over six sources</strong> — plan
 approvals (runs parked at <code>awaiting_plan</code>), <code>awaiting_input</code> parks, pending lessons (§04),
-untrusted MCP servers, and review-ready runs. It is <strong>a query, never a table</strong> (D-081): each item
-is read live from its own authoritative source, so it can never drift out of sync.</li>
+untrusted MCP servers, review-ready runs, and <strong>autonomy proposals (P5 Autonomy)</strong>. It is <strong>a
+query, never a table</strong> (D-081): each item is read live from its own authoritative source, so it can
+never drift out of sync.</li>
+<li><strong>Proposal cards (P5 Autonomy, E-14/E-18).</strong> The <code>proposal</code> inbox kind surfaces the <strong>blocked</strong>,
+sourced <code>org</code> work_items the collectors + self-heal write (§07): a card shows its <code>source</code> chip
+(ci_failed / verify_finding / open_issue / stale_bible; a self-heal park renders under the
+<strong>verify</strong> chip) and two inline actions — <strong>Approve</strong> (→ <code>open</code>, enters the backlog for E-15
+auto-pull, §04) and <strong>Dismiss</strong> (→ <code>cancelled</code>, <strong>sticky</strong> — the collector won't re-nag; <strong>no undo</strong>
+on dismiss, a documented default-OFF limitation, D-111). The <code>InboxCounts.proposal</code> count feeds the
+same needs-you badge.</li>
 <li><strong>Dismissal semantics.</strong> A review-ready run dismisses via a stamp-once <code>runs.reviewed_at</code>. An
 untrusted-MCP card dismisses via an <code>inbox_dismissed_hash</code> pinned to the server's <code>config_hash</code> —
-a later config drift re-surfaces the card.</li>
+a later config drift re-surfaces the card. A <strong>proposal</strong> dismisses by flipping its work_item to
+<code>cancelled</code> (the <code>source_key</code> still resolves it, so it stays dismissed).</li>
 <li><strong>Notification rules and channels.</strong> A seeded <code>notification_rules</code> table maps event key → channel
 (in-app and/or browser). The in-app center is durable; the browser leg is transient (dedupes on
 status transitions, fires only when the tab is hidden AND permission is granted, gesture-requested).
@@ -2249,6 +2387,12 @@ status transitions, fires only when the tab is hidden AND permission is granted,
 <li><strong>Settings</strong> — provider/auth status cards (no secrets), the guarded global CLAUDE.md editor, and
 the <strong>org-default authority / MCP panel</strong> — per-lead overrides live on orchestrator detail
 ("inherits org default unless overridden"); Settings owns the default, detail owns the delta.</li>
+<li><strong>Autonomous Org (P5 Autonomy, <code>SettingsAutonomy.tsx</code>, D-107).</strong> The single front door for the whole
+autonomy stack (§03): a master <strong>enabled</strong> toggle (<strong>default OFF</strong>) + sub-toggles (Generate proposals ·
+Auto-pull backlog · Self-heal failed runs) + <strong>max-concurrency</strong> + <strong>org daily budget cap</strong> + <strong>warn %</strong>,
+persisted as one <code>app_config</code> blob (<code>autonomy.settings</code>). Toggling ON applies at runtime, no restart.
+The master gates all four autonomous behaviors; the <strong>budget governor is the always-on safety cap</strong>
+(applies even when autonomy is OFF once set — D-108). Agents → Org mirrors only a read-only status chip.</li>
 <li><strong>Claude default model</strong> — a Settings picker sets the global Claude default model
 (<code>app_config</code>-managed, applies to the next run, no restart). The Dock's <code>KAskBody.model</code> override
 still overrides it for a single dispatch.</li>
@@ -2296,7 +2440,7 @@ and dispatch actions ("fix failing tests here", "explain this subsystem").</li>
 <li><strong>Interactions:</strong> scroll = zoom, drag = pan, <code>f</code> = fit, search dims non-matches in place.</li>
 <li>Health/status colors the graph — failing modules glow red, untested amber, healthy blush.</li>
 </ul>
-<h2>Design tokens (vivid midnight-glass — UI Polish, D-107)</h2>
+<h2>Design tokens (vivid midnight-glass — UI Polish, D-114)</h2>
 <p>Values remain the single source in <code>web/src/index.css</code> <code>:root</code>, mirrored into
 <code>web/tailwind.config.ts</code> (Tailwind's semantic <code>colors</code>/<code>borderRadius</code>/<code>fontSize</code>/<code>fontFamily</code>
 extensions) and <code>core/src/ui-artifact.ts</code> (the <code>ui-demo</code> inline CSS) — change all three together
@@ -2562,7 +2706,7 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
         <span class="section-icon">➤</span>
         <h1>Roadmap</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-04</span>
+        <span class="section-updated mono">updated 2026-07-13</span>
       </header>
       <p>Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.</p>
 <div class="roadmap-progress"><div class="phase-row">
@@ -2601,6 +2745,10 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
       <span class="phase-name">Phase 5 — Agentic Org (✓ 2026-07-02 — the Agentic Org delivered on `feat/k-org`; `--no-ff` merge to `main` at close-out)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
       <span class="phase-pct mono">37/38</span>
+    </div><div class="phase-row">
+      <span class="phase-name">K Expansion — Phase 5: Autonomy (✓ 2026-07-13 — `feat/exp-p5`, schema v11→v12)</span>
+      <span class="phase-bar"><span class="phase-fill"></span></span>
+      <span class="phase-pct mono">10/10</span>
     </div><div class="phase-row">
       <span class="phase-name">Phase 6 — Intelligence &amp; Scale (optional)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
@@ -2959,6 +3107,50 @@ direction, D-057); the demo's <strong>Interactive checkbox for K sends dropped</
 K path is already interactive by design); and the demo's <strong>health scores/bands, tier radios, and
 per-lead hues</strong> consciously not built (pragmatic parity: real derived health lines shipped instead
 of invented numbers).</p>
+<h2>K Expansion — Phase 5: Autonomy <em>(✓ 2026-07-13 — <code>feat/exp-p5</code>, schema v11→v12)</em></h2>
+<blockquote>
+<p>The K Expansion Program's autonomy phase (E-14..E-18, E-27): the org can generate its own work,
+pull it, retry its own failures, cap its own spend, and derive its own lessons — <strong>all behind one
+persisted, default-OFF operator choice</strong> (Settings → Autonomous Org, D-107..D-109). Decisions
+D-107..D-113. One reviewable commit per lane; a whole-phase SEAMS review before merge.</p>
+</blockquote>
+<ul>
+<li><input checked disabled type="checkbox" /> <strong>Front door — Autonomous Org (D-107..D-109).</strong> <code>CHIEF_WAKE</code> → a persisted <code>app_config</code>
+(<code>autonomy.settings</code>) choice: master <code>enabled</code> (default OFF) + sub-toggles + max-concurrency + org
+budget cap + warn %, on a new <code>SettingsAutonomy.tsx</code> section; the env is deprecated warn-only; the
+schedulers always wire + gate per-tick so enabling ON needs no restart; Agents→Org shows a read-only
+status chip (§03, §08).</li>
+<li><input checked disabled type="checkbox" /> <strong>Master gate (D-108).</strong> <code>autonomySettings().enabled</code> gates chief auto-wake + proposals +
+backlog auto-pull + self-heal; the <strong>budget governor is the always-on exception</strong> (a safety cap,
+applies even when autonomy is OFF once set).</li>
+<li><input checked disabled type="checkbox" /> <strong>E-14 proposals.</strong> Deterministic ZERO-TOKEN collectors (ci_failed / verify_finding / open_issue
+/ stale_bible) on a 15m cron → <code>blocked</code> <code>org</code> work_items with <code>source</code>/<code>source_key</code>, deduped +
+open-capped; Inbox proposal cards approve→<code>open</code> / dismiss→<code>cancelled</code> (sticky). Honest one-shot-per-
+project + no-undo limitations documented (D-111; §04, §07, §08).</li>
+<li><input checked disabled type="checkbox" /> <strong>E-15 backlog auto-pull.</strong> An interval relay CAS-claims the oldest <code>open</code> org item
+(<code>open→in_progress</code>), governed by the budget gate + max-concurrency; dispatches under the default
+orchestrator (§04).</li>
+<li><input checked disabled type="checkbox" /> <strong>E-17 budget governor.</strong> Reactive caps on MEASURED <code>runs.cost_usd</code> over a rolling 24h window —
+ZERO forecasting; org + per-project caps; at cap a dispatch is PARKED (<code>429</code>/<code>BudgetCapError</code>), no
+queue. Interactive/persistent K exempt; operator-action routes a tracked follow-up (D-112; §13).</li>
+<li><input checked disabled type="checkbox" /> <strong>E-18 self-heal.</strong> Deterministic failure classification off the last error event → retry with a
+fallback model (retry_count&lt;2, budget headroom, original cwd, <code>retry_of</code> lineage, <code>run_retried</code>) or
+PARK an Inbox proposal with a one-line diagnosis; killed/interrupted skipped (§07).</li>
+<li><input checked disabled type="checkbox" /> <strong>E-27 eval-derived lessons.</strong> Repeated (≥2) same-signature failures → ONE deduped, capped
+pending <code>agent_memory</code> lesson through the existing D-041 gate (no new UI); off <code>verify_results</code> only,
+<code>eval_results</code> deferred (D-113; §04 memory layer C, §07).</li>
+<li><input checked disabled type="checkbox" /> <strong>E-16 routines first-class.</strong> The Automations tab (Agents→Skills) gains an NL→cron helper
+(rules-only, <code>400</code> on unmappable), next-run display, and measured cost per routine — no new table,
+no new rail slot (D-110; §08).</li>
+<li><input checked disabled type="checkbox" /> <strong>Insights → Charts.</strong> Budget burn-down (measured 24h) + retry-rate charts (§13).</li>
+<li><input checked disabled type="checkbox" /> <strong>Schema v11→v12.</strong> <code>work_items.source</code>/<code>source_key</code> (+ partial-unique idx); <code>runs.retry_of</code>/
+<code>retry_count</code>/<code>failure_class</code>; <code>projects.budget_daily_usd</code>; the <code>autonomy.settings</code> blob.</li>
+</ul>
+<p><strong>Deferred / honest limits (default-OFF, tracked):</strong> project-keyed proposal source_keys are
+<strong>one-shot per project</strong> (a genuine recurrence isn't re-surfaced until the row clears) and inbox
+dismiss has <strong>no undo</strong> (D-111); the budget park does not yet gate operator-initiated action routes
+(rewind / review-fix / deep-verify / workflows / run-skill-now — D-112); E-27 covers <code>verify_results</code>
+only (<code>eval_results</code> has no failure-reason column — D-113).</p>
 <h2>Phase 6 — Intelligence &amp; Scale <em>(optional)</em></h2>
 <ul>
 <li><input disabled type="checkbox" /> EventBus → NATS/Redis Streams + worker processes</li>
@@ -3839,6 +4031,62 @@ of invented numbers).</p>
 <tr>
 <td>D-107</td>
 <td>2026-07-13</td>
+<td>CHIEF_WAKE → a persisted Settings choice, default OFF (the single front door) — E-14..E-18</td>
+<td><strong>Turn the env <code>CHIEF_WAKE</code> flag into a persisted operator choice: a new Settings → "Autonomous Org" section (<code>SettingsAutonomy.tsx</code>) with a master <code>enabled</code> toggle (default OFF) + sub-toggles (Generate proposals / Auto-pull backlog / Self-heal failed runs) + max-concurrency + org daily budget cap + warn %, all one JSON blob in <code>app_config</code> (<code>autonomy.settings</code>, mirrors <code>home_layout</code>). Agents→Org shows only a read-only status chip deep-linking to it. Toggling ON at runtime needs NO restart — the schedulers always wire at boot and gate on the persisted setting per-tick.</strong></td>
+<td>Autonomy is global org config with the same shape as every other operator-configurable <em>system</em> behavior (Ollama, Voice, Claude default model, Notifications, org-default authority), which already lives in Settings via <code>config-store</code>; making it a persisted <strong>default-OFF</strong> choice means a fresh DB is inert until the operator opts in, exactly as directed.</td>
+<td>Env-only flag defaulting ON (invisible, non-persistent, on by surprise); an Agents/Org control panel (duplicates the Settings pattern for one more surface); an always-on scheduler that reads the env each tick (still env-coupled, no operator UI).</td>
+</tr>
+<tr>
+<td>D-108</td>
+<td>2026-07-13</td>
+<td>The master gates the whole stack; the budget governor is the always-on exception</td>
+<td><strong><code>autonomySettings().enabled</code> (default false) gates ALL FOUR autonomous behaviors — chief auto-wake, proposal collectors (<code>&amp;&amp; proposals</code>), backlog auto-pull (<code>&amp;&amp; backlogAutoPull</code>), self-heal (<code>&amp;&amp; selfHeal</code>); each sub-toggle additionally requires <code>enabled</code>. The budget governor is the ONE exception: a safety cap that applies to manual AND autonomous dispatches even while autonomy is OFF, once a cap is set.</strong></td>
+<td>A single on/off front door the operator configures once is the honest model — a fresh DB with the master OFF does nothing autonomous. The budget cap is a <em>safety limit</em>, not an autonomous behavior, so gating it behind the master would let turning autonomy off silently disable the operator's own spend cap.</td>
+<td>Per-behavior independent enables with no master (no single front door — the exact fragmentation the directive rejected); gating the budget cap behind the master too (a safety cap that vanishes when autonomy is off is a footgun).</td>
+</tr>
+<tr>
+<td>D-109</td>
+<td>2026-07-13</td>
+<td>Env <code>CHIEF_WAKE</code> deprecated warn-only</td>
+<td><strong><code>chiefWakeEnabled()</code> now reads the persisted <code>autonomySettings().enabled</code>; the env var no longer defaults autonomy ON and NO migration writes a persisted <code>true</code> from it. A one-time boot warning fires (regardless of enabled state) whenever <code>CHIEF_WAKE</code> is set in the environment, pointing the operator at Settings → Autonomous Org.</strong></td>
+<td>Removing a shipped env flag silently would strand an operator who still sets it; warn-only keeps the boot honest while the persisted default (OFF) becomes the real gate. Refusing to migrate the env <code>true</code> into a persisted <code>true</code> avoids silently keeping autonomy on for anyone who had it enabled — the operator re-opts-in deliberately.</td>
+<td>A hard removal (breaks an existing <code>.env</code> with no notice); migrating <code>CHIEF_WAKE=1</code> → persisted <code>enabled:true</code> (silently keeps autonomy on, defeating default-OFF); keeping the env as a co-equal gate (two sources of truth).</td>
+</tr>
+<tr>
+<td>D-110</td>
+<td>2026-07-13</td>
+<td>E-16 routines reuse the Automations tab / skills table (no new table, no new rail slot)</td>
+<td><strong>E-16 EXTENDS the existing <code>AutomationsTab.tsx</code> (Agents→Skills→Automations, already a node-cron registry over the <code>skills</code> table): an NL→cron helper that is RULES-ONLY (no model; an unmappable phrase → <code>400</code> at the route boundary), a next-run display, and MEASURED cost per routine (summed from its run history via a JOIN to <code>runs.cost_usd</code>).</strong></td>
+<td>The Automations tab is already a full schedule registry; a routine <em>is</em> a schedule-triggered skill, so it needs only a derived next-run + measured cost, not a new entity — DRY over the master re-baseline's mapping, and no new destination in the 6-tab rail.</td>
+<td>A new <code>routines</code> table + rail slot (duplicates the skills scheduler and the no-new-rail rule); an LLM NL→cron translator (non-deterministic; a rules table suffices and fails closed on unmappable phrases).</td>
+</tr>
+<tr>
+<td>D-111</td>
+<td>2026-07-13</td>
+<td>Proposals are blocked org work_items deduped by source_key (+ sticky-dismiss &amp; one-shot-per-project honest limits)</td>
+<td><strong>A proposal is an <code>org</code>-scoped <code>work_item</code> created <code>status='blocked'</code> with a <code>source</code>/<code>source_key</code>, deduped by a partial-unique <code>source_key</code> index, open-capped (20). Deterministic ZERO-TOKEN collectors (ci_failed / verify_finding / open_issue / stale_bible) run on a 15m cron. Personal→Inbox surfaces them as proposal cards: approve→<code>open</code> (enters the backlog); dismiss→<code>cancelled</code> (STICKY — the source_key still resolves to the cancelled row, so it never re-nags).</strong></td>
+<td>Reuses the unified <code>work_items</code> store (D-026) with no new table; the sticky dismiss is the "don't nag again" signal. <strong>HONEST LIMITATION (deliberate, default-OFF):</strong> the project-keyed <code>source_key</code> (<code>&lt;source&gt;:&lt;projectId&gt;</code> for ci_failed/verify_finding/stale_bible; open_issue keys per issue) has no run/date discriminator, so such a proposal is effectively <strong>ONE-SHOT per project</strong> — once a row exists in ANY status (approved/done or dismissed) a genuine later recurrence is NOT re-surfaced until the row clears — and there is <strong>no undo</strong> on inbox dismiss. Documented as tracked follow-ups, not sold as continuous monitoring.</td>
+<td>A new proposals table (the work_items store already fits); a run/date-discriminated source_key (would re-nag on every 15m tick — a worse default); shipping an undo affordance now (deferred).</td>
+</tr>
+<tr>
+<td>D-112</td>
+<td>2026-07-13</td>
+<td>Budget park = reactive refuse-with-reason, measured rolling-24h, zero forecasting (+ deferred operator-action routes)</td>
+<td><strong>E-17 caps on MEASURED <code>runs.cost_usd</code> over a rolling 24h window — ZERO forecasting (no price×token, no projection). Org cap (autonomy settings) + per-project caps (<code>projects.budget_daily_usd</code>). At cap a dispatch is PARKED = refused-with-reason (<code>429</code> / <code>BudgetCapError</code>), no queue — the operator raises the cap. Gated paths: <code>startAgentRun</code> (autonomous schedule/event/delegation), manual <code>POST /api/runs</code> (→429), operator→Chief <code>delegateToChief</code> (→429), and autonomous scheduled/event skill dispatch. EXEMPT: interactive/persistent K turns.</strong></td>
+<td>Measured-only honors the program's no-price-coupling rule (the committed no-price-tables grep gate stays green); a reactive refuse-with-reason is simpler and truer than a queue or a projection; exempting interactive K keeps the operator's own conversation with their secretary unblocked. Operator-initiated action routes (rewind / review-fix / deep-verify / workflows / run-skill-now) are a <strong>tracked follow-up</strong>, documented honestly rather than claimed.</td>
+<td>Forecasting / "projected" spend (price-coupled, banned); a queue that runs the parked work later (hidden deferred spend); gating interactive K (blocks the operator talking to their own secretary).</td>
+</tr>
+<tr>
+<td>D-113</td>
+<td>2026-07-13</td>
+<td>E-27 eval-derived lessons ride the D-041 lesson gate, off verify_results (eval_results deferred)</td>
+<td><strong>Repeated (≥2) same-signature failures produce ONE deduped, capped (10) PENDING <code>agent_memory</code> lesson through the EXISTING D-041 lesson gate — reusing the <code>lesson_pending</code> inbox kind, no new UI. SCOPE: implemented off <code>verify_results</code> only; <code>eval_results</code> is DEFERRED (it has no free-text failure-reason column to signature on) as a documented extension point.</strong></td>
+<td>This is memory layer C's first real slice; riding the existing human-gated lesson queue means a machine-derived lesson STILL needs operator approval (nothing self-modifies its brain), and no new surface is added. <code>verify_results</code> carries the free-text failure signature <code>eval_results</code> lacks, so it is the honest first source.</td>
+<td>A new auto-lesson table + UI (duplicates the D-041 gate); ungated auto-derived lessons (a bad lesson poisons the profile); claiming eval_results coverage now (it has no failure-reason column — would be a fabricated signature).</td>
+</tr>
+<tr>
+<td>D-114</td>
+<td>2026-07-13</td>
 <td>UI Polish — liquid-glass design system: 4 tiers, gated icon set, 19-primitive kit, empty token gate</td>
 <td><strong>A 26-task program re-skins the dashboard onto FOUR explicit glass tiers (<code>glass-chrome</code>/<code>glass-panel</code>/<code>glass-overlay</code>/<code>surface-solid</code>, picked by role with a hard no-nested-backdrop-filter rule and a reviewed ≤6-blurred-regions-per-viewport budget, replacing D-013/D-024's hero-only/dense-opaque binary); the full <code>lucide-react</code> icon set is closed behind <code>ui/Icon</code>'s 33-entry <code>ICONS</code> map (the only file in <code>web/src</code> importing the library directly); a 14-file, 19-named-component primitive kit ships at <code>web/src/ui/</code> (Button/IconButton, Dialog, EmptyState, ErrorState, Input/Textarea/Select, GlassPanel, Icon, KpiTile, SectionHeader, Skeleton/SkeletonRow/SkeletonTile, Spinner, StatusPill, Tag, Tooltip) alongside the pre-existing canonical Tabs/SegControl; and <code>web/test/ui-token-gate.test.ts</code>'s allowlist — seeded at the program's start and shrunk wave by wave — reaches EMPTY (<code>[]</code>, commit <code>fcc3284</code>), so every color in <code>web/src</code> now routes through a token or its Tailwind semantic class with zero exemptions.</strong></td>
 <td>The prior binary (glass on hero surfaces, opaque on dense data) couldn't express nesting (a dialog floating over an already-glass chrome) or a numeric blur budget (an 11-tile KPI row blows the frame-rate budget even though KPI tiles read as a hero surface) — a graded, role-based tier system with an explicit nesting rule replaces per-component ad hoc calls with one discipline; gating icons behind one typed map keeps the icon vocabulary closed and auditable; a shrinking-to-empty allowlist makes "no raw color left in the app" a verifiable, continuously-enforced fact rather than a one-time claim. The <code>--chart-1..8</code> dataviz palette was validated, not redesigned — a CVD check against the real dark surface caught one failing adjacent pair (chart-7↔chart-8, ΔE 1.1) fixed by snapping <code>--chart-8</code> to <code>#6366f1</code> (ΔE 15.4); a separate lightness-band check fails all 8 tokens against a generic heuristic and is accepted as non-actionable since the palette is brand-locked and contrast ≥3:1 still holds.</td>
@@ -4456,7 +4704,7 @@ flag for K's hybrid idle-timeout.</p>
         <span class="section-icon">❔</span>
         <h1>User Guide</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-05</span>
+        <span class="section-updated mono">updated 2026-07-13</span>
       </header>
       <p>The mental model is <strong>you direct an agent organization</strong>: you talk to <strong>K</strong> (a friendly secretary),
 K handles logistics and hands engineering work to the <strong>Chief</strong>, and the Chief staffs it to
@@ -4612,6 +4860,32 @@ it with the same eval harness real skills use → <strong>save</strong>, which l
 (<code>agent-config/skills/</code>) and registers it in the catalog. Until you save, the header honestly
 reads "agent-generated draft — not saved".</li>
 </ol>
+<h2>Setting up the Autonomous Org</h2>
+<p>By default the org does nothing on its own — it acts only when you talk to K or dispatch a run.
+<strong>Phase 5 (Autonomy)</strong> lets the org generate its own work, pull it, retry its own failures, and cap
+its own spend, all behind <strong>one switch that ships OFF</strong>. Turn it on from <strong>Settings → Autonomous Org</strong>:</p>
+<ol>
+<li><strong>Flip the master toggle on.</strong> Nothing autonomous runs until you do — a fresh install is inert.
+Toggling applies immediately, no restart.</li>
+<li><strong>Pick which behaviors you want</strong> (each needs the master on): <strong>Generate proposals</strong> (K's
+deterministic collectors watch CI, verification, open issues, and bible staleness and drop
+suggestions into <strong>Personal → Inbox</strong> as proposal cards — approve one to add it to the backlog,
+dismiss to stop it nagging), <strong>Auto-pull backlog</strong> (the org claims the oldest approved backlog item
+and dispatches it, up to your <strong>max-concurrency</strong>), and <strong>Self-heal failed runs</strong> (a failed
+autonomous run is retried once on a fallback model, or parked in your Inbox with a one-line
+diagnosis).</li>
+<li><strong>Set a budget cap (recommended even with autonomy off).</strong> The <strong>org daily budget cap</strong> is a
+<em>safety</em> cap on <strong>measured</strong> spend over a rolling 24h window — it applies to manual and autonomous
+dispatches alike, so it protects you even when the master is off. At the cap a dispatch is refused
+with a reason (not queued); raise the cap to proceed. Your own interactive chats with K are never
+budget-blocked. Per-project caps live on each project. There is <strong>no forecasting</strong> — only real,
+measured cost.</li>
+<li><strong>Watch it on Insights → Charts</strong> — a <strong>budget burn-down</strong> (measured, 24h) and a <strong>retry-rate</strong>
+chart show what the autonomy is spending and how often it is self-correcting.</li>
+</ol>
+<p>Two honest limits worth knowing: a project-scoped proposal is <strong>one-shot per project</strong> (once it
+exists in any state, a later recurrence won't re-appear until the row clears), and an Inbox <strong>dismiss
+has no undo</strong>. Both are deliberate for this first, default-OFF cut.</p>
 <h2>Troubleshooting</h2>
 <p>Most first-run hiccups (dashboard errors on first load, <code>EADDRINUSE</code> port conflicts, SQLite "database is locked", stale worktrees after a crash) are covered in the <strong>README Troubleshooting</strong> section and, in depth, in <strong>§11 Operations</strong>. Start there.</p>
 
@@ -4622,7 +4896,7 @@ reads "agent-generated draft — not saved".</li>
         <span class="section-icon">👁</span>
         <h1>Observability</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-10</span>
+        <span class="section-updated mono">updated 2026-07-13</span>
       </header>
       <p>Phase 4's Track D makes the harness <strong>observable</strong>: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard <em>surfaces</em> it powers. The <em>Implementation history</em> appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.</p>
 <h2>Event-data enrichment foundation (D3, D-015)</h2>
@@ -4790,6 +5064,29 @@ the program bans price-coupled estimation (measured actuals only). The rule is <
 enforced</strong> by a committed <strong>no-price-tables grep gate</strong> (<code>core/test/no-price-tables.test.ts</code>) that
 fails if a price table reappears. The catalog's relative <strong>weight bands</strong> (§08) convey <em>context</em>
 cost without implying a dollar figure.</p>
+<h2>Autonomy budget + retry observability (BUILT — P5 Autonomy, E-17/E-18)</h2>
+<p>The autonomy stack (§03) adds two measured lenses on Insights → Charts (§08), both <strong>derivations over
+data already stored — no forecasting, no new spend</strong>:</p>
+<ul>
+<li><strong>Budget burn-down (measured, 24h).</strong> <code>core/src/budget-governor.ts::budgetStatus</code> sums
+<code>runs.cost_usd</code> over a <strong>rolling 24h window</strong> against the org cap (autonomy settings) and any
+per-project caps (<code>projects.budget_daily_usd</code>), classifying each scope <code>ok | warn | capped</code>
+(<code>classifyBudget</code> is pure: null cap → always <code>ok</code>; <code>capped</code> iff spent ≥ cap; <code>warn</code> iff spent ≥
+cap·warnPct). It is <strong>REACTIVE — ZERO forecasting</strong>: no price×token math, no projected spend, only
+measured actuals, so the same no-price-tables grep gate that guards the cost lens above still holds.
+At a cap a dispatch is <strong>parked = refused-with-reason</strong> (<code>BudgetCapError</code> / <code>429</code>), never queued —
+the burn-down surfaces the <code>capped</code> state and a <code>budget_update</code> WS event nudges the chart; the
+operator raises the cap to proceed (D-112). Gated dispatch paths: <code>startAgentRun</code> (autonomous),
+manual <code>POST /api/runs</code>, operator→Chief <code>delegateToChief</code>, and autonomous scheduled/event skill
+dispatch; <strong>interactive/persistent K turns are exempt</strong> (the operator's own conversation is never
+budget-blocked). Because the cap is a safety limit it applies <strong>even while autonomy is OFF</strong> once
+set (§03, D-108).</li>
+<li><strong>Retry rate (measured).</strong> <code>core/src/retry-metrics.ts</code> counts self-heal retries off the
+<code>runs.retry_of</code> lineage (E-18, §07) against total runs over a day-bucketed window — the rate is real
+because a retry is a real row stamped <code>retry_of</code>/<code>retry_count</code>, and a <code>run_retried</code> WS event
+invalidates the series live. A retry is a fallback-model re-dispatch, so the chart reads how often the
+org is self-correcting rather than parking.</li>
+</ul>
 <h2>Implementation history (dashboard)</h2>
 <blockquote>
 <p>Moved here from §08 so that section stays a UI <em>spec</em>. These are the as-built milestone records

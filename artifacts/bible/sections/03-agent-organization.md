@@ -2,7 +2,7 @@
 title: Agent Organization
 icon: "❖"
 status: active
-updated: 2026-07-05
+updated: 2026-07-13
 ---
 
 > **Status — PARTIALLY BUILT (Phase 5).** This section is the design of record for the agent
@@ -18,7 +18,9 @@ updated: 2026-07-05
 > run-lifecycle seam). **The Chief now wakes autonomously** (P5.2b, D-044): a scheduler tick or a
 > subscribed run-completion event fires `startAgentRun('chief', …)`, debounced + already-running- +
 > self-wake-guarded — and, since P5.7, **governed** (org-relevant terminals only, a rolling-hour rate
-> cap, and a kill switch — D-057; see *Autonomous wake* below). The K→Chief→lead delegation
+> cap, and a kill switch — D-057; see *Autonomous wake* below), and since **P5 Autonomy** the wake —
+> together with proposals, backlog auto-pull, and self-heal — is **gated behind a persisted, default-OFF
+> operator choice** (Settings → Autonomous Org, D-107..D-109; see *The Autonomous Org* below). The K→Chief→lead delegation
 > **dispatch** and named workflow definitions are **built** (D-046 → D-051, D-047), and the
 > per-profile authority rows are **enforced at synthesis** (P5.7, D-054). **Still planned:** K as an
 > autonomously-woken tier, wiring the real Google connectors, and memory layers B/C. Where a
@@ -220,6 +222,33 @@ ephemeral config, interactive HITL park). The route surfaced when composing is a
 `routeForMessage` **preview** (client and server agree via `@k/shared`); K's runtime tool/hand-up
 decision is authoritative.
 
+### The Autonomous Org — one persisted, default-OFF operator choice (BUILT — P5 Autonomy, D-107..D-109)
+
+The whole autonomous stack is off until the operator turns it on. A new **Settings → Autonomous Org**
+section (`web/src/pages/SettingsAutonomy.tsx`) is the single front door: a master **enabled** toggle
+(**default OFF**), three sub-toggles (**Generate proposals** · **Auto-pull backlog** · **Self-heal
+failed runs**), a **max-concurrency** cap, an **org daily budget cap** + **warn %**. It persists as
+one JSON blob in `app_config` under `autonomy.settings` (mirroring `home_layout`), read/written through
+`config-store.ts::autonomySettings()` / `setAutonomySettings()`. Agents→Org carries only a **read-only
+autonomy status chip** (OFF/ON) that deep-links here — no duplicated controls (metric-uniqueness).
+
+**The master gates the whole stack (D-108).** `autonomySettings().enabled` (default `false`) gates all
+FOUR autonomous behaviors; each sub-toggle additionally requires `enabled`:
+
+- **Chief auto-wake** — `chiefWakeEnabled()` returns `enabled` (below).
+- **Proposal collectors (E-14)** — run only under `enabled && proposals`.
+- **Backlog auto-pull (E-15)** — the relay claims only under `enabled && backlogAutoPull`.
+- **Self-heal (E-18)** — a failed org/auto run retries only under `enabled && selfHeal`.
+
+So a **fresh DB is inert** — nothing autonomous fires until the operator opts in, and toggling ON works
+**at runtime with no restart** (the schedulers always wire at boot and gate on the persisted setting per
+tick). **The one exception is the budget governor (E-17):** a *safety cap*, not an autonomous behavior,
+so once a cap is set it applies to manual AND autonomous dispatches **even while autonomy is OFF** —
+gating it behind the master would let disabling autonomy silently remove the operator's own spend cap
+(D-108, D-112). The rest of the E-14..E-18/E-27 stack — proposals → backlog → auto-pull, self-heal, and
+eval-derived lessons — is specified in §07 (collectors + self-heal) and §04 (the backlog work-items loop
++ memory layer C); its budget/retry observability is §13; its surfaces are §08.
+
 ### Autonomous wake — the Chief wakes itself (BUILT — P5.2b, D-044)
 
 The Chief no longer waits to be spoken to: **`core/src/chief-wake.ts`** wires the reused Phase-3
@@ -227,8 +256,12 @@ The Chief no longer waits to be spoken to: **`core/src/chief-wake.ts`** wires th
 (`onRunUpdate`, on a terminal run) straight into the existing `startAgentRun('chief', { trigger })`
 primitive — it rebuilds neither the scheduler nor the activation path. A schedule tick fires a
 `trigger:'schedule'` wake; a subscribed run-completion fires a `trigger:'event'` wake. `startChiefWake()`
-is wired at boot in `index.ts` (returns a stop fn torn down on `onClose`; default ON, `CHIEF_WAKE=0`
-opts out).
+is wired at boot in `index.ts` (returns a stop fn torn down on `onClose`). **Since P5 the wake is
+gated on a persisted operator choice, not the env** (D-107..D-109): `chiefWakeEnabled()` reads
+`autonomySettings().enabled` (**default OFF**), the scheduler ALWAYS wires + gates per tick (so
+enabling it at runtime needs no restart), and the old `CHIEF_WAKE` env is deprecated warn-only (a
+one-time boot warning if it is set; it no longer defaults autonomy on and no migration writes a
+persisted `true` from it). See *The Autonomous Org* below.
 
 The wake is bounded by **two guards + a self-wake guard**, and a **failure-degrade**:
 

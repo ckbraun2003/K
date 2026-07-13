@@ -11,7 +11,7 @@ export const INBOX_KEY = ['inbox'] as const
 
 export const EMPTY_INBOX: InboxPayload = {
   items: [],
-  counts: { plan_pending: 0, input_needed: 0, lesson_pending: 0, mcp_trust: 0, review_ready: 0 },
+  counts: { plan_pending: 0, input_needed: 0, lesson_pending: 0, mcp_trust: 0, review_ready: 0, proposal: 0 },
   total: 0,
 }
 
