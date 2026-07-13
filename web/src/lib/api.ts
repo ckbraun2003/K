@@ -543,6 +543,10 @@ export const api = {
     dismissReview: (runId: string) => req<void>(`/inbox/runs/${runId}/dismiss-review`, { method: 'POST' }),
     dismissMcp: (qualifiedKey: string) =>
       req<void>(`/inbox/mcp/${encodeURIComponent(qualifiedKey)}/dismiss`, { method: 'POST' }),
+    // E-14 — approve flips a proposal blocked→open (enters the E-15 backlog);
+    // dismiss flips it blocked→cancelled (sticky — the same signal won't re-propose).
+    approveProposal: (workItemId: string) => req<void>(`/inbox/proposals/${workItemId}/approve`, { method: 'POST' }),
+    dismissProposal: (workItemId: string) => req<void>(`/inbox/proposals/${workItemId}/dismiss`, { method: 'POST' }),
   },
   // ── P2 E-19 notification center + per-event delivery rules.
   notifications: {
