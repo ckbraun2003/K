@@ -58,6 +58,7 @@ import { ensureHarnessBibleRegistered } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
+import { startProposalCollectors } from './proposal-collectors.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
 import { startBudgetBroadcast } from './budget-governor.js'
 import { startBacklogRelay } from './backlog-relay.js'
@@ -101,6 +102,8 @@ const TERMINAL_TOKEN = process.env.TERMINAL_TOKEN ?? 'dev-terminal-token'
 let stopGraphAutoReindex: (() => void) | undefined
 // Same, for the Chief autonomous wake (cron tick + run-completion subscription).
 let stopChiefWake: (() => void) | undefined
+// Same, for the deterministic zero-token proposal collectors (15m cron; E-14).
+let stopProposalCollectors: (() => void) | undefined
 // Same, for the MAIN-process lead-dispatch relay (drains the child-recorded intent queue).
 let stopLeadDispatchRelay: (() => void) | undefined
 // Same, for the E-17 budget-status broadcaster (WS budget_update once per run terminal).
@@ -340,6 +343,7 @@ export async function buildApp() {
     stopRunVerify?.()
     stopNotifications?.()
     stopChiefWake?.()
+    stopProposalCollectors?.()
     stopLeadDispatchRelay?.()
     stopBudgetBroadcast?.()
     stopBacklogRelay?.()
@@ -494,11 +498,18 @@ async function start() {
   stopGraphAutoReindex = registerGraphAutoReindex(getProject)
   // E-04 run-verify engine seam (W0 stub — Lane B lands the real trigger).
   stopRunVerify = registerRunVerify(getProject)
-  // E-19 notification engine seam (W0 stub — Lane B lands the real pipeline).
+  // E-19 notification engine seam (registerNotifications) — a W0 stub; no P5 lane
+  // shipped a notification pipeline, so this remains a stub.
   stopNotifications = registerNotifications()
   // Wake the Chief autonomously on a schedule tick + on subscribed run-completion
-  // events (debounced + already-running/self-wake guarded). Default ON; CHIEF_WAKE=0.
+  // events (debounced + already-running/self-wake guarded). P5-B: gated by the
+  // persisted autonomySettings().enabled (default OFF, opt-in via Settings ->
+  // Autonomous Org) — the CHIEF_WAKE env is deprecated and no longer defaults this on.
   stopChiefWake = startChiefWake()
+  // Deterministic, zero-token proposal candidates (ci_failed/verify_finding/open_issue/
+  // stale_bible) on a 15m cron — gated by autonomySettings().enabled && .proposals
+  // (default OFF). PROPOSAL_COLLECTORS=0 kill switch.
+  stopProposalCollectors = startProposalCollectors()
   // Drain the DB-backed lead-dispatch intent queue in this long-lived process (so a lead
   // run + its report-back outlive the ephemeral mgmt-server child). Default ON; LEAD_DISPATCH_RELAY=0.
   stopLeadDispatchRelay = startLeadDispatchRelay()

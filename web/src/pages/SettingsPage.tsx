@@ -21,6 +21,8 @@ import { ClaudeModelSection, LocalModelsSection } from './SettingsModels'
 import { VoiceSection } from './SettingsVoice'
 // Wave 2 — self-contained host-prerequisite "doctor" section.
 import { SystemRequirementsSection } from './SettingsDoctor'
+// P5-B — self-contained autonomous-org on/off front door section.
+import { AutonomousOrgSection } from './SettingsAutonomy'
 // P4 E-30 — the embedded diagnostics shell (the #/terminal redirect lands here).
 import TerminalPage from './TerminalPage'
 
@@ -463,6 +465,11 @@ export default function SettingsPage() {
       {/* P5.3b — org-default orchestrator authority (leads inherit unless overridden). */}
       <section className="mb-8">
         <OrgDefaultSection />
+      </section>
+
+      {/* P5-B (E-14/E-15/E-18) — the autonomous org on/off front door. */}
+      <section className="mb-8">
+        <AutonomousOrgSection />
       </section>
 
       {/* P2 E-19 — per-event notification delivery rules. */}

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import { PlanDocSchema, type InboxCounts, type InboxItem, type InboxPayload, type VerifyStatus } from '@k/shared'
+import { PlanDocSchema, type InboxCounts, type InboxItem, type InboxPayload, type ProposalSource, type VerifyStatus } from '@k/shared'
 import { db, runsDb, proposalsDb } from '../db.js'
+import { eventBus } from '../events.js'
 import { sendError } from './http-errors.js'
 
 // Local prepares (capabilities.ts:72 precedent): the union is an inbox-only read
@@ -110,6 +111,15 @@ export async function inboxRoutes(app: FastifyInstance) {
         title: firstLine(r.prompt), runId: String(r.id),
         verifyStatus: r.verify_status != null ? (String(r.verify_status) as VerifyStatus) : null })
     }
+    // E-14: blocked+sourced org work_items awaiting operator approval (→ open/backlog)
+    // or dismissal (→ cancelled). listProposals joins the project name for the card.
+    for (const r of proposalsDb.listProposals.all(50) as Record<string, unknown>[]) {
+      items.push({ kind: 'proposal', id: `proposal:${r.id}`, ts: Number(r.created_at),
+        projectId: r.project_id != null ? String(r.project_id) : null,
+        projectName: r.project_name != null ? String(r.project_name) : null,
+        title: String(r.title), workItemId: String(r.id),
+        source: r.source as ProposalSource, body: r.body != null ? String(r.body) : null })
+    }
     items.sort((a, b) => b.ts - a.ts)
     const counts: InboxCounts = {
       plan_pending: items.filter(i => i.kind === 'plan_pending').length,
@@ -139,6 +149,26 @@ export async function inboxRoutes(app: FastifyInstance) {
   // (Fastify decodes path params once; never decode again — capabilities.ts:20-21).
   app.post<{ Params: { id: string } }>('/api/inbox/mcp/:id/dismiss', async (req, reply) => {
     if (dismissMcp.run(req.params.id).changes === 0) return sendError(reply, 404, 'not found')
+    return reply.status(204).send()
+  })
+
+  // E-14: approve a proposal (blocked → open, enters the E-15 auto-pull backlog).
+  // changes===0 ⇒ not a live approvable proposal (unknown id, already approved/dismissed).
+  app.post<{ Params: { id: string } }>('/api/inbox/proposals/:id/approve', async (req, reply) => {
+    if (proposalsDb.approveProposal.run({ id: req.params.id, now: Date.now() }).changes === 0) {
+      return sendError(reply, 404, 'not an open proposal')
+    }
+    eventBus.broadcast({ type: 'proposal_update' })
+    return reply.status(204).send()
+  })
+  // E-14: dismiss a proposal (blocked → cancelled). Sticky by design (see
+  // proposal-collectors.ts's partial-unique-index decision) — source_key is left
+  // intact so the same signal is never re-proposed ("don't nag again").
+  app.post<{ Params: { id: string } }>('/api/inbox/proposals/:id/dismiss', async (req, reply) => {
+    if (proposalsDb.dismissProposal.run({ id: req.params.id, now: Date.now() }).changes === 0) {
+      return sendError(reply, 404, 'not an open proposal')
+    }
+    eventBus.broadcast({ type: 'proposal_update' })
     return reply.status(204).send()
   })
 }
