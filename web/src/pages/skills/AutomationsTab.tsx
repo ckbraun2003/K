@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Skill, CreateSkill, UpdateSkill, SkillEval, Project } from '@k/shared'
 import { api } from '../../lib/api'
 import { agentRunStatusMeta } from '../../lib/status'
+import { cn } from '../../lib/cn'
 import AutoTextarea from '../../components/AutoTextarea'
 import type { SkillRun } from '../../lib/skill-runs'
 import { sortSkillRunsNewestFirst } from '../../lib/skill-runs'
@@ -10,6 +11,12 @@ import { checkCron } from '../../lib/cron'
 import { navigate } from '../../lib/route'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import Toast from '../../components/Toast'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { Tag } from '../../ui/Tag'
+import { Button } from '../../ui/Button'
+import { Input, Select, Textarea } from '../../ui/Field'
+import { EmptyState } from '../../ui/EmptyState'
+import { SkeletonRow } from '../../ui/Skeleton'
 
 // The K-native automation registry (skills/hooks/workflows with triggers) —
 // extracted VERBATIM from the pre-catalog SkillsPage (wave C2) as the
@@ -17,24 +24,26 @@ import Toast from '../../components/Toast'
 // form, SkillRow, SkillEditor, SkillRunHistory, dialogs and toasts all move
 // unchanged; only the module location and component name differ.
 
+// Palette-narrowing (fixed 5-token palette): the original ad-hoc 6-hue scheme
+// (blue/purple/green/yellow/orange/neutral) collapses onto
+// accent/accent-hover/green/amber/red with zero collisions across the 5
+// non-neutral categories (skill/hook/workflow/schedule/event) — colour is a
+// decorative grouping aid only, every badge also carries its own text label.
 const TYPE_COLORS: Record<Skill['type'], string> = {
-  skill: 'bg-blue-500/20 text-blue-300',
-  hook: 'bg-purple-500/20 text-purple-300',
-  workflow: 'bg-green-500/20 text-green-300',
+  skill: 'bg-accent-hover/15 text-accent-hover',
+  hook: 'bg-accent/15 text-accent',
+  workflow: 'bg-green/15 text-green',
 }
 
 const TRIGGER_COLORS: Record<Skill['triggerType'], string> = {
-  manual: 'bg-[var(--raised)] text-[var(--muted)]',
-  schedule: 'bg-yellow-500/20 text-yellow-300',
-  event: 'bg-orange-500/20 text-orange-300',
-}
-
-function Badge({ label, className }: { label: string; className: string }) {
-  return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${className}`}>
-      {label}
-    </span>
-  )
+  manual: 'bg-raised text-muted',
+  schedule: 'bg-amber/15 text-amber',
+  // accent, not red — red is reserved for genuine failure (EVAL_BADGE.fail,
+  // the regression badge) and would otherwise read as a failure state on a
+  // plain event-trigger badge in the same row. Reuses TYPE_COLORS.hook's
+  // accent tint deliberately: different badge family, always paired with its
+  // own distinct visible text, so no ambiguity.
+  event: 'bg-accent/15 text-accent',
 }
 
 const BLANK: CreateSkill = {
@@ -124,63 +133,48 @@ export default function AutomationsTab() {
   const cronCheck = checkCron(form.schedule ?? '')
   const cronInvalid = form.triggerType === 'schedule' && !cronCheck.valid
 
-  const inputCls =
-    'w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:border-[var(--accent)] focus:outline-none'
-
-  const selectCls =
-    'w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none'
-
   return (
     <div className="h-full overflow-y-auto p-5">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+        <h2 className="text-label uppercase tracking-wide text-muted">
           Skills · {skills.length} registered
         </h2>
-        <button
-          onClick={() => setFormOpen(o => !o)}
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity duration-150 hover:opacity-90"
-        >
+        <Button variant="primary" size="sm" onClick={() => setFormOpen(o => !o)}>
           {formOpen ? '− cancel' : '+ add skill'}
-        </button>
+        </Button>
       </div>
 
       {/* Add Skill form */}
       {formOpen && (
-        <form
-          onSubmit={handleSubmit}
-          className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
-        >
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
+        <GlassPanel as="form" tier="panel" onSubmit={handleSubmit} className="mt-4 p-4">
+          <h3 className="mb-3 text-label uppercase tracking-wide text-muted">
             New Skill / Hook / Workflow
           </h3>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="mb-1 block text-xs text-[var(--muted)]">Name</label>
-              <input
+              <label className="mb-1 block text-label text-muted">Name</label>
+              <Input
                 required
-                className={inputCls}
                 placeholder="e.g. nightly-verify"
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-[var(--muted)]">Type</label>
-              <select
-                className={selectCls}
+              <label className="mb-1 block text-label text-muted">Type</label>
+              <Select
                 value={form.type}
                 onChange={e => setForm(f => ({ ...f, type: e.target.value as Skill['type'] }))}
               >
                 <option value="skill">skill</option>
                 <option value="hook">hook</option>
                 <option value="workflow">workflow</option>
-              </select>
+              </Select>
             </div>
             <div>
-              <label className="mb-1 block text-xs text-[var(--muted)]">Trigger</label>
-              <select
-                className={selectCls}
+              <label className="mb-1 block text-label text-muted">Trigger</label>
+              <Select
                 value={form.triggerType}
                 onChange={e =>
                   setForm(f => ({ ...f, triggerType: e.target.value as Skill['triggerType'] }))
@@ -189,22 +183,21 @@ export default function AutomationsTab() {
                 <option value="manual">manual</option>
                 <option value="schedule">schedule (cron)</option>
                 <option value="event">event</option>
-              </select>
+              </Select>
             </div>
             {form.triggerType === 'schedule' && (
               <div className="col-span-2">
-                <label className="mb-1 block text-xs text-[var(--muted)]">Cron expression</label>
-                <input
+                <label className="mb-1 block text-label text-muted">Cron expression</label>
+                <Input
                   data-testid="skill-cron-input"
-                  className={inputCls}
                   placeholder="e.g. 0 2 * * *"
                   value={form.schedule ?? ''}
-                  aria-invalid={cronInvalid}
+                  invalid={cronInvalid}
                   onChange={e => setForm(f => ({ ...f, schedule: e.target.value || null }))}
                 />
                 <p
                   data-testid="skill-cron-hint"
-                  className={`mt-1 text-[11px] ${cronInvalid ? 'text-[var(--red)]' : 'text-[var(--muted)]'}`}
+                  className={cn('mt-1 text-caption', cronInvalid ? 'text-red' : 'text-muted')}
                 >
                   {cronInvalid
                     ? `⚠ ${cronCheck.error}`
@@ -214,11 +207,10 @@ export default function AutomationsTab() {
             )}
             {form.triggerType === 'event' && (
               <div className="col-span-2">
-                <label className="mb-1 block text-xs text-[var(--muted)]">
+                <label className="mb-1 block text-label text-muted">
                   Event trigger (run status)
                 </label>
-                <input
-                  className={inputCls}
+                <Input
                   placeholder="e.g. done"
                   value={form.eventTrigger ?? ''}
                   onChange={e => setForm(f => ({ ...f, eventTrigger: e.target.value || null }))}
@@ -226,22 +218,21 @@ export default function AutomationsTab() {
               </div>
             )}
             <div className="col-span-2">
-              <label className="mb-1 block text-xs text-[var(--muted)]">
+              <label className="mb-1 block text-label text-muted">
                 Source (prompt sent to the agent)
               </label>
-              <textarea
+              <Textarea
                 required
                 rows={3}
-                className={`${inputCls} resize-none`}
+                className="resize-none"
                 placeholder="Describe what this skill should do..."
                 value={form.source}
                 onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
               />
             </div>
             <div className="col-span-2">
-              <label className="mb-1 block text-xs text-[var(--muted)]">Description (optional)</label>
-              <input
-                className={inputCls}
+              <label className="mb-1 block text-label text-muted">Description (optional)</label>
+              <Input
                 placeholder="Short human-readable description"
                 value={form.description ?? ''}
                 onChange={e => setForm(f => ({ ...f, description: e.target.value || undefined }))}
@@ -249,31 +240,33 @@ export default function AutomationsTab() {
             </div>
           </div>
           <div className="mt-3 flex items-center gap-2">
-            <button
+            <Button
               type="submit"
+              variant="primary"
+              size="sm"
               disabled={createMutation.isPending || cronInvalid}
-              className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-50"
+              loading={createMutation.isPending}
             >
               {createMutation.isPending ? 'registering…' : 'register'}
-            </button>
+            </Button>
             {createMutation.isError && (
-              <span className="text-xs text-red-400">
+              <span className="text-caption text-red">
                 {(createMutation.error as Error).message}
               </span>
             )}
           </div>
-        </form>
+        </GlassPanel>
       )}
 
       {/* Skill list */}
       <div className="mt-4 flex flex-col gap-2">
         {isLoading && (
-          <p className="mt-10 text-center text-sm text-[var(--muted)]">Loading…</p>
+          <div className="mt-2 flex flex-col gap-1">
+            <SkeletonRow /><SkeletonRow /><SkeletonRow />
+          </div>
         )}
         {!isLoading && skills.length === 0 && (
-          <p className="mt-10 text-center text-sm text-[var(--muted)]">
-            No skills registered yet. Add one above.
-          </p>
+          <EmptyState icon="bolt" headline="No skills registered yet. Add one above." />
         )}
         {skills.map(skill => (
           <SkillRow
@@ -304,7 +297,7 @@ export default function AutomationsTab() {
         error={deleteMutation.isError ? (deleteMutation.error as Error).message : undefined}
         message={
           <>
-            <span className="font-medium text-[var(--text)]">{pendingDelete?.name}</span> will be
+            <span className="font-medium text-text">{pendingDelete?.name}</span> will be
             permanently removed. This cannot be undone.
           </>
         }
@@ -319,7 +312,7 @@ export default function AutomationsTab() {
         testid="skill-trigger-toast"
         message={
           <>
-            Triggered <span className="font-medium text-[var(--text)]">{triggered?.skillName}</span>
+            Triggered <span className="font-medium text-text">{triggered?.skillName}</span>
           </>
         }
         action={{
@@ -334,7 +327,9 @@ export default function AutomationsTab() {
 }
 
 /** Eval-status badge colors — exported so the Skill Creator's EvalPanel (C4)
- *  renders draft evals with the SAME status palette as the automation registry. */
+ *  renders draft evals with the SAME status palette as the automation registry.
+ *  LOCKED verbatim (skill-creator.test.tsx asserts the literal `text-[var(--green)]`
+ *  substring on the 'pass' entry) — do not restyle this map. */
 export const EVAL_BADGE: Record<SkillEval['status'], string> = {
   pass: 'bg-green/20 text-[var(--green)]',
   fail: 'bg-red/20 text-[var(--red)]',
@@ -373,46 +368,62 @@ function SkillRow({
   // onTrigger so the skill executes against the chosen project's checkout.
   const [runProjectId, setRunProjectId] = useState('')
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+    <GlassPanel
+      // solid, not glass: the registry can list many skills at once — same
+      // ≤6-blurred-region call as CatalogTab/McpTab's rows (DEV-11).
+      tier="solid"
+    >
       <div className="flex items-center gap-3 px-4 py-3">
         {/* Toggle */}
         <button
+          role="switch"
+          aria-checked={skill.enabled}
+          aria-label={skill.enabled ? 'Disable' : 'Enable'}
           title={skill.enabled ? 'Disable' : 'Enable'}
           onClick={() => onToggle(!skill.enabled)}
-          className={`h-4 w-4 flex-shrink-0 rounded-full border transition-colors ${
-            skill.enabled
-              ? 'border-[var(--accent)] bg-[var(--accent)]'
-              : 'border-[var(--border)] bg-transparent'
-          }`}
+          className={cn(
+            'h-4 w-4 flex-shrink-0 rounded-pill border transition-colors glow-focus',
+            skill.enabled ? 'border-accent bg-accent' : 'border-border bg-transparent',
+          )}
         />
 
         {/* Name + badges */}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate text-sm font-medium text-[var(--text)]">{skill.name}</span>
-            <Badge label={skill.type} className={TYPE_COLORS[skill.type]} />
-            <Badge label={skill.triggerType} className={TRIGGER_COLORS[skill.triggerType]} />
+            <span className="truncate text-body font-medium text-text">{skill.name}</span>
+            <Tag className={cn('text-micro uppercase tracking-wide', TYPE_COLORS[skill.type])}>
+              {skill.type}
+            </Tag>
+            <Tag className={cn('text-micro uppercase tracking-wide', TRIGGER_COLORS[skill.triggerType])}>
+              {skill.triggerType}
+            </Tag>
             {!skill.enabled && (
-              <Badge label="disabled" className="bg-[var(--raised)] text-[var(--muted)]" />
+              <Tag tint="neutral" className="text-micro uppercase tracking-wide">
+                disabled
+              </Tag>
             )}
             {latestEval && (
-              <Badge label={`eval: ${latestEval.status}`} className={EVAL_BADGE[latestEval.status]} />
+              <Tag className={cn('text-micro uppercase tracking-wide', EVAL_BADGE[latestEval.status])}>
+                {`eval: ${latestEval.status}`}
+              </Tag>
             )}
             {latestEval?.regression && (
-              <Badge label="⚠ regression" className="bg-red-500/20 text-red-300" />
+              <Tag className="text-micro uppercase tracking-wide bg-red/15 text-red">
+                ⚠ regression
+              </Tag>
             )}
           </div>
           {skill.description && (
-            <p className="mt-0.5 truncate text-xs text-[var(--muted)]">{skill.description}</p>
+            <p className="mt-0.5 truncate text-caption text-muted">{skill.description}</p>
           )}
           {skill.triggerType === 'schedule' && skill.schedule && (
-            <p className="mt-0.5 text-xs text-[var(--muted)]">cron: {skill.schedule}</p>
+            <p className="mt-0.5 text-caption text-muted">cron: {skill.schedule}</p>
           )}
           {skill.triggerType === 'event' && skill.eventTrigger && (
-            <p className="mt-0.5 text-xs text-[var(--muted)]">on: {skill.eventTrigger}</p>
+            <p className="mt-0.5 text-caption text-muted">on: {skill.eventTrigger}</p>
           )}
           {triggerError && (
-            <p data-testid="skill-trigger-error" className="mt-0.5 text-xs text-red-400">
+            <p data-testid="skill-trigger-error" className="mt-0.5 text-caption text-red">
               {triggerError}
             </p>
           )}
@@ -420,29 +431,33 @@ function SkillRow({
 
         {/* Actions */}
         <div className="flex flex-shrink-0 gap-2">
-          <button
+          <Button
+            variant="glass"
+            size="sm"
             onClick={() => setEditOpen(o => !o)}
             aria-expanded={editOpen}
             data-testid="skill-edit-toggle"
-            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            icon={editOpen ? 'chevronDown' : 'chevronRight'}
           >
-            {editOpen ? '▾ edit' : '▸ edit'}
-          </button>
-          <button
+            edit
+          </Button>
+          <Button
+            variant="glass"
+            size="sm"
             onClick={() => setHistoryOpen(o => !o)}
             aria-expanded={historyOpen}
             data-testid="skill-history-toggle"
-            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            icon={historyOpen ? 'chevronDown' : 'chevronRight'}
           >
-            {historyOpen ? '▾ history' : '▸ history'}
-          </button>
+            history
+          </Button>
           {projects.length > 0 && (
-            <select
+            <Select
               data-testid="skill-run-project"
               aria-label="Run against project"
               value={runProjectId}
               onChange={e => setRunProjectId(e.target.value)}
-              className="max-w-[9rem] rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[var(--accent)]"
+              className="h-7 max-w-[9rem] py-0.5 text-label"
             >
               <option value="">K (no project)</option>
               {projects.map(p => (
@@ -450,29 +465,37 @@ function SkillRow({
                   {p.name}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
-          <button
+          <Button
+            variant="glass"
+            size="sm"
+            icon="runs"
             onClick={() => onTrigger(runProjectId || undefined)}
             disabled={isTriggerPending}
-            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+            loading={isTriggerPending}
           >
-            {isTriggerPending ? '…' : '▶ run'}
-          </button>
-          <button
+            run
+          </Button>
+          <Button
+            variant="glass"
+            size="sm"
+            icon="check"
             onClick={onTest}
             disabled={isTestPending}
-            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+            loading={isTestPending}
           >
-            {isTestPending ? '…' : 'test'}
-          </button>
-          <button
+            test
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            icon="trash"
             onClick={onDelete}
             data-testid="skill-delete-btn"
-            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:border-red-500 hover:text-red-400"
           >
             delete
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -484,7 +507,7 @@ function SkillRow({
         />
       )}
       {historyOpen && <SkillRunHistory skillId={skill.id} />}
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -502,9 +525,6 @@ function SkillEditor({ skill, onDone }: { skill: Skill; onDone: () => void }) {
       onDone()
     },
   })
-
-  const inputCls =
-    'w-full rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-sm text-[var(--text)] placeholder-[var(--muted)] focus:border-[var(--accent)] focus:outline-none'
 
   // Only send fields that actually changed (partial PATCH). Compare
   // trimmed-vs-trimmed so a stored value with stray whitespace doesn't trigger
@@ -533,7 +553,7 @@ function SkillEditor({ skill, onDone }: { skill: Skill; onDone: () => void }) {
   return (
     <div
       data-testid="skill-editor"
-      className="border-t border-[var(--border)] px-4 py-3"
+      className="border-t border-border px-4 py-3"
       onKeyDown={e => {
         // Esc cancels the editor, matching the app's close-on-Escape convention.
         // Escape isn't a newline, so handling it at the container is safe for the
@@ -543,56 +563,53 @@ function SkillEditor({ skill, onDone }: { skill: Skill; onDone: () => void }) {
     >
       <div className="flex flex-col gap-3">
         <div>
-          <label htmlFor={`skill-edit-name-${skill.id}`} className="mb-1 block text-xs text-[var(--muted)]">Name</label>
-          <input
+          <label htmlFor={`skill-edit-name-${skill.id}`} className="mb-1 block text-label text-muted">Name</label>
+          <Input
             id={`skill-edit-name-${skill.id}`}
             data-testid="skill-edit-name"
-            className={inputCls}
             value={name}
             onChange={e => setName(e.target.value)}
           />
         </div>
         <div>
-          <label htmlFor={`skill-edit-description-${skill.id}`} className="mb-1 block text-xs text-[var(--muted)]">Description (optional)</label>
-          <input
+          <label htmlFor={`skill-edit-description-${skill.id}`} className="mb-1 block text-label text-muted">Description (optional)</label>
+          <Input
             id={`skill-edit-description-${skill.id}`}
             data-testid="skill-edit-description"
-            className={inputCls}
             placeholder="Short human-readable description"
             value={description}
             onChange={e => setDescription(e.target.value)}
           />
         </div>
         <div>
-          <label htmlFor={`skill-edit-source-${skill.id}`} className="mb-1 block text-xs text-[var(--muted)]">
+          <label htmlFor={`skill-edit-source-${skill.id}`} className="mb-1 block text-label text-muted">
             Source (prompt sent to the agent)
           </label>
           <AutoTextarea
             id={`skill-edit-source-${skill.id}`}
             data-testid="skill-edit-source"
-            className={`${inputCls} resize-none`}
+            className="w-full resize-none rounded-control border border-border bg-raised px-3 py-1.5 text-body text-text placeholder:text-muted focus:border-accent focus:outline-none"
             value={source}
             onChange={e => setSource(e.target.value)}
           />
         </div>
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <button
+        <Button
+          variant="primary"
+          size="sm"
           data-testid="skill-edit-save"
           onClick={handleSave}
           disabled={updateMutation.isPending || invalid || !dirty}
-          className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-50"
+          loading={updateMutation.isPending}
         >
           {updateMutation.isPending ? 'saving…' : 'save'}
-        </button>
-        <button
-          onClick={onDone}
-          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
-        >
+        </Button>
+        <Button variant="glass" size="sm" onClick={onDone}>
           cancel
-        </button>
+        </Button>
         {updateMutation.isError && (
-          <span data-testid="skill-edit-error" className="text-xs text-red-400">
+          <span data-testid="skill-edit-error" className="text-caption text-red">
             {(updateMutation.error as Error).message}
           </span>
         )}
@@ -605,11 +622,12 @@ function SkillEditor({ skill, onDone }: { skill: Skill; onDone: () => void }) {
  *  (running/completed/failed — core writes 'completed'/'failed', see skills.ts), NOT
  *  RunStatus, so it maps through agentRunStatusMeta. Guarded: an out-of-enum value degrades
  *  to muted rather than throwing (the canonicalizers have no default branch) — one bad row
- *  must never blank the whole list. */
+ *  must never blank the whole list. LOCKED (e11-sweep.test.tsx asserts the running/completed
+ *  branches render agentRunStatusMeta(status).badge exactly) — routing left untouched. */
 function skillRunBadge(status: string): string {
   return status === 'running' || status === 'completed' || status === 'failed'
     ? agentRunStatusMeta(status).badge
-    : 'bg-muted/15 text-[var(--muted)]'
+    : 'bg-muted/15 text-muted'
 }
 
 /** Recent runs for a skill — surfaces the previously-unused api.skills.runs(). */
@@ -622,47 +640,47 @@ function SkillRunHistory({ skillId }: { skillId: string }) {
   return (
     <div
       data-testid="skill-run-history"
-      className="border-t border-[var(--border)] px-4 py-3"
+      className="border-t border-border px-4 py-3"
     >
-      <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+      <h4 className="mb-2 text-micro font-semibold uppercase tracking-wide text-muted">
         Run history
       </h4>
-      {isLoading && <p className="text-xs text-[var(--muted)]">Loading…</p>}
+      {isLoading && <p className="text-label text-muted">Loading…</p>}
       {isError && (
-        <p data-testid="skill-run-history-error" className="text-xs text-red-400">
+        <p data-testid="skill-run-history-error" className="text-label text-red">
           Failed to load run history.
         </p>
       )}
       {!isLoading && !isError && ordered.length === 0 && (
-        <p className="text-xs text-[var(--muted)]">No runs yet.</p>
+        <p className="text-label text-muted">No runs yet.</p>
       )}
       <div className="flex flex-col gap-1">
         {ordered.map(sr => {
           const cls = skillRunBadge(sr.status)
           const inner = (
             <>
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>
+              <span className={cn('rounded-pill px-1.5 py-0.5 text-micro font-medium', cls)}>
                 {sr.status}
               </span>
-              <span className="mono text-xs text-[var(--muted)]">
+              <span className="mono text-label text-muted">
                 {new Date(sr.startedAt).toLocaleString()}
               </span>
-              <span className="ml-auto text-[10px] text-[var(--muted)]">{sr.triggeredBy}</span>
-              {sr.runId && <span className="text-[10px] text-[var(--accent-hover)]">view →</span>}
+              <span className="ml-auto text-micro text-muted">{sr.triggeredBy}</span>
+              {sr.runId && <span className="text-micro text-accent-hover">view →</span>}
             </>
           )
           return sr.runId ? (
             <button
               key={sr.id}
               onClick={() => navigate('runs', sr.runId!)}
-              className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-left transition-colors hover:border-[var(--accent)]"
+              className="flex items-center gap-2 rounded-control border border-border px-2.5 py-1.5 text-left transition-colors hover:border-accent"
             >
               {inner}
             </button>
           ) : (
             <div
               key={sr.id}
-              className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-2.5 py-1.5 opacity-60"
+              className="flex items-center gap-2 rounded-control border border-border px-2.5 py-1.5 opacity-60"
             >
               {inner}
             </div>

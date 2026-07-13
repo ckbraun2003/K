@@ -7,19 +7,28 @@ import { navigate } from '../../lib/route'
 import { filterCatalog } from '../../lib/catalog-filter'
 import { formatCompact } from '../../lib/format-metrics'
 import { weightBand } from '../../lib/capability-tokens'
+import { cn } from '../../lib/cn'
 import SegControl from '../../components/SegControl'
 import SourceBadge from '../../components/SourceBadge'
 import WarningsBanner from '../../components/WarningsBanner'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { Button } from '../../ui/Button'
+import { Input } from '../../ui/Field'
+import { EmptyState } from '../../ui/EmptyState'
+import { ErrorState } from '../../ui/ErrorState'
+import { SkeletonRow } from '../../ui/Skeleton'
 
 // The unified capability catalog (D-069): every skill K can mount — its own
 // library plus host-discovered user/project/plugin skills — with provenance,
 // est-token cost and the K-scoped enable overlay. K never mutates host
 // ~/.claude files; the dot only flips K's own overlay row.
 
+// Non-canonical taxonomy (model compatibility, not a Run/AgentRun/DelegationNode
+// status) — token-tint classes, never StatusPill.
 const COMPAT_BADGE: Record<ModelCompat, string> = {
-  'universal': 'bg-green-500/20 text-green-300',
-  'claude-only': 'bg-orange-500/20 text-orange-300',
-  'mcp-dependent': 'bg-blue-500/20 text-blue-300',
+  'universal': 'bg-green/15 text-green',
+  'claude-only': 'bg-amber/15 text-amber',
+  'mcp-dependent': 'bg-accent-hover/15 text-accent-hover',
 }
 
 type SourceFacet = 'all' | SkillSourceKind
@@ -79,7 +88,7 @@ export default function CatalogTab() {
     <div className="h-full overflow-y-auto p-5">
       {/* Header — count + rescan. */}
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+        <h2 className="text-label uppercase tracking-wide text-muted">
           Capability catalog · {skills.length} skill{skills.length === 1 ? '' : 's'}
           {data?.scannedAt != null && (
             <span className="ml-2 normal-case tracking-normal">
@@ -89,26 +98,31 @@ export default function CatalogTab() {
         </h2>
         <div className="flex items-center gap-2">
           {rescanMutation.isError && (
-            <span data-testid="catalog-rescan-error" className="text-xs text-red-400">
+            <span data-testid="catalog-rescan-error" className="text-caption text-red">
               {(rescanMutation.error as Error).message}
             </span>
           )}
-          <button
+          <Button
+            variant="glass"
+            size="sm"
             onClick={() => rescanMutation.mutate()}
             disabled={rescanMutation.isPending}
+            loading={rescanMutation.isPending}
+            icon="refresh"
             data-testid="catalog-rescan"
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
           >
-            {rescanMutation.isPending ? 'rescanning…' : '⟳ rescan host'}
-          </button>
+            {rescanMutation.isPending ? 'rescanning…' : 'rescan host'}
+          </Button>
           {/* Skill Creator entry (D-071) — the hidden #/skill-creator route. */}
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => navigate('skill-creator')}
             data-testid="skill-creator-open"
-            className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity hover:opacity-90"
+            icon="plus"
           >
-            + create with agent
-          </button>
+            create with agent
+          </Button>
         </div>
       </div>
 
@@ -135,42 +149,49 @@ export default function CatalogTab() {
           value={compat}
           onChange={setCompat}
         />
-        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--muted)]">
+        <label className="flex cursor-pointer items-center gap-1.5 text-caption text-muted">
           <input
             type="checkbox"
             checked={enabledOnly}
             onChange={e => setEnabledOnly(e.target.checked)}
             data-testid="catalog-enabled-only"
-            className="accent-[var(--accent)]"
+            className="accent-accent"
           />
           enabled only
         </label>
-        <input
+        <Input
           value={q}
           onChange={e => setQ(e.target.value)}
           placeholder="search skills…"
           aria-label="Search catalog"
           data-testid="catalog-search"
-          className="min-w-[10rem] flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs text-[var(--text)] placeholder-[var(--muted)] outline-none focus:border-[var(--accent)]"
+          className="min-w-[10rem] flex-1"
         />
       </div>
 
       <div className="mt-4">
         <WarningsBanner warnings={warnings} />
 
-        {isLoading && <p className="mt-10 text-center text-sm text-[var(--muted)]">Loading…</p>}
-        {isError && (
-          <p className="mt-10 text-center text-sm text-[var(--red)]">Failed to load the capability catalog.</p>
+        {isLoading && (
+          <div className="mt-6 flex flex-col gap-1">
+            <SkeletonRow /><SkeletonRow /><SkeletonRow />
+          </div>
         )}
+        {isError && <ErrorState message="Failed to load the capability catalog." />}
         {!isLoading && !isError && skills.length === 0 && (
-          <p data-testid="catalog-empty" className="mt-10 text-center text-sm text-[var(--muted)]">
-            {warnings.length > 0
-              ? 'Host discovery found nothing readable.'
-              : 'Nothing in the catalog yet — rescan to discover host skills.'}
-          </p>
+          <div data-testid="catalog-empty" className="mt-6">
+            <EmptyState
+              icon="agents"
+              headline={
+                warnings.length > 0
+                  ? 'Host discovery found nothing readable.'
+                  : 'Nothing in the catalog yet — rescan to discover host skills.'
+              }
+            />
+          </div>
         )}
         {!isLoading && !isError && skills.length > 0 && filtered.length === 0 && (
-          <p className="mt-10 text-center text-sm text-[var(--muted)]">
+          <p className="mt-10 text-center text-caption text-muted">
             No entries match the current filters.
           </p>
         )}
@@ -216,12 +237,14 @@ function CatalogRow({
   const [previewOpen, setPreviewOpen] = useState(false)
   const missing = skill.status === 'missing'
   return (
-    <div
+    <GlassPanel
+      // solid, not glass: a filtered catalog can show dozens of rows at once —
+      // well past the ≤6-blurred-region budget (same call as RosterView's
+      // lead cards / DEV-11's fleet project grid).
+      tier="solid"
       data-testid={`catalog-row-${skill.id}`}
       data-highlighted={highlighted ? 'true' : undefined}
-      className={`rounded-xl border bg-[var(--surface)] ${
-        highlighted ? 'border-[color:rgba(255,143,192,0.5)] shadow-[0_0_0_1px_rgba(255,143,192,0.3)]' : 'border-[var(--border)]'
-      } ${missing ? 'opacity-70' : ''}`}
+      className={cn(highlighted && 'border-accent/50 ring-1 ring-accent/30', missing && 'opacity-70')}
     >
       <div className="flex items-center gap-3 px-4 py-3">
         {/* K-scoped enable overlay dot — the SkillRow enable-dot pattern. A
@@ -234,20 +257,19 @@ function CatalogRow({
           disabled={togglePending || (missing && !skill.enabled)}
           onClick={() => onToggle(!skill.enabled)}
           data-testid={`catalog-toggle-${skill.id}`}
-          className={`h-4 w-4 flex-shrink-0 rounded-full border transition-colors disabled:opacity-50 ${
-            skill.enabled
-              ? 'border-[var(--accent)] bg-[var(--accent)]'
-              : 'border-[var(--border)] bg-transparent'
-          }`}
+          className={cn(
+            'h-4 w-4 flex-shrink-0 rounded-pill border transition-colors disabled:opacity-50 glow-focus',
+            skill.enabled ? 'border-accent bg-accent' : 'border-border bg-transparent',
+          )}
         />
 
         {/* Name + badges */}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate text-sm font-medium text-[var(--text)]">{skill.name}</span>
+            <span className="truncate text-body font-medium text-text">{skill.name}</span>
             <SourceBadge sourceKind={skill.sourceKind} pluginName={skill.pluginName} />
             <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${COMPAT_BADGE[skill.modelCompat]}`}
+              className={cn('rounded-pill px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide', COMPAT_BADGE[skill.modelCompat])}
             >
               {skill.modelCompat}
             </span>
@@ -255,12 +277,12 @@ function CatalogRow({
                 heaviest entry (E-13); never a dollar cost. Honest about absence. */}
             {(() => {
               const band = weightBand(skill.estTokens, refMax)
-              const tone = band === 'heavy' ? 'text-[var(--amber)]' : band === 'medium' ? 'text-[var(--text)]' : 'text-[var(--muted)]'
+              const tone = band === 'heavy' ? 'text-amber' : band === 'medium' ? 'text-text' : 'text-muted'
               return (
                 <span
                   data-testid="catalog-weight-band"
                   title={band ? `relative context weight: ${band}` : 'context weight not measured'}
-                  className={`rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] ${tone}`}
+                  className={cn('rounded-pill bg-raised px-1.5 py-0.5 text-micro', tone)}
                 >
                   {band ? `${band} weight` : 'weight n/a'}
                 </span>
@@ -269,25 +291,25 @@ function CatalogRow({
             {missing && (
               <span
                 data-testid={`catalog-missing-${skill.id}`}
-                className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-300"
+                className="rounded-pill bg-red/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-red"
               >
                 missing on disk
               </span>
             )}
           </div>
           {skill.description && (
-            <p className="mt-0.5 truncate text-xs text-[var(--muted)]">{skill.description}</p>
+            <p className="mt-0.5 truncate text-caption text-muted">{skill.description}</p>
           )}
           {/* Mounted-by — which profiles carry this skill right now. */}
           {skill.mountedBy.length > 0 && (
             <div className="mt-1 flex flex-wrap items-center gap-1">
-              <span className="text-[10px] text-[var(--muted)]">mounted by</span>
+              <span className="text-micro text-muted">mounted by</span>
               {skill.mountedBy.map(pid => (
                 <button
                   key={pid}
                   onClick={() => navigate('orchestrator', pid)}
                   data-testid={`catalog-mountedby-${skill.id}-${pid}`}
-                  className="rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--accent-hover)] transition-colors hover:bg-[var(--border)]"
+                  className="rounded-pill bg-raised px-1.5 py-0.5 text-micro text-accent-hover transition-colors hover:bg-border"
                 >
                   {pid} →
                 </button>
@@ -295,54 +317,57 @@ function CatalogRow({
             </div>
           )}
           {toggleError && (
-            <p data-testid={`catalog-toggle-error-${skill.id}`} className="mt-0.5 text-xs text-red-400">
+            <p data-testid={`catalog-toggle-error-${skill.id}`} className="mt-0.5 text-caption text-red">
               {toggleError}
             </p>
           )}
         </div>
 
         {/* Read-only provenance preview toggle. */}
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setPreviewOpen(o => !o)}
           aria-expanded={previewOpen}
           data-testid={`catalog-preview-toggle-${skill.id}`}
-          className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          icon={previewOpen ? 'chevronDown' : 'chevronRight'}
+          className="flex-shrink-0"
         >
-          {previewOpen ? '▾ details' : '▸ details'}
-        </button>
+          details
+        </Button>
       </div>
 
       {previewOpen && (
         <div
           data-testid={`catalog-preview-${skill.id}`}
-          className="border-t border-[var(--border)] px-4 py-3"
+          className="border-t border-border px-4 py-3"
         >
-          <dl className="space-y-1 text-xs">
+          <dl className="space-y-1 text-caption">
             <div className="flex gap-2">
-              <dt className="w-24 flex-shrink-0 text-[var(--muted)]">SKILL.md</dt>
-              <dd className="mono min-w-0 break-all text-[var(--text)]">{skill.path}</dd>
+              <dt className="w-24 flex-shrink-0 text-muted">SKILL.md</dt>
+              <dd className="mono min-w-0 break-all text-text">{skill.path}</dd>
             </div>
             <div className="flex gap-2">
-              <dt className="w-24 flex-shrink-0 text-[var(--muted)]">qualified key</dt>
-              <dd className="mono min-w-0 break-all text-[var(--text)]">{skill.id}</dd>
+              <dt className="w-24 flex-shrink-0 text-muted">qualified key</dt>
+              <dd className="mono min-w-0 break-all text-text">{skill.id}</dd>
             </div>
             <div className="flex gap-2">
-              <dt className="w-24 flex-shrink-0 text-[var(--muted)]">description</dt>
-              <dd className="min-w-0 text-[var(--text)]">{skill.description ?? <span className="italic text-[var(--muted)]">none</span>}</dd>
+              <dt className="w-24 flex-shrink-0 text-muted">description</dt>
+              <dd className="min-w-0 text-text">{skill.description ?? <span className="italic text-muted">none</span>}</dd>
             </div>
             {skill.estTokensMeta !== null && (
               <div className="flex gap-2">
-                <dt className="w-24 flex-shrink-0 text-[var(--muted)]">always-loaded</dt>
-                <dd className="mono text-[var(--text)]">~{formatCompact(skill.estTokensMeta)} tok (name + description)</dd>
+                <dt className="w-24 flex-shrink-0 text-muted">always-loaded</dt>
+                <dd className="mono text-text">~{formatCompact(skill.estTokensMeta)} tok (name + description)</dd>
               </div>
             )}
           </dl>
-          <p className="mt-2 text-[11px] italic text-[var(--muted)]">
+          <p className="mt-2 text-micro italic text-muted">
             Read-only — discovered skills are vendor-copied into each run's config at dispatch;
             K never edits host files.
           </p>
         </div>
       )}
-    </div>
+    </GlassPanel>
   )
 }

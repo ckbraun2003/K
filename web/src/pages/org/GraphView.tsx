@@ -7,6 +7,9 @@ import GraphErrorBoundary from '../../components/GraphErrorBoundary'
 import { navigate } from '../../lib/route'
 import { GRAPH_BG, configureGraphForces } from '../../lib/graph'
 import { healthRubric } from '../../lib/health'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { Button } from '../../ui/Button'
+import { EmptyState } from '../../ui/EmptyState'
 
 type FGNode = { id?: string | number; color?: string; [key: string]: unknown }
 
@@ -93,28 +96,30 @@ export default function GraphView() {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border)] px-5 py-3">
-        <h2 className="text-sm font-semibold text-[var(--text)]">Fleet Graph</h2>
-        <span className="font-mono ml-2 text-[11px] text-[var(--muted)]">
-          {projects.length} project{projects.length === 1 ? '' : 's'}
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
+        <h2 className="text-title text-text">Fleet Graph</h2>
+        <span className="ml-2 text-caption text-muted">
+          <span className="mono tabular-nums">{projects.length}</span> project{projects.length === 1 ? '' : 's'}
         </span>
         {projects.length > 0 && (
-          <button
+          <Button
+            variant="glass"
+            size="sm"
             onClick={fit}
             data-testid="fleet-graph-fit"
             title="Fit view (f)"
-            className="ml-auto rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+            className="ml-auto"
           >
             Fit (f)
-          </button>
+          </Button>
         )}
       </div>
 
       {/* Graph */}
       <div ref={containerRef} className="relative flex-1 overflow-hidden">
         {projects.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
-            No projects registered. Go to Projects to add one.
+          <div className="flex h-full items-center justify-center">
+            <EmptyState icon="projects" headline="No projects registered." hint="Go to Projects to add one." />
           </div>
         ) : (
           <>
@@ -148,15 +153,21 @@ export default function GraphView() {
                 }}
               />
             </GraphErrorBoundary>
-            {/* Legend */}
-            <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)]/80 px-3 py-2 backdrop-blur-sm">
+            {/* Legend — the only floating overlay on this canvas, hence glass-overlay.
+                (GraphView has no node-inspector panel: a click navigates straight to
+                the project page. DelegationTree's NodeDetail is the actual "inspector"
+                the design brief means by that term.) */}
+            <GlassPanel
+              tier="overlay"
+              className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 px-3 py-2"
+            >
               {FLEET_LEGEND.map(item => (
                 <div key={item.label} className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-[10px] text-[var(--muted)]">{item.label}</span>
+                  <span className="text-micro text-muted">{item.label}</span>
                 </div>
               ))}
-            </div>
+            </GlassPanel>
           </>
         )}
       </div>

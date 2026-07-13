@@ -3,9 +3,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { CatalogMcpResponse, CatalogMcpServer } from '@k/shared'
 import { api } from '../../lib/api'
 import { formatCompact } from '../../lib/format-metrics'
+import { cn } from '../../lib/cn'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import SourceBadge from '../../components/SourceBadge'
 import WarningsBanner from '../../components/WarningsBanner'
+import { GlassPanel } from '../../ui/GlassPanel'
+import { Button } from '../../ui/Button'
+import { EmptyState } from '../../ui/EmptyState'
+import { ErrorState } from '../../ui/ErrorState'
+import { SkeletonRow } from '../../ui/Skeleton'
 
 // MCP servers K can mount (D-070): tier-template servers (provenance 'k', born
 // trusted, managed by K) + host-discovered servers. Trust is SEPARATE from
@@ -49,7 +55,7 @@ export default function McpTab() {
 
   return (
     <div className="h-full overflow-y-auto p-5">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+      <h2 className="text-label uppercase tracking-wide text-muted">
         MCP servers · {servers.length} known
         {data?.scannedAt != null && (
           <span className="ml-2 normal-case tracking-normal">
@@ -61,16 +67,23 @@ export default function McpTab() {
       <div className="mt-4">
         <WarningsBanner warnings={data?.warnings ?? []} />
 
-        {isLoading && <p className="mt-10 text-center text-sm text-[var(--muted)]">Loading…</p>}
-        {isError && (
-          <p className="mt-10 text-center text-sm text-[var(--red)]">Failed to load MCP servers.</p>
+        {isLoading && (
+          <div className="mt-6 flex flex-col gap-1">
+            <SkeletonRow /><SkeletonRow /><SkeletonRow />
+          </div>
         )}
+        {isError && <ErrorState message="Failed to load MCP servers." />}
         {!isLoading && !isError && servers.length === 0 && (
-          <p data-testid="mcp-empty" className="mt-10 text-center text-sm text-[var(--muted)]">
-            {(data?.warnings.length ?? 0) > 0
-              ? 'Host discovery found nothing readable.'
-              : 'No MCP servers known yet — rescan the catalog to discover host configs.'}
-          </p>
+          <div data-testid="mcp-empty" className="mt-6">
+            <EmptyState
+              icon="bolt"
+              headline={
+                (data?.warnings.length ?? 0) > 0
+                  ? 'Host discovery found nothing readable.'
+                  : 'No MCP servers known yet — rescan the catalog to discover host configs.'
+              }
+            />
+          </div>
         )}
 
         <div className="flex flex-col gap-2">
@@ -112,14 +125,14 @@ export default function McpTab() {
               This server runs on your machine with your permissions when mounted into a run.
               Review the command it executes:
             </span>
-            <span className="mono block break-all rounded-lg bg-[var(--raised)] px-2.5 py-2 text-[11px] text-[var(--text)]">
+            <span className="mono block break-all rounded-control bg-raised px-2.5 py-2 text-micro text-text">
               {reviewing?.commandSummary}
             </span>
-            <span className="block text-[11px]">
+            <span className="block text-micro">
               source: {reviewing?.sourceKind}
               {reviewing?.pluginName ? ` (${reviewing.pluginName})` : ''} · transport: {reviewing?.transport}
             </span>
-            <span className="block text-[11px]">
+            <span className="block text-micro">
               Trust pins this exact configuration — if it changes on disk, trust is revoked and
               the server is disabled automatically.
             </span>
@@ -158,11 +171,14 @@ function McpRow({
   // a discovered server's toggle unlocks only once trusted (D-070).
   const toggleDisabled = isK || togglePending || !server.trusted || (missing && !server.enabled)
   return (
-    <div
+    <GlassPanel
+      // solid, not glass: the server list can grow past the ≤6-blurred-region
+      // budget — same call as CatalogTab's rows (DEV-11).
+      tier="solid"
       data-testid={`mcp-row-${server.id}`}
-      className={`rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 ${missing ? 'opacity-70' : ''}`}
+      className={cn(missing && 'opacity-70')}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 px-4 py-3">
         <button
           role="switch"
           aria-checked={server.enabled}
@@ -181,62 +197,61 @@ function McpRow({
           disabled={toggleDisabled}
           onClick={() => onToggle(!server.enabled)}
           data-testid={`mcp-toggle-${server.id}`}
-          className={`h-4 w-4 flex-shrink-0 rounded-full border transition-colors disabled:opacity-50 ${
-            server.enabled
-              ? 'border-[var(--accent)] bg-[var(--accent)]'
-              : 'border-[var(--border)] bg-transparent'
-          }`}
+          className={cn(
+            'h-4 w-4 flex-shrink-0 rounded-pill border transition-colors disabled:opacity-50 glow-focus',
+            server.enabled ? 'border-accent bg-accent' : 'border-border bg-transparent',
+          )}
         />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate text-sm font-medium text-[var(--text)]">{server.name}</span>
+            <span className="truncate text-body font-medium text-text">{server.name}</span>
             <SourceBadge sourceKind={server.sourceKind} pluginName={server.pluginName} />
-            <span className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
+            <span className="mono rounded-pill bg-raised px-1.5 py-0.5 text-micro text-muted">
               {server.transport}
             </span>
             {isK ? (
               <span
                 data-testid={`mcp-managed-${server.id}`}
-                className="rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]"
+                className="rounded-pill bg-raised px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-muted"
               >
                 managed by K
               </span>
             ) : server.trusted ? (
               <span
                 data-testid={`mcp-trusted-${server.id}`}
-                className="rounded bg-green-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-300"
+                className="rounded-pill bg-green/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-green"
               >
                 trusted
               </span>
             ) : (
               <span
                 data-testid={`mcp-untrusted-${server.id}`}
-                className="rounded bg-amber/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--amber)]"
+                className="rounded-pill bg-amber/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-amber"
               >
                 untrusted
               </span>
             )}
             {missing && (
-              <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-300">
+              <span className="rounded-pill bg-red/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-red">
                 missing
               </span>
             )}
-            <span className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
+            <span className="mono rounded-pill bg-raised px-1.5 py-0.5 text-micro text-muted">
               {server.estTokens !== null ? `~${formatCompact(server.estTokens)} tok` : 'tok n/a'}
               {server.toolCount !== null ? ` · ${server.toolCount} tools` : ''}
             </span>
           </div>
-          <p className="mono mt-0.5 truncate text-[11px] text-[var(--muted)]" title={server.commandSummary}>
+          <p className="mono mt-0.5 truncate text-micro text-muted" title={server.commandSummary}>
             {server.commandSummary}
           </p>
           {toggleError && (
-            <p data-testid={`mcp-toggle-error-${server.id}`} className="mt-0.5 text-xs text-red-400">
+            <p data-testid={`mcp-toggle-error-${server.id}`} className="mt-0.5 text-caption text-red">
               {toggleError}
             </p>
           )}
           {probeError && (
-            <p data-testid={`mcp-probe-error-${server.id}`} className="mt-0.5 text-xs text-red-400">
+            <p data-testid={`mcp-probe-error-${server.id}`} className="mt-0.5 text-caption text-red">
               {probeError}
             </p>
           )}
@@ -245,26 +260,30 @@ function McpRow({
         <div className="flex flex-shrink-0 items-center gap-2">
           {/* Probe: explicit-request token/tool-count measurement (enabled+trusted only). */}
           {!isK && server.trusted && server.enabled && !missing && (
-            <button
+            <Button
+              variant="glass"
+              size="sm"
               onClick={onProbe}
               disabled={probePending}
+              loading={probePending}
               data-testid={`mcp-probe-${server.id}`}
-              className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
             >
               {probePending ? 'probing…' : 'probe tokens'}
-            </button>
+            </Button>
           )}
           {!isK && !server.trusted && !missing && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={onReview}
               data-testid={`mcp-review-${server.id}`}
-              className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] transition-colors hover:border-[var(--accent)]"
+              className="text-accent-hover hover:text-accent-hover"
             >
               Review & trust
-            </button>
+            </Button>
           )}
         </div>
       </div>
-    </div>
+    </GlassPanel>
   )
 }

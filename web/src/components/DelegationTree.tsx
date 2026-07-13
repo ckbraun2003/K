@@ -3,6 +3,8 @@ import { motion } from 'framer-motion'
 import { cn } from '../lib/cn'
 import type { DelegationNode, DelegationNodeStatus } from '@k/shared'
 import { delegationStatusMeta } from '../lib/status'
+import { GlassPanel } from '../ui/GlassPanel'
+import { StatusPill } from '../ui/StatusPill'
 
 /**
  * Generic, reusable recursive delegation tree (P5.2a).
@@ -47,21 +49,24 @@ function NodeButton({
       aria-pressed={selected}
       data-testid={`delegation-tree-node-${node.id}`}
       className={cn(
-        'w-full rounded-lg border bg-[var(--raised)] px-3 py-2 text-left transition-colors',
+        'w-full rounded-control border bg-raised px-3 py-2 text-left transition-colors',
         statusClasses(node.status),
-        selected ? 'ring-1 ring-[var(--accent)]' : 'hover:border-[color:rgba(56,189,248,0.35)]',
+        selected ? 'ring-1 ring-accent' : 'hover:border-accent-hover/35',
       )}
     >
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text)]">{node.label}</span>
+        <span className="min-w-0 flex-1 truncate text-body font-medium text-text">{node.label}</span>
         {node.kind && (
-          <span className="flex-shrink-0 text-[10px] uppercase tracking-wide text-[var(--muted)]">
+          <span className="flex-shrink-0 text-micro uppercase tracking-wide text-muted">
             {node.kind}
           </span>
         )}
-        <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide">{node.status}</span>
+        {/* DelegationNodeStatus (running/done/error/idle/queued) is a subset of the
+            canonical literals StatusPill covers, and delegationStatusMeta's label IS
+            the raw status string — no explicit label override needed. */}
+        <StatusPill status={node.status} />
       </div>
-      {node.meta && <p className="mt-0.5 truncate text-[11px] text-[var(--muted)]">{node.meta}</p>}
+      {node.meta && <p className="mt-0.5 truncate text-caption text-muted">{node.meta}</p>}
     </button>
   )
 }
@@ -78,10 +83,10 @@ function TreeNode({
 }) {
   return (
     <li className="relative pl-4">
-      <span className="absolute left-0 top-5 h-px w-3 bg-[var(--border)]" aria-hidden />
+      <span className="absolute left-0 top-5 h-px w-3 bg-border" aria-hidden />
       <NodeButton node={node} selected={selectedId === node.id} onSelect={() => onSelect(node.id)} />
       {node.children.length > 0 && (
-        <ul className="ml-3 mt-2 space-y-2 border-l border-[var(--border)]">
+        <ul className="ml-3 mt-2 space-y-2 border-l border-border">
           {node.children.map(child => (
             <TreeNode key={child.id} node={child} selectedId={selectedId} onSelect={onSelect} />
           ))}
@@ -104,10 +109,10 @@ function NodeDetail({
   return (
     <div className="space-y-3" data-testid="delegation-node-detail">
       <div>
-        <h3 className="text-sm font-semibold text-[var(--text)]">{node.label}</h3>
-        {node.kind && <p className="text-xs text-[var(--muted)]">{node.kind}</p>}
-        <span className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-          {node.status}
+        <h3 className="text-title text-text">{node.label}</h3>
+        {node.kind && <p className="text-caption text-muted">{node.kind}</p>}
+        <span className="mt-1 inline-block">
+          <StatusPill status={node.status} />
         </span>
       </div>
       {actions != null && actions !== false && (
@@ -120,22 +125,22 @@ function NodeDetail({
       )}
       {node.meta && (
         <div>
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">Detail</p>
-          <p className="break-words text-xs text-[var(--muted)]">{node.meta}</p>
+          <p className="mb-1 text-micro font-semibold uppercase tracking-wide text-muted">Detail</p>
+          <p className="break-words text-caption text-muted">{node.meta}</p>
         </div>
       )}
       <div>
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <p className="mb-1 text-micro font-semibold uppercase tracking-wide text-muted">
           Children ({node.children.length})
         </p>
         {node.children.length === 0 ? (
-          <p className="text-xs italic text-[var(--muted)]">No sub-agents.</p>
+          <p className="text-caption italic text-muted">No sub-agents.</p>
         ) : (
           <ul className="space-y-1">
             {node.children.map(child => (
-              <li key={child.id} className="flex items-center gap-2 text-xs text-[var(--text)]">
+              <li key={child.id} className="flex items-center gap-2 text-caption text-text">
                 <span className="min-w-0 flex-1 truncate">{child.label}</span>
-                <span className="flex-shrink-0 text-[10px] uppercase tracking-wide text-[var(--muted)]">
+                <span className="flex-shrink-0 text-micro uppercase tracking-wide text-muted">
                   {child.status}
                 </span>
               </li>
@@ -172,7 +177,7 @@ export default function DelegationTree({
           onSelect={() => setSelectedId(root.id)}
         />
         {root.children.length > 0 && (
-          <ul className="ml-3 mt-2 space-y-2 border-l border-[var(--border)]">
+          <ul className="ml-3 mt-2 space-y-2 border-l border-border">
             {root.children.map(child => (
               <TreeNode key={child.id} node={child} selectedId={selectedId} onSelect={setSelectedId} />
             ))}
@@ -182,7 +187,10 @@ export default function DelegationTree({
 
       {/* Inspector */}
       <aside className="lg:w-80 lg:flex-shrink-0">
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        {/* In-flow summary card beside the dense tree, not a floating layer — tier
+            "panel" (not "overlay") is correct here; overlay is reserved for content
+            that floats OVER other content (e.g. GraphView's legend, dialogs). */}
+        <GlassPanel tier="panel" className="p-4">
           {/* Keyed (not AnimatePresence) so selecting a node remounts with an enter
               animation and the new content is in the DOM immediately. */}
           <motion.div
@@ -193,7 +201,7 @@ export default function DelegationTree({
           >
             <NodeDetail node={selected} renderActions={renderActions} />
           </motion.div>
-        </div>
+        </GlassPanel>
       </aside>
     </div>
   )
