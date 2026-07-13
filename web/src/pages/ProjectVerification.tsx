@@ -7,6 +7,12 @@ import { onWsMessage } from '../lib/ws'
 import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
 import ConfirmDialog from '../components/ConfirmDialog'
+import { GlassPanel } from '../ui/GlassPanel'
+import { SectionHeader } from '../ui/SectionHeader'
+import { Button, IconButton } from '../ui/Button'
+import { Icon } from '../ui/Icon'
+import { Tag } from '../ui/Tag'
+import { Input } from '../ui/Field'
 import {
   groupFindings,
   barPct,
@@ -75,19 +81,25 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
   }
 
   const grouped = latest ? groupFindings(latest.findings) : []
+  // `const` narrows through the .map() closure below; `latest.breakdown` (a
+  // property access) would not — TS can't prove a nested function won't see
+  // it become undefined between checks.
+  const breakdown = latest?.breakdown
 
   return (
     <div className="h-full overflow-y-auto p-5">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <button
-          onClick={() => navigate('projects')}
-          className="text-xs text-[var(--muted)] transition-colors duration-150 hover:text-[var(--text)]"
+        <Button
+          variant="ghost"
+          size="sm"
+          icon="arrowLeft"
           aria-label="Back to projects"
+          onClick={() => navigate('projects')}
         >
-          ← Fleet
-        </button>
-        <h2 className="text-sm font-semibold text-[var(--text)]">
+          Fleet
+        </Button>
+        <h2 className="text-title text-text">
           {projectName}
         </h2>
         {project?.healthScore != null && (
@@ -95,31 +107,38 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
             {project.healthScore}/100
           </span>
         )}
-        <span className="ml-auto text-[11px] text-[var(--muted)]">
+        <span className="ml-auto text-caption text-muted">
           {formatTimeAgo(project?.lastVerifiedAt)}
         </span>
       </div>
 
       {/* Actions */}
       <div className="mt-4 flex items-center gap-2">
-        <button
-          onClick={() => reRun.mutate()}
-          disabled={pending}
+        <Button
+          variant="primary"
+          size="sm"
           data-testid="verify-rerun"
-          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity duration-150 hover:opacity-90 disabled:opacity-40"
-        >
-          {reRun.isPending ? 'verifying…' : '▶ Re-run'}
-        </button>
-        <button
-          onClick={() => deepVerify.mutate()}
           disabled={pending}
+          loading={reRun.isPending}
+          onClick={() => reRun.mutate()}
+        >
+          {reRun.isPending ? 'verifying…' : 'Re-run'}
+        </Button>
+        <Button
+          variant="glass"
+          size="sm"
           data-testid="verify-deep"
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors duration-150 hover:border-[var(--accent)] disabled:opacity-40"
+          disabled={pending}
+          loading={deepVerify.isPending}
+          onClick={() => deepVerify.mutate()}
         >
           {deepVerify.isPending ? 'dispatching…' : 'Deep verify'}
-        </button>
+        </Button>
         {error && (
-          <span className="text-[11px] text-[var(--red)]">⚠ {String(error)}</span>
+          <span className="inline-flex items-center gap-1 text-caption text-red">
+            <Icon name="warning" size={14} className="text-red" />
+            {String(error)}
+          </span>
         )}
       </div>
 
@@ -134,35 +153,33 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
           {/* Left column: score + breakdown + findings + fixes */}
           <div className="space-y-5">
             {/* Score + breakdown */}
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+            <GlassPanel tier="panel" className="p-4">
               <div className="flex items-baseline gap-3">
                 <span className={cn('mono text-3xl font-semibold', scoreColor(latest.score))}>
                   {latest.score ?? '—'}
                 </span>
-                <span className="text-xs text-[var(--muted)]">
+                <span className="text-body text-muted">
                   {latest.score == null ? 'insufficient signal' : '/ 100 health'}
                 </span>
               </div>
 
-              {latest.breakdown ? (() => {
-                const bd = latest.breakdown // narrowed: defined inside this block
-                return (
+              {breakdown ? (
                 <div className="mt-4 space-y-2.5">
                   {BREAKDOWN_BARS.map(({ key, label }) => {
-                    const value = bd[key]
+                    const value = breakdown[key]
                     const max = BREAKDOWN_MAX[key]
                     const pct = barPct(value, max)
                     return (
                       <div key={key} data-testid={`bar-${key}`}>
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-[var(--muted)]">{label}</span>
-                          <span className="mono text-[var(--muted)]">
+                        <div className="flex items-center justify-between text-caption">
+                          <span className="text-muted">{label}</span>
+                          <span className="mono text-muted">
                             {value == null ? 'not measured' : `${value}/${max}`}
                           </span>
                         </div>
-                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--raised)]">
+                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-raised">
                           <motion.div
-                            className="h-full rounded-full bg-[var(--accent)]"
+                            className="h-full rounded-full bg-accent"
                             initial={{ width: 0 }}
                             animate={{ width: `${pct * 100}%` }}
                             transition={{ duration: 0.15, ease: 'easeOut' }}
@@ -172,31 +189,28 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
                     )
                   })}
                 </div>
-                )
-              })() : (
-                <p className="mt-3 text-[11px] text-[var(--muted)]">
+              ) : (
+                <p className="mt-3 text-caption text-muted">
                   No score breakdown on this report.
                 </p>
               )}
-            </div>
+            </GlassPanel>
 
             {/* Findings */}
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-                Findings
-              </h3>
+            <GlassPanel tier="panel" className="p-4">
+              <SectionHeader label="Findings" />
               {grouped.length === 0 ? (
-                <p className="mt-2 text-xs text-[var(--muted)]">No findings — clean report.</p>
+                <p className="text-caption text-muted">No findings — clean report.</p>
               ) : (
-                <div className="mt-3 space-y-2">
+                <div className="space-y-2">
                   {grouped.map(group =>
                     group.items.map(f => (
                       <div key={`${group.severity}-${f.area}-${f.message}`} className="flex items-start gap-2">
                         <span
                           className={cn('mt-1.5 h-2 w-2 flex-shrink-0 rounded-full', SEVERITY_DOT[group.severity])}
                         />
-                        <p className="text-xs text-[var(--text)]">
-                          <span className="mono text-[var(--muted)]">{f.area}</span>
+                        <p className="text-caption text-text">
+                          <span className="mono text-muted">{f.area}</span>
                           {' · '}
                           {f.message}
                         </p>
@@ -205,56 +219,52 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
                   )}
                 </div>
               )}
-            </div>
+            </GlassPanel>
 
             {/* Fixes applied */}
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-                Fixes applied
-              </h3>
+            <GlassPanel tier="panel" className="p-4">
+              <SectionHeader label="Fixes applied" />
               {latest.fixesApplied.length === 0 ? (
-                <p className="mt-2 text-xs text-[var(--muted)]">No fixes applied this run.</p>
+                <p className="text-caption text-muted">No fixes applied this run.</p>
               ) : (
-                <ul className="mt-3 space-y-1.5">
+                <ul className="space-y-1.5">
                   {latest.fixesApplied.map((fix, i) => (
-                    <li key={`${i}-${fix}`} className="flex items-start gap-2 text-xs text-[var(--text)]">
-                      <span className="text-[var(--green)]">✓</span>
+                    <li key={`${i}-${fix}`} className="flex items-start gap-2 text-caption text-text">
+                      <Icon name="check" size={14} className="text-green" />
                       {fix}
                     </li>
                   ))}
                 </ul>
               )}
-            </div>
+            </GlassPanel>
           </div>
 
           {/* Right column: history timeline */}
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-              History
-            </h3>
-            <ol className="mt-3 space-y-2">
+          <GlassPanel tier="panel" className="p-4">
+            <SectionHeader label="History" />
+            <ol className="space-y-2">
               {[...reports]
                 .sort((a, b) => b.startedAt - a.startedAt)
                 .map(r => {
                   const trend = trendIndicator(reports, r.id)
                   const trendColor = trend.includes('▲')
-                    ? 'text-[var(--green)]'
+                    ? 'text-green'
                     : trend.includes('▼')
-                      ? 'text-[var(--red)]'
-                      : 'text-[var(--muted)]'
+                      ? 'text-red'
+                      : 'text-muted'
                   return (
-                    <li key={r.id} className="flex items-center gap-2 text-xs">
+                    <li key={r.id} className="flex items-center gap-2 text-caption">
                       <span className={cn('mono font-semibold', scoreColor(r.score))}>{r.score ?? '—'}</span>
-                      <span className={cn('mono text-[10px]', trendColor)}>{trend}</span>
-                      <span className="text-[var(--muted)]">{formatTimeAgo(r.startedAt)}</span>
+                      <span className={cn('mono text-micro', trendColor)}>{trend}</span>
+                      <span className="text-muted">{formatTimeAgo(r.startedAt)}</span>
                       {r.id === latest.id && (
-                        <span className="ml-auto text-[10px] text-[var(--accent)]">latest</span>
+                        <span className="ml-auto text-micro text-accent">latest</span>
                       )}
                     </li>
                   )
                 })}
             </ol>
-          </div>
+          </GlassPanel>
         </div>
       )}
 
@@ -315,22 +325,16 @@ export function VerifyRecipeCard({ project }: { project: Project }) {
   })
 
   return (
-    <div
-      className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"
-      data-testid="verify-recipe-card"
-    >
+    <GlassPanel tier="panel" className="mt-5 p-4" data-testid="verify-recipe-card">
       <div className="flex items-center gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-          Verify recipe
-        </h3>
+        <h3 className="micro-label">Verify recipe</h3>
         {project.verifyRecipe ? (
-          <span className="rounded bg-green/15 px-1.5 py-0.5 text-[10px] font-medium text-[var(--green)]">
-            {project.verifyRecipe.commands.length} gate{project.verifyRecipe.commands.length === 1 ? '' : 's'}
-          </span>
+          <Tag tint="accent">
+            <span className="mono">{project.verifyRecipe.commands.length}</span>{' '}
+            gate{project.verifyRecipe.commands.length === 1 ? '' : 's'}
+          </Tag>
         ) : (
-          <span className="rounded border border-[var(--border)] bg-[var(--raised)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted)]">
-            none
-          </span>
+          <Tag tint="neutral">none</Tag>
         )}
       </div>
 
@@ -338,74 +342,84 @@ export function VerifyRecipeCard({ project }: { project: Project }) {
         <div className="mt-3 space-y-2">
           {rows.map((row, i) => (
             <div key={row.id} className="flex items-center gap-2">
-              <input
+              <Input
                 value={row.label}
                 onChange={e => setRow(row.id, { label: e.target.value })}
                 placeholder="label"
                 data-testid={`recipe-label-${i}`}
-                className="w-36 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+                className="w-36"
               />
-              <input
+              <Input
                 value={row.run}
                 onChange={e => setRow(row.id, { run: e.target.value })}
                 placeholder="command"
                 data-testid={`recipe-run-${i}`}
-                className="mono min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+                className="mono min-w-0 flex-1"
               />
-              <button
+              {/* variant="ghost" — this card is itself a GlassPanel; IconButton's
+                  default "glass" variant would nest backdrop-filter inside it. */}
+              <IconButton
+                name="close"
+                label={`Remove ${row.label || 'command'}`}
+                variant="ghost"
                 onClick={() => setRows(rs => rs.filter(r => r.id !== row.id))}
-                aria-label={`Remove ${row.label || 'command'}`}
                 data-testid={`recipe-remove-${i}`}
-                className="rounded px-1.5 py-1 text-xs text-[var(--muted)] transition-colors hover:text-[var(--red)]"
-              >
-                ✕
-              </button>
+                className="hover:text-red"
+              />
             </div>
           ))}
         </div>
       )}
 
       <div className="mt-3 flex items-center gap-2">
-        <button
+        {/* variant="ghost", not "glass" (brief default) — same nested-blur reason
+            as the remove button above: this button lives inside this GlassPanel. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          icon="plus"
           onClick={() => setRows(rs => [...rs, newEditorRow()])}
           data-testid="recipe-add-row"
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)]"
         >
-          + Add command
-        </button>
-        <input
+          Add command
+        </Button>
+        <Input
           value={timeoutMs}
           onChange={e => setTimeoutMs(e.target.value)}
           placeholder="timeout ms"
           inputMode="numeric"
           aria-label="Recipe timeout in milliseconds"
           data-testid="recipe-timeout"
-          className={cn(
-            'w-28 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]',
-            !timeoutValid && 'border-[var(--red)]',
-          )}
+          invalid={!timeoutValid}
+          className="w-28"
         />
         <div className="ml-auto flex items-center gap-2">
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => save.mutate(buildRecipe())}
             disabled={!rowsValid || !timeoutValid || save.isPending}
+            loading={save.isPending}
             data-testid="recipe-save"
-            className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity duration-150 hover:opacity-90 disabled:opacity-40"
           >
             {save.isPending ? 'saving…' : 'Save'}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
             onClick={() => setConfirmClear(true)}
             disabled={!project.verifyRecipe || save.isPending}
             data-testid="recipe-clear"
-            className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] transition-colors hover:text-[var(--red)] disabled:opacity-40"
           >
             Clear
-          </button>
+          </Button>
         </div>
       </div>
       {save.error && (
-        <p className="mt-2 text-[11px] text-[var(--red)]">⚠ {String(save.error)}</p>
+        <p className="mt-2 inline-flex items-center gap-1 text-caption text-red">
+          <Icon name="warning" size={14} className="text-red" />
+          {String(save.error)}
+        </p>
       )}
 
       <ConfirmDialog
@@ -419,6 +433,6 @@ export function VerifyRecipeCard({ project }: { project: Project }) {
         onConfirm={() => save.mutate(null)}
         onCancel={() => setConfirmClear(false)}
       />
-    </div>
+    </GlassPanel>
   )
 }
