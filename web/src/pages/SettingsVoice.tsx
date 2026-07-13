@@ -6,15 +6,25 @@
  * `ENABLE_VOICE` env var (with a local Whisper server). This section only reports
  * the live posture from the shared `['status']` query using `voiceVerdict`.
  *
- * All colours are existing midnight-glass CSS vars (no new palette entry).
+ * T20 — migrated onto GlassPanel/SectionHeader/StatusPill/SkeletonRow. The verdict
+ * label is looked up through a local, exhaustive map (never an arbitrary string
+ * passed as StatusPill's `status`) — `voiceVerdict` only ever produces Disabled/
+ * Reachable/Unreachable, all three covered below.
  */
 import { useQuery } from '@tanstack/react-query'
 import type { Status } from '@k/shared'
 import { api } from '../lib/api'
-import { voiceVerdict, toneColor } from '../lib/settings-status'
+import { voiceVerdict } from '../lib/settings-status'
+import { GlassPanel } from '../ui/GlassPanel'
+import { SectionHeader } from '../ui/SectionHeader'
+import { StatusPill } from '../ui/StatusPill'
+import { SkeletonRow } from '../ui/Skeleton'
 
-const SECTION_H2 =
-  'text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]'
+const VERDICT_PILL_STATUS: Record<string, string> = {
+  Reachable: 'done',
+  Unreachable: 'error',
+  Disabled: 'idle',
+}
 
 export function VoiceSection() {
   const { data, isLoading, error } = useQuery<Status>({
@@ -23,9 +33,9 @@ export function VoiceSection() {
   })
 
   return (
-    <div data-testid="voice-section">
-      <h2 className={SECTION_H2}>Voice (push-to-talk)</h2>
-      <p className="mt-1 text-[11px] text-[var(--muted)]">
+    <GlassPanel data-testid="voice-section" className="p-4">
+      <SectionHeader label="Voice (push-to-talk)" as="h2" />
+      <p className="mt-1 text-caption text-muted">
         Hold the mic in the command bar (or a run&apos;s reply box) to talk; release to transcribe.
         Audio is transcribed locally by Whisper and never leaves this machine. With voice off the
         mic is disabled and the app falls back to the keyboard. Enable it with{' '}
@@ -33,24 +43,19 @@ export function VoiceSection() {
       </p>
 
       {isLoading ? (
-        <p className="mt-2 text-xs text-[var(--muted)]">Loading…</p>
+        <SkeletonRow />
       ) : error || !data ? (
-        <p className="mt-2 text-xs text-[var(--red)]">Failed to load voice status.</p>
+        <p className="mt-2 text-caption text-red">Failed to load voice status.</p>
       ) : (
         (() => {
           const v = voiceVerdict(data.voice)
           return (
             <div className="mt-2 flex items-center gap-3">
-              <span className="flex items-center gap-1.5 text-xs text-[var(--text)]">
-                <span
-                  className="inline-block h-2 w-2 rounded-full"
-                  style={{ background: toneColor(v.tone) }}
-                  aria-hidden
-                />
-                <span data-testid="voice-status-label">{v.label}</span>
+              <span data-testid="voice-status-label">
+                <StatusPill status={VERDICT_PILL_STATUS[v.label] ?? 'idle'} label={v.label} />
               </span>
               {v.detail && (
-                <span className="mono truncate text-[11px] text-[var(--muted)]" title={v.detail}>
+                <span className="mono truncate text-caption text-muted" title={v.detail}>
                   {v.detail}
                 </span>
               )}
@@ -58,6 +63,6 @@ export function VoiceSection() {
           )
         })()
       )}
-    </div>
+    </GlassPanel>
   )
 }

@@ -8,10 +8,8 @@ import {
   ollamaVerdict,
   githubVerdict,
   authVerdict,
-  toneColor,
   type StatusVerdict,
 } from '../lib/settings-status'
-import AutoTextarea from '../components/AutoTextarea'
 import ConfirmDialog from '../components/ConfirmDialog'
 import CapabilityPicker from '../components/CapabilityPicker'
 import Toast from '../components/Toast'
@@ -23,27 +21,44 @@ import { VoiceSection } from './SettingsVoice'
 import { SystemRequirementsSection } from './SettingsDoctor'
 // P4 E-30 — the embedded diagnostics shell (the #/terminal redirect lands here).
 import TerminalPage from './TerminalPage'
+import { GlassPanel } from '../ui/GlassPanel'
+import { SectionHeader } from '../ui/SectionHeader'
+import { StatusPill } from '../ui/StatusPill'
+import { SkeletonRow } from '../ui/Skeleton'
+import { Textarea } from '../ui/Field'
+
+// T20 — every StatusCard verdict label maps to exactly one canonical StatusPill
+// status through this guard map (never an arbitrary string), picked by VISUAL
+// semantics rather than literal meaning: good/confirmed postures read 'done'
+// (green), broken/absent postures read 'error' (red), an explicit off-switch
+// reads 'idle'; 'Loopback only' is the SAFE posture so it reads 'done' (green)
+// and 'Network-exposed' is a static caution so it reads 'queued' (its meta is
+// static amber, not a live pulse) — unrecognized labels fall back to 'idle'.
+const VERDICT_PILL_STATUS: Record<string, string> = {
+  Available: 'done',
+  Authenticated: 'done',
+  Reachable: 'done',
+  'Not found': 'error',
+  Unreachable: 'error',
+  Unauthenticated: 'error',
+  Disabled: 'idle',
+  'Loopback only': 'done',
+  'Network-exposed': 'queued',
+}
 
 function StatusCard({ title, verdict }: { title: string; verdict: StatusVerdict }) {
   return (
-    <div className="glass rounded-xl border border-[var(--border)] p-4">
+    <GlassPanel tier="solid" className="p-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{title}</h3>
-        <span className="flex items-center gap-1.5 text-xs text-[var(--text)]">
-          <span
-            className="inline-block h-2 w-2 rounded-full"
-            style={{ background: toneColor(verdict.tone) }}
-            aria-hidden
-          />
-          {verdict.label}
-        </span>
+        <SectionHeader label={title} as="h3" className="mb-0" />
+        <StatusPill status={VERDICT_PILL_STATUS[verdict.label] ?? 'idle'} label={verdict.label} />
       </div>
       {verdict.detail && (
-        <p className="mono mt-2 truncate text-[11px] text-[var(--muted)]" title={verdict.detail}>
+        <p className="mono mt-2 truncate text-caption text-muted" title={verdict.detail}>
           {verdict.detail}
         </p>
       )}
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -54,9 +69,9 @@ function StatusSection() {
     refetchInterval: 30_000,
   })
 
-  if (isLoading) return <p className="text-xs text-[var(--muted)]">Loading status…</p>
+  if (isLoading) return <SkeletonRow />
   if (error || !data)
-    return <p className="text-xs text-[var(--red)]">Failed to load status.</p>
+    return <p className="text-label text-red">Failed to load status.</p>
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -107,13 +122,11 @@ export function SystemPromptSection() {
   }, [dirty])
 
   return (
-    <div>
+    <GlassPanel className="p-4">
       <div className="mb-2 flex items-center justify-between">
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-            Global system prompt
-          </h2>
-          <p className="mt-1 text-[11px] text-[var(--muted)]">
+          <SectionHeader label="Global system prompt" as="h2" className="mb-0" />
+          <p className="mt-1 text-caption text-muted">
             The base operating prompt (<span className="mono">agent-config/base-operating-prompt.md</span>) —
             applied to every agent the harness runs.
           </p>
@@ -122,28 +135,28 @@ export function SystemPromptSection() {
           onClick={() => setConfirmOpen(true)}
           disabled={!dirty || save.isPending}
           data-testid="system-prompt-save"
-          className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-4 py-1.5 text-xs font-semibold text-[var(--text)] transition-colors hover:border-[color:rgba(56,189,248,0.35)] disabled:opacity-40"
+          className="rounded-lg border border-border bg-raised px-4 py-1.5 text-label font-semibold text-text transition-colors hover:border-accent-hover/35 disabled:opacity-40"
         >
           Save
         </button>
       </div>
 
       {isLoading ? (
-        <p className="text-xs text-[var(--muted)]">Loading system prompt…</p>
+        <SkeletonRow />
       ) : error ? (
-        <p className="text-xs text-[var(--red)]">Failed to load the system prompt.</p>
+        <p className="text-label text-red">Failed to load the system prompt.</p>
       ) : (
-        <AutoTextarea
+        <Textarea
           value={draft}
           onChange={e => setDraft(e.target.value)}
-          maxHeight={520}
+          rows={20}
           data-testid="system-prompt-editor"
-          className="mono w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-[12px] leading-relaxed text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.45)]"
+          className="mono max-h-[520px] w-full overflow-y-auto text-[12px] leading-relaxed"
         />
       )}
 
       {save.error && (
-        <p className="mt-2 text-xs text-[var(--red)]">
+        <p className="mt-2 text-label text-red">
           {save.error instanceof Error ? save.error.message : 'Save failed.'}
         </p>
       )}
@@ -159,7 +172,7 @@ export function SystemPromptSection() {
         onConfirm={() => save.mutate(draft)}
         onCancel={() => setConfirmOpen(false)}
       />
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -197,23 +210,23 @@ function AuthorityList({
   }, [items, pending])
   return (
     <div className="space-y-2" data-testid={`${testidPrefix}-panel`}>
-      <h3 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{title}</h3>
+      <h3 className="micro-label">{title}</h3>
       {items.length === 0 ? (
-        <p className="text-xs italic text-[var(--muted)]">None granted.</p>
+        <p className="text-label italic text-muted">None granted.</p>
       ) : (
         <ul className="space-y-1">
           {items.map(item => (
             <li
               key={item}
-              className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs"
+              className="flex items-center gap-2 rounded-lg border border-border bg-raised px-3 py-1.5 text-label"
             >
-              <span className={`${mono ? 'mono ' : ''}min-w-0 flex-1 truncate text-[var(--text)]`}>{item}</span>
+              <span className={`${mono ? 'mono ' : ''}min-w-0 flex-1 truncate text-text`}>{item}</span>
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => onChange(items.filter(i => i !== item))}
                 data-testid={`${testidPrefix}-remove-${item}`}
-                className="flex-shrink-0 text-[var(--red)] hover:underline disabled:opacity-50"
+                className="flex-shrink-0 text-red hover:underline disabled:opacity-50"
               >
                 remove
               </button>
@@ -237,12 +250,12 @@ function AuthorityList({
           onChange={e => setInput(e.target.value)}
           placeholder={addPlaceholder}
           data-testid={`${testidPrefix}-input`}
-          className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+          className="min-w-0 flex-1 rounded-lg border border-border bg-raised px-2 py-1 text-label text-text outline-none focus:border-accent-hover/35"
         />
         <button
           type="submit"
           disabled={busy || input.trim() === ''}
-          className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-hover)] disabled:opacity-50"
+          className="flex-shrink-0 rounded-lg border border-border px-2.5 py-1 text-label font-semibold text-accent-hover disabled:opacity-50"
         >
           add
         </button>
@@ -274,23 +287,19 @@ function OrgDefaultSection() {
   const errorMsg = mutation.isError ? (mutation.error as Error).message : null
 
   return (
-    <div>
-      <div className="mb-2">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
-          Org-default authority
-        </h2>
-        <p className="mt-1 text-[11px] text-[var(--muted)]">
-          The org-default orchestrator grant. Each discipline lead inherits this unless its own
-          Orchestrator detail overrides it.
-        </p>
-      </div>
+    <GlassPanel tier="solid" className="p-4">
+      <SectionHeader label="Org-default authority" as="h2" />
+      <p className="mt-1 text-caption text-muted">
+        The org-default orchestrator grant. Each discipline lead inherits this unless its own
+        Orchestrator detail overrides it.
+      </p>
 
       {isLoading ? (
-        <p className="text-xs text-[var(--muted)]">Loading org default…</p>
+        <SkeletonRow />
       ) : error || !data ? (
-        <p className="text-xs text-[var(--red)]">Failed to load the org default.</p>
+        <p className="text-caption text-red">Failed to load the org default.</p>
       ) : (
-        <div className="glass grid gap-4 rounded-xl border border-[var(--border)] p-4 sm:grid-cols-3">
+        <div className="mt-3 grid gap-4 sm:grid-cols-3">
           {/* Skills/MCP are catalog-backed (C3) — qualified-key mounts with
               provenance + token cost; Tools keeps the free-text AuthorityList
               (tools are allowlist patterns, not catalog entries). */}
@@ -325,12 +334,12 @@ function OrgDefaultSection() {
       {errorMsg && (
         <p
           data-testid="org-default-error"
-          className="mt-2 rounded-lg border border-[var(--red)]/40 bg-[var(--raised)] px-3 py-2 text-[11px] text-[var(--red)]"
+          className="mt-2 rounded-lg border border-red/40 bg-raised px-3 py-2 text-caption text-red"
         >
           {errorMsg}
         </p>
       )}
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -373,31 +382,32 @@ function NotificationsSection() {
   }
 
   return (
-    <div>
-      <div className="mb-2">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Notifications</h2>
-        <p className="mt-1 text-[11px] text-[var(--muted)]">
-          How each event reaches you — an <span className="font-medium text-[var(--text)]">in-app</span> alert in
-          the bell, and/or a <span className="font-medium text-[var(--text)]">browser</span> notification while the
-          tab is backgrounded. Browser alerts need one-time permission.
-        </p>
-      </div>
+    <GlassPanel tier="solid" className="p-4">
+      <SectionHeader label="Notifications" as="h2" />
+      <p className="mt-1 text-caption text-muted">
+        How each event reaches you — an <span className="font-medium text-text">in-app</span> alert in
+        the bell, and/or a <span className="font-medium text-text">browser</span> notification while the
+        tab is backgrounded. Browser alerts need one-time permission.
+      </p>
 
       {isLoading ? (
-        <p className="text-xs text-[var(--muted)]">Loading notification rules…</p>
+        <div className="mt-3">
+          <SkeletonRow />
+          <SkeletonRow />
+        </div>
       ) : error || !rules ? (
-        <p className="text-xs text-[var(--red)]">Failed to load notification rules.</p>
+        <p className="text-caption text-red">Failed to load notification rules.</p>
       ) : (
-        <div className="glass rounded-xl border border-[var(--border)] p-4">
-          <div className="mb-1 grid grid-cols-[1fr_3.5rem_3.5rem] items-center gap-x-4 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <div className="mt-3">
+          <div className="micro-label mb-1 grid grid-cols-[1fr_3.5rem_3.5rem] items-center gap-x-4">
             <span>Event</span>
             <span className="text-center">In-app</span>
             <span className="text-center">Browser</span>
           </div>
-          <div className="flex flex-col divide-y divide-[var(--border)]">
+          <div className="flex flex-col divide-y divide-border">
             {rules.map(rule => (
-              <div key={rule.eventKey} className="grid grid-cols-[1fr_3.5rem_3.5rem] items-center gap-x-4 py-2 text-xs">
-                <span className="text-[var(--text)]">{EVENT_LABELS[rule.eventKey] ?? rule.eventKey}</span>
+              <div key={rule.eventKey} className="grid grid-cols-[1fr_3.5rem_3.5rem] items-center gap-x-4 py-2 text-label">
+                <span className="text-text">{EVENT_LABELS[rule.eventKey] ?? rule.eventKey}</span>
                 <div className="flex justify-center">
                   <input
                     type="checkbox"
@@ -406,7 +416,7 @@ function NotificationsSection() {
                     checked={rule.inapp}
                     disabled={updateRule.isPending}
                     onChange={e => updateRule.mutate({ eventKey: rule.eventKey, patch: { inapp: e.target.checked } })}
-                    className="h-4 w-4 accent-[var(--accent)]"
+                    className="h-4 w-4 accent-accent"
                   />
                 </div>
                 <div className="flex justify-center">
@@ -417,7 +427,7 @@ function NotificationsSection() {
                     checked={rule.browser}
                     disabled={updateRule.isPending}
                     onChange={e => toggleBrowser(rule, e.target.checked)}
-                    className="h-4 w-4 accent-[var(--accent)]"
+                    className="h-4 w-4 accent-accent"
                   />
                 </div>
               </div>
@@ -427,7 +437,7 @@ function NotificationsSection() {
       )}
 
       <Toast open={toast !== null} testid="notif-settings-toast" message={toast ?? ''} onDismiss={() => setToast(null)} />
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -435,7 +445,7 @@ export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mb-5">
-        <h1 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Settings</h1>
+        <h1 className="text-label font-semibold uppercase tracking-[0.12em] text-muted">Settings</h1>
       </div>
 
       <section className="mb-8">
@@ -476,13 +486,13 @@ export default function SettingsPage() {
 
       {/* P4 E-30 — Diagnostics: an embedded shell (node-pty · /ws/terminal); the #/terminal redirect lands here. */}
       <section className="mb-8">
-        <div className="mb-2">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Diagnostics</h2>
-          <p className="mt-1 text-[11px] text-[var(--muted)]">An embedded shell (node-pty · /ws/terminal) — the #/terminal redirect lands here.</p>
-        </div>
-        <div className="h-96 overflow-hidden rounded-xl border border-[var(--border)]">
-          <TerminalPage />
-        </div>
+        <GlassPanel tier="solid" className="p-4">
+          <SectionHeader label="Diagnostics" as="h2" />
+          <p className="mt-1 text-caption text-muted">An embedded shell (node-pty · /ws/terminal) — the #/terminal redirect lands here.</p>
+          <div className="mt-3 h-96 overflow-hidden rounded-xl border border-border">
+            <TerminalPage />
+          </div>
+        </GlassPanel>
       </section>
     </div>
   )

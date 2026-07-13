@@ -8,8 +8,11 @@
  *    curated catalog with a disk-fit badge, and one-click Pull with LIVE progress
  *    streamed over the existing EventBus→WS `ollama_pull` wire.
  *
- * All colours are existing midnight-glass CSS vars (no new palette entry). Both
- * degrade gracefully when Ollama is disabled/unreachable (mirrors the router).
+ * T20 — migrated onto the shared design-system primitives: GlassPanel (tier=panel
+ * for the single-control Claude picker, tier=solid for the dense installed+catalog
+ * lists — dense lists never sit on blur), SectionHeader, Select (ui/Field), and
+ * SkeletonRow for the loading states. All colours are token utility classes now
+ * (no bracket-var CSS-var classes, no raw palette/hex — see ui-token-gate.test.ts).
  */
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -17,11 +20,10 @@ import { api } from '../lib/api'
 import { onWsMessage } from '../lib/ws'
 import { formatBytes, pullStateFromEvent, type PullState } from '../lib/ollama'
 import ConfirmDialog from '../components/ConfirmDialog'
-
-const SECTION_H2 =
-  'text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]'
-const CONTROL =
-  'rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.45)] disabled:opacity-40'
+import { GlassPanel } from '../ui/GlassPanel'
+import { SectionHeader } from '../ui/SectionHeader'
+import { Select } from '../ui/Field'
+import { SkeletonRow } from '../ui/Skeleton'
 
 // ── Claude default model ────────────────────────────────────────────────────────
 
@@ -40,39 +42,39 @@ export function ClaudeModelSection() {
   })
 
   return (
-    <div data-testid="claude-model-section">
-      <h2 className={SECTION_H2}>Claude default model</h2>
-      <p className="mt-1 text-[11px] text-[var(--muted)]">
+    <GlassPanel data-testid="claude-model-section" className="p-4">
+      <SectionHeader label="Claude default model" as="h2" />
+      <p className="mt-1 text-caption text-muted">
         The global default the router uses for Claude runs. Applies to the next run — no restart.
       </p>
       {isLoading ? (
-        <p className="mt-2 text-xs text-[var(--muted)]">Loading…</p>
+        <SkeletonRow />
       ) : error || !data ? (
-        <p className="mt-2 text-xs text-[var(--red)]">Failed to load the Claude model.</p>
+        <p className="mt-2 text-caption text-red">Failed to load the Claude model.</p>
       ) : (
         <div className="mt-2 flex items-center gap-3">
-          <select
+          <Select
             aria-label="Claude default model"
             data-testid="claude-model-select"
             value={data.model}
             disabled={save.isPending}
             onChange={e => save.mutate(e.target.value)}
-            className={CONTROL}
+            className="text-label"
           >
             {data.options.map(o => (
               <option key={o.id} value={o.id}>{o.label}</option>
             ))}
-          </select>
-          <span className="mono text-[11px] text-[var(--muted)]">{data.model}</span>
-          {save.isPending && <span className="text-[11px] text-[var(--muted)]">saving…</span>}
+          </Select>
+          <span className="mono text-caption text-muted">{data.model}</span>
+          {save.isPending && <span className="text-caption text-muted">saving…</span>}
         </div>
       )}
       {save.error && (
-        <p className="mt-2 text-xs text-[var(--red)]">
+        <p className="mt-2 text-caption text-red">
           {save.error instanceof Error ? save.error.message : 'Save failed.'}
         </p>
       )}
-    </div>
+    </GlassPanel>
   )
 }
 
@@ -90,14 +92,14 @@ function PullProgress({ state }: { state: PullState }) {
   return (
     <div className="mt-1.5" data-testid="ollama-pull-progress">
       {!state.done && (
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface)]">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface">
           <div
-            className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300"
+            className="h-full rounded-full bg-accent transition-[width] duration-300"
             style={{ width: `${pct ?? 0}%` }}
           />
         </div>
       )}
-      <span className={`mono text-[10px] ${isError ? 'text-[var(--red)]' : 'text-[var(--muted)]'}`}>
+      <span className={`mono tabular-nums text-micro ${isError ? 'text-red' : 'text-muted'}`}>
         {label}{pct != null ? ` · ${pct}%` : ''}
       </span>
     </div>
@@ -165,10 +167,11 @@ export function LocalModelsSection() {
 
   if (models.isLoading || catalog.isLoading) {
     return (
-      <div data-testid="local-models">
-        <h2 className={SECTION_H2}>Local models (Ollama)</h2>
-        <p className="mt-2 text-xs text-[var(--muted)]">Loading…</p>
-      </div>
+      <GlassPanel tier="solid" data-testid="local-models" className="p-4">
+        <SectionHeader label="Local models (Ollama)" as="h2" />
+        <SkeletonRow />
+        <SkeletonRow />
+      </GlassPanel>
     )
   }
 
@@ -177,46 +180,44 @@ export function LocalModelsSection() {
   const degraded = models.data?.degraded || models.isError
 
   return (
-    <div data-testid="local-models">
-      <div className="mb-2">
-        <h2 className={SECTION_H2}>Local models (Ollama)</h2>
-        <p className="mt-1 text-[11px] text-[var(--muted)]">
-          The active local model is what the router uses whenever it routes to Ollama. Pulls stream
-          live progress; downloads run on the Ollama daemon.
-        </p>
-      </div>
+    <GlassPanel tier="solid" data-testid="local-models" className="p-4">
+      <SectionHeader label="Local models (Ollama)" as="h2" />
+      <p className="mt-1 text-caption text-muted">
+        The active local model is what the router uses whenever it routes to Ollama. Pulls stream
+        live progress; downloads run on the Ollama daemon.
+      </p>
 
       {degraded ? (
-        <p className="glass rounded-xl border border-[var(--border)] p-3 text-xs text-[var(--muted)]">
+        <p className="mt-3 rounded-xl border border-border p-3 text-caption text-muted">
           Ollama is not reachable. Set <span className="mono">ENABLE_OLLAMA=true</span> and start the
           Ollama daemon to manage local models.
         </p>
       ) : (
         <>
           {actionError && (
-            <p className="mb-2 text-xs text-[var(--red)]" data-testid="ollama-action-error">{actionError}</p>
+            <p className="mb-2 mt-2 text-caption text-red" data-testid="ollama-action-error">{actionError}</p>
           )}
 
           {/* Active-model selector */}
-          <div className="glass mb-3 flex items-center gap-3 rounded-xl border border-[var(--border)] p-3">
-            <span className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Active</span>
+          <div className="mb-3 mt-3 flex items-center gap-3 rounded-xl border border-border bg-raised p-3">
+            <span className="micro-label">Active</span>
             {installed.length === 0 ? (
-              <span className="text-xs text-[var(--muted)]">No models installed — pull one below.</span>
+              <span className="text-caption text-muted">No models installed — pull one below.</span>
             ) : (
-              <select
+              <Select
                 aria-label="Active Ollama model"
                 data-testid="ollama-active-select"
                 value={active ?? ''}
                 disabled={setActive.isPending}
                 onChange={e => setActive.mutate(e.target.value)}
-                className={CONTROL}
+                className="text-label"
               >
                 {installed.map(m => (
                   <option key={m.name} value={m.name}>{m.name}</option>
                 ))}
-              </select>
+              </Select>
             )}
-            {setActive.isPending && <span className="text-[11px] text-[var(--muted)]">applying…</span>}
+            {setActive.isPending && <span className="text-caption text-muted">applying…</span>}
           </div>
 
           {/* Installed models */}
@@ -225,20 +226,20 @@ export function LocalModelsSection() {
               {installed.map(m => (
                 <li
                   key={m.name}
-                  className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs"
+                  className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-label"
                 >
-                  <span className="mono truncate text-[var(--text)]">{m.name}</span>
+                  <span className="mono truncate text-text">{m.name}</span>
                   {m.name === active && (
-                    <span className="rounded border border-accent/50 bg-accent/20 px-1.5 py-0.5 text-[10px] text-[var(--accent-hover)]">
+                    <span className="rounded border border-accent/50 bg-accent/20 px-1.5 py-0.5 text-micro text-accent-hover">
                       active
                     </span>
                   )}
-                  <span className="ml-auto text-[var(--muted)]">{formatBytes(m.sizeBytes)}</span>
+                  <span className="mono tabular-nums ml-auto text-muted">{formatBytes(m.sizeBytes)}</span>
                   <button
                     type="button"
                     onClick={() => setPendingRemove(m.name)}
                     disabled={remove.isPending}
-                    className="rounded-lg border border-[var(--border)] px-2 py-1 text-[var(--muted)] transition-colors hover:border-[color:rgba(248,113,113,0.4)] hover:text-[var(--red)] disabled:opacity-40"
+                    className="rounded-lg border border-border px-2 py-1 text-muted transition-colors hover:border-red/40 hover:text-red disabled:opacity-40"
                   >
                     Remove
                   </button>
@@ -248,7 +249,7 @@ export function LocalModelsSection() {
           )}
 
           {/* Curated catalog */}
-          <h3 className="mb-1.5 text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Catalog</h3>
+          <h3 className="micro-label mb-1.5">Catalog</h3>
           <ul className="space-y-2" data-testid="ollama-catalog">
             {(catalog.data?.items ?? []).map(item => {
               const ps = pulls[item.name]
@@ -256,29 +257,29 @@ export function LocalModelsSection() {
               return (
                 <li
                   key={item.name}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs"
+                  className="rounded-xl border border-border bg-surface p-3 text-label"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-[var(--text)]">{item.label}</span>
+                    <span className="font-semibold text-text">{item.label}</span>
                     {item.paramSize && (
-                      <span className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
+                      <span className="rounded border border-border px-1.5 py-0.5 text-micro text-muted">
                         {item.paramSize}
                       </span>
                     )}
-                    <span className="text-[var(--muted)]">{formatBytes(item.sizeBytes)}</span>
+                    <span className="mono tabular-nums text-muted">{formatBytes(item.sizeBytes)}</span>
                     {item.installed ? (
-                      <span className="text-[10px] text-[var(--green)]">installed</span>
+                      <span className="text-micro text-green">installed</span>
                     ) : item.fitsOnDisk ? (
-                      <span className="text-[10px] text-[var(--muted)]">fits on disk</span>
+                      <span className="text-micro text-muted">fits on disk</span>
                     ) : (
-                      <span className="text-[10px] text-[var(--amber)]">too big for disk</span>
+                      <span className="text-micro text-amber">too big for disk</span>
                     )}
                     <button
                       type="button"
                       data-testid={`ollama-pull-${item.name}`}
                       onClick={() => pull.mutate(item.name)}
                       disabled={item.installed || !item.fitsOnDisk || pulling}
-                      className="ml-auto rounded-lg border border-accent/50 bg-accent/20 px-2 py-1 text-[var(--accent-hover)] transition-colors hover:bg-accent/30 disabled:opacity-40"
+                      className="ml-auto rounded-lg border border-accent/50 bg-accent/20 px-2 py-1 text-accent-hover transition-colors hover:bg-accent/30 disabled:opacity-40"
                     >
                       {item.installed ? 'Installed' : pulling ? 'Pulling…' : 'Pull'}
                     </button>
@@ -290,13 +291,13 @@ export function LocalModelsSection() {
                         // Disable per ROW (variables = the name being cancelled) so
                         // cancelling one pull doesn't freeze other rows' Cancel buttons.
                         disabled={cancelPull.isPending && cancelPull.variables === item.name}
-                        className="rounded-lg border border-[var(--border)] px-2 py-1 text-[var(--muted)] transition-colors hover:border-[color:rgba(248,113,113,0.4)] hover:text-[var(--red)] disabled:opacity-40"
+                        className="rounded-lg border border-border px-2 py-1 text-muted transition-colors hover:border-red/40 hover:text-red disabled:opacity-40"
                       >
                         Cancel
                       </button>
                     )}
                   </div>
-                  <p className="mt-1 text-[var(--muted)]">{item.blurb}</p>
+                  <p className="mt-1 text-muted">{item.blurb}</p>
                   {ps && <PullProgress state={ps} />}
                 </li>
               )
@@ -315,6 +316,6 @@ export function LocalModelsSection() {
         onConfirm={() => { if (pendingRemove) remove.mutate(pendingRemove) }}
         onCancel={() => setPendingRemove(null)}
       />
-    </div>
+    </GlassPanel>
   )
 }
