@@ -1,8 +1,4 @@
 [
-  "components/DocViewer.tsx",
-  "components/SourceBadge.tsx",
   "lib/evals.ts",
-  "pages/SkillCreatorPage.tsx",
-  "pages/tabs/KnowledgeGraphTab.tsx",
   "pages/TerminalPage.tsx"
 ]

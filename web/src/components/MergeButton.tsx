@@ -33,7 +33,7 @@ export default function MergeButton({ projectId, pr }: { projectId: string; pr: 
         disabled={!green || merge.isPending}
         title={green ? `Merge PR #${pr.number}` : `checks are ${pr.checks} — merge blocked`}
         onClick={e => { e.stopPropagation(); setError(null); setConfirmOpen(true) }}
-        className="text-xs px-2.5 py-1 rounded font-semibold bg-green/20 text-[var(--green)] hover:bg-green/30 disabled:opacity-40 transition-colors"
+        className="text-xs px-2.5 py-1 rounded font-semibold bg-green/20 text-green hover:bg-green/30 disabled:opacity-40 transition-colors"
       >
         Merge
       </button>

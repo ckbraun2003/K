@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { FeedPayload, FeedKind } from '@k/shared'
+import { cn } from '../lib/cn'
 import { EMPTY_FEED, feedQueryFnLimited, FEED_ICON } from '../lib/feed-query'
 import FeedRow from '../components/FeedRow'
 import NarrativeCard from '../components/NarrativeCard'
+import { EmptyState } from '../ui/EmptyState'
 
 const ALL_KINDS: FeedKind[] = ['dispatch', 'park', 'plan_gate', 'review_ready', 'pr', 'merge', 'verify_pass', 'verify_fail', 'failure', 'done']
 const TIMELINE_LIMIT = 500
@@ -38,7 +40,7 @@ export default function TimelinePage() {
   return (
     <div data-testid="timeline-page" className="flex-1 overflow-y-auto p-4">
       <header className="mb-3 flex flex-wrap items-center gap-2">
-        <h1 className="text-sm font-semibold text-[var(--text)]">Org timeline</h1>
+        <h1 className="text-sm font-semibold text-text">Org timeline</h1>
         <div className="ml-auto flex items-center gap-1">
           {ALL_KINDS.map(k => (
             <button
@@ -47,19 +49,22 @@ export default function TimelinePage() {
               onClick={() => toggle(k)}
               aria-pressed={active.has(k)}
               data-testid={`feed-chip-${k}`}
-              className={`rounded px-1.5 py-0.5 text-[10px] ${active.has(k) ? 'bg-[var(--accent)] text-[var(--on-accent)]' : 'bg-[var(--raised)] text-[var(--muted)]'}`}
+              className={cn(
+                'rounded px-1.5 py-0.5 text-[10px]',
+                active.has(k) ? 'bg-accent text-on-accent' : 'bg-raised text-muted',
+              )}
             >
-              <span aria-hidden="true">{FEED_ICON[k]}</span> {k.replace('_', ' ')} {feed.counts[k] ?? 0}
+              <span aria-hidden="true">{FEED_ICON[k]}</span> {k.replace('_', ' ')} <span className="mono">{feed.counts[k] ?? 0}</span>
             </button>
           ))}
-          <label className="ml-2 flex items-center gap-1 text-[10px] text-[var(--muted)]">
+          <label className="ml-2 flex items-center gap-1 text-[10px] text-muted">
             <input type="checkbox" checked={digest} onChange={e => setDigest(e.target.checked)} data-testid="feed-digest-toggle" />
             digest
           </label>
         </div>
       </header>
       <div className="flex flex-col gap-0.5">
-        {shown.length === 0 && <div className="p-4 text-center text-xs text-[var(--muted)]">No activity yet.</div>}
+        {shown.length === 0 && <EmptyState icon="timeline" headline="No activity yet" />}
         {shown.map(item => (
           <div key={item.id}>
             <FeedRow item={item} />
@@ -70,8 +75,8 @@ export default function TimelinePage() {
         ))}
       </div>
       {windowTotal > shown.length && (
-        <p data-testid="feed-truncation" className="mt-2 px-2 text-[10px] text-[var(--muted)]">
-          showing {shown.length} of {windowTotal}{active.size ? ' matching' : ''} events
+        <p data-testid="feed-truncation" className="mt-2 px-2 text-[10px] text-muted">
+          showing <span className="mono">{shown.length}</span> of <span className="mono">{windowTotal}</span>{active.size ? ' matching' : ''} events
         </p>
       )}
     </div>

@@ -6,9 +6,9 @@ import { navigate } from '../lib/route'
 import { relativeTime } from '../lib/verify'
 
 const KIND_TONE: Partial<Record<FeedItem['kind'], string>> = {
-  verify_fail: 'text-[var(--red)]', failure: 'text-[var(--red)]',
-  verify_pass: 'text-[var(--green)]', merge: 'text-[var(--green)]',
-  review_ready: 'text-[var(--amber)]', park: 'text-[var(--amber)]', plan_gate: 'text-[var(--amber)]',
+  verify_fail: 'text-red', failure: 'text-red',
+  verify_pass: 'text-green', merge: 'text-green',
+  review_ready: 'text-amber', park: 'text-amber', plan_gate: 'text-amber',
 }
 
 export default function FeedRow({ item }: { item: FeedItem }) {
@@ -19,12 +19,12 @@ export default function FeedRow({ item }: { item: FeedItem }) {
       data-testid="feed-row"
       disabled={!clickable}
       onClick={() => clickable && navigate('runs', item.runId!)}
-      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-[var(--raised)] disabled:cursor-default"
+      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-raised disabled:cursor-default"
     >
-      <span className={`w-4 text-center ${KIND_TONE[item.kind] ?? 'text-[var(--muted)]'}`}>{FEED_ICON[item.kind]}</span>
-      <span className="flex-1 truncate text-[var(--text)]">{item.title}</span>
-      {item.projectName && <span className="mono text-[10px] text-[var(--muted)]">{item.projectName}</span>}
-      <span className="mono text-[10px] text-[var(--muted)]">{relativeTime(item.ts)}</span>
+      <span className={`w-4 text-center ${KIND_TONE[item.kind] ?? 'text-muted'}`}>{FEED_ICON[item.kind]}</span>
+      <span className="flex-1 truncate text-text">{item.title}</span>
+      {item.projectName && <span className="mono text-[10px] text-muted">{item.projectName}</span>}
+      <span className="mono text-[10px] text-muted">{relativeTime(item.ts)}</span>
     </button>
   )
 }

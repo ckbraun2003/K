@@ -42,20 +42,20 @@ export default function DocViewer({ slug }: Props) {
   })
 
   if (isLoading) {
-    return <div className="flex-1 flex items-center justify-center text-[var(--muted)]">Loading…</div>
+    return <div className="flex-1 flex items-center justify-center text-sm text-muted">Loading…</div>
   }
 
   if (!artifact) {
-    return <div className="flex-1 flex items-center justify-center text-[var(--muted)]">Artifact not found</div>
+    return <div className="flex-1 flex items-center justify-center text-sm text-muted">Artifact not found</div>
   }
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
         <div>
-          <h2 className="text-sm font-semibold text-[var(--text)]">{artifact.title}</h2>
-          <p className="text-xs text-[var(--muted)]">
+          <h2 className="text-sm font-semibold text-text">{artifact.title}</h2>
+          <p className="text-xs text-muted">
             Updated {new Date(artifact.updatedAt).toLocaleString()}
             {artifact.phase ? ` · Phase ${artifact.phase}` : ''}
             {artifact.status ? ` · ${artifact.status}` : ''}
@@ -67,23 +67,23 @@ export default function DocViewer({ slug }: Props) {
             data-testid="doc-edit-toggle"
             aria-pressed={edit}
             onClick={() => setEdit(e => !e)}
-            className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
+            className={`rounded-control border px-3 py-1 text-xs font-medium transition-colors ${
               edit
-                ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)]'
-                : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]'
+                ? 'border-accent bg-accent text-on-accent'
+                : 'border-border text-muted hover:text-text hover:bg-surface'
             }`}
           >
             Edit
           </button>
-          <div className="flex rounded-lg overflow-hidden border border-[var(--border)]">
+          <div className="flex rounded-control overflow-hidden border border-border">
             {(['md', 'html'] as const).map(v => (
               <button
                 key={v}
                 onClick={() => setView(v)}
                 className={`px-3 py-1 text-xs font-medium transition-colors ${
                   view === v
-                    ? 'bg-[var(--accent)] text-[var(--bg)]'
-                    : 'text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]'
+                    ? 'bg-accent text-bg'
+                    : 'text-muted hover:text-text hover:bg-surface'
                 }`}
               >
                 .{v}
@@ -97,15 +97,15 @@ export default function DocViewer({ slug }: Props) {
       <div className="flex-1 overflow-y-auto">
         {view === 'md' && (
           <div className="px-6 py-5 prose prose-invert prose-sm max-w-none
-            prose-headings:text-[var(--text)] prose-headings:font-bold
-            prose-p:text-[var(--text)] prose-p:leading-relaxed
-            prose-a:text-[var(--accent)]
-            prose-code:text-purple-300 prose-code:bg-[var(--surface)] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-            prose-pre:bg-[var(--surface)] prose-pre:border prose-pre:border-[var(--border)]
-            prose-blockquote:border-l-[var(--accent)] prose-blockquote:text-[var(--muted)]
-            prose-th:text-[var(--muted)] prose-th:text-xs prose-th:uppercase
-            prose-td:text-[var(--text)] prose-td:text-sm
-            prose-li:text-[var(--text)]
+            prose-headings:text-text prose-headings:font-bold
+            prose-p:text-text prose-p:leading-relaxed
+            prose-a:text-accent
+            prose-code:text-accent-hover prose-code:bg-surface prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+            prose-pre:bg-surface prose-pre:border prose-pre:border-border
+            prose-blockquote:border-l-accent prose-blockquote:text-muted
+            prose-th:text-muted prose-th:text-xs prose-th:uppercase
+            prose-td:text-text prose-td:text-sm
+            prose-li:text-text
           ">
             <ReactMarkdown>{artifact.md}</ReactMarkdown>
           </div>
@@ -123,7 +123,7 @@ export default function DocViewer({ slug }: Props) {
       {/* P4 E-30 — edit-in-place. Mounts only when Edit is on; SectionEditor
           self-hides (renders null) for non-bible artifacts. */}
       {edit && (
-        <div className="flex-shrink-0 max-h-[45%] overflow-y-auto bg-[var(--surface)]">
+        <div className="flex-shrink-0 max-h-[45%] overflow-y-auto bg-surface">
           {/* key by slug so switching artifacts fully remounts the editor — otherwise a
               stale section pick + edited draft could Save into the NEWLY-selected bible. */}
           <SectionEditor key={slug} slug={slug} />

@@ -40,16 +40,16 @@ function NodeButton({
       aria-pressed={selected}
       data-testid={testid}
       className={cn(
-        'w-full rounded-lg border bg-[var(--raised)] px-3 py-2 text-left transition-colors',
+        'w-full rounded-lg border bg-raised px-3 py-2 text-left transition-colors',
         statusClasses,
-        selected ? 'ring-1 ring-[var(--accent)]' : 'hover:border-[color:rgba(56,189,248,0.35)]',
+        selected ? 'ring-1 ring-accent' : 'hover:border-accent-hover/35',
       )}
     >
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text)]">{title}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">{title}</span>
         <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide">{badge}</span>
       </div>
-      {subtitle && <p className="mt-0.5 truncate text-[11px] text-[var(--muted)]">{subtitle}</p>}
+      {subtitle && <p className="mt-0.5 truncate text-[11px] text-muted">{subtitle}</p>}
     </button>
   )
 }
@@ -57,7 +57,7 @@ function NodeButton({
 /** Scrollable mono block for prompt / result text. */
 function Mono({ text }: { text: string }) {
   return (
-    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--muted)]">
+    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-surface px-2.5 py-1.5 font-mono text-xs text-muted">
       {text}
     </pre>
   )
@@ -67,20 +67,20 @@ function ChildDetail({ child }: { child: WorkflowChild }) {
   return (
     <div className="space-y-3" data-testid="node-detail">
       <div>
-        <h3 className="text-sm font-semibold text-[var(--text)]">{child.agentType}</h3>
-        {child.label && <p className="text-xs text-[var(--muted)]">{child.label}</p>}
-        <span className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <h3 className="text-sm font-semibold text-text">{child.agentType}</h3>
+        {child.label && <p className="text-xs text-muted">{child.label}</p>}
+        <span className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide text-muted">
           {child.status}
         </span>
       </div>
       <div>
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">Prompt</p>
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Prompt</p>
         <Mono text={child.prompt || '(no prompt)'} />
       </div>
       <div>
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">Result</p>
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Result</p>
         {child.status === 'running' ? (
-          <p className="text-xs italic text-[var(--muted)]">Running…</p>
+          <p className="text-xs italic text-muted">Running…</p>
         ) : (
           <Mono text={child.result || '(no result)'} />
         )}
@@ -93,13 +93,13 @@ function RootDetail({ label, status }: { label: string; status: string }) {
   return (
     <div className="space-y-3" data-testid="node-detail">
       <div>
-        <h3 className="text-sm font-semibold text-[var(--text)]">Run</h3>
-        <span className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <h3 className="text-sm font-semibold text-text">Run</h3>
+        <span className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide text-muted">
           {status}
         </span>
       </div>
       <div>
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">Prompt</p>
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Prompt</p>
         <Mono text={label || '(no prompt)'} />
       </div>
     </div>
@@ -128,14 +128,14 @@ export default function RunTree({ tree }: { tree: WorkflowTree }) {
         />
 
         {children.length === 0 ? (
-          <p className="mt-3 text-xs italic text-[var(--muted)]" data-testid="run-tree-empty">
+          <p className="mt-3 text-xs italic text-muted" data-testid="run-tree-empty">
             This run spawned no sub-agents.
           </p>
         ) : (
-          <ul className="ml-3 mt-2 space-y-2 border-l border-[var(--border)]">
+          <ul className="ml-3 mt-2 space-y-2 border-l border-border">
             {children.map(c => (
               <li key={c.id} className="relative pl-4">
-                <span className="absolute left-0 top-5 h-px w-3 bg-[var(--border)]" aria-hidden />
+                <span className="absolute left-0 top-5 h-px w-3 bg-border" aria-hidden />
                 <NodeButton
                   selected={selected === c.id}
                   onSelect={() => setSelected(c.id)}
@@ -153,7 +153,7 @@ export default function RunTree({ tree }: { tree: WorkflowTree }) {
 
       {/* Detail panel */}
       <aside className="lg:w-80 lg:flex-shrink-0">
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        <div className="rounded-xl border border-border bg-surface p-4">
           {/* Keyed (not AnimatePresence) so selecting a node remounts with an
               enter animation and the new content is in the DOM immediately — no
               exit-wait holding the previous panel on screen. */}

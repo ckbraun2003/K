@@ -142,12 +142,12 @@ export default function CapabilityPicker({
   return (
     <div className="space-y-2" data-testid={`${testidPrefix}-panel`}>
       {title && (
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{title}</h3>
+        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted">{title}</h3>
       )}
 
       {/* Mounted rows — provenance + cost + remove. */}
       {mounted.length === 0 ? (
-        <p className="text-xs italic text-[var(--muted)]">No {noun}s mounted.</p>
+        <p className="text-xs italic text-muted">No {noun}s mounted.</p>
       ) : (
         <ul className="space-y-1">
           {mounted.map(key => {
@@ -155,15 +155,15 @@ export default function CapabilityPicker({
             return (
               <li
                 key={key}
-                className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-3 py-1.5 text-xs"
+                className="flex items-center gap-2 rounded-lg border border-border bg-raised px-3 py-1.5 text-xs"
               >
                 {hit ? (
                   <>
-                    <span className="min-w-0 flex-1 truncate text-[var(--text)]" title={hit.id}>
+                    <span className="min-w-0 flex-1 truncate text-text" title={hit.id}>
                       {hit.name}
                     </span>
                     <SourceBadge sourceKind={hit.sourceKind} pluginName={hit.pluginName} />
-                    <span className="mono rounded bg-[var(--surface)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
+                    <span className="mono rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted">
                       {hit.estTokens !== null ? `~${formatCompact(hit.estTokens)} tok` : 'tok n/a'}
                     </span>
                     {hit.blockReason && (
@@ -173,7 +173,7 @@ export default function CapabilityPicker({
                       <span
                         data-testid={`${testidPrefix}-stale-${key}`}
                         title={hit.blockReason}
-                        className="rounded bg-amber/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--amber)]"
+                        className="rounded bg-amber/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber"
                       >
                         {hit.blockReason.split(' — ')[0]}
                       </span>
@@ -181,11 +181,11 @@ export default function CapabilityPicker({
                   </>
                 ) : (
                   <>
-                    <span className="mono min-w-0 flex-1 truncate text-[var(--text)]">{key}</span>
+                    <span className="mono min-w-0 flex-1 truncate text-text">{key}</span>
                     <span
                       data-testid={`${testidPrefix}-ghost-${key}`}
                       title="No catalog row matches this entry — it is excluded from the token subtotal."
-                      className="rounded bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]"
+                      className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted"
                     >
                       not in catalog
                     </span>
@@ -196,7 +196,7 @@ export default function CapabilityPicker({
                   disabled={busy}
                   onClick={() => onChange(mounted.filter(k => k !== key))}
                   data-testid={`${testidPrefix}-remove-${key}`}
-                  className="flex-shrink-0 text-[var(--red)] hover:underline disabled:opacity-50"
+                  className="flex-shrink-0 text-red hover:underline disabled:opacity-50"
                 >
                   remove
                 </button>
@@ -260,7 +260,7 @@ export default function CapabilityPicker({
             aria-autocomplete="list"
             aria-activedescendant={selected ? `${testidPrefix}-option-${selected.id}` : undefined}
             data-testid={`${testidPrefix}-input`}
-            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-xs text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+            className="min-w-0 flex-1 rounded-lg border border-border bg-raised px-2 py-1 text-xs text-text outline-none focus:border-accent-hover/35"
           />
         </form>
         {comboOpen && (
@@ -268,10 +268,10 @@ export default function CapabilityPicker({
             id={`${testidPrefix}-options`}
             role="listbox"
             data-testid={`${testidPrefix}-options`}
-            className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 shadow-lg"
+            className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-lg"
           >
             {candidates.length === 0 && (
-              <p className="px-2 py-1.5 text-[11px] italic text-[var(--muted)]">
+              <p className="px-2 py-1.5 text-[11px] italic text-muted">
                 {entries.length === 0
                   ? 'Catalog not loaded (or empty) — rescan on the Skills page.'
                   : 'No unmounted catalog entries match.'}
@@ -294,9 +294,9 @@ export default function CapabilityPicker({
                 data-testid={`${testidPrefix}-option-${c.id}`}
                 className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs ${
                   c.addable
-                    ? 'text-[var(--text)] hover:bg-[var(--raised)]'
-                    : 'cursor-not-allowed text-[var(--muted)] opacity-60'
-                } ${i === sel ? 'bg-[var(--raised)]' : ''} ${busy ? 'pointer-events-none opacity-50' : ''}`}
+                    ? 'text-text hover:bg-raised'
+                    : 'cursor-not-allowed text-muted opacity-60'
+                } ${i === sel ? 'bg-raised' : ''} ${busy ? 'pointer-events-none opacity-50' : ''}`}
               >
                 <span className="min-w-0 flex-1 truncate" title={c.id}>{c.name}</span>
                 <SourceBadge sourceKind={c.sourceKind} pluginName={c.pluginName} />
@@ -314,7 +314,7 @@ export default function CapabilityPicker({
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => navigate('agents', 'skills', catalogHash)}
                 data-testid={`${testidPrefix}-catalog-link`}
-                className="mt-0.5 w-full rounded-md px-2 py-1.5 text-left text-[11px] text-[var(--accent-hover)] hover:bg-[var(--raised)]"
+                className="mt-0.5 w-full rounded-md px-2 py-1.5 text-left text-[11px] text-accent-hover hover:bg-raised"
               >
                 open the catalog to enable more →
               </button>
@@ -325,9 +325,9 @@ export default function CapabilityPicker({
 
       {/* Footer — the profile's estimated context overhead (both sides, one figure). */}
       {subtotal && (
-        <p data-testid={`${testidPrefix}-subtotal`} className="text-[11px] text-[var(--muted)]">
+        <p data-testid={`${testidPrefix}-subtotal`} className="text-[11px] text-muted">
           Profile context overhead:{' '}
-          <span className="mono text-[var(--text)]">~{formatCompact(subtotal.totalEstTokens)} tok</span>{' '}
+          <span className="mono text-text">~{formatCompact(subtotal.totalEstTokens)} tok</span>{' '}
           (skills ~{formatCompact(subtotal.skills.estTokens)} · MCP ~{formatCompact(subtotal.mcp.estTokens)})
           {subtotal.unestimatedCount > 0 && <> · {subtotal.unestimatedCount} not yet measured</>}
           {subtotal.notInCatalog.length > 0 && <> · {subtotal.notInCatalog.length} not in catalog (excluded)</>}

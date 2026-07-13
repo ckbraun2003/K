@@ -6,6 +6,8 @@ import { navigate } from '../lib/route'
 import { cn } from '../lib/cn'
 import { fade } from '../lib/motion'
 import { healthRubric } from '../lib/health'
+import { Button } from '../ui/Button'
+import { EmptyState } from '../ui/EmptyState'
 import Tabs from '../components/Tabs'
 import OverviewTab from './tabs/OverviewTab'
 import VerificationTab from './tabs/VerificationTab'
@@ -56,8 +58,8 @@ export default function ProjectWorkspace({
 
   if (!projectId) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
-        No project selected.
+      <div className="flex h-full items-center justify-center">
+        <EmptyState icon="projects" headline="No project selected." />
       </div>
     )
   }
@@ -69,28 +71,32 @@ export default function ProjectWorkspace({
   if (projectsLoaded && !project) {
     return (
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-3">
-          <button
+        <div className="flex items-center gap-3 border-b border-border px-5 py-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="arrowLeft"
             onClick={() => navigate('projects')}
-            className="text-xs text-[var(--muted)] transition-colors duration-150 hover:text-[var(--text)]"
             aria-label="Back to fleet"
           >
-            ← Fleet
-          </button>
-          <span className="text-[var(--border)]">/</span>
-          <h2 className="text-sm font-semibold text-[var(--text)]">Project not found</h2>
+            Fleet
+          </Button>
+          <span className="text-border">/</span>
+          <h2 className="text-title text-text">Project not found</h2>
         </div>
         <div
           data-testid="project-not-found"
-          className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center"
+          className="flex flex-1 items-center justify-center px-6"
         >
-          <p className="text-sm text-[var(--text)]">This project doesn’t exist or was removed.</p>
-          <button
-            onClick={() => navigate('projects')}
-            className="mt-1 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-          >
-            ← Back to fleet
-          </button>
+          <EmptyState
+            icon="warning"
+            headline="This project doesn’t exist or was removed."
+            action={
+              <Button variant="glass" size="sm" icon="arrowLeft" onClick={() => navigate('projects')}>
+                Back to fleet
+              </Button>
+            }
+          />
         </div>
       </div>
     )
@@ -102,18 +108,14 @@ export default function ProjectWorkspace({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Page header ───────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-3">
-        <button
-          onClick={goBack}
-          className="text-xs text-[var(--muted)] transition-colors duration-150 hover:text-[var(--text)]"
-          aria-label="Back to fleet"
-        >
-          ← Fleet
-        </button>
-        <span className="text-[var(--border)]">/</span>
-        <h2 className="text-sm font-semibold text-[var(--text)]">{projectName}</h2>
+      <div className="flex items-center gap-3 border-b border-border px-5 py-3">
+        <Button variant="ghost" size="sm" icon="arrowLeft" onClick={goBack} aria-label="Back to fleet">
+          Fleet
+        </Button>
+        <span className="text-border">/</span>
+        <h2 className="text-title text-text">{projectName}</h2>
         {project?.githubRemote && (
-          <span className="mono ml-2 text-[11px] text-[var(--muted)] opacity-60">
+          <span className="mono ml-2 text-[11px] text-muted opacity-60">
             {project.githubRemote}
           </span>
         )}
@@ -125,7 +127,7 @@ export default function ProjectWorkspace({
       </div>
 
       {/* ── Tab bar (canonical Tabs, P4 E-30) ─────────────────────────────── */}
-      <div className="border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
+      <div className="border-b border-border bg-surface px-4 py-2">
         <Tabs<TabId>
           ariaLabel="Project workspace tabs"
           items={TABS.map(t => ({ value: t.id, label: t.label }))}

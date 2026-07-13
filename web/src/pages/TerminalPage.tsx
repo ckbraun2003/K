@@ -11,6 +11,7 @@ import {
   errorShort,
 } from '../lib/terminal'
 import { coreWsBase } from '../lib/core-origin'
+import { cn } from '../lib/cn'
 
 // The dev fallback is DEV-only: in a prod build VITE_TERMINAL_TOKEN is `undefined`
 // (vite emits no token — see vite-token-defines.ts) and this resolves to '' so no
@@ -141,15 +142,16 @@ export default function TerminalPage() {
 
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
-      <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
-        <h2 className="text-sm font-semibold text-[var(--text)]">Terminal</h2>
-        <span className="text-xs text-[var(--muted)]">node-pty · /ws/terminal</span>
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+        <h2 className="text-sm font-semibold text-text">Terminal</h2>
+        <span className="text-xs text-muted">node-pty · /ws/terminal</span>
         {status !== 'connected' && (
           <span
             data-testid="terminal-status"
-            className={`ml-auto rounded bg-[var(--raised)] px-2 py-1 text-xs ${
-              status === 'error' ? 'text-[var(--accent-hover)]' : 'text-[var(--muted)]'
-            }`}
+            className={cn(
+              'ml-auto rounded bg-raised px-2 py-1 text-xs',
+              status === 'error' ? 'text-accent-hover' : 'text-muted',
+            )}
           >
             {status === 'error' ? errorShort(errorCode) : 'Connecting…'}
           </span>

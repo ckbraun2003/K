@@ -41,8 +41,8 @@ function RoleBox({
       className={cn(
         'rounded-lg border px-4 py-2 text-sm font-medium transition-colors',
         selected
-          ? 'border-[var(--accent)] bg-[color:rgba(255,143,192,0.14)] text-[var(--text)]'
-          : 'border-[var(--border)] bg-[var(--raised)] text-[var(--muted)] hover:border-[color:rgba(56,189,248,0.35)] hover:text-[var(--text)]',
+          ? 'border-accent bg-accent/15 text-text'
+          : 'border-border bg-raised text-muted hover:border-accent-hover/35 hover:text-text',
       )}
     >
       {label}
@@ -54,11 +54,11 @@ function RoleBox({
 function VEdge({ label }: { label?: string }) {
   return (
     <div className="flex flex-col items-center" aria-hidden>
-      <div className="h-4 w-px bg-[var(--border)]" />
+      <div className="h-4 w-px bg-border" />
       {label && (
-        <span className="py-0.5 text-[9px] uppercase tracking-wide text-[var(--muted)]">{label}</span>
+        <span className="py-0.5 text-[9px] uppercase tracking-wide text-muted">{label}</span>
       )}
-      <div className="h-4 w-px bg-[var(--border)]" />
+      <div className="h-4 w-px bg-border" />
     </div>
   )
 }
@@ -96,23 +96,23 @@ export default function WorkflowDiagram({
 
         {/* Fork: implementer → the two reviews */}
         <div className="flex w-full max-w-md flex-col items-center" aria-hidden>
-          <div className="h-4 w-px bg-[var(--border)]" />
-          <div className="h-px w-1/2 bg-[var(--border)]" />
+          <div className="h-4 w-px bg-border" />
+          <div className="h-px w-1/2 bg-border" />
         </div>
         <div className="grid w-full max-w-md grid-cols-2 gap-6">
           <div className="flex flex-col items-center">
-            <div className="h-4 w-px bg-[var(--border)]" aria-hidden />
+            <div className="h-4 w-px bg-border" aria-hidden />
             {box('spec-review', spec)}
           </div>
           <div className="flex flex-col items-center">
-            <div className="h-4 w-px bg-[var(--border)]" aria-hidden />
+            <div className="h-4 w-px bg-border" aria-hidden />
             {box('quality-review', quality)}
           </div>
         </div>
 
-        <p className="mt-4 max-w-md text-center text-[11px] text-[var(--muted)]">
+        <p className="mt-4 max-w-md text-center text-[11px] text-muted">
           ↑ Spec &amp; quality review report{' '}
-          <span className="text-[var(--accent-hover)]">fixes</span> back to the orchestrator, which
+          <span className="text-accent-hover">fixes</span> back to the orchestrator, which
           applies them and ships one reviewable commit (the loop).
         </p>
       </div>
@@ -129,14 +129,14 @@ export default function WorkflowDiagram({
         >
           {selected ? (
             <div
-              className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
+              className="rounded-xl border border-border bg-surface p-4"
               data-testid="role-detail"
             >
-              <h3 className="text-sm font-semibold text-[var(--text)]">{selected.label}</h3>
-              <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">{selected.description}</p>
+              <h3 className="text-sm font-semibold text-text">{selected.label}</h3>
+              <p className="mt-2 text-xs leading-relaxed text-muted">{selected.description}</p>
             </div>
           ) : (
-            <p className="rounded-xl border border-dashed border-[var(--border)] p-4 text-xs italic text-[var(--muted)]">
+            <p className="rounded-xl border border-dashed border-border p-4 text-xs italic text-muted">
               Select a role to read its responsibility.
             </p>
           )}

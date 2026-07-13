@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { navigate } from '../lib/route'
+import { Button } from '../ui/Button'
 
 /** 404 empty-state for an unrouted hash (e.g. #/nonsense). Prefer an informative
  *  not-found over a silent redirect so the user knows where they ended up. */
@@ -17,17 +18,14 @@ export default function NotFound({ route }: { route: string }) {
       className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center"
       aria-live="polite"
     >
-      <div className="text-4xl opacity-60">⌀</div>
-      <h2 className="text-lg font-semibold text-[var(--text)]">Page not found</h2>
-      <p className="text-sm text-[var(--muted)]">
-        Nothing is routed at <code className="mono text-[var(--text)]">#/{route}</code>.
+      <div className="mono text-display text-muted opacity-60">404</div>
+      <h2 className="text-title text-text">Page not found</h2>
+      <p className="text-body text-muted">
+        Nothing is routed at <code className="mono text-text">#/{route}</code>.
       </p>
-      <button
-        onClick={() => navigate('home')}
-        className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-1.5 text-sm text-[var(--text)] transition-colors duration-150 hover:border-accent/50 hover:bg-[var(--raised)]"
-      >
-        ⌂ Back to Home
-      </button>
+      <Button variant="glass" icon="home" onClick={() => navigate('home')}>
+        Back to Home
+      </Button>
     </div>
   )
 }

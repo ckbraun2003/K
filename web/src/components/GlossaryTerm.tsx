@@ -28,7 +28,7 @@ export default function GlossaryTerm({ term, children }: { term: string; childre
         <span
           id={id}
           role="tooltip"
-          className="absolute left-0 top-full z-30 mt-1 w-56 rounded border border-[var(--border)] bg-[var(--panel)] p-2 text-[11px] font-normal text-[var(--text)] shadow-lg"
+          className="absolute left-0 top-full z-30 mt-1 w-56 rounded border border-border bg-surface p-2 text-[11px] font-normal text-text shadow-lg"
         >
           <span className="font-semibold">{term}</span> — {def}
         </span>

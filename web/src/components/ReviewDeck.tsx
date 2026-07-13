@@ -9,6 +9,7 @@ import ImpactPanel from './ImpactPanel'
 import ConfirmDialog from './ConfirmDialog'
 import Toast from './Toast'
 import { groupByDir } from '../lib/review'
+import { Button } from '../ui/Button'
 
 export interface ReviewDeckProps { runId: string; projectId: string | null }
 
@@ -67,58 +68,62 @@ export default function ReviewDeck({ runId, projectId }: ReviewDeckProps) {
   return (
     <div data-testid="review-deck" className="flex-1 min-h-0 flex flex-col">
       {/* Deck header: metric chips + verify chip + actions */}
-      <div className="flex items-center gap-2 px-5 py-2 border-b border-[var(--border)] flex-shrink-0">
-        <span className="text-xs px-2 py-0.5 rounded font-medium bg-[var(--raised)] border border-[var(--border)] text-[var(--muted)]">
-          {files.length} files · <span className="text-[var(--green)]">+{additions}</span> <span className="text-[var(--red)]">−{deletions}</span>
+      <div className="flex items-center gap-2 px-5 py-2 border-b border-border flex-shrink-0">
+        <span className="text-xs px-2 py-0.5 rounded font-medium bg-raised border border-border text-muted">
+          {files.length} files · <span className="text-green">+{additions}</span> <span className="text-red">−{deletions}</span>
         </span>
         {diff?.truncated && (
-          <span className="text-xs px-2 py-0.5 rounded font-medium bg-amber/15 text-[var(--amber)]">truncated</span>
+          <span className="text-xs px-2 py-0.5 rounded font-medium bg-amber/15 text-amber">truncated</span>
         )}
         <VerifyChip runId={runId} />
         <div className="flex-1" />
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           data-testid="deck-request-changes"
           disabled={drafts.length === 0}
           onClick={() => { setActionError(null); setConfirmAction('request') }}
-          className="text-xs px-2.5 py-1 rounded font-semibold bg-amber/20 text-[var(--amber)] hover:bg-amber/30 disabled:opacity-40 transition-colors"
+          className="bg-amber/20 text-amber hover:bg-amber/30 hover:text-amber"
         >
           Request changes ({drafts.length})
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           data-testid="deck-approve"
           disabled={files.length === 0}
           onClick={() => { setActionError(null); setConfirmAction('approve') }}
-          className="text-xs px-2.5 py-1 rounded font-semibold bg-green/20 text-[var(--green)] hover:bg-green/30 disabled:opacity-40 transition-colors"
+          className="bg-green/20 text-green hover:bg-green/30 hover:text-green"
         >
           Approve → PR
-        </button>
+        </Button>
       </div>
 
-      {isLoading && <p className="p-5 text-xs text-[var(--muted)]">Loading diff…</p>}
-      {error != null && <p className="p-5 text-xs text-[var(--red)]">{String((error as Error).message)}</p>}
+      {isLoading && <p className="p-5 text-xs text-muted">Loading diff…</p>}
+      {error != null && <p className="p-5 text-xs text-red">{String((error as Error).message)}</p>}
       {!isLoading && error == null && files.length === 0 && (
-        <p className="p-5 text-xs text-[var(--muted)]">No checkpointed changes.</p>
+        <p className="p-5 text-xs text-muted">No checkpointed changes.</p>
       )}
 
       {files.length > 0 && (
         <div className="flex-1 min-h-0 flex">
           {/* File tree aside */}
-          <aside className="w-56 flex-shrink-0 overflow-y-auto border-r border-[var(--border)] py-2" data-testid="deck-file-tree">
+          <aside className="w-56 flex-shrink-0 overflow-y-auto border-r border-border py-2" data-testid="deck-file-tree">
             <button onClick={() => setSelectedFile(null)}
-              className="w-full text-left px-3 py-1 text-xs text-[var(--muted)] hover:text-[var(--text)]">
+              className="w-full text-left px-3 py-1 text-xs text-muted hover:text-text">
               All files
             </button>
             {groups.map(g => (
               <div key={g.dir || '(root)'}>
-                <p className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)] truncate">
+                <p className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted truncate">
                   {g.dir || '(root)'}
                 </p>
                 {g.files.map(f => (
                   <button key={f.path} onClick={() => setSelectedFile(f.path)}
                     className={`w-full text-left px-3 py-1 text-xs truncate transition-colors ${
-                      selectedFile === f.path ? 'text-[var(--text)] bg-[var(--raised)]' : 'text-[var(--muted)] hover:text-[var(--text)]'}`}>
+                      selectedFile === f.path ? 'text-text bg-raised' : 'text-muted hover:text-text'}`}>
                     {f.path.slice(g.dir ? g.dir.length + 1 : 0)}
-                    <span className="ml-1 text-[10px]"><span className="text-[var(--green)]">+{f.additions}</span> <span className="text-[var(--red)]">−{f.deletions}</span></span>
+                    <span className="ml-1 text-[10px]"><span className="text-green">+{f.additions}</span> <span className="text-red">−{f.deletions}</span></span>
                   </button>
                 ))}
               </div>

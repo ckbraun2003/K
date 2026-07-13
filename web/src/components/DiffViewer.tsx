@@ -3,6 +3,7 @@ import type { DiffFile, DiffLine, ReviewComment } from '@k/shared'
 import { cn } from '../lib/cn'
 import { alignHunk, commentAnchorKey } from '../lib/review'
 import AutoTextarea from './AutoTextarea'
+import { Button, IconButton } from '../ui/Button'
 
 export interface DiffViewerProps {
   files: DiffFile[]
@@ -47,38 +48,39 @@ export default function DiffViewer({ files, comments, readOnly, onAddComment, on
             <div
               key={c.id}
               data-testid={`diff-comment-${c.id}`}
-              className="mx-3 my-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+              className="mx-3 my-1 rounded-lg border border-border bg-surface px-3 py-2"
             >
               <div className="flex items-start gap-2">
-                <p className="flex-1 whitespace-pre-wrap break-words text-[var(--text)]">{c.body}</p>
+                <p className="flex-1 whitespace-pre-wrap break-words text-text">{c.body}</p>
                 {!readOnly && (
-                  <button
+                  <IconButton
+                    name="close"
+                    variant="ghost"
+                    size="sm"
                     data-testid={`diff-comment-delete-${c.id}`}
                     onClick={() => onDeleteComment?.(c.id)}
-                    aria-label="Delete comment"
-                    className="flex-shrink-0 text-[var(--muted)] transition-colors hover:text-[var(--red)]"
-                  >
-                    ✕
-                  </button>
+                    label="Delete comment"
+                    className="flex-shrink-0 hover:text-red"
+                  />
                 )}
               </div>
             </div>
           ))
 
         return (
-          <section key={file.path} className="border-b border-[var(--border)]">
+          <section key={file.path} className="border-b border-border">
             {/* Sticky file header: path (rename arrow) + per-file counts */}
-            <div className="sticky top-0 z-10 flex items-center gap-2 bg-[var(--raised)] px-3 py-1.5 border-b border-[var(--border)]">
-              <span className="flex-1 truncate font-mono text-[var(--text)]">
+            <div className="sticky top-0 z-10 flex items-center gap-2 bg-raised px-3 py-1.5 border-b border-border">
+              <span className="flex-1 truncate font-mono text-text">
                 {file.oldPath && file.oldPath !== file.path
-                  ? <><span className="text-[var(--muted)]">{file.oldPath}</span> → {file.path}</>
+                  ? <><span className="text-muted">{file.oldPath}</span> → {file.path}</>
                   : file.path}
               </span>
-              <span className="flex-shrink-0 rounded bg-[var(--surface)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted)]">
+              <span className="flex-shrink-0 rounded bg-surface px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
                 {file.status}
               </span>
               <span className="flex-shrink-0 font-mono text-[10px]">
-                <span className="text-[var(--green)]">+{file.additions}</span> <span className="text-[var(--red)]">−{file.deletions}</span>
+                <span className="text-green">+{file.additions}</span> <span className="text-red">−{file.deletions}</span>
               </span>
             </div>
 
@@ -86,12 +88,12 @@ export default function DiffViewer({ files, comments, readOnly, onAddComment, on
             {fileLevel.length > 0 && <div className="py-1">{renderCards(fileLevel)}</div>}
 
             {file.binary ? (
-              <div className="px-3 py-2 text-[var(--muted)]">Binary file</div>
+              <div className="px-3 py-2 text-muted">Binary file</div>
             ) : (
               <div className="overflow-x-auto">
                 {file.hunks.map((hunk, hi) => (
                   <div key={hi} className="min-w-max">
-                    <div className="bg-[var(--surface)] px-3 py-0.5 font-mono text-[10px] text-[var(--muted)]">{hunk.header}</div>
+                    <div className="bg-surface px-3 py-0.5 font-mono text-[10px] text-muted">{hunk.header}</div>
                     {alignHunk(hunk).map((row, ri) => {
                       const key = row.right?.newLine != null ? `${file.path}:${row.right.newLine}` : null
                       const rowComments = [
@@ -153,7 +155,7 @@ function InlineComposer({ onSubmit, onCancel }: { onSubmit: (body: string) => vo
     onSubmit(text)
   }
   return (
-    <div className="mx-3 my-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2">
+    <div className="mx-3 my-1.5 rounded-lg border border-border bg-surface p-2">
       <AutoTextarea
         data-testid="diff-comment-body"
         autoFocus
@@ -164,24 +166,27 @@ function InlineComposer({ onSubmit, onCancel }: { onSubmit: (body: string) => vo
           if (e.key === 'Escape') onCancel()
         }}
         placeholder="Leave a review comment…"
-        className="w-full resize-none bg-transparent font-sans text-xs text-[var(--text)] placeholder-[var(--muted)] focus:outline-none"
+        className="w-full resize-none bg-transparent font-sans text-xs text-text placeholder-muted focus:outline-none"
       />
       <div className="mt-1.5 flex items-center justify-end gap-2">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           data-testid="diff-comment-cancel"
           onClick={onCancel}
-          className="rounded border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+          className="border border-border"
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           data-testid="diff-comment-submit"
           onClick={submit}
           disabled={draft.trim().length === 0}
-          className="rounded bg-[var(--accent)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--bg)] transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           Comment
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -206,10 +211,10 @@ function DiffCell({
     <div
       className={cn(
         'flex min-w-0 font-mono',
-        line == null && 'bg-black/20',
-        toneAdd && 'bg-green/10 text-[var(--green)]',
-        toneDel && 'bg-red/10 text-[var(--red)]',
-        line != null && !toneAdd && !toneDel && 'text-[var(--text)]',
+        line == null && 'bg-bg/40',
+        toneAdd && 'bg-green/10 text-green',
+        toneDel && 'bg-red/10 text-red',
+        line != null && !toneAdd && !toneDel && 'text-text',
       )}
     >
       {onLineClick ? (
@@ -218,12 +223,12 @@ function DiffCell({
           onClick={onLineClick}
           title="Add a comment"
           aria-label={`Add a comment on line ${num}`}
-          className="w-12 flex-shrink-0 select-none border-r border-[var(--border)] px-2 text-right text-[10px] text-[var(--muted)] transition-colors hover:bg-[var(--accent)]/20 hover:text-[var(--text)]"
+          className="w-12 flex-shrink-0 select-none border-r border-border px-2 text-right text-[10px] text-muted transition-colors hover:bg-accent/20 hover:text-text"
         >
           {num ?? ''}
         </button>
       ) : (
-        <span className="w-12 flex-shrink-0 select-none border-r border-[var(--border)] px-2 text-right text-[10px] text-[var(--muted)]">
+        <span className="w-12 flex-shrink-0 select-none border-r border-border px-2 text-right text-[10px] text-muted">
           {num ?? ''}
         </span>
       )}
