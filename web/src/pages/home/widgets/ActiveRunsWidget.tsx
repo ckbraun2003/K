@@ -5,7 +5,7 @@ import { runStatusMeta } from '../../../lib/status'
 import { cleanRunPrompt } from '../../../lib/prompt'
 import { navigate } from '../../../lib/route'
 import { SectionHeader } from '../../../ui/SectionHeader'
-import { Icon } from '../../../ui/Icon'
+import { EmptyState } from '../../../ui/EmptyState'
 import { Skeleton } from '../../../ui/Skeleton'
 
 /**
@@ -50,13 +50,10 @@ export default function ActiveRunsWidget() {
       ) : isError ? (
         <p data-testid="widget-active-runs-error" className="text-caption text-red">Failed to load runs.</p>
       ) : rows.length === 0 ? (
-        // Hand-rolled (not <EmptyState>): this cell renders inside OverviewView's
-        // GlassPanel tier="panel" — EmptyState's own icon bubble is itself a
-        // glass-panel, which would nest backdrop-filter inside backdrop-filter.
-        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-4 text-center">
-          <Icon name="runs" size={20} className="text-muted" />
-          <p className="text-body font-medium text-text">Idle — dispatch with ⌘K</p>
-        </div>
+        // FU-2: tier="solid" avoids nesting glass-panel (EmptyState's default
+        // icon bubble) inside this cell's GlassPanel tier="panel" ancestor
+        // (OverviewView) — backdrop-filter can't stack on itself.
+        <EmptyState tier="solid" icon="runs" headline="Idle — dispatch with ⌘K" className="flex-1 gap-1.5 py-4" />
       ) : (
         <div className="flex flex-col gap-1">
           {rows.map(r => {

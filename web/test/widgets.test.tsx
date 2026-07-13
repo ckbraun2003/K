@@ -177,7 +177,12 @@ describe('widget catalog', () => {
   it('ActiveRunsWidget: renders an idle empty state without crashing', async () => {
     mockRunsList.mockResolvedValue([])
     renderWidget(<ActiveRunsWidget />)
-    expect(await screen.findByText(/Idle/)).toBeTruthy()
+    const headline = await screen.findByText(/Idle/)
+    // FU-2: EmptyState tier="solid" — this cell sits inside a GlassPanel
+    // ancestor (OverviewView), so the icon bubble must be surface-solid, not
+    // glass-panel (nested backdrop-filter can't stack on itself).
+    expect(headline.parentElement?.querySelector('.surface-solid')).toBeTruthy()
+    expect(headline.parentElement?.querySelector('.glass-panel')).toBeNull()
   })
 
   it('ActiveRunsWidget: a runs-list fetch failure surfaces the error state, never a fake "Idle"', async () => {
@@ -300,7 +305,10 @@ describe('widget catalog', () => {
 
   it('PersonalTasksWidget: renders an empty state without crashing', async () => {
     renderWidget(<PersonalTasksWidget />)
-    expect(await screen.findByText('No personal work items yet.')).toBeTruthy()
+    const headline = await screen.findByText('No personal work items yet.')
+    // FU-2: EmptyState tier="solid" — see ActiveRunsWidget's idle test for why.
+    expect(headline.parentElement?.querySelector('.surface-solid')).toBeTruthy()
+    expect(headline.parentElement?.querySelector('.glass-panel')).toBeNull()
   })
 
   it('ProjectHealthWidget: renders one dot per project with healthRubric band', async () => {
@@ -381,7 +389,10 @@ describe('widget catalog', () => {
 
     mockNotes.mockResolvedValue([])
     renderWidget(<NotesWidget />)
-    expect(await screen.findByText('No notes yet — ask K to take one.')).toBeTruthy()
+    const headline = await screen.findByText('No notes yet — ask K to take one.')
+    // FU-2: EmptyState tier="solid" — see ActiveRunsWidget's idle test for why.
+    expect(headline.parentElement?.querySelector('.surface-solid')).toBeTruthy()
+    expect(headline.parentElement?.querySelector('.glass-panel')).toBeNull()
   })
 
   it('ScheduleWidget: renders events and tints overdue reminders red', async () => {

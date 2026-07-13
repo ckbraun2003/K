@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { Note } from '@k/shared'
 import { api } from '../../../lib/api'
 import { SectionHeader } from '../../../ui/SectionHeader'
-import { Icon } from '../../../ui/Icon'
+import { EmptyState } from '../../../ui/EmptyState'
 import { Skeleton } from '../../../ui/Skeleton'
 
 /**
@@ -29,13 +29,10 @@ export default function NotesWidget() {
       ) : isError ? (
         <p data-testid="widget-notes-error" className="text-caption text-red">Failed to load notes.</p>
       ) : notes.length === 0 ? (
-        // Hand-rolled (not <EmptyState>): this cell renders inside OverviewView's
-        // GlassPanel tier="panel" — EmptyState's own icon bubble is itself a
-        // glass-panel, which would nest backdrop-filter inside backdrop-filter.
-        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-4 text-center">
-          <Icon name="file" size={20} className="text-muted" />
-          <p className="text-body font-medium text-text">No notes yet — ask K to take one.</p>
-        </div>
+        // FU-2: tier="solid" avoids nesting glass-panel (EmptyState's default
+        // icon bubble) inside this cell's GlassPanel tier="panel" ancestor
+        // (OverviewView) — backdrop-filter can't stack on itself.
+        <EmptyState tier="solid" icon="file" headline="No notes yet — ask K to take one." className="flex-1 gap-1.5 py-4" />
       ) : (
         <ul className="space-y-1">
           {notes.map(n => (

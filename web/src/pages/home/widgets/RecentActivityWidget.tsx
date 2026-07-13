@@ -4,7 +4,7 @@ import { api } from '../../../lib/api'
 import { navigate } from '../../../lib/route'
 import FeedRow from '../../../components/FeedRow'
 import { SectionHeader } from '../../../ui/SectionHeader'
-import { Icon } from '../../../ui/Icon'
+import { EmptyState } from '../../../ui/EmptyState'
 import { Skeleton } from '../../../ui/Skeleton'
 
 // A dedicated key (limit=6) — distinct from KHome's ['feed'] (100) and the
@@ -63,13 +63,10 @@ export default function RecentActivityWidget() {
       ) : isError ? (
         <p data-testid="widget-recent-activity-error" className="text-caption text-red">Failed to load recent activity.</p>
       ) : items.length === 0 ? (
-        // Hand-rolled (not <EmptyState>): this cell renders inside OverviewView's
-        // GlassPanel tier="panel" — EmptyState's own icon bubble is itself a
-        // glass-panel, which would nest backdrop-filter inside backdrop-filter.
-        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-4 text-center">
-          <Icon name="insights" size={20} className="text-muted" />
-          <p className="text-body font-medium text-text">No recent activity.</p>
-        </div>
+        // FU-2: tier="solid" avoids nesting glass-panel (EmptyState's default
+        // icon bubble) inside this cell's GlassPanel tier="panel" ancestor
+        // (OverviewView) — backdrop-filter can't stack on itself.
+        <EmptyState tier="solid" icon="insights" headline="No recent activity." className="flex-1 gap-1.5 py-4" />
       ) : (
         <div className="flex flex-col gap-0.5">
           {items.map(item => (
