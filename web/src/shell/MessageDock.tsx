@@ -17,6 +17,7 @@ import { overlayFade, dialogCard } from '../lib/motion'
 import AutoTextarea from '../components/AutoTextarea'
 import MicButton from '../components/MicButton'
 import Toast from '../components/Toast'
+import { Button, IconButton } from '../ui/Button'
 
 /** A project-scoped dispatch the user has picked from the `@project` list — held
  *  while the confirm card previews it, before `runs.start` actually fires. */
@@ -69,7 +70,7 @@ function Composer({
 }: ComposerProps) {
   return (
     <div>
-      <div className="mono flex items-center justify-between text-[11px] text-[var(--muted)]">
+      <div className="mono flex items-center justify-between text-[11px] text-muted">
         <span className="flex items-center gap-2">
           <span data-testid="dock-target">→ {title}</span>
           {/* Honest label for a persisted selection that resolved to an archived thread — a send
@@ -90,7 +91,7 @@ function Composer({
           type="button"
           data-testid="dock-new-chat"
           onClick={onNewChat}
-          className="text-[var(--accent-hover)] transition-colors duration-100 hover:text-[var(--text)]"
+          className="text-accent-hover transition-colors duration-100 hover:text-text"
         >
           + New chat
         </button>
@@ -98,9 +99,9 @@ function Composer({
       {/* @project picker — rows above the input, shown whenever `text` starts with
           '@'; picking one hands off to the dispatch confirm card below. */}
       {projectMatches && (
-        <div data-testid="dock-project-picker" className="mt-1.5 max-h-40 overflow-y-auto rounded-control border border-[var(--border)] bg-[var(--surface)]">
+        <div data-testid="dock-project-picker" className="mt-1.5 max-h-40 overflow-y-auto rounded-control border border-border bg-surface">
           {projectMatches.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-[var(--muted)]">No matching project</p>
+            <p className="px-3 py-2 text-xs text-muted">No matching project</p>
           ) : (
             projectMatches.map(p => (
               <button
@@ -108,16 +109,16 @@ function Composer({
                 type="button"
                 data-testid={`dock-project-row-${p.id}`}
                 onClick={() => onPickProject(p)}
-                className="block w-full px-3 py-1.5 text-left text-xs text-[var(--text)] transition-colors duration-100 hover:bg-[var(--raised)]"
+                className="block w-full px-3 py-1.5 text-left text-xs text-text transition-colors duration-100 hover:bg-raised"
               >
-                <span className="text-[var(--accent)]">@</span> {p.name}
+                <span className="text-accent">@</span> {p.name}
               </button>
             ))
           )}
         </div>
       )}
-      <div className="mt-1.5 flex items-center gap-2 rounded-control border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
-        <span className="text-[var(--accent)]">⚡</span>
+      <div className="mt-1.5 flex items-center gap-2 rounded-control border border-border bg-surface px-3 py-2">
+        <span className="text-accent">⚡</span>
         <input
           ref={inputRef}
           data-testid="dock-input"
@@ -126,31 +127,39 @@ function Composer({
           onKeyDown={onKeyDown}
           placeholder="Message K…"
           aria-label="Message K"
-          className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
+          className="min-w-0 flex-1 bg-transparent text-sm text-text placeholder-muted outline-none"
         />
         <MicButton
           title="Hold to talk — release to transcribe into the dock"
           onTranscript={t => onTextChange(text ? `${text} ${t}` : t)}
+          // No className override: MicButton's cn() merges an external className
+          // AFTER its own idle/error/recording border/bg/text classes, and
+          // tailwind-merge keeps only the LAST class in each conflict group — any
+          // border-*/bg-*/text-* passed here would silently delete MicButton's own
+          // state coloring (verified: idle/error/recording collapsed to one byte-
+          // identical class string). MicButton owns its complete resting + state
+          // skin already; nothing needs to be overridden.
         />
-        <button
-          type="button"
+        <IconButton
+          name="chevronDown"
+          label="More options"
           data-testid="dock-expander"
           onClick={onToggleExpand}
           aria-expanded={expanded}
-          aria-label="More options"
-          className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2 py-1 text-xs text-[var(--muted)] transition-colors duration-100 hover:text-[var(--text)]"
-        >
-          ⋯
-        </button>
-        <button
-          type="button"
+          variant="ghost"
+          size="sm"
+        />
+        <Button
+          variant="primary"
+          size="sm"
+          icon="send"
+          loading={busy}
+          disabled={!text.trim() || busy}
           data-testid="dock-send"
           onClick={onSend}
-          disabled={!text.trim() || busy}
-          className="flex-shrink-0 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--bg)] transition-opacity duration-100 hover:opacity-90 disabled:opacity-50"
         >
-          {busy ? '…' : 'Send'}
-        </button>
+          Send
+        </Button>
       </div>
       {expanded && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
@@ -159,7 +168,7 @@ function Composer({
             aria-label="Model override"
             value={model}
             onChange={e => onModelChange(e.target.value)}
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--muted)]"
+            className="rounded-control border border-border bg-surface px-2 py-1 text-[11px] text-muted"
           >
             <option value="default">model: default</option>
             {modelOptions.map(o => (
@@ -171,7 +180,7 @@ function Composer({
             aria-label="Force route"
             value={forceRoute}
             onChange={e => onForceRouteChange(e.target.value as '' | KForceRoute)}
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--muted)]"
+            className="rounded-control border border-border bg-surface px-2 py-1 text-[11px] text-muted"
           >
             {FORCE_ROUTE_OPTIONS.map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -180,7 +189,7 @@ function Composer({
         </div>
       )}
       {error && (
-        <p data-testid="dock-error" className="mt-1.5 text-[11px] text-[var(--red)]">
+        <p data-testid="dock-error" className="mt-1.5 text-[11px] text-red">
           ⚠ {error}
         </p>
       )}
@@ -485,7 +494,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
       testid="dock-undo-toast"
       durationMs={5000}
       resetKey={ask.pendingUndo?.key}
-      message={<>Sent to K · <span className="text-[var(--text)]">{ask.pendingUndo?.route.label}</span></>}
+      message={<>Sent to K · <span className="text-text">{ask.pendingUndo?.route.label}</span></>}
       action={{ label: 'Undo', testid: 'dock-undo', onClick: () => void ask.undo() }}
       onDismiss={ask.clearUndo}
     />
@@ -506,15 +515,15 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="dock-dispatch-heading"
-            className="glass glow-focus relative w-full max-w-md overflow-hidden rounded-xl"
+            className="glass-overlay relative w-full max-w-md overflow-hidden"
             variants={dialogCard} initial="hidden" animate="visible" exit="exit"
             onClick={e => e.stopPropagation()}
           >
-            <div id="dock-dispatch-heading" className="border-b border-[var(--border)] px-4 py-3 text-sm font-semibold text-[var(--text)]">
-              <span className="mr-2 text-[var(--accent)]">⚡</span>Compose &amp; dispatch
+            <div id="dock-dispatch-heading" className="border-b border-border px-4 py-3 text-sm font-semibold text-text">
+              <span className="mr-2 text-accent">⚡</span>Compose &amp; dispatch
             </div>
             <div className="px-4 pt-3">
-              <label htmlFor="dock-dispatch-compose" className="mb-1 block text-xs text-[var(--muted)]">Prompt</label>
+              <label htmlFor="dock-dispatch-compose" className="mb-1 block text-xs text-muted">Prompt</label>
               <AutoTextarea
                 id="dock-dispatch-compose"
                 ref={dispatchComposeRef}
@@ -523,41 +532,41 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                 onChange={e => setDispatchPrompt(e.target.value)}
                 onKeyDown={onDispatchComposeKeyDown}
                 placeholder="Describe the task for the agent…"
-                className="glow-focus w-full resize-none rounded-control border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--muted)] outline-none"
+                className="glow-focus w-full resize-none rounded-control border border-border bg-surface px-3 py-2 text-sm text-text placeholder-muted outline-none"
               />
-              <p className="mt-1 text-[10px] text-[var(--muted)]">
+              <p className="mt-1 text-[10px] text-muted">
                 <kbd className="mono">↵</kbd> send · <kbd className="mono">⇧↵</kbd> newline
               </p>
             </div>
             <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-2 px-4 py-3 text-xs">
-              <dt className="text-[var(--muted)]">Project</dt>
-              <dd className="text-[var(--text)]">
-                <span className="text-[var(--accent)]">{confirm.project.name}</span>
+              <dt className="text-muted">Project</dt>
+              <dd className="text-text">
+                <span className="text-accent">{confirm.project.name}</span>
               </dd>
-              <dt className="text-[var(--muted)]">Model</dt>
-              <dd className="text-[var(--text)]">
+              <dt className="text-muted">Model</dt>
+              <dd className="text-text">
                 <select
                   aria-label="Model"
                   data-testid="dock-dispatch-model"
                   value={dispatchModel}
                   onChange={e => setDispatchModel(e.target.value)}
-                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]"
+                  className="rounded-control border border-border bg-surface px-2 py-1 text-xs text-text"
                 >
                   {dispatchModelOptions.map(o => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
-                <span className="ml-2 text-[var(--muted)]">
+                <span className="ml-2 text-muted">
                   {dispatchModel === 'auto' ? 'routing may select another' : 'sent explicitly'}
                 </span>
               </dd>
-              <dt className="text-[var(--muted)]">Scope</dt>
-              <dd className="text-[var(--text)]">
+              <dt className="text-muted">Scope</dt>
+              <dd className="text-text">
                 {RUN_DEFAULTS.scope} · <span className="mono">{RUN_DEFAULTS.permissionMode}</span>{' '}
-                <span className="text-[var(--muted)]">({RUN_DEFAULT_CAVEATS.permissionMode})</span>
+                <span className="text-muted">({RUN_DEFAULT_CAVEATS.permissionMode})</span>
               </dd>
-              <dt className="text-[var(--muted)]">Mode</dt>
-              <dd className="text-[var(--text)]">
+              <dt className="text-muted">Mode</dt>
+              <dd className="text-text">
                 <label className="inline-flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
@@ -566,12 +575,12 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                     // Turning Interactive ON CLEARS plan-gate (not just masks its
                     // display) — one-shot-only, so the combo can never dispatch.
                     onChange={e => { setDispatchInteractive(e.target.checked); if (e.target.checked) setDispatchPlanGate(false) }}
-                    className="accent-[var(--accent)]"
+                    className="accent-accent"
                   />
                   <span>Interactive — answer the agent&apos;s questions mid-run</span>
                 </label>
                 {dispatchInteractive && (
-                  <span className="ml-1 block text-[10px] text-[var(--muted)]">Claude only · keeps the session open for follow-ups</span>
+                  <span className="ml-1 block text-[10px] text-muted">Claude only · keeps the session open for follow-ups</span>
                 )}
                 <label className="mt-1 inline-flex cursor-pointer items-center gap-2">
                   <input
@@ -580,36 +589,40 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                     checked={dispatchPlanGate && !dispatchInteractive}
                     disabled={dispatchInteractive}
                     onChange={e => setDispatchPlanGate(e.target.checked)}
-                    className="accent-[var(--accent)]"
+                    className="accent-accent"
                   />
                   <span>Plan first — review &amp; approve a plan before it implements</span>
                 </label>
               </dd>
             </dl>
             {dispatchError && (
-              <p data-testid="dock-dispatch-error" className="px-4 pb-2 text-[11px] text-[var(--red)]">⚠ {dispatchError}</p>
+              <p data-testid="dock-dispatch-error" className="px-4 pb-2 text-[11px] text-red">⚠ {dispatchError}</p>
             )}
-            <p className="border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted)]">
+            <p className="border-t border-border px-4 py-2 text-[11px] text-muted">
               {RUN_DEFAULT_CAVEATS.footer}
             </p>
-            <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-2.5">
-              <button
-                type="button"
-                onClick={cancelDispatch}
-                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--muted)] transition-colors duration-100 hover:text-[var(--text)]"
-              >
+            <div className="flex items-center gap-2 border-t border-border px-4 py-2.5">
+              {/* Cancel/Dispatch converted to the Button primitive per the brief's
+                  explicit example. Variant note: `variant="glass"` (glass-chrome) is
+                  NOT used here even though it would fit "Cancel" tonally — this button
+                  is a DOM child of the glass-overlay card above it, and stacking a
+                  second glass tier inside would be a disallowed nested backdrop-filter.
+                  ghost/primary are both plain (non-blurred) variants. */}
+              <Button type="button" variant="ghost" size="sm" onClick={cancelDispatch}>
                 Cancel <kbd className="mono ml-1 text-[10px]">esc</kbd>
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="primary"
+                size="sm"
+                className="ml-auto"
                 data-testid="dock-dispatch-run"
                 aria-label="Run dispatch"
                 disabled={dispatchBusy || !dispatchPrompt.trim()}
                 onClick={() => void fireDispatch()}
-                className="ml-auto rounded-lg border border-accent/50 bg-accent/20 px-3 py-1.5 text-xs font-medium text-[var(--accent-hover)] transition-colors duration-100 hover:bg-accent/30 disabled:opacity-50"
               >
                 {dispatchBusy ? '⏳ Dispatching…' : <>Dispatch <kbd className="mono ml-1 text-[10px]">↵</kbd></>}
-              </button>
+              </Button>
             </div>
           </motion.div>
         </motion.div>
@@ -620,7 +633,11 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   if (variant === 'bar') {
     return (
       <>
-        <footer data-testid="message-dock-bar" className="glass border-t px-4 py-2">
+        {/* glass-chrome supplies its own 4-side border shorthand; this sits flush at the
+            viewport bottom (a structural chrome bar, not a floating chip), so zero the
+            side/bottom edges and keep only the top hairline — matching --border (not
+            the tier's own --glass-tier-border), same convention as Sidebar/TopBar. */}
+        <footer data-testid="message-dock-bar" className="glass-chrome border-x-0 border-b-0 border-t border-[var(--border)] px-4 py-2">
           {composer}
         </footer>
         {undoToast}
@@ -639,14 +656,21 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
         data-testid="dock-fab"
         aria-label="Message K"
         onClick={() => setOpen(true)}
-        className="fixed bottom-4 right-4 z-40 grid h-12 w-12 place-items-center rounded-full bg-[var(--accent)] text-sm font-bold text-[var(--bg)] shadow-lg transition-transform duration-150 hover:scale-105"
+        // glass-overlay's own radius-lg is overridden by the plain `rounded-full`
+        // utility (utilities always win over the components-layer tier skin — see
+        // index.css). Solid accent fill swapped for the overlay tier so the fab
+        // reads as a floating glass surface; the 'K' glyph keeps blush for legibility.
+        className="glass-overlay fixed bottom-4 right-4 z-40 grid h-12 w-12 place-items-center rounded-full text-sm font-bold text-accent shadow-lg transition-transform duration-150 hover:scale-105"
       >
         K
         {inboxTotal > 0 && (
           <span
             data-testid="dock-fab-badge"
             title={`${inboxTotal} item${inboxTotal > 1 ? 's' : ''} waiting on you`}
-            className="absolute -right-1 -top-1 grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-[var(--amber)] px-1 text-[10px] font-bold text-[var(--bg)]"
+            // NOTE (intentional divergence, task-13 brief): blush, not the amber
+            // "needs attention" convention used elsewhere (e.g. sidebar-runs-badge) —
+            // the brief explicitly calls for `bg-accent text-on-accent` here.
+            className="mono absolute -right-1 -top-1 grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-accent px-1 text-[10px] font-bold text-on-accent"
           >
             {inboxTotal}
           </span>
@@ -661,14 +685,14 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
             role="dialog"
             aria-modal="true"
             aria-label="Message K"
-            className="glass-strong rounded-panel relative w-full max-w-sm overflow-hidden"
+            className="glass-overlay relative w-full max-w-sm overflow-hidden"
           >
-            <div data-testid="dock-thread-picker" className="max-h-56 overflow-y-auto border-b border-[var(--border)]">
+            <div data-testid="dock-thread-picker" className="max-h-56 overflow-y-auto border-b border-border">
               <button
                 type="button"
                 data-testid="dock-picker-new-chat"
                 onClick={() => selectThread(null)}
-                className="block w-full px-4 py-2 text-left text-xs text-[var(--accent-hover)] transition-colors duration-100 hover:bg-[var(--raised)]"
+                className="block w-full px-4 py-2 text-left text-xs text-accent-hover transition-colors duration-100 hover:bg-raised"
               >
                 + New chat
               </button>
@@ -679,8 +703,8 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                   data-testid={`dock-picker-thread-${t.id}`}
                   onClick={() => selectThread(t.id)}
                   aria-current={t.id === selected}
-                  className={`block w-full truncate px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-[var(--raised)] ${
-                    t.id === selected ? 'bg-[var(--raised)] text-[var(--text)]' : 'text-[var(--text)]'
+                  className={`block w-full truncate px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-raised ${
+                    t.id === selected ? 'bg-raised text-text' : 'text-text'
                   }`}
                 >
                   {t.title ?? 'New chat'}

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { setSessionToken, clearSessionToken } from '../lib/auth'
 import { api } from '../lib/api'
+import { Input } from '../ui/Field'
+import { Button } from '../ui/Button'
 
 /**
  * Remote-access login. Shown when a REST/WS call reports 401/4401 (no valid
@@ -47,38 +49,44 @@ export default function LoginScreen({
   }
 
   return (
-    <div className="grid h-screen place-items-center bg-[var(--bg)] text-[var(--fg)]">
+    // NOTE: the original wrapper referenced `text-[var(--fg)]` — `--fg` is not a
+    // declared token anywhere in index.css, so it was already inert (body's own
+    // `color: var(--text)` was doing the real work via inheritance). Corrected to
+    // the real token; the rendered color is unchanged.
+    <div className="grid h-screen place-items-center bg-bg text-text">
       <div className="ambient" aria-hidden />
       <form
         onSubmit={submit}
-        className="relative z-10 w-[min(92vw,380px)] rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+        className="glass-panel relative z-10 w-[min(92vw,380px)] p-6"
       >
         <h1 className="text-lg font-semibold">Harness access</h1>
         <p className="mt-1 text-sm opacity-70">
           Enter your harness token to connect. It was shown once during first-run
           setup.
         </p>
-        <input
+        <Input
           type="password"
           autoFocus
           value={token}
           onChange={(e) => setToken(e.target.value)}
           placeholder="HARNESS_TOKEN"
-          aria-invalid={error ? true : undefined}
-          className="mt-4 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-white/30"
+          invalid={!!error}
+          className="mt-4 w-full"
         />
         {error && (
-          <p data-testid="login-error" role="alert" className="mt-2 text-sm text-[var(--red)]">
+          <p data-testid="login-error" role="alert" className="mt-2 text-sm text-red">
             {error}
           </p>
         )}
-        <button
+        <Button
           type="submit"
-          disabled={!token.trim() || checking}
-          className="mt-3 w-full rounded-lg bg-white/10 px-3 py-2 text-sm font-medium hover:bg-white/20 disabled:opacity-40"
+          variant="primary"
+          loading={checking}
+          disabled={!token.trim()}
+          className="mt-3 w-full"
         >
           {checking ? 'Connecting…' : 'Connect'}
-        </button>
+        </Button>
       </form>
     </div>
   )

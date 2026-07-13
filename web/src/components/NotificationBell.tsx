@@ -6,6 +6,7 @@ import { navigate } from '../lib/route'
 import { relativeTime } from '../lib/verify'
 import { INBOX_KEY } from '../lib/inbox-query'
 import { cn } from '../lib/cn'
+import { Icon } from '../ui/Icon'
 import Toast from './Toast'
 
 /**
@@ -69,33 +70,35 @@ export default function NotificationBell() {
         aria-expanded={open}
         aria-label={unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'}
         onClick={() => setOpen(o => !o)}
-        className="relative flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+        className="relative flex h-8 w-8 items-center justify-center rounded-control text-muted transition-colors hover:text-text"
       >
-        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-        </svg>
+        <Icon name="bell" size={16} />
         {unread > 0 && (
-          <span data-testid="notif-unread-dot" className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--amber)] glow-live" />
+          <span data-testid="notif-unread-dot" className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber glow-live" />
         )}
       </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          {/* NOTE: stays an OPAQUE surface (surface-solid, not glass-panel) — this
+              popover is a DOM descendant of TopBar's glass-chrome header (via the
+              NotificationBell wrapper span), so a glass tier here would be a nested
+              backdrop-filter (disallowed) — same reasoning as Toast's notif-toast
+              path and TopBar's dock-launcher button. */}
           <div
             data-testid="notif-popover"
-            className="absolute right-0 top-10 z-50 w-80 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg"
+            className="surface-solid absolute right-0 top-10 z-50 w-80 overflow-hidden shadow-lg"
           >
-            <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
-              <span className="text-xs font-semibold text-[var(--text)]">
-                Notifications{unread > 0 && <span className="ml-1 text-[var(--muted)]">· {unread} unread</span>}
+            <div className="flex items-center justify-between border-b border-border px-3 py-2">
+              <span className="text-xs font-semibold text-text">
+                Notifications{unread > 0 && <span className="ml-1 text-muted">· {unread} unread</span>}
               </span>
               <button
                 data-testid="notif-mark-all"
                 onClick={() => markAll.mutate()}
                 disabled={notifications.length === 0 || markAll.isPending}
-                className="text-[11px] font-medium text-[var(--accent-hover)] transition-colors hover:underline disabled:opacity-40"
+                className="text-[11px] font-medium text-accent-hover transition-colors hover:underline disabled:opacity-40"
               >
                 Mark all read
               </button>
@@ -103,7 +106,7 @@ export default function NotificationBell() {
 
             <div className="max-h-96 overflow-y-auto">
               {notifications.length === 0 ? (
-                <p className="px-3 py-8 text-center text-xs text-[var(--muted)]">No notifications yet.</p>
+                <p className="px-3 py-8 text-center text-xs text-muted">No notifications yet.</p>
               ) : (
                 notifications.map(n => (
                   <button
@@ -111,15 +114,15 @@ export default function NotificationBell() {
                     data-testid={`notif-row-${n.id}`}
                     onClick={() => onRowClick(n)}
                     className={cn(
-                      'flex w-full flex-col items-start gap-0.5 border-b border-[var(--border)] px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-[var(--raised)]',
+                      'flex w-full flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-raised',
                       n.readAt != null && 'opacity-50',
                     )}
                   >
                     <div className="flex w-full items-center justify-between gap-2">
-                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--text)]">{n.title}</span>
-                      <span className="flex-shrink-0 text-[10px] text-[var(--muted)]">{relativeTime(n.createdAt)}</span>
+                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">{n.title}</span>
+                      <span className="mono flex-shrink-0 text-[10px] text-muted">{relativeTime(n.createdAt)}</span>
                     </div>
-                    {n.body && <span className="w-full truncate text-[11px] text-[var(--muted)]">{n.body}</span>}
+                    {n.body && <span className="w-full truncate text-[11px] text-muted">{n.body}</span>}
                   </button>
                 ))
               )}
@@ -128,7 +131,7 @@ export default function NotificationBell() {
         </>
       )}
 
-      <Toast open={toast != null} message={toast ?? ''} testid="notif-toast" onDismiss={() => setToast(null)} />
+      <Toast open={toast != null} message={toast ?? ''} kind="warning" testid="notif-toast" onDismiss={() => setToast(null)} />
     </span>
   )
 }

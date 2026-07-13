@@ -70,7 +70,7 @@ export default function Shell() {
   return (
     <MotionConfig reducedMotion="user">
     <div
-      className="grid h-screen grid-rows-[auto_1fr_auto] bg-[var(--bg)]"
+      className="grid h-screen grid-rows-[auto_1fr_auto] bg-bg"
       style={{ gridTemplateColumns: `${navCollapsed ? 60 : 220}px 1fr` }}
     >
       <div className="ambient" aria-hidden />
@@ -116,16 +116,20 @@ export default function Shell() {
         {chordArmed && (
           <motion.div
             data-testid="chord-pending"
-            className="fixed bottom-16 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--muted)] shadow-lg"
+            // A transient floating hint pill — same "glass-overlay" material as the
+            // dock-fab/dispatch-card, and (like them) a top-level sibling in Shell's
+            // tree, not a descendant of Sidebar/TopBar's glass-chrome, so no nested
+            // backdrop-filter risk.
+            className="glass-overlay fixed bottom-16 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 px-3 py-1.5 text-xs text-muted shadow-lg"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.12 }}
             aria-hidden
           >
-            <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--text)]">g</kbd>
+            <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-text">g</kbd>
             <span>then a destination —</span>
-            <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px]">?</kbd>
+            <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px]">?</kbd>
             <span>for the list</span>
           </motion.div>
         )}
@@ -142,27 +146,30 @@ export default function Shell() {
             aria-label="Keyboard shortcuts"
           >
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setLegendOpen(false)} />
+            {/* role="dialog" aria-modal centered card — the established glass-overlay
+                convention (Dialog.tsx, dock-dispatch-card, dock-overlay). Top-level
+                sibling in Shell's tree, so no nested backdrop-filter risk. */}
             <motion.div
               ref={legendCardRef}
               tabIndex={-1}
-              className="relative w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 outline-none"
+              className="glass-overlay relative w-full max-w-sm p-5 outline-none"
               initial={{ y: 12, scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 12, scale: 0.98 }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
             >
-              <h3 className="text-sm font-semibold text-[var(--text)]">Keyboard shortcuts</h3>
-              <p className="mt-1 text-xs text-[var(--muted)]">Press <kbd className="mono rounded bg-[var(--raised)] px-1 py-0.5 text-[10px]">?</kbd> any time to toggle this panel.</p>
+              <h3 className="text-sm font-semibold text-text">Keyboard shortcuts</h3>
+              <p className="mt-1 text-xs text-muted">Press <kbd className="mono rounded bg-raised px-1 py-0.5 text-[10px]">?</kbd> any time to toggle this panel.</p>
               <ul className="mt-4 flex flex-col gap-1.5">
                 <li className="flex items-center justify-between text-xs">
-                  <span className="text-[var(--text)]">Message K</span>
-                  <kbd className="mono rounded bg-[var(--raised)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">⌘K</kbd>
+                  <span className="text-text">Message K</span>
+                  <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">⌘K</kbd>
                 </li>
                 {CHORDS.map(c => (
                   <li key={c.key} className="flex items-center justify-between text-xs">
-                    <span className="text-[var(--text)]">{c.label}</span>
-                    <span className="mono text-[10px] text-[var(--muted)]">
-                      <kbd className="rounded bg-[var(--raised)] px-1.5 py-0.5">g</kbd>
+                    <span className="text-text">{c.label}</span>
+                    <span className="mono text-[10px] text-muted">
+                      <kbd className="rounded bg-raised px-1.5 py-0.5">g</kbd>
                       {' '}
-                      <kbd className="rounded bg-[var(--raised)] px-1.5 py-0.5">{c.key}</kbd>
+                      <kbd className="rounded bg-raised px-1.5 py-0.5">{c.key}</kbd>
                     </span>
                   </li>
                 ))}
