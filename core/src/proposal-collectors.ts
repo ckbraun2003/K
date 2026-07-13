@@ -12,9 +12,14 @@
  * no status filter, so it returns a cancelled row just as readily as a blocked/open one;
  * the dedupe check below (`if (proposalsDb.getProposalBySourceKey.get(...)) continue`)
  * therefore already treats "dismissed" as "already exists" and never re-proposes a
- * signal the operator dismissed. A genuine recurrence would need a NEW sourceKey (e.g. a
- * different CI run) to re-surface — that is the intended "don't nag again" semantics, not
- * a bug. This also means insertProposal is never reached for an existing key (dismissed or
+ * signal the operator dismissed. NOTE (honest limitation): the source_key is
+ * `<source>:<projectId>` with NO run/date discriminator, so this stickiness is broader than
+ * dismissal — once a project-keyed proposal exists in ANY status (including 'done' after being
+ * approved + resolved), that key is permanently deduped, so a GENUINE later recurrence (e.g. CI
+ * breaks again months later) is NOT re-surfaced until the row is cleared. This is a deliberate,
+ * documented limitation while autonomy is default-OFF; a tracked follow-up may scope the dedupe
+ * to live statuses (blocked/open/in_progress) so a resolved signal can re-propose while keeping
+ * 'cancelled' sticky. This also means insertProposal is never reached for an existing key (dismissed or
  * not), so the partial-unique index can only ever throw on a genuine concurrent-insert
  * race between the dedupe check and the insert — persistProposals below swallows that
  * specific race (unique-constraint) rather than crashing the collector tick.

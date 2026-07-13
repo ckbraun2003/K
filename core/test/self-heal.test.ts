@@ -70,6 +70,9 @@ describe('self-heal', () => {
     seedFailedRun('r1', 0, 'ECONNRESET')
     expect(await onRunTerminalForHeal({ id: 'r1', status: 'error' } as any)).toBe('retried')
     expect(startRunMock).toHaveBeenCalledTimes(1)
+    // The retry MUST inherit the original run's cwd — else startRun defaults to REPO_ROOT (K's repo)
+    // and a project-scoped retry runs against the wrong codebase (SEAMS M1).
+    expect(startRunMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ cwd: '.' }))
     const retry = db.prepare(`SELECT retry_of, retry_count FROM runs WHERE id='r1-retry'`).get() as any
     expect(retry.retry_of).toBe('r1'); expect(retry.retry_count).toBe(1)
   })

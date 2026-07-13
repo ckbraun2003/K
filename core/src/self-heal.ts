@@ -39,7 +39,7 @@ export async function onRunTerminalForHeal(run: Run, now = Date.now()): Promise<
   // branch a failed retry would find no owner → be orphaned (never re-healed, never parked)
   // and the retry ladder could never climb past retry_count=1.
   const owner = agentRunsDb.getAgentRunProfileByRunId.get(run.id) as { profile_id?: string } | undefined
-  const row = runsDb.getRun.get(run.id) as { model?: string; retry_count?: number; prompt?: string; project_id?: string | null; retry_of?: string | null } | undefined
+  const row = runsDb.getRun.get(run.id) as { model?: string; retry_count?: number; prompt?: string; project_id?: string | null; retry_of?: string | null; cwd?: string | null } | undefined
   if (!row) return 'skipped'
   if (!owner?.profile_id && !row.retry_of) return 'skipped'
   const stderr = runErrorText(run.id)
@@ -53,7 +53,9 @@ export async function onRunTerminalForHeal(run: Run, now = Date.now()): Promise<
 
   if (isRetryable(cls) && retryCount < MAX_RETRIES && fb && headroom) {
     try {
-      const retry = await startRun(String(row.prompt ?? ''), { model: fb, projectId: row.project_id ?? undefined })
+      // Preserve the original run's working dir — else startRun defaults cwd to REPO_ROOT (K's own
+      // repo), so a project-scoped retry would run the project goal against K's codebase.
+      const retry = await startRun(String(row.prompt ?? ''), { model: fb, projectId: row.project_id ?? undefined, cwd: row.cwd ?? undefined })
       retryDb.setRunRetry.run({ id: retry.id, retryOf: run.id, retryCount: retryCount + 1 })
       eventBus.broadcast({ type: 'run_retried', originalRunId: run.id, retryRunId: retry.id, failureClass: cls })
       return 'retried'
