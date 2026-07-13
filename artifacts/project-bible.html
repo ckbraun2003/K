@@ -201,7 +201,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-12 18:20</span><br>
+      compiled <span class="mono">2026-07-13 10:33</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -248,11 +248,7 @@ redesign.</li>
 output still lands as a durable artifact, run record, or PR; the chat directs work, it never
 replaces the audit trail.</li>
 </ul>
-<div class="live-stats">
-      <div class="stat"><span class="stat-label">TOTAL RUNS</span><span class="stat-value">84</span></div>
-      <div class="stat"><span class="stat-label">TOKENS</span><span class="stat-value">3.2M</span></div>
-      <div class="stat"><span class="stat-label">COST</span><span class="stat-value">$5.82</span></div>
-    </div>
+<div class="live-empty">— no run data yet —</div>
 
     </section>
 
@@ -1457,11 +1453,7 @@ see §03 <em>Reused connectors</em>).</p>
 </ul>
 <h2>Lifecycle</h2>
 <p><code>registered → onboarded (invariants satisfied) → active (runs/PRs flowing) → idle (no activity N days) → archived (hidden from home, data retained)</code></p>
-<table><thead><tr><th>project</th><th>health</th><th>last verified</th></tr></thead><tbody><tr><td>jarvis-core</td>
-        <td><span class="dot dot-amber"></span><span class="mono">—</span></td>
-        <td>never</td></tr><tr><td>k</td>
-        <td><span class="dot dot-amber"></span><span class="mono">—</span></td>
-        <td>never</td></tr></tbody></table>
+<div class="live-empty">— no registered project data yet —</div>
 
     </section>
 
@@ -1749,41 +1741,7 @@ every open. Everything else — building, seeding, the dashboard, all tests — 
 this phase (rewiring it onto the behavioral subsystem is a deferred follow-on); the new subsystem stands
 alongside it. <strong>P5 extension:</strong> it is built to add <strong>DB-sourced <code>AgentProfile</code>s</strong> as eval systems, so the
 agent org can be evaluated as it comes online.</p>
-<table><thead><tr><th>run</th><th>prompt</th><th>status</th><th>cost</th><th>started</th></tr></thead><tbody><tr>
-      <td>1c5ddc98</td>
-      <td>You: Hello, this is chat two
-(You are K, the secretary front doo…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.071</td>
-      <td>2026-07-11 21:10</td>
-    </tr><tr>
-      <td>9e2b70bb</td>
-      <td>You: Hello, this is chat one
-(You are K, the secretary front doo…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.071</td>
-      <td>2026-07-11 21:10</td>
-    </tr><tr>
-      <td>dde1c896</td>
-      <td>You: Hello, this is chat one
-(You are K, the secretary front doo…</td>
-      <td><span class="dot dot-amber"></span>interrupted</td>
-      <td>$0.000</td>
-      <td>2026-07-11 21:07</td>
-    </tr><tr>
-      <td>f0fef5d9</td>
-      <td>You: Hello, this is chat one
-(You are K, the secretary front doo…</td>
-      <td><span class="dot dot-amber"></span>interrupted</td>
-      <td>$0.000</td>
-      <td>2026-07-11 21:06</td>
-    </tr><tr>
-      <td>bb13ee9a</td>
-      <td>Autonomous org check-in: review active leads and open objectives…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.204</td>
-      <td>2026-07-11 21:00</td>
-    </tr></tbody></table>
+<div class="live-empty">— no run data yet —</div>
 
     </section>
 
@@ -1792,7 +1750,7 @@ agent org can be evaluated as it comes online.</p>
         <span class="section-icon">▣</span>
         <h1>Dashboard — Command Deck</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-11</span>
+        <span class="section-updated mono">updated 2026-07-13</span>
       </header>
       <p>The dashboard is the <strong>window into the agent organization</strong> (§03) — held to product quality, not
 internal-tool quality. <strong>UI Simplification (D-101..D-106)</strong> re-frames it a second time: P4's
@@ -2338,72 +2296,260 @@ and dispatch actions ("fix failing tests here", "explain this subsystem").</li>
 <li><strong>Interactions:</strong> scroll = zoom, drag = pan, <code>f</code> = fit, search dims non-matches in place.</li>
 <li>Health/status colors the graph — failing modules glow red, untested amber, healthy blush.</li>
 </ul>
-<h2>Design tokens (vivid midnight-glass — evolve, D-024)</h2>
+<h2>Design tokens (vivid midnight-glass — UI Polish, D-107)</h2>
 <p>Values remain the single source in <code>web/src/index.css</code> <code>:root</code>, mirrored into
-<code>web/tailwind.config.ts</code> and <code>core/src/ui-artifact.ts</code> (the <code>ui-demo</code> inline CSS). Change all three
-together.</p>
+<code>web/tailwind.config.ts</code> (Tailwind's semantic <code>colors</code>/<code>borderRadius</code>/<code>fontSize</code>/<code>fontFamily</code>
+extensions) and <code>core/src/ui-artifact.ts</code> (the <code>ui-demo</code> inline CSS) — change all three together
+(D-024's rule, unchanged by this program).</p>
+<p><strong>Palette</strong> (unchanged): <code>bg</code> <code>#1b1030</code> / <code>surface</code> <code>#2a1a47</code> / <code>raised</code> <code>#33205c</code>; hairline border
+<code>#3a2a5c</code> / strong border <code>#4a3775</code>; <code>text</code> <code>#f4f0ff</code> / <code>muted</code> <code>#b3a6cd</code>; accent — <strong>blush</strong>
+<code>#ff8fc0</code> (fills/active pills/badges) — accent-hover — <strong>sky</strong> <code>#38bdf8</code> (hover/active/focus);
+<code>--on-accent</code> <code>#241640</code> (dark text on accent fills, WCAG AA — white-on-blush fails); status
+green/amber/red <code>#34d399</code>/<code>#fbbf24</code>/<code>#f87171</code>. The <code>--chart-1..8</code> + <code>--chart-other</code> dataviz palette
+is the same family with exactly ONE token changed this program: <strong><code>--chart-8</code></strong> <code>#818cf8</code> →
+<strong><code>#6366f1</code></strong> — a CVD validator run against the real dark surface (<code>#2a1a47</code>) found the adjacent
+chart-7↔chart-8 pair failing protanopia contrast (ΔE 1.1); the same-hue snap to <code>#6366f1</code> passes
+(ΔE 15.4). The validator's lightness-band check still fails all 8 chart tokens against a generic
+dark-surface heuristic — accepted as non-actionable: the palette is brand-locked, contrast ≥3:1
+still holds, and the dataviz mitigations (legend for ≥2-series charts, selective direct labels,
+text-token colors for text) carry the rest.</p>
+<p><strong>Glass tiers</strong> (<code>@layer components</code>, <code>web/src/index.css</code>) — FOUR explicit tiers, picked by role,
+not a single hero/non-hero switch:</p>
 <table>
 <thead>
 <tr>
-<th>Token</th>
-<th>Value</th>
+<th>Class</th>
+<th>Background</th>
+<th>Blur</th>
+<th>Radius</th>
+<th>Used for</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>bg / surface / raised</td>
-<td><code>#1a0f2e</code> / <code>#241640</code> / <code>#2e1b52</code> (midnight purple)</td>
+<td><code>.glass-chrome</code></td>
+<td><code>--glass-chrome-bg</code> rgba(42,26,71,.55)</td>
+<td><code>blur(24px) saturate(1.4)</code></td>
+<td>(caller's)</td>
+<td>persistent shell chrome — Sidebar, TopBar, the Message Dock bar</td>
 </tr>
 <tr>
-<td>hairline border</td>
-<td><code>1px #3a2a5c</code></td>
+<td><code>.glass-panel</code></td>
+<td><code>--glass-panel-bg</code> rgba(42,26,71,.72)</td>
+<td><code>blur(16px) saturate(1.2)</code></td>
+<td>18px</td>
+<td>in-flow cards/panels — widget cells, KPI tiles, summary cards</td>
 </tr>
 <tr>
-<td>text / muted</td>
-<td><code>#f4f0ff</code> / <code>#a99bc4</code></td>
+<td><code>.glass-overlay</code></td>
+<td><code>--glass-overlay-bg</code> rgba(51,32,92,.82)</td>
+<td><code>blur(28px) saturate(1.4)</code></td>
+<td>18px</td>
+<td>floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay</td>
 </tr>
 <tr>
-<td>accent — fills / active / badges</td>
-<td><strong>blush</strong> <code>#ff8fc0</code></td>
-</tr>
-<tr>
-<td>accent-hover — hover / active / focus</td>
-<td><strong>sky</strong> <code>#38bdf8</code></td>
-</tr>
-<tr>
-<td>status</td>
-<td><code>#34d399</code> · <code>#fbbf24</code> · <code>#f87171</code></td>
-</tr>
-<tr>
-<td>glass</td>
-<td>bg <code>rgba(46,27,82,.55)</code> · border <code>rgba(255,143,192,.16)</code> · tint <code>rgba(255,143,192,.10)</code> · <code>blur(24px) saturate(180%)</code></td>
-</tr>
-<tr>
-<td>type</td>
-<td>Inter 13/14px UI · JetBrains Mono for numerals, ids, code</td>
-</tr>
-<tr>
-<td>radius</td>
-<td>18px panels · 14px controls · 10px small (rounder, liquid-glass)</td>
-</tr>
-<tr>
-<td>motion</td>
-<td>150ms ease-out micro · 250ms stage transitions · pulse only on genuinely live elements</td>
+<td><code>.surface-solid</code></td>
+<td><code>--surface</code> (opaque)</td>
+<td>none</td>
+<td>14px</td>
+<td>dense repeated rows — fleet/roster grids, list rows</td>
 </tr>
 </tbody></table>
-<p><strong>Rules:</strong> color carries meaning or stays out; the accent is split — <strong>blush</strong> for fills/active,
-<strong>sky</strong> for hover/active/focus; <strong>accent FILLS use dark <code>--bg</code> text</strong> (white on light blush fails
-WCAG AA); glass is reserved for hero surfaces (Message Dock, dialogs, inspector, Home Chat) while
-dense data views stay opaque; every number is mono so columns of metrics align.</p>
-<h2>Component inventory (shadcn/ui base)</h2>
-<p>Card · Tabs · SegControl · Badge · Tooltip · Dialog (escalation confirm-cards only) · Table
-(runs/PRs) · Resizable panels (graph + inspector, orchestrator editors + authority-override panel) ·
-Sonner toasts (toast-with-link + the 5 s undo toast) — plus custom: <strong>MessageDock</strong> (bar/float, the
-one front-door composer), <strong>DelegationTree</strong> (one component, reused at whole-org and one-lead
-scope), MetricCard, ProjectCard, GraphCanvas, NodeInspector, RunConsole, ToolCall (rich console),
-AuthorityPanel (org-default in Settings · per-lead override on detail), CharterEditor, <strong>MicButton</strong>
-(push-to-talk), a <strong>LocalModels</strong> manager (catalog + pull progress + active selector), a slim
-OrgCard/roster card, and the <strong>widget grid</strong> (<code>WidgetShell</code> chrome + <code>WidgetErrorBoundary</code> per
-catalog widget).</p>
+<p>Each blurred tier carries an <code>@supports not (backdrop-filter: blur(1px))</code> opaque fallback
+(<code>.glass-chrome</code>→<code>--surface</code>, <code>.glass-panel</code>/<code>.glass-overlay</code>→<code>--raised</code>) so a browser without
+backdrop-filter support never renders transparent text-on-text.</p>
+<p><strong>Rules — supersedes D-013/D-024's hero-only-glass binary.</strong> The old rule ("glass is reserved for
+hero surfaces… dense data views stay opaque") couldn't express <em>which</em> surface counts as hero or
+what happens when two glass surfaces would nest. The shipped rule is graded: <strong>(1)</strong> pick the tier
+by role (table above), not a single hero/non-hero split; <strong>(2) no nested backdrop-filter, ever</strong> —
+a glass element that is a DOM descendant of another glass element drops to <code>surface-solid</code> or a
+hand-rolled substitute (verified component-by-component during the build — e.g. TopBar's dock-
+launcher button and NotificationBell's popover stay <code>surface-solid</code> because both are DOM children
+of TopBar's own <code>glass-chrome</code> <code>&lt;header&gt;</code>); <strong>(3)</strong> a soft <strong>≤6 simultaneously-blurred-regions-per-
+viewport budget</strong>, checked by a per-wave visual pass at 1440×900 and a final whole-app sweep — a
+manual review discipline, not an automated test — that pushes a view over budget (an 11-tile KPI
+row, a large fleet/roster grid) onto <code>tier="solid"</code> instead; <strong>(4)</strong> dense data still defaults to
+opaque, unchanged from D-013/D-024.</p>
+<p><strong>Shadow ramp:</strong> <code>--shadow-1</code> <code>0 2px 8px rgba(10,4,24,.35)</code> · <code>--shadow-2</code> <code>0 6px 24px rgba(10,4,24,.45)</code> · <code>--shadow-3</code> <code>0 16px 48px rgba(10,4,24,.60)</code> — chrome/panel/overlay use
+1/2/3 respectively (deeper tier, deeper shadow).</p>
+<p><strong>Motion tokens:</strong> <code>--dur-1</code> 120ms · <code>--dur-2</code> 180ms · <code>--dur-3</code> 240ms · <code>--ease</code>
+<code>cubic-bezier(0.2,0,0,1)</code> — button/input transitions run on <code>--dur-1</code>; the skeleton shimmer sweep
+(below) is a separate 1.6s cycle; <code>prefers-reduced-motion</code> zeroes the ambient drift, live-glow
+pulse, and shimmer animations.</p>
+<p><strong>Type scale</strong> (<code>web/tailwind.config.ts</code> <code>fontSize</code> extension, not in <code>index.css</code>): <code>display</code>
+24px/32px/600 · <code>title</code> 16px/24px/600 · <code>body</code> 14px/22px · <code>label</code> 12px/16px/500 · <code>caption</code>
+11px/14px · <code>micro</code> 10px/12px (the <code>.micro-label</code> CSS class layers on uppercase + 0.08em tracking +
+<code>--muted</code> for kicker/section-header text). <code>Inter Variable</code> (self-hosted
+<code>@fontsource-variable/inter</code>) for UI text, <code>JetBrains Mono</code> (self-hosted
+<code>@fontsource/jetbrains-mono</code>) for numerals/ids/code; <code>body { font-variant-numeric: tabular-nums; }</code>
+is global, plus an explicit <code>.mono</code> utility for monospace runs — every number is mono so columns of
+metrics align.</p>
+<p><strong>Radii:</strong> <code>--radius-lg</code> 18px (panels) · <code>--radius</code> 14px (controls), mirrored as Tailwind
+<code>rounded-panel</code>/<code>rounded-control</code>; <code>--radius-sm</code> 10px (small surfaces — e.g. the skeleton shimmer,
+<code>index.css</code>'s <code>.shimmer</code> rule) is consumed directly via <code>border-radius: var(--radius-sm)</code>, with no
+Tailwind utility mirror. <code>rounded-pill</code> is a separate, unrelated Tailwind radius (<code>9999px</code>, fully
+round) for badges/dots/tags — not tied to the 10px small-radius value.</p>
+<p><strong>Runtime token access outside the DOM:</strong> <code>web/src/lib/tokens.ts</code> exports a hand-kept
+<code>TOKEN_FALLBACKS</code> hex mirror of <code>index.css</code>'s <code>:root</code> plus <code>readToken(name)</code> (reads
+<code>getComputedStyle</code> when <code>window</code> exists, else the mirror) — used by the canvas-rendered
+graph/health surfaces and by jsdom tests, neither of which can resolve a live CSS custom property.
+<code>lib/tokens.ts</code> and <code>index.css</code> are the only two files exempt from the ui-token gate (below).</p>
+<h2><code>web/src/ui/</code> primitive kit + Tabs/SegControl</h2>
+<p><code>web/src/ui/</code> is <strong>14 files exporting 19 named primitives</strong>, hand-authored on
+<code>@radix-ui/react-dialog</code> + <code>@radix-ui/react-tooltip</code> (unstyled behavior primitives) and Tailwind —
+not a shadcn/ui copy-paste base:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Exports</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Button.tsx</code></td>
+<td><code>Button</code>, <code>IconButton</code></td>
+<td>4 variants (primary/glass/ghost/danger) × 2 sizes (sm/md); <code>loading</code> swaps in <code>Spinner</code>; <code>IconButton</code> is a square <code>Button</code> wrapping one <code>Icon</code> with a required <code>label</code></td>
+</tr>
+<tr>
+<td><code>Dialog.tsx</code></td>
+<td><code>Dialog</code></td>
+<td>Radix root/portal/overlay/content, <code>glass-overlay</code> tier, built-in title + close + footer slots</td>
+</tr>
+<tr>
+<td><code>EmptyState.tsx</code></td>
+<td><code>EmptyState</code></td>
+<td>icon bubble (its own <code>.glass-panel</code>) + headline + optional hint/action</td>
+</tr>
+<tr>
+<td><code>ErrorState.tsx</code></td>
+<td><code>ErrorState</code></td>
+<td><code>role="alert"</code>, message + optional Retry <code>Button</code></td>
+</tr>
+<tr>
+<td><code>Field.tsx</code></td>
+<td><code>Input</code>, <code>Textarea</code>, <code>Select</code></td>
+<td>one shared skin string + an <code>invalid</code> boolean → red border + <code>aria-invalid</code></td>
+</tr>
+<tr>
+<td><code>GlassPanel.tsx</code></td>
+<td><code>GlassPanel</code></td>
+<td>polymorphic (<code>as</code>), <code>tier</code> ∈ chrome/panel/overlay/solid, <code>interactive</code> adds <code>.card-lift</code> hover</td>
+</tr>
+<tr>
+<td><code>Icon.tsx</code></td>
+<td><code>Icon</code>, <code>ICONS</code>, <code>IconName</code></td>
+<td>33-entry <code>lucide-react</code> map (below)</td>
+</tr>
+<tr>
+<td><code>KpiTile.tsx</code></td>
+<td><code>KpiTile</code></td>
+<td>label/value/optional <code>delta</code> (<code>{pct, polarity}</code> — <code>goodUp</code>/<code>badUp</code> decides green vs red independent of the raw sign); <code>tier</code> ∈ panel/solid</td>
+</tr>
+<tr>
+<td><code>SectionHeader.tsx</code></td>
+<td><code>SectionHeader</code></td>
+<td><code>.micro-label</code> kicker + optional count pill + right-aligned action slot; <code>as</code> ∈ <code>h2</code>/<code>h3</code>/<code>span</code> (default <code>span</code>)</td>
+</tr>
+<tr>
+<td><code>Skeleton.tsx</code></td>
+<td><code>Skeleton</code>, <code>SkeletonRow</code>, <code>SkeletonTile</code></td>
+<td>shimmer primitives (below)</td>
+</tr>
+<tr>
+<td><code>Spinner.tsx</code></td>
+<td><code>Spinner</code></td>
+<td>inline SVG ring, <code>role="status"</code></td>
+</tr>
+<tr>
+<td><code>StatusPill.tsx</code></td>
+<td><code>StatusPill</code></td>
+<td>dot + label (below)</td>
+</tr>
+<tr>
+<td><code>Tag.tsx</code></td>
+<td><code>Tag</code></td>
+<td>3 tints (neutral/accent/sky) + optional dismiss button</td>
+</tr>
+<tr>
+<td><code>Tooltip.tsx</code></td>
+<td><code>Tooltip</code></td>
+<td>Radix root, <code>glass-overlay</code> content, 300ms delay</td>
+</tr>
+</tbody></table>
+<p><strong><code>Icon</code>'s 33-icon set</strong> is the ONLY file in <code>web/src</code> importing from <code>lucide-react</code> — every other
+icon usage goes through <code>Icon</code>/<code>ICONS</code>/<code>IconName</code>, so the icon set is a closed, typed vocabulary
+rather than an open door to any lucide glyph. <code>size</code> is constrained to <code>14 | 16 | 20</code>; a <code>label</code>
+prop toggles between <code>aria-hidden</code> (decorative) and <code>aria-label</code> (meaningful).</p>
+<p><strong><code>StatusPill</code></strong> merges <code>runStatusMeta</code> / <code>agentRunStatusMeta</code> / <code>delegationStatusMeta</code>
+(<code>lib/status.ts</code>, E-11/D-100 — each individually default-less/exhaustive over its own status union)
+into one lookup keyed by status string, with its own <code>?? idle</code> fallback so an unrecognized string
+never throws. It renders a small <code>aria-hidden</code> color <strong>dot</strong> (<code>meta.dot</code>) next to an uppercase
+<strong>text label</strong> (<code>meta.text</code> color, <code>meta.label</code> or a caller override) — precisely <em>dot + label</em>,
+not <em>icon + label</em>: the dot is a decorative color swatch, never a <code>lucide</code> <code>Icon</code> instance. The
+governing rule is broader than StatusPill alone — <strong>color never carries meaning alone</strong> — and both
+patterns satisfy it: StatusPill by always pairing its dot with a readable word, other status sites
+(e.g. <code>ProjectCard</code>'s CI line) by pairing a real <code>Icon</code> with visible text.</p>
+<p>Two shared components live in <code>web/src/components/</code>, not <code>web/src/ui/</code>, because they predate this
+program (P4 E-30) and were reskinned onto the new tokens rather than rebuilt:</p>
+<ul>
+<li><strong><code>Tabs.tsx</code></strong> — the one canonical underline tab bar (<code>role="tablist"</code>/<code>aria-selected</code>), generic
+over a caller's value union.</li>
+<li><strong><code>SegControl.tsx</code></strong> — the one canonical pill segmented control (<code>role="group"</code>/<code>aria-pressed</code>),
+with <code>size</code>/<code>activeTone</code>/per-option <code>icon</code>/<code>count</code>/<code>disabled</code>.</li>
+</ul>
+<p>Higher-level composite components — MessageDock, DelegationTree, RunConsole, ProjectCard, the
+fleet/project GraphCanvas + NodeInspector, MicButton, CharterEditor, the AuthorityPanel,
+LocalModels, and the widget grid's <code>WidgetShell</code>/<code>WidgetErrorBoundary</code> — are unchanged in structure
+by this program (restyled onto the tiers/tokens above, not rebuilt) and stay documented in their
+own sections earlier on this page (Message Dock, Agents hub, Runs, Knowledge graph spec, Settings +
+Help, Home — Overview).</p>
+<h2>Loading, empty &amp; error states</h2>
+<ul>
+<li><strong>Initial / no-cached-data loads</strong> (<code>isPending</code> on the view's primary <code>useQuery</code>) render the
+<strong>Skeleton primitives</strong> (<code>Skeleton</code>, <code>SkeletonRow</code>, <code>SkeletonTile</code> — <code>web/src/ui/Skeleton.tsx</code>),
+each an <code>aria-hidden</code> block driven by the <code>.shimmer</code> CSS class (<code>index.css</code>: a ~1.6s
+linear-gradient sweep, <code>@keyframes shimmer</code>, disabled under <code>prefers-reduced-motion</code>).
+<code>SkeletonTile</code> bakes in its own <code>.glass-panel</code> tier, so a caller already inside a <code>glass-panel</code>
+ancestor cannot use it directly (nested backdrop-filter is banned) and must hand-roll bare
+<code>Skeleton</code> pieces instead — <code>ActiveRunsWidget.tsx</code> is the reference pattern, inline-commented.
+<code>EmptyState</code> has the same <code>.glass-panel</code>-icon-bubble limitation (its icon sits in a <code>glass-panel rounded-pill</code> wrapper); <code>ErrorState</code> does not — its container is opaque (<code>bg-surface border border-red/30</code>) with a bare, unwrapped icon, so it nests safely anywhere already. Widening
+<code>EmptyState</code>/<code>SkeletonTile</code> to accept a <code>tier?: 'panel' | 'solid'</code> prop (mirroring
+<code>KpiTile</code>/<code>GlassPanel</code>) is a tracked, unshipped follow-up (FU-2), not yet done.</li>
+<li><strong>Background refetches</strong> of an already-populated view (e.g. a <code>refetchInterval</code> poll) do <strong>not</strong>
+show a skeleton or any shimmer/glint overlay — TanStack Query's default stale-while-revalidate
+behavior swaps in fresh data silently once it lands. The <code>days</code>-windowed Insights tabs
+additionally pass <code>placeholderData: keepPreviousData</code> so switching the 14/30/60-day toggle keeps
+the outgoing window's numbers on screen (no flash-to-empty) until the new window resolves —
+there is no separate visual affordance for "a refetch is in flight."</li>
+<li><strong>Empty results</strong> render <code>EmptyState</code> (icon + headline + optional hint/action); <strong>fetch failures</strong>
+render <code>ErrorState</code> (<code>role="alert"</code>, message + optional Retry <code>Button</code>) — both <code>web/src/ui/</code>.</li>
+</ul>
+<h2>Governance: the ui-token gate (<code>web/test/ui-token-gate.test.ts</code>)</h2>
+<ul>
+<li>A vitest suite walks every <code>.ts(x)</code>/<code>.css</code> file under <code>web/src</code> (excluding <code>index.css</code> and
+<code>lib/tokens.ts</code>) and fails any file matching a raw Tailwind palette utility (e.g. <code>text-red-500</code>,
+<code>bg-slate-900</code> — regex over the full Tailwind color-name list) or a raw hex/rgb literal
+(longest-alternative-first, so an 8/4-digit alpha hex can't slip past a shorter partial match).
+Every color must instead resolve through a CSS custom property (<code>var(--…)</code>) or its Tailwind
+semantic class (<code>bg-accent</code>, <code>text-red</code>, …).</li>
+<li><code>web/test/ui-token-allowlist.json</code> lists files still permitted to violate the gate. A second test
+in the same suite asserts every listed file still exists <strong>and still actually violates</strong> — a
+stale entry (a file since cleaned up) fails CI, so the list can only shrink honestly, never
+accumulate dead exemptions.</li>
+<li>The allowlist was seeded with the gate test itself (~task 3) and shrank wave by wave (primitives
+batch removed <code>ConfirmDialog.tsx</code>; the palette task took it 10→9; later page waves took it to 2
+remaining entries) until Task 22 (commit <code>fcc3284</code>) tokenized the last two files and reached
+<strong><code>[]</code> — empty</strong>. The suite today runs <code>it.each</code> over literally every source file with zero
+exemptions.</li>
+<li><code>lib/tokens.ts</code> is the ONE file exempt from the gate entirely (<code>EXEMPT</code> set in
+<code>ui-token-gate.test.ts</code>), for its <code>TOKEN_FALLBACKS</code> hex mirror (above). Every other file,
+including <code>pages/TerminalPage.tsx</code>, is fully gate-compliant with zero exemption: xterm's canvas
+theme option cannot consume a CSS <code>var()</code> directly, so <code>TerminalPage.tsx</code> reads the color via
+<code>readToken('--terminal-bg')</code> (a JS read through <code>lib/tokens.ts</code>, not a raw literal) and its two
+DOM-styled panes use <code>var(--terminal-bg)</code> inline — Task 22 (commit <code>fcc3284</code>) removed the file's
+prior raw hex literals and moved it onto the token, which is why the allowlist could drop it and
+still reach empty.</li>
+</ul>
 <h2>Accessibility &amp; quality bar</h2>
 <p>Full keyboard navigation (sidebar <code>g</code> chords, <code>j/k</code> lists, Ctrl/Cmd+K everywhere) · visible focus
 rings (accent) · WCAG AA contrast on all text · reduced-motion respects OS setting · 60fps graph
@@ -2828,7 +2974,7 @@ of invented numbers).</p>
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-11</span>
+        <span class="section-updated mono">updated 2026-07-13</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -3689,6 +3835,14 @@ of invented numbers).</p>
 <td><strong>Every view string removed from <code>KNOWN_VIEWS</code> by this restructure keeps a <code>VIEW_REDIRECTS</code> entry mapping it (and its param/sub-param, where the destination can consume them) to its new home; <code>useHashRoute</code> applies the redirect via <code>history.replaceState</code> (never a push), so a bookmarked or shared legacy hash still lands correctly and Back never bounces through a dead intermediate hash.</strong></td>
 <td>Silently 404-ing a link that worked yesterday breaks bookmarks, shared URLs, and muscle memory for no operator benefit; <code>replaceState</code> specifically (not a normal navigate) avoids a Back-button trap where Back from the canonical page would return to the legacy hash, which immediately re-redirects forward again.</td>
 <td>Routing every removed hash to the 404 page with a manual "did you mean" link (an unnecessary extra click for a redirect the router can resolve deterministically); a server-side redirect table (the app is a static SPA with hash routing — there is no server request to intercept).</td>
+</tr>
+<tr>
+<td>D-107</td>
+<td>2026-07-13</td>
+<td>UI Polish — liquid-glass design system: 4 tiers, gated icon set, 19-primitive kit, empty token gate</td>
+<td><strong>A 26-task program re-skins the dashboard onto FOUR explicit glass tiers (<code>glass-chrome</code>/<code>glass-panel</code>/<code>glass-overlay</code>/<code>surface-solid</code>, picked by role with a hard no-nested-backdrop-filter rule and a reviewed ≤6-blurred-regions-per-viewport budget, replacing D-013/D-024's hero-only/dense-opaque binary); the full <code>lucide-react</code> icon set is closed behind <code>ui/Icon</code>'s 33-entry <code>ICONS</code> map (the only file in <code>web/src</code> importing the library directly); a 14-file, 19-named-component primitive kit ships at <code>web/src/ui/</code> (Button/IconButton, Dialog, EmptyState, ErrorState, Input/Textarea/Select, GlassPanel, Icon, KpiTile, SectionHeader, Skeleton/SkeletonRow/SkeletonTile, Spinner, StatusPill, Tag, Tooltip) alongside the pre-existing canonical Tabs/SegControl; and <code>web/test/ui-token-gate.test.ts</code>'s allowlist — seeded at the program's start and shrunk wave by wave — reaches EMPTY (<code>[]</code>, commit <code>fcc3284</code>), so every color in <code>web/src</code> now routes through a token or its Tailwind semantic class with zero exemptions.</strong></td>
+<td>The prior binary (glass on hero surfaces, opaque on dense data) couldn't express nesting (a dialog floating over an already-glass chrome) or a numeric blur budget (an 11-tile KPI row blows the frame-rate budget even though KPI tiles read as a hero surface) — a graded, role-based tier system with an explicit nesting rule replaces per-component ad hoc calls with one discipline; gating icons behind one typed map keeps the icon vocabulary closed and auditable; a shrinking-to-empty allowlist makes "no raw color left in the app" a verifiable, continuously-enforced fact rather than a one-time claim. The <code>--chart-1..8</code> dataviz palette was validated, not redesigned — a CVD check against the real dark surface caught one failing adjacent pair (chart-7↔chart-8, ΔE 1.1) fixed by snapping <code>--chart-8</code> to <code>#6366f1</code> (ΔE 15.4); a separate lightness-band check fails all 8 tokens against a generic heuristic and is accepted as non-actionable since the palette is brand-locked and contrast ≥3:1 still holds.</td>
+<td>A single opaque/glass switch per component (already broken by nesting cases the program had to resolve one-by-one); an automated blur-region-count lint (no static check reliably counts simultaneously-rendered, responsive-layout-dependent blur regions — kept as a manual per-wave and whole-app visual review instead); repainting the chart palette wholesale to satisfy the lightness-band heuristic (palette is brand-locked; the one real contrast failure needed only a single-token snap).</td>
 </tr>
 </tbody></table>
 
