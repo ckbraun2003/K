@@ -185,6 +185,36 @@ body { font-variant-numeric: tabular-nums; }
   .glass-chrome { background: var(--surface); }
   .glass-panel, .glass-overlay { background: var(--raised); }
 }
+/* ── LG2 refraction (impressive-wave W0.4) — Chromium-first, strictly additive.
+   The refract layer is a ::after of the SAME tier element (never a second tier
+   inside another tier's blur); z-index -1 + isolation keep the host's own text
+   out of the refracted backdrop; the mask confines distortion to the outer
+   ring so backdrops behind text-bearing centers stay calm. Inside @layer
+   components so positioning utilities on call sites (fixed/absolute/z-*)
+   still win over the position fallback. */
+@layer components {
+  @supports ((backdrop-filter: url(#lg-refract)) or (-webkit-backdrop-filter: url(#lg-refract))) {
+    .glass-chrome, .glass-overlay { position: relative; isolation: isolate; }
+    .glass-chrome::after, .glass-overlay::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      border-radius: inherit;
+      pointer-events: none;
+      -webkit-mask-image: radial-gradient(130% 130% at 50% 50%, transparent 58%, #000 96%);
+      mask-image: radial-gradient(130% 130% at 50% 50%, transparent 58%, #000 96%);
+    }
+    .glass-chrome::after {
+      -webkit-backdrop-filter: url(#lg-refract) blur(24px) saturate(1.4);
+      backdrop-filter: url(#lg-refract) blur(24px) saturate(1.4);
+    }
+    .glass-overlay::after {
+      -webkit-backdrop-filter: url(#lg-refract) blur(28px) saturate(1.4);
+      backdrop-filter: url(#lg-refract) blur(28px) saturate(1.4);
+    }
+  }
+}
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; } }
 
