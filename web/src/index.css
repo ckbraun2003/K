@@ -32,9 +32,9 @@
   /* glass tiers, shadow ramp, motion tokens — task 4 (bible §6). The tier
      border keeps its -tier- name from the migration era, when a legacy
      --glass-border (removed in task 22) still occupied the plain name. */
-  --glass-chrome-bg: rgba(42, 26, 71, 0.55);
-  --glass-panel-bg: rgba(42, 26, 71, 0.72);
-  --glass-overlay-bg: rgba(51, 32, 92, 0.82);
+  --glass-chrome-bg: rgba(42, 26, 71, 0.48);
+  --glass-panel-bg: rgba(42, 26, 71, 0.64);
+  --glass-overlay-bg: rgba(51, 32, 92, 0.76);
   --glass-tier-border: rgba(179, 166, 205, 0.14);
   --glass-sheen: rgba(255, 255, 255, 0.07);
   --shadow-1: 0 2px 8px rgba(10, 4, 24, 0.35);
@@ -42,6 +42,36 @@
   --shadow-3: 0 16px 48px rgba(10, 4, 24, 0.60);
   --dur-1: 120ms; --dur-2: 180ms; --dur-3: 240ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
+  /* ── LG2 (impressive-wave W0.2) ── living-ambient blobs, specular edge,
+     pointer sheen, refraction scale. Hues derived from the D-011 family:
+     chart-5 violet / accent blush / accent-hover sky / indigo (chart-8-adjacent)
+     at low alpha. Tier fills dropped one step (.55/.72/.82 → .48/.64/.76) —
+     AA-verified vs the brightest blob (see plan W0.2: all ≥4.5:1). */
+  --lg-blob-1: rgba(168, 85, 247, 0.16);
+  --lg-blob-2: rgba(255, 143, 192, 0.13);
+  --lg-blob-3: rgba(56, 189, 248, 0.11);
+  --lg-blob-4: rgba(99, 102, 241, 0.10);
+  --lg-edge: rgba(244, 240, 255, 0.30);
+  --lg-sheen: rgba(244, 240, 255, 0.10);
+  /* mirrored as a literal in web/src/components/GlassFilterDefs.tsx — CSS
+     custom properties cannot reach SVG filter-primitive attributes */
+  --lg-refract-scale: 14;
+  /* code-viewer syntax tokens (DiffViewer v2 theme — exactly the ELEVEN
+     prism-class tokens the FE lane's Task 12 consumes; refractor/Prism classes
+     map to these in the .code-viewer block below; no library CSS is ever
+     imported; token gate stays at zero). Diff add/remove highlights have NO
+     dedicated tokens — the FE lane reuses --green/--red via Tailwind. */
+  --code-keyword: #c084fc;
+  --code-type: #fcd34d;      /* derived light amber (family: --amber) */
+  --code-function: #38bdf8;
+  --code-string: #34d399;
+  --code-comment: #958ab5;   /* derived muted-violet — 4.96:1 on --surface */
+  --code-number: #fbbf24;
+  --code-operator: #7dd3fc;  /* derived light sky (family: --accent-hover) */
+  --code-punctuation: #b3a6cd;
+  --code-property: #818cf8;  /* derived indigo (family: --chart-8) */
+  --code-tag: #ff8fc0;
+  --code-attr: #fcd34d;      /* shares the light amber with --code-type (html vs TS grammars) */
 }
 
 * { box-sizing: border-box; }
@@ -170,6 +200,25 @@ body { font-variant-numeric: tabular-nums; }
   .doc-markdown th { color: var(--muted); font-size: 0.75em; text-transform: uppercase; text-align: left; }
   .doc-markdown td { color: var(--text); font-size: 0.9em; }
   .doc-markdown li { color: var(--text); }
+}
+
+/* ── code-viewer syntax theme (impressive-wave W0.2) ──────────────────────────
+   DiffViewer v2 (FE lane Task 12) renders refractor/Prism token spans inside a
+   `.code-viewer` scope. Colors flow ONLY from the eleven --code-* tokens above
+   so the FE lane never edits index.css (a W0-owned file). Line/word add/remove
+   highlights are FE-lane Tailwind utilities on --green/--red — no classes here. */
+@layer components {
+  .code-viewer .token.keyword, .code-viewer .token.atrule, .code-viewer .token.rule { color: var(--code-keyword); }
+  .code-viewer .token.class-name, .code-viewer .token.builtin, .code-viewer .token.namespace { color: var(--code-type); }
+  .code-viewer .token.function { color: var(--code-function); }
+  .code-viewer .token.string, .code-viewer .token.char, .code-viewer .token.attr-value, .code-viewer .token.regex { color: var(--code-string); }
+  .code-viewer .token.comment, .code-viewer .token.prolog, .code-viewer .token.cdata { color: var(--code-comment); font-style: italic; }
+  .code-viewer .token.number, .code-viewer .token.boolean, .code-viewer .token.constant { color: var(--code-number); }
+  .code-viewer .token.operator { color: var(--code-operator); }
+  .code-viewer .token.punctuation { color: var(--code-punctuation); }
+  .code-viewer .token.property { color: var(--code-property); }
+  .code-viewer .token.tag, .code-viewer .token.selector, .code-viewer .token.symbol { color: var(--code-tag); }
+  .code-viewer .token.attr-name { color: var(--code-attr); }
 }
 
 /* ── chrome ───────────────────────────────────────────────────────────────── */

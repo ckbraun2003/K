@@ -228,9 +228,9 @@ export function uiDemoHtml(): string {
     --radius-lg: 18px; --radius: 14px; --radius-sm: 10px; --radius-pill: 999px;
     /* 4-tier glass system: chrome (structural, sidebar/dockbar) · panel (floating
        cards) · overlay (modals, highest contrast) · surface-solid (opaque, no blur) */
-    --glass-chrome-bg: rgba(42,26,71,.55);
-    --glass-panel-bg: rgba(42,26,71,.72);
-    --glass-overlay-bg: rgba(51,32,92,.82);
+    --glass-chrome-bg: rgba(42,26,71,.48);
+    --glass-panel-bg: rgba(42,26,71,.64);
+    --glass-overlay-bg: rgba(51,32,92,.76);
     --glass-tier-border: rgba(179,166,205,.14);
     --glass-sheen: rgba(255,255,255,.07);
     --shadow-1: 0 2px 8px rgba(10,4,24,.35);
@@ -238,6 +238,15 @@ export function uiDemoHtml(): string {
     --shadow-3: 0 16px 48px rgba(10,4,24,.60);
     --dur-1: 120ms; --dur-2: 180ms; --dur-3: 240ms;
     --ease: cubic-bezier(0.2, 0, 0, 1);
+    /* LG2 (impressive-wave W0.2) — mirrors web/src/index.css :root */
+    --lg-blob-1: rgba(168,85,247,.16); --lg-blob-2: rgba(255,143,192,.13);
+    --lg-blob-3: rgba(56,189,248,.11); --lg-blob-4: rgba(99,102,241,.10);
+    --lg-edge: rgba(244,240,255,.30); --lg-sheen: rgba(244,240,255,.10);
+    --lg-refract-scale: 14;
+    --code-keyword: #c084fc; --code-type: #fcd34d; --code-function: #38bdf8;
+    --code-string: #34d399; --code-comment: #958ab5; --code-number: #fbbf24;
+    --code-operator: #7dd3fc; --code-punctuation: #b3a6cd; --code-property: #818cf8;
+    --code-tag: #ff8fc0; --code-attr: #fcd34d;
   }
   html, body { height: 100%; }
   body {

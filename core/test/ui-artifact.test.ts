@@ -184,6 +184,10 @@ describe('uiDemoHtml — Phase 5 full-scale "Agentic Org" demo', () => {
     expect(html).toContain('@media (prefers-reduced-motion: reduce)')
     expect(html).toMatch(/max-width:\s*720px/)
     expect(html).toContain(':focus-visible')
+    // LG2 token deltas (impressive-wave W0.2) — demo stays token-identical to the app
+    expect(html).toContain('--lg-blob-1')
+    expect(html).toContain('--code-keyword')
+    expect(html).toContain('rgba(42,26,71,.48)')   // chrome fill dropped .55→.48 (AA-verified)
   })
 
   it('renders the universal confirm-card + authority-tier control plane + terminal banners', () => {
