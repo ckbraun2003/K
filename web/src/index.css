@@ -165,16 +165,33 @@ body { font-variant-numeric: tabular-nums; }
 @layer components {
   .glass-chrome, .glass-panel, .glass-overlay {
     border: 1px solid var(--glass-tier-border);
-    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
+    box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-1);
   }
-  .glass-chrome { background: var(--glass-chrome-bg);
-    -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); }
-  .glass-panel { background: var(--glass-panel-bg);
-    -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
-    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-2); }
-  .glass-overlay { background: var(--glass-overlay-bg);
-    -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4);
-    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-3); }
+  .glass-chrome {
+    background:
+      linear-gradient(var(--glass-chrome-bg), var(--glass-chrome-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
+    -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    backdrop-filter: blur(24px) saturate(1.4);
+  }
+  .glass-panel {
+    background:
+      linear-gradient(var(--glass-panel-bg), var(--glass-panel-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    backdrop-filter: blur(16px) saturate(1.2);
+    border-radius: var(--radius-lg);
+    box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-2);
+  }
+  .glass-overlay {
+    background:
+      linear-gradient(var(--glass-overlay-bg), var(--glass-overlay-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
+    -webkit-backdrop-filter: blur(28px) saturate(1.4);
+    backdrop-filter: blur(28px) saturate(1.4);
+    border-radius: var(--radius-lg);
+    box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-3);
+  }
   .surface-solid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
   .micro-label { font-size: 10px; line-height: 12px; letter-spacing: 0.08em;
     text-transform: uppercase; font-weight: 500; color: var(--muted); }
