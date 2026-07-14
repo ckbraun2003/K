@@ -43,7 +43,19 @@ export default defineConfig({
       // teams, sharded CI) can each isolate their SQLite file; default unchanged
       // when unset, so existing local/CI runs behave exactly as before. This
       // also mitigates the shared-temp-dir flake when runs overlap.
-      K_DATA_DIR: process.env.K_DATA_DIR ?? path.join(os.tmpdir(), 'k-core-vitest-data'),
+      //
+      // NEVER the repo's live data dir, though: an inherited live pointer (H-1 —
+      // a lead running `pnpm core test` inside a run bound vitest to the LIVE DB
+      // and deleted a live row) must not bind tests to the real DB even if it
+      // leaks into the env vitest is invoked from. Case-insensitive compare
+      // (Windows paths).
+      K_DATA_DIR: (() => {
+        const ext = process.env.K_DATA_DIR
+        const live = path.resolve(here, '../data').toLowerCase()
+        if (ext && path.resolve(ext).toLowerCase() !== live) return ext
+        if (ext) console.warn('[vitest] K_DATA_DIR pointed at the LIVE data dir — overriding to a temp dir (H-1 guard)')
+        return path.join(os.tmpdir(), 'k-core-vitest-data')
+      })(),
       HARNESS_TOKEN: 'dev-token-change-me',
     },
   },

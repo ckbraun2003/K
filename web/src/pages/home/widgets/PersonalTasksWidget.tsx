@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { WorkItem } from '@k/shared'
 import { api } from '../../../lib/api'
 import { SectionHeader } from '../../../ui/SectionHeader'
+import { EmptyState } from '../../../ui/EmptyState'
 import { Icon } from '../../../ui/Icon'
 import { Skeleton } from '../../../ui/Skeleton'
 
@@ -43,7 +44,7 @@ export default function PersonalTasksWidget() {
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
-      <SectionHeader label="Personal tasks" />
+      <SectionHeader label="Personal tasks" as="h2" />
       {isPending ? (
         // Hand-rolled (not <SkeletonTile>): that component bakes in its own
         // glass-panel tier, which would nest backdrop-filter inside this cell's
@@ -59,13 +60,10 @@ export default function PersonalTasksWidget() {
       ) : isError ? (
         <p data-testid="widget-personal-tasks-error" className="text-caption text-red">Failed to load work items.</p>
       ) : items.length === 0 ? (
-        // Hand-rolled (not <EmptyState>): this cell renders inside OverviewView's
-        // GlassPanel tier="panel" — EmptyState's own icon bubble is itself a
-        // glass-panel, which would nest backdrop-filter inside backdrop-filter.
-        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-4 text-center">
-          <Icon name="personal" size={20} className="text-muted" />
-          <p className="text-body font-medium text-text">No personal work items yet.</p>
-        </div>
+        // FU-2: tier="solid" avoids nesting glass-panel (EmptyState's default
+        // icon bubble) inside this cell's GlassPanel tier="panel" ancestor
+        // (OverviewView) — backdrop-filter can't stack on itself.
+        <EmptyState tier="solid" icon="personal" headline="No personal work items yet." className="flex-1 gap-1.5 py-4" />
       ) : (
         <div className="flex flex-col gap-1">
           {items.map(item => (

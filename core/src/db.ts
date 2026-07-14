@@ -715,6 +715,14 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  instead of hardcoding it. */
 export const SCHEMA_VERSION = 12
 
+/** Sentinel for the CURRENT schema version: a column the LAST migration in
+ *  migrateSlow() creates. migrate()'s fast path only trusts the version stamp when
+ *  this column exists — a stamp written without the columns (an intermediate
+ *  dev-watch boot mid-schema-edit; the 2026-07-13 outage) otherwise disables
+ *  repair forever while module-level prepares crash at import.
+ *  UPDATE THIS alongside every SCHEMA_VERSION bump. */
+export const SCHEMA_SENTINEL = { table: 'projects', column: 'budget_daily_usd' } as const
+
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
  * server boot AND each per-run stdio MCP child (up to 3 per K/Chief turn), which is
@@ -726,9 +734,21 @@ export const SCHEMA_VERSION = 12
  * idempotency (hasColumn/hasTable guards, duplicate-column tolerance, one-shot
  * flags) stays as belt-and-suspenders for the slow path and for concurrent
  * first-boots racing before the stamp lands. Exported for tests.
+ *
+ * Sentinel guard (2026-07-13 outage): the fast path only trusts the version stamp
+ * when SCHEMA_SENTINEL's column also exists. A stamp written without the columns
+ * (an intermediate dev-watch boot mid-schema-edit) otherwise disables repair
+ * forever while module-level prepares crash at import — see SCHEMA_SENTINEL below.
  */
 export function migrate(d: Database.Database): void {
-  if ((d.pragma('user_version', { simple: true }) as number) === SCHEMA_VERSION) return
+  const stamped = d.pragma('user_version', { simple: true }) as number
+  if (stamped === SCHEMA_VERSION && hasColumn(d, SCHEMA_SENTINEL.table, SCHEMA_SENTINEL.column)) return
+  if (stamped === SCHEMA_VERSION) {
+    console.warn(
+      `[db] user_version says ${SCHEMA_VERSION} but ${SCHEMA_SENTINEL.table}.${SCHEMA_SENTINEL.column} ` +
+        `is missing — poisoned stamp; re-running the full migration scan (idempotent).`,
+    )
+  }
   migrateSlow(d)
   d.pragma(`user_version = ${SCHEMA_VERSION}`)
 }

@@ -22,10 +22,18 @@ export default function VerifyChip({ runId }: { runId: string }) {
   }, [open])
   // 404 (no recipe / never verified) → null → the chip renders NOTHING. The
   // catch deliberately treats fetch errors as absence: an absent chip is the
-  // honest default for a mostly-404 endpoint.
+  // honest default for a mostly-404 endpoint. staleTime: Infinity (LOW-1) —
+  // a run's verify result never regresses from pass/fail back to absent, so
+  // there's nothing to gain by ever refetching on its own; the ONLY thing
+  // that can turn a 404 into a real result is a live `verify_update` WS
+  // message, and makeVerifyInvalidator (lib/live-invalidate.ts) already
+  // force-invalidates this exact key when one arrives. Without this, the
+  // global 5s staleTime silently re-polled /verify-result forever for runs
+  // that were never verified, spamming 404s in the console.
   const { data } = useQuery<VerifyResult | null>({
     queryKey: ['run-verify', runId],
     queryFn: async () => { try { return await api.runs.verifyResult(runId) } catch { return null } },
+    staleTime: Infinity,
   })
   if (!data) return null
   const meta = META[data.status]

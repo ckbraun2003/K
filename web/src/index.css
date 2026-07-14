@@ -148,6 +148,30 @@ body { font-variant-numeric: tabular-nums; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; } }
 
+/* ── doc-markdown (FU-5) ──────────────────────────────────────────────────────
+   DocViewer's `.md` view — replaces an inert @tailwindcss/typography `prose*`
+   utility set (the plugin was never registered, tailwind.config.ts plugins:[])
+   with real, token-driven markdown styling. */
+@layer components {
+  .doc-markdown { max-width: none; color: var(--text); }
+  .doc-markdown h1, .doc-markdown h2, .doc-markdown h3,
+  .doc-markdown h4, .doc-markdown h5, .doc-markdown h6 {
+    color: var(--text); font-weight: 700; margin-top: 1.2em; margin-bottom: 0.5em;
+  }
+  .doc-markdown p { color: var(--text); line-height: 1.7; margin: 0.75em 0; }
+  .doc-markdown a { color: var(--accent); text-decoration: underline; }
+  .doc-markdown code {
+    color: var(--accent-hover); background: var(--surface);
+    padding: 0.1em 0.4em; border-radius: var(--radius-sm); font-size: 0.85em;
+  }
+  .doc-markdown pre { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75em; overflow-x: auto; }
+  .doc-markdown pre code { background: transparent; padding: 0; }
+  .doc-markdown blockquote { border-left: 2px solid var(--accent); color: var(--muted); padding-left: 1em; margin: 0.75em 0; }
+  .doc-markdown th { color: var(--muted); font-size: 0.75em; text-transform: uppercase; text-align: left; }
+  .doc-markdown td { color: var(--text); font-size: 0.9em; }
+  .doc-markdown li { color: var(--text); }
+}
+
 /* ── chrome ───────────────────────────────────────────────────────────────── */
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }

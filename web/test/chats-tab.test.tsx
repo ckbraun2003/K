@@ -95,6 +95,8 @@ describe('ChatsTab', () => {
     mockThreadsList.mockResolvedValue({ threads: [active, archived] })
     renderTab()
 
+    // FU-4: a real heading (h2), not an inert <span>.
+    expect((await screen.findByText('All chats')).tagName).toBe('H2')
     await waitFor(() => expect(mockThreadsList).toHaveBeenCalledWith(true))
     expect(await screen.findByTestId('chats-row-kt-1')).toBeTruthy()
     expect(screen.getByTestId('chats-row-kt-2')).toBeTruthy()

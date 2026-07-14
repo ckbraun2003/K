@@ -66,6 +66,18 @@ export default function Sidebar({
   const activeRuns = runs.filter(isActiveRun).length
   const parkedRuns = runs.filter(isParkedRun).length
   const badgeCount = activeRuns + parkedRuns
+  // LOW-2: the title must name the SAME number the badge shows. Parked-only
+  // (activeRuns === 0) keeps the plain "N awaiting your input" phrasing; once
+  // active runs are mixed in, badgeCount > parkedRuns, so the title leads with
+  // the displayed total and then calls out the parked subset — otherwise a
+  // badge reading "2" paired with a title reading "1 run awaiting your input"
+  // reads as a mismatch/typo.
+  const runsBadgeTitle =
+    parkedRuns === 0
+      ? undefined
+      : activeRuns > 0
+        ? `${badgeCount} runs — ${parkedRuns} awaiting your input`
+        : `${parkedRuns} run${parkedRuns > 1 ? 's' : ''} awaiting your input`
 
   // Inbox needs-YOU badge — shares the ONE inbox query (lib/inbox-query.ts) with
   // the page + invalidators, so this adds zero fetches (the Runs-badge pattern).
@@ -122,7 +134,7 @@ export default function Sidebar({
         {!collapsed && d.id === 'runs' && badgeCount > 0 && (
           <span
             data-testid="sidebar-runs-badge"
-            title={parkedRuns > 0 ? `${parkedRuns} run${parkedRuns > 1 ? 's' : ''} awaiting your input` : undefined}
+            title={runsBadgeTitle}
             className={cn(
               'mono ml-auto rounded px-1.5 text-micro font-semibold',
               // Amber = attention: at least one run is parked awaiting input.

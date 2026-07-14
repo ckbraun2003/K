@@ -94,6 +94,9 @@ describe('AutonomousOrgSection — P5-B', () => {
     mockGet.mockResolvedValue(ON)
     renderWithQuery(<AutonomousOrgSection />)
     const range = await screen.findByTestId('autonomy-budgetWarnPct')
+    // M-4: native range inputs default to browser-blue accent-color; the slider
+    // must carry the same token-accent utility the sibling checkboxes already use.
+    expect(range.className).toContain('accent-[var(--accent)]')
     fireEvent.change(range, { target: { value: '50' } })
     await waitFor(() => expect(mockPatch).toHaveBeenCalledWith({ budgetWarnPct: 0.5 }))
   })

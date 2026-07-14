@@ -3,7 +3,7 @@ import type { CostRollup } from '@k/shared'
 import { api } from '../../../lib/api'
 import MetricCard from '../../../components/MetricCard'
 import { SectionHeader } from '../../../ui/SectionHeader'
-import { Skeleton } from '../../../ui/Skeleton'
+import { SkeletonTile } from '../../../ui/Skeleton'
 
 const COST_ROLLUP_DAYS = 14
 
@@ -48,16 +48,13 @@ export default function CostTodayWidget() {
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3" data-testid="widget-cost-today">
-      <SectionHeader label="Cost today" />
+      <SectionHeader label="Cost today" as="h2" />
       {isPending ? (
-        // Hand-rolled (not <SkeletonTile>): that component bakes in its own
-        // glass-panel tier, which would nest backdrop-filter inside this cell's
-        // GlassPanel tier="panel" ancestor (OverviewView).
-        <div aria-hidden="true" className="space-y-3">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-7 w-32" />
-          <Skeleton className="h-3 w-full" />
-        </div>
+        // FU-2: tier="solid" avoids nesting glass-panel inside this cell's
+        // GlassPanel tier="panel" ancestor (OverviewView) — backdrop-filter
+        // can't stack on itself. p-0 keeps the original no-padding layout
+        // (this skeleton stack matched SkeletonTile's own shape verbatim).
+        <SkeletonTile tier="solid" className="p-0" />
       ) : isError ? (
         <p data-testid="widget-cost-today-error" className="text-caption text-red">Failed to load cost data.</p>
       ) : (

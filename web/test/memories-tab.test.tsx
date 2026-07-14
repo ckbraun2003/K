@@ -92,6 +92,8 @@ describe('MemoriesTab', () => {
     mockMemoriesList.mockResolvedValue({ memories: [m1, m2] })
     renderTab()
 
+    // FU-4: a real heading (h2), not an inert <span>.
+    expect((await screen.findByText('Memories')).tagName).toBe('H2')
     expect(await screen.findByTestId('memories-row-um-1')).toBeTruthy()
     expect(screen.getByText('Loves TDD')).toBeTruthy()
     expect(screen.getByText('No source')).toBeTruthy()

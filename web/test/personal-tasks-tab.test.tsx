@@ -87,6 +87,9 @@ describe('TasksTab — work items (personal/org scope)', () => {
   it('fetches the unscoped list and defaults to showing personal items only', async () => {
     renderTab()
     const section = await screen.findByTestId('tasks-workitems')
+    // FU-4: a real heading (h2), not an inert <span> — Personal's own tabs sit
+    // directly under TopBar's page h1.
+    expect(screen.getByText('Your work').tagName).toBe('H2')
     expect(await within(section).findByText('triage PR #42')).toBeTruthy()
     expect(within(section).getByText('build graph')).toBeTruthy()
     expect(within(section).queryByText('org standup notes')).toBeNull()
@@ -179,6 +182,8 @@ describe('TasksTab — Notes + Schedule cards', () => {
   it('renders the notes card (done notes marked) and its empty state', async () => {
     renderTab()
     const notes = await screen.findByTestId('tasks-notes')
+    // FU-4: a real heading (h2), not an inert <span>.
+    expect(within(notes).getByText('Notes').tagName).toBe('H2')
     expect(await within(notes).findByText(/call re: API rate limits/)).toBeTruthy()
     expect(within(notes).getByText(/idea: cache the graph layout/).textContent).toContain('✓')
     cleanup()
@@ -192,6 +197,8 @@ describe('TasksTab — Notes + Schedule cards', () => {
   it('renders the schedule card (event + overdue reminder) and its empty state', async () => {
     renderTab()
     const schedule = await screen.findByTestId('tasks-schedule')
+    // FU-4: a real heading (h2), not an inert <span>.
+    expect(within(schedule).getByText('Schedule').tagName).toBe('H2')
     expect(await within(schedule).findByText('design sync')).toBeTruthy()
     expect(within(schedule).getByText(/renew the domain/)).toBeTruthy()
     cleanup()

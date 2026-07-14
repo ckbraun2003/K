@@ -198,7 +198,7 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
 
             {/* Findings */}
             <GlassPanel tier="panel" className="p-4">
-              <SectionHeader label="Findings" />
+              <SectionHeader label="Findings" as="h3" />
               {grouped.length === 0 ? (
                 <p className="text-caption text-muted">No findings — clean report.</p>
               ) : (
@@ -223,7 +223,7 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
 
             {/* Fixes applied */}
             <GlassPanel tier="panel" className="p-4">
-              <SectionHeader label="Fixes applied" />
+              <SectionHeader label="Fixes applied" as="h3" />
               {latest.fixesApplied.length === 0 ? (
                 <p className="text-caption text-muted">No fixes applied this run.</p>
               ) : (
@@ -241,7 +241,7 @@ export default function ProjectVerification({ projectId }: { projectId?: string 
 
           {/* Right column: history timeline */}
           <GlassPanel tier="panel" className="p-4">
-            <SectionHeader label="History" />
+            <SectionHeader label="History" as="h3" />
             <ol className="space-y-2">
               {[...reports]
                 .sort((a, b) => b.startedAt - a.startedAt)

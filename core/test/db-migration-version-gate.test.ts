@@ -18,7 +18,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
-import { migrate, SCHEMA_VERSION } from '../src/db.js'
+import { migrate, SCHEMA_VERSION, SCHEMA_SENTINEL } from '../src/db.js'
 
 const OLD_SCHEMA_DDL = `
   CREATE TABLE projects (id TEXT PRIMARY KEY);
@@ -58,9 +58,13 @@ describe('migrate() — user_version fast path', () => {
     d.close()
   })
 
-  it('a DB pre-stamped at the CURRENT version but MISSING a migrate-added column fast-paths (column stays missing)', () => {
+  it('a DB pre-stamped at the CURRENT version WITH the sentinel column fast-paths (an unrelated column stays missing)', () => {
     const d = tmpDb()
     d.exec(OLD_SCHEMA_DDL)
+    // Stamp + sentinel must agree for the fast path (F1 poisoned-stamp guard —
+    // see db-migration-poisoned-stamp.test.ts): a stamp without the sentinel
+    // column now forces the full scan instead of trusting the stamp.
+    d.exec(`ALTER TABLE ${SCHEMA_SENTINEL.table} ADD COLUMN ${SCHEMA_SENTINEL.column} REAL`)
     d.pragma(`user_version = ${SCHEMA_VERSION}`)
 
     migrate(d)

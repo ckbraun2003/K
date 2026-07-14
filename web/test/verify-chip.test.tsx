@@ -96,6 +96,26 @@ describe('VerifyChip', () => {
     expect(chip.textContent).toBe('Verify failed')
   })
 
+  it('does not repeat the fetch on remount after a settled 404 (LOW-1: stop polling past the first miss)', async () => {
+    mockVerifyResult.mockRejectedValue(new Error('404 verify result not found'))
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { unmount } = render(
+      <QueryClientProvider client={qc}>
+        <VerifyChip runId="run-1" />
+      </QueryClientProvider>,
+    )
+    await waitFor(() => expect(mockVerifyResult).toHaveBeenCalledTimes(1))
+    unmount()
+    render(
+      <QueryClientProvider client={qc}>
+        <VerifyChip runId="run-1" />
+      </QueryClientProvider>,
+    )
+    // Give a remount every chance to refetch, then assert it never did.
+    await waitFor(() => expect(screen.queryByTestId('verify-chip')).toBeNull())
+    expect(mockVerifyResult).toHaveBeenCalledTimes(1)
+  })
+
   it('aria-expanded reflects popover state and Escape closes it (P1 SEAMS L2)', async () => {
     mockVerifyResult.mockResolvedValue(passResult)
     renderChip()

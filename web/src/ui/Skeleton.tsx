@@ -12,9 +12,15 @@ export function SkeletonRow({ className }: { className?: string }) {
     </div>
   )
 }
-export function SkeletonTile({ className }: { className?: string }) {
+export function SkeletonTile({ className, tier = 'panel' }: {
+  className?: string
+  /** FU-2: 'solid' swaps glass-panel for the non-blur surface-solid tier — for
+   *  use inside a cell that's already a GlassPanel ancestor, where a nested
+   *  glass-panel would stack backdrop-filter inside backdrop-filter. */
+  tier?: 'panel' | 'solid'
+}) {
   return (
-    <div aria-hidden="true" className={cn('glass-panel p-4 space-y-3', className)}>
+    <div aria-hidden="true" className={cn(tier === 'solid' ? 'surface-solid' : 'glass-panel', 'p-4 space-y-3', className)}>
       <div className="shimmer h-3 w-24" />
       <div className="shimmer h-7 w-32" />
       <div className="shimmer h-3 w-full" />

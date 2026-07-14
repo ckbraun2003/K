@@ -80,6 +80,7 @@ export default function TasksTab() {
       <GlassPanel as="section" tier="panel" data-testid="tasks-workitems" className="rounded-panel p-4">
         <SectionHeader
           label="Your work"
+          as="h2"
           action={
             <SegControl<Scope>
               ariaLabel="Work item scope"
@@ -176,7 +177,7 @@ export default function TasksTab() {
       {/* Right: Notes + Schedule, stacked. */}
       <div className="flex flex-col gap-4">
         <GlassPanel as="section" tier="panel" data-testid="tasks-notes" className="rounded-panel p-4">
-          <SectionHeader label="Notes" />
+          <SectionHeader label="Notes" as="h2" />
           {notesPending ? (
             <div className="mt-3">
               <SkeletonRow />
@@ -205,7 +206,7 @@ export default function TasksTab() {
         </GlassPanel>
 
         <GlassPanel as="section" tier="panel" data-testid="tasks-schedule" className="rounded-panel p-4">
-          <SectionHeader label="Schedule" />
+          <SectionHeader label="Schedule" as="h2" />
           {schedulePending ? (
             <div className="mt-3">
               <SkeletonRow />
