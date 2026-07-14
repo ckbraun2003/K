@@ -92,28 +92,38 @@ body { font-variant-numeric: tabular-nums; }
 
 /* ── flare layer ──────────────────────────────────────────────────────────── */
 
-/* Ambient aurora behind the stage — barely-there indigo drift. Pure decoration
-   budget: this is the ONE decorative element; everything else must inform. */
+/* ── LG2 living ambient (impressive-wave W0.3) — base wash + four hue-drifting
+   blobs (markup: shell/Ambient.tsx). GPU-composited transforms only
+   (translate3d/scale); 60–120s cycles; frozen under prefers-reduced-motion.
+   The three static radial washes of the D-107 ambient are superseded by the
+   blobs (same hue family, now moving). */
 .ambient {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 0;
+  overflow: hidden;
   background:
-    radial-gradient(58rem 46rem at 25% 25%, rgba(168, 85, 247, 0.10), transparent 60%),
-    radial-gradient(54rem 42rem at 100% 30%, rgba(255, 143, 192, 0.07), transparent 60%),
-    radial-gradient(54rem 40rem at 35% 100%, rgba(56, 189, 248, 0.06), transparent 60%),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
     var(--bg-deep);
-  animation: ambient-drift 72s ease-in-out infinite alternate;
-  /* Promote to its own compositor layer so the continuously-animating ambient
-     drift doesn't repaint the now-glass ActivityStrip above it (60fps mitigation). */
-  will-change: transform;
 }
-@keyframes ambient-drift {
-  from { transform: translateX(-2%) translateY(0); opacity: 0.8; }
-  to   { transform: translateX(2%) translateY(1.5%); opacity: 1; }
-}
+.ambient-blob { position: absolute; border-radius: 9999px; will-change: transform; }
+.ambient-blob-1 { width: 56rem; height: 46rem; left: -8%; top: -14%;
+  background: radial-gradient(closest-side, var(--lg-blob-1), transparent 70%);
+  animation: lg-drift-1 96s ease-in-out infinite alternate; }
+.ambient-blob-2 { width: 50rem; height: 42rem; right: -14%; top: 2%;
+  background: radial-gradient(closest-side, var(--lg-blob-2), transparent 70%);
+  animation: lg-drift-2 78s ease-in-out infinite alternate; }
+.ambient-blob-3 { width: 52rem; height: 40rem; left: 16%; bottom: -18%;
+  background: radial-gradient(closest-side, var(--lg-blob-3), transparent 70%);
+  animation: lg-drift-3 114s ease-in-out infinite alternate; }
+.ambient-blob-4 { width: 40rem; height: 36rem; right: 6%; bottom: -10%;
+  background: radial-gradient(closest-side, var(--lg-blob-4), transparent 70%);
+  animation: lg-drift-4 66s ease-in-out infinite alternate; }
+@keyframes lg-drift-1 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(9%, 6%, 0) scale(1.12); } }
+@keyframes lg-drift-2 { from { transform: translate3d(0, 0, 0) scale(1.08); } to { transform: translate3d(-7%, 9%, 0) scale(0.94); } }
+@keyframes lg-drift-3 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(11%, -7%, 0) scale(1.10); } }
+@keyframes lg-drift-4 { from { transform: translate3d(0, 0, 0) scale(0.95); } to { transform: translate3d(-9%, -5%, 0) scale(1.08); } }
 
 /* Live-element glow: only things that are genuinely live may pulse */
 .glow-live {
@@ -231,6 +241,6 @@ body { font-variant-numeric: tabular-nums; }
 :focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; border-radius: 4px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ambient, .glow-live { animation: none; }
+  .ambient, .ambient-blob, .glow-live { animation: none; }
   * { transition-duration: 0.01ms !important; }
 }

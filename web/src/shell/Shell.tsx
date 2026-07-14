@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
+import Ambient from './Ambient'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import MessageDock from './MessageDock'
@@ -73,7 +74,7 @@ export default function Shell() {
       className="grid h-screen grid-rows-[auto_1fr_auto] bg-bg"
       style={{ gridTemplateColumns: `${navCollapsed ? 60 : 220}px 1fr` }}
     >
-      <div className="ambient" aria-hidden />
+      <Ambient />
       <Sidebar active={route.view} collapsed={navCollapsed} onToggleCollapse={toggleNav} />
       <TopBar view={route.view} param={route.param} connected={connected} />
 
