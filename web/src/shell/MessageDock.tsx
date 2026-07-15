@@ -8,6 +8,7 @@ import { navigate } from '../lib/route'
 import { useAskK } from '../lib/useAskK'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useSelectedThread, selectThread, getSelectedThread } from '../lib/thread-select'
+import { relativeTime } from '../lib/verify'
 import { onDockFocus, onDockPrefill } from '../lib/dock-bus'
 import { FORCE_ROUTE_OPTIONS } from '../lib/force-route-options'
 import { INBOX_KEY, inboxQueryFn } from '../lib/inbox-query'
@@ -18,6 +19,7 @@ import AutoTextarea from '../components/AutoTextarea'
 import MicButton from '../components/MicButton'
 import Toast from '../components/Toast'
 import { Button, IconButton } from '../ui/Button'
+import { Checkbox } from '../ui/Field'
 
 /** A project-scoped dispatch the user has picked from the `@project` list — held
  *  while the confirm card previews it, before `runs.start` actually fires. */
@@ -575,14 +577,12 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
               <dt className="text-muted">Mode</dt>
               <dd className="text-text">
                 <label className="inline-flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     data-testid="dock-dispatch-interactive"
                     checked={dispatchInteractive}
                     // Turning Interactive ON CLEARS plan-gate (not just masks its
                     // display) — one-shot-only, so the combo can never dispatch.
                     onChange={e => { setDispatchInteractive(e.target.checked); if (e.target.checked) setDispatchPlanGate(false) }}
-                    className="accent-accent"
                   />
                   <span>Interactive — answer the agent&apos;s questions mid-run</span>
                 </label>
@@ -590,13 +590,11 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                   <span className="ml-1 block text-[10px] text-muted">Claude only · keeps the session open for follow-ups</span>
                 )}
                 <label className="mt-1 inline-flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     data-testid="dock-dispatch-plan-gate"
                     checked={dispatchPlanGate && !dispatchInteractive}
                     disabled={dispatchInteractive}
                     onChange={e => setDispatchPlanGate(e.target.checked)}
-                    className="accent-accent"
                   />
                   <span>Plan first — review &amp; approve a plan before it implements</span>
                 </label>
@@ -710,11 +708,17 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                   data-testid={`dock-picker-thread-${t.id}`}
                   onClick={() => selectThread(t.id)}
                   aria-current={t.id === selected}
-                  className={`block w-full truncate px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-raised ${
+                  className={`block w-full px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-raised ${
                     t.id === selected ? 'bg-raised text-text' : 'text-text'
                   }`}
                 >
-                  {t.title ?? 'New chat'}
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate">{t.title ?? 'New chat'}</span>
+                    {t.lastTurnAt != null && (
+                      <span className="mono flex-shrink-0 text-[10px] text-muted">{relativeTime(t.lastTurnAt)}</span>
+                    )}
+                  </span>
+                  {t.snippet && <span className="block truncate text-[10px] text-muted">{t.snippet}</span>}
                 </button>
               ))}
             </div>

@@ -27,7 +27,7 @@ import { GlassPanel } from '../ui/GlassPanel'
 import { SectionHeader } from '../ui/SectionHeader'
 import { StatusPill } from '../ui/StatusPill'
 import { SkeletonRow } from '../ui/Skeleton'
-import { Textarea } from '../ui/Field'
+import { Textarea, Checkbox } from '../ui/Field'
 
 // T20 — every StatusCard verdict label maps to exactly one canonical StatusPill
 // status through this guard map (never an arbitrary string), picked by VISUAL
@@ -411,25 +411,21 @@ function NotificationsSection() {
               <div key={rule.eventKey} className="grid grid-cols-[1fr_3.5rem_3.5rem] items-center gap-x-4 py-2 text-label">
                 <span className="text-text">{EVENT_LABELS[rule.eventKey] ?? rule.eventKey}</span>
                 <div className="flex justify-center">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     aria-label={`${EVENT_LABELS[rule.eventKey] ?? rule.eventKey} — in-app`}
                     data-testid={`notif-rule-${rule.eventKey}-inapp`}
                     checked={rule.inapp}
                     disabled={updateRule.isPending}
                     onChange={e => updateRule.mutate({ eventKey: rule.eventKey, patch: { inapp: e.target.checked } })}
-                    className="h-4 w-4 accent-accent"
                   />
                 </div>
                 <div className="flex justify-center">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     aria-label={`${EVENT_LABELS[rule.eventKey] ?? rule.eventKey} — browser`}
                     data-testid={`notif-rule-${rule.eventKey}-browser`}
                     checked={rule.browser}
                     disabled={updateRule.isPending}
                     onChange={e => toggleBrowser(rule, e.target.checked)}
-                    className="h-4 w-4 accent-accent"
                   />
                 </div>
               </div>
@@ -443,6 +439,21 @@ function NotificationsSection() {
   )
 }
 
+// Task 8 — sticky section nav (desktop only). Order matches the page's section order,
+// not the brief's literal id list, so "jump to" reads top-to-bottom with the page.
+const SETTINGS_NAV: Array<{ id: string; label: string }> = [
+  { id: 'status', label: 'Status' },
+  { id: 'doctor', label: 'System Doctor' },
+  { id: 'models', label: 'Claude Model' },
+  { id: 'local-models', label: 'Local Models' },
+  { id: 'voice', label: 'Voice' },
+  { id: 'org-default', label: 'Org Default' },
+  { id: 'autonomy', label: 'Autonomous Org' },
+  { id: 'notifications', label: 'Notifications' },
+  { id: 'prompt', label: 'System Prompt' },
+  { id: 'terminal', label: 'Diagnostics' },
+]
+
 export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -450,57 +461,77 @@ export default function SettingsPage() {
         <h1 className="text-label font-semibold uppercase tracking-[0.12em] text-muted">Settings</h1>
       </div>
 
-      <section className="mb-8">
-        <StatusSection />
-      </section>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[10rem_1fr]">
+        <nav aria-label="Settings sections" className="sticky top-4 hidden self-start lg:flex lg:flex-col lg:gap-0.5">
+          {SETTINGS_NAV.map(item => (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              className="rounded-control px-2 py-1 text-caption text-muted transition-colors hover:text-text"
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
 
-      {/* Wave 2 — host prerequisite readiness (the "system doctor"). */}
-      <section className="mb-8">
-        <SystemRequirementsSection />
-      </section>
+        <div className="min-w-0">
+          {/* Status group reads glass (first-viewport, low blur budget: Sidebar + TopBar
+              + this = 3) — the four StatusCards inside stay tier="solid" (no nested blur). */}
+          <section id="status" className="mb-8 scroll-mt-16">
+            <GlassPanel className="p-4">
+              <StatusSection />
+            </GlassPanel>
+          </section>
 
-      {/* P5.5 — model management (additive; P5.4's voice card can slot alongside). */}
-      <section className="mb-8">
-        <ClaudeModelSection />
-      </section>
+          {/* Wave 2 — host prerequisite readiness (the "system doctor"). */}
+          <section id="doctor" className="mb-8 scroll-mt-16">
+            <SystemRequirementsSection />
+          </section>
 
-      <section className="mb-8">
-        <LocalModelsSection />
-      </section>
+          {/* P5.5 — model management (additive; P5.4's voice card can slot alongside). */}
+          <section id="models" className="mb-8 scroll-mt-16">
+            <ClaudeModelSection />
+          </section>
 
-      <section className="mb-8">
-        <VoiceSection />
-      </section>
+          <section id="local-models" className="mb-8 scroll-mt-16">
+            <LocalModelsSection />
+          </section>
 
-      {/* P5.3b — org-default orchestrator authority (leads inherit unless overridden). */}
-      <section className="mb-8">
-        <OrgDefaultSection />
-      </section>
+          <section id="voice" className="mb-8 scroll-mt-16">
+            <VoiceSection />
+          </section>
 
-      {/* P5-B (E-14/E-15/E-18) — the autonomous org on/off front door. */}
-      <section className="mb-8">
-        <AutonomousOrgSection />
-      </section>
+          {/* P5.3b — org-default orchestrator authority (leads inherit unless overridden). */}
+          <section id="org-default" className="mb-8 scroll-mt-16">
+            <OrgDefaultSection />
+          </section>
 
-      {/* P2 E-19 — per-event notification delivery rules. */}
-      <section className="mb-8">
-        <NotificationsSection />
-      </section>
+          {/* P5-B (E-14/E-15/E-18) — the autonomous org on/off front door. */}
+          <section id="autonomy" className="mb-8 scroll-mt-16">
+            <AutonomousOrgSection />
+          </section>
 
-      <section className="mb-8">
-        <SystemPromptSection />
-      </section>
+          {/* P2 E-19 — per-event notification delivery rules. */}
+          <section id="notifications" className="mb-8 scroll-mt-16">
+            <NotificationsSection />
+          </section>
 
-      {/* P4 E-30 — Diagnostics: an embedded shell (node-pty · /ws/terminal); the #/terminal redirect lands here. */}
-      <section className="mb-8">
-        <GlassPanel tier="solid" className="p-4">
-          <SectionHeader label="Diagnostics" as="h2" />
-          <p className="mt-1 text-caption text-muted">An embedded shell (node-pty · /ws/terminal) — the #/terminal redirect lands here.</p>
-          <div className="mt-3 h-96 overflow-hidden rounded-xl border border-border">
-            <TerminalPage />
-          </div>
-        </GlassPanel>
-      </section>
+          <section id="prompt" className="mb-8 scroll-mt-16">
+            <SystemPromptSection />
+          </section>
+
+          {/* P4 E-30 — Diagnostics: an embedded shell (node-pty · /ws/terminal); the #/terminal redirect lands here. */}
+          <section id="terminal" className="mb-8 scroll-mt-16">
+            <GlassPanel tier="solid" className="p-4">
+              <SectionHeader label="Diagnostics" as="h2" />
+              <p className="mt-1 text-caption text-muted">An embedded shell (node-pty · /ws/terminal) — the #/terminal redirect lands here.</p>
+              <div className="mt-3 h-96 overflow-hidden rounded-xl border border-border">
+                <TerminalPage />
+              </div>
+            </GlassPanel>
+          </section>
+        </div>
+      </div>
     </div>
   )
 }

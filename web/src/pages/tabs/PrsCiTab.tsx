@@ -8,7 +8,7 @@ import MergeButton from '../../components/MergeButton'
 import { Icon } from '../../ui/Icon'
 import { Button, IconButton } from '../../ui/Button'
 import { Spinner } from '../../ui/Spinner'
-import { Input, Textarea } from '../../ui/Field'
+import { Input, Textarea, Checkbox } from '../../ui/Field'
 import { Tag } from '../../ui/Tag'
 import { Row } from '../../ui/Row'
 
@@ -264,12 +264,10 @@ export default function PrsCiTab({ projectId }: Props) {
           {/* Auto-merge greens — only meaningful when the project has a remote to push to */}
           {hasRemote && (
             <label className="flex items-center gap-1.5 text-[11px] text-muted cursor-pointer select-none">
-              <input
-                type="checkbox"
+              <Checkbox
                 data-testid="automerge-toggle"
                 checked={!!project?.autoMerge}
                 onChange={e => autoMergeMutation.mutate(e.target.checked)}
-                className="accent-accent"
               />
               Auto-merge greens (k/verify + checks)
             </label>
