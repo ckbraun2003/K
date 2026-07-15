@@ -6,6 +6,7 @@ import HealthRubric from './HealthRubric'
 import { GlassPanel } from '../ui/GlassPanel'
 import { Icon } from '../ui/Icon'
 import { Button, IconButton } from '../ui/Button'
+import Sparkline from './Sparkline'
 
 // A health score below this flags the card for attention alongside failing CI.
 const LOW_HEALTH_THRESHOLD = 50
@@ -33,6 +34,7 @@ export default function ProjectCard({
   project,
   gh,
   lastRun,
+  spark,
   onDelete,
 }: {
   project: Project
@@ -40,6 +42,9 @@ export default function ProjectCard({
   /** Most recent run for this project (fleet-level batch from the parent grid) —
    *  surfaces last-run status + when on the card (F-065). */
   lastRun?: Run | null
+  /** Per-day run counts over the last 14 days (fleet-level batch, no per-card
+   *  fetch) — an absent or all-zero series renders no sparkline (no fabricated trend). */
+  spark?: number[]
   onDelete?: () => void
 }) {
   const ci = ciState(gh)
@@ -141,9 +146,16 @@ export default function ProjectCard({
           <span className="truncate">last run {lastRun.status} · {relativeTime(lastRun.createdAt)}</span>
         </p>
       )}
-      <div className="mt-2 flex items-center justify-between">
-        <span className={cn('text-[10px]', lowHealth ? 'text-[var(--amber)]' : 'text-[var(--muted)]')}>
-          {formatTimeAgo(project.lastVerifiedAt)}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className={cn('flex-shrink-0 text-[10px]', lowHealth ? 'text-[var(--amber)]' : 'text-[var(--muted)]')}>
+            {formatTimeAgo(project.lastVerifiedAt)}
+          </span>
+          {spark && spark.some(v => v > 0) && (
+            <span title="runs/day · 14d" className="flex-shrink-0">
+              <Sparkline values={spark} width={72} height={18} stroke="var(--accent-hover)" />
+            </span>
+          )}
         </span>
         <Button
           variant="ghost"

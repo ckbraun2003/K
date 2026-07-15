@@ -32,6 +32,23 @@ export default function ProjectsPage() {
     }
     return m
   }, [fleetRuns])
+  // Per-project runs/day over the last 14 days — derived from the already-fetched
+  // fleet-level runs (no new fetch) for each card's sparkline (FE-4 systemic #4).
+  const sparkByProject = useMemo(() => {
+    const days = 14
+    const dayKey = (ts: number) => new Date(ts).toISOString().slice(0, 10)
+    const keys = Array.from({ length: days }, (_, i) => dayKey(Date.now() - (days - 1 - i) * 86_400_000))
+    const m = new Map<string, number[]>()
+    for (const r of fleetRuns) {
+      if (!r.projectId) continue
+      const idx = keys.indexOf(dayKey(r.createdAt))
+      if (idx === -1) continue
+      const arr = m.get(r.projectId) ?? Array(days).fill(0)
+      arr[idx] += 1
+      m.set(r.projectId, arr)
+    }
+    return m
+  }, [fleetRuns])
   const [open, setOpen] = useState(false)
   const [deleting, setDeleting] = useState<Project | null>(null)
   const [name, setName] = useState('')
@@ -87,6 +104,7 @@ export default function ProjectsPage() {
             project={p}
             gh={githubFor(p.id)}
             lastRun={lastRunByProject.get(p.id) ?? null}
+            spark={sparkByProject.get(p.id)}
             onDelete={() => setDeleting(p)}
           />
         ))}
