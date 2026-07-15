@@ -14,3 +14,22 @@ export function onDockFocus(cb: Cb): () => void {
   cbs.add(cb)
   return () => cbs.delete(cb)
 }
+
+/**
+ * Prefill-the-dock channel (impressive-wave FE-4 systemic #2) — a suggestion
+ * chip or empty-state CTA drops text into the composer and focuses it, without
+ * a prop-drilled callback through Shell. Independent from the focus-only bus
+ * above so a plain focus() call never fights a queued prefill.
+ */
+type PrefillFn = (text: string) => void
+const prefillSubs = new Set<PrefillFn>()
+
+export function prefillDock(text: string): void {
+  prefillSubs.forEach(f => f(text))
+  focusDock()
+}
+
+export function onDockPrefill(fn: PrefillFn): () => void {
+  prefillSubs.add(fn)
+  return () => { prefillSubs.delete(fn) }
+}

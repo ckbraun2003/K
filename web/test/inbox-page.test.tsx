@@ -110,7 +110,7 @@ describe('InboxTab', () => {
   it('renders the exact zero state when the inbox is empty', async () => {
     mockList.mockResolvedValue(EMPTY_INBOX)
     renderPage()
-    expect(await screen.findByText('Inbox zero — nothing needs you.')).toBeTruthy()
+    expect(await screen.findByText('All caught up')).toBeTruthy()
     // The section containers must NOT render when their counts are 0.
     expect(screen.queryByTestId('inbox-section-plan_pending')).toBeNull()
   })

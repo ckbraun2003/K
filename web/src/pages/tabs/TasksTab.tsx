@@ -225,7 +225,12 @@ export default function TasksTab({ projectId }: Props) {
       {/* Task list */}
       <div className="flex-1 overflow-y-auto">
         {tasks.length === 0 && (
-          <EmptyState icon="personal" headline="No tasks yet." hint="Add one above." />
+          <EmptyState
+            icon="personal"
+            headline="No tasks yet."
+            hint="Add one above."
+            cta={{ label: 'Add a task', onClick: () => inputRef.current?.focus() }}
+          />
         )}
         {tasks.map(task => (
           <div

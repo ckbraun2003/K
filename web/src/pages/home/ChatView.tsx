@@ -4,6 +4,7 @@ import type { KThreadSummary } from '@k/shared'
 import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { useSelectedThread, selectThread, getSelectedThread } from '../../lib/thread-select'
+import { prefillDock } from '../../lib/dock-bus'
 import { relativeTime } from '../../lib/verify'
 import { SectionHeader } from '../../ui/SectionHeader'
 import { EmptyState } from '../../ui/EmptyState'
@@ -270,9 +271,40 @@ export default function ChatView() {
       {/* Transcript */}
       <div className="surface-solid rounded-panel flex-1 overflow-y-auto p-4">
         {effectiveId === null ? (
-          <p data-testid="chat-empty" className="text-body text-muted">
-            Start a new conversation — the bar below sends to it.
-          </p>
+          <div data-testid="chat-empty" className="flex h-full flex-col items-center justify-center gap-4">
+            <EmptyState
+              tier="solid"
+              icon="bolt"
+              headline="Meet K — your org's front door"
+              hint="Ask anything. K answers logistics itself and hands engineering work to the Chief and the leads. @project dispatches an agent run."
+            />
+            <div className="flex flex-wrap justify-center gap-2">
+              {[
+                'What needs my attention today?',
+                'Summarize the last runs across my projects',
+                '@',
+              ].map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  data-testid="chat-suggest"
+                  onClick={() => prefillDock(p)}
+                  className="rounded-pill border border-border bg-raised px-3 py-1.5 text-caption text-muted transition-colors duration-[var(--dur-1)] hover:border-strong hover:text-text"
+                >
+                  {p === '@' ? '@project — dispatch a run' : p}
+                </button>
+              ))}
+            </div>
+            {threads.length > 0 && (
+              <div className="flex flex-wrap justify-center gap-1.5">
+                {threads.slice(0, 3).map(t => (
+                  <button key={t.id} type="button" data-testid="chat-recent-chip" onClick={() => selectThread(t.id)}>
+                    <Tag tint="neutral">{t.title ?? 'New chat'}</Tag>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         ) : (
           <div className="space-y-2.5">
             {isArchivedSurface && (

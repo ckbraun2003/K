@@ -144,7 +144,12 @@ export default function EvalsTab() {
             </GlassPanel>
           )}
           {!runsLoading && runs.length === 0 && (
-            <EmptyState icon="insights" headline="No eval runs yet." hint="Start one above." />
+            <EmptyState
+              icon="insights"
+              headline="No eval runs yet."
+              hint="Start one above."
+              cta={{ label: 'Start an eval run', onClick: () => { startMutation.reset(); setDialogOpen(true) } }}
+            />
           )}
           {runs.map(run => (
             <GlassPanel key={run.id} tier="solid">
@@ -512,7 +517,7 @@ export function SystemMetricsTable({
   if (ids.length === 0) {
     return (
       <div data-testid="evals-metrics-empty">
-        <EmptyState icon="insights" headline="No per-system metrics." />
+        <EmptyState icon="insights" headline="No per-system metrics." hint="Metrics land here once an eval run completes." />
       </div>
     )
   }
@@ -565,7 +570,7 @@ export function EvalResultsTable({ rows }: { rows: EvalResultRow[] }) {
   if (rows.length === 0) {
     return (
       <div data-testid="evals-results-empty">
-        <EmptyState icon="insights" headline="No results." />
+        <EmptyState icon="insights" headline="No results." hint="Case-level results land here once this run completes." />
       </div>
     )
   }

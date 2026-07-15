@@ -8,7 +8,7 @@ import { navigate } from '../lib/route'
 import { useAskK } from '../lib/useAskK'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useSelectedThread, selectThread, getSelectedThread } from '../lib/thread-select'
-import { onDockFocus } from '../lib/dock-bus'
+import { onDockFocus, onDockPrefill } from '../lib/dock-bus'
 import { FORCE_ROUTE_OPTIONS } from '../lib/force-route-options'
 import { INBOX_KEY, inboxQueryFn } from '../lib/inbox-query'
 import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
@@ -285,6 +285,13 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   useEffect(() => onDockFocus(() => {
     if (variant === 'bar') inputRef.current?.focus()
     else setOpen(true)
+  }), [variant])
+
+  // prefillDock(text): a suggestion chip or empty-state CTA seeds the composer
+  // then focuses it the same way focusDock() does (float opens, bar focuses).
+  useEffect(() => onDockPrefill(t => {
+    setText(t)
+    if (variant === 'float') setOpen(true)
   }), [variant])
 
   // Focus the composer input whenever the float overlay opens, however it opened

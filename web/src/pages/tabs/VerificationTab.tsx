@@ -105,6 +105,7 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
             icon="check"
             headline="No verification reports yet."
             hint="Run a verification to score this project."
+            cta={{ label: 'Run verification', onClick: () => reRun.mutate() }}
           />
         </div>
       ) : (

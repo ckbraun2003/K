@@ -10,6 +10,7 @@ import ConfirmDialog from './ConfirmDialog'
 import Toast from './Toast'
 import { groupByDir } from '../lib/review'
 import { Button } from '../ui/Button'
+import { EmptyState } from '../ui/EmptyState'
 
 export interface ReviewDeckProps { runId: string; projectId: string | null }
 
@@ -77,32 +78,40 @@ export default function ReviewDeck({ runId, projectId }: ReviewDeckProps) {
         )}
         <VerifyChip runId={runId} />
         <div className="flex-1" />
-        <Button
-          variant="ghost"
-          size="sm"
-          data-testid="deck-request-changes"
-          disabled={drafts.length === 0}
-          onClick={() => { setActionError(null); setConfirmAction('request') }}
-          className="bg-amber/20 text-amber hover:bg-amber/30 hover:text-amber"
-        >
-          Request changes ({drafts.length})
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          data-testid="deck-approve"
-          disabled={files.length === 0}
-          onClick={() => { setActionError(null); setConfirmAction('approve') }}
-          className="bg-green/20 text-green hover:bg-green/30 hover:text-green"
-        >
-          Approve → PR
-        </Button>
+        {files.length > 0 && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="deck-request-changes"
+              disabled={drafts.length === 0}
+              onClick={() => { setActionError(null); setConfirmAction('request') }}
+              className="bg-amber/20 text-amber hover:bg-amber/30 hover:text-amber"
+            >
+              Request changes ({drafts.length})
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="deck-approve"
+              onClick={() => { setActionError(null); setConfirmAction('approve') }}
+              className="bg-green/20 text-green hover:bg-green/30 hover:text-green"
+            >
+              Approve → PR
+            </Button>
+          </>
+        )}
       </div>
 
       {isLoading && <p className="p-5 text-xs text-muted">Loading diff…</p>}
       {error != null && <p className="p-5 text-xs text-red">{String((error as Error).message)}</p>}
       {!isLoading && error == null && files.length === 0 && (
-        <p className="p-5 text-xs text-muted">No checkpointed changes.</p>
+        <EmptyState
+          icon="pr"
+          headline="No checkpointed changes"
+          hint="Waves land here as k-checkpoint snapshots while a run works this project."
+          className="p-5"
+        />
       )}
 
       {files.length > 0 && (

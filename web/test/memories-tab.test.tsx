@@ -173,9 +173,8 @@ describe('MemoriesTab', () => {
     mockMemoriesList.mockResolvedValue({ memories: [] })
     renderTab()
     expect(await screen.findByTestId('memories-empty')).toBeTruthy()
-    expect(screen.getByTestId('memories-empty').textContent).toBe(
-      'K will remember things from your chats here — or add one yourself.',
-    )
+    expect(screen.getByText('Nothing remembered yet')).toBeTruthy()
+    expect(screen.getByText('K saves durable facts from your chats here — or add one above.')).toBeTruthy()
   })
 
   it('a failing memories query surfaces an inline error, not a crash', async () => {

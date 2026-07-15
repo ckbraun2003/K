@@ -126,7 +126,16 @@ export default function InboxTab() {
         </p>
       ) : box.total === 0 ? (
         <div data-testid="inbox-zero">
-          <EmptyState icon="check" headline="Inbox zero — nothing needs you." />
+          <EmptyState
+            icon="check"
+            illustration={
+              <span aria-hidden className="grid h-14 w-14 place-items-center rounded-pill border border-green/30 bg-green/10 text-green">
+                <Icon name="check" size={20} />
+              </span>
+            }
+            headline="All caught up"
+            hint="Plans, replies, reviews and approvals land here when the org needs you."
+          />
         </div>
       ) : (
         <div className="flex flex-col gap-6">
