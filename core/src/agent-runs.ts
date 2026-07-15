@@ -94,7 +94,11 @@ export async function startAgentRun(
   // operator→Chief delegation (trigger 'delegation') IS a paid org dispatch and IS gated;
   // its caller (k-thread.ts::delegateToChief) catches BudgetCapError → explanatory K turn
   // → 429. Thrown BEFORE the tracking-row insert, so a capped dispatch leaves no row.
-  const gated = opts.trigger !== 'user-message' && !opts.interactive && !opts.persistentSession
+  // P5 SEAMS minor (BE.7): the exemption is STRUCTURAL only — interactive /
+  // persistentSession. The trigger string is caller-supplied trust and no longer
+  // exempts by itself (the one 'user-message' site, k-thread.ts, always passes
+  // persistentSession, so behavior is unchanged for legitimate callers).
+  const gated = !opts.interactive && !opts.persistentSession
   if (gated) {
     const g = budgetGate({ projectId: opts.projectId })
     if (!g.allowed) throw new BudgetCapError(g.scope, g.capUsd, g.spentUsd)

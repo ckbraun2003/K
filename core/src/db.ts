@@ -2227,6 +2227,15 @@ const dismissProposal = db.prepare(`
   UPDATE work_items SET status='cancelled', updated_at=@now
   WHERE id=@id AND scope='org' AND status='blocked' AND source IS NOT NULL
 `)
+// P5-FU-3: re-surface a DISMISSED proposal whose signal recurred after the re-nag
+// window. dismissed_at ≡ the cancelled row's updated_at (dismissProposal stamps it);
+// last_seen ≡ the collector observing the candidate NOW. Guarded to cancelled+sourced
+// org rows so approve/done stay sticky.
+const renagDismissedProposal = db.prepare(`
+  UPDATE work_items SET status='blocked', updated_at=@now
+  WHERE source_key=@sourceKey AND scope='org' AND source IS NOT NULL
+    AND status='cancelled' AND updated_at <= @cutoff
+`)
 // Backlog = open org items (approved proposals OR operator/agent-created org tickets).
 const listOpenBacklog = db.prepare(`
   SELECT * FROM work_items WHERE scope='org' AND status='open' ORDER BY created_at ASC LIMIT ?
@@ -2241,7 +2250,7 @@ const claimBacklogItem = db.prepare(`
 const setWorkItemRun = db.prepare(`UPDATE work_items SET run_id=@runId, updated_at=@now WHERE id=@id`)
 export const proposalsDb = {
   insertProposal, listProposals, getProposalBySourceKey, countOpenProposals,
-  approveProposal, dismissProposal, listOpenBacklog, claimBacklogItem, setWorkItemRun,
+  approveProposal, dismissProposal, renagDismissedProposal, listOpenBacklog, claimBacklogItem, setWorkItemRun,
 }
 
 // ── E-17 measured spend (rolling window; NO forecasting) ─────────────────────
@@ -2253,9 +2262,8 @@ export const budgetDb = { orgSpendSince, projectSpendSince }
 // ── E-18 retry lineage ───────────────────────────────────────────────────────
 const setRunRetry = db.prepare(`UPDATE runs SET retry_of=@retryOf, retry_count=@retryCount WHERE id=@id`)
 const setRunFailureClass = db.prepare(`UPDATE runs SET failure_class=@failureClass WHERE id=@id`)
-const countRunsSince = db.prepare(`SELECT COUNT(*) AS n FROM runs WHERE created_at >= ?`)
-const countRetriesSince = db.prepare(`SELECT COUNT(*) AS n FROM runs WHERE retry_of IS NOT NULL AND created_at >= ?`)
-export const retryDb = { setRunRetry, setRunFailureClass, countRunsSince, countRetriesSince }
+// (countRunsSince/countRetriesSince removed — zero callers; retry-metrics.ts owns the series SQL.)
+export const retryDb = { setRunRetry, setRunFailureClass }
 
 // ── E-16 routine measured cost (skill_runs has NO cost; JOIN to runs) — MAJOR 4 ──
 // skill_runs (db.ts:261-269) columns: id, skillId, runId, triggeredBy, startedAt, completedAt, status.
