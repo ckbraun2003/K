@@ -6,6 +6,7 @@ import { validateRegistration, registerProject, listProjects, getProject, remove
 import { getGithubStatus, createPR, syncIssues } from '../github.js'
 import { onboardProject } from '../onboard.js'
 import { compileProjectBible } from '../bible.js'
+import { scanProjectArtifacts } from '../artifact-scan.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { dispatchTaskWorkflow, TaskNotFoundError } from '../workflows.js'
@@ -30,6 +31,9 @@ export async function projectsRoutes(app: FastifyInstance) {
     if (!v.ok) return reply.status(400).send({ error: v.error })
     try {
       const project = await registerProject(req.body)
+      // D-117: best-effort initial sweep of <localPath>/artifacts loose HTML into
+      // scanned rows — registration must still succeed if the sweep trips.
+      try { scanProjectArtifacts(project.id) } catch (e) { req.log.warn({ err: e }, 'post-register artifact scan failed') }
       return reply.status(201).send(project)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -118,12 +122,26 @@ export async function projectsRoutes(app: FastifyInstance) {
     try {
       const result = await compileProjectBible(project)
       if (!result) return reply.status(404).send({ error: 'no bible manifest — onboard the project first' })
+      // D-117: a compile often lands alongside fresh agent-written HTML — sweep it in.
+      try { scanProjectArtifacts(project.id) } catch (e) { req.log.warn({ err: e }, 'post-compile artifact scan failed') }
       return reply.send(result)
     } catch (e) {
       // fs writes can throw (EACCES/ENOSPC/stale localPath); surface { error } like onboard.
       req.log.error(e)
       return reply.status(500).send({ error: 'bible compile failed' })
     }
+  })
+
+  // POST /api/projects/:id/artifacts/scan — D-117 Refresh button. 404 unknown ·
+  // 409 pathMissing (F-033: a vanished localPath must not mass-delete scanned rows) ·
+  // 200 {added, removed, skipped}.
+  app.post<{ Params: { id: string } }>('/api/projects/:id/artifacts/scan', async (req, reply) => {
+    const project = getProject(req.params.id)
+    if (!project) return reply.status(404).send({ error: 'not found' })
+    if (project.pathMissing) {
+      return reply.status(409).send({ error: `project localPath is missing on disk (${project.localPath}) — restore it or remove the project` })
+    }
+    return reply.send(scanProjectArtifacts(project.id))
   })
 
   // POST /api/projects/:id/verify — deterministic single-shot verification.

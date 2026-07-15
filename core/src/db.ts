@@ -1761,8 +1761,8 @@ export const notificationsDb = {
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
 const upsertArtifact = db.prepare(`
-  INSERT INTO artifacts (slug, title, phase, status, tags, linked_run_id, updated_at, md, html_path)
-  VALUES (@slug, @title, @phase, @status, @tags, @linkedRunId, @updatedAt, @md, @htmlPath)
+  INSERT INTO artifacts (slug, title, phase, status, tags, linked_run_id, updated_at, md, html_path, project_id)
+  VALUES (@slug, @title, @phase, @status, @tags, @linkedRunId, @updatedAt, @md, @htmlPath, @projectId)
   ON CONFLICT(slug) DO UPDATE SET
     title = excluded.title,
     phase = excluded.phase,
@@ -1771,13 +1771,43 @@ const upsertArtifact = db.prepare(`
     linked_run_id = excluded.linked_run_id,
     updated_at = excluded.updated_at,
     md = excluded.md,
-    html_path = excluded.html_path
+    html_path = excluded.html_path,
+    -- a projectId-less recompile of the same slug must not null an existing stamp (BE.5d)
+    project_id = COALESCE(excluded.project_id, artifacts.project_id)
 `)
+// origin is deliberately ABSENT from upsertArtifact: inserts default to 'compiled'
+// (the DDL DEFAULT), and conflicts (recompiles) never flip provenance.
 
 const getArtifact = db.prepare(`SELECT * FROM artifacts WHERE slug = ?`)
-const listArtifacts = db.prepare(`SELECT slug, title, phase, status, tags, updated_at FROM artifacts ORDER BY updated_at DESC`)
+const listArtifacts = db.prepare(`SELECT slug, title, phase, status, tags, updated_at, project_id, origin FROM artifacts ORDER BY updated_at DESC`)
+const listArtifactsByProject = db.prepare(`SELECT slug, title, phase, status, tags, updated_at, project_id, origin FROM artifacts WHERE project_id = ? ORDER BY updated_at DESC`)
 
-export const artifactsDb = { upsertArtifact, getArtifact, listArtifacts }
+// D-117 scan-managed rows. The DO UPDATE WHERE clause is a second belt: a slug
+// collision with a compiled row silently no-ops instead of flipping provenance
+// (the scanner's backing-path check should prevent it ever firing).
+const upsertScannedArtifact = db.prepare(`
+  INSERT INTO artifacts (slug, title, phase, status, tags, linked_run_id, updated_at, md, html_path, project_id, origin)
+  VALUES (@slug, @title, NULL, NULL, @tags, NULL, @updatedAt, @md, @htmlPath, @projectId, 'scanned')
+  ON CONFLICT(slug) DO UPDATE SET
+    title = excluded.title, updated_at = excluded.updated_at,
+    html_path = excluded.html_path, project_id = excluded.project_id
+  WHERE artifacts.origin = 'scanned'
+`)
+const listScannedArtifacts = db.prepare(`
+  SELECT slug, html_path FROM artifacts
+  WHERE origin = 'scanned' AND ((@projectId IS NULL AND project_id IS NULL) OR project_id = @projectId)
+`)
+const deleteScannedArtifact = db.prepare(`DELETE FROM artifacts WHERE slug = ? AND origin = 'scanned'`)
+const deleteArtifact = db.prepare(`DELETE FROM artifacts WHERE slug = ?`)
+// Every path that already BACKS a row: explicit html_path sources. Rows served from
+// the ARTIFACTS_DIR/<slug>.html fallback are covered by the scanner's slug check.
+const listArtifactHtmlPaths = db.prepare(`SELECT slug, html_path FROM artifacts WHERE html_path IS NOT NULL`)
+
+export const artifactsDb = {
+  upsertArtifact, getArtifact, listArtifacts, listArtifactsByProject,
+  upsertScannedArtifact, listScannedArtifacts, deleteScannedArtifact, deleteArtifact,
+  listArtifactHtmlPaths,
+}
 
 // ─── Project helpers ─────────────────────────────────────────────────────────
 
@@ -1863,6 +1893,12 @@ const deleteProjectWorkItems = db.prepare(`DELETE FROM work_items WHERE project_
 // delete throws. (Discovered project SKILLS are a deliberately loose ref — no FK —
 // and degrade to status='missing' at the next rescan instead; see the skills DDL note.)
 const deleteProjectHostMcpServers = db.prepare(`DELETE FROM host_mcp_servers WHERE project_id = ?`)
+// v13 (D-117): artifacts.project_id is a plain NO-ACTION FK by contract — scanned
+// rows (filesystem-discovered) are deleted outright; compiled rows (harness-authored,
+// e.g. the bible) are kept but detached to project_id NULL so the row survives the
+// project's removal instead of FK-failing the delete.
+const deleteProjectScannedArtifacts = db.prepare(`DELETE FROM artifacts WHERE project_id = ? AND origin = 'scanned'`)
+const clearProjectArtifactsProjectId = db.prepare(`UPDATE artifacts SET project_id = NULL WHERE project_id = ?`)
 const deleteProjectRow = db.prepare(`DELETE FROM projects WHERE id = ?`)
 // E-17: set/clear a project's daily budget cap (NULL = no cap).
 const setProjectBudget = db.prepare(`UPDATE projects SET budget_daily_usd = ? WHERE id = ?`)
@@ -1876,6 +1912,8 @@ const deleteProject = db.transaction((id: string) => {
   deleteProjectGithubCache.run(id)
   deleteProjectWorkItems.run(id) // project-scoped work_items: NO-ACTION FK, delete before the project row
   deleteProjectHostMcpServers.run(id) // project-scoped discovered MCP servers: same NO-ACTION FK pattern
+  deleteProjectScannedArtifacts.run(id) // v13: scanned rows are project-owned filesystem mirrors — gone with the project
+  clearProjectArtifactsProjectId.run(id) // v13: compiled rows (bible etc.) detach, not delete
   deleteProjectRow.run(id) // cascades workflow_runs + project_graphs (project_tasks is gone — dropped in P5.1d2b)
 })
 

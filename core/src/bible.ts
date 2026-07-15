@@ -360,6 +360,9 @@ export interface CompileBibleOptions {
   writeHtml?: boolean
   /** Artifact tags. Default ['bible','goal','roadmap']. */
   tags?: string[]
+  /** v13 (D-117): owning project stamped on the artifact row. Default null
+   *  (harness-scoped). compileProjectBible passes the project's id. */
+  projectId?: string | null
 }
 
 export async function compileBible(
@@ -420,6 +423,7 @@ export async function compileBible(
     updatedAt: Date.now(),
     md: combinedMd,
     htmlPath: opts.htmlPath ?? null,
+    projectId: opts.projectId ?? null,
   })
 
   console.log(`[bible] ${writeHtml ? 'compiled' : 'registered'} ${sections.length} sections → ${htmlPath} ✓`)
@@ -455,7 +459,7 @@ export async function compileProjectBible(
   if (!isPathWithin(artifactsDir, htmlPath)) {
     throw new Error(`compileProjectBible: html target escapes artifacts dir — htmlPath="${htmlPath}"`)
   }
-  return compileBible(bibleDir, htmlPath, { slug, htmlPath })
+  return compileBible(bibleDir, htmlPath, { slug, htmlPath, projectId: project.id })
 }
 
 /**

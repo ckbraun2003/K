@@ -18,6 +18,12 @@ import { sanitizeRenderedHtml } from './sanitize.js'
 import { escHtml } from './html.js'
 import { isPathWithin } from './paths.js'
 
+// URL-safe slug: leading alphanumeric, then up to 79 of [alnum _ -]. No dots,
+// slashes, or %-escapes survive — blocks ../ and ..%2f path-traversal at the boundary.
+// (Moved here from routes/artifacts.ts at D-117 so artifact-scan.ts can share it
+// without a route->core import; value unchanged.)
+export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // core/src/* and core/dist/* are both two levels below the repo root. ARTIFACTS_DIR
 // is WRITTEN (compiled bible / ui-demo), so under the desktop app's read-only install
@@ -201,6 +207,7 @@ export async function saveArtifact(slug: string, md: string, meta: Partial<Artif
     // md-backed artifacts are served from ARTIFACTS_DIR/<slug>.html (written just
     // above) — no external source path.
     htmlPath: null,
+    projectId: meta.projectId ?? null,
   })
 
   return artifact
@@ -236,11 +243,15 @@ export async function getArtifact(slug: string): Promise<Artifact | null> {
     updatedAt: Number(row.updated_at),
     md,
     html,
+    projectId: row.project_id == null ? null : String(row.project_id),
+    origin: (row.origin as 'compiled' | 'scanned' | undefined) ?? 'compiled',
   }
 }
 
-export function listArtifacts(): Array<Omit<Artifact, 'md' | 'html'>> {
-  const rows = artifactsDb.listArtifacts.all() as Array<Record<string, unknown>>
+export function listArtifacts(projectId?: string): Array<Omit<Artifact, 'md' | 'html'>> {
+  const rows = (projectId
+    ? artifactsDb.listArtifactsByProject.all(projectId)
+    : artifactsDb.listArtifacts.all()) as Array<Record<string, unknown>>
   return rows.map(r => ({
     slug: String(r.slug),
     title: String(r.title),
@@ -249,6 +260,8 @@ export function listArtifacts(): Array<Omit<Artifact, 'md' | 'html'>> {
     tags: JSON.parse(String(r.tags ?? '[]')),
     linkedRunId: r.linked_run_id ? String(r.linked_run_id) : undefined,
     updatedAt: Number(r.updated_at),
+    projectId: r.project_id == null ? null : String(r.project_id),
+    origin: (r.origin as 'compiled' | 'scanned' | undefined) ?? 'compiled',
   }))
 }
 

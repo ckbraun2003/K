@@ -47,6 +47,9 @@ export interface CompileUiArtifactOptions {
    * 3d61b84). Defaults to ARTIFACTS_DIR.
    */
   outDir?: string
+  /** v13 (D-117): owning project stamped on the artifact row. Default null
+   *  (harness-scoped). compileProjectUiDemo passes the project's id. */
+  projectId?: string | null
 }
 
 export interface CompileUiArtifactResult {
@@ -107,6 +110,7 @@ export async function compileUiArtifact(
     md,
     // Served from ARTIFACTS_DIR/<slug>.html (written just above) — no external source.
     htmlPath: null,
+    projectId: opts.projectId ?? null,
   })
 
   console.log(`[ui-artifact] compiled "${slug}" → ${htmlPath} ✓`)
@@ -183,6 +187,7 @@ export async function compileProjectUiDemo(
     html: uiDemoHtml(),
     source: UI_DEMO_SOURCE,
     outDir,
+    projectId,
   })
 }
 

@@ -17,14 +17,18 @@ import path from 'path'
 import { v4 as uuid } from 'uuid'
 import { compileProjectBible, projectBibleSlug } from '../src/bible.js'
 import { isPathWithin } from '../src/paths.js'
-import { db } from '../src/db.js'
+import { db, projectsDb } from '../src/db.js'
 
 const tmpDirs: string[] = []
 const slugs: string[] = []
+const projectIds: string[] = []
 
 afterAll(() => {
   for (const s of slugs) {
     try { db.prepare('DELETE FROM artifacts WHERE slug = ?').run(s) } catch { /* ignore */ }
+  }
+  for (const id of projectIds) {
+    try { db.prepare('DELETE FROM projects WHERE id = ?').run(id) } catch { /* ignore */ }
   }
   for (const d of tmpDirs) {
     try { fs.rmSync(d, { recursive: true, force: true }) } catch { /* ignore */ }
@@ -54,6 +58,14 @@ function makeProjectRepo(): { id: string; localPath: string } {
   fs.writeFileSync(path.join(root, 'artifacts', 'other.txt'), 'keep me\n')
   const id = uuid()
   slugs.push(projectBibleSlug(id))
+  // v13 (D-117): compileProjectBible stamps artifacts.project_id (an FK), so the
+  // project must EXIST — as it always does in production (routes resolve via
+  // getProject before compiling).
+  projectsDb.insertProject.run({
+    id, name: `f034-${id.slice(0, 8)}`, localPath: root,
+    githubRemote: null, workspaceManaged: 0, bibleDir: 'artifacts/bible', createdAt: Date.now(),
+  })
+  projectIds.push(id)
   return { id, localPath: root }
 }
 
