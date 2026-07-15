@@ -13,6 +13,7 @@ import { SkeletonRow } from '../../ui/Skeleton'
 import { Tag } from '../../ui/Tag'
 import { Tooltip } from '../../ui/Tooltip'
 import { Icon } from '../../ui/Icon'
+import { Row } from '../../ui/Row'
 
 // Mirrors HomePage.tsx's local (unexported) VIEW_KEY — Open hands a thread off
 // to Home's Chat sub-view exactly the way MessageDock/ChatView itself would.
@@ -139,13 +140,11 @@ export default function ChatsTab() {
       ) : (
         <div className="mt-3 flex flex-col gap-1.5">
           {threads.map(t => (
-            <div
+            <Row
               key={t.id}
-              data-testid={`chats-row-${t.id}`}
-              className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
-            >
-              <div className="min-w-0 flex-1">
-                {renamingId === t.id ? (
+              testid={`chats-row-${t.id}`}
+              title={
+                renamingId === t.id ? (
                   <input
                     autoFocus
                     data-testid={`chats-rename-input-${t.id}`}
@@ -157,59 +156,61 @@ export default function ChatsTab() {
                     className="w-full min-w-0 rounded border border-border bg-surface px-1.5 py-0.5 text-body text-text outline-none"
                   />
                 ) : (
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-body font-medium text-text">{t.title ?? 'New chat'}</span>
-                    {t.archivedAt !== null && (
-                      // Tag has no rest spread — the testid rides on a wrapper span. The amber
-                      // override is deliberate (no amber tint in Tag; archived keeps its warning
-                      // semantics, consistent with ChatView's archived chip).
-                      <span data-testid={`chats-archived-${t.id}`} className="flex-shrink-0">
-                        <Tag tint="neutral" className="bg-amber/20 text-amber border-amber/25 uppercase">archived</Tag>
-                      </span>
-                    )}
-                  </div>
-                )}
-                {t.snippet && <div className="truncate text-caption text-muted">{t.snippet}</div>}
-                {t.lastTurnAt != null && (
-                  <div className="mono text-caption text-muted">{relativeTime(t.lastTurnAt)}</div>
-                )}
-              </div>
-              <div className="flex flex-shrink-0 items-center gap-1.5">
-                <Button variant="ghost" size="sm" data-testid={`chats-open-${t.id}`} onClick={() => openThread(t.id)}>
-                  Open
-                </Button>
-                <Tooltip content="Rename">
-                  <IconButton
-                    name="edit"
-                    label="Rename"
+                  t.title ?? 'New chat'
+                )
+              }
+              sub={t.snippet}
+              meta={
+                <span className="flex flex-col items-end gap-1">
+                  {t.archivedAt !== null && (
+                    // Tag has no rest spread — the testid rides on a wrapper span. The amber
+                    // override is deliberate (no amber tint in Tag; archived keeps its warning
+                    // semantics, consistent with ChatView's archived chip).
+                    <span data-testid={`chats-archived-${t.id}`} className="flex-shrink-0">
+                      <Tag tint="neutral" className="bg-amber/20 text-amber border-amber/25 uppercase">archived</Tag>
+                    </span>
+                  )}
+                  {t.lastTurnAt != null && <span>{relativeTime(t.lastTurnAt)}</span>}
+                </span>
+              }
+              actions={
+                <>
+                  <Button variant="ghost" size="sm" data-testid={`chats-open-${t.id}`} onClick={() => openThread(t.id)}>
+                    Open
+                  </Button>
+                  <Tooltip content="Rename">
+                    <IconButton
+                      name="edit"
+                      label="Rename"
+                      variant="ghost"
+                      data-testid={`chats-rename-${t.id}`}
+                      onClick={() => startRename(t)}
+                    />
+                  </Tooltip>
+                  {/* Text button, not an IconButton (documented deviation): the fixed ICONS set
+                      has no archive glyph, and the two-state Archive/Unarchive action reads
+                      clearer as text anyway. */}
+                  <Button
                     variant="ghost"
-                    data-testid={`chats-rename-${t.id}`}
-                    onClick={() => startRename(t)}
-                  />
-                </Tooltip>
-                {/* Text button, not an IconButton (documented deviation): the fixed ICONS set
-                    has no archive glyph, and the two-state Archive/Unarchive action reads
-                    clearer as text anyway. */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  data-testid={`chats-archive-${t.id}`}
-                  disabled={toggleArchive.isPending}
-                  onClick={() => toggleArchive.mutate(t)}
-                >
-                  {t.archivedAt !== null ? 'Unarchive' : 'Archive'}
-                </Button>
-                <Tooltip content="Delete chat">
-                  <IconButton
-                    name="trash"
-                    label="Delete chat"
-                    variant="danger"
-                    data-testid={`chats-delete-${t.id}`}
-                    onClick={() => openDelete(t)}
-                  />
-                </Tooltip>
-              </div>
-            </div>
+                    size="sm"
+                    data-testid={`chats-archive-${t.id}`}
+                    disabled={toggleArchive.isPending}
+                    onClick={() => toggleArchive.mutate(t)}
+                  >
+                    {t.archivedAt !== null ? 'Unarchive' : 'Archive'}
+                  </Button>
+                  <Tooltip content="Delete chat">
+                    <IconButton
+                      name="trash"
+                      label="Delete chat"
+                      variant="danger"
+                      data-testid={`chats-delete-${t.id}`}
+                      onClick={() => openDelete(t)}
+                    />
+                  </Tooltip>
+                </>
+              }
+            />
           ))}
         </div>
       )}

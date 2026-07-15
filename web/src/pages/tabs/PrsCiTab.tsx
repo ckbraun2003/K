@@ -9,6 +9,8 @@ import { Icon } from '../../ui/Icon'
 import { Button, IconButton } from '../../ui/Button'
 import { Spinner } from '../../ui/Spinner'
 import { Input, Textarea } from '../../ui/Field'
+import { Tag } from '../../ui/Tag'
+import { Row } from '../../ui/Row'
 
 interface Props {
   projectId: string
@@ -148,34 +150,35 @@ function CiRow({ run, remote }: { run: CiRunInfo; remote?: string }) {
   const color = ciConclusionColor(run.conclusion, run.status)
   const url = ciRunUrl(remote, run.id)
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-border hover:bg-surface transition-colors">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm text-text truncate">{run.workflow}</p>
-          <span className={cn('mono text-xs flex-shrink-0', color)}>{ciLabel(run)}</span>
-        </div>
-        <p className="mono text-[10px] text-muted mt-0.5">
-          {run.branch} · {timeAgo(run.createdAt)}
-        </p>
-      </div>
-      {url ? (
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={e => e.stopPropagation()}
-          title="Open run on GitHub"
-          aria-label={`Open CI run ${run.id} on GitHub`}
-          className="mono text-[10px] text-muted flex-shrink-0 hover:text-accent-hover transition-colors inline-flex items-center gap-1"
-        >
-          #{run.id} <Icon name="external" size={14} />
-        </a>
-      ) : (
-        <span className="mono text-[10px] text-muted flex-shrink-0">
-          #{run.id}
-        </span>
-      )}
-    </div>
+    <Row
+      testid="ci-row"
+      leading={<span aria-hidden className={cn('h-2 w-2 flex-shrink-0 rounded-full', color.replace('text-', 'bg-'))} />}
+      title={
+        <>
+          {run.workflow} <span className={cn('mono', color)}>{ciLabel(run)}</span>
+        </>
+      }
+      sub={timeAgo(run.createdAt)}
+      meta={<Tag tint="neutral" className="mono">{run.branch}</Tag>}
+      /* IN-2: duration column pending CiRunInfo.durationMs from BE — shared/src is frozen this lane. */
+      actions={
+        url ? (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            title="Open run on GitHub"
+            aria-label={`Open CI run ${run.id} on GitHub`}
+            className="mono text-[10px] text-muted flex-shrink-0 hover:text-accent-hover transition-colors inline-flex items-center gap-1"
+          >
+            #{run.id} <Icon name="external" size={14} />
+          </a>
+        ) : (
+          <span className="mono text-[10px] text-muted flex-shrink-0">#{run.id}</span>
+        )
+      }
+    />
   )
 }
 

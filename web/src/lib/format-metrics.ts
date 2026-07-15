@@ -58,3 +58,13 @@ export function weightedAvgLatencyMs(groups: ReadonlyArray<{ latencyCount: numbe
   if (denom <= 0) return 0
   return groups.reduce((s, g) => s + g.latencyCount * g.avgLatencyMs, 0) / denom
 }
+
+/** Wall-clock duration of a FINISHED run ("4s" / "2m 34s" / "2h 1m"); null while open. */
+export function runDuration(run: { createdAt: number; endedAt?: number }): string | null {
+  if (run.endedAt == null || run.endedAt <= run.createdAt) return null
+  const s = Math.round((run.endedAt - run.createdAt) / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ${s % 60}s`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}

@@ -373,7 +373,7 @@ describe('widget catalog', () => {
   it('RecentActivityWidget: renders feed rows; See all navigates to the timeline', async () => {
     renderWidget(<RecentActivityWidget />)
     expect(await screen.findAllByTestId('feed-row')).toHaveLength(2)
-    expect(mockFeedList).toHaveBeenCalledWith({ limit: 6 })
+    expect(mockFeedList).toHaveBeenCalledWith({ limit: 8 })
     fireEvent.click(screen.getByTestId('widget-recent-activity-seeall'))
     expect(mockNavigate).toHaveBeenCalledWith('timeline')
   })
