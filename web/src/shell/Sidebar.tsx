@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { Run, InboxPayload } from '@k/shared'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
+import { openHelp } from '../lib/help-bus'
 import { RUNS_LIST_KEY, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
 import { INBOX_KEY, inboxQueryFn } from '../lib/inbox-query'
 import { Icon, type IconName } from '../ui/Icon'
@@ -13,13 +14,13 @@ export interface Destination {
   /** One-line description shown in the hover/focus tooltip. */
   hint: string
   enabled: boolean
-  /** Optional explicit navigation target. Defaults to `id`. Lets an entry (e.g. Help)
+  /** Optional explicit navigation target. Defaults to `id`. Lets an entry
    *  deep-link into another view with a param without owning its own route. */
   view?: string
   param?: string
   /** Where the entry renders: the primary nav group, the footer cluster, or `hidden`
-   *  (kept only so TopBar can resolve a label for a view reached indirectly, e.g.
-   *  the Docs view reached via Help — Docs is no longer a top-level destination). */
+   *  (kept only so TopBar can resolve a label for a view reached indirectly). Help is
+   *  in `footer` but opens the HelpGuide dialog (FE-6), not a route — see renderButton. */
   section: 'primary' | 'footer' | 'hidden'
 }
 
@@ -34,7 +35,7 @@ export const DESTINATIONS: Destination[] = [
   { id: 'insights', icon: 'insights', label: 'Insights', hint: 'Overview, charts, routing & evals', enabled: true, section: 'primary' },
   { id: 'projects', icon: 'projects', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary' },
   // Footer cluster — below the spacer.
-  { id: 'help', icon: 'help', label: 'Help', hint: 'How to use K — the user guide', enabled: true, view: 'docs', param: 'project-bible', section: 'footer' },
+  { id: 'help', icon: 'help', label: 'Help', hint: 'How to use K — open the guide', enabled: true, section: 'footer' },
   { id: 'settings', icon: 'settings', label: 'Settings', hint: 'Provider/auth status, diagnostics & global system prompt', enabled: true, section: 'footer' },
   // Hidden: not rail destinations, kept so TopBar can resolve a label for indirectly-reached views.
   { id: 'docs', icon: 'docs', label: 'Docs', hint: 'Harness bible & artifacts', enabled: true, view: 'docs', param: 'project-bible', section: 'hidden' },
@@ -86,7 +87,9 @@ export default function Sidebar({
 
   const renderButton = (d: Destination) => {
     const target = d.view ?? d.id
-    const isActive = active === target
+    // Help is a dialog (FE-6), not a route — it never matches `active`, so
+    // isActive stays false for it regardless of the current view.
+    const isActive = d.id !== 'help' && active === target
     return (
       <button
         key={d.id}
@@ -94,7 +97,7 @@ export default function Sidebar({
         aria-label={d.label}
         disabled={!d.enabled}
         aria-current={isActive ? 'page' : undefined}
-        onClick={() => navigate(target, d.param)}
+        onClick={() => (d.id === 'help' ? openHelp() : navigate(target, d.param))}
         className={cn(
           'group relative flex h-10 items-center gap-3 rounded-control border border-transparent text-sm transition-all duration-150',
           collapsed ? 'w-10 justify-center px-0' : 'w-full px-3',

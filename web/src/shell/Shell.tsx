@@ -21,9 +21,11 @@ import OrchestratorDetailPage from '../pages/OrchestratorDetailPage'
 import TimelinePage from '../pages/TimelinePage'
 import PrReviewPage from '../pages/PrReviewPage'
 import NotFound from '../pages/NotFound'
+import HelpGuide from '../help/HelpGuide'
 import { useHashRoute, isKnownView } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
 import { focusDock } from '../lib/dock-bus'
+import { onHelpOpen, shouldAutoOpenHelp } from '../lib/help-bus'
 import { stageTransition } from '../lib/motion'
 import { CHORDS } from '../lib/chords'
 import { useShellKeys } from '../lib/use-shell-keys'
@@ -34,6 +36,7 @@ export default function Shell() {
   const route = useHashRoute()
   const [connected, setConnected] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [navCollapsed, setNavCollapsed] = useState<boolean>(
     () => localStorage.getItem('k.nav.collapsed') === '1',
   )
@@ -66,6 +69,11 @@ export default function Shell() {
     onCloseLegend: () => setLegendOpen(false),
   })
   useGlassPointer()
+
+  // Sidebar's Help entry opens the guide via the bus (FE-6); Shell owns the
+  // dialog's open state so it can also auto-open it on first run, below.
+  useEffect(() => onHelpOpen(() => setHelpOpen(true)), [])
+  useEffect(() => { if (shouldAutoOpenHelp()) setHelpOpen(true) }, [])
 
   // The ONE live-invalidator subscription for the whole app — mounted at Shell
   // level so invalidation never depends on which page happens to be routed
@@ -116,6 +124,10 @@ export default function Shell() {
       {/* Global nudge: a finalized task-workflow prompts the operator to review + close
           its tasks (F-076 — the harness never auto-closes them). */}
       <WorkflowNudge />
+
+      {/* The in-app user guide (FE-6) — a top-level sibling since it's a dialog,
+          not a route; opened via Sidebar's Help entry or first-run auto-open. */}
+      <HelpGuide open={helpOpen} onOpenChange={setHelpOpen} />
 
       {/* Pending g-chord affordance — shown while a `g` chord is armed so the
           prefix isn't an invisible mode that times out silently (F-009). */}
