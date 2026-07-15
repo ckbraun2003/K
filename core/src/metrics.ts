@@ -427,3 +427,25 @@ export function buildQualityTimeseries(
 
   return { days, dates, points }
 }
+
+/**
+ * THE single multi-day success-rate definition (§13): done/terminal over the WHOLE
+ * window's killed-excluded terminal population — i.e. terminal-weighted across days.
+ * NEVER an unweighted mean of daily rates: a 1-run 100% day must not offset a
+ * 20-run 30% day (the Overview-vs-Charts contradiction, 2026-07-14 audit).
+ * Consumes MetricsQualityPoint-shaped inputs; null = no terminal runs in window.
+ * Web's weightedSuccessRate (format-metrics.ts) implements the same formula over
+ * routing groups — success-rate-definition.test.ts pins their equality.
+ */
+export function overallSuccessRate(
+  points: ReadonlyArray<{ terminalRuns: number; successRate: number | null }>,
+): number | null {
+  let terminal = 0
+  let done = 0
+  for (const p of points) {
+    if (p.successRate == null || p.terminalRuns <= 0) continue
+    terminal += p.terminalRuns
+    done += p.successRate * p.terminalRuns
+  }
+  return terminal > 0 ? done / terminal : null
+}

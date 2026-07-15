@@ -7,11 +7,12 @@ import { sendError, sendZodError } from './http-errors.js'
 
 export async function verifyRoutes(app: FastifyInstance) {
   // GET /api/runs/:id/verify-result — the run's CURRENT verify result.
-  // 404 unknown run · 404 'no verify result' (recipe-less/never verified).
+  // 404 unknown run · 200 { result: null } when never verified (BE-3c: the old 404
+  // printed console noise on every recipe-less run) · 200 bare VerifyResult found.
   app.get<{ Params: { id: string } }>('/api/runs/:id/verify-result', async (req, reply) => {
     if (!runsDb.getRun.get(req.params.id)) return sendError(reply, 404, 'not found')
     const row = verifyResultsDb.getVerifyResult.get(req.params.id) as Record<string, unknown> | undefined
-    if (!row) return sendError(reply, 404, 'no verify result')
+    if (!row) return reply.send({ result: null })
     return reply.send(rowToVerifyResult(row))
   })
 

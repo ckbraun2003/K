@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-15 02:45</span><br>
+      compiled <span class="mono">2026-07-15 03:04</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -4941,7 +4941,7 @@ has no undo</strong>. Both are deliberate for this first, default-OFF cut.</p>
         <span class="section-icon">👁</span>
         <h1>Observability</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-14</span>
       </header>
       <p>Phase 4's Track D makes the harness <strong>observable</strong>: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard <em>surfaces</em> it powers. The <em>Implementation history</em> appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.</p>
 <h2>Event-data enrichment foundation (D3, D-015)</h2>
@@ -5132,6 +5132,14 @@ because a retry is a real row stamped <code>retry_of</code>/<code>retry_count</c
 invalidates the series live. A retry is a fallback-model re-dispatch, so the chart reads how often the
 org is self-correcting rather than parking.</li>
 </ul>
+<h3>Success-rate definition (one number, everywhere)</h3>
+<p><strong>Success rate = <code>done / (done + error + interrupted)</code></strong> — operator-<strong>killed</strong> runs excluded
+(F-082) — over the SELECTED window's <strong>whole terminal population</strong>. Any multi-day aggregate is
+<strong>terminal-run-weighted</strong> (<code>overallSuccessRate</code>, <code>core/src/metrics.ts</code>), <strong>never a mean of daily
+rates</strong>: a 1-run 100% day must not offset a 20-run 30% day. Overview and Charts consume this ONE
+number (2026-07-14 audit fix — the 80%-vs-34.7% contradiction was Overview averaging per-day rates
+unweighted); <code>success-rate-definition.test.ts</code> pins core and web (<code>weightedSuccessRate</code>) to the
+same formula.</p>
 <h2>Implementation history (dashboard)</h2>
 <blockquote>
 <p>Moved here from §08 so that section stays a UI <em>spec</em>. These are the as-built milestone records

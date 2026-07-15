@@ -464,6 +464,15 @@ export async function compileProjectBible(
   if (!isPathWithin(artifactsDir, htmlPath)) {
     throw new Error(`compileProjectBible: html target escapes artifacts dir — htmlPath="${htmlPath}"`)
   }
+  // BE-3e / DF-5 root cause: a project registered AT the harness repo root compiles
+  // to the exact file the harness's own `project-bible` row serves — minting a
+  // `project-<id>-bible` row would duplicate the Docs rail (same title, same file).
+  // Compile into the ONE harness row instead (stamping project_id so the project's
+  // Artifacts tab still lists it) and drop any stale scoped duplicate.
+  if (path.resolve(htmlPath) === path.resolve(ARTIFACTS_DIR, 'project-bible.html')) {
+    artifactsDb.deleteArtifact.run(slug) // the pre-fix duplicate, if present
+    return compileBible(bibleDir, htmlPath, { slug: 'project-bible', htmlPath: null, projectId: project.id })
+  }
   return compileBible(bibleDir, htmlPath, { slug, htmlPath, projectId: project.id })
 }
 
