@@ -75,7 +75,9 @@ export default function Sidebar({
   // reads as a mismatch/typo.
   const runsBadgeTitle =
     parkedRuns === 0
-      ? undefined
+      ? badgeCount > 0
+        ? `${badgeCount} active run${badgeCount > 1 ? 's' : ''}`
+        : undefined
       : activeRuns > 0
         ? `${badgeCount} runs — ${parkedRuns} awaiting your input`
         : `${parkedRuns} run${parkedRuns > 1 ? 's' : ''} awaiting your input`

@@ -81,4 +81,15 @@ describe('Sidebar runs badge — parked runs count (F-055)', () => {
     // reading "2" reads as a mismatch/typo.
     expect(badge.getAttribute('title')).toBe('2 runs — 1 awaiting your input')
   })
+
+  it('active-only (deh LOW-2 completion): title names the count instead of being absent', async () => {
+    runsRef.current = [
+      makeRun({ id: 'a', status: 'running' }),
+      makeRun({ id: 'b', status: 'queued' }),
+    ]
+    renderSidebar(false)
+    const badge = await screen.findByTestId('sidebar-runs-badge')
+    expect(badge.textContent).toBe('2')
+    expect(badge.getAttribute('title')).toBe('2 active runs')
+  })
 })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { InboxItem, InboxItemKind } from '@k/shared'
 import { INBOX_KEY, inboxQueryFn, EMPTY_INBOX } from '../../lib/inbox-query'
@@ -30,7 +30,7 @@ interface Handlers {
   dismissMcp: (qualifiedKey: string) => void
   dismissReview: (runId: string) => void
   approveProposal: (workItemId: string) => void
-  dismissProposal: (workItemId: string) => void
+  deferDismissProposal: (item: InboxItem) => void
   busy: boolean
 }
 
@@ -42,6 +42,9 @@ const PROPOSAL_SOURCE_LABEL: Record<string, string> = {
 export default function InboxTab() {
   const qc = useQueryClient()
   const [toast, setToast] = useState<string | null>(null)
+  // Proposal dismiss goes through a 5s undo window (mirrors MessageDock's
+  // dock-undo-toast) instead of firing api.inbox.dismissProposal immediately.
+  const [pendingDismiss, setPendingDismiss] = useState<InboxItem | null>(null)
   // The ONE shared inbox query (rail badge + this page key off it, so the page adds
   // zero extra fetches — inbox-query.ts). Undefined while loading → EMPTY (zero state).
   const { data, isError, isPending } = useQuery({ queryKey: INBOX_KEY, queryFn: inboxQueryFn })
@@ -98,6 +101,41 @@ export default function InboxTab() {
     onError: fail('Dismiss'),
   })
 
+  // Deferred dismiss: the card hides immediately but api.inbox.dismissProposal
+  // doesn't fire until the undo window (inbox-undo-toast) elapses without an
+  // Undo click. Picking a new proposal to dismiss while one is already pending
+  // commits the earlier one right away (mirrors the dock's single-slot undo —
+  // only the most recent dismiss stays undoable). NOTE: if the user navigates
+  // away mid-window, the Toast unmounts without calling onDismiss, so the
+  // deferred dismiss is silently dropped and the proposal simply stays in the
+  // inbox — the intentionally SAFE failure direction; no backend re-open needed.
+  //
+  // canceledRef guards against Toast's action-button contract: clicking Undo
+  // fires action.onClick (undoDismiss) THEN onDismiss (commitDismiss) in the
+  // same event — without this flag, commitDismiss would read pendingDismiss
+  // from its stale render closure and commit the very dismiss Undo just
+  // canceled. undoDismiss sets it; commitDismiss consumes it and bails.
+  const canceledRef = useRef(false)
+  function deferProposalDismiss(item: InboxItem) {
+    if (pendingDismiss && pendingDismiss.kind === 'proposal') {
+      dismissProposal.mutate(pendingDismiss.workItemId)
+    }
+    canceledRef.current = false
+    setPendingDismiss(item)
+  }
+  function commitDismiss() {
+    if (canceledRef.current) {
+      canceledRef.current = false
+      setPendingDismiss(null)
+      return
+    }
+    if (pendingDismiss?.kind === 'proposal') dismissProposal.mutate(pendingDismiss.workItemId)
+    setPendingDismiss(null)
+  }
+  function undoDismiss() {
+    canceledRef.current = true
+  }
+
   const handlers: Handlers = {
     approveLesson: id => approveLesson.mutate(id),
     rejectLesson: id => rejectLesson.mutate(id),
@@ -105,7 +143,7 @@ export default function InboxTab() {
     dismissMcp: key => dismissMcp.mutate(key),
     dismissReview: id => dismissReview.mutate(id),
     approveProposal: id => approveProposal.mutate(id),
-    dismissProposal: id => dismissProposal.mutate(id),
+    deferDismissProposal: item => deferProposalDismiss(item),
     busy: approveLesson.isPending || rejectLesson.isPending || trustMcp.isPending || dismissMcp.isPending ||
       dismissReview.isPending || approveProposal.isPending || dismissProposal.isPending,
   }
@@ -140,9 +178,12 @@ export default function InboxTab() {
       ) : (
         <div className="flex flex-col gap-6">
           {SECTION_ORDER.map(kind => {
-            const count = box.counts[kind]
+            // A proposal in its 5s undo window is hidden from the list and its
+            // section count, without touching box.counts/box.total (server data).
+            const hidden = pendingDismiss?.kind === kind ? 1 : 0
+            const count = box.counts[kind] - hidden
             if (count === 0) return null
-            const items = box.items.filter(i => i.kind === kind)
+            const items = box.items.filter(i => i.kind === kind && i.id !== pendingDismiss?.id)
             return (
               <section key={kind} data-testid={`inbox-section-${kind}`}>
                 <SectionHeader label={SECTION_LABEL[kind]} as="h2" count={count} />
@@ -158,6 +199,15 @@ export default function InboxTab() {
       )}
 
       <Toast open={toast !== null} testid="inbox-toast" message={toast ?? ''} onDismiss={() => setToast(null)} />
+      <Toast
+        open={pendingDismiss !== null}
+        testid="inbox-undo-toast"
+        durationMs={5000}
+        resetKey={pendingDismiss?.id}
+        message={<>Proposal dismissed · <span className="text-text">{pendingDismiss?.title}</span></>}
+        action={{ label: 'Undo', testid: 'inbox-undo', onClick: undoDismiss }}
+        onDismiss={commitDismiss}
+      />
     </div>
   )
 }
@@ -308,7 +358,7 @@ function CardActions({ item, handlers }: { item: InboxItem; handlers: Handlers }
             size="sm"
             data-testid={`inbox-dismiss-${item.id}`}
             disabled={handlers.busy}
-            onClick={() => handlers.dismissProposal(item.workItemId)}
+            onClick={() => handlers.deferDismissProposal(item)}
           >
             Dismiss
           </Button>

@@ -1,5 +1,8 @@
+/** Inbox proposal dismiss — 5s undo window (mirrors MessageDock's dock-undo-toast).
+ *  Dismiss hides the card and defers api.inbox.dismissProposal until the toast's
+ *  timeout elapses; Undo cancels the deferred call and restores the card. */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { InboxItem, InboxPayload } from '@k/shared'
 
@@ -72,27 +75,44 @@ function renderPage() {
   )
 }
 
-describe('InboxTab — proposal cards', () => {
-  it('renders the "Proposals to approve" section with a source chip', async () => {
+describe('InboxTab — proposal dismiss undo window', () => {
+  it('Dismiss hides the card immediately, defers the api call, and shows the undo toast', async () => {
     mockList.mockResolvedValue(inboxWithProposal())
     renderPage()
-    expect(await screen.findByTestId('inbox-section-proposal')).toBeTruthy()
-    expect(await screen.findByTestId('inbox-card-proposal:wi1')).toBeTruthy()
-    expect(screen.getByText('CI')).toBeTruthy() // ci_failed → "CI" chip
+    fireEvent.click(await screen.findByTestId('inbox-dismiss-proposal:wi1'))
+
+    expect(screen.queryByTestId('inbox-card-proposal:wi1')).toBeNull()
+    expect(mockDismissProposal).not.toHaveBeenCalled()
+    expect(screen.getByTestId('inbox-undo-toast')).toBeTruthy()
+    expect(screen.getByText(/CI is failing in Repo/)).toBeTruthy()
   })
 
-  it('clicking Approve calls api.inbox.approveProposal with the workItemId', async () => {
-    mockList.mockResolvedValue(inboxWithProposal())
-    renderPage()
-    fireEvent.click(await screen.findByTestId('inbox-approve-proposal:wi1'))
-    await waitFor(() => expect(mockApproveProposal).toHaveBeenCalledWith('wi1'))
-  })
-
-  it('clicking Dismiss hides the card immediately (the api call is deferred to the undo window — see inbox-undo.test.tsx)', async () => {
+  it('clicking Undo restores the card and never calls the api', async () => {
     mockList.mockResolvedValue(inboxWithProposal())
     renderPage()
     fireEvent.click(await screen.findByTestId('inbox-dismiss-proposal:wi1'))
     expect(screen.queryByTestId('inbox-card-proposal:wi1')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('inbox-undo'))
+    expect(await screen.findByTestId('inbox-card-proposal:wi1')).toBeTruthy()
     expect(mockDismissProposal).not.toHaveBeenCalled()
+  })
+
+  it('letting the toast time out commits the dismiss exactly once', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      mockList.mockResolvedValue(inboxWithProposal())
+      renderPage()
+      fireEvent.click(await screen.findByTestId('inbox-dismiss-proposal:wi1'))
+      await screen.findByTestId('inbox-undo-toast')
+      expect(mockDismissProposal).not.toHaveBeenCalled()
+
+      act(() => { vi.advanceTimersByTime(5000) })
+
+      await waitFor(() => expect(mockDismissProposal).toHaveBeenCalledWith('wi1'))
+      expect(mockDismissProposal).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -271,8 +271,13 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
+  const dispatchCardRef = useRef<HTMLDivElement>(null)
 
   useFocusTrap(overlayRef, variant === 'float' && open)
+  // UIS-FU-1 — the dispatch confirm card is its own modal (rendered on top of
+  // either dock variant), so it needs its own trap instead of relying on the
+  // float overlay's.
+  useFocusTrap(dispatchCardRef, confirm !== null)
 
   // Draft swap: stash the outgoing thread's unsent text, restore the incoming
   // thread's. Runs only when the SELECTION changes (not on every keystroke) —
@@ -525,6 +530,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
         >
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={cancelDispatch} />
           <motion.div
+            ref={dispatchCardRef}
             data-testid="dock-dispatch-card"
             role="dialog"
             aria-modal="true"

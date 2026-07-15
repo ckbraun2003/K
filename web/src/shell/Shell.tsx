@@ -177,21 +177,31 @@ export default function Shell() {
             >
               <h3 className="text-sm font-semibold text-text">Keyboard shortcuts</h3>
               <p className="mt-1 text-xs text-muted">Press <kbd className="mono rounded bg-raised px-1 py-0.5 text-[10px]">?</kbd> any time to toggle this panel.</p>
-              <ul className="mt-4 flex flex-col gap-1.5">
-                <li className="flex items-center justify-between text-xs">
+              <ul className="mt-4 flex flex-col divide-y divide-border">
+                <li className="flex items-center justify-between py-1.5 text-xs">
                   <span className="text-text">Message K</span>
                   <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">⌘K</kbd>
                 </li>
                 {CHORDS.map(c => (
-                  <li key={c.key} className="flex items-center justify-between text-xs">
+                  <li key={c.key} className="flex items-center justify-between py-1.5 text-xs">
                     <span className="text-text">{c.label}</span>
-                    <span className="mono text-[10px] text-muted">
-                      <kbd className="rounded bg-raised px-1.5 py-0.5">g</kbd>
-                      {' '}
-                      <kbd className="rounded bg-raised px-1.5 py-0.5">{c.key}</kbd>
+                    <span className="flex items-center gap-1">
+                      <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">g</kbd>
+                      <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">{c.key}</kbd>
                     </span>
                   </li>
                 ))}
+                <li className="flex items-center justify-between py-1.5 text-xs">
+                  <span className="text-text">Changes — next / prev file</span>
+                  <span className="flex items-center gap-1">
+                    <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">j</kbd>
+                    <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">k</kbd>
+                  </span>
+                </li>
+                <li className="flex items-center justify-between py-1.5 text-xs">
+                  <span className="text-text">Close dialogs &amp; overlays</span>
+                  <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">Esc</kbd>
+                </li>
               </ul>
             </motion.div>
           </motion.div>
