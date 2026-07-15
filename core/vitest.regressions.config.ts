@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config'
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,13 +39,25 @@ export default defineConfig({
       // default to a dir separate from the gating suite when unset. NEVER the
       // repo's live data dir, though (H-1 guard — same rationale as
       // vitest.config.ts: an inherited live K_DATA_DIR must not bind a
-      // regressions run to the real DB). Case-insensitive (Windows paths).
+      // regressions run to the real DB).
       K_DATA_DIR: (() => {
         const ext = process.env.K_DATA_DIR
-        const live = path.resolve(here, '../data').toLowerCase()
-        if (ext && path.resolve(ext).toLowerCase() !== live) return ext
-        if (ext) console.warn('[vitest] K_DATA_DIR pointed at the LIVE data dir — overriding to a temp dir (H-1 guard)')
-        return path.join(os.tmpdir(), 'k-core-regressions-data')
+        const fallback = path.join(os.tmpdir(), 'k-core-regressions-data')
+        if (!ext) return fallback
+        // H-1 guard, hardened (DEH-FU-6): canonicalize BOTH sides through the OS
+        // (realpath resolves 8.3 short names like DATA~1 and junctions/symlinks)
+        // and block the live dir AND anything inside it — the old exact-string
+        // compare let `data\sub`, short paths, and junctions through.
+        const canon = (p: string): string => {
+          try { return fs.realpathSync.native(p).toLowerCase() } catch { return path.resolve(p).toLowerCase() }
+        }
+        const live = canon(path.resolve(here, '../data'))
+        const extCanon = canon(ext)
+        if (extCanon === live || extCanon.startsWith(live + path.sep)) {
+          console.warn('[vitest] K_DATA_DIR points at (or inside) the LIVE data dir — overriding to a temp dir (H-1 guard)')
+          return fallback
+        }
+        return ext
       })(),
       HARNESS_TOKEN: 'dev-token-change-me',
     },

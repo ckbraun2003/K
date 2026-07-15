@@ -6,7 +6,7 @@ import { startRun, kill, sendInput, endSession, REPO_ROOT } from '../supervisor.
 import { orgDefaultPlanGate } from '../plan-gate.js'
 import { runsDb, eventsDb, projectsDb, workflowStepsDb, verifyResultsDb } from '../db.js'
 import { matchProjectByCwd, type ProjectPathRow } from '../project-match.js'
-import { sendError, sendZodError } from './http-errors.js'
+import { sendError, sendZodError, sendBudgetCapped } from './http-errors.js'
 import { deriveNarrative, narrativeBullets } from '../narrative.js'
 import { httpTransport } from '../ollama-agent/transport.js'
 import { isOllamaReachable } from '../router.js'
@@ -63,12 +63,7 @@ export async function runsRoutes(app: FastifyInstance) {
     // 429 (not 400/500): a transient, operator-resolvable state — raise the cap in
     // Settings → Autonomous Org, or wait for the 24h window to roll off.
     const g = budgetGate({ projectId })
-    if (!g.allowed) {
-      return reply.status(429).send({
-        error: g.scope === 'org' ? 'org budget cap reached' : 'project budget cap reached',
-        scope: g.scope, capUsd: g.capUsd, spentUsd: g.spentUsd,
-      })
-    }
+    if (!g.allowed) return sendBudgetCapped(reply, g)
     try {
       const run = await startRun(prompt, {
         cwd, model, projectId, preferLocal, interactive, carryWorkingTree,

@@ -1,6 +1,6 @@
 /**
- * P1 B1 — E-04 verify routes: GET /api/runs/:id/verify-result (404 run / 404
- * no-result / 200 seeded row) + PATCH /api/projects/:id/verify-recipe (400
+ * P1 B1 — E-04 verify routes: GET /api/runs/:id/verify-result (404 run / 200
+ * {result:null} never-verified / 200 seeded row) + PATCH /api/projects/:id/verify-recipe (400
  * schema-invalid BEFORE 404 unknown project — F-022 ordering; 200 set echoes
  * the recipe; 200 clear removes it). Real Fastify app via buildApp + inject.
  */
@@ -46,10 +46,10 @@ describe('GET /api/runs/:id/verify-result', () => {
     expect(res.json().error).toBe('not found')
   })
 
-  it('404 "no verify result" for a known run never verified', async () => {
+  it('200 { result: null } for a known run never verified (BE-3c contract)', async () => {
     const res = await app.inject({ method: 'GET', url: `/api/runs/${runId}/verify-result`, headers: AUTH })
-    expect(res.statusCode).toBe(404)
-    expect(res.json().error).toBe('no verify result')
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ result: null })
   })
 
   it('200 with the stored result after a seeded upsert', async () => {

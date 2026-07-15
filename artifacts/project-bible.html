@@ -19,7 +19,11 @@
     font-size: 14.5px; line-height: 1.7;
   }
   .mono { font-family: var(--mono); font-size: .92em; }
-  .layout { display: grid; grid-template-columns: 272px 1fr; min-height: 100vh; }
+  /* DF-1: minmax(0, 1fr) — a grid track's min size defaults to min-content, so
+     wide unbreakable content (long inline code tokens, wide table cells) would
+     otherwise push the content column past the viewport (mid-word clipping
+     behind a horizontal scrollbar at 1440×900). */
+  .layout { display: grid; grid-template-columns: 272px minmax(0, 1fr); min-height: 100vh; }
 
   nav {
     background: var(--surface); border-right: 1px solid var(--border);
@@ -40,7 +44,7 @@
   .nav-title { flex: 1; }
   .nav-foot { margin-top: 1.25rem; padding: .75rem .55rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: .7rem; }
 
-  main { padding: 3rem 3.5rem 5rem; max-width: 880px; }
+  main { padding: 3rem 3.5rem 5rem; max-width: 880px; min-width: 0; }
   .bible-section { padding-bottom: 2.5rem; margin-bottom: 2.5rem; border-bottom: 1px solid var(--border); }
   .bible-section:last-child { border-bottom: none; }
   .section-head { display: flex; align-items: center; gap: .75rem; margin-bottom: 1rem; }
@@ -58,6 +62,7 @@
     font-family: var(--mono); font-size: .85em; color: #c7c8ff;
     background: var(--raised); border: 1px solid var(--border);
     padding: .1em .35em; border-radius: 4px;
+    overflow-wrap: anywhere;
   }
   pre {
     position: relative; background: var(--surface); border: 1px solid var(--border);
@@ -76,7 +81,7 @@
   table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .84rem; }
   th { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .08em;
        text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--border); font-weight: 600; }
-  td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: var(--surface); }
 
@@ -113,7 +118,7 @@
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   @media (max-width: 860px) {
-    .layout { grid-template-columns: 1fr; }
+    .layout { grid-template-columns: minmax(0, 1fr); }
     nav { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
     main { padding: 1.5rem; }
   }
@@ -201,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-13 18:58</span><br>
+      compiled <span class="mono">2026-07-15 03:35</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -3166,7 +3171,7 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-14</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -4072,7 +4077,7 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
 <td>D-112</td>
 <td>2026-07-13</td>
 <td>Budget park = reactive refuse-with-reason, measured rolling-24h, zero forecasting (+ deferred operator-action routes)</td>
-<td><strong>E-17 caps on MEASURED <code>runs.cost_usd</code> over a rolling 24h window — ZERO forecasting (no price×token, no projection). Org cap (autonomy settings) + per-project caps (<code>projects.budget_daily_usd</code>). At cap a dispatch is PARKED = refused-with-reason (<code>429</code> / <code>BudgetCapError</code>), no queue — the operator raises the cap. Gated paths: <code>startAgentRun</code> (autonomous schedule/event/delegation), manual <code>POST /api/runs</code> (→429), operator→Chief <code>delegateToChief</code> (→429), and autonomous scheduled/event skill dispatch. EXEMPT: interactive/persistent K turns.</strong></td>
+<td><strong>E-17 caps on MEASURED <code>runs.cost_usd</code> over a rolling 24h window — ZERO forecasting (no price×token, no projection). Org cap (autonomy settings) + per-project caps (<code>projects.budget_daily_usd</code>). At cap a dispatch is PARKED = refused-with-reason (<code>429</code> / <code>BudgetCapError</code>), no queue — the operator raises the cap. Gated paths: <code>startAgentRun</code> (autonomous schedule/event/delegation), manual <code>POST /api/runs</code> (→429), operator→Chief <code>delegateToChief</code> (→429), and autonomous scheduled/event skill dispatch. EXEMPT: interactive/persistent K turns.</strong> <em>2026-07-14 (P5-FU-1): the park now ALSO gates the operator action routes — rewind, review-fix, deep-verify, workflow dispatch, run-skill-now — with the same 429 payload (<code>sendBudgetCapped</code>); the interactive-K exemption is unchanged and now the only one.</em></td>
 <td>Measured-only honors the program's no-price-coupling rule (the committed no-price-tables grep gate stays green); a reactive refuse-with-reason is simpler and truer than a queue or a projection; exempting interactive K keeps the operator's own conversation with their secretary unblocked. Operator-initiated action routes (rewind / review-fix / deep-verify / workflows / run-skill-now) are a <strong>tracked follow-up</strong>, documented honestly rather than claimed.</td>
 <td>Forecasting / "projected" spend (price-coupled, banned); a queue that runs the parked work later (hidden deferred spend); gating interactive K (blocks the operator talking to their own secretary).</td>
 </tr>
@@ -4101,7 +4106,7 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
         <span class="section-icon">⌘</span>
         <h1>Operations</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-14</span>
       </header>
       <h2>Running locally</h2>
 <pre><code class="language-bash"># Prerequisites: Node 20, pnpm 10, claude CLI authenticated, gh CLI authenticated
@@ -4120,8 +4125,12 @@ schema/migrations in <code>core/src/db.ts</code> — an in-place restart can boo
 version before its migration exists (see the poisoned-stamp incident under Schema migrations).</li>
 <li>Before merging anything that touches <code>core/src/db.ts</code>, run <code>pnpm smoke:upgrade</code>
 (<code>core/scripts/upgrade-smoke.mjs</code>) — it copies the real dev DB to a temp dir, boots the merged core
-against the copy on port 3299, and polls <code>/api/runs</code> + <code>/api/profiles</code>, proving the <strong>upgrade</strong>
-path boots (not just a fresh install).</li>
+against the copy on port 3299 (override: <code>K_SMOKE_PORT</code>), and polls <code>/api/runs</code> + <code>/api/profiles</code>,
+proving the <strong>upgrade</strong> path boots (not just a fresh install).</li>
+<li><code>pnpm --filter @k/core seed:review-demo</code> — dev-only 3-file checkpoint-diff fixture (BE-6): seeds a
+throwaway <code>seed-review-demo</code> project + a completed run with a real 2-wave k-checkpoint chain so the
+Changes surface / DiffViewer renders a genuine multi-file diff without paying for a dispatch.
+Idempotent (re-run replaces); never runs at boot.</li>
 </ul>
 <h2>Environment (<code>core/.env</code>)</h2>
 <pre><code>PORT=3001
@@ -4171,17 +4180,17 @@ recon finding that the Claude default model was an env-frozen <code>const</code>
 <tr>
 <td>Bible source</td>
 <td><code>artifacts/bible/</code></td>
-<td>no — gitignored K-system dir (same in every project)</td>
+<td><strong>K's own repo: yes — tracked</strong> (manifest + sections are the living spec, edited by the section editor). Managed projects: gitignored by the onboard scaffold</td>
 </tr>
 <tr>
 <td>Compiled bible</td>
 <td><code>artifacts/project-bible.html</code></td>
-<td>no (generated)</td>
+<td><strong>yes — tracked</strong> (recompiled on request/merge and committed alongside section edits; tracked since e903f5c)</td>
 </tr>
 <tr>
 <td>Other artifacts</td>
 <td><code>artifacts/*.md</code> (+ generated <code>.html</code>)</td>
-<td>no — gitignored K-system dir</td>
+<td>mixed — K's own <code>ui-demo.html</code> is tracked (boot-regenerated, deterministic); scratch <code>.md</code> artifacts and scanned loose HTML are working files, not deliverables</td>
 </tr>
 <tr>
 <td>Task tracker</td>
@@ -4204,9 +4213,10 @@ recon finding that the Claude default model was an env-frozen <code>const</code>
 <td>no</td>
 </tr>
 </tbody></table>
-<p><code>artifacts/</code> and <code>tasks/</code> are <strong>K-system directories</strong> — the same hidden, gitignored names in every
-managed project (<code>onboard.ts ensureGitignore</code> adds them); bibles scaffold into <code>artifacts/bible/</code>.
-K's own bible therefore lives on-disk as a living spec and is <strong>not</strong> under version control.</p>
+<p><code>artifacts/</code> and <code>tasks/</code> are <strong>K-system directories</strong> in <em>managed projects</em> — <code>onboard.ts ensureGitignore</code> hides them there so agent scratch output never dirties a project's history. K's
+OWN repo is the exception by design: the bible sources, the compiled <code>project-bible.html</code>, and
+<code>ui-demo.html</code> are <strong>git-tracked deliverables</strong> (this section, its HTML, and the demo ship with
+the repo), while <code>tasks/</code> stays untracked. When in doubt, <code>git ls-files artifacts/</code> is the truth.</p>
 <p><strong><code>data/k.db</code> is a dev database</strong> — disposable test/dev data only, never personal data; the only
 registered project is the K repo itself (<code>jarvis-core</code> → the repo root). Treat it as expendable: if
 it needs wiping to recover from a bad state, wipe it.</p>
@@ -4935,7 +4945,7 @@ has no undo</strong>. Both are deliberate for this first, default-OFF cut.</p>
         <span class="section-icon">👁</span>
         <h1>Observability</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-14</span>
       </header>
       <p>Phase 4's Track D makes the harness <strong>observable</strong>: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard <em>surfaces</em> it powers. The <em>Implementation history</em> appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.</p>
 <h2>Event-data enrichment foundation (D3, D-015)</h2>
@@ -5126,6 +5136,14 @@ because a retry is a real row stamped <code>retry_of</code>/<code>retry_count</c
 invalidates the series live. A retry is a fallback-model re-dispatch, so the chart reads how often the
 org is self-correcting rather than parking.</li>
 </ul>
+<h3>Success-rate definition (one number, everywhere)</h3>
+<p><strong>Success rate = <code>done / (done + error + interrupted)</code></strong> — operator-<strong>killed</strong> runs excluded
+(F-082) — over the SELECTED window's <strong>whole terminal population</strong>. Any multi-day aggregate is
+<strong>terminal-run-weighted</strong> (<code>overallSuccessRate</code>, <code>core/src/metrics.ts</code>), <strong>never a mean of daily
+rates</strong>: a 1-run 100% day must not offset a 20-run 30% day. Overview and Charts consume this ONE
+number (2026-07-14 audit fix — the 80%-vs-34.7% contradiction was Overview averaging per-day rates
+unweighted); <code>success-rate-definition.test.ts</code> pins core and web (<code>weightedSuccessRate</code>) to the
+same formula.</p>
 <h2>Implementation history (dashboard)</h2>
 <blockquote>
 <p>Moved here from §08 so that section stays a UI <em>spec</em>. These are the as-built milestone records

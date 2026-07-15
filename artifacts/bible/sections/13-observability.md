@@ -2,7 +2,7 @@
 title: Observability
 icon: "👁"
 status: active
-updated: 2026-07-13
+updated: 2026-07-14
 ---
 
 Phase 4's Track D makes the harness **observable**: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard *surfaces* it powers. The *Implementation history* appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.
@@ -210,6 +210,16 @@ data already stored — no forecasting, no new spend**:
   because a retry is a real row stamped `retry_of`/`retry_count`, and a `run_retried` WS event
   invalidates the series live. A retry is a fallback-model re-dispatch, so the chart reads how often the
   org is self-correcting rather than parking.
+
+### Success-rate definition (one number, everywhere)
+
+**Success rate = `done / (done + error + interrupted)`** — operator-**killed** runs excluded
+(F-082) — over the SELECTED window's **whole terminal population**. Any multi-day aggregate is
+**terminal-run-weighted** (`overallSuccessRate`, `core/src/metrics.ts`), **never a mean of daily
+rates**: a 1-run 100% day must not offset a 20-run 30% day. Overview and Charts consume this ONE
+number (2026-07-14 audit fix — the 80%-vs-34.7% contradiction was Overview averaging per-day rates
+unweighted); `success-rate-definition.test.ts` pins core and web (`weightedSuccessRate`) to the
+same formula.
 
 ## Implementation history (dashboard)
 

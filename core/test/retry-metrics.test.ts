@@ -22,4 +22,17 @@ describe('retry-rate series', () => {
     const s = retryRateSeries(7, t0 + 1000)
     expect(s.overallRate).toBeCloseTo(0.5) // 1 retry / 2 runs
   })
+
+  it('zero-fills day gaps across the window (P5-FU-4)', () => {
+    // Same far-future isolation trick as above (shared-dir sibling rows fall below `since`).
+    const DAY = 86_400_000
+    const now = 4_102_444_800_000 + 30 * DAY // 2100-01-31
+    db.prepare(`INSERT INTO runs (id,prompt,cwd,worktree,status,created_at) VALUES ('a','p','.','.','done',?)`).run(now - 6 * DAY)
+    db.prepare(`INSERT INTO runs (id,prompt,cwd,worktree,status,retry_of,created_at) VALUES ('b','p','.','.','done','a',?)`).run(now)
+    const s = retryRateSeries(7, now)
+    const expected = Math.floor(now / DAY) - Math.floor((now - 7 * DAY) / DAY) + 1
+    expect(s.points).toHaveLength(expected)            // EVERY day present
+    expect(s.points.some(p => p.runs === 0 && p.retries === 0 && p.rate === 0)).toBe(true)
+    expect(s.points[s.points.length - 1].retries).toBeGreaterThanOrEqual(1)
+  })
 })

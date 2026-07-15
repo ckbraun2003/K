@@ -8,6 +8,8 @@ vi.mock('../src/supervisor.js', async () => ({
   ...(await vi.importActual('../src/supervisor.js')), startRun: startRunMock,
 }))
 import { onRunTerminalForHeal } from '../src/self-heal.js'
+import { OPEN_PROPOSAL_CAP } from '../src/proposal-collectors.js'
+import { randomUUID } from 'node:crypto'
 
 // agent_runs.profile_id REFERENCES agent_profiles(id) (FK ON) — the seed needs 'lead-backend'
 // to exist. Shared DB may already carry it; create only what is absent, remove only what we made.
@@ -88,6 +90,22 @@ describe('self-heal', () => {
     seedFailedRun('r3', 0, null)               // no error event persisted
     expect(await onRunTerminalForHeal({ id: 'r3', status: 'error' } as any)).toBe('parked')
     expect((db.prepare(`SELECT failure_class FROM runs WHERE id='r3'`).get() as any).failure_class).toBe('unknown')
+  })
+
+  it('respects OPEN_PROPOSAL_CAP — a full inbox parks WITHOUT inserting (BE.7 cap-bypass fix)', async () => {
+    // Fill the open-proposal population to the cap with unrelated seeded rows.
+    for (let i = 0; i < OPEN_PROPOSAL_CAP; i++) {
+      db.prepare(`INSERT INTO work_items (id, title, status, scope, source, source_key, created_at, updated_at)
+                  VALUES (?, 't', 'blocked', 'org', 'ci_failed', ?, ?, ?)`)
+        .run(randomUUID(), `shcap:${i}`, Date.now(), Date.now())
+    }
+    try {
+      seedFailedRun('r4', 2, 'ECONNRESET') // at retry cap → park path
+      expect(await onRunTerminalForHeal({ id: 'r4', status: 'error' } as any)).toBe('parked')
+      expect((db.prepare(`SELECT COUNT(*) n FROM work_items WHERE source_key = 'self_heal:r4'`).get() as any).n).toBe(0)
+    } finally {
+      db.prepare(`DELETE FROM work_items WHERE source_key LIKE 'shcap:%'`).run()
+    }
   })
 
   it('re-heals a failed retry (a descended run has no agent_runs owner but is still eligible)', async () => {

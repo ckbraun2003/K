@@ -26,6 +26,11 @@ const OLD_SCHEMA_DDL = `
     id TEXT PRIMARY KEY, prompt TEXT NOT NULL, cwd TEXT NOT NULL, worktree TEXT,
     status TEXT NOT NULL DEFAULT 'queued', created_at INTEGER NOT NULL, ended_at INTEGER
   );
+  -- pre-v13 shape: the SCHEMA_SENTINEL now lives on artifacts.origin, so the
+  -- fast-path fixture needs the table to exist (without the sentinel column).
+  CREATE TABLE artifacts (
+    slug TEXT PRIMARY KEY, title TEXT NOT NULL, updated_at INTEGER NOT NULL, md TEXT NOT NULL
+  );
 `
 
 const tmpFiles: string[] = []

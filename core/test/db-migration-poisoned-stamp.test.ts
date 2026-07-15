@@ -21,6 +21,13 @@ describe('poisoned schema stamp self-heal', () => {
         created_at INTEGER, ended_at INTEGER, project_id TEXT REFERENCES projects(id));
       CREATE TABLE work_items (id TEXT PRIMARY KEY, run_id TEXT, title TEXT, body TEXT,
         status TEXT, created_at INTEGER, updated_at INTEGER, scope TEXT, project_id TEXT);
+      CREATE TABLE artifacts (slug TEXT PRIMARY KEY, title TEXT NOT NULL, phase TEXT, status TEXT,
+        tags TEXT NOT NULL DEFAULT '[]', linked_run_id TEXT, updated_at INTEGER NOT NULL,
+        md TEXT NOT NULL, html_path TEXT);
+      CREATE TABLE eval_results (id TEXT PRIMARY KEY, evalRunId TEXT NOT NULL, systemId TEXT NOT NULL,
+        caseId TEXT NOT NULL, model TEXT NOT NULL, variant TEXT NOT NULL, detPass INTEGER,
+        detScore REAL, formatScore REAL, judgeOverall REAL, judgeVerdict TEXT, refusalCorrect INTEGER,
+        costUsd REAL, ms INTEGER, numTurns INTEGER, error TEXT, raw TEXT, createdAt INTEGER NOT NULL);
     `)
     return d
   }
@@ -33,6 +40,8 @@ describe('poisoned schema stamp self-heal', () => {
     expect(cols('projects')).toContain('budget_daily_usd')
     expect(cols('work_items')).toContain('source_key')
     expect(cols('runs')).toContain('retry_of')
+    expect(cols('artifacts')).toContain('origin')
+    expect(cols('eval_results')).toContain('failure_reason')
     expect(d.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
     d.close()
   })

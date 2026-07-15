@@ -6,11 +6,11 @@
  * carries a suggested charter adjustment; approval flows through the existing gate (no new UI).
  * Gated by enabled && proposals.
  *
- * Source note: verify_results is the current signal (it carries a free-text `reason` that makes
- * a stable signature). eval_results has no free-text failure reason (detPass/judgeVerdict/error)
- * and its rows require an eval_runs parent, so an eval-derived signature is deferred until the
- * eval table is populated in a live smoke — the verify path fully satisfies E-27's repeated-
- * failure → gated-lesson contract.
+ * Source note: TWO signals feed the gate — verify_results.reason (status='fail') and, since
+ * v13 (P5-FU-5), eval_results.failure_reason (written by the eval runner sink:
+ * eval/service.ts::deriveFailureReason — error string, else deterministic criticalFailures;
+ * NULL for passes). Both flow through the same normalization/MIN_FAILURES/cap/dedupe. The
+ * old "deferred until eval carries a reason" caveat is CLOSED.
  */
 import { agentMemoryDb } from './db.js'
 import { db } from './db.js'
@@ -30,8 +30,12 @@ export function collectRepeatedFailures(now = Date.now()): Array<{ signature: st
   const since = now - 30 * 86_400_000
   const rows = db.prepare(
     `SELECT reason FROM verify_results WHERE status = 'fail' AND completed_at >= ?`).all(since) as Array<{ reason: string | null }>
+  // P5-FU-5: eval failures now carry a free-text reason too (v13 failure_reason,
+  // written by the runner sink) — same normalization, same gate.
+  const evalRows = db.prepare(
+    `SELECT failure_reason AS reason FROM eval_results WHERE failure_reason IS NOT NULL AND createdAt >= ?`).all(since) as Array<{ reason: string | null }>
   const groups = new Map<string, { count: number; text: string }>()
-  for (const r of rows) {
+  for (const r of [...rows, ...evalRows]) {
     if (!r.reason) continue
     const sig = signature(r.reason)
     const g = groups.get(sig) ?? { count: 0, text: r.reason }

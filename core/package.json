@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "bible": "node --import tsx src/scripts/compile-bible.ts",
+    "seed:review-demo": "node --import tsx --import ./dev-env.mjs src/scripts/seed-review-demo.ts",
     "test": "vitest run",
     "test:regressions": "vitest run --config vitest.regressions.config.ts"
   },

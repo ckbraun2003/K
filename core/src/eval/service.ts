@@ -37,6 +37,7 @@ export interface EvalResultRow {
   ms: number | null
   numTurns: number | null
   error: string | null
+  failureReason: string | null
   raw: string
   createdAt: number
 }
@@ -57,8 +58,8 @@ function prepare(d: Database.Database) {
       UPDATE eval_runs SET status = @status, report = @report, error = @error, completedAt = @completedAt WHERE id = @id
     `),
     insertResult: d.prepare(`
-      INSERT INTO eval_results (id, evalRunId, systemId, caseId, model, variant, detPass, detScore, formatScore, judgeOverall, judgeVerdict, refusalCorrect, costUsd, ms, numTurns, error, raw, createdAt)
-      VALUES (@id, @evalRunId, @systemId, @caseId, @model, @variant, @detPass, @detScore, @formatScore, @judgeOverall, @judgeVerdict, @refusalCorrect, @costUsd, @ms, @numTurns, @error, @raw, @createdAt)
+      INSERT INTO eval_results (id, evalRunId, systemId, caseId, model, variant, detPass, detScore, formatScore, judgeOverall, judgeVerdict, refusalCorrect, costUsd, ms, numTurns, error, failure_reason, raw, createdAt)
+      VALUES (@id, @evalRunId, @systemId, @caseId, @model, @variant, @detPass, @detScore, @formatScore, @judgeOverall, @judgeVerdict, @refusalCorrect, @costUsd, @ms, @numTurns, @error, @failureReason, @raw, @createdAt)
     `),
     upsertBaseline: d.prepare(`
       INSERT INTO eval_baselines (systemId, metrics, evalRunId, frozenAt)
@@ -70,6 +71,19 @@ function prepare(d: Database.Database) {
 }
 
 const bool01 = (v: boolean | null | undefined): number | null => (v == null ? null : v ? 1 : 0)
+
+/** P5-FU-5: the free-text failure reason a FAILED result records for the E-27
+ *  lesson gate. Error records carry the error; deterministic fails carry the
+ *  grader's criticalFailures (stable enough for signature grouping); judge-only
+ *  soft scores deliberately do NOT park a reason. Passes → null. */
+export function deriveFailureReason(rec: EvalRecord): string | null {
+  if (rec.error) return String(rec.error).slice(0, 500)
+  if (rec.det && rec.det.detPass === false) {
+    const crit = (rec.det.criticalFailures ?? []).filter(Boolean)
+    return (crit.length > 0 ? crit.join('; ') : 'deterministic grader fail').slice(0, 500)
+  }
+  return null
+}
 
 /**
  * Map one runner record → an eval_results row. Error records (rec.error set) store the error string
@@ -94,6 +108,7 @@ export function recToEvalResultRow(evalRunId: string, rec: EvalRecord): EvalResu
     ms: err ? null : (rec.metricsRaw?.ms ?? null),
     numTurns: err ? null : (rec.metricsRaw?.numTurns ?? null),
     error: err,
+    failureReason: deriveFailureReason(rec),
     raw: JSON.stringify(rec),
     createdAt: Date.now(),
   }

@@ -7,6 +7,9 @@ data/
 *.db
 *.db-shm
 *.db-wal
+# EXCEPTION: the committed poisoned-stamp upgrade-smoke fixture (DEH-FU-3) — CI
+# boots the real core against it; regens must stay visible in git status.
+!core/test/fixtures/poisoned-prev-gen.db
 # persisted harness bearer token (first-run generated secret) — never commit
 auth-token
 tasks/

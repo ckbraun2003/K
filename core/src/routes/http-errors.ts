@@ -68,3 +68,15 @@ export function describePatchRejection(error: ZodError, immutable: readonly stri
   }
   return `unknown field(s): ${keys.join(', ')}`
 }
+
+/** E-17/P5-FU-1: the ONE 429 budget-park envelope — byte-identical to the POST
+ *  /api/runs refusal so every gated surface parks with the same shape. */
+export function sendBudgetCapped(
+  reply: FastifyReply,
+  g: { scope: 'org' | 'project'; capUsd: number; spentUsd: number },
+): FastifyReply {
+  return reply.status(429).send({
+    error: g.scope === 'org' ? 'org budget cap reached' : 'project budget cap reached',
+    scope: g.scope, capUsd: g.capUsd, spentUsd: g.spentUsd,
+  })
+}
