@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-15 03:13</span><br>
+      compiled <span class="mono">2026-07-15 03:35</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -4125,8 +4125,12 @@ schema/migrations in <code>core/src/db.ts</code> — an in-place restart can boo
 version before its migration exists (see the poisoned-stamp incident under Schema migrations).</li>
 <li>Before merging anything that touches <code>core/src/db.ts</code>, run <code>pnpm smoke:upgrade</code>
 (<code>core/scripts/upgrade-smoke.mjs</code>) — it copies the real dev DB to a temp dir, boots the merged core
-against the copy on port 3299, and polls <code>/api/runs</code> + <code>/api/profiles</code>, proving the <strong>upgrade</strong>
-path boots (not just a fresh install).</li>
+against the copy on port 3299 (override: <code>K_SMOKE_PORT</code>), and polls <code>/api/runs</code> + <code>/api/profiles</code>,
+proving the <strong>upgrade</strong> path boots (not just a fresh install).</li>
+<li><code>pnpm --filter @k/core seed:review-demo</code> — dev-only 3-file checkpoint-diff fixture (BE-6): seeds a
+throwaway <code>seed-review-demo</code> project + a completed run with a real 2-wave k-checkpoint chain so the
+Changes surface / DiffViewer renders a genuine multi-file diff without paying for a dispatch.
+Idempotent (re-run replaces); never runs at boot.</li>
 </ul>
 <h2>Environment (<code>core/.env</code>)</h2>
 <pre><code>PORT=3001

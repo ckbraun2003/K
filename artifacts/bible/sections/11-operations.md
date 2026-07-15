@@ -25,8 +25,12 @@ pnpm dev                     # both in parallel
   version before its migration exists (see the poisoned-stamp incident under Schema migrations).
 - Before merging anything that touches `core/src/db.ts`, run `pnpm smoke:upgrade`
   (`core/scripts/upgrade-smoke.mjs`) — it copies the real dev DB to a temp dir, boots the merged core
-  against the copy on port 3299, and polls `/api/runs` + `/api/profiles`, proving the **upgrade**
-  path boots (not just a fresh install).
+  against the copy on port 3299 (override: `K_SMOKE_PORT`), and polls `/api/runs` + `/api/profiles`,
+  proving the **upgrade** path boots (not just a fresh install).
+- `pnpm --filter @k/core seed:review-demo` — dev-only 3-file checkpoint-diff fixture (BE-6): seeds a
+  throwaway `seed-review-demo` project + a completed run with a real 2-wave k-checkpoint chain so the
+  Changes surface / DiffViewer renders a genuine multi-file diff without paying for a dispatch.
+  Idempotent (re-run replaces); never runs at boot.
 
 ## Environment (`core/.env`)
 
