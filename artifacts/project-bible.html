@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-15 02:38</span><br>
+      compiled <span class="mono">2026-07-15 02:45</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -4106,7 +4106,7 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
         <span class="section-icon">⌘</span>
         <h1>Operations</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-14</span>
       </header>
       <h2>Running locally</h2>
 <pre><code class="language-bash"># Prerequisites: Node 20, pnpm 10, claude CLI authenticated, gh CLI authenticated
@@ -4176,17 +4176,17 @@ recon finding that the Claude default model was an env-frozen <code>const</code>
 <tr>
 <td>Bible source</td>
 <td><code>artifacts/bible/</code></td>
-<td>no — gitignored K-system dir (same in every project)</td>
+<td><strong>K's own repo: yes — tracked</strong> (manifest + sections are the living spec, edited by the section editor). Managed projects: gitignored by the onboard scaffold</td>
 </tr>
 <tr>
 <td>Compiled bible</td>
 <td><code>artifacts/project-bible.html</code></td>
-<td>no (generated)</td>
+<td><strong>yes — tracked</strong> (recompiled on request/merge and committed alongside section edits; tracked since e903f5c)</td>
 </tr>
 <tr>
 <td>Other artifacts</td>
 <td><code>artifacts/*.md</code> (+ generated <code>.html</code>)</td>
-<td>no — gitignored K-system dir</td>
+<td>mixed — K's own <code>ui-demo.html</code> is tracked (boot-regenerated, deterministic); scratch <code>.md</code> artifacts and scanned loose HTML are working files, not deliverables</td>
 </tr>
 <tr>
 <td>Task tracker</td>
@@ -4209,9 +4209,10 @@ recon finding that the Claude default model was an env-frozen <code>const</code>
 <td>no</td>
 </tr>
 </tbody></table>
-<p><code>artifacts/</code> and <code>tasks/</code> are <strong>K-system directories</strong> — the same hidden, gitignored names in every
-managed project (<code>onboard.ts ensureGitignore</code> adds them); bibles scaffold into <code>artifacts/bible/</code>.
-K's own bible therefore lives on-disk as a living spec and is <strong>not</strong> under version control.</p>
+<p><code>artifacts/</code> and <code>tasks/</code> are <strong>K-system directories</strong> in <em>managed projects</em> — <code>onboard.ts ensureGitignore</code> hides them there so agent scratch output never dirties a project's history. K's
+OWN repo is the exception by design: the bible sources, the compiled <code>project-bible.html</code>, and
+<code>ui-demo.html</code> are <strong>git-tracked deliverables</strong> (this section, its HTML, and the demo ship with
+the repo), while <code>tasks/</code> stays untracked. When in doubt, <code>git ls-files artifacts/</code> is the truth.</p>
 <p><strong><code>data/k.db</code> is a dev database</strong> — disposable test/dev data only, never personal data; the only
 registered project is the K repo itself (<code>jarvis-core</code> → the repo root). Treat it as expendable: if
 it needs wiping to recover from a bad state, wipe it.</p>
