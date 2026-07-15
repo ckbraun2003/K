@@ -35,6 +35,10 @@ function is404(e: unknown): boolean {
 
 interface ComposerProps {
   title: string
+  /** Task 9 dock de-dup: the destination label sits inches from the "+ New chat" button, so a
+   *  fresh draft (no real destination beyond that button) skips it entirely — only a real thread
+   *  selection renders `dock-target`. Passed as `selected !== null` by MessageDock. */
+  showTarget: boolean
   /** The selection resolves to an ARCHIVED thread — the header shows an honest "archived" hint;
    *  a send still proceeds and server-un-archives it, so the destination label stays truthful. */
   archived: boolean
@@ -65,7 +69,7 @@ interface ComposerProps {
 /** The one composer both variants render — the bar inline, float inside its
  *  overlay sheet (see MessageDock below). */
 function Composer({
-  title, archived, text, onTextChange, onKeyDown, onSend, busy, error,
+  title, showTarget, archived, text, onTextChange, onKeyDown, onSend, busy, error,
   model, onModelChange, modelOptions, forceRoute, onForceRouteChange,
   expanded, onToggleExpand, onNewChat, inputRef,
   route, projectMatches, onPickProject,
@@ -74,7 +78,7 @@ function Composer({
     <div>
       <div className="mono flex items-center justify-between text-[11px] text-muted">
         <span className="flex items-center gap-2">
-          <span data-testid="dock-target">→ {title}</span>
+          {showTarget && <span data-testid="dock-target">→ {title}</span>}
           {/* Honest label for a persisted selection that resolved to an archived thread — a send
               still lands there (and un-archives it), so the destination is not "New chat". */}
           {archived && (
@@ -473,6 +477,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const composer = (
     <Composer
       title={title}
+      showTarget={selected !== null}
       archived={selectionArchived}
       text={text}
       onTextChange={handleTextChange}

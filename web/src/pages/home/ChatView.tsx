@@ -6,6 +6,8 @@ import { navigate } from '../../lib/route'
 import { useSelectedThread, selectThread, getSelectedThread } from '../../lib/thread-select'
 import { prefillDock } from '../../lib/dock-bus'
 import { relativeTime } from '../../lib/verify'
+import { groupFeedByDay } from '../../lib/feed-query'
+import { useAskPending } from '../../lib/ask-pending'
 import { SectionHeader } from '../../ui/SectionHeader'
 import { EmptyState } from '../../ui/EmptyState'
 import { SkeletonRow } from '../../ui/Skeleton'
@@ -135,6 +137,14 @@ export default function ChatView() {
   // True only once the probe has proven the current selection archived-but-live — the surface
   // then shows an honest "archived" chip (a send restores it: askK un-archives on activity).
   const isArchivedSurface = effectiveId !== null && archivedSelection === effectiveId
+  // Impressive Wave FE Task 9: local-calendar-day separators, reusing the Recent
+  // Activity widget's grouping helper (turns are already chronologically ordered,
+  // so same-day items stay contiguous regardless of direction).
+  const dayGroups = groupFeedByDay(turns.map(t => ({ ...t, ts: t.createdAt })))
+  // "K is thinking..." renders on THIS transcript only while an in-flight ask
+  // targets it (ask-pending.ts) — never a fabricated status for another thread.
+  const pendingThread = useAskPending()
+  const isPendingHere = effectiveId !== null && pendingThread === effectiveId
 
   // Auto-scroll the latest turn into view on every new turn (send or refetch).
   useEffect(() => {
@@ -185,7 +195,7 @@ export default function ChatView() {
   return (
     <div className="flex min-h-0 flex-1 gap-3">
       {/* Thread list */}
-      <div className="surface-solid rounded-panel flex w-64 shrink-0 flex-col overflow-y-auto">
+      <div className="surface-solid rounded-panel flex w-72 shrink-0 flex-col overflow-y-auto">
         <div className="px-2 pt-2">
           <SectionHeader
             label="Chats"
@@ -238,8 +248,8 @@ export default function ChatView() {
                     />
                   ) : (
                     <button type="button" onClick={() => selectThread(t.id)} className="min-w-0 flex-1 text-left">
-                      <div className="truncate text-body font-medium text-text">{t.title ?? 'New chat'}</div>
-                      {t.snippet && <div className="truncate text-caption text-muted">{t.snippet}</div>}
+                      <div className="truncate pr-1 text-body font-medium text-text">{t.title ?? 'New chat'}</div>
+                      {t.snippet && <div className="truncate pr-1 text-caption text-muted">{t.snippet}</div>}
                       {t.lastTurnAt != null && (
                         <div className="mono text-caption text-muted">{relativeTime(t.lastTurnAt)}</div>
                       )}
@@ -318,31 +328,47 @@ export default function ChatView() {
                 <span className="text-micro text-muted">Sending restores this chat.</span>
               </div>
             )}
-            {turns.map(t => (
-              <div
-                key={t.id}
-                data-testid={t.role === 'user' ? 'chat-turn-user' : 'chat-turn-k'}
-                className={`flex flex-col gap-0.5 ${t.role === 'user' ? 'items-end' : 'items-start'}`}
-              >
-                <span className="text-caption font-semibold uppercase tracking-wide text-muted">
-                  {t.role === 'user' ? 'You' : 'K'}
-                </span>
-                <div
-                  className={`max-w-[85%] whitespace-pre-wrap rounded-control px-3 py-2 text-body ${
-                    t.role === 'user'
-                      ? 'bg-accent/15 text-text'
-                      : 'border border-border bg-raised text-text'
-                  }`}
-                >
-                  {t.text}
+            {dayGroups.map(group => (
+              <div key={group.key} className="space-y-2.5">
+                <div data-testid="chat-day-separator" className="micro-label text-center text-muted">
+                  {group.label}
                 </div>
-                {t.runId && (
-                  <button type="button" data-testid="chat-run-chip" onClick={() => navigate('runs', t.runId!)}>
-                    <Tag tint="sky">→ view run</Tag>
-                  </button>
-                )}
+                {group.items.map(t => (
+                  <div
+                    key={t.id}
+                    data-testid={t.role === 'user' ? 'chat-turn-user' : 'chat-turn-k'}
+                    className={`flex flex-col gap-0.5 ${t.role === 'user' ? 'items-end' : 'items-start'}`}
+                  >
+                    <span className="flex items-baseline gap-1.5 text-caption font-semibold uppercase tracking-wide text-muted">
+                      {t.role === 'user' ? 'You' : 'K'}
+                      <span className="mono text-micro font-normal normal-case text-muted">
+                        {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </span>
+                    <div
+                      className={`max-w-[85%] whitespace-pre-wrap rounded-control px-3 py-2 text-body ${
+                        t.role === 'user'
+                          ? 'bg-accent/15 text-text'
+                          : 'border border-border bg-raised text-text'
+                      }`}
+                    >
+                      {t.text}
+                    </div>
+                    {t.runId && (
+                      <button type="button" data-testid="chat-run-chip" onClick={() => navigate('runs', t.runId!)}>
+                        <Tag tint="sky">→ view run</Tag>
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             ))}
+            {isPendingHere && (
+              <div data-testid="chat-typing" className="flex items-center gap-1.5 text-caption text-muted">
+                <span className="glow-live inline-block h-1.5 w-1.5 rounded-pill bg-accent" aria-hidden />
+                K is thinking…
+              </div>
+            )}
             <div ref={tailRef} />
           </div>
         )}

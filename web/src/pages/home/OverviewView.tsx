@@ -6,6 +6,8 @@ import WidgetErrorBoundary from './WidgetErrorBoundary'
 import WidgetShell from './WidgetShell'
 import { GlassPanel } from '../../ui/GlassPanel'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
+import { EmptyState } from '../../ui/EmptyState'
 
 /**
  * OverviewView — Home's Overview tab (UI Simplification Task 12), replacing
@@ -64,6 +66,15 @@ export default function OverviewView() {
           {customize ? 'Done' : 'Customize'}
         </Button>
       </div>
+      {loaded && layout.widgets.length === 0 && !customize && (
+        <EmptyState
+          icon="home"
+          headline="Your overview is empty"
+          hint="Add widgets — active runs, cost, inbox, project health — to build your home."
+          cta={{ label: 'Customize', onClick: toggleCustomize }}
+        />
+      )}
+      {(layout.widgets.length > 0 || customize) && (
       <div className="grid flex-1 min-h-0 grid-cols-3 grid-rows-3 gap-3">
         {layout.widgets.map((w) => {
           const Def = WIDGET_DEFS[w.id]
@@ -95,9 +106,11 @@ export default function OverviewView() {
               data-testid={`overview-add-${x}-${y}`}
               aria-label="Add widget"
               onClick={() => setPickerCell(prev => (prev && prev.x === x && prev.y === y ? null : { x, y }))}
-              className="text-lg leading-none text-muted transition-colors hover:text-text"
+              className="text-muted transition-colors hover:text-text"
             >
-              +
+              <span className="flex items-center gap-1 text-caption">
+                <Icon name="plus" size={14} /> Add
+              </span>
             </button>
             {pickerCell?.x === x && pickerCell?.y === y && (
               <div className="flex max-h-full flex-col gap-0.5 overflow-y-auto">
@@ -117,6 +130,7 @@ export default function OverviewView() {
           </div>
         ))}
       </div>
+      )}
     </div>
   )
 }

@@ -65,8 +65,9 @@ export default function CostTodayWidget() {
   const buckets = data?.buckets ?? []
   const today = buckets.find(b => b.key === todayUtcKey())
   const todayCostUsd = today?.costUsd ?? 0
-  // Server returns buckets key DESC (most recent first) — reverse to chronological for the sparkline.
-  const spark = [...buckets].reverse().map(b => b.costUsd)
+  // Server returns buckets key DESC (most recent first) — reverse to chronological for the chart.
+  const orderedBuckets = [...buckets].reverse()
+  const spark = orderedBuckets.map(b => b.costUsd)
   const delta = costTodayDelta(buckets, todayUtcKey(), yesterdayUtcKey())
 
   return (
@@ -82,7 +83,27 @@ export default function CostTodayWidget() {
         <p data-testid="widget-cost-today-error" className="text-caption text-red">Failed to load cost data.</p>
       ) : (
         <>
-          <MetricCard label="Measured, billed" value={`$${todayCostUsd.toFixed(4)}`} spark={spark} accent />
+          <MetricCard label="Measured, billed" value={`$${todayCostUsd.toFixed(4)}`} accent />
+          {spark.length > 1 && (
+            <div>
+              <svg viewBox={`0 0 ${spark.length * 10} 40`} preserveAspectRatio="none" role="img"
+                aria-label="Cost per day, last 14 days" className="block h-10 w-full">
+                {spark.map((v, i) => {
+                  const max = Math.max(...spark, 0.0001)
+                  const h = v === 0 ? 1 : Math.max(2, (v / max) * 40)
+                  return (
+                    <rect key={i} x={i * 10 + 1.5} y={40 - h} width={7} height={h} fill="var(--chart-1)">
+                      <title>{`${orderedBuckets[i].key}: $${v.toFixed(4)}`}</title>
+                    </rect>
+                  )
+                })}
+              </svg>
+              <div className="mono flex justify-between text-micro text-muted">
+                <span>{orderedBuckets[0]?.key.slice(5)}</span>
+                <span>{orderedBuckets[orderedBuckets.length - 1]?.key.slice(5)}</span>
+              </div>
+            </div>
+          )}
           {delta && (
             <span
               className={`mono text-caption ${delta.pct === 0 ? 'text-muted' : delta.pct > 0 ? 'text-red' : 'text-green'}`}

@@ -14,6 +14,7 @@ import { Tag } from '../../ui/Tag'
 import { Tooltip } from '../../ui/Tooltip'
 import { Icon } from '../../ui/Icon'
 import { Row } from '../../ui/Row'
+import { Input } from '../../ui/Field'
 
 // Mirrors HomePage.tsx's local (unexported) VIEW_KEY — Open hands a thread off
 // to Home's Chat sub-view exactly the way MessageDock/ChatView itself would.
@@ -46,12 +47,19 @@ export default function ChatsTab() {
   const [renameText, setRenameText] = useState('')
   const [deleting, setDeleting] = useState<KThreadSummary | null>(null)
   const [deleteError, setDeleteError] = useState<string | undefined>(undefined)
+  const [q, setQ] = useState('')
 
   const { data, isError, isPending } = useQuery({
     queryKey: ['k-threads', 'all'],
     queryFn: () => api.threads.list(true),
   })
   const threads: KThreadSummary[] = data?.threads ?? []
+  // Search only ever narrows the ROW list — the empty-state gate below stays on the
+  // unfiltered `threads.length` (a search yielding zero matches renders an empty list
+  // container, never the "No chats yet, start one from Home" first-run empty state).
+  const filtered = threads.filter(t =>
+    (t.title ?? '').toLowerCase().includes(q.toLowerCase()) || (t.snippet ?? '').toLowerCase().includes(q.toLowerCase()),
+  )
 
   function invalidateThreads() {
     void qc.invalidateQueries({ queryKey: ['k-threads'] })
@@ -120,7 +128,21 @@ export default function ChatsTab() {
   return (
     // Dense list — solid surface, no blur (Task 14 ChatView-rail precedent).
     <div data-testid="chats-tab" className="surface-solid rounded-panel flex-1 overflow-y-auto p-5">
-      <SectionHeader label="All chats" as="h2" count={threads.length} />
+      <SectionHeader
+        label="All chats"
+        as="h2"
+        count={threads.length}
+        action={threads.length > 5 ? (
+          <Input
+            aria-label="Search chats"
+            placeholder="Search chats…"
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            className="w-64"
+            data-testid="chats-search"
+          />
+        ) : undefined}
+      />
       {isPending ? (
         <div className="mt-3 flex flex-col gap-1.5">
           <SkeletonRow />
@@ -139,7 +161,7 @@ export default function ChatsTab() {
         </div>
       ) : (
         <div className="mt-3 flex flex-col gap-1.5">
-          {threads.map(t => (
+          {filtered.map(t => (
             <Row
               key={t.id}
               testid={`chats-row-${t.id}`}
