@@ -122,6 +122,13 @@ async function main() {
 
     const sawSelfHealWarn = stdoutBuf.includes(POISON_WARN) || stderrBuf.includes(POISON_WARN)
 
+    // DEH-FU-3 (CI fixture mode): the fixture is poisoned BY CONSTRUCTION, so a run
+    // that passed WITHOUT the self-heal warn proves nothing — fail loudly.
+    if (process.env.K_SMOKE_EXPECT_POISON === '1' && passed && !sawSelfHealWarn) {
+      fail('[upgrade-smoke] K_SMOKE_EXPECT_POISON=1 but the poisoned-stamp self-heal warn never appeared')
+      return
+    }
+
     if (passed) {
       let version = 'unknown'
       try {
