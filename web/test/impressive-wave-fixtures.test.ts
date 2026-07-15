@@ -22,12 +22,19 @@ describe('impressive-wave frozen fixtures', () => {
   it('diff-payload parses against DiffPayloadSchema UNCHANGED (BE-2 contract)', () => {
     const parsed = DiffPayloadSchema.parse(diff)
     expect(parsed.source).toBe('checkpoint')
-    expect(parsed.files.length).toBe(3)
+    expect(parsed.files.length).toBe(5)
     expect(parsed.truncated).toBe(false)
     // a paired del/add line exists for the FE word-level LCS dev case
     const lines = parsed.files[0].hunks[0].lines
     expect(lines.some(l => l.kind === 'del')).toBe(true)
     expect(lines.some(l => l.kind === 'add')).toBe(true)
+  })
+  it('diff-payload stays representative: multi-hunk + binary coverage frozen (W0.9 review)', () => {
+    const parsed = DiffPayloadSchema.parse(diff)
+    // DiffViewer v2 must render multi-hunk files — freeze at least one in the fixture
+    expect(parsed.files.some(f => f.hunks.length > 1)).toBe(true)
+    // ...and binary files (diff-parse.ts represents them as binary:true, hunks:[])
+    expect(parsed.files.some(f => f.binary === true)).toBe(true)
   })
   it('ArtifactSchema stays backward-compatible (legacy rows parse without the new fields)', () => {
     const legacy = ArtifactSchema.parse({ slug: 's', title: 't', updatedAt: 1, md: '' })

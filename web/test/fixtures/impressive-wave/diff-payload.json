@@ -58,6 +58,51 @@
           ]
         }
       ]
+    },
+    {
+      "path": "src/pages/InsightsPage.tsx",
+      "oldPath": null,
+      "status": "modified",
+      "binary": false,
+      "additions": 5,
+      "deletions": 2,
+      "hunks": [
+        {
+          "header": "@@ -10,6 +10,8 @@",
+          "lines": [
+            { "kind": "ctx", "text": "export function InsightsPage() {", "oldLine": 10, "newLine": 10 },
+            { "kind": "ctx", "text": "  const runs = useRuns()", "oldLine": 11, "newLine": 11 },
+            { "kind": "del", "text": "  const series = toSeries(runs)", "oldLine": 12, "newLine": null },
+            { "kind": "add", "text": "  const series = useMemo(", "oldLine": null, "newLine": 12 },
+            { "kind": "add", "text": "    () => toSeries(runs),", "oldLine": null, "newLine": 13 },
+            { "kind": "add", "text": "    [runs])", "oldLine": null, "newLine": 14 },
+            { "kind": "ctx", "text": "  return (", "oldLine": 13, "newLine": 15 },
+            { "kind": "ctx", "text": "    <ChartPanel data={series}>", "oldLine": 14, "newLine": 16 },
+            { "kind": "ctx", "text": "      <CostSparkline />", "oldLine": 15, "newLine": 17 }
+          ]
+        },
+        {
+          "header": "@@ -40,5 +42,6 @@",
+          "lines": [
+            { "kind": "ctx", "text": "function toSeries(runs: RunRow[]) {", "oldLine": 40, "newLine": 42 },
+            { "kind": "ctx", "text": "  return runs.map(r => ({", "oldLine": 41, "newLine": 43 },
+            { "kind": "del", "text": "    cost: r.costUsd,", "oldLine": 42, "newLine": null },
+            { "kind": "add", "text": "    cost: r.costUsd ?? 0,", "oldLine": null, "newLine": 44 },
+            { "kind": "add", "text": "    label: r.label,", "oldLine": null, "newLine": 45 },
+            { "kind": "ctx", "text": "    at: r.startedAt,", "oldLine": 43, "newLine": 46 },
+            { "kind": "ctx", "text": "  }))", "oldLine": 44, "newLine": 47 }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "assets/logo.png",
+      "oldPath": null,
+      "status": "modified",
+      "binary": true,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
     }
   ]
 }
