@@ -78,9 +78,13 @@ describe('OverviewTab (deterministic deltas + anomalies)', () => {
     const costTile = await screen.findByTestId('delta-cost')
     expect(costTile.textContent).toContain('$15.00')
     expect(costTile.textContent).toContain('400%')
-    // the latency spike is flagged (null quality day was filtered, not NaN-propagated)
+    // the latency spike is flagged (null quality day was filtered, not NaN-propagated) —
+    // Task 6 turned the anomaly list into a compact pill strip: the full "N sigma above
+    // the M-point mean" reason now lives in the pill's title (tooltip), and the pill's
+    // visible text is just the metric label.
     const anomaly = await screen.findByTestId('anomaly-latency')
-    expect(anomaly.textContent).toMatch(/sigma above/)
+    expect(anomaly.textContent).toContain('Avg latency')
+    expect(anomaly.title).toMatch(/sigma above/)
     // NO NaN leaks anywhere in the rendered Overview
     expect(screen.getByTestId('insights-overview').textContent).not.toContain('NaN')
     // Overview sources the WINDOWED endpoints, never the fixed-14d summary()

@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Note, KSchedule, WorkItem } from '@k/shared'
 import { api } from '../../lib/api'
+import { prefillDock } from '../../lib/dock-bus'
 import SegControl from '../../components/SegControl'
 import { Button } from '../../ui/Button'
 import { GlassPanel } from '../../ui/GlassPanel'
 import { SectionHeader } from '../../ui/SectionHeader'
+import { EmptyState } from '../../ui/EmptyState'
 import { SkeletonRow } from '../../ui/Skeleton'
 import { StatusPill } from '../../ui/StatusPill'
 import { Icon } from '../../ui/Icon'
@@ -103,7 +105,14 @@ export default function TasksTab() {
             Failed to load work items.
           </p>
         ) : filtered.length === 0 ? (
-          <p className="mt-3 text-body text-muted">No {scope} work items yet.</p>
+          <EmptyState
+            tier="solid"
+            icon="personal"
+            headline={`No ${scope} work items yet`}
+            hint="K files follow-ups here; you can add your own."
+            cta={{ label: 'Ask K to plan one', onClick: () => prefillDock('Plan a task: ') }}
+            className="mt-3"
+          />
         ) : (
           <div className="mt-3 space-y-1.5">
             {filtered.map(item => (
@@ -189,7 +198,13 @@ export default function TasksTab() {
               Failed to load notes.
             </p>
           ) : notes.length === 0 ? (
-            <p className="mt-3 text-body text-muted">No notes yet — ask K to take one.</p>
+            <EmptyState
+              tier="solid"
+              icon="edit"
+              headline="No notes yet"
+              cta={{ label: 'Ask K to take a note', onClick: () => prefillDock('Note: ') }}
+              className="mt-3"
+            />
           ) : (
             <ul className="mt-3 space-y-1.5">
               {notes.map(n => (

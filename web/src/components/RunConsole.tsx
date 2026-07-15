@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import type { Run, AgentEvent, WsMessage, Status, Project } from '@k/shared'
+import type { Run, AgentEvent, WsMessage, Status, Project, DiffPayload } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { onWsMessage } from '../lib/ws'
@@ -10,6 +10,7 @@ import { pairToolCalls, groupConsoleItems } from '../lib/console'
 import { contextPressure, nextAutoCompact, type AutoCompactState } from '../lib/context'
 import { cleanRunPrompt } from '../lib/prompt'
 import { linkify } from '../lib/linkify'
+import Markdown from './Markdown'
 import RunTimeline from './RunTimeline'
 import PlanCard from './PlanCard'
 import NarrativeCard from './NarrativeCard'
@@ -117,7 +118,7 @@ function EventLine({ event: e }: { event: AgentEvent }) {
         <span className="text-accent-hover">⚙ {e.tool}()</span>
       )}
       {e.type === 'assistant' && !e.tool && e.text && (
-        <span>{linkify(e.text)}</span>
+        <Markdown text={e.text} className="font-sans" />
       )}
       {(e.type === 'system' || e.type === 'user') && e.text && (
         <span className="opacity-60">{linkify(e.text)}</span>
@@ -129,7 +130,7 @@ function EventLine({ event: e }: { event: AgentEvent }) {
 export default function RunConsole({ runId }: Props) {
   const qc = useQueryClient()
   const [events, setEvents] = useState<AgentEvent[]>([])
-  const [view, setView] = useState<'console' | 'timeline' | 'review'>('console')
+  const [view, setView] = useState<'console' | 'timeline' | 'changes'>('console')
   const [confirmKill, setConfirmKill] = useState(false)
   const [killing, setKilling] = useState(false)
   // Operator's reply while the run is parked at awaiting_input (interactive HITL).
@@ -158,6 +159,24 @@ export default function RunConsole({ runId }: Props) {
   // (F-061), so the shortcut is hidden there.
   const { data: projects = [] } = useQuery<Project[]>({ queryKey: ['projects'], queryFn: api.projects.list })
   const runProjectHasRemote = !!projects.find(p => p.id === run?.projectId)?.githubRemote
+
+  // A terminal run's tool calls can't still be running: an unpaired tool_use is
+  // resolved (not perpetually pending) once the run ends (F-063). awaiting_input
+  // is NOT terminal — the CLI is live and a turn may still be in flight. Hoisted
+  // above the early returns (null-tolerant) so the diffStats query below — an
+  // unconditional hook — can gate on it without violating the rules of hooks.
+  const runEnded = run != null &&
+    (run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted')
+
+  // Files/± badge for the "Changes" tab — one cheap query on the DEFAULT
+  // context key (dedupes with ReviewDeck/ChangesLayout's own query). Only
+  // enabled once the run is terminal — no point polling a live run for a badge.
+  const { data: diffStats } = useQuery<DiffPayload>({
+    queryKey: ['run-diff', runId, 3],
+    queryFn: () => api.runs.diff(runId, 3),
+    enabled: runEnded,
+    staleTime: 30_000,
+  })
 
   // Pair tool_use↔tool_result and coalesce consecutive tool calls once per event
   // change, not on every render (each WS event would otherwise rebuild ~2N objects).
@@ -294,12 +313,6 @@ export default function RunConsole({ runId }: Props) {
   }
   if (!run) return <div className="flex-1 flex items-center justify-center text-muted">Loading…</div>
 
-  // A terminal run's tool calls can't still be running: an unpaired tool_use is
-  // resolved (not perpetually pending) once the run ends (F-063). awaiting_input
-  // is NOT terminal — the CLI is live and a turn may still be in flight.
-  const runEnded =
-    run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted'
-
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -320,13 +333,20 @@ export default function RunConsole({ runId }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Console | Timeline | Review toggle */}
-          <SegControl<'console' | 'timeline' | 'review'>
+          {diffStats && diffStats.files.length > 0 && (
+            <span data-testid="changes-badge" className="mono text-label tabular-nums text-muted">
+              {diffStats.files.length} files
+              {' '}<span className="text-green">+{diffStats.files.reduce((s, f) => s + f.additions, 0)}</span>
+              {' '}<span className="text-red">−{diffStats.files.reduce((s, f) => s + f.deletions, 0)}</span>
+            </span>
+          )}
+          {/* Console | Timeline | Changes toggle */}
+          <SegControl<'console' | 'timeline' | 'changes'>
             ariaLabel="Run view"
             options={[
               { label: 'console', value: 'console' },
               { label: 'timeline', value: 'timeline' },
-              { label: 'review', value: 'review' },
+              { label: 'changes', value: 'changes' },
             ]}
             value={view}
             onChange={setView}
@@ -347,7 +367,7 @@ export default function RunConsole({ runId }: Props) {
         </div>
       </div>
 
-      {view === 'review' ? (
+      {view === 'changes' ? (
         <ReviewDeck runId={runId} projectId={run.projectId ?? null} />
       ) : view === 'timeline' ? (
         // key={runId} remounts on run switch so per-seq raw cache never leaks across runs
@@ -449,9 +469,8 @@ export default function RunConsole({ runId }: Props) {
 
       {/* Footer: Create PR shortcut — only for terminal runs whose project has a
           GitHub remote (a remoteless project can't open a PR — F-061). */}
-      {(run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted') &&
-        run.projectId && runProjectHasRemote && (
-          <div className="flex-shrink-0 border-t border-border px-5 py-2 flex justify-end">
+      {runEnded && run.projectId && runProjectHasRemote && (
+          <div className="flex-shrink-0 border-t border-border py-2 pl-5 pr-20 flex justify-end">
             <Button
               variant="glass"
               size="sm"

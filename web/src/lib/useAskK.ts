@@ -4,6 +4,7 @@ import type { KRoute, KForceRoute } from '@k/shared'
 import { routeForMessage, routeForTarget } from '@k/shared'
 import { api } from './api'
 import { navigate } from './route'
+import { setAskPending } from './ask-pending'
 
 /** The just-started run held while the 5s Undo window is open. */
 export interface PendingUndo {
@@ -77,6 +78,10 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
     undoBeforeResolve.current = null
     const route = opts?.forceRoute ? routeForTarget(opts.forceRoute) : routeForMessage(msg)
     setPendingUndo({ key, runId: null, route })
+    // Impressive Wave FE Task 9: name the in-flight ask's target thread so ChatView
+    // can render a "K is thinking..." indicator on that thread's transcript. `null`
+    // for callers that don't pass a threadId (org/TreeView) — a harmless no-op.
+    setAskPending(opts?.threadId ?? null)
     try {
       const result = await api.k.ask(msg, opts)
       // A successful ask appended a turn (and may have created/renamed a thread) —
@@ -112,6 +117,7 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
     } finally {
       busyRef.current = false
       setBusy(false)
+      setAskPending(null)
     }
   }, [navigateOnSend, qc])
 

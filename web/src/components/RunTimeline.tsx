@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { AgentEvent, RunCheckpoint } from '@k/shared'
 import { cn } from '../lib/cn'
@@ -35,6 +35,37 @@ export const MIN_REPLAY_DELAY_MS = 120
 export const MAX_REPLAY_DELAY_MS = 1000
 export function clampDelay(ms: number): number {
   return Math.max(MIN_REPLAY_DELAY_MS, Math.min(MAX_REPLAY_DELAY_MS, ms))
+}
+
+/** Per-type left band color (token classes only) — the timeline's role lanes
+ *  (Task 11 #6). Checkpoint rows already carry their own accent band inline;
+ *  this entry exists so the map is total over every AgentEvent type. */
+export const EVENT_BAND: Record<string, string> = {
+  system: 'border-l-border', assistant: 'border-l-[var(--chart-4)]',
+  user: 'border-l-[var(--chart-8)]', usage: 'border-l-[var(--green)]',
+  error: 'border-l-[var(--red)]', status: 'border-l-[var(--amber)]',
+  checkpoint: 'border-l-accent',
+}
+
+/** Inter-event gap → duration-bar width in px (2..48, linear vs the run's max gap). */
+export function gapBarWidth(gapMs: number, maxGapMs: number): number {
+  if (maxGapMs <= 0 || gapMs <= 0) return 2
+  return Math.max(2, Math.min(48, Math.round((gapMs / maxGapMs) * 48)))
+}
+
+/** Consecutive tool-activity spans (assistant-with-tool / user tool_result runs),
+ *  length ≥2 — the timeline's visual grouping. Index-based so the replay
+ *  cursor math (which indexes `events`) is untouched. */
+export function groupToolSpans(events: Array<{ type: string; tool?: string }>): Array<{ start: number; end: number; count: number }> {
+  const spans: Array<{ start: number; end: number; count: number }> = []
+  let start = -1; let count = 0
+  const isTool = (e: { type: string; tool?: string }) => (e.type === 'assistant' && !!e.tool) || e.type === 'user'
+  events.forEach((e, i) => {
+    if (isTool(e)) { if (start === -1) start = i; if (e.type === 'assistant' && e.tool) count++ }
+    else if (start !== -1) { if (count >= 2) spans.push({ start, end: i - 1, count }); start = -1; count = 0 }
+  })
+  if (start !== -1 && count >= 2) spans.push({ start, end: events.length - 1, count })
+  return spans
 }
 
 /**
@@ -146,6 +177,11 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, events])
 
+  // Task 11 #6 — consecutive tool-call spans, computed unconditionally (ahead
+  // of the events.length===0 early return below) so this hook's call order
+  // never varies across renders of the same mounted instance.
+  const toolSpans = useMemo(() => groupToolSpans(events), [events])
+
   if (events.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted text-body italic">
@@ -156,6 +192,12 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
 
   const firstTs = events[0].ts
   const cursorEvent = events[Math.min(cursor, events.length - 1)]
+  // Inter-event gap-bar scale, over the WHOLE run (not per-span) — index-based
+  // so cursor/scrubber math (which indexes `events` directly) is untouched by
+  // this decorative extra.
+  const maxGap = Math.max(1, ...events.slice(1).map((e, i) => e.ts - events[i].ts))
+  const spanStarts = new Map(toolSpans.map(s => [s.start, s]))
+  const inSpan = (idx: number) => toolSpans.some(s => idx >= s.start && idx <= s.end)
 
   function toggleExpanded(id: string, seq: number, hasRawInline: boolean) {
     setExpanded(prev => {
@@ -274,13 +316,29 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
             }
           }
 
+          // Task 11 #6 — a non-event header line ahead of each tool-call span's
+          // start row (decorative sibling, not an indexed row — rowRefs stays
+          // keyed by event index below).
+          const span = spanStarts.get(idx)
+          const gapMs = idx === 0 ? 0 : e.ts - events[idx - 1].ts
+
           return (
-            <div
-              key={e.id}
-              ref={el => { rowRefs.current[idx] = el }}
-              data-testid="timeline-row"
-              className={cn('py-1.5 border-b border-border last:border-0 transition-opacity duration-150', dimmed ? 'opacity-25' : 'opacity-100')}
-            >
+            <div key={e.id}>
+              {span && (
+                <div className="mono flex items-center gap-2 py-0.5 pl-8 text-micro text-muted" data-testid="tool-span">
+                  ⚙ {span.count} tool calls · {((events[span.end].ts - events[span.start].ts) / 1000).toFixed(1)}s
+                </div>
+              )}
+              <div
+                ref={el => { rowRefs.current[idx] = el }}
+                data-testid="timeline-row"
+                className={cn(
+                  'py-1.5 pl-2 border-b border-border last:border-0 border-l-2 transition-opacity duration-150',
+                  EVENT_BAND[e.type] ?? 'border-l-border',
+                  inSpan(idx) ? 'bg-raised/30' : undefined,
+                  dimmed ? 'opacity-25' : 'opacity-100',
+                )}
+              >
               <button
                 onClick={() => toggleExpanded(e.id, e.seq, !!e.raw)}
                 aria-expanded={isExpanded}
@@ -292,6 +350,12 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
                   <span className="text-muted flex-shrink-0 w-16 text-right tabular-nums">
                     {formatRelTime(e.ts - firstTs)}
                   </span>
+                  <span
+                    aria-hidden
+                    className="inline-block h-0.5 self-center rounded-pill bg-raised flex-shrink-0"
+                    style={{ width: gapBarWidth(gapMs, maxGap) }}
+                    title={idx === 0 ? undefined : `+${(gapMs / 1000).toFixed(1)}s since previous`}
+                  />
                   <span className={cn('flex-shrink-0 font-semibold', EVENT_COLOR[e.type] ?? 'text-text')}>
                     {e.type}
                   </span>
@@ -306,6 +370,7 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
                 </div>
               </button>
               {rawContent}
+              </div>
             </div>
           )
         })}

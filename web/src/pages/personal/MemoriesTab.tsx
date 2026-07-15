@@ -155,10 +155,12 @@ export default function MemoriesTab() {
           Failed to load memories.
         </p>
       ) : memories.length === 0 ? (
-        // NO hint/action here — the test asserts this element's FULL textContent
-        // is exactly the headline sentence (the icon contributes no text nodes).
         <div data-testid="memories-empty">
-          <EmptyState icon="docs" headline="K will remember things from your chats here — or add one yourself." />
+          <EmptyState
+            icon="docs"
+            headline="Nothing remembered yet"
+            hint="K saves durable facts from your chats here — or add one above."
+          />
         </div>
       ) : (
         <div className="mt-3 flex flex-col gap-1.5">

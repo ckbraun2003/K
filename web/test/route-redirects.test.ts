@@ -1,14 +1,15 @@
 /** UI Simplification (T6) — the legacy-hash redirect contract: every removed rail entry
  *  resolves to its new canonical home in the 13-view IA; params preserved where the
- *  destination consumes them. */
+ *  destination consumes them. impressive-wave FE-5 adds the 14th view, `pr-review`
+ *  (a new canonical full-screen PR-diff view — not a folded/legacy destination). */
 import { it, expect } from 'vitest'
 import { parseHash, resolveRoute, KNOWN_VIEWS, VIEW_REDIRECTS } from '../src/lib/route'
 
 const resolve = (hash: string) => resolveRoute(parseHash(hash))
 
-it('KNOWN_VIEWS is the final 13-member IA set', () => {
+it('KNOWN_VIEWS is the final 14-member IA set', () => {
   expect([...KNOWN_VIEWS].sort()).toEqual([
-    'agents', 'docs', 'home', 'insights', 'orchestrator', 'personal', 'project',
+    'agents', 'docs', 'home', 'insights', 'orchestrator', 'personal', 'pr-review', 'project',
     'projects', 'runs', 'settings', 'skill-creator', 'timeline', 'verify',
   ])
   for (const gone of ['org', 'skills', 'inbox', 'lessons', 'chief', 'orchestrators', 'graph',

@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { GithubStatus, PrInfo, CiRunInfo, Project, DiffPayload } from '@k/shared'
+import type { GithubStatus, PrInfo, CiRunInfo, Project } from '@k/shared'
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
-import DiffViewer from '../../components/DiffViewer'
+import { navigate } from '../../lib/route'
 import MergeButton from '../../components/MergeButton'
 import { Icon } from '../../ui/Icon'
 import { Button, IconButton } from '../../ui/Button'
 import { Spinner } from '../../ui/Spinner'
-import { Input, Textarea } from '../../ui/Field'
+import { Input, Textarea, Checkbox } from '../../ui/Field'
+import { Tag } from '../../ui/Tag'
+import { Row } from '../../ui/Row'
 
 interface Props {
   projectId: string
@@ -65,81 +67,50 @@ function ciLabel(run: CiRunInfo): string {
   return run.conclusion ?? run.status
 }
 
-/** A PR row that expands to a lazily-fetched, read-only side-by-side diff
- *  (`gh pr diff` → the ONE DiffPayload shape). The diff query stays disabled until
- *  the row is first expanded, so an unopened PR costs nothing. The external ↗ anchor
- *  stops propagation so opening GitHub never toggles the panel. */
+/** A PR row with a link to the full-screen review (FE-5: #/pr-review/<projectId>/<n>,
+ *  same ChangesLayout tree+diff pane as a run's Changes tab). The external ↗ anchor
+ *  opens GitHub directly. */
 function PrRow({ pr, projectId }: { pr: PrInfo; projectId: string }) {
-  const [expanded, setExpanded] = useState(false)
-  const { data: diff, isLoading, error } = useQuery<DiffPayload>({
-    queryKey: ['pr-diff', projectId, pr.number],
-    queryFn: () => api.projects.prDiff(projectId, pr.number),
-    enabled: expanded,
-  })
   return (
-    <div className="border-b border-border">
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        data-testid={`pr-row-${pr.number}`}
-        onClick={() => setExpanded(e => !e)}
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(v => !v) } }}
-        className="flex items-start gap-3 px-4 py-3 hover:bg-surface transition-colors cursor-pointer"
-      >
-        {/* Expand chevron */}
-        <Icon
-          name="chevronRight"
-          size={14}
-          className={cn('mt-1 flex-shrink-0 text-muted transition-transform', expanded && 'rotate-90')}
-        />
+    <div
+      data-testid={`pr-row-${pr.number}`}
+      className="flex items-start gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-surface"
+    >
+      {/* Check dot */}
+      <span className={cn('mt-1 w-2 h-2 rounded-full flex-shrink-0', CHECK_DOT[pr.checks] ?? 'bg-muted')} />
 
-        {/* Check dot */}
-        <span className={cn('mt-1 w-2 h-2 rounded-full flex-shrink-0', CHECK_DOT[pr.checks] ?? 'bg-muted')} />
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="mono text-xs text-muted">#{pr.number}</span>
-            <p className="text-sm text-text truncate">{pr.title}</p>
-          </div>
-          <p className="mono text-[10px] text-muted mt-0.5">checks: {pr.checks}</p>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="mono text-xs text-muted">#{pr.number}</span>
+          <p className="text-sm text-text truncate">{pr.title}</p>
         </div>
-
-        {/* One-click merge (renders only for OPEN + green PRs) — stops propagation itself */}
-        <MergeButton projectId={projectId} pr={pr} />
-
-        {/* External link */}
-        <a
-          href={pr.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={e => e.stopPropagation()}
-          title="Open on GitHub"
-          className="flex-shrink-0 text-muted hover:text-accent-hover transition-colors mt-0.5"
-          aria-label="Open PR on GitHub"
-        >
-          <Icon name="external" size={14} />
-        </a>
+        <p className="mono text-[10px] text-muted mt-0.5">checks: {pr.checks}</p>
       </div>
 
-      {/* Lazily-fetched read-only diff panel */}
-      {expanded && (
-        <div className="border-t border-border bg-bg">
-          {isLoading && (
-            <p className="flex items-center gap-2 px-4 py-3 text-xs text-muted">
-              <Spinner size={14} /> Loading diff…
-            </p>
-          )}
-          {error != null && <p className="px-4 py-3 text-xs text-red">{String((error as Error).message)}</p>}
-          {diff != null && (
-            <div className="overflow-x-auto" data-testid={`pr-diff-${pr.number}`}>
-              {diff.files.length === 0
-                ? <p className="px-4 py-3 text-xs text-muted">No file changes.</p>
-                : <DiffViewer files={diff.files} comments={[]} readOnly />}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Full-screen review (FE-5) */}
+      <Button
+        variant="glass"
+        size="sm"
+        data-testid={`pr-open-review-${pr.number}`}
+        onClick={() => navigate('pr-review', projectId, String(pr.number))}
+      >
+        Open review
+      </Button>
+
+      {/* One-click merge (renders only for OPEN + green PRs) */}
+      <MergeButton projectId={projectId} pr={pr} />
+
+      {/* External link */}
+      <a
+        href={pr.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open on GitHub"
+        className="flex-shrink-0 text-muted hover:text-accent-hover transition-colors mt-0.5"
+        aria-label="Open PR on GitHub"
+      >
+        <Icon name="external" size={14} />
+      </a>
     </div>
   )
 }
@@ -148,34 +119,35 @@ function CiRow({ run, remote }: { run: CiRunInfo; remote?: string }) {
   const color = ciConclusionColor(run.conclusion, run.status)
   const url = ciRunUrl(remote, run.id)
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-border hover:bg-surface transition-colors">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm text-text truncate">{run.workflow}</p>
-          <span className={cn('mono text-xs flex-shrink-0', color)}>{ciLabel(run)}</span>
-        </div>
-        <p className="mono text-[10px] text-muted mt-0.5">
-          {run.branch} · {timeAgo(run.createdAt)}
-        </p>
-      </div>
-      {url ? (
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={e => e.stopPropagation()}
-          title="Open run on GitHub"
-          aria-label={`Open CI run ${run.id} on GitHub`}
-          className="mono text-[10px] text-muted flex-shrink-0 hover:text-accent-hover transition-colors inline-flex items-center gap-1"
-        >
-          #{run.id} <Icon name="external" size={14} />
-        </a>
-      ) : (
-        <span className="mono text-[10px] text-muted flex-shrink-0">
-          #{run.id}
-        </span>
-      )}
-    </div>
+    <Row
+      testid="ci-row"
+      leading={<span aria-hidden className={cn('h-2 w-2 flex-shrink-0 rounded-full', color.replace('text-', 'bg-'))} />}
+      title={
+        <>
+          {run.workflow} <span className={cn('mono', color)}>{ciLabel(run)}</span>
+        </>
+      }
+      sub={timeAgo(run.createdAt)}
+      meta={<Tag tint="neutral" className="mono">{run.branch}</Tag>}
+      /* IN-2: duration column pending CiRunInfo.durationMs from BE — shared/src is frozen this lane. */
+      actions={
+        url ? (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            title="Open run on GitHub"
+            aria-label={`Open CI run ${run.id} on GitHub`}
+            className="mono text-[10px] text-muted flex-shrink-0 hover:text-accent-hover transition-colors inline-flex items-center gap-1"
+          >
+            #{run.id} <Icon name="external" size={14} />
+          </a>
+        ) : (
+          <span className="mono text-[10px] text-muted flex-shrink-0">#{run.id}</span>
+        )
+      }
+    />
   )
 }
 
@@ -261,12 +233,10 @@ export default function PrsCiTab({ projectId }: Props) {
           {/* Auto-merge greens — only meaningful when the project has a remote to push to */}
           {hasRemote && (
             <label className="flex items-center gap-1.5 text-[11px] text-muted cursor-pointer select-none">
-              <input
-                type="checkbox"
+              <Checkbox
                 data-testid="automerge-toggle"
                 checked={!!project?.autoMerge}
                 onChange={e => autoMergeMutation.mutate(e.target.checked)}
-                className="accent-accent"
               />
               Auto-merge greens (k/verify + checks)
             </label>

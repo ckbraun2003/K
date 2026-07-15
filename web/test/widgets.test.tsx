@@ -256,14 +256,13 @@ describe('widget catalog', () => {
     const text = (container.textContent ?? '').toLowerCase()
     expect(text).not.toContain('$/token')
     expect(text).not.toContain('est')
-    // The 14-day sparkline (Sparkline renders a bare <svg> even with 1 point, and a
-    // polyline once there are 2+ points — this fixture has 2 buckets).
-    const polylines = container.querySelectorAll('svg polyline')
-    expect(polylines.length).toBeGreaterThan(0)
-    // M-3: MetricCard renders with no `tone` (defaults to 'accent'), whose headline
-    // number is colored --accent-hover — the sparkline must match, not the brand
-    // --accent pink it used to default to regardless of tone.
-    expect(polylines[0].getAttribute('stroke')).toBe('var(--accent-hover)')
+    // Task 9 (impressive-wave-fe) replaced the MetricCard-driven polyline
+    // sparkline with a hand-rolled 14-day bar chart — one <rect> per bucket,
+    // var(--chart-1) fill, native <title> tooltips — so MetricCard itself is
+    // headline-only here now. This fixture has 2 buckets, so 2 bars render.
+    const bars = container.querySelectorAll('svg rect')
+    expect(bars.length).toBe(2)
+    expect(bars[0].getAttribute('fill')).toBe('var(--chart-1)')
   })
 
   it('CostTodayWidget: with no matching bucket for today, headline reads $0 (never a borrowed days total)', async () => {
@@ -373,7 +372,7 @@ describe('widget catalog', () => {
   it('RecentActivityWidget: renders feed rows; See all navigates to the timeline', async () => {
     renderWidget(<RecentActivityWidget />)
     expect(await screen.findAllByTestId('feed-row')).toHaveLength(2)
-    expect(mockFeedList).toHaveBeenCalledWith({ limit: 6 })
+    expect(mockFeedList).toHaveBeenCalledWith({ limit: 8 })
     fireEvent.click(screen.getByTestId('widget-recent-activity-seeall'))
     expect(mockNavigate).toHaveBeenCalledWith('timeline')
   })

@@ -20,6 +20,11 @@ function AutonomyStatusChip() {
       type="button"
       data-testid="org-autonomy-chip"
       onClick={() => navigate('settings')}
+      title={
+        on
+          ? 'Autonomous Org is ON — proposals, backlog pull and self-heal per Settings.'
+          : 'Autonomous Org is OFF — the org acts only when you ask. Click to configure in Settings.'
+      }
       className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] text-[var(--muted)] hover:text-[var(--text)]"
     >
       Autonomy: {on ? 'ON' : 'OFF'}

@@ -8,7 +8,8 @@ import { navigate } from '../lib/route'
 import { useAskK } from '../lib/useAskK'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useSelectedThread, selectThread, getSelectedThread } from '../lib/thread-select'
-import { onDockFocus } from '../lib/dock-bus'
+import { relativeTime } from '../lib/verify'
+import { onDockFocus, onDockPrefill } from '../lib/dock-bus'
 import { FORCE_ROUTE_OPTIONS } from '../lib/force-route-options'
 import { INBOX_KEY, inboxQueryFn } from '../lib/inbox-query'
 import { RUN_DEFAULTS, RUN_DEFAULT_CAVEATS } from '../lib/run-defaults'
@@ -18,6 +19,7 @@ import AutoTextarea from '../components/AutoTextarea'
 import MicButton from '../components/MicButton'
 import Toast from '../components/Toast'
 import { Button, IconButton } from '../ui/Button'
+import { Checkbox } from '../ui/Field'
 
 /** A project-scoped dispatch the user has picked from the `@project` list — held
  *  while the confirm card previews it, before `runs.start` actually fires. */
@@ -33,6 +35,10 @@ function is404(e: unknown): boolean {
 
 interface ComposerProps {
   title: string
+  /** Task 9 dock de-dup: the destination label sits inches from the "+ New chat" button, so a
+   *  fresh draft (no real destination beyond that button) skips it entirely — only a real thread
+   *  selection renders `dock-target`. Passed as `selected !== null` by MessageDock. */
+  showTarget: boolean
   /** The selection resolves to an ARCHIVED thread — the header shows an honest "archived" hint;
    *  a send still proceeds and server-un-archives it, so the destination label stays truthful. */
   archived: boolean
@@ -63,7 +69,7 @@ interface ComposerProps {
 /** The one composer both variants render — the bar inline, float inside its
  *  overlay sheet (see MessageDock below). */
 function Composer({
-  title, archived, text, onTextChange, onKeyDown, onSend, busy, error,
+  title, showTarget, archived, text, onTextChange, onKeyDown, onSend, busy, error,
   model, onModelChange, modelOptions, forceRoute, onForceRouteChange,
   expanded, onToggleExpand, onNewChat, inputRef,
   route, projectMatches, onPickProject,
@@ -72,7 +78,7 @@ function Composer({
     <div>
       <div className="mono flex items-center justify-between text-[11px] text-muted">
         <span className="flex items-center gap-2">
-          <span data-testid="dock-target">→ {title}</span>
+          {showTarget && <span data-testid="dock-target">→ {title}</span>}
           {/* Honest label for a persisted selection that resolved to an archived thread — a send
               still lands there (and un-archives it), so the destination is not "New chat". */}
           {archived && (
@@ -265,8 +271,13 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
+  const dispatchCardRef = useRef<HTMLDivElement>(null)
 
   useFocusTrap(overlayRef, variant === 'float' && open)
+  // UIS-FU-1 — the dispatch confirm card is its own modal (rendered on top of
+  // either dock variant), so it needs its own trap instead of relying on the
+  // float overlay's.
+  useFocusTrap(dispatchCardRef, confirm !== null)
 
   // Draft swap: stash the outgoing thread's unsent text, restore the incoming
   // thread's. Runs only when the SELECTION changes (not on every keystroke) —
@@ -285,6 +296,13 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   useEffect(() => onDockFocus(() => {
     if (variant === 'bar') inputRef.current?.focus()
     else setOpen(true)
+  }), [variant])
+
+  // prefillDock(text): a suggestion chip or empty-state CTA seeds the composer
+  // then focuses it the same way focusDock() does (float opens, bar focuses).
+  useEffect(() => onDockPrefill(t => {
+    setText(t)
+    if (variant === 'float') setOpen(true)
   }), [variant])
 
   // Focus the composer input whenever the float overlay opens, however it opened
@@ -464,6 +482,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const composer = (
     <Composer
       title={title}
+      showTarget={selected !== null}
       archived={selectionArchived}
       text={text}
       onTextChange={handleTextChange}
@@ -511,6 +530,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
         >
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={cancelDispatch} />
           <motion.div
+            ref={dispatchCardRef}
             data-testid="dock-dispatch-card"
             role="dialog"
             aria-modal="true"
@@ -568,14 +588,12 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
               <dt className="text-muted">Mode</dt>
               <dd className="text-text">
                 <label className="inline-flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     data-testid="dock-dispatch-interactive"
                     checked={dispatchInteractive}
                     // Turning Interactive ON CLEARS plan-gate (not just masks its
                     // display) — one-shot-only, so the combo can never dispatch.
                     onChange={e => { setDispatchInteractive(e.target.checked); if (e.target.checked) setDispatchPlanGate(false) }}
-                    className="accent-accent"
                   />
                   <span>Interactive — answer the agent&apos;s questions mid-run</span>
                 </label>
@@ -583,13 +601,11 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                   <span className="ml-1 block text-[10px] text-muted">Claude only · keeps the session open for follow-ups</span>
                 )}
                 <label className="mt-1 inline-flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     data-testid="dock-dispatch-plan-gate"
                     checked={dispatchPlanGate && !dispatchInteractive}
                     disabled={dispatchInteractive}
                     onChange={e => setDispatchPlanGate(e.target.checked)}
-                    className="accent-accent"
                   />
                   <span>Plan first — review &amp; approve a plan before it implements</span>
                 </label>
@@ -703,11 +719,17 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                   data-testid={`dock-picker-thread-${t.id}`}
                   onClick={() => selectThread(t.id)}
                   aria-current={t.id === selected}
-                  className={`block w-full truncate px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-raised ${
+                  className={`block w-full px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-raised ${
                     t.id === selected ? 'bg-raised text-text' : 'text-text'
                   }`}
                 >
-                  {t.title ?? 'New chat'}
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate">{t.title ?? 'New chat'}</span>
+                    {t.lastTurnAt != null && (
+                      <span className="mono flex-shrink-0 text-[10px] text-muted">{relativeTime(t.lastTurnAt)}</span>
+                    )}
+                  </span>
+                  {t.snippet && <span className="block truncate text-[10px] text-muted">{t.snippet}</span>}
                 </button>
               ))}
             </div>

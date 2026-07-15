@@ -4,15 +4,16 @@ import { motion } from 'framer-motion'
 import type { Run, WsMessage } from '@k/shared'
 import { api } from '../lib/api'
 import { onWsMessage } from '../lib/ws'
-import { cn } from '../lib/cn'
 import { RUNS_LIST_KEY, RUNS_LIST_LIMIT, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
 import { cleanRunPrompt } from '../lib/prompt'
+import { runDuration } from '../lib/format-metrics'
 import ConfirmDialog from './ConfirmDialog'
 import { Tag } from '../ui/Tag'
 import { StatusPill } from '../ui/StatusPill'
 import { IconButton } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import { SkeletonRow } from '../ui/Skeleton'
+import { Row } from '../ui/Row'
 
 interface Props {
   selectedId: string | null
@@ -94,13 +95,6 @@ export default function RunList({ selectedId, onSelect }: Props) {
     }
   }
 
-  function handleRowKeyDown(e: React.KeyboardEvent, id: string) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      onSelect(id)
-    }
-  }
-
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -145,27 +139,21 @@ export default function RunList({ selectedId, onSelect }: Props) {
         {!isLoading && filteredRuns.map(run => {
           const killable = run.status === 'running' || run.status === 'queued'
           return (
-            <motion.div
-              key={run.id}
-              // intentionally non-unique (one per row): select via getByTestId('run-row').nth(i)/.all()
-              data-testid="run-row"
-              role="button"
-              tabIndex={0}
-              onClick={() => onSelect(run.id)}
-              onKeyDown={e => handleRowKeyDown(e, run.id)}
-              className={cn(
-                'group w-full text-left px-4 py-3 border-b border-border hover:bg-surface transition-colors cursor-pointer',
-                selectedId === run.id && 'bg-surface border-l-2 border-l-accent'
-              )}
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <StatusPill status={run.status} />
-                <span className="mono tabular-nums text-label text-muted ml-auto">
-                  ${(run.costUsd).toFixed(4)}
-                </span>
-                {killable && (
+            <motion.div key={run.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}>
+              <Row
+                testid="run-row" /* intentionally non-unique (one per row): select via getByTestId('run-row').nth(i)/.all() */
+                selected={selectedId === run.id}
+                onClick={() => onSelect(run.id)}
+                leading={<StatusPill status={run.status} />}
+                title={cleanRunPrompt(run.prompt)}
+                sub={<span className="mono tabular-nums">{new Date(run.createdAt).toLocaleTimeString()} · {run.model}</span>}
+                meta={
+                  <span className="flex flex-col items-end">
+                    <span>${run.costUsd.toFixed(4)}</span>
+                    {runDuration(run) && <span data-testid="run-duration">{runDuration(run)}</span>}
+                  </span>
+                }
+                actions={killable ? (
                   <IconButton
                     name="close"
                     label="Kill run"
@@ -173,14 +161,9 @@ export default function RunList({ selectedId, onSelect }: Props) {
                     size="sm"
                     onClick={e => { e.stopPropagation(); setPendingKill(run) }}
                     data-testid="run-kill-btn"
-                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
                   />
-                )}
-              </div>
-              <p className="text-body text-text truncate">{cleanRunPrompt(run.prompt)}</p>
-              <p className="mono tabular-nums text-label text-muted mt-0.5">
-                {new Date(run.createdAt).toLocaleTimeString()} · {run.model}
-              </p>
+                ) : undefined}
+              />
             </motion.div>
           )
         })}

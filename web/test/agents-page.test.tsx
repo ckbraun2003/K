@@ -1,5 +1,8 @@
 /**
- * AgentsPage — UI Simplification Task 16. The 3-tab hub shell (Org/Skills/Pipelines)
+ * AgentsPage — UI Simplification Task 16. The 3-tab hub shell (Org/Skills/Automations
+ * — Impressive Wave Task 10 relabeled the "Pipelines" tab's visible text to
+ * "Automations"; the route param/value stays `pipelines`, so `tab-pipelines` testid
+ * and every `navigate('agents','pipelines',…)` assertion below are untouched)
  * mirroring PersonalPage's shape (Task 14). Gate assertions:
  *   - the tab bar renders all 3 tabs
  *   - the `tab` prop selects the matching tab (an unknown value falls back to org)

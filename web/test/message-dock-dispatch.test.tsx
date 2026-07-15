@@ -187,4 +187,17 @@ describe('MessageDock dispatch semantics', () => {
     const ollamaOpt = Array.from(select.options).find(o => o.textContent === 'Ollama · llama3.2')
     expect(ollamaOpt?.value).toBe('ollama')
   })
+
+  it('focus trap: Tab on the last focusable (Dispatch) wraps back to the first (compose) — UIS-FU-1', async () => {
+    renderDock('bar')
+    await openDispatchConfirm()
+
+    const dispatchBtn = screen.getByTestId('dock-dispatch-run')
+    dispatchBtn.focus()
+    expect(document.activeElement).toBe(dispatchBtn)
+
+    fireEvent.keyDown(dispatchBtn, { key: 'Tab' })
+
+    expect(document.activeElement).toBe(screen.getByTestId('dock-dispatch-compose'))
+  })
 })

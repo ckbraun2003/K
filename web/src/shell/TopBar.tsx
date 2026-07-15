@@ -22,6 +22,7 @@ const DETAIL_PARENTS: Record<string, string> = {
   orchestrator: 'agents',
   project: 'projects',
   timeline: 'home',
+  'pr-review': 'projects',
 }
 
 /**

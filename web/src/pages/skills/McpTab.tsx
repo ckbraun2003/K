@@ -12,6 +12,8 @@ import { Button } from '../../ui/Button'
 import { EmptyState } from '../../ui/EmptyState'
 import { ErrorState } from '../../ui/ErrorState'
 import { SkeletonRow } from '../../ui/Skeleton'
+import { Tooltip } from '../../ui/Tooltip'
+import { Icon } from '../../ui/Icon'
 
 // MCP servers K can mount (D-070): tier-template servers (provenance 'k', born
 // trusted, managed by K) + host-discovered servers. Trust is SEPARATE from
@@ -55,13 +57,18 @@ export default function McpTab() {
 
   return (
     <div className="h-full overflow-y-auto p-5">
-      <h2 className="text-label uppercase tracking-wide text-muted">
+      <h2 className="flex items-center gap-1.5 text-label uppercase tracking-wide text-muted">
         MCP servers · {servers.length} known
         {data?.scannedAt != null && (
           <span className="ml-2 normal-case tracking-normal">
             scanned {new Date(data.scannedAt).toLocaleString()}
           </span>
         )}
+        <Tooltip content="Status badge: managed by K = K's own tier-template server · trusted (green) = reviewed, can be enabled · untrusted (amber) = review the command before enabling · missing (red) = vanished from the host config since the last scan">
+          <span data-testid="mcp-status-legend" tabIndex={0} className="normal-case tracking-normal text-muted">
+            <Icon name="help" size={14} label="Status badge legend" />
+          </span>
+        </Tooltip>
       </h2>
 
       <div className="mt-4">

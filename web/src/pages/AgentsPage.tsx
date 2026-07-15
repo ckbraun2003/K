@@ -7,8 +7,10 @@ import WorkflowsView from './runs/WorkflowsView'
 /**
  * Agents hub (UI Simplification Task 16, fills the Task 10 stub) — mirrors
  * PersonalPage's shape. Merges Org (roster/tree/graph) + Skills
- * (catalog/MCP/hooks/automations) + Pipelines (named workflow definitions,
- * folded off Runs) under one tabbed surface.
+ * (catalog/MCP/hooks/automations) + Automations (named workflow definitions,
+ * folded off Runs; visible label only — the route param stays `pipelines`
+ * so `workflows→agents/pipelines` redirects keep working) under one tabbed
+ * surface (Impressive Wave Task 10 Step 1: naming audit, Automations wins).
  */
 const TAB_IDS = ['org', 'skills', 'pipelines'] as const
 type AgentsTab = (typeof TAB_IDS)[number]
@@ -21,7 +23,7 @@ export default function AgentsPage({ tab, sub }: { tab?: string; sub?: string })
         items={[
           { value: 'org', label: 'Org' },
           { value: 'skills', label: 'Skills' },
-          { value: 'pipelines', label: 'Pipelines' },
+          { value: 'pipelines', label: 'Automations' },
         ]}
         value={active}
         onChange={v => navigate('agents', v)}

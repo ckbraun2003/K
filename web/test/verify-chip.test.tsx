@@ -54,8 +54,8 @@ beforeEach(() => vi.clearAllMocks())
 afterEach(() => cleanup())
 
 describe('VerifyChip', () => {
-  it('renders NOTHING when no result exists (404 → null query)', async () => {
-    mockVerifyResult.mockRejectedValue(new Error('404 verify result not found'))
+  it('renders NOTHING when no result exists (BE-3: absent → 200 {result:null}, not a thrown 404)', async () => {
+    mockVerifyResult.mockResolvedValue(null)
     renderChip()
     await waitFor(() => expect(mockVerifyResult).toHaveBeenCalledWith('run-1'))
     expect(screen.queryByTestId('verify-chip')).toBeNull()
@@ -96,8 +96,12 @@ describe('VerifyChip', () => {
     expect(chip.textContent).toBe('Verify failed')
   })
 
-  it('does not repeat the fetch on remount after a settled 404 (LOW-1: stop polling past the first miss)', async () => {
-    mockVerifyResult.mockRejectedValue(new Error('404 verify result not found'))
+  it('does not repeat the fetch on remount after a settled null result (LOW-1: stop polling past the first miss)', async () => {
+    // BE-3 contract (Task 11): absence resolves to null, it never rejects — a
+    // rejected/errored query has dataUpdatedAt=0, which react-query treats as
+    // permanently stale regardless of staleTime, defeating the exact
+    // no-repeat-fetch guarantee this test exists to lock in.
+    mockVerifyResult.mockResolvedValue(null)
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { unmount } = render(
       <QueryClientProvider client={qc}>

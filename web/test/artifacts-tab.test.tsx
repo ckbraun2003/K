@@ -24,7 +24,7 @@ beforeAll(() => {
   }
 })
 
-const { mockList, mockGet, mockSections, mockSave, mockSaveSection, mockCompileBible, mockProjectsCompile } =
+const { mockList, mockGet, mockSections, mockSave, mockSaveSection, mockCompileBible, mockProjectsCompile, mockScanArtifacts } =
   vi.hoisted(() => ({
     mockList: vi.fn(),
     mockGet: vi.fn(),
@@ -33,6 +33,7 @@ const { mockList, mockGet, mockSections, mockSave, mockSaveSection, mockCompileB
     mockSaveSection: vi.fn(),
     mockCompileBible: vi.fn(),
     mockProjectsCompile: vi.fn(),
+    mockScanArtifacts: vi.fn(),
   }))
 
 vi.mock('../src/lib/api', () => ({
@@ -45,7 +46,7 @@ vi.mock('../src/lib/api', () => ({
       saveSection: mockSaveSection,
       compileBible: mockCompileBible,
     },
-    projects: { compileBible: mockProjectsCompile },
+    projects: { compileBible: mockProjectsCompile, scanArtifacts: mockScanArtifacts },
   },
 }))
 
@@ -68,10 +69,12 @@ function renderTab(projectId?: string) {
 beforeEach(() => {
   mockList.mockReset(); mockGet.mockReset(); mockSections.mockReset()
   mockSave.mockReset(); mockSaveSection.mockReset(); mockCompileBible.mockReset(); mockProjectsCompile.mockReset()
+  mockScanArtifacts.mockReset()
   // DocViewer (rendered for the active artifact) reads api.artifacts.get.
   mockGet.mockResolvedValue({ slug: 'x', title: 'Doc Viewer', tags: [], updatedAt: 0, md: 'body', html: '<p>body</p>' })
   mockSaveSection.mockResolvedValue({ slug: 'project-p1-bible', section: '01-vision', compiledAt: 1 })
   mockSave.mockResolvedValue({ slug: 'x', updatedAt: 1 })
+  mockScanArtifacts.mockResolvedValue({ added: 1, removed: 0, skipped: 2 })
 })
 afterEach(() => cleanup())
 
@@ -167,5 +170,36 @@ describe('ArtifactsTab — regular artifact save keeps its title/tags (F-035)', 
       md: 'updated note', title: 'P1 Notes', tags: ['doc'],
     }))
     expect(mockSaveSection).not.toHaveBeenCalled()
+  })
+})
+
+describe('ArtifactsTab — scan wiring (BE-1 contract, W0.9 fixture shape)', () => {
+  it('shows a "scanned" badge on scanned rows and Refresh calls the scan endpoint', async () => {
+    mockList.mockResolvedValue([
+      { slug: 'project-p1-bible', title: 'P1 Bible', tags: ['bible'], updatedAt: 0, projectId: 'p1', origin: 'compiled' },
+      { slug: 'project-p1-perf-report', title: 'P1 Perf Report', tags: [], updatedAt: 0, projectId: 'p1', origin: 'scanned' },
+    ])
+    renderTab('p1')
+
+    await waitFor(() => expect(screen.getAllByText('P1 Perf Report').length).toBeGreaterThan(0))
+    expect(screen.getByText('scanned')).toBeTruthy()
+    // The compiled bible row carries no scanned badge.
+    expect(screen.queryAllByText('scanned').length).toBe(1)
+
+    fireEvent.click(screen.getByTestId('artifacts-scan'))
+    await waitFor(() => expect(mockScanArtifacts).toHaveBeenCalledWith('p1'))
+  })
+
+  it('trusts an explicit projectId over the slug-prefix heuristic (BE rows)', async () => {
+    // A row whose slug does NOT match the `project-<id>-*` prefix but whose
+    // projectId matches should still be included (BE-1 is the source of truth
+    // once rows carry it); a same-title row for another project is excluded.
+    mockList.mockResolvedValue([
+      { slug: 'weird-slug-name', title: 'Odd Name', tags: [], updatedAt: 0, projectId: 'p1', origin: 'scanned' },
+      { slug: 'project-p2-notes', title: 'Other Project', tags: [], updatedAt: 0, projectId: 'p2', origin: 'compiled' },
+    ])
+    renderTab('p1')
+    await waitFor(() => expect(screen.getAllByText('Odd Name').length).toBeGreaterThan(0))
+    expect(screen.queryByText('Other Project')).toBeNull()
   })
 })
