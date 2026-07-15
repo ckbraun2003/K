@@ -83,7 +83,7 @@ function insertSyntheticRun(sysId: string, caseId: string, dry = true): string {
     evalResultsDb.insertEvalResult.run({
       id: uuid(), evalRunId: id, systemId: sysId, caseId, model: 'sonnet', variant,
       detPass: 1, detScore: 0.95, formatScore: 1, judgeOverall: null, judgeVerdict: null,
-      refusalCorrect: null, costUsd: 0, ms: 1000, numTurns: 2, error: null,
+      refusalCorrect: null, costUsd: 0, ms: 1000, numTurns: 2, error: null, failureReason: null,
       raw: JSON.stringify({ system: sysId, caseId, model: 'sonnet', variant }), createdAt: Date.now(),
     })
   }
@@ -111,7 +111,9 @@ beforeAll(async () => {
   const { buildApp } = await import('../src/index.js')
   app = await buildApp()
   await app.ready()
-})
+  // 60s like the other buildApp suites: the per-file module re-import can cross the
+  // default 10s hook timeout when this file lands late in a shared-fork batch.
+}, 60_000)
 
 afterAll(async () => {
   for (const id of startedRunIds) await waitTerminal(id)

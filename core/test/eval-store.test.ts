@@ -207,6 +207,7 @@ describe('eval_runs / eval_results — CRUD + cascade', () => {
         ms: 1234,
         numTurns: 5,
         error: null,
+        failureReason: null,
         raw: JSON.stringify({ ok: true }),
         createdAt: Date.now(),
       })

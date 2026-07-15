@@ -2756,8 +2756,8 @@ export const evalRunsDb = {
 }
 
 const insertEvalResult = db.prepare(`
-  INSERT INTO eval_results (id, evalRunId, systemId, caseId, model, variant, detPass, detScore, formatScore, judgeOverall, judgeVerdict, refusalCorrect, costUsd, ms, numTurns, error, raw, createdAt)
-  VALUES (@id, @evalRunId, @systemId, @caseId, @model, @variant, @detPass, @detScore, @formatScore, @judgeOverall, @judgeVerdict, @refusalCorrect, @costUsd, @ms, @numTurns, @error, @raw, @createdAt)
+  INSERT INTO eval_results (id, evalRunId, systemId, caseId, model, variant, detPass, detScore, formatScore, judgeOverall, judgeVerdict, refusalCorrect, costUsd, ms, numTurns, error, failure_reason, raw, createdAt)
+  VALUES (@id, @evalRunId, @systemId, @caseId, @model, @variant, @detPass, @detScore, @formatScore, @judgeOverall, @judgeVerdict, @refusalCorrect, @costUsd, @ms, @numTurns, @error, @failureReason, @raw, @createdAt)
 `)
 const listEvalResultsByRun = db.prepare(`SELECT * FROM eval_results WHERE evalRunId = ? ORDER BY createdAt ASC`)
 
