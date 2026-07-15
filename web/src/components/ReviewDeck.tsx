@@ -3,12 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DiffPayload, ReviewComment } from '@k/shared'
 import { api } from '../lib/api'
 import { navigate } from '../lib/route'
-import DiffViewer from './DiffViewer'
+import ChangesLayout from './ChangesLayout'
 import VerifyChip from './VerifyChip'
 import ImpactPanel from './ImpactPanel'
 import ConfirmDialog from './ConfirmDialog'
 import Toast from './Toast'
-import { groupByDir } from '../lib/review'
 import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 
@@ -16,15 +15,17 @@ export interface ReviewDeckProps { runId: string; projectId: string | null }
 
 export default function ReviewDeck({ runId, projectId }: ReviewDeckProps) {
   const qc = useQueryClient()
+  // FE-5 IN-7: whole-diff expand bumps context 3→24 on first "Expand context"
+  // click (checkpoint runs only — PRs never pass onExpandFile).
+  const [context, setContext] = useState(3)
   const { data: diff, isLoading, error } = useQuery<DiffPayload>({
-    queryKey: ['run-diff', runId],
-    queryFn: () => api.runs.diff(runId),
+    queryKey: ['run-diff', runId, context],
+    queryFn: () => api.runs.diff(runId, context),
   })
   const { data: comments = [] } = useQuery<ReviewComment[]>({
     queryKey: ['run-comments', runId],
     queryFn: () => api.runs.comments(runId),
   })
-  const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<'request' | 'approve' | null>(null)
   const [toast, setToast] = useState<{ msg: string; runId?: string } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -61,10 +62,8 @@ export default function ReviewDeck({ runId, projectId }: ReviewDeckProps) {
 
   const drafts = comments.filter(c => c.status === 'draft')
   const files = diff?.files ?? []
-  const groups = groupByDir(files)
   const additions = files.reduce((s, f) => s + f.additions, 0)
   const deletions = files.reduce((s, f) => s + f.deletions, 0)
-  const shown = selectedFile ? files.filter(f => f.path === selectedFile) : files
 
   return (
     <div data-testid="review-deck" className="flex-1 min-h-0 flex flex-col">
@@ -114,41 +113,17 @@ export default function ReviewDeck({ runId, projectId }: ReviewDeckProps) {
         />
       )}
 
-      {files.length > 0 && (
-        <div className="flex-1 min-h-0 flex">
-          {/* File tree aside */}
-          <aside className="w-56 flex-shrink-0 overflow-y-auto border-r border-border py-2" data-testid="deck-file-tree">
-            <button onClick={() => setSelectedFile(null)}
-              className="w-full text-left px-3 py-1 text-xs text-muted hover:text-text">
-              All files
-            </button>
-            {groups.map(g => (
-              <div key={g.dir || '(root)'}>
-                <p className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted truncate">
-                  {g.dir || '(root)'}
-                </p>
-                {g.files.map(f => (
-                  <button key={f.path} onClick={() => setSelectedFile(f.path)}
-                    className={`w-full text-left px-3 py-1 text-xs truncate transition-colors ${
-                      selectedFile === f.path ? 'text-text bg-raised' : 'text-muted hover:text-text'}`}>
-                    {f.path.slice(g.dir ? g.dir.length + 1 : 0)}
-                    <span className="ml-1 text-[10px]"><span className="text-green">+{f.additions}</span> <span className="text-red">−{f.deletions}</span></span>
-                  </button>
-                ))}
-              </div>
-            ))}
-          </aside>
-          {/* Diff + impact */}
-          <div className="flex-1 min-w-0 overflow-y-auto">
-            <ImpactPanel runId={runId} projectId={projectId} />
-            <DiffViewer
-              files={shown}
-              comments={comments}
-              readOnly={false}
-              onAddComment={(a) => addComment.mutate(a)}
-              onDeleteComment={(id) => deleteComment.mutate(id)}
-            />
-          </div>
+      {diff && files.length > 0 && (
+        <div className="flex-1 min-h-0 flex flex-col">
+          <ImpactPanel runId={runId} projectId={projectId} />
+          <ChangesLayout
+            payload={diff}
+            comments={comments}
+            readOnly={false}
+            onAddComment={a => addComment.mutate(a)}
+            onDeleteComment={id => deleteComment.mutate(id)}
+            onExpandFile={diff.source === 'checkpoint' && context < 24 ? () => setContext(24) : undefined}
+          />
         </div>
       )}
 

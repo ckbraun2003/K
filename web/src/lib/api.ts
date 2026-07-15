@@ -135,7 +135,9 @@ export const api = {
     end: (id: string) =>
       req<{ ended: boolean }>(`/runs/${id}/end`, { method: 'POST' }),
     // ── P1 Trust Core ────────────────────────────────────────────────────────
-    diff: (id: string) => req<DiffPayload>(`/runs/${id}/diff`),
+    // FE-5 IN-7: optional context param (whole-diff expand bumps 3→24). BE-2
+    // will honor it server-side; until then it's harmlessly ignored.
+    diff: (id: string, context = 3) => req<DiffPayload>(`/runs/${id}/diff?context=${context}`),
     comments: (id: string) => req<ReviewComment[]>(`/runs/${id}/comments`),
     createComment: (id: string, body: { file: string; line?: number | null; side?: 'old' | 'new'; body: string }) =>
       req<ReviewComment>(`/runs/${id}/comments`, {

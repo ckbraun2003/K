@@ -1,4 +1,4 @@
-/** P1 W0d — RunConsole gains a third `review` view mounting the ReviewDeck stub. */
+/** P1 W0d — RunConsole gains a third `changes` view mounting the ReviewDeck stub. */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -48,9 +48,9 @@ function renderConsole() {
 }
 
 describe('RunConsole review view', () => {
-  it('offers console | timeline | review and mounts the deck', async () => {
+  it('offers console | timeline | changes and mounts the deck', async () => {
     renderConsole()
-    const btn = await screen.findByRole('button', { name: 'review' })
+    const btn = await screen.findByRole('button', { name: 'changes' })
     fireEvent.click(btn)
     expect(await screen.findByTestId('review-deck')).toBeTruthy()
   })
