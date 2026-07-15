@@ -2,6 +2,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import type { MetricsTimeseries, MetricsQualityTimeseries } from '@k/shared'
 import { api } from '../../lib/api'
 import { computeDeltas, detectAnomalies, type DeltaInput, type DeltaResult } from '../../lib/insights-deltas'
+import { weightedSuccessRate } from '../../lib/format-metrics'
 import { KpiTile } from '../../ui/KpiTile'
 import { SkeletonTile } from '../../ui/Skeleton'
 import { EmptyState } from '../../ui/EmptyState'
@@ -86,8 +87,18 @@ export default function OverviewTab({ days }: { days: Days }) {
     inputs.push({ key: 'runs', label: 'Runs', current: sum(l), previous: sum(e), higherIsBetter: true })
   }
   if (sr.length >= 2) {
-    const [e, l] = splitHalf(sr)
-    inputs.push({ key: 'success', label: 'Success rate', current: mean(l), previous: mean(e), higherIsBetter: true })
+    // BE-3a (2026-07-14 audit): success-rate deltas MUST be terminal-weighted (Σterminal·rate/Σterminal),
+    // never an unweighted mean of daily rates — a 1-run 100% day must not offset a 20-run 30% day (the
+    // Overview-vs-Charts contradiction). weightedSuccessRate is the SAME formula as core's
+    // overallSuccessRate (success-rate-definition.test.ts pins their equality); ChartsTab already uses it.
+    const srPairs = qPoints
+      .filter(p => p.successRate != null)
+      .map(p => ({ terminalRuns: p.terminalRuns, successRate: p.successRate as number }))
+    const [e, l] = splitHalf(srPairs)
+    inputs.push({
+      key: 'success', label: 'Success rate',
+      current: weightedSuccessRate(l), previous: weightedSuccessRate(e), higherIsBetter: true,
+    })
   }
   if (lat.length >= 2) {
     const [e, l] = splitHalf(lat)

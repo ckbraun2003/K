@@ -94,6 +94,38 @@ describe('OverviewTab (deterministic deltas + anomalies)', () => {
   })
 })
 
+// BE-3a (2026-07-14 audit) — the success-rate delta MUST be terminal-weighted
+// (Σterminal·rate/Σterminal), never an unweighted mean of per-day rates. Fixture mirrors
+// core/test/success-rate-definition.test.ts exactly: an earlier half with a 1-run 100% day and a
+// 20-run 30% day (weighted = 7/21 ≈ 33.3%; naive mean = 65%) vs a later half flat at 80%. The
+// weighted math yields deltaPct = +140% exactly; the buggy naive-mean previous (0.65) would
+// instead render +23% — this pins the terminal-weighted formula, not the mean, is what renders.
+describe('OverviewTab success-rate delta — terminal-weighted, not naive mean (BE-3a)', () => {
+  it('weights by terminalRuns so a single-run 100% day cannot offset a 20-run 30% day', async () => {
+    const divergentQuality: MetricsQualityTimeseries = {
+      days: 14,
+      dates: ['d0', 'd1', 'd2', 'd3'],
+      points: [
+        { date: 'd0', terminalRuns: 1, successRate: 1.0, avgLatencyMs: null, latencyCount: 0 },
+        { date: 'd1', terminalRuns: 20, successRate: 0.3, avgLatencyMs: null, latencyCount: 0 },
+        { date: 'd2', terminalRuns: 5, successRate: 0.8, avgLatencyMs: null, latencyCount: 0 },
+        { date: 'd3', terminalRuns: 5, successRate: 0.8, avgLatencyMs: null, latencyCount: 0 },
+      ],
+    }
+    qualitySpy.mockReset().mockResolvedValue(divergentQuality)
+
+    render(
+      <QueryClientProvider client={client()}>
+        <OverviewTab days={14} />
+      </QueryClientProvider>,
+    )
+    const tile = await screen.findByTestId('delta-success')
+    // current = weighted(later half) = 80%; previous = weighted(earlier half) = 7/21 ≈ 33.3%
+    expect(tile.textContent).toContain('80%')
+    expect(tile.textContent).toContain('+140%')
+  })
+})
+
 describe('Insights shared-window cross-filter (E-10)', () => {
   it('switching the window to 30d re-queries timeseries + quality with 30 (not summary)', async () => {
     render(
