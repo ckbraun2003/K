@@ -178,7 +178,11 @@ function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & {
     font-size: 14.5px; line-height: 1.7;
   }
   .mono { font-family: var(--mono); font-size: .92em; }
-  .layout { display: grid; grid-template-columns: 272px 1fr; min-height: 100vh; }
+  /* DF-1: minmax(0, 1fr) — a grid track's min size defaults to min-content, so
+     wide unbreakable content (long inline code tokens, wide table cells) would
+     otherwise push the content column past the viewport (mid-word clipping
+     behind a horizontal scrollbar at 1440×900). */
+  .layout { display: grid; grid-template-columns: 272px minmax(0, 1fr); min-height: 100vh; }
 
   nav {
     background: var(--surface); border-right: 1px solid var(--border);
@@ -199,7 +203,7 @@ function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & {
   .nav-title { flex: 1; }
   .nav-foot { margin-top: 1.25rem; padding: .75rem .55rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: .7rem; }
 
-  main { padding: 3rem 3.5rem 5rem; max-width: 880px; }
+  main { padding: 3rem 3.5rem 5rem; max-width: 880px; min-width: 0; }
   .bible-section { padding-bottom: 2.5rem; margin-bottom: 2.5rem; border-bottom: 1px solid var(--border); }
   .bible-section:last-child { border-bottom: none; }
   .section-head { display: flex; align-items: center; gap: .75rem; margin-bottom: 1rem; }
@@ -217,6 +221,7 @@ function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & {
     font-family: var(--mono); font-size: .85em; color: #c7c8ff;
     background: var(--raised); border: 1px solid var(--border);
     padding: .1em .35em; border-radius: 4px;
+    overflow-wrap: anywhere;
   }
   pre {
     position: relative; background: var(--surface); border: 1px solid var(--border);
@@ -235,7 +240,7 @@ function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & {
   table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .84rem; }
   th { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .08em;
        text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--border); font-weight: 600; }
-  td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: var(--surface); }
 
@@ -272,7 +277,7 @@ function bibleTemplate(manifest: BibleManifest, sections: Array<BibleSection & {
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   @media (max-width: 860px) {
-    .layout { grid-template-columns: 1fr; }
+    .layout { grid-template-columns: minmax(0, 1fr); }
     nav { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
     main { padding: 1.5rem; }
   }

@@ -59,7 +59,10 @@ function htmlTemplate(title: string, bodyHtml: string): string {
       font-size: 16px; line-height: 1.75;
       margin: 0; padding: 0;
     }
-    .layout { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+    /* DF-1: minmax(0, 1fr) + main{min-width:0} + overflow-wrap on code/td — a grid
+       track's min size defaults to min-content, so wide unbreakable content would
+       otherwise push the content column past the viewport. */
+    .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 100vh; }
     nav {
       background: var(--surface); border-right: 1px solid var(--border);
       padding: 2rem 1.25rem; position: sticky; top: 0; height: 100vh;
@@ -73,7 +76,7 @@ function htmlTemplate(title: string, bodyHtml: string): string {
       transition: color .15s, background .15s;
     }
     nav li a:hover { color: var(--text); background: var(--border); }
-    main { padding: 3rem 4rem; max-width: 860px; }
+    main { padding: 3rem 4rem; max-width: 860px; min-width: 0; }
     h1 { font-size: 2.25rem; font-weight: 800; color: var(--text); margin-top: 0; }
     h2 { font-size: 1.5rem; font-weight: 700; color: var(--text); margin-top: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: .5rem; }
     h3 { font-size: 1.15rem; font-weight: 600; color: var(--text); margin-top: 2rem; }
@@ -83,6 +86,7 @@ function htmlTemplate(title: string, bodyHtml: string): string {
       font-family: var(--font-mono); font-size: .875em;
       background: var(--surface); border: 1px solid var(--border);
       padding: .15em .35em; border-radius: .25rem; color: #a5b4fc;
+      overflow-wrap: anywhere;
     }
     pre {
       background: var(--surface); border: 1px solid var(--border);
@@ -92,7 +96,7 @@ function htmlTemplate(title: string, bodyHtml: string): string {
     pre code { background: none; border: none; padding: 0; color: var(--text); font-size: .85em; }
     table { width: 100%; border-collapse: collapse; margin: 1.25rem 0; }
     th { background: var(--surface); color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; padding: .75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
-    td { padding: .65rem 1rem; border-bottom: 1px solid var(--border); font-size: .9rem; }
+    td { padding: .65rem 1rem; border-bottom: 1px solid var(--border); font-size: .9rem; overflow-wrap: anywhere; }
     tr:hover td { background: var(--surface); }
     ul, ol { padding-left: 1.5rem; }
     li { margin: .35rem 0; }
@@ -104,7 +108,7 @@ function htmlTemplate(title: string, bodyHtml: string): string {
     .meta { display: flex; gap: 1rem; align-items: center; color: var(--muted); font-size: .875rem; margin-bottom: 2rem; flex-wrap: wrap; }
     footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--muted); font-size: .8rem; }
     @media (max-width: 768px) {
-      .layout { grid-template-columns: 1fr; }
+      .layout { grid-template-columns: minmax(0, 1fr); }
       nav { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
       main { padding: 1.5rem; }
     }
