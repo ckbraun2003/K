@@ -11,6 +11,7 @@ import { Tag } from '../../ui/Tag'
 import { EmptyState } from '../../ui/EmptyState'
 import { ErrorState } from '../../ui/ErrorState'
 import { SkeletonRow } from '../../ui/Skeleton'
+import Sparkline from '../../components/Sparkline'
 
 /**
  * Orchestrators roster (P5.3a) — the five discipline leads as slim cards. ONE batched
@@ -23,7 +24,7 @@ import { SkeletonRow } from '../../ui/Skeleton'
 
 /** One slim roster card. Exported for render-testing (prop-fed, no queries). */
 export function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
-  const { profile, live, wakes, recent, latestRun } = entry
+  const { profile, live, wakes, recent, latestRun, activitySeries } = entry
   return (
     <GlassPanel
       // solid, not glass: the lead grid is unbounded (N leads) and >6 simultaneous
@@ -60,7 +61,14 @@ export function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) 
         <span data-testid={`orchestrator-status-${profile.id}`}>
           <StatusPill status={live ? 'running' : 'idle'} label={live ? 'live' : 'idle'} />
         </span>
-        {/* IN-3: activity sparkline pending a per-day series on OrchestratorRosterEntry (BE). */}
+        {/* IN-3: 14d activation-count sparkline — a flat line at zero activity is a
+            real signal (an idle lead), so it renders whenever the series is present,
+            never hidden behind an "any activity" gate. */}
+        {activitySeries && activitySeries.length >= 2 && (
+          <span data-testid={`orchestrator-sparkline-${profile.id}`} className="flex-shrink-0">
+            <Sparkline values={activitySeries} width={64} height={18} />
+          </span>
+        )}
         {latestRun && (
           <>
             <Tag tint="neutral" className="mono">{latestRun.model}</Tag>

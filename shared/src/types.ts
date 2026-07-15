@@ -1355,6 +1355,11 @@ export interface OrchestratorRosterEntry {
   /** Success/failure counts over the lead's recent activations. Optional (mirrors
    *  ChiefOrgLead.recent) so existing fixtures/older payloads keep compiling. */
   recent?: RecentRunHealth
+  /** INT.2 FE IN-3 — last-14d daily activation counts, oldest→newest (index 0 =
+   *  13 days ago, index 13 = today). Derived from the SAME bounded per-lead scan
+   *  rosterVitals already pays for (org-shared.ts::dailyActivitySeries) — no extra
+   *  query. Optional so older payloads/fixtures keep compiling. */
+  activitySeries?: number[]
 }
 
 export interface OrchestratorRosterPayload {

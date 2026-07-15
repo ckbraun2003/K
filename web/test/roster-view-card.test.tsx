@@ -53,3 +53,25 @@ describe('OrchestratorCard — recent-run health line', () => {
     expect(screen.queryByTestId('orchestrator-recent-lead-frontend')).toBeNull()
   })
 })
+
+// INT.2 FE IN-3 — the roster card's 14d activity sparkline, wired from
+// OrchestratorRosterEntry.activitySeries.
+describe('OrchestratorCard — activity sparkline (IN-3)', () => {
+  it('renders the sparkline when activitySeries is present', () => {
+    const series = [0, 1, 2, 0, 3, 1, 0, 0, 2, 1, 4, 0, 1, 2]
+    render(<OrchestratorCard entry={entry({ activitySeries: series })} />)
+    const spark = screen.getByTestId('orchestrator-sparkline-lead-frontend')
+    expect(spark.querySelector('svg')).toBeTruthy()
+    expect(spark.querySelector('polyline')).toBeTruthy()
+  })
+
+  it('renders a flat (all-zero) sparkline for an idle lead — never hidden', () => {
+    render(<OrchestratorCard entry={entry({ activitySeries: new Array(14).fill(0) })} />)
+    expect(screen.getByTestId('orchestrator-sparkline-lead-frontend')).toBeTruthy()
+  })
+
+  it('omits the sparkline entirely when activitySeries is absent (older payload)', () => {
+    render(<OrchestratorCard entry={entry()} />)
+    expect(screen.queryByTestId('orchestrator-sparkline-lead-frontend')).toBeNull()
+  })
+})
