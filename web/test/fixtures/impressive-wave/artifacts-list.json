@@ -1,0 +1,34 @@
+[
+  {
+    "slug": "project-p1-bible",
+    "title": "KAT — Project Bible",
+    "tags": ["bible"],
+    "updatedAt": 1752451200000,
+    "projectId": "p1",
+    "origin": "compiled"
+  },
+  {
+    "slug": "project-p1-perf-report",
+    "title": "KAT — Perf Report",
+    "tags": [],
+    "updatedAt": 1752454800000,
+    "projectId": "p1",
+    "origin": "scanned"
+  },
+  {
+    "slug": "mobile-ui-demo",
+    "title": "K — Mobile Companion Demo",
+    "tags": ["ui", "demo"],
+    "updatedAt": 1752368400000,
+    "projectId": null,
+    "origin": "scanned"
+  },
+  {
+    "slug": "ui-demo",
+    "title": "K — Agentic Org · UI Demo",
+    "tags": ["ui", "demo"],
+    "updatedAt": 1752368400000,
+    "projectId": null,
+    "origin": "compiled"
+  }
+]

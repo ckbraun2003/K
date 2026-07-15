@@ -129,6 +129,11 @@ export const ArtifactSchema = z.object({
   updatedAt: z.number(),     // unix ms
   md: z.string(),            // raw markdown content
   html: z.string().optional(), // rendered html (generated, not stored in DB)
+  // impressive-wave W0.9 (BE-1 contract, DB v13) — both optional so pre-v13
+  // rows and older callers keep parsing: projectId null/absent = harness-scope;
+  // origin absent reads as 'compiled' (legacy compiled rows).
+  projectId: z.string().nullable().optional(),
+  origin: z.enum(['compiled', 'scanned']).optional(),
 })
 export type Artifact = z.infer<typeof ArtifactSchema>
 
