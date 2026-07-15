@@ -9,6 +9,7 @@ import { Icon, type IconName } from '../../ui/Icon'
 import { Button, IconButton } from '../../ui/Button'
 import { Select } from '../../ui/Field'
 import { EmptyState } from '../../ui/EmptyState'
+import { Tag } from '../../ui/Tag'
 
 /**
  * Project Artifacts tab (formerly "Bible"). Presents THIS project's artifacts as a
@@ -28,9 +29,13 @@ import { EmptyState } from '../../ui/EmptyState'
 export default function ArtifactsTab({ projectId }: { projectId?: string }) {
   const qc = useQueryClient()
 
+  // `Artifact` (shared, BE-1 contract) already carries `projectId`/`origin` as optional
+  // fields — no defensive local type needed. Query key includes projectId (harness
+  // context keyed 'harness') so per-project and harness-wide caches never collide;
+  // invalidateQueries({queryKey: ['artifacts']}) still matches both via prefix.
   const { data: artifacts = [], isLoading } = useQuery<Omit<Artifact, 'md' | 'html'>[]>({
-    queryKey: ['artifacts'],
-    queryFn: api.artifacts.list,
+    queryKey: ['artifacts', 'list', projectId ?? 'harness'],
+    queryFn: () => api.artifacts.list(projectId),
   })
 
   // The bible slug for THIS surface: a registered project shows its OWN
@@ -43,12 +48,18 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
   // which includes its bible + ui-demo). The harness's GLOBAL `ui-demo` / `project-bible`
   // are cross-scope and excluded here — they stay on the harness Docs surface. The
   // harness context (no projectId) still shows its own bible + the ui-demo reference.
+  // BE-1 rows carry an explicit `projectId` (string | null) — trust it directly when
+  // present; the slug-prefix heuristic is only a pre-BE fallback for rows that don't.
   const mine = useMemo(() => {
-    const isMine = (slug: string) =>
-      projectId
-        ? slug.startsWith(`project-${projectId}-`)
-        : slug === 'project-bible' || slug === 'ui-demo'
-    return artifacts.filter(a => isMine(a.slug))
+    const isMine = (a: Omit<Artifact, 'md' | 'html'>) => {
+      if (a.projectId !== undefined) {
+        return projectId ? a.projectId === projectId : a.projectId === null
+      }
+      return projectId
+        ? a.slug.startsWith(`project-${projectId}-`)
+        : a.slug === 'project-bible' || a.slug === 'ui-demo'
+    }
+    return artifacts.filter(isMine)
   }, [artifacts, projectId])
 
   const [selected, setSelected] = useState<string | null>(null)
@@ -158,6 +169,18 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
     },
   })
 
+  // BE-1 contract: scan this project's local artifact directories for anything not
+  // yet compiled/registered. Until BE lands the route, this 404s harmlessly — the
+  // error surfaces the same way `compile.error` does, so a pre-BE click is a clear
+  // "not available yet" rather than a silent no-op.
+  const scan = useMutation({
+    mutationFn: () => api.projects.scanArtifacts(projectId!),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['artifacts'] })
+      setSavedMsg(`Scan: ${r.added} added · ${r.removed} removed · ${r.skipped} skipped`)
+    },
+  })
+
   function artifactBadge(tags: string[]): IconName {
     if (tags.includes('bible')) return 'docs'
     if (tags.includes('ui') || tags.includes('demo')) return 'monitor'
@@ -182,6 +205,18 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
           {compile.isPending ? 'Compiling…' : 'Recompile bible'}
         </Button>
 
+        <Button
+          variant="glass"
+          size="sm"
+          icon="refresh"
+          data-testid="artifacts-scan"
+          disabled={!projectId || scan.isPending}
+          loading={scan.isPending}
+          onClick={() => scan.mutate()}
+        >
+          Refresh from disk
+        </Button>
+
         {mine.length > 0 && (
           <Select
             onChange={e => { if (e.target.value) openEditor(e.target.value); e.target.value = '' }}
@@ -201,6 +236,12 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
           <span className="flex items-center gap-1 text-[11px] text-red">
             <Icon name="warning" size={14} />
             {String(compile.error)}
+          </span>
+        )}
+        {scan.error && (
+          <span className="flex items-center gap-1 text-[11px] text-red">
+            <Icon name="warning" size={14} />
+            {String(scan.error)}
           </span>
         )}
       </div>
@@ -229,6 +270,7 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
                 <span className="flex items-center gap-1.5 text-sm text-text">
                   <Icon name={artifactBadge(a.tags)} size={14} className="flex-shrink-0 text-muted" />
                   <span className="truncate">{a.title ?? a.slug}</span>
+                  {a.origin === 'scanned' && <Tag tint="neutral">scanned</Tag>}
                 </span>
                 <span className="mono text-[10px] text-muted">
                   {new Date(a.updatedAt).toLocaleDateString()}

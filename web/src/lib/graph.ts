@@ -198,6 +198,16 @@ export function configureGraphForces(fg: any, opts?: { nodeSize?: number }): voi
   instance.d3Force('charge')?.strength?.(GRAPH_CHARGE_STRENGTH)
 }
 
+/** DF-2 — with 1–2 nodes zoomToFit computes a degenerate bounding sphere and
+ *  parks the camera INSIDE the node mesh (a viewport-filling untextured
+ *  sphere; Fit can't recover). For tiny fleets we pin the camera to a fixed
+ *  sane distance instead of fitting. */
+export const SMALL_FLEET_CAMERA_Z = 300
+
+export function smallFleetCameraZ(nodeCount: number): number | null {
+  return nodeCount > 0 && nodeCount < 3 ? SMALL_FLEET_CAMERA_Z : null
+}
+
 export type DispatchAction = 'investigate' | 'fix' | 'explain'
 
 export const DISPATCH_ACTIONS: { action: DispatchAction; label: string; hint: string }[] = [

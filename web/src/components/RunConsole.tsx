@@ -10,6 +10,7 @@ import { pairToolCalls, groupConsoleItems } from '../lib/console'
 import { contextPressure, nextAutoCompact, type AutoCompactState } from '../lib/context'
 import { cleanRunPrompt } from '../lib/prompt'
 import { linkify } from '../lib/linkify'
+import Markdown from './Markdown'
 import RunTimeline from './RunTimeline'
 import PlanCard from './PlanCard'
 import NarrativeCard from './NarrativeCard'
@@ -117,7 +118,7 @@ function EventLine({ event: e }: { event: AgentEvent }) {
         <span className="text-accent-hover">⚙ {e.tool}()</span>
       )}
       {e.type === 'assistant' && !e.tool && e.text && (
-        <span>{linkify(e.text)}</span>
+        <Markdown text={e.text} className="font-sans" />
       )}
       {(e.type === 'system' || e.type === 'user') && e.text && (
         <span className="opacity-60">{linkify(e.text)}</span>
@@ -451,7 +452,7 @@ export default function RunConsole({ runId }: Props) {
           GitHub remote (a remoteless project can't open a PR — F-061). */}
       {(run.status === 'done' || run.status === 'error' || run.status === 'killed' || run.status === 'interrupted') &&
         run.projectId && runProjectHasRemote && (
-          <div className="flex-shrink-0 border-t border-border px-5 py-2 flex justify-end">
+          <div className="flex-shrink-0 border-t border-border py-2 pl-5 pr-20 flex justify-end">
             <Button
               variant="glass"
               size="sm"

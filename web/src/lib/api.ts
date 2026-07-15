@@ -175,7 +175,10 @@ export const api = {
     narrative: (id: string) => req<RunNarrative>(`/runs/${id}/narrative`),
   },
   artifacts: {
-    list: () => req<Omit<Artifact, 'md' | 'html'>[]>('/artifacts'),
+    // Optional projectId filters to that project's own rows (BE-1 contract);
+    // omitted, the harness-wide list (unfiltered) is returned.
+    list: (projectId?: string) =>
+      req<Omit<Artifact, 'md' | 'html'>[]>(projectId ? `/artifacts?projectId=${encodeURIComponent(projectId)}` : '/artifacts'),
     get: (slug: string) => req<Artifact>(`/artifacts/${slug}`),
     save: (slug: string, body: { md: string; title?: string; phase?: string; status?: string; tags?: string[] }) =>
       req<{ slug: string; updatedAt: number }>(`/artifacts/${slug}`, {
@@ -246,6 +249,10 @@ export const api = {
       req<{ htmlPath: string; sections: string[]; compiledAt: number }>(`/projects/${id}/bible/compile`, {
         method: 'POST',
       }),
+    // Scan this project's local artifact directories for anything not yet in
+    // the compiled/registered set (BE-1 contract — 404s harmlessly until BE lands).
+    scanArtifacts: (id: string) =>
+      req<{ added: number; removed: number; skipped: number }>(`/projects/${id}/artifacts/scan`, { method: 'POST' }),
     verify: (id: string, opts?: { deep?: boolean }) =>
       req<VerificationReport>(`/projects/${id}/verify`, {
         method: 'POST',

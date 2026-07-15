@@ -5,7 +5,7 @@ import type { Project } from '@k/shared'
 import { api } from '../../lib/api'
 import GraphErrorBoundary from '../../components/GraphErrorBoundary'
 import { navigate } from '../../lib/route'
-import { GRAPH_BG, configureGraphForces } from '../../lib/graph'
+import { GRAPH_BG, configureGraphForces, smallFleetCameraZ } from '../../lib/graph'
 import { healthRubric } from '../../lib/health'
 import { GlassPanel } from '../../ui/GlassPanel'
 import { Button } from '../../ui/Button'
@@ -43,7 +43,13 @@ export default function GraphView() {
   // a freshly loaded fleet re-fits, but a user's later zoom/pan is never yanked.
   const didFitRef = useRef(false)
 
-  const fit = useCallback(() => graphRef.current?.zoomToFit(400, 40), [])
+  // DF-2: 1-2 node fleets degenerate zoomToFit's bounding sphere and park the
+  // camera inside the node mesh — pin a fixed sane distance instead of fitting.
+  const fit = useCallback(() => {
+    const z = smallFleetCameraZ(projects.length)
+    if (z != null) graphRef.current?.cameraPosition({ x: 0, y: 0, z }, { x: 0, y: 0, z: 0 }, 400)
+    else graphRef.current?.zoomToFit(400, 40)
+  }, [projects.length])
 
   useEffect(() => {
     didFitRef.current = false
