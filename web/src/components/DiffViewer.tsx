@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import type { DiffFile, DiffLine, ReviewComment } from '@k/shared'
+import type { DiffFile, DiffHunk, DiffLine, ReviewComment } from '@k/shared'
 import { cn } from '../lib/cn'
-import { alignHunk, commentAnchorKey } from '../lib/review'
+import { alignHunk, commentAnchorKey, intralineDiff, type IntraSpan, type AlignedRow } from '../lib/review'
+import { langForPath, ensureLangs, highlightLine, type HastNode } from '../lib/highlight'
 import AutoTextarea from './AutoTextarea'
 import { Button, IconButton } from '../ui/Button'
 
@@ -11,15 +12,27 @@ export interface DiffViewerProps {
   readOnly: boolean                      // PR mount: true (no comment affordances)
   onAddComment?: (a: { file: string; line: number | null; side: 'old' | 'new'; body: string }) => void
   onDeleteComment?: (commentId: string) => void
+  /** v2 — 'split' (default, the P1 side-by-side layout) or 'unified'. */
+  mode?: 'split' | 'unified'
+  /** v2 — viewed-file paths; header checkbox + collapsed body when viewed. */
+  viewed?: Set<string>
+  onToggleViewed?: (path: string) => void
+  /** v2 — renders "Expand context" per file header (runs only; IN-7). */
+  onExpandFile?: (path: string) => void
 }
 
 /**
- * Side-by-side diff renderer (P1 A3). Old text sits left, new text right — the
- * add/del tones reuse the ToolCall CodeBlock palette. When NOT readOnly, clicking
- * a new-side line number opens an inline composer; existing comments render as
- * compact cards anchored under their diff line.
+ * Side-by-side (or unified) diff renderer (P1 A3 + FE-5 v2). Old text sits
+ * left, new text right in split mode — the add/del tones reuse the ToolCall
+ * CodeBlock palette. When NOT readOnly, clicking a new-side line number opens
+ * an inline composer; existing comments render as compact cards anchored
+ * under their diff line. v2 adds per-line syntax highlighting, word-level
+ * intra-line change marks, viewed-file collapse, and per-file expand-context.
  */
-export default function DiffViewer({ files, comments, readOnly, onAddComment, onDeleteComment }: DiffViewerProps) {
+export default function DiffViewer({
+  files, comments, readOnly, onAddComment, onDeleteComment,
+  mode = 'split', viewed, onToggleViewed, onExpandFile,
+}: DiffViewerProps) {
   // A single composer is open at a time, keyed by `${file}:${newLine}`. The
   // draft text lives INSIDE InlineComposer so keystrokes re-render only the
   // composer, never this whole diff tree (quality-review HIGH).
@@ -31,8 +44,26 @@ export default function DiffViewer({ files, comments, readOnly, onAddComment, on
     if (composeAt !== null && !files.some(f => composeAt.startsWith(`${f.path}:`))) setComposeAt(null)
   }, [files, composeAt])
 
+  // Lazily load a grammar per distinct language among the visible files, then
+  // bump a tick so CodeText's next render picks up the now-registered
+  // language (highlightLine falls back to plain text until then — zero
+  // regression path, never blocks the diff from rendering).
+  // Not read directly — bumping it forces a re-render once a lazily-loaded
+  // grammar registers, so CodeText's next render picks up highlightLine's
+  // now-highlighted result (it falls back to plain text until then).
+  const [, setLangTick] = useState(0)
+  useEffect(() => {
+    const langs = [...new Set(files.map(f => langForPath(f.path)).filter((l): l is string => !!l))]
+    if (langs.length === 0) return
+    let cancelled = false
+    void ensureLangs(langs).then(() => { if (!cancelled) setLangTick(t => t + 1) })
+    return () => { cancelled = true }
+  }, [files])
+
   return (
-    <div data-testid="diff-viewer" className="text-xs">
+    // `code-viewer` scopes W0's --code-* token colors (index.css) onto the
+    // Prism/refractor `token <type>` class names CodeText renders below.
+    <div data-testid="diff-viewer" className="code-viewer text-xs">
       {files.map(file => {
         const fileComments = comments.filter(c => c.file === file.path)
         const byKey = new Map<string, ReviewComment[]>()
@@ -67,9 +98,12 @@ export default function DiffViewer({ files, comments, readOnly, onAddComment, on
             </div>
           ))
 
+        const lang = langForPath(file.path)
+        const isViewed = viewed?.has(file.path) ?? false
+
         return (
-          <section key={file.path} className="border-b border-border">
-            {/* Sticky file header: path (rename arrow) + per-file counts */}
+          <section key={file.path} id={`diff-file-${file.path}`} className="border-b border-border">
+            {/* Sticky file header: path (rename arrow) + per-file counts + v2 controls */}
             <div className="sticky top-0 z-10 flex items-center gap-2 bg-raised px-3 py-1.5 border-b border-border">
               <span className="flex-1 truncate font-mono text-text">
                 {file.oldPath && file.oldPath !== file.path
@@ -82,6 +116,37 @@ export default function DiffViewer({ files, comments, readOnly, onAddComment, on
               <span className="flex-shrink-0 font-mono text-[10px]">
                 <span className="text-green">+{file.additions}</span> <span className="text-red">−{file.deletions}</span>
               </span>
+              {onToggleViewed && (
+                <label className="flex flex-shrink-0 cursor-pointer items-center gap-1 text-[10px] text-muted">
+                  <input
+                    type="checkbox"
+                    checked={isViewed}
+                    onChange={() => onToggleViewed(file.path)}
+                    className="h-3 w-3 accent-accent"
+                    data-testid={`diff-viewed-${file.path}`}
+                  />
+                  viewed
+                </label>
+              )}
+              <IconButton
+                name="copy"
+                label="Copy path"
+                variant="ghost"
+                size="sm"
+                className="flex-shrink-0"
+                onClick={() => void navigator.clipboard?.writeText(file.path)}
+              />
+              {onExpandFile && !file.binary && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-testid={`diff-expand-${file.path}`}
+                  onClick={() => onExpandFile(file.path)}
+                  className="flex-shrink-0"
+                >
+                  Expand context
+                </Button>
+              )}
             </div>
 
             {/* File-level comments render above the diff body */}
@@ -89,50 +154,24 @@ export default function DiffViewer({ files, comments, readOnly, onAddComment, on
 
             {file.binary ? (
               <div className="px-3 py-2 text-muted">Binary file</div>
+            ) : isViewed ? (
+              <p className="px-3 py-1.5 text-[10px] text-muted">Marked viewed — body collapsed.</p>
             ) : (
               <div className="overflow-x-auto">
                 {file.hunks.map((hunk, hi) => (
-                  <div key={hi} className="min-w-max">
-                    <div className="bg-surface px-3 py-0.5 font-mono text-[10px] text-muted">{hunk.header}</div>
-                    {alignHunk(hunk).map((row, ri) => {
-                      const key = row.right?.newLine != null ? `${file.path}:${row.right.newLine}` : null
-                      const rowComments = [
-                        ...(row.right?.newLine != null ? byKey.get(commentAnchorKey(file.path, row.right.newLine, 'new')) ?? [] : []),
-                        ...(row.left?.oldLine != null ? byKey.get(commentAnchorKey(file.path, row.left.oldLine, 'old')) ?? [] : []),
-                      ]
-                      return (
-                        <div key={ri}>
-                          <div className="grid grid-cols-2">
-                            <DiffCell line={row.left} side="left" />
-                            <DiffCell
-                              line={row.right}
-                              side="right"
-                              onLineClick={
-                                !readOnly && row.right?.newLine != null
-                                  ? () => setComposeAt(key)
-                                  : undefined
-                              }
-                              gutterTestid={
-                                !readOnly && row.right?.newLine != null
-                                  ? `diff-add-${file.path}:${row.right.newLine}`
-                                  : undefined
-                              }
-                            />
-                          </div>
-                          {rowComments.length > 0 && <div className="py-1">{renderCards(rowComments)}</div>}
-                          {key !== null && composeAt === key && (
-                            <InlineComposer
-                              onSubmit={text => {
-                                onAddComment?.({ file: file.path, line: row.right!.newLine!, side: 'new', body: text })
-                                setComposeAt(null)
-                              }}
-                              onCancel={() => setComposeAt(null)}
-                            />
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
+                  <DiffHunkBlock
+                    key={hi}
+                    hunk={hunk}
+                    filePath={file.path}
+                    lang={lang}
+                    mode={mode}
+                    readOnly={readOnly}
+                    byKey={byKey}
+                    renderCards={renderCards}
+                    composeAt={composeAt}
+                    setComposeAt={setComposeAt}
+                    onAddComment={onAddComment}
+                  />
                 ))}
               </div>
             )}
@@ -141,6 +180,113 @@ export default function DiffViewer({ files, comments, readOnly, onAddComment, on
       })}
     </div>
   )
+}
+
+/** One hunk, in split or unified layout. A dedicated component (rather than
+ *  inlining the per-hunk work into the parent's .map()) so intra-line-diff
+ *  computation stays a plain function call in render — no useMemo/hooks
+ *  inside a loop, which would vary its call count across renders whenever
+ *  file.hunks.length changes. */
+function DiffHunkBlock({
+  hunk, filePath, lang, mode, readOnly, byKey, renderCards, composeAt, setComposeAt, onAddComment,
+}: {
+  hunk: DiffHunk
+  filePath: string
+  lang: string | null
+  mode: 'split' | 'unified'
+  readOnly: boolean
+  byKey: Map<string, ReviewComment[]>
+  renderCards: (list: ReviewComment[]) => React.ReactNode
+  composeAt: string | null
+  setComposeAt: (v: string | null) => void
+  onAddComment?: (a: { file: string; line: number | null; side: 'old' | 'new'; body: string }) => void
+}) {
+  const rows = alignHunk(hunk)
+  const pairs = pairSpansFor(rows)
+
+  const commentsFor = (row: AlignedRow): ReviewComment[] => [
+    ...(row.right?.newLine != null ? byKey.get(commentAnchorKey(filePath, row.right.newLine, 'new')) ?? [] : []),
+    ...(row.left?.oldLine != null ? byKey.get(commentAnchorKey(filePath, row.left.oldLine, 'old')) ?? [] : []),
+  ]
+
+  return (
+    <div className="min-w-max">
+      <div className="bg-surface px-3 py-0.5 font-mono text-[10px] text-muted">{hunk.header}</div>
+      {rows.map((row, ri) => {
+        const key = row.right?.newLine != null ? `${filePath}:${row.right.newLine}` : null
+        const rowComments = commentsFor(row)
+        const spans = pairs.get(ri)
+        const composer = key !== null && composeAt === key && (
+          <InlineComposer
+            onSubmit={text => {
+              onAddComment?.({ file: filePath, line: row.right!.newLine!, side: 'new', body: text })
+              setComposeAt(null)
+            }}
+            onCancel={() => setComposeAt(null)}
+          />
+        )
+
+        if (mode === 'unified') {
+          return (
+            <div key={ri}>
+              {row.left && row.right && row.left === row.right ? (
+                // ctx row — one shared line
+                <UnifiedLine line={row.left} lang={lang} tone={null} />
+              ) : (
+                <>
+                  {row.left && <UnifiedLine line={row.left} lang={lang} tone="del" spans={spans?.old} />}
+                  {row.right && (
+                    <UnifiedLine
+                      line={row.right}
+                      lang={lang}
+                      tone="add"
+                      spans={spans?.new}
+                      onLineClick={!readOnly ? () => setComposeAt(key) : undefined}
+                      gutterTestid={!readOnly ? `diff-add-${filePath}:${row.right.newLine}` : undefined}
+                    />
+                  )}
+                </>
+              )}
+              {rowComments.length > 0 && <div className="py-1">{renderCards(rowComments)}</div>}
+              {composer}
+            </div>
+          )
+        }
+
+        return (
+          <div key={ri}>
+            <div className="grid grid-cols-2">
+              <DiffCell line={row.left} side="left" lang={lang} spans={spans?.old} />
+              <DiffCell
+                line={row.right}
+                side="right"
+                lang={lang}
+                spans={spans?.new}
+                onLineClick={!readOnly && row.right?.newLine != null ? () => setComposeAt(key) : undefined}
+                gutterTestid={!readOnly && row.right?.newLine != null ? `diff-add-${filePath}:${row.right.newLine}` : undefined}
+              />
+            </div>
+            {rowComments.length > 0 && <div className="py-1">{renderCards(rowComments)}</div>}
+            {composer}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Paired del/add rows (true replacements, not ctx) → their word-level
+ *  intra-line diff, keyed by row index. A plain function, not a hook — safe
+ *  to call once per hunk render regardless of how many hunks there are. */
+function pairSpansFor(rows: AlignedRow[]): Map<number, { old: IntraSpan[]; new: IntraSpan[] }> {
+  const m = new Map<number, { old: IntraSpan[]; new: IntraSpan[] }>()
+  rows.forEach((row, ri) => {
+    if (row.left?.kind === 'del' && row.right?.kind === 'add') {
+      const d = intralineDiff(row.left.text, row.right.text)
+      if (d) m.set(ri, d)
+    }
+  })
+  return m
 }
 
 /**
@@ -192,15 +338,58 @@ function InlineComposer({ onSubmit, onCancel }: { onSubmit: (body: string) => vo
   )
 }
 
-/** One side of an aligned row: line-number gutter + code cell, toned by kind. */
+/** Renders one hast tree (or the plain-string fallback) as React nodes.
+ *  Element spans keep refractor's own `token <type>` class names — colored
+ *  entirely by W0's `.code-viewer .token.*` CSS (index.css), never inline
+ *  styles, so this file never needs to track --code-* token names itself. */
+function hastToNodes(nodes: HastNode[], key = 'h'): React.ReactNode[] {
+  return nodes.map((n, i) =>
+    n.type === 'text' ? n.value : (
+      <span key={`${key}-${i}`} className={n.properties?.className?.join(' ')}>
+        {hastToNodes(n.children, `${key}-${i}`)}
+      </span>
+    ))
+}
+
+/** Render one code line: intra-line marks win over highlighting on changed
+ *  spans (a mark without color shift reads as noise); unmarked lines get
+ *  full syntax color. Plain-string fallback keeps pre-highlight behavior
+ *  exactly (unregistered language, or grammar not loaded yet). */
+function CodeText({ text, lang, spans, tone }: {
+  text: string; lang: string | null; spans?: IntraSpan[]; tone: 'add' | 'del' | null
+}) {
+  if (spans) {
+    return (
+      <>
+        {spans.map((s, i) => (
+          <span
+            key={i}
+            className={cn(s.changed && tone === 'add' && 'rounded-sm bg-green/25',
+              s.changed && tone === 'del' && 'rounded-sm bg-red/25')}
+          >
+            {s.text}
+          </span>
+        ))}
+      </>
+    )
+  }
+  const h = highlightLine(text, lang)
+  return typeof h === 'string' ? <>{h}</> : <>{hastToNodes(h)}</>
+}
+
+/** One side of an aligned row (split mode): line-number gutter + code cell, toned by kind. */
 function DiffCell({
   line,
   side,
+  lang,
+  spans,
   onLineClick,
   gutterTestid,
 }: {
   line: DiffLine | null
   side: 'left' | 'right'
+  lang: string | null
+  spans?: IntraSpan[]
   onLineClick?: () => void
   gutterTestid?: string
 }) {
@@ -232,7 +421,54 @@ function DiffCell({
           {num ?? ''}
         </span>
       )}
-      <span className="whitespace-pre px-2 py-px">{line == null ? '' : line.text}</span>
+      <span className="whitespace-pre px-2 py-px">
+        {line == null ? '' : <CodeText text={line.text} lang={lang} spans={spans} tone={toneAdd ? 'add' : toneDel ? 'del' : null} />}
+      </span>
+    </div>
+  )
+}
+
+/** One full-width row (unified mode): dual old/new gutters + code cell, toned by kind. */
+function UnifiedLine({
+  line, lang, spans, tone, onLineClick, gutterTestid,
+}: {
+  line: DiffLine
+  lang: string | null
+  spans?: IntraSpan[]
+  tone: 'add' | 'del' | null
+  onLineClick?: () => void
+  gutterTestid?: string
+}) {
+  return (
+    <div
+      className={cn(
+        'flex min-w-0 font-mono',
+        tone === 'add' && 'bg-green/10 text-green',
+        tone === 'del' && 'bg-red/10 text-red',
+        tone === null && 'text-text',
+      )}
+    >
+      <span className="w-10 flex-shrink-0 select-none border-r border-border px-1.5 text-right text-[10px] text-muted">
+        {line.oldLine ?? ''}
+      </span>
+      {onLineClick ? (
+        <button
+          data-testid={gutterTestid}
+          onClick={onLineClick}
+          title="Add a comment"
+          aria-label={`Add a comment on line ${line.newLine}`}
+          className="w-10 flex-shrink-0 select-none border-r border-border px-1.5 text-right text-[10px] text-muted transition-colors hover:bg-accent/20 hover:text-text"
+        >
+          {line.newLine ?? ''}
+        </button>
+      ) : (
+        <span className="w-10 flex-shrink-0 select-none border-r border-border px-1.5 text-right text-[10px] text-muted">
+          {line.newLine ?? ''}
+        </span>
+      )}
+      <span className="whitespace-pre px-2 py-px">
+        <CodeText text={line.text} lang={lang} spans={spans} tone={tone} />
+      </span>
     </div>
   )
 }
