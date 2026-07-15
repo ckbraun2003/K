@@ -19,6 +19,7 @@ import WorkflowNudge from '../components/WorkflowNudge'
 import SettingsPage from '../pages/SettingsPage'
 import OrchestratorDetailPage from '../pages/OrchestratorDetailPage'
 import TimelinePage from '../pages/TimelinePage'
+import PrReviewPage from '../pages/PrReviewPage'
 import NotFound from '../pages/NotFound'
 import { useHashRoute, isKnownView } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
@@ -103,6 +104,7 @@ export default function Shell() {
             {route.view === 'insights' && <InsightsPage tab={route.param} />}
             {route.view === 'verify' && <ProjectVerification projectId={route.param} />}
             {route.view === 'project' && <ProjectWorkspace projectId={route.param} tab={route.subParam} />}
+            {route.view === 'pr-review' && <PrReviewPage projectId={route.param} prNumber={route.subParam} />}
             {route.view === 'skill-creator' && <SkillCreatorPage draftId={route.param} />}
             {route.view === 'settings' && <SettingsPage />}
             {!isKnownView(route.view) && <NotFound route={route.view} />}

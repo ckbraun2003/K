@@ -8,6 +8,8 @@ export type Route = { view: string; param?: string; subParam?: string }
 export const KNOWN_VIEWS = new Set([
   'home', 'personal', 'agents', 'runs', 'insights', 'projects',
   'orchestrator', 'project', 'verify', 'docs', 'skill-creator', 'settings', 'timeline',
+  // impressive-wave FE-5: #/pr-review/<projectId>/<prNumber> — full-screen PR Changes
+  'pr-review',
 ])
 
 export function isKnownView(view: string): boolean {
