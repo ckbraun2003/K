@@ -20,19 +20,19 @@ export default function VerifyChip({ runId }: { runId: string }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
-  // 404 (no recipe / never verified) → null → the chip renders NOTHING. The
-  // catch deliberately treats fetch errors as absence: an absent chip is the
-  // honest default for a mostly-404 endpoint. staleTime: Infinity (LOW-1) —
-  // a run's verify result never regresses from pass/fail back to absent, so
-  // there's nothing to gain by ever refetching on its own; the ONLY thing
-  // that can turn a 404 into a real result is a live `verify_update` WS
-  // message, and makeVerifyInvalidator (lib/live-invalidate.ts) already
-  // force-invalidates this exact key when one arrives. Without this, the
-  // global 5s staleTime silently re-polled /verify-result forever for runs
-  // that were never verified, spamming 404s in the console.
+  // Never verified (BE-3 contract: absent → 200 {result:null}, tolerantly
+  // unwrapped by api.runs.verifyResult) → null → the chip renders NOTHING —
+  // the honest default. staleTime: Infinity (LOW-1) — a run's verify result
+  // never regresses from pass/fail back to absent, so there's nothing to
+  // gain by ever refetching on its own; the ONLY thing that can turn a null
+  // into a real result is a live `verify_update` WS message, and
+  // makeVerifyInvalidator (lib/live-invalidate.ts) already force-invalidates
+  // this exact key when one arrives. Without this, the global 5s staleTime
+  // would silently re-poll /verify-result forever for runs that were never
+  // verified.
   const { data } = useQuery<VerifyResult | null>({
     queryKey: ['run-verify', runId],
-    queryFn: async () => { try { return await api.runs.verifyResult(runId) } catch { return null } },
+    queryFn: () => api.runs.verifyResult(runId),
     staleTime: Infinity,
   })
   if (!data) return null

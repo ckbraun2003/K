@@ -160,7 +160,12 @@ export const api = {
       req<Run>(`/runs/${id}/rewind`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       }),
-    verifyResult: (id: string) => req<VerifyResult>(`/runs/${id}/verify-result`),
+    // Contract (impressive-wave BE-3): absent → 200 {result:null}; present may be
+    // bare VerifyResult or {result}. Tolerant unwrap; null = "never verified".
+    verifyResult: async (id: string): Promise<VerifyResult | null> => {
+      const r = await req<VerifyResult | { result: VerifyResult | null }>(`/runs/${id}/verify-result`)
+      return r != null && typeof r === 'object' && 'result' in r ? r.result : r
+    },
     impact: (id: string) => req<RunImpactPayload>(`/runs/${id}/impact`),
     // ── P2 Human Gates ───────────────────────────────────────────────────────
     plan: (id: string) => req<RunPlan>(`/runs/${id}/plan`),
