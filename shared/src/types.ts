@@ -296,6 +296,9 @@ export const CiRunInfoSchema = z.object({
   status: z.string(),              // completed | in_progress | queued
   conclusion: z.string().nullable(), // success | failure | … | null while running
   createdAt: z.string(),
+  // INT.2 FE IN-2: wall-clock duration (updatedAt - createdAt) for a COMPLETED run only;
+  // absent while queued/in_progress (no end timestamp yet) — never a fabricated 0.
+  durationMs: z.number().optional(),
 })
 export type CiRunInfo = z.infer<typeof CiRunInfoSchema>
 

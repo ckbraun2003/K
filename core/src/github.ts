@@ -23,7 +23,7 @@ async function ghJson(args: string[], cwd: string): Promise<unknown> {
 export async function fetchGithubStatus(remote: string, cwd: string): Promise<{ prs: PrInfo[]; ci: CiRunInfo[] }> {
   const [prsRaw, ciRaw] = await Promise.all([
     ghJson(['pr', 'list', '--repo', remote, '--json', 'number,title,state,url,statusCheckRollup,headRefName'], cwd),
-    ghJson(['run', 'list', '--repo', remote, '--limit', '10', '--json', 'databaseId,workflowName,headBranch,status,conclusion,createdAt'], cwd),
+    ghJson(['run', 'list', '--repo', remote, '--limit', '10', '--json', 'databaseId,workflowName,headBranch,status,conclusion,createdAt,updatedAt'], cwd),
   ])
   return { prs: parsePrList(prsRaw), ci: parseCiRuns(ciRaw) }
 }

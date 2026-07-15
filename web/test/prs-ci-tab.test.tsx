@@ -10,12 +10,31 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { GithubStatus, Project } from '@k/shared'
-import { defaultBaseBranch, ciRunUrl } from '../src/pages/tabs/PrsCiTab'
+import { CiRunInfoSchema } from '@k/shared'
+import { defaultBaseBranch, ciRunUrl, ciDuration } from '../src/pages/tabs/PrsCiTab'
 
 describe('PrsCiTab helpers', () => {
   it('ciRunUrl composes the Actions URL when a remote is known, else null', () => {
     expect(ciRunUrl('owner/repo', 42)).toBe('https://github.com/owner/repo/actions/runs/42')
     expect(ciRunUrl(undefined, 42)).toBeNull()
+  })
+  // INT.2 FE IN-2: durationMs is an optional CiRunInfo field — round-trips through the
+  // shared zod schema whether present (a completed run) or absent (still running).
+  it('CiRunInfoSchema round-trips durationMs when present, and parses cleanly without it', () => {
+    const withDuration = CiRunInfoSchema.parse({
+      id: 1, workflow: 'CI', branch: 'main', status: 'completed', conclusion: 'success',
+      createdAt: '2026-01-01T00:00:00Z', durationMs: 92_000,
+    })
+    expect(withDuration.durationMs).toBe(92_000)
+    const noDuration = CiRunInfoSchema.parse({
+      id: 2, workflow: 'CI', branch: 'main', status: 'in_progress', conclusion: null,
+      createdAt: '2026-01-01T00:00:00Z',
+    })
+    expect(noDuration.durationMs).toBeUndefined()
+  })
+  it('ciDuration formats sub-minute durations in seconds, and longer ones as "Nm Ss"', () => {
+    expect(ciDuration(42_000)).toBe('42s')
+    expect(ciDuration(192_000)).toBe('3m 12s')
   })
   it('defaultBaseBranch prefers the PERSISTED project.defaultBranch over the CI heuristic (W4 follow-up)', () => {
     // Even when CI shows 'master', a persisted 'develop' wins — it's the exact truth.
@@ -56,7 +75,7 @@ const githubStatus: GithubStatus = {
     { number: 2, title: 'merged pr', state: 'MERGED', url: 'https://github.com/o/r/pull/2', checks: 'none' },
   ],
   ci: [
-    { id: 555, workflow: 'CI', branch: 'master', status: 'completed', conclusion: 'success', createdAt: '2026-01-01T00:00:00Z' },
+    { id: 555, workflow: 'CI', branch: 'master', status: 'completed', conclusion: 'success', createdAt: '2026-01-01T00:00:00Z', durationMs: 192_000 },
   ],
   fetchedAt: Date.now(),
 }
@@ -87,6 +106,9 @@ describe('PrsCiTab — F-046 links + merged PRs', () => {
     // CI run id is an external anchor to the Actions run URL.
     const ciLink = (await screen.findByLabelText('Open CI run 555 on GitHub')) as HTMLAnchorElement
     expect(ciLink.getAttribute('href')).toBe('https://github.com/o/r/actions/runs/555')
+
+    // IN-2: a completed run with durationMs shows its duration alongside its age.
+    expect((await screen.findByTestId('ci-row-duration')).textContent).toContain('3m 12s')
 
     // The merged PR now appears in its own section with its external anchor.
     expect(screen.getByText('merged pr')).toBeTruthy()

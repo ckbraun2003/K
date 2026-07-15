@@ -130,4 +130,27 @@ describe('parseCiRuns', () => {
   it('tolerates garbage input', () => {
     expect(parseCiRuns('nope')).toEqual([])
   })
+
+  // INT.2 FE IN-2 — durationMs = updatedAt - createdAt, COMPLETED runs only.
+  it('computes durationMs for a completed run carrying updatedAt', () => {
+    const gh = [{
+      databaseId: 9, workflowName: 'CI', headBranch: 'main', status: 'completed',
+      conclusion: 'success', createdAt: '2026-06-10T10:00:00Z', updatedAt: '2026-06-10T10:03:12Z',
+    }]
+    expect(parseCiRuns(gh)[0].durationMs).toBe(192_000)
+  })
+  it('omits durationMs while a run is still in_progress/queued, even if updatedAt is present', () => {
+    const gh = [{
+      databaseId: 10, workflowName: 'CI', headBranch: 'main', status: 'in_progress',
+      conclusion: null, createdAt: '2026-06-10T10:00:00Z', updatedAt: '2026-06-10T10:01:00Z',
+    }]
+    expect(parseCiRuns(gh)[0].durationMs).toBeUndefined()
+  })
+  it('omits durationMs for a completed run missing updatedAt (never fabricated)', () => {
+    const gh = [{
+      databaseId: 11, workflowName: 'CI', headBranch: 'main', status: 'completed',
+      conclusion: 'success', createdAt: '2026-06-10T10:00:00Z',
+    }]
+    expect(parseCiRuns(gh)[0].durationMs).toBeUndefined()
+  })
 })

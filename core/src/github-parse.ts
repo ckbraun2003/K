@@ -62,19 +62,33 @@ export function parseIssueList(json: unknown): IssueInfo[] {
   return out
 }
 
+/** IN-2: wall-clock duration for a COMPLETED run only (updatedAt - createdAt), when
+ *  both timestamps parse. A still-running/queued run has no end timestamp yet — never
+ *  fabricate a duration from a partial pair. */
+function ciDurationMs(status: string, createdAt: unknown, updatedAt: unknown): number | undefined {
+  if (status !== 'completed') return undefined
+  const start = Date.parse(String(createdAt ?? ''))
+  const end = Date.parse(String(updatedAt ?? ''))
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return undefined
+  return end - start
+}
+
 export function parseCiRuns(json: unknown): CiRunInfo[] {
   if (!Array.isArray(json)) return []
   const out: CiRunInfo[] = []
   for (const raw of json) {
     const r = raw as Record<string, unknown>
     if (typeof r?.databaseId !== 'number') continue
+    const status = String(r.status ?? '')
+    const durationMs = ciDurationMs(status, r.createdAt, r.updatedAt)
     out.push({
       id: r.databaseId,
       workflow: String(r.workflowName ?? ''),
       branch: String(r.headBranch ?? ''),
-      status: String(r.status ?? ''),
+      status,
       conclusion: r.conclusion == null || r.conclusion === '' ? null : String(r.conclusion),
       createdAt: String(r.createdAt ?? ''),
+      ...(durationMs != null ? { durationMs } : {}),
     })
   }
   return out

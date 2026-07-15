@@ -67,6 +67,15 @@ function ciLabel(run: CiRunInfo): string {
   return run.conclusion ?? run.status
 }
 
+/** IN-2: compact CI run duration — "42s" under a minute, else "3m 12s". */
+export function ciDuration(ms: number): string {
+  const totalSec = Math.round(ms / 1000)
+  if (totalSec < 60) return `${totalSec}s`
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  return `${min}m ${sec}s`
+}
+
 /** A PR row with a link to the full-screen review (FE-5: #/pr-review/<projectId>/<n>,
  *  same ChangesLayout tree+diff pane as a run's Changes tab). The external ↗ anchor
  *  opens GitHub directly. */
@@ -127,9 +136,12 @@ function CiRow({ run, remote }: { run: CiRunInfo; remote?: string }) {
           {run.workflow} <span className={cn('mono', color)}>{ciLabel(run)}</span>
         </>
       }
-      sub={timeAgo(run.createdAt)}
+      sub={
+        run.durationMs != null
+          ? <span data-testid="ci-row-duration">{timeAgo(run.createdAt)} · {ciDuration(run.durationMs)}</span>
+          : timeAgo(run.createdAt)
+      }
       meta={<Tag tint="neutral" className="mono">{run.branch}</Tag>}
-      /* IN-2: duration column pending CiRunInfo.durationMs from BE — shared/src is frozen this lane. */
       actions={
         url ? (
           <a
