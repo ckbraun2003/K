@@ -1,5 +1,5 @@
-/** P4 A1 — Insights 4-tab shell: defaults overview, deep-links the tab param, hides the shared
- *  window on Evals. Tab bodies are mocked so this targets the shell. */
+/** P4 A1 — Insights 4-tab shell: defaults charts (impressive-wave Q2), deep-links the tab param,
+ *  hides the shared window on Evals. Tab bodies are mocked so this targets the shell. */
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 vi.mock('../src/pages/insights/OverviewTab', () => ({ default: () => <div data-testid="body-overview" /> }))
@@ -10,14 +10,14 @@ import InsightsPage from '../src/pages/InsightsPage'
 afterEach(() => cleanup())
 
 describe('InsightsPage', () => {
-  it('defaults to Overview and marks its tab selected', () => {
+  it('defaults to Charts and marks its tab selected (impressive-wave Q2)', () => {
     render(<InsightsPage />)
-    expect(screen.getByTestId('body-overview')).toBeTruthy()
-    expect(screen.getByTestId('tab-overview').getAttribute('aria-selected')).toBe('true')
-  })
-  it('deep-links the charts tab', () => {
-    render(<InsightsPage tab="charts" />)
     expect(screen.getByTestId('body-charts')).toBeTruthy()
+    expect(screen.getByTestId('tab-charts').getAttribute('aria-selected')).toBe('true')
+  })
+  it('deep-links the overview tab (#/insights/overview stays reachable)', () => {
+    render(<InsightsPage tab="overview" />)
+    expect(screen.getByTestId('body-overview')).toBeTruthy()
   })
   it('shows the shared window control except on Evals', () => {
     const { rerender } = render(<InsightsPage tab="charts" />)
