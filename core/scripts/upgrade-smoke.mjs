@@ -24,7 +24,9 @@ const coreDir = path.resolve(here, '..') // core/
 const repoRoot = path.resolve(coreDir, '..')
 
 const sourcePath = path.resolve(process.argv[2] ?? path.join(repoRoot, 'data', 'k.db'))
-const PORT = 3299
+// DEH-FU-2: overridable so a busy 3299 (parallel smoke, stray dev core) isn't a
+// mystery boot failure — see the EADDRINUSE hint below.
+const PORT = Number(process.env.K_SMOKE_PORT ?? 3299)
 const BASE_URL = `http://127.0.0.1:${PORT}`
 const AUTH_HEADER = { Authorization: 'Bearer dev-token-change-me' }
 const POISON_WARN = 'poisoned stamp; re-running the full migration scan'
@@ -132,14 +134,24 @@ async function main() {
       console.log(`UPGRADE SMOKE PASS (user_version=${version})`)
       if (sawSelfHealWarn) console.log('note: self-heal warn observed')
     } else {
+      if (/EADDRINUSE/.test(stderrBuf)) {
+        console.error(`[upgrade-smoke] port ${PORT} is already in use — a dev core is probably running. Stop it or set K_SMOKE_PORT to a free port.`)
+      }
       console.error('[upgrade-smoke] server did not come up (or /api/profiles failed) — captured child stderr:')
       console.error(stderrBuf || '(empty stderr)')
       if (sawSelfHealWarn) console.log('note: self-heal warn observed')
       fail('[upgrade-smoke] the crash above is the finding')
     }
   } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true })
+    // maxRetries: Windows can hold the copied DB open briefly after the kill (EBUSY).
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
   }
 }
 
-await main()
+// DEH-FU-2: every unexpected escape (e.g. a copyFileSync throw) must still end in
+// the tidy FAIL line + exit 1 — never an unhandled rejection.
+await main().catch((e) => {
+  console.error(`[upgrade-smoke] unexpected failure: ${e?.stack ?? e}`)
+  console.error('UPGRADE SMOKE FAIL')
+  process.exitCode = 1
+})
