@@ -9,7 +9,8 @@ const IDS = ['sv12a', 'sv12b', 'sv12c', 'sv12d']
 const wipe = () => db.prepare(`DELETE FROM work_items WHERE id IN ('sv12a','sv12b','sv12c','sv12d')`).run()
 
 describe('schema v12', () => {
-  it('is version 12', () => { expect(SCHEMA_VERSION).toBe(12) })
+  // v12 columns must persist across later bumps; the exact-version pin lives in schema-v13.test.ts
+  it('is version 12 or later', () => { expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(12) })
 
   it('adds proposal columns to work_items and a partial-unique source_key index', () => {
     expect(cols('work_items')).toEqual(expect.arrayContaining(['source', 'source_key']))

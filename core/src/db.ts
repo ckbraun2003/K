@@ -80,7 +80,15 @@ db.exec(`
     -- (e.g. a REGISTERED project's own <localPath>/artifacts/project-bible.html).
     -- When NULL, getArtifact falls back to ARTIFACTS_DIR/<slug>.html then md-render.
     -- Keeps a project's artifacts in the PROJECT dir, never copied into K's.
-    html_path   TEXT
+    html_path   TEXT,
+    -- v13 (Impressive Wave, D-117): owning project (NULL = harness-scoped) and
+    -- provenance. origin='compiled' rows are written by K's compilers (bible /
+    -- ui-demo / saveArtifact); origin='scanned' rows are filesystem-discovered
+    -- loose HTML managed by artifact-scan.ts (deleted when their file vanishes,
+    -- never touched by the compilers). project_id has NO ON DELETE action by
+    -- contract — db.deleteProject cleans artifacts rows explicitly (BE.2).
+    project_id  TEXT REFERENCES projects(id),
+    origin      TEXT NOT NULL DEFAULT 'compiled' CHECK(origin IN ('compiled','scanned'))
   );
 
   CREATE TABLE IF NOT EXISTS projects (
@@ -398,6 +406,10 @@ db.exec(`
     ms             INTEGER,
     numTurns       INTEGER,
     error          TEXT,
+    -- v13 (P5-FU-5): free-text failure reason for FAILED results — the runner sink
+    -- derives it (error string, else deterministic criticalFailures); the E-27
+    -- lesson gate (lesson-proposals.ts) groups on it. NULL for passes.
+    failure_reason TEXT,
     raw            TEXT,                            -- JSON full record
     createdAt      INTEGER NOT NULL
   );
@@ -713,15 +725,17 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 12
+export const SCHEMA_VERSION = 13
 
 /** Sentinel for the CURRENT schema version: a column the LAST migration in
  *  migrateSlow() creates. migrate()'s fast path only trusts the version stamp when
  *  this column exists — a stamp written without the columns (an intermediate
  *  dev-watch boot mid-schema-edit; the 2026-07-13 outage) otherwise disables
  *  repair forever while module-level prepares crash at import.
- *  UPDATE THIS alongside every SCHEMA_VERSION bump. */
-export const SCHEMA_SENTINEL = { table: 'projects', column: 'budget_daily_usd' } as const
+ *  UPDATE THIS alongside every SCHEMA_VERSION bump — it must always name a column
+ *  introduced by the CURRENT version (schema-v13.test.ts enforces this with a
+ *  previous-generation fixture; extend that fixture on every future bump). */
+export const SCHEMA_SENTINEL = { table: 'artifacts', column: 'origin' } as const
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1526,6 +1540,26 @@ function migrateSlow(d: Database.Database): void {
   // E-17: per-project daily budget cap (NULL = no cap). Org cap lives in app_config.
   if (hasTable(d, 'projects')) {
     addColumn(d, 'projects', 'budget_daily_usd', 'REAL')
+  }
+
+  // ── Impressive Wave (SCHEMA_VERSION 13) ─────────────────────────────────────
+  // D-117 artifact registry: owning project + provenance on artifacts, and the
+  // slug-prefix backfill for rows minted by compileProjectBible/compileProjectUiDemo
+  // before the column existed. Only ids still present in projects are stamped
+  // (FK-safe under foreign_keys=ON); a slug for a deleted project stays NULL.
+  if (hasTable(d, 'artifacts')) {
+    addColumn(d, 'artifacts', 'project_id', 'TEXT REFERENCES projects(id)')
+    addColumn(d, 'artifacts', 'origin', "TEXT NOT NULL DEFAULT 'compiled' CHECK(origin IN ('compiled','scanned'))")
+    d.exec(`
+      UPDATE artifacts SET project_id = (
+        SELECT p.id FROM projects p WHERE artifacts.slug LIKE 'project-' || p.id || '-%'
+      )
+      WHERE project_id IS NULL AND slug LIKE 'project-%'
+    `)
+  }
+  // P5-FU-5: eval failure reason (see the eval_results DDL comment above).
+  if (hasTable(d, 'eval_results')) {
+    addColumn(d, 'eval_results', 'failure_reason', 'TEXT')
   }
 }
 
