@@ -6,6 +6,7 @@ import { navigate } from '../lib/route'
 import { relativeTime } from '../lib/verify'
 import { runStatusMeta } from '../lib/status'
 import { cn } from '../lib/cn'
+import { formatUsd } from '../lib/format-metrics'
 
 const KIND_TONE: Partial<Record<FeedItem['kind'], string>> = {
   verify_fail: 'text-red', failure: 'text-red',
@@ -31,7 +32,9 @@ export default function FeedRow({ item }: { item: FeedItem }) {
       <span className={`w-4 text-center ${KIND_TONE[item.kind] ?? 'text-muted'}`}>{FEED_ICON[item.kind]}</span>
       <span className="flex-1 truncate text-text">{item.title}</span>
       {item.projectName && <span className="mono text-[10px] text-muted">{item.projectName}</span>}
-      {/* IN-1: per-row cost pending FeedItem.costUsd from BE. */}
+      {item.costUsd != null && (
+        <span data-testid="feed-row-cost" className="mono text-[10px] text-muted">{formatUsd(item.costUsd)}</span>
+      )}
       <span className="mono text-[10px] text-muted">{relativeTime(item.ts)}</span>
     </button>
   )

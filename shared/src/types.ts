@@ -770,6 +770,9 @@ export const FeedItemSchema = z.object({
   projectName: z.string().nullable(),
   title: z.string(),
   detail: z.string().nullable(),
+  // INT.2 FE IN-1: billed actuals for run-derived rows (never price*token math);
+  // absent/undefined for non-run rows (notif/verify/pr) that have no run cost to show.
+  costUsd: z.number().optional(),
 })
 export type FeedItem = z.infer<typeof FeedItemSchema>
 

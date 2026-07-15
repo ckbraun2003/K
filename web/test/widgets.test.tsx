@@ -98,7 +98,7 @@ const orgPayload: ChiefOrgPayload = {
 }
 
 const feedItems: FeedItem[] = [
-  { id: 'f1', kind: 'done', ts: Date.now() - 60_000, runId: 'run-1', runStatus: 'done', projectId: null, projectName: 'web', title: 'added focus ring to the cmd bar', detail: null },
+  { id: 'f1', kind: 'done', ts: Date.now() - 60_000, runId: 'run-1', runStatus: 'done', projectId: null, projectName: 'web', title: 'added focus ring to the cmd bar', detail: null, costUsd: 0.42 },
   { id: 'f2', kind: 'dispatch', ts: Date.now() - 120_000, runId: 'run-2', runStatus: 'running', projectId: null, projectName: 'core', title: 'auth refactor dispatched', detail: null },
 ]
 const feedPayload: FeedPayload = {
@@ -375,6 +375,15 @@ describe('widget catalog', () => {
     expect(mockFeedList).toHaveBeenCalledWith({ limit: 8 })
     fireEvent.click(screen.getByTestId('widget-recent-activity-seeall'))
     expect(mockNavigate).toHaveBeenCalledWith('timeline')
+  })
+
+  // INT.2 FE IN-1: a row carrying FeedItem.costUsd shows the billed-actuals cost column;
+  // a row with no costUsd (e.g. a non-run feed item) renders none.
+  it('RecentActivityWidget: renders a cost column only for feed rows carrying costUsd', async () => {
+    renderWidget(<RecentActivityWidget />)
+    const costCells = await screen.findAllByTestId('feed-row-cost')
+    expect(costCells).toHaveLength(1)
+    expect(costCells[0].textContent).toBe('$0.42')
   })
 
   it('RecentActivityWidget: a feed fetch failure surfaces the error state, never a fake "No recent activity."', async () => {
