@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-15 03:04</span><br>
+      compiled <span class="mono">2026-07-15 03:13</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -3171,7 +3171,7 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-14</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -4077,7 +4077,7 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
 <td>D-112</td>
 <td>2026-07-13</td>
 <td>Budget park = reactive refuse-with-reason, measured rolling-24h, zero forecasting (+ deferred operator-action routes)</td>
-<td><strong>E-17 caps on MEASURED <code>runs.cost_usd</code> over a rolling 24h window — ZERO forecasting (no price×token, no projection). Org cap (autonomy settings) + per-project caps (<code>projects.budget_daily_usd</code>). At cap a dispatch is PARKED = refused-with-reason (<code>429</code> / <code>BudgetCapError</code>), no queue — the operator raises the cap. Gated paths: <code>startAgentRun</code> (autonomous schedule/event/delegation), manual <code>POST /api/runs</code> (→429), operator→Chief <code>delegateToChief</code> (→429), and autonomous scheduled/event skill dispatch. EXEMPT: interactive/persistent K turns.</strong></td>
+<td><strong>E-17 caps on MEASURED <code>runs.cost_usd</code> over a rolling 24h window — ZERO forecasting (no price×token, no projection). Org cap (autonomy settings) + per-project caps (<code>projects.budget_daily_usd</code>). At cap a dispatch is PARKED = refused-with-reason (<code>429</code> / <code>BudgetCapError</code>), no queue — the operator raises the cap. Gated paths: <code>startAgentRun</code> (autonomous schedule/event/delegation), manual <code>POST /api/runs</code> (→429), operator→Chief <code>delegateToChief</code> (→429), and autonomous scheduled/event skill dispatch. EXEMPT: interactive/persistent K turns.</strong> <em>2026-07-14 (P5-FU-1): the park now ALSO gates the operator action routes — rewind, review-fix, deep-verify, workflow dispatch, run-skill-now — with the same 429 payload (<code>sendBudgetCapped</code>); the interactive-K exemption is unchanged and now the only one.</em></td>
 <td>Measured-only honors the program's no-price-coupling rule (the committed no-price-tables grep gate stays green); a reactive refuse-with-reason is simpler and truer than a queue or a projection; exempting interactive K keeps the operator's own conversation with their secretary unblocked. Operator-initiated action routes (rewind / review-fix / deep-verify / workflows / run-skill-now) are a <strong>tracked follow-up</strong>, documented honestly rather than claimed.</td>
 <td>Forecasting / "projected" spend (price-coupled, banned); a queue that runs the parked work later (hidden deferred spend); gating interactive K (blocks the operator talking to their own secretary).</td>
 </tr>

@@ -7,7 +7,8 @@ import { listRunCheckpoints } from '../checkpoints.js'
 import { startRun } from '../supervisor.js'
 import { getProject } from '../projects.js'
 import { isProjectIndexed, loadGraphJson, scopeForFiles, riskForScope } from '../gitnexus-scope.js'
-import { sendError, sendZodError } from './http-errors.js'
+import { budgetGate } from '../budget-governor.js'
+import { sendError, sendZodError, sendBudgetCapped } from './http-errors.js'
 
 const GIT_BOUND = { timeout: 30_000, killSignal: 'SIGKILL' as const }
 const MAX_SYMBOLS_PER_FILE = 20 // panel cap — full counts still reported in totals
@@ -41,6 +42,9 @@ export async function rewindRoutes(app: FastifyInstance) {
     } catch {
       return sendError(reply, 409, 'checkpoint commit no longer exists in the repo')
     }
+    // P5-FU-1: a rewind dispatches a PAID run — same budget park as POST /api/runs.
+    const g = budgetGate({ projectId: row.project_id != null ? String(row.project_id) : null })
+    if (!g.allowed) return sendBudgetCapped(reply, g)
     try {
       const run = await startRun(parsed.data.prompt, {
         cwd: repoCwd,

@@ -14,7 +14,8 @@ import { startRun } from '../supervisor.js'
 import { createPR, getGithubStatus } from '../github.js'
 import { rowToVerifyResult } from '../run-verify.js'
 import { publishVerifyStatusIfLinked, reviewBranchFor } from '../verify-status.js'
-import { sendError, sendZodError } from './http-errors.js'
+import { budgetGate } from '../budget-governor.js'
+import { sendError, sendZodError, sendBudgetCapped } from './http-errors.js'
 
 const GIT_BOUND = { timeout: 60_000, killSignal: 'SIGKILL' as const }
 const DIFF_MAX_BUFFER = 64 * 1024 * 1024
@@ -239,6 +240,9 @@ export async function reviewRoutes(app: FastifyInstance) {
       .map(rowToReviewComment)
       .filter(c => c.status === 'draft')
     if (drafts.length === 0) return sendError(reply, 409, 'no draft comments to send')
+    // P5-FU-1: the fix run is a PAID dispatch — same budget park as POST /api/runs.
+    const g = budgetGate({ projectId: row.project_id != null ? String(row.project_id) : null })
+    if (!g.allowed) return sendBudgetCapped(reply, g)
     const ckpts = listRunCheckpoints(req.params.id)
     const baseCommit = ckpts.length > 0 ? ckpts[ckpts.length - 1].sha : undefined
     try {

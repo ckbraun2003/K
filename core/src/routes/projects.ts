@@ -7,6 +7,8 @@ import { getGithubStatus, createPR, syncIssues } from '../github.js'
 import { onboardProject } from '../onboard.js'
 import { compileProjectBible } from '../bible.js'
 import { scanProjectArtifacts } from '../artifact-scan.js'
+import { budgetGate } from '../budget-governor.js'
+import { sendBudgetCapped } from './http-errors.js'
 import { runVerification } from '../verify.js'
 import { startRun } from '../supervisor.js'
 import { dispatchTaskWorkflow, TaskNotFoundError } from '../workflows.js'
@@ -168,6 +170,14 @@ export async function projectsRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: 'deep must be a boolean' })
       }
 
+      // P5-FU-1: the deep dispatch is PAID work — park the WHOLE request with the
+      // standard 429 so the refusal is visible (re-request without `deep` for the
+      // free deterministic report; it is never budget-gated).
+      if (body.deep === true) {
+        const g = budgetGate({ projectId: project.id })
+        if (!g.allowed) return sendBudgetCapped(reply, g)
+      }
+
       let report
       try {
         report = runVerification(project)
@@ -305,6 +315,9 @@ export async function projectsRoutes(app: FastifyInstance) {
       if (!def) return reply.status(400).send({ error: 'unknown workflow' })
       scaffold = def.promptScaffold
     }
+    // P5-FU-1: the delegation run is a PAID dispatch — same budget park as POST /api/runs.
+    const g = budgetGate({ projectId: project.id })
+    if (!g.allowed) return sendBudgetCapped(reply, g)
     try {
       // Record which template drove the run (F-074) so GET /api/workflows/runs can name it.
       const { workflowRunId, runId } = await dispatchTaskWorkflow(project, parsed.data.taskIds, {
