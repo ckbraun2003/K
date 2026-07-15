@@ -28,10 +28,12 @@ describe('RetryRateChart', () => {
     expect(screen.getByRole('img', { name: /retry rate per day/i })).toBeTruthy()
   })
 
-  it('shows the empty state when there are no retries in the window', async () => {
+  it('shows the empty state when there are no runs in the window', async () => {
     seriesSpy.mockResolvedValue({ windowDays: 14, overallRate: 0, points: [] })
     renderChart()
-    await waitFor(() => expect(screen.getByText(/no retries in window/i)).toBeTruthy())
+    // Task 7 (chart interaction layer): the empty-state copy is now shared with the
+    // other hover-enabled charts' "No runs in window." wording, not retry-specific.
+    await waitFor(() => expect(screen.getByText(/no runs in window/i)).toBeTruthy())
     expect(screen.getByText('0%')).toBeTruthy()
   })
 })

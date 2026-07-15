@@ -110,6 +110,12 @@ export function qualityBarRenderHeight(bar: { value: number | null; heightPct: n
   return Math.max(1, bar.heightPct)
 }
 
+/** Clamped %-left for a floating chart tooltip over column i of n (extracted
+ *  from TimeseriesChart so every chart shares ONE positioning rule). */
+export function tooltipLeftPct(i: number, n: number): number {
+  return Math.min(92, Math.max(8, n === 1 ? 50 : ((i + 0.5) / n) * 100))
+}
+
 /** Format a metric value for display. */
 export function formatMetricValue(metric: Metric, v: number): string {
   if (!Number.isFinite(v)) return '—'
