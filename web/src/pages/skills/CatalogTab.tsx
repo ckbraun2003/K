@@ -34,6 +34,22 @@ const COMPAT_BADGE: Record<ModelCompat, string> = {
 type SourceFacet = 'all' | SkillSourceKind
 type CompatFacet = 'all' | ModelCompat
 
+/** Relative context-weight meter (Impressive Wave Task 10 Step 5) — replaces the
+ *  plain "heavy/medium/light weight" / "weight n/a" text chip with 3 lit pill
+ *  bars (light=1, medium=2, heavy=3), honest via aria-label/title when unmeasured. */
+function WeightMeter({ estTokens, refMax }: { estTokens: number | null; refMax: number }) {
+  const band = weightBand(estTokens, refMax)
+  const lit = band === 'light' ? 1 : band === 'medium' ? 2 : band === 'heavy' ? 3 : 0
+  const label = band ? `${band} context weight` : 'not yet measured — probe or run to estimate'
+  return (
+    <span data-testid="catalog-weight-band" role="img" aria-label={label} title={label} className="inline-flex items-center gap-0.5">
+      {[1, 2, 3].map(i => (
+        <span key={i} className={cn('h-2.5 w-1 rounded-pill', lit >= i ? 'bg-accent-hover' : 'border border-border bg-transparent')} />
+      ))}
+    </span>
+  )
+}
+
 export default function CatalogTab() {
   const qc = useQueryClient()
   const { data, isLoading, isError } = useQuery<CatalogSkillsResponse>({
@@ -273,21 +289,9 @@ function CatalogRow({
             >
               {skill.modelCompat}
             </span>
-            {/* Relative context-weight band — a token-count fraction of the catalog's
+            {/* Relative context-weight meter — a token-count fraction of the catalog's
                 heaviest entry (E-13); never a dollar cost. Honest about absence. */}
-            {(() => {
-              const band = weightBand(skill.estTokens, refMax)
-              const tone = band === 'heavy' ? 'text-amber' : band === 'medium' ? 'text-text' : 'text-muted'
-              return (
-                <span
-                  data-testid="catalog-weight-band"
-                  title={band ? `relative context weight: ${band}` : 'context weight not measured'}
-                  className={cn('rounded-pill bg-raised px-1.5 py-0.5 text-micro', tone)}
-                >
-                  {band ? `${band} weight` : 'weight n/a'}
-                </span>
-              )
-            })()}
+            <WeightMeter estTokens={skill.estTokens} refMax={refMax} />
             {missing && (
               <span
                 data-testid={`catalog-missing-${skill.id}`}

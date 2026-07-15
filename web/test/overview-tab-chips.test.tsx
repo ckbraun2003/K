@@ -65,3 +65,19 @@ describe('OverviewTab — F-053 parity chips', () => {
     expect(chips.textContent).toContain('CI ✓')
   })
 })
+
+describe('OverviewTab — Impressive Wave Task 10 Step 6: action chips get an icon + one-line description', () => {
+  it('each Quick Actions chip carries a one-line text-micro description under the label', async () => {
+    renderTab()
+    await screen.findByText('remote ✓ o/r')
+    const actions = screen.getByTestId('overview-action-chips')
+    expect(actions.textContent).toContain('Run Verification')
+    expect(actions.textContent).toContain('Score the project against the bible checklist.')
+    expect(actions.textContent).toContain('Build graph')
+    expect(actions.textContent).toContain('Regenerate the interactive knowledge graph.')
+    expect(actions.textContent).toContain('Dispatch Agent')
+    expect(actions.textContent).toContain('Start a new agent run against this project.')
+    // Icons render as SVGs (lucide-react), not text — assert at least one per chip tile.
+    expect(actions.querySelectorAll('svg').length).toBeGreaterThanOrEqual(6)
+  })
+})

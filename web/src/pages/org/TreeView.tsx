@@ -327,8 +327,8 @@ export default function TreeView() {
                 Objectives
               </h2>
               {data.assignments.length === 0 ? (
-                <p className="text-caption italic text-muted" data-testid="chief-objectives-empty">
-                  No objectives yet — the Chief has not assigned any leads.
+                <p className="text-caption text-muted" data-testid="chief-objectives-empty">
+                  No objectives yet — Chief assigns these during autonomous runs.
                 </p>
               ) : (
                 <div className="space-y-2">

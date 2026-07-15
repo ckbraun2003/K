@@ -101,7 +101,8 @@ describe('CatalogTab — rows', () => {
     expect(row.textContent).toContain('K') // source badge
     expect(row.textContent).toContain('universal')
     // deep-research is the only measured skill, so it is the catalog's refMax -> heavy band.
-    expect(row.textContent).toContain('heavy weight')
+    // WeightMeter (Impressive Wave Task 10) renders bars, not text — assert via aria-label.
+    expect(row.querySelector('[data-testid="catalog-weight-band"]')?.getAttribute('aria-label')).toBe('heavy context weight')
     expect(row.textContent).toContain('fan-out research harness')
   })
 
@@ -111,10 +112,11 @@ describe('CatalogTab — rows', () => {
     expect(row.textContent).toContain('superpowers')
   })
 
-  it('a null estTokens renders an honest "weight n/a" band', async () => {
+  it('a null estTokens renders an honest "not yet measured" WeightMeter', async () => {
     renderTab()
     const row = await screen.findByTestId('catalog-row-plugin:superpowers@obra:brainstorming')
-    expect(row.textContent).toContain('weight n/a')
+    expect(row.querySelector('[data-testid="catalog-weight-band"]')?.getAttribute('aria-label'))
+      .toBe('not yet measured — probe or run to estimate')
   })
 
   it('status=missing is rendered clearly and blocks enabling', async () => {

@@ -10,6 +10,7 @@ import { useFocusTrap } from '../../lib/useFocusTrap'
 import { mergeEvents } from '../../components/RunConsole'
 import { eventsToWorkflowTree } from '../../lib/workflow'
 import WorkflowChecklist from '../../components/WorkflowChecklist'
+import MiniDag from '../../components/MiniDag'
 import RunTree from '../../components/RunTree'
 import AutoTextarea from '../../components/AutoTextarea'
 import Toast from '../../components/Toast'
@@ -180,7 +181,7 @@ function RunTreeSection({ initialRunId }: { initialRunId?: string }) {
 
       {pickerRuns.length === 0 && !showAll && (runs?.length ?? 0) > 0 && (
         <p className="text-label italic text-muted" data-testid="wf-picker-empty">
-          No workflow-dispatched runs yet — toggle All runs.
+          No automation-dispatched runs yet — toggle All runs.
         </p>
       )}
 
@@ -221,11 +222,11 @@ function DefinitionsSection() {
   }, [defs, selectedId])
 
   if (isLoading) return <p className="text-label italic text-muted">Loading definitions…</p>
-  if (isError) return <ErrorState message="Failed to load workflow definitions." />
+  if (isError) return <ErrorState message="Failed to load automation definitions." />
   if (!defs || defs.length === 0) {
     return (
       <p className="text-label italic text-muted" data-testid="workflow-defs-empty">
-        No workflow definitions seeded yet.
+        No automation definitions seeded yet.
       </p>
     )
   }
@@ -257,6 +258,9 @@ function DefinitionsSection() {
                 <span className="mono mt-0.5 block truncate text-caption text-muted">
                   {roleChain(def.roles)}
                 </span>
+                <div className="mt-1.5">
+                  <MiniDag roles={def.roles.map(r => r.label)} />
+                </div>
               </button>
             </li>
           ))}
@@ -306,10 +310,10 @@ function WorkflowsList() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="mb-5 flex items-center justify-between gap-3">
-        <h1 className="micro-label">Workflows</h1>
+        <h1 className="micro-label">Automations</h1>
         <SegControl<'defined' | 'run'>
-          ariaLabel="Workflows view"
-          options={[{ label: 'Defined workflow', value: 'defined' }, { label: 'Run tree', value: 'run' }]}
+          ariaLabel="Automations view"
+          options={[{ label: 'Defined automation', value: 'defined' }, { label: 'Run tree', value: 'run' }]}
           value={tab}
           onChange={setTab}
         />
@@ -318,7 +322,7 @@ function WorkflowsList() {
       {tab === 'defined' ? (
         <section>
           <p className="mb-4 max-w-2xl text-label text-muted">
-            The named workflow templates. Select a definition to preview its role chain, or open it to edit.
+            The named automation templates. Select a definition to preview its role chain, or open it to edit.
           </p>
           <DefinitionsSection />
         </section>
@@ -446,7 +450,7 @@ function RunWorkflowDialog({
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
           >
             <h3 id={headingId} className="text-title">
-              Run this workflow
+              Run this automation
             </h3>
 
             {/* Step 1 — project. */}
@@ -536,13 +540,13 @@ function NotFound({ id }: { id?: string }) {
   return (
     <div className="h-full overflow-y-auto p-5">
       <Button variant="ghost" size="sm" onClick={() => navigate('runs', 'workflows')}>
-        ← Workflows
+        ← Automations
       </Button>
       <div className="mt-6" data-testid="workflow-detail-notfound">
         <EmptyState
           icon="warning"
-          headline="Workflow not found"
-          hint={id ? `No workflow definition with id "${id}".` : 'No workflow selected.'}
+          headline="Automation not found"
+          hint={id ? `No automation definition with id "${id}".` : 'No automation selected.'}
         />
       </div>
     </div>
@@ -599,7 +603,7 @@ function WorkflowEditor({ id }: { id?: string }) {
   if (isLoading || !detail) {
     return (
       <div className="h-full overflow-y-auto p-5">
-        <p className="text-label italic text-muted">Loading workflow…</p>
+        <p className="text-label italic text-muted">Loading automation…</p>
       </div>
     )
   }
@@ -612,7 +616,7 @@ function WorkflowEditor({ id }: { id?: string }) {
     <div className="h-full overflow-y-auto p-5">
       <div className="mb-4 flex items-center gap-3">
         <Button variant="ghost" size="sm" onClick={() => navigate('runs', 'workflows')}>
-          ← Workflows
+          ← Automations
         </Button>
         <h1 className="text-title">{detail.name}</h1>
         {detail.crossProject && (
@@ -628,7 +632,7 @@ function WorkflowEditor({ id }: { id?: string }) {
           onClick={() => setRunOpen(true)}
           className="ml-auto"
         >
-          Run this workflow
+          Run this automation
         </Button>
       </div>
 
@@ -690,7 +694,7 @@ function WorkflowEditor({ id }: { id?: string }) {
               <div className="min-w-0 flex-1">
                 <h2 className="micro-label">Cross-project</h2>
                 <p className="mt-0.5 text-caption text-muted">
-                  Reserved flag — may this workflow reach outside the current project? Execution deferred.
+                  Reserved flag — may this automation reach outside the current project? Execution deferred.
                 </p>
               </div>
               <button
@@ -761,7 +765,7 @@ function WorkflowEditor({ id }: { id?: string }) {
       <Toast
         open={dispatchedRunId !== null}
         testid="workflow-run-toast"
-        message={<>Workflow dispatched</>}
+        message={<>Automation dispatched</>}
         action={{
           label: 'View run →',
           testid: 'workflow-run-view',

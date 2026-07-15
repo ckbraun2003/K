@@ -8,7 +8,6 @@ import Toast from '../../components/Toast'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { Icon } from '../../ui/Icon'
 import { Button, IconButton } from '../../ui/Button'
-import { Spinner } from '../../ui/Spinner'
 import { Input } from '../../ui/Field'
 import { EmptyState } from '../../ui/EmptyState'
 
@@ -351,15 +350,17 @@ export default function TasksTab({ projectId }: Props) {
       {/* Footer: GitHub Issues sync */}
       <div className="flex-shrink-0 px-4 py-3 border-t border-border flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => syncIssues.mutate()}
+          <Button
+            variant="glass"
+            size="sm"
+            icon="refresh"
+            loading={syncIssues.isPending}
             disabled={syncIssues.isPending}
             title="Pull this project's GitHub issues into the task list"
-            className="flex items-center gap-1.5 text-xs text-text hover:text-accent transition-colors disabled:opacity-40"
+            onClick={() => syncIssues.mutate()}
           >
-            {syncIssues.isPending && <Spinner size={14} />}
-            {syncIssues.isPending ? 'Syncing…' : 'Sync with GitHub Issues'}
-          </button>
+            Sync with GitHub Issues
+          </Button>
           {syncIssues.isSuccess && syncIssues.data?.degraded && (
             <span className="text-[11px] text-muted">gh unavailable — nothing synced</span>
           )}

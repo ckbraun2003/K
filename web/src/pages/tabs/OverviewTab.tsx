@@ -267,51 +267,74 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* ── Quick Actions ─────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => verify.mutate(false)}
-          disabled={pending || pathMissing}
-        >
-          {verify.isPending ? 'verifying…' : 'Run Verification'}
-        </Button>
-        <Button
-          variant="glass"
-          size="sm"
-          onClick={() => verify.mutate(true)}
-          disabled={pending || pathMissing}
-        >
-          Deep Verify
-        </Button>
-        <Button
-          variant="glass"
-          size="sm"
-          onClick={() => navigate('project', projectId, 'knowledge-graph')}
-        >
-          Build graph
-        </Button>
-        <Button
-          variant="glass"
-          size="sm"
-          onClick={() => onboard.mutate()}
-          disabled={onboard.isPending || pathMissing}
-          title={pathMissing ? 'Path missing — restore the repo folder first' : 'Scaffold the starter bible + CI workflow if missing'}
-        >
-          {onboard.isPending ? 'onboarding…' : 'Onboard'}
-        </Button>
-        <Button
-          variant="glass"
-          size="sm"
-          onClick={() => { if (!pathMissing) navigate('project', projectId, 'runs') }}
-          disabled={pathMissing}
-          title={pathMissing ? 'Path missing — restore the repo folder first' : undefined}
-        >
-          Dispatch Agent
-        </Button>
-        <Button variant="glass" size="sm" icon="monitor" onClick={() => navigate('docs', 'ui-demo')}>
-          UI Demo
-        </Button>
+      <div data-testid="overview-action-chips" className="flex flex-wrap items-start gap-3">
+        <div className="flex flex-col items-start gap-1">
+          <Button
+            variant="primary"
+            size="sm"
+            icon="check"
+            onClick={() => verify.mutate(false)}
+            disabled={pending || pathMissing}
+          >
+            {verify.isPending ? 'verifying…' : 'Run Verification'}
+          </Button>
+          <span className="text-micro text-muted">Score the project against the bible checklist.</span>
+        </div>
+        <div className="flex flex-col items-start gap-1">
+          <Button
+            variant="glass"
+            size="sm"
+            icon="check"
+            onClick={() => verify.mutate(true)}
+            disabled={pending || pathMissing}
+          >
+            Deep Verify
+          </Button>
+          <span className="text-micro text-muted">A slower, deeper verification pass.</span>
+        </div>
+        <div className="flex flex-col items-start gap-1">
+          <Button
+            variant="glass"
+            size="sm"
+            icon="insights"
+            onClick={() => navigate('project', projectId, 'knowledge-graph')}
+          >
+            Build graph
+          </Button>
+          <span className="text-micro text-muted">Regenerate the interactive knowledge graph.</span>
+        </div>
+        <div className="flex flex-col items-start gap-1">
+          <Button
+            variant="glass"
+            size="sm"
+            icon="docs"
+            onClick={() => onboard.mutate()}
+            disabled={onboard.isPending || pathMissing}
+            title={pathMissing ? 'Path missing — restore the repo folder first' : 'Scaffold the starter bible + CI workflow if missing'}
+          >
+            {onboard.isPending ? 'onboarding…' : 'Onboard'}
+          </Button>
+          <span className="text-micro text-muted">Scaffold the starter bible + CI workflow if missing.</span>
+        </div>
+        <div className="flex flex-col items-start gap-1">
+          <Button
+            variant="glass"
+            size="sm"
+            icon="bolt"
+            onClick={() => { if (!pathMissing) navigate('project', projectId, 'runs') }}
+            disabled={pathMissing}
+            title={pathMissing ? 'Path missing — restore the repo folder first' : undefined}
+          >
+            Dispatch Agent
+          </Button>
+          <span className="text-micro text-muted">Start a new agent run against this project.</span>
+        </div>
+        <div className="flex flex-col items-start gap-1">
+          <Button variant="glass" size="sm" icon="monitor" onClick={() => navigate('docs', 'ui-demo')}>
+            UI Demo
+          </Button>
+          <span className="text-micro text-muted">Preview the shipped component + token system.</span>
+        </div>
         {verify.error && (
           <span className="flex items-center gap-1 text-[11px] text-red">
             <Icon name="warning" size={14} /> {String(verify.error)}

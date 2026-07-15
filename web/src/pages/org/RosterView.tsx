@@ -55,7 +55,7 @@ export function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) 
         </p>
       )}
 
-      <div className="mt-2 flex items-center gap-2 text-caption text-muted">
+      <div className="mt-2 flex flex-wrap min-w-0 items-center gap-2 text-caption text-muted">
         {/* StatusPill has no rest-prop passthrough, so the testid lives on a wrapper span. */}
         <span data-testid={`orchestrator-status-${profile.id}`}>
           <StatusPill status={live ? 'running' : 'idle'} label={live ? 'live' : 'idle'} />
