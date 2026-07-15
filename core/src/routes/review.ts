@@ -3,11 +3,12 @@ import type { FastifyInstance } from 'fastify'
 import { execa } from 'execa'
 import fs from 'fs'
 import { v4 as uuid } from 'uuid'
+import { z } from 'zod'
 import type { DiffPayload, PrInfo } from '@k/shared'
 import { CreateReviewCommentBodySchema, UpdateReviewCommentBodySchema, RequestChangesBodySchema, ApproveRunBodySchema, isKnownModel, type ReviewComment } from '@k/shared'
 import { runsDb, reviewCommentsDb, verifyResultsDb, githubDb } from '../db.js'
 import { listRunCheckpoints } from '../checkpoints.js'
-import { parseUnifiedDiff } from '../diff-parse.js'
+import { parseUnifiedDiff, parseNameStatusZ } from '../diff-parse.js'
 import { getProject } from '../projects.js'
 import { startRun } from '../supervisor.js'
 import { createPR, getGithubStatus } from '../github.js'
@@ -17,6 +18,35 @@ import { sendError, sendZodError } from './http-errors.js'
 
 const GIT_BOUND = { timeout: 60_000, killSignal: 'SIGKILL' as const }
 const DIFF_MAX_BUFFER = 64 * 1024 * 1024
+
+// D-118 (BE-2): runs-diff context width. int 0..24, default 3 (git's own default,
+// so an omitted param is byte-identical to the pre-D-118 behavior). PR diffs are
+// NOT parameterized — `gh pr diff` has no context flag.
+const DiffQuerySchema = z.object({ context: z.coerce.number().int().min(0).max(24).default(3) })
+const RunFileQuerySchema = z.object({ path: z.string().min(1).max(4096), ref: z.enum(['base', 'head']) })
+export const FILE_CONTENT_CAP = 512 * 1024
+
+/** `git show <sha>:<path>` capped at FILE_CONTENT_CAP: collect stdout chunks, kill the
+ *  child once the cap is exceeded (a 300MB blob must not buffer whole). */
+async function gitShowCapped(repoCwd: string, spec: string): Promise<{ content: string; truncated: boolean }> {
+  const proc = execa('git', ['-C', repoCwd, 'show', spec], { ...GIT_BOUND, buffer: false })
+  let buf = ''
+  let truncated = false
+  proc.stdout!.setEncoding('utf8')
+  proc.stdout!.on('data', (chunk: string) => {
+    if (truncated) return
+    buf += chunk
+    if (buf.length > FILE_CONTENT_CAP) {
+      buf = buf.slice(0, FILE_CONTENT_CAP)
+      truncated = true
+      proc.kill('SIGKILL')
+    }
+  })
+  try { await proc } catch (e) {
+    if (!truncated) throw e // a real git failure; the kill-after-cap path is expected
+  }
+  return { content: buf, truncated }
+}
 
 /**
  * A run's durable diff endpoints, derived from its k-checkpoint chain:
@@ -67,8 +97,11 @@ export function buildFixPrompt(originalPrompt: string, comments: ReviewComment[]
 export async function reviewRoutes(app: FastifyInstance) {
   // GET /api/runs/:id/diff — checkpoint-chain diff (E-01). Mid-run it lags the
   // live tree by at most one wave; at terminal it IS the final state (W0
-  // terminal snapshot). 404 unknown · 409 vanished cwd · 500 git failure.
+  // terminal snapshot). ?context=N (0..24, default 3) widens/narrows the hunk
+  // context (D-118). 400 bad query · 404 unknown · 409 vanished cwd · 500 git failure.
   app.get<{ Params: { id: string } }>('/api/runs/:id/diff', async (req, reply) => {
+    const parsedQ = DiffQuerySchema.safeParse(req.query)
+    if (!parsedQ.success) return sendZodError(reply, parsedQ.error)
     const row = runsDb.getRun.get(req.params.id) as Record<string, unknown> | undefined
     if (!row) return sendError(reply, 404, 'not found')
     const repoCwd = String(row.cwd)
@@ -80,7 +113,7 @@ export async function reviewRoutes(app: FastifyInstance) {
         return reply.send(empty)
       }
       const { stdout } = await execa(
-        'git', ['-C', repoCwd, 'diff', '--no-color', '-M', refs.base, refs.head],
+        'git', ['-C', repoCwd, 'diff', '--no-color', '-M', `-U${parsedQ.data.context}`, refs.base, refs.head],
         { ...GIT_BOUND, maxBuffer: DIFF_MAX_BUFFER },
       )
       const { files, truncated } = parseUnifiedDiff(stdout)
@@ -89,6 +122,38 @@ export async function reviewRoutes(app: FastifyInstance) {
     } catch (e) {
       req.log.error(e)
       return sendError(reply, 500, 'diff failed')
+    }
+  })
+
+  // GET /api/runs/:id/file?path=&ref=base|head — file content at a checkpoint
+  // endpoint SHA (D-118 expand-context). 400 bad query · 404 unknown run · 409
+  // vanished cwd · 404 when the path is not part of the run's diff (the ONLY
+  // 404-for-path case, per contract) · 200 {path, ref, content, truncated}.
+  app.get<{ Params: { id: string } }>('/api/runs/:id/file', async (req, reply) => {
+    const parsed = RunFileQuerySchema.safeParse(req.query)
+    if (!parsed.success) return sendZodError(reply, parsed.error)
+    const row = runsDb.getRun.get(req.params.id) as Record<string, unknown> | undefined
+    if (!row) return sendError(reply, 404, 'not found')
+    const repoCwd = String(row.cwd)
+    if (!fs.existsSync(repoCwd)) return sendError(reply, 409, 'run cwd no longer exists on disk')
+    try {
+      const refs = await checkpointDiffRefs(req.params.id, repoCwd)
+      if (!refs) return sendError(reply, 404, "path is not part of this run's diff")
+      const { stdout } = await execa(
+        'git', ['-C', repoCwd, 'diff', '--name-status', '-M', '-z', refs.base, refs.head], GIT_BOUND,
+      )
+      const entries = parseNameStatusZ(stdout)
+      const { path: wanted, ref } = parsed.data
+      const allowed = ref === 'head'
+        ? entries.filter(e => !e.status.startsWith('D')).map(e => e.path)
+        : entries.filter(e => !e.status.startsWith('A')).map(e => e.oldPath ?? e.path)
+      if (!allowed.includes(wanted)) return sendError(reply, 404, "path is not part of this run's diff")
+      const sha = ref === 'base' ? refs.base : refs.head
+      const { content, truncated } = await gitShowCapped(repoCwd, `${sha}:${wanted}`)
+      return reply.send({ path: wanted, ref, content, truncated })
+    } catch (e) {
+      req.log.error(e)
+      return sendError(reply, 500, 'file read failed')
     }
   })
 
