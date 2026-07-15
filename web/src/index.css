@@ -235,6 +235,34 @@ body { font-variant-numeric: tabular-nums; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; } }
 
+/* ── LG2 pointer sheen (impressive-wave W0.6) — opt-in .glass-interactive ─────
+   useGlassPointer (mounted once in Shell) writes --lg-mx/--lg-my in viewport
+   px on <html>; background-attachment: fixed anchors the radial highlight to
+   those viewport coords, so one pair of vars serves every card. The overlay is
+   a decorative 10%-alpha wash (never load-bearing for contrast) that parks
+   off-viewport until the first pointermove; on touch/reduced-motion the hook
+   no-ops and the sheen simply never appears. A standalone ::before (its own
+   background, independent of the tier's own `background` shorthand) — composes
+   with the W0.5 double-background tier fill/edge without touching it, and
+   with W0.4's z-index:-1 refract ::after: refract paints in the stacking
+   context's negative-z step (behind all normal content), this ::before has no
+   z-index (auto) so it paints in the positioned/auto step AFTER normal content
+   — i.e. the sheen highlights on top, the refraction distorts the backdrop
+   behind, exactly the desired relative order. No edits to .glass-chrome/
+   .glass-panel/.glass-overlay's own `background` or `::after` rules. */
+@layer components {
+  .glass-interactive { position: relative; }
+  .glass-interactive::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: radial-gradient(11rem 11rem at var(--lg-mx, -100vmax) var(--lg-my, -100vmax), var(--lg-sheen), transparent 70%);
+    background-attachment: fixed;
+  }
+}
+
 /* ── doc-markdown (FU-5) ──────────────────────────────────────────────────────
    DocViewer's `.md` view — replaces an inert @tailwindcss/typography `prose*`
    utility set (the plugin was never registered, tailwind.config.ts plugins:[])

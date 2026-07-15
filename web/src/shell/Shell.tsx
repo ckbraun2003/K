@@ -26,6 +26,7 @@ import { focusDock } from '../lib/dock-bus'
 import { stageTransition } from '../lib/motion'
 import { CHORDS } from '../lib/chords'
 import { useShellKeys } from '../lib/use-shell-keys'
+import { useGlassPointer } from '../lib/use-glass-pointer'
 import useLiveInvalidators from './useLiveInvalidators'
 
 export default function Shell() {
@@ -63,6 +64,7 @@ export default function Shell() {
     onToggleLegend: () => setLegendOpen(o => !o),
     onCloseLegend: () => setLegendOpen(false),
   })
+  useGlassPointer()
 
   // The ONE live-invalidator subscription for the whole app — mounted at Shell
   // level so invalidation never depends on which page happens to be routed

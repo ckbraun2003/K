@@ -13,7 +13,7 @@ export function KpiTile({ label, value, delta, tier = 'panel', className }: {
   // signing it +) falsely implies movement that didn't happen.
   const flat = delta ? delta.pct === 0 : false
   return (
-    <GlassPanel tier={tier} className={cn('p-4', className)}>
+    <GlassPanel tier={tier} className={cn('p-4 glass-interactive', className)}>
       <div className="micro-label">{label}</div>
       <div className="mono text-display mt-1">{value}</div>
       {delta && (

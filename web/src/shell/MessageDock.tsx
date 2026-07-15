@@ -660,7 +660,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
         // utility (utilities always win over the components-layer tier skin — see
         // index.css). Solid accent fill swapped for the overlay tier so the fab
         // reads as a floating glass surface; the 'K' glyph keeps blush for legibility.
-        className="glass-overlay fixed bottom-4 right-4 z-40 grid h-12 w-12 place-items-center rounded-full text-sm font-bold text-accent shadow-lg transition-transform duration-150 hover:scale-105"
+        className="glass-overlay glass-interactive fixed bottom-4 right-4 z-40 grid h-12 w-12 place-items-center rounded-full text-sm font-bold text-accent shadow-lg transition-transform duration-150 hover:scale-105"
       >
         K
         {inboxTotal > 0 && (
