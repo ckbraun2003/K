@@ -885,7 +885,11 @@ export const NlToCronBodySchema = z.object({ text: z.string().min(1).max(200) })
 // ── Definition-time (authoring) ───────────────────────────────────────────────
 export const HandoffModeSchema = z.enum(['share-tree', 'branch', 'merge'])
 export type HandoffMode = z.infer<typeof HandoffModeSchema>
-export const EdgeWhenSchema = z.enum(['always', 'pass', 'fail', 'repair'])
+// 'loop' (orch-p2 W0) is a bounded back-edge to an ancestor stage, validated in
+// PipelineSpecSchema's superRefine below. 'repair' stays defined but REJECTED by
+// the Phase-1 deferral fence (unchanged) — loops supersede the need for it, but
+// removing the field/enum member would break Phase-1 core code that references it.
+export const EdgeWhenSchema = z.enum(['always', 'pass', 'fail', 'loop', 'repair'])
 export type EdgeWhen = z.infer<typeof EdgeWhenSchema>
 
 // A stage key is a short slug — the stable id edges/repair/gates reference.
@@ -979,6 +983,10 @@ export const StageDefSchema = z.discriminatedUnion('kind', [
   z.object({ ...stageCommon, kind: z.literal('agent'),
     role: z.string().min(1).max(100), profileId: z.string().nullable().default(null),
     model: z.string().nullable().default(null), promptScaffold: z.string().min(1),
+    // orch-p2 W0: names a SubAgentDef the stage should dispatch as a worker
+    // (distinct from `profileId`, the top-level orchestrator Profile). null = the
+    // stage runs directly under `role`/`profileId` (Phase-1 behavior, unchanged).
+    subagentType: z.string().nullable().default(null),
     planGate: z.boolean().default(false) }).strict(),
   z.object({ ...stageCommon, kind: z.literal('deterministic'),
     action: z.discriminatedUnion('type', [
@@ -996,6 +1004,10 @@ export const EdgeDefSchema = z.object({
   from: STAGE_KEY, to: STAGE_KEY,
   handoff: HandoffModeSchema.default('share-tree'),
   when: EdgeWhenSchema.default('always'),
+  // Required when when==='loop' (enforced in PipelineSpecSchema's superRefine,
+  // where the ['edges', i, 'maxIterations'] issue path is produced); ignored
+  // otherwise. Bounds a loop back-edge's runtime iteration count.
+  maxIterations: z.number().int().min(1).max(10).optional(),
   label: z.string().max(100).optional(),
 }).strict()
 export type EdgeDef = z.infer<typeof EdgeDefSchema>
@@ -1039,6 +1051,64 @@ export const PipelineSpecSchema = z.object({
     // repair engine lands. `RepairRoutingSchema` stays defined for the future engine; only its USE
     // is fenced. (`toStage: null` = plain hard-fail, which is already the default, so it's harmless.)
     if (s.repair?.toStage != null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `repair.toStage routing is not yet supported (Phase-1 deferral)`, path: ['stages', i, 'repair', 'toStage'] })
+  })
+  // ── Loop back-edges (orch-p2 W0) ─────────────────────────────────────────────
+  // A `when:'loop'` edge legitimately points back to an ancestor stage, so it is
+  // EXCLUDED from the "forward graph" — the graph forward routing (always/pass/
+  // fail/gate edges) must otherwise be acyclic. Built from already-validated
+  // from/to ids only (`has()`/`ids` from above), so a dangling edge doesn't also
+  // spam a spurious cycle/ancestor issue.
+  const stageById = new Map(p.stages.map(s => [s.id, s]))
+  const forwardAdj = new Map<string, string[]>()
+  for (const e of p.edges) {
+    if (e.when === 'loop') continue
+    if (!has(e.from) || e.to === 'done' || !has(e.to)) continue
+    const list = forwardAdj.get(e.from) ?? []
+    list.push(e.to)
+    forwardAdj.set(e.from, list)
+  }
+  // Acyclicity: a cycle in the forward graph would spin forever with no bounded
+  // exit — only an explicit, bounded `when:'loop'` edge may be a back-edge.
+  {
+    const WHITE = 0, GRAY = 1, BLACK = 2
+    const color = new Map<string, number>()
+    let cyclic = false
+    const visit = (u: string) => {
+      color.set(u, GRAY)
+      for (const v of forwardAdj.get(u) ?? []) {
+        const c = color.get(v) ?? WHITE
+        if (c === GRAY) cyclic = true
+        else if (c === WHITE) visit(v)
+      }
+      color.set(u, BLACK)
+    }
+    for (const id of ids) if ((color.get(id) ?? WHITE) === WHITE) visit(id)
+    if (cyclic) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `the stage graph has a cycle that is not a when:'loop' edge — forward routing (always/pass/fail/gate) must be acyclic; use when:'loop' with maxIterations for an intentional bounded back-edge`, path: ['edges'] })
+  }
+  // to's ancestor set = every stage reachable from `to` by following forward edges
+  // (the same graph the acyclicity check above uses).
+  const reachableFrom = (start: string): Set<string> => {
+    const seen = new Set<string>([start])
+    const stack = [start]
+    while (stack.length) {
+      const cur = stack.pop()!
+      for (const nxt of forwardAdj.get(cur) ?? []) if (!seen.has(nxt)) { seen.add(nxt); stack.push(nxt) }
+    }
+    return seen
+  }
+  p.edges.forEach((e, i) => {
+    if (e.when !== 'loop') return
+    if (e.maxIterations == null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `when:'loop' edge requires maxIterations (1..10)`, path: ['edges', i, 'maxIterations'] })
+    if (has(e.from) && has(e.to) && !reachableFrom(e.to).has(e.from)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `loop edge target '${e.to}' is not an ancestor of '${e.from}' in the forward graph`, path: ['edges', i, 'to'] })
+    }
+    // The loop head must also have a non-loop forward exit — a pass/always edge,
+    // or an edge (of any when) into a gate stage — or the pipeline can never leave
+    // the loop even after maxIterations is exhausted.
+    const hasForwardExit = p.edges.some(o =>
+      o.from === e.from && o.when !== 'loop' &&
+      (o.when === 'pass' || o.when === 'always' || stageById.get(o.to)?.kind === 'gate'))
+    if (!hasForwardExit) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `loop head '${e.from}' has no non-loop forward exit (needs a pass/always edge, or an edge into a gate)`, path: ['edges', i] })
   })
   // reachability from entry — a stage no forward/repair edge can reach can never run.
   // Repair targets fold into the adjacency (a repair-only stage is legitimately entered
@@ -1090,6 +1160,24 @@ export function namedWorkflowToPipeline(nw: NamedWorkflow): PipelineSpec {
   })
 }
 
+// ── Sub-agent definitions (orch-p2 W0) ─────────────────────────────────────────
+// A worker profile an `agent` StageDef can dispatch as (via `subagentType`,
+// above), distinct from a top-level orchestrator Profile (`profileId`).
+// `source:'k'` = system-shipped; `'operator'` = user-authored.
+export const SubAgentSourceSchema = z.enum(['k', 'operator'])
+export type SubAgentSource = z.infer<typeof SubAgentSourceSchema>
+export const SubAgentDefSchema = z.object({
+  id: z.string(), name: z.string().min(1).max(64),
+  role: z.string().min(1).max(200),            // one-line goal/description
+  model: z.string().nullable(),                 // null = runtime default
+  allowedTools: z.array(z.string()),
+  mcpServers: z.array(z.string()),
+  skills: z.array(z.string()),
+  prompt: z.string(),                           // system prompt / charter body
+  source: SubAgentSourceSchema, enabled: z.boolean().default(true),
+}).strict()
+export type SubAgentDef = z.infer<typeof SubAgentDefSchema>
+
 // ── Runtime wire views (DB rows → API/WS projections) ─────────────────────────
 export const PipelineRunStatusSchema  = z.enum(['running', 'completed', 'failed', 'cancelled'])
 export type PipelineRunStatus = z.infer<typeof PipelineRunStatusSchema>
@@ -1123,6 +1211,21 @@ export const PipelineRunViewSchema = z.object({
   run: PipelineRunSchema, stages: z.array(PipelineStageRunSchema), edges: z.array(PipelineEdgeViewSchema),
 })
 export type PipelineRunView = z.infer<typeof PipelineRunViewSchema>
+
+// ── Pipeline ledger (orch-p2 W0) ────────────────────────────────────────────────
+// An append-only per-run narrative feed (stage transitions, notes, cost events,
+// artifacts, loop iterations, gate decisions), keyed by a monotonic `seq` so the
+// UI/WS can cursor forward from `ledgerSeq` (the `pipeline_update` WsMessage member
+// below carries the latest seq the caller should fetch from).
+export const PipelineLedgerKindSchema = z.enum(['transition', 'note', 'cost', 'artifact', 'iteration', 'gate'])
+export type PipelineLedgerKind = z.infer<typeof PipelineLedgerKindSchema>
+export const PipelineLedgerEntrySchema = z.object({
+  id: z.string(), pipelineRunId: z.string(), stageKey: z.string().nullable(),
+  seq: z.number().int(), ts: z.number(), kind: PipelineLedgerKindSchema,
+  actor: z.string().nullable(),        // worker subagentType or orchestrator profile id
+  goal: z.string().nullable(), detail: z.unknown().optional(), cost: z.number().nullable(),
+})
+export type PipelineLedgerEntry = z.infer<typeof PipelineLedgerEntrySchema>
 
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
@@ -1178,8 +1281,12 @@ export const WsMessageSchema = z.discriminatedUnion('type', [
   // D-119: a pipeline stage transitioned (dispatch/pass/fail/gate) — carries the full
   // refreshed run view so the live DAG re-renders. `stageId` names the transitioned
   // stage (null for run-level transitions: creation/finalize).
+  // `ledgerSeq` (orch-p2 W0) is an OPTIONAL cursor — the latest PipelineLedgerEntry.seq
+  // for this run at emit time — so a client can fetch only newer ledger rows. Additive:
+  // existing consumers that ignore it are unaffected.
   z.object({ type: z.literal('pipeline_update'), pipelineRunId: z.string(),
-             stageId: z.string().nullable(), view: PipelineRunViewSchema }),
+             stageId: z.string().nullable(), view: PipelineRunViewSchema,
+             ledgerSeq: z.number().int().optional() }),
   z.object({ type: z.literal('ping') }),
   z.object({ type: z.literal('pong') }),
 ])
