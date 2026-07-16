@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
-import type { RunStatus, VerificationReport, ProjectTask, AgentProfile, NamedWorkflow, WorkflowRole } from '@k/shared'
+import type { RunStatus, VerificationReport, ProjectTask, AgentProfile, NamedWorkflow, WorkflowRole, SubAgentDef, PipelineLedgerEntry } from '@k/shared'
 // authority.ts reads only fs + @k/shared types — no import cycle back into db.ts.
 import { resolveAuthority } from './authority.js'
 
@@ -806,6 +806,52 @@ db.exec(`
     created_at  INTEGER NOT NULL,
     updated_at  INTEGER NOT NULL
   );
+
+  -- ── Orchestration Program Phase 2 W0 (SCHEMA_VERSION 15, D-120) ─────────────
+  -- Sub Agents = the editable worker-bee registry an 'agent' StageDef's
+  -- subagentType resolves against (design §3, shared/src/types.ts
+  -- StageDefSchema.subagentType). Operator rows live here; K-native workers
+  -- resolve from agent-config/agents/*.md at read time (source:'k', not
+  -- persisted) — mirrors the hook_definitions source:'k'/'operator' split
+  -- above. allowed_tools/mcp_servers/skills are JSON-encoded TEXT (mirrors
+  -- agent_profiles). Brand-new table -> CREATE-only.
+  CREATE TABLE IF NOT EXISTS sub_agent_defs (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL UNIQUE,
+    role          TEXT NOT NULL,
+    model         TEXT,
+    allowed_tools TEXT NOT NULL,
+    mcp_servers   TEXT NOT NULL,
+    skills        TEXT NOT NULL,
+    prompt        TEXT NOT NULL,
+    source        TEXT NOT NULL DEFAULT 'operator',
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+  );
+
+  -- Append-only per-pipeline-run progress ledger (design §6.1): every stage
+  -- transition, retry, loop iteration, gate decision, and cost event the
+  -- engine records, plus free-text notes. seq is a monotonic per-run cursor
+  -- (pipelineLedgerDb.insertLedgerEntry assigns MAX(seq)+1 atomically) so a
+  -- client can fetch only rows newer than a known seq (the pipeline_update
+  -- WsMessage's ledgerSeq). stage_key is nullable (run-level entries);
+  -- detail is JSON-encoded TEXT. No FK on pipeline_run_id (per spec) — the
+  -- ledger is an independent append-only log. Brand-new table -> CREATE-only.
+  CREATE TABLE IF NOT EXISTS pipeline_ledger (
+    id              TEXT PRIMARY KEY,
+    pipeline_run_id TEXT NOT NULL,
+    stage_key       TEXT,
+    seq             INTEGER NOT NULL,
+    ts              INTEGER NOT NULL,
+    kind            TEXT NOT NULL,
+    actor           TEXT,
+    goal            TEXT,
+    detail          TEXT,
+    cost            REAL,
+    UNIQUE(pipeline_run_id, seq)
+  );
+  CREATE INDEX IF NOT EXISTS idx_pipeline_ledger_run ON pipeline_ledger(pipeline_run_id, seq);
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -840,7 +886,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 14
+export const SCHEMA_VERSION = 15
 
 /** Sentinel for the CURRENT schema version: a column the LAST migration in
  *  migrateSlow() creates. migrate()'s fast path only trusts the version stamp when
@@ -848,9 +894,9 @@ export const SCHEMA_VERSION = 14
  *  dev-watch boot mid-schema-edit; the 2026-07-13 outage) otherwise disables
  *  repair forever while module-level prepares crash at import.
  *  UPDATE THIS alongside every SCHEMA_VERSION bump — it must always name a column
- *  introduced by the CURRENT version (schema-v14.test.ts enforces this with a
+ *  introduced by the CURRENT version (schema-v15.test.ts enforces this with a
  *  previous-generation fixture; extend that fixture on every future bump). */
-export const SCHEMA_SENTINEL = { table: 'runs', column: 'pipeline_stage_id' } as const
+export const SCHEMA_SENTINEL = { table: 'pipeline_ledger', column: 'seq' } as const
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1690,6 +1736,38 @@ function migrateSlow(d: Database.Database): void {
   // present (the top of this scan ALTERs it unguarded), so this stays unguarded too.
   addColumn(d, 'runs', 'pipeline_stage_id', 'TEXT')
   d.exec(`CREATE INDEX IF NOT EXISTS idx_runs_pipeline_stage ON runs(pipeline_stage_id)`)
+
+  // ── Orchestration Program Phase 2 W0 (SCHEMA_VERSION 15, D-120) ─────────────
+  // Bounded-loop fields for the executable-pipeline engine (design §8): a
+  // per-stage re-entry counter and a per-edge iteration cap. hasTable guards
+  // keep migrate() safe against pre-v14 fixtures that predate these tables.
+  if (hasTable(d, 'pipeline_stages')) {
+    addColumn(d, 'pipeline_stages', 'iteration', 'INTEGER NOT NULL DEFAULT 0')
+  }
+  if (hasTable(d, 'pipeline_edges')) {
+    addColumn(d, 'pipeline_edges', 'max_iterations', 'INTEGER')
+  }
+  // pipeline_runs.owner_profile_id: which orchestrator AgentProfile owns/oversees
+  // this run (design §6.2 — the multi-pipeline visibility view groups runs by
+  // this column). No FK — deleting a profile must not invalidate run history.
+  if (hasTable(d, 'pipeline_runs')) {
+    addColumn(d, 'pipeline_runs', 'owner_profile_id', 'TEXT')
+  }
+  // Triggers (design §7 — the W0 "routines schema" reconciliation): there is no
+  // dedicated `routines` table. GET /api/routines (routes/routines.ts) projects
+  // schedule-triggered `skills` rows (triggerType='schedule') into RoutineView —
+  // the routine model IS the skills table. So the recommended §7 extension (an
+  // optional pipeline target on the routine row) lands on `skills`, not a
+  // literal `routines` table; a dedicated `pipeline_schedules` table is NOT
+  // needed (the row carries a pipeline target cleanly). pipeline_def_id loosely
+  // refs workflow_definitions.id — the confirmed pipeline-def store (design
+  // §10: Phase 1 evolved workflow_definitions.spec to hold the executable
+  // PipelineSpec; no separate pipeline_defs table exists) — mirroring
+  // pipeline_runs.definition_id's loose-ref (no FK) convention. NULL = a plain
+  // skill/workflow-skill routine (unchanged behavior).
+  if (hasTable(d, 'skills')) {
+    addColumn(d, 'skills', 'pipeline_def_id', 'TEXT')
+  }
 }
 
 migrate(db)
@@ -2837,6 +2915,114 @@ export const pipelineDb = {
   setDefSpec, getDefSpec,
   // hook_definitions
   insertHook, listHooks, getHook, setHookTrusted, setHookEnabled,
+}
+
+// ─── Pipeline ledger helpers (orch-p2 W0, SCHEMA_VERSION 15, D-120 §6.1) ─────
+// Append-only per-pipeline-run progress feed. seq is assigned atomically inside a
+// single db.transaction (MAX(seq)+1 per pipeline_run_id, 1 for the first entry) so
+// concurrent writers from different stages can't race the
+// UNIQUE(pipeline_run_id, seq) constraint. detail is bound already-stringified (or
+// null) at the call site, mirroring the agent_profiles JSON-column convention.
+
+const getMaxLedgerSeq = db.prepare(`SELECT MAX(seq) AS maxSeq FROM pipeline_ledger WHERE pipeline_run_id = ?`)
+const insertLedgerEntryRow = db.prepare(`
+  INSERT INTO pipeline_ledger (id, pipeline_run_id, stage_key, seq, ts, kind, actor, goal, detail, cost)
+  VALUES (@id, @pipelineRunId, @stageKey, @seq, @ts, @kind, @actor, @goal, @detail, @cost)
+`)
+const listLedgerByRun = db.prepare(`SELECT * FROM pipeline_ledger WHERE pipeline_run_id = ? ORDER BY seq ASC`)
+
+type LedgerInsertParams = {
+  id: string; pipelineRunId: string; stageKey: string | null; ts: number; kind: string
+  actor: string | null; goal: string | null; detail: string | null; cost: number | null
+}
+// Returns the assigned seq — callers stamp it into the pipeline_update WS delta's ledgerSeq cursor.
+const insertLedgerEntry = db.transaction((p: LedgerInsertParams): number => {
+  const row = getMaxLedgerSeq.get(p.pipelineRunId) as { maxSeq: number | null }
+  const seq = (row.maxSeq ?? 0) + 1
+  insertLedgerEntryRow.run({ ...p, seq })
+  return seq
+})
+
+export const pipelineLedgerDb = { insertLedgerEntry, listLedgerByRun }
+
+/** Map a pipeline_ledger DB row → the canonical PipelineLedgerEntry shape (@k/shared).
+ *  snake_case → camelCase; detail parses from JSON TEXT (null-safe: garbled/absent
+ *  JSON leaves `detail` undefined rather than throwing, mirroring rowToReport's
+ *  score_breakdown handling). */
+export function rowToPipelineLedgerEntry(r: Record<string, unknown>): PipelineLedgerEntry {
+  const entry: PipelineLedgerEntry = {
+    id: String(r.id),
+    pipelineRunId: String(r.pipeline_run_id),
+    stageKey: r.stage_key == null ? null : String(r.stage_key),
+    seq: Number(r.seq),
+    ts: Number(r.ts),
+    kind: r.kind as PipelineLedgerEntry['kind'],
+    actor: r.actor == null ? null : String(r.actor),
+    goal: r.goal == null ? null : String(r.goal),
+    cost: r.cost == null ? null : Number(r.cost),
+  }
+  if (r.detail != null) {
+    try {
+      entry.detail = JSON.parse(String(r.detail))
+    } catch {
+      /* leave detail undefined on garbled JSON */
+    }
+  }
+  return entry
+}
+
+// ─── Sub Agent helpers (orch-p2 W0, SCHEMA_VERSION 15, D-120 §3) ─────────────
+// The operator-editable worker-bee registry an `agent` StageDef's `subagentType`
+// resolves against (K-native workers resolve from agent-config/agents/*.md at read
+// time instead — not persisted here). JSON columns (allowed_tools/mcp_servers/
+// skills) are bound already-stringified at the call site, mirroring agent_profiles.
+// `name` is UNIQUE.
+
+const insertSubAgent = db.prepare(`
+  INSERT INTO sub_agent_defs (id, name, role, model, allowed_tools, mcp_servers, skills, prompt, source, enabled, created_at, updated_at)
+  VALUES (@id, @name, @role, @model, @allowedTools, @mcpServers, @skills, @prompt, @source, @enabled, @createdAt, @updatedAt)
+`)
+const getSubAgent = db.prepare(`SELECT * FROM sub_agent_defs WHERE id = ?`)
+const getSubAgentByName = db.prepare(`SELECT * FROM sub_agent_defs WHERE name = ?`)
+const listSubAgents = db.prepare(`SELECT * FROM sub_agent_defs ORDER BY created_at ASC`)
+const updateSubAgent = db.prepare(`
+  UPDATE sub_agent_defs
+  SET name = @name, role = @role, model = @model, allowed_tools = @allowedTools,
+      mcp_servers = @mcpServers, skills = @skills, prompt = @prompt, enabled = @enabled,
+      updated_at = @updatedAt
+  WHERE id = @id
+`)
+const deleteSubAgent = db.prepare(`DELETE FROM sub_agent_defs WHERE id = ?`)
+
+export const subAgentDb = {
+  insertSubAgent, getSubAgent, getSubAgentByName, listSubAgents, updateSubAgent, deleteSubAgent,
+}
+
+/** Map a sub_agent_defs DB row → the canonical SubAgentDef shape (@k/shared).
+ *  snake_case → camelCase; allowed_tools/mcp_servers/skills parse from JSON TEXT to
+ *  string[] (null-safe: garbled/absent JSON degrades to [] rather than throwing,
+ *  mirroring rowToAgentProfile); enabled INTEGER -> boolean. */
+export function rowToSubAgentDef(r: Record<string, unknown>): SubAgentDef {
+  const parseStrArr = (v: unknown): string[] => {
+    try {
+      const p = JSON.parse(String(v ?? '[]'))
+      return Array.isArray(p) ? p.map(String) : []
+    } catch {
+      return []
+    }
+  }
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    role: String(r.role),
+    model: r.model == null ? null : String(r.model),
+    allowedTools: parseStrArr(r.allowed_tools),
+    mcpServers: parseStrArr(r.mcp_servers),
+    skills: parseStrArr(r.skills),
+    prompt: String(r.prompt),
+    source: r.source as SubAgentDef['source'],
+    enabled: r.enabled === 1,
+  }
 }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────
