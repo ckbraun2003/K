@@ -25,6 +25,7 @@ import { db, pipelineDb } from './db.js'
 import { autonomySettings } from './config-store.js'
 import { budgetGate } from './budget-governor.js'
 import { dispatchStage, markSkips, maybeFinalizePipeline, type PipelineRunRow } from './pipeline-engine.js'
+import { broadcastPipelineUpdate } from './pipeline-views.js'
 import type { PipelineStageRow } from './pipeline-executor.js'
 
 const DEFAULT_PIPELINE_INTERVAL_MS = 3_000
@@ -58,6 +59,7 @@ export async function drainPipelines(): Promise<number> {
       // A5: dead-branch untaken / unreachable pending stages to a fixpoint BEFORE readiness, so a
       // skipped stage never dispatches and readiness/finalize see the settled skip state.
       markSkips(run.id)
+      let dispatchedThisPipeline = 0
       const ready = pipelineDb.listReadyStages.all({ pid: run.id }) as PipelineStageRow[]
       for (const stage of ready) {
         // Agent (paid, model-driven) stages re-check the measured budget + the global
@@ -73,6 +75,7 @@ export async function drainPipelines(): Promise<number> {
         try {
           await dispatchStage(run, stage)
           dispatched++
+          dispatchedThisPipeline++
         } catch (err) {
           // A dispatch throw must never crash the drain: the claimed stage is settled failed
           // (never left stranded 'dispatched') and the loop degrades.
@@ -84,6 +87,10 @@ export async function drainPipelines(): Promise<number> {
         }
       }
       maybeFinalizePipeline(run.id)
+      // C2: nudge the live DAG once per pass that dispatched a stage (dispatched/running flips).
+      // Pipeline FINALIZE is broadcast separately via the onPipelineTerminal boot listener
+      // (startPipelineUpdateBroadcast), so the engine writers stay uncoupled from the WS.
+      if (dispatchedThisPipeline > 0) broadcastPipelineUpdate(run.id, null)
     }
     return dispatched
   } finally {

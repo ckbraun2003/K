@@ -24,6 +24,7 @@ import { chiefRoutes } from './routes/chief.js'
 import { orchestratorsRoutes } from './routes/orchestrators.js'
 import { profilesRoutes } from './routes/profiles.js'
 import { workflowsRoutes } from './routes/workflows.js'
+import { pipelinesRoutes } from './routes/pipelines.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
 import { modelsRoutes } from './routes/models.js'
@@ -66,6 +67,7 @@ import { startBudgetBroadcast } from './budget-governor.js'
 import { startBacklogRelay } from './backlog-relay.js'
 import { startPipelineScheduler } from './pipeline-scheduler.js'
 import { startPipelineDispatchRelay } from './pipeline-dispatch-relay.js'
+import { startPipelineUpdateBroadcast } from './pipeline-views.js'
 import { reconcilePipelines } from './pipeline-engine.js'
 import { continuePipelineOutcomeToK } from './k-thread.js'
 import { startSelfHeal } from './self-heal.js'
@@ -124,6 +126,7 @@ let stopPipelineScheduler: (() => void) | undefined
 let stopPipelineDispatchRelay: (() => void) | undefined
 // Unregister fn for the C1 pipeline→K report-back (a global engine terminal listener).
 let stopPipelineOutcomeToK: (() => void) | undefined
+let stopPipelineUpdateBroadcast: (() => void) | undefined
 // Same, for the E-04 run-verify engine (terminal-'done' → recipe battery; W0 stub).
 let stopRunVerify: (() => void) | null = null
 // Same, for the E-19 notification engine (rules-gated run/verify → notifications; W0 stub).
@@ -198,6 +201,7 @@ export async function buildApp() {
   await app.register(orchestratorsRoutes)
   await app.register(profilesRoutes)
   await app.register(workflowsRoutes)
+  await app.register(pipelinesRoutes)
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
   await app.register(modelsRoutes)
@@ -370,6 +374,7 @@ export async function buildApp() {
     stopPipelineScheduler?.()
     stopPipelineDispatchRelay?.()
     stopPipelineOutcomeToK?.()
+    stopPipelineUpdateBroadcast?.()
     stopSelfHeal?.()
     stopLessonProposals?.()
     stopArtifactScan?.()
@@ -576,6 +581,11 @@ async function start() {
   // finishes, appends its outcome onto the delegating K thread. Inert unless a pipeline linked to a
   // K delegation reaches terminal.
   stopPipelineOutcomeToK = continuePipelineOutcomeToK()
+  // C2 pipeline_update WS: broadcast the refreshed run view when a pipeline reaches terminal
+  // (onPipelineTerminal), so the live DAG's finalize is on the wire without coupling the engine
+  // writers to the WS. Stage dispatch/gate/rewind/cancel transitions broadcast from the scheduler
+  // + routes; this covers the finalize. Inert unless a pipeline runs.
+  stopPipelineUpdateBroadcast = startPipelineUpdateBroadcast()
   // E-18 self-healing runs: on a terminal FAILED org/auto run, classify and (if the operator
   // enabled Autonomy + Self-heal, budget permitting) retry with a model fallback, else park an
   // Inbox proposal. Inert until autonomy is enabled; subscribes to the run-update bus.

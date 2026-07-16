@@ -74,6 +74,15 @@ const bumpStageRetryCount = db.prepare(`UPDATE pipeline_stages SET retry_count =
 // statement (the backlog-relay precedent) so db.ts's W0 pipelineDb bundle stays frozen.
 const markStageSkipped = db.prepare(`UPDATE pipeline_stages SET status = 'skipped', updated_at = @updatedAt WHERE id = @id AND status = 'pending'`)
 
+// Rewind-to-stage (C2 operator retry): reset a stage to a clean 'pending' slate — drop the linked
+// run + its handoff/exit/failure columns + started_at/completed_at. Applied to the target AND its
+// transitive downstream closure. Local prepared statement (the backlog-relay precedent) so db.ts's
+// W0 pipelineDb bundle stays frozen.
+const rewindResetStage = db.prepare(`UPDATE pipeline_stages SET status = 'pending', run_id = NULL, result_commit = NULL, exit_code = NULL, failure_class = NULL, started_at = NULL, completed_at = NULL, updated_at = @updatedAt WHERE id = @id`)
+// The rewind TARGET additionally resets retry_count so a manual retry starts a fresh ladder
+// (downstream stages keep theirs — they were pending/skipped, i.e. already 0).
+const rewindResetTargetRetry = db.prepare(`UPDATE pipeline_stages SET retry_count = 0, updated_at = @updatedAt WHERE id = @id`)
+
 const STAGE_TERMINAL = new Set(['passed', 'failed', 'skipped'])
 
 // ── pipeline terminal callback (C1) ─────────────────────────────────────────────
@@ -512,6 +521,64 @@ export function insertGate(pipelineRunId: string, beforeStageKey: string, opts: 
     return gateId
   })
   return tx()
+}
+
+// ── operator rewind / retry (C2) ────────────────────────────────────────────────────────
+
+/** The set of stage keys reachable from `startKey` following from→to edges, INCLUDING startKey.
+ *  Cycle-safe (visited set). Sink pseudo-keys (`done`) are kept in the set but never match a real
+ *  stage row, so they are harmless. */
+function downstreamClosure(startKey: string, edges: PipelineEdgeRow[]): Set<string> {
+  const adj = new Map<string, string[]>()
+  for (const e of edges) {
+    if (e.from_stage_key == null) continue
+    const list = adj.get(e.from_stage_key) ?? []
+    list.push(e.to_stage_key)
+    adj.set(e.from_stage_key, list)
+  }
+  const seen = new Set<string>([startKey])
+  const stack = [startKey]
+  while (stack.length) {
+    const cur = stack.pop()!
+    for (const next of adj.get(cur) ?? []) {
+      if (!seen.has(next)) { seen.add(next); stack.push(next) }
+    }
+  }
+  return seen
+}
+
+/**
+ * OPERATOR-triggered rewind/retry (C2): reset `stageKey` AND every stage transitively DOWNSTREAM
+ * of it to a clean 'pending' slate (drop run_id / result_commit / exit_code / failure_class /
+ * timestamps; the target also resets retry_count), then — if the pipeline had already finalized —
+ * reopen it to 'running' so the scheduler re-drives from the reset stage on its next tick. This is
+ * operator-initiated (no loop budget — distinct from the DEFERRED automatic repair-loop back-edge);
+ * the manual "retry a failed stage" action is a rewind AT that stage. One atomic transaction.
+ * Throws PipelineConflictError (the route maps to 404) for an unknown pipeline or stage.
+ */
+export function rewindPipelineToStage(pipelineRunId: string, stageKey: string): void {
+  const tx = db.transaction((): void => {
+    const run = pipelineDb.getPipelineRun.get(pipelineRunId) as PipelineRunRow | undefined
+    if (!run) throw new PipelineConflictError(`rewindPipelineToStage: no pipeline ${pipelineRunId}`)
+    const stages = pipelineDb.listStagesForPipeline.all(pipelineRunId) as PipelineStageRow[]
+    const target = stages.find(s => s.stage_key === stageKey)
+    if (!target) throw new PipelineConflictError(`rewindPipelineToStage: no stage '${stageKey}' in pipeline ${pipelineRunId}`)
+
+    const edges = pipelineDb.listEdges.all(pipelineRunId) as PipelineEdgeRow[]
+    const toReset = downstreamClosure(stageKey, edges) // includes the target itself
+
+    const now = Date.now()
+    for (const s of stages) {
+      if (!toReset.has(s.stage_key)) continue
+      rewindResetStage.run({ id: s.id, updatedAt: now })
+      if (s.stage_key === stageKey) rewindResetTargetRetry.run({ id: s.id, updatedAt: now })
+    }
+    // Reopen a finalized pipeline (a still-running one is left running); clear completed_at.
+    if (run.status !== 'running') {
+      pipelineDb.updatePipelineStatus.run({ id: pipelineRunId, status: 'running', updatedAt: now, completedAt: null })
+    }
+  })
+  tx()
 }
 
 // ── status writers (one place to keep the completed_at/updated_at bookkeeping) ──────────
