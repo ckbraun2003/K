@@ -4,37 +4,46 @@ import CapabilityStatRow from '../components/CapabilityStatRow'
 import CatalogTab from './skills/CatalogTab'
 import McpTab from './skills/McpTab'
 import HooksTab from './skills/HooksTab'
-import AutomationsTab from './skills/AutomationsTab'
 
-// The Skills destination (wave C2) — ONE sidebar entry, four routed tabs:
-//   #/skills             → Catalog (default): the unified capability catalog (D-069)
-//   #/skills/mcp         → MCP servers with trust gating (D-070)
-//   #/skills/hooks       → host-hook visibility (read-only by scope decision)
-//   #/skills/automations → the pre-existing K automation registry, verbatim
+// The Catalog destination (orchestration-p2 Task B.4, renamed from SkillsPage) —
+// one Agents-hub tab, routed sub-tabs:
+//   #/agents/catalog          → Skills (default): the unified capability catalog (D-069)
+//   #/agents/catalog/mcp      → MCP servers with trust gating (D-070)
+//   #/agents/catalog/hooks    → host-hook visibility (read-only by scope decision)
+// A 4th "Sub Agents" tab (the editable worker-bee registry) is added by Task B.5.
+//
+// The old 4th "Automations" sub-tab (the pre-catalog K automation registry —
+// skills/hooks/workflows with schedule/event triggers) is RETIRED from Catalog
+// by the IA redesign (design §2.3): it was the "workflow-skills surface", and
+// its routes now redirect into the top-level Automations tab (route.ts) rather
+// than a Catalog sub-tab. Its standalone component (skills/AutomationsTab.tsx)
+// is left in place — not deleted here — since it still has its own dedicated
+// test files and Lane C's Task C.4 migrates its data/affordances into the new
+// Automations surface's Schedules pane.
+//
 // Tabs follow ProjectWorkspace's tablist pattern (roles + arrow-key nav); the
 // CapabilityStatRow renders above every tab so context cost is always in view.
 
 const TABS = [
-  { id: 'catalog', label: 'Catalog', param: undefined },
+  { id: 'skills', label: 'Skills', param: undefined },
   { id: 'mcp', label: 'MCP', param: 'mcp' },
   { id: 'hooks', label: 'Hooks', param: 'hooks' },
-  { id: 'automations', label: 'Automations', param: 'automations' },
 ] as const
 
 type TabId = typeof TABS[number]['id']
 
-/** Route param → tab. No/unknown param lands on the Catalog (the default view). */
+/** Route param → tab. No/unknown param lands on the Skills tab (the default view). */
 function tabFromParam(param: string | undefined): TabId {
   const hit = TABS.find(t => t.param === param)
-  return hit ? hit.id : 'catalog'
+  return hit ? hit.id : 'skills'
 }
 
-export default function SkillsPage({ tab }: { tab?: string }) {
+export default function CatalogPage({ tab }: { tab?: string }) {
   const activeTab = tabFromParam(tab)
 
   const goTab = (id: TabId) => {
     const def = TABS.find(t => t.id === id)!
-    navigate('agents', 'skills', def.param)
+    navigate('agents', 'catalog', def.param)
   }
 
   return (
@@ -42,7 +51,7 @@ export default function SkillsPage({ tab }: { tab?: string }) {
       {/* ── Tab bar (canonical Tabs — E-30) ───────────────────────────────── */}
       <div className="border-b border-border bg-surface px-4 py-2">
         <Tabs<TabId>
-          ariaLabel="Skills"
+          ariaLabel="Catalog"
           items={TABS.map(t => ({ value: t.id, label: t.label }))}
           value={activeTab}
           onChange={goTab}
@@ -65,10 +74,9 @@ export default function SkillsPage({ tab }: { tab?: string }) {
           >
             {t.id === activeTab && (
               <>
-                {t.id === 'catalog' && <CatalogTab />}
+                {t.id === 'skills' && <CatalogTab />}
                 {t.id === 'mcp' && <McpTab />}
                 {t.id === 'hooks' && <HooksTab />}
-                {t.id === 'automations' && <AutomationsTab />}
               </>
             )}
           </div>

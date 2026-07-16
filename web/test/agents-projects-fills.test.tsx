@@ -56,7 +56,7 @@ vi.mock('../src/lib/api', () => ({
 
 // AgentsPage's own children — probe 1 only locks the tab BAR label, never
 // their bodies (each already has its own dedicated test file).
-vi.mock('../src/pages/SkillsPage', () => ({ default: () => <div data-testid="skills-page-mock" /> }))
+vi.mock('../src/pages/CatalogPage', () => ({ default: () => <div data-testid="catalog-page-mock" /> }))
 vi.mock('../src/pages/runs/WorkflowsView', () => ({ default: () => <div data-testid="workflows-view-mock" /> }))
 // OrgPage itself stays REAL for probe 2 (the autonomy chip lives on it) — only
 // its own leaf views are mocked, mirroring org-page.test.tsx.
@@ -113,7 +113,7 @@ afterEach(() => cleanup())
 describe('Impressive Wave Task 10 Step 7 — verification probes', () => {
   it('1. AgentsPage renders an "Automations" tab, never "Pipelines"', () => {
     withQuery(<AgentsPage />)
-    const tab = screen.getByTestId('tab-pipelines')
+    const tab = screen.getByTestId('tab-automations')
     expect(tab.textContent).toBe('Automations')
     expect(tab.textContent).not.toBe('Pipelines')
   })

@@ -1,9 +1,16 @@
 /**
- * SkillsPage (wave C2) — the four-tab Skills destination. Locks: deep links
- * render the right tab, no/unknown param defaults to the Catalog, the
- * CapabilityStatRow renders on EVERY tab with honest summary figures, tab
- * clicks navigate (hash-routed, not local state), and the extracted
- * AutomationsTab still presents the pre-catalog affordances (regression lock).
+ * CatalogPage (orchestration-p2 Task B.4, renamed from SkillsPage) — the Catalog
+ * destination under the Agents hub. Locks: deep links render the right tab,
+ * no/unknown param defaults to the Skills tab, the CapabilityStatRow renders on
+ * EVERY tab with honest summary figures, and tab clicks navigate (hash-routed,
+ * not local state).
+ *
+ * The old 4th "Automations" sub-tab (the pre-catalog skill/hook/workflow-with-
+ * triggers registry) is RETIRED from Catalog by the orchestration-p2 IA redesign
+ * (design §2.3: "their routes redirect into Automations") — it is not re-tested
+ * here; its standalone component still has its own dedicated test files
+ * (skills-history-empty/e11-sweep/routines-ui.test.tsx import it directly).
+ * A 4th "Sub Agents" tab is added on top of this file by Task B.5.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
@@ -47,13 +54,12 @@ vi.mock('../src/lib/api', () => ({
     },
     skills: { list: mockSkillsList, evals: vi.fn().mockResolvedValue([]), runs: vi.fn().mockResolvedValue([]) },
     projects: { list: mockProjectsList },
-    // E-16 — the automations tab (extracted AutomationsTab) unconditionally loads routines.
     routines: { list: mockRoutinesList, parseCron: mockParseCron },
   },
 }))
 vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
 
-import SkillsPage from '../src/pages/SkillsPage'
+import CatalogPage from '../src/pages/CatalogPage'
 
 const summary: CapabilitySummary = {
   skills: { enabledCount: 3, estTokens: 12_000, unestimatedCount: 1 },
@@ -72,7 +78,7 @@ function renderPage(tab?: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <SkillsPage tab={tab} />
+      <CatalogPage tab={tab} />
     </QueryClientProvider>,
   )
 }
@@ -89,25 +95,25 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 
-describe('SkillsPage — routed tabs', () => {
-  it('defaults to the Catalog tab with no param', async () => {
+describe('CatalogPage — routed tabs', () => {
+  it('defaults to the Skills tab with no param', async () => {
     renderPage(undefined)
-    expect(screen.getByTestId('tab-catalog').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('tab-skills').getAttribute('aria-selected')).toBe('true')
     await screen.findByText(/Capability catalog/)
   })
 
-  it('an unknown param also lands on the Catalog (no dead route)', () => {
+  it('an unknown param also lands on the Skills tab (no dead route)', () => {
     renderPage('nonsense')
-    expect(screen.getByTestId('tab-catalog').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('tab-skills').getAttribute('aria-selected')).toBe('true')
   })
 
-  it('deep link #/skills/mcp renders the MCP tab', async () => {
+  it('deep link #/agents/catalog/mcp renders the MCP tab', async () => {
     renderPage('mcp')
     expect(screen.getByTestId('tab-mcp').getAttribute('aria-selected')).toBe('true')
     await screen.findByText(/MCP servers ·/)
   })
 
-  it('deep link #/skills/hooks renders the read-only hooks view + scope banner', async () => {
+  it('deep link #/agents/catalog/hooks renders the read-only hooks view + scope banner', async () => {
     renderPage('hooks')
     expect(screen.getByTestId('tab-hooks').getAttribute('aria-selected')).toBe('true')
     expect(screen.getByTestId('hooks-info-banner').textContent).toContain(
@@ -115,20 +121,12 @@ describe('SkillsPage — routed tabs', () => {
     )
   })
 
-  it('deep link #/skills/automations renders the extracted automation registry', async () => {
-    renderPage('automations')
-    expect(screen.getByTestId('tab-automations').getAttribute('aria-selected')).toBe('true')
-    // Regression-locked affordances from the pre-catalog SkillsPage body:
-    await screen.findByText(/Skills · 0 registered/)
-    expect(screen.getByText('+ add skill')).toBeTruthy()
-  })
-
   it('clicking a tab NAVIGATES (hash-routed), rather than flipping local state', () => {
     renderPage(undefined)
     fireEvent.click(screen.getByTestId('tab-mcp'))
-    expect(mockNavigate).toHaveBeenCalledWith('agents', 'skills', 'mcp')
-    fireEvent.click(screen.getByTestId('tab-catalog'))
-    expect(mockNavigate).toHaveBeenCalledWith('agents', 'skills', undefined)
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'catalog', 'mcp')
+    fireEvent.click(screen.getByTestId('tab-skills'))
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'catalog', undefined)
   })
 
   it('exposes the tablist pattern (roles)', () => {
@@ -141,8 +139,8 @@ describe('SkillsPage — routed tabs', () => {
   })
 })
 
-describe('SkillsPage — CapabilityStatRow on every tab', () => {
-  it.each([undefined, 'mcp', 'hooks', 'automations'] as const)(
+describe('CatalogPage — CapabilityStatRow on every tab', () => {
+  it.each([undefined, 'mcp', 'hooks'] as const)(
     'renders the stat strip on tab param %s',
     async tabParam => {
       renderPage(tabParam)
