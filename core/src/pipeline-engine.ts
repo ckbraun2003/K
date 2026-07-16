@@ -76,6 +76,38 @@ const markStageSkipped = db.prepare(`UPDATE pipeline_stages SET status = 'skippe
 
 const STAGE_TERMINAL = new Set(['passed', 'failed', 'skipped'])
 
+// ── pipeline terminal callback (C1) ─────────────────────────────────────────────
+//
+// A pipeline is MULTI-run (many supervised stage runs), so there is no single
+// trackSupervisedRun terminal to ride the way a lead/Chief report-back does. This
+// engine-level callback is the terminal seam instead: maybeFinalizePipeline fires it
+// exactly once — right after it transitions a pipeline to completed/failed — and the K
+// report-back (k-thread.ts::continuePipelineOutcomeToK) is the sole production listener,
+// joining a K-delegated pipeline's outcome back onto its durable thread.
+
+type PipelineTerminalListener = (pipelineRunId: string, status: 'completed' | 'failed') => void
+const pipelineTerminalListeners = new Set<PipelineTerminalListener>()
+
+/** Register a listener invoked once each time a pipeline reaches a terminal status
+ *  (completed | failed) via maybeFinalizePipeline. Returns an unregister fn (mirrors the
+ *  EventBus subscribe shape) so a boot wiring can be torn down / a test can clean up. */
+export function onPipelineTerminal(listener: PipelineTerminalListener): () => void {
+  pipelineTerminalListeners.add(listener)
+  return () => pipelineTerminalListeners.delete(listener)
+}
+
+/** Fan a terminal transition out to every registered listener. Each is isolated so a throwing
+ *  listener can never propagate into (and abort) the finalize that emitted it. */
+function emitPipelineTerminal(pipelineRunId: string, status: 'completed' | 'failed'): void {
+  for (const listener of pipelineTerminalListeners) {
+    try {
+      listener(pipelineRunId, status)
+    } catch (err) {
+      console.warn(`[pipeline-engine] terminal listener threw for ${pipelineRunId}:`, err)
+    }
+  }
+}
+
 /** A stage's frozen retry policy (StageDef.retry). A malformed / absent spec → the schema
  *  defaults (maxAttempts 1 = no retry), so a bad spec fails CLOSED rather than retry-storming. */
 function parseRetryPolicy(spec: string): RetryPolicy {
@@ -376,12 +408,12 @@ export function maybeFinalizePipeline(pipelineRunId: string): void {
   const unhandledFailure = stages.some(s => s.status === 'failed' && !hasFailOutEdge(s.stage_key))
   const anyPending = stages.some(s => s.status === 'pending') // guard — markSkips should have cleared these
   const now = Date.now()
-  pipelineDb.updatePipelineStatus.run({
-    id: pipelineRunId,
-    status: unhandledFailure || anyPending ? 'failed' : 'completed',
-    updatedAt: now,
-    completedAt: now,
-  })
+  const finalStatus: 'completed' | 'failed' = unhandledFailure || anyPending ? 'failed' : 'completed'
+  pipelineDb.updatePipelineStatus.run({ id: pipelineRunId, status: finalStatus, updatedAt: now, completedAt: now })
+  // Notify the terminal listeners AFTER the status write commits (the C1 K report-back joins the
+  // outcome to its delegating thread). The `run.status !== 'running'` guard above makes this fire
+  // exactly once per pipeline — a later tick that re-enters returns before reaching here.
+  emitPipelineTerminal(pipelineRunId, finalStatus)
 }
 
 /**

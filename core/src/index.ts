@@ -65,7 +65,9 @@ import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
 import { startBudgetBroadcast } from './budget-governor.js'
 import { startBacklogRelay } from './backlog-relay.js'
 import { startPipelineScheduler } from './pipeline-scheduler.js'
+import { startPipelineDispatchRelay } from './pipeline-dispatch-relay.js'
 import { reconcilePipelines } from './pipeline-engine.js'
+import { continuePipelineOutcomeToK } from './k-thread.js'
 import { startSelfHeal } from './self-heal.js'
 import { startLessonProposals } from './lesson-proposals.js'
 import { getProject, listProjects, warnStaleProjectPaths } from './projects.js'
@@ -118,6 +120,10 @@ let stopBudgetBroadcast: (() => void) | undefined
 let stopBacklogRelay: (() => void) | undefined
 // Same, for the D-119 pipeline scheduler (drains running pipelines' ready stages; PIPELINE_SCHEDULER=0).
 let stopPipelineScheduler: (() => void) | undefined
+// Same, for the C1 pipeline-dispatch relay (drains the child-recorded delegate_pipeline queue; PIPELINE_DISPATCH_RELAY=0).
+let stopPipelineDispatchRelay: (() => void) | undefined
+// Unregister fn for the C1 pipeline→K report-back (a global engine terminal listener).
+let stopPipelineOutcomeToK: (() => void) | undefined
 // Same, for the E-04 run-verify engine (terminal-'done' → recipe battery; W0 stub).
 let stopRunVerify: (() => void) | null = null
 // Same, for the E-19 notification engine (rules-gated run/verify → notifications; W0 stub).
@@ -362,6 +368,8 @@ export async function buildApp() {
     stopBudgetBroadcast?.()
     stopBacklogRelay?.()
     stopPipelineScheduler?.()
+    stopPipelineDispatchRelay?.()
+    stopPipelineOutcomeToK?.()
     stopSelfHeal?.()
     stopLessonProposals?.()
     stopArtifactScan?.()
@@ -560,6 +568,14 @@ async function start() {
   // D-119 pipeline scheduler: drain running pipelines' ready stages on an interval (budget +
   // concurrency gated for agent stages). Inert until a pipeline is running. Opt out: PIPELINE_SCHEDULER=0.
   stopPipelineScheduler = startPipelineScheduler()
+  // C1 pipeline-dispatch relay: drain the DB-backed delegate_pipeline intent queue in this long-lived
+  // process (so a delegated pipeline's scheduler + report-back outlive the ephemeral MCP child that
+  // recorded it). Inert until a pipeline is delegated. Opt out: PIPELINE_DISPATCH_RELAY=0.
+  stopPipelineDispatchRelay = startPipelineDispatchRelay()
+  // C1 pipeline→K report-back: a GLOBAL engine terminal listener that, when a delegated pipeline
+  // finishes, appends its outcome onto the delegating K thread. Inert unless a pipeline linked to a
+  // K delegation reaches terminal.
+  stopPipelineOutcomeToK = continuePipelineOutcomeToK()
   // E-18 self-healing runs: on a terminal FAILED org/auto run, classify and (if the operator
   // enabled Autonomy + Self-heal, budget permitting) retry with a model fallback, else park an
   // Inbox proposal. Inert until autonomy is enabled; subscribes to the run-update bus.

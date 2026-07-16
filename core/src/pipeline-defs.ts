@@ -50,6 +50,25 @@ export interface InstantiateOptions {
   title?: string
   /** The workflow_definitions template this was instantiated from (loose ref, no FK). */
   definitionId?: string | null
+  /** C1 (delegate_pipeline `model`): a pipeline-wide model override applied to every agent /
+   *  hook-agent stage that pins NO model of its own, so an operator can run a whole pipeline on a
+   *  chosen model. It rides the SAME StageDef.model → executor seam a per-stage model uses (no
+   *  executor/engine change). A stage with an explicit model keeps it; a non-agent stage is
+   *  unaffected. Absent → each stage's own model governs — byte-identical to today. */
+  model?: string | null
+}
+
+/** Apply a pipeline-wide model override onto an agent / hook-agent stage that pins no model of
+ *  its own (C1). A stage that already names a model, or any non-agent stage, is returned
+ *  unchanged. Returns a shallow-cloned StageDef so the resolved spec object is never mutated in
+ *  place; `model == null` is a no-op passthrough so a modelless dispatch is byte-identical. */
+function applyModelOverride(stage: StageDef, model: string | null | undefined): StageDef {
+  if (model == null) return stage
+  if (stage.kind === 'agent' && stage.model == null) return { ...stage, model }
+  if (stage.kind === 'hook' && stage.hook.type === 'agent' && stage.hook.model == null) {
+    return { ...stage, hook: { ...stage.hook, model } }
+  }
+  return stage
 }
 
 /**
@@ -74,15 +93,18 @@ export function instantiatePipeline(spec: PipelineSpec, opts: InstantiateOptions
   })
 
   for (const stage of spec.stages) {
+    // A pipeline-wide model override (C1) is baked into each modelless agent/hook-agent stage's
+    // stored spec here, so the executor picks it up per-stage via its existing StageDef.model read.
+    const staged = applyModelOverride(stage, opts.model)
     pipelineDb.insertStage.run({
       id: randomUUID(),
       pipelineRunId,
-      stageKey: stage.id,
-      kind: stage.kind,
-      profileId: stageProfileId(stage),
-      spec: JSON.stringify(stage),
+      stageKey: staged.id,
+      kind: staged.kind,
+      profileId: stageProfileId(staged),
+      spec: JSON.stringify(staged),
       baseCommit: null, // computed per-edge at dispatch (pipeline-handoff.ts)
-      repairStageKey: stage.repair?.toStage ?? null,
+      repairStageKey: staged.repair?.toStage ?? null,
       createdAt: now,
       updatedAt: now,
     })
