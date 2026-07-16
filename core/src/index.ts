@@ -53,6 +53,7 @@ import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.
 import { syncHostDiscovery } from './host-discovery.js'
 import { seedProfiles } from './profiles.js'
 import { seedWorkflowDefinitions } from './workflow-defs.js'
+import { seedPipelineSpecs } from './pipeline-seeds.js'
 import { seedEvalSystems } from './eval/store.js'
 import { ensureHarnessBibleRegistered } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
@@ -516,6 +517,7 @@ async function start() {
   }
   seedProfiles()      // ensure the durable agent-org profiles (K, Chief, orchestrator + leads) exist
   seedWorkflowDefinitions() // ensure the built-in named workflow templates (code-wave, investigate, refactor) exist
+  seedPipelineSpecs() // evolve those templates into executable pipeline specs (workflow_definitions.spec); preserves operator edits
   // Seed the eval registry (testing/eval/* → eval_* tables) so the Evals surface has systems to run.
   // Idempotent; guarded so a missing/garbled testing/eval/ dir logs and continues rather than aborting boot.
   try {

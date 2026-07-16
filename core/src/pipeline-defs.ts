@@ -19,8 +19,8 @@
 
 import { randomUUID } from 'crypto'
 import { execFileSync } from 'child_process'
-import { PipelineSpecSchema, type PipelineSpec, type StageDef } from '@k/shared'
-import { pipelineDb } from './db.js'
+import { PipelineSpecSchema, namedWorkflowToPipeline, type PipelineSpec, type StageDef } from '@k/shared'
+import { pipelineDb, workflowDefsDb, rowToNamedWorkflow } from './db.js'
 
 /** Snapshot `cwd`'s HEAD as the pipeline's base_commit. FAIL-CLOSED: a non-git cwd (or a
  *  repo with no commits) throws, so a pipeline is never instantiated against a tree the
@@ -102,20 +102,32 @@ export function instantiatePipeline(spec: PipelineSpec, opts: InstantiateOptions
   return pipelineRunId
 }
 
+/**
+ * Resolve a workflow_definitions ROW into a runnable PipelineSpec (B1). A seeded row carries an
+ * executable `spec` (JSON PipelineSpec) → parse it; a legacy NamedWorkflow row has a NULL spec →
+ * LAZILY compile it into a single-orchestrator PipelineSpec (namedWorkflowToPipeline). Both paths
+ * validate through PipelineSpecSchema so a malformed/legacy row fails loudly rather than half-runs.
+ */
+export function rowToPipelineSpec(row: Record<string, unknown>): PipelineSpec {
+  const spec = row.spec
+  if (spec != null) {
+    let raw: unknown
+    try { raw = JSON.parse(String(spec)) } catch { throw new Error(`rowToPipelineSpec: definition '${String(row.id)}' spec is not valid JSON`) }
+    return PipelineSpecSchema.parse(raw)
+  }
+  // No executable spec → faithfully lift the legacy NamedWorkflow (one orchestrator stage).
+  return namedWorkflowToPipeline(rowToNamedWorkflow(row))
+}
+
 /** Resolve a PipelineSpec from either a stored workflow definition id or a spec object
- *  passed directly. A stored spec is JSON in workflow_definitions.spec; both paths validate
- *  through PipelineSpecSchema so a malformed/legacy row fails loudly rather than half-runs. */
+ *  passed directly. A stored definition resolves through rowToPipelineSpec (seeded spec OR a
+ *  lazily-compiled legacy NamedWorkflow); a direct object validates through PipelineSpecSchema —
+ *  so a malformed/legacy row fails loudly rather than half-runs. */
 function resolveSpec(pipelineIdOrSpec: string | PipelineSpec): PipelineSpec {
   if (typeof pipelineIdOrSpec !== 'string') return PipelineSpecSchema.parse(pipelineIdOrSpec)
-  const row = pipelineDb.getDefSpec.get(pipelineIdOrSpec) as { spec?: string | null } | undefined
+  const row = workflowDefsDb.getWorkflowDefRow.get(pipelineIdOrSpec) as Record<string, unknown> | undefined
   if (!row) throw new Error(`startPipelineRun: no workflow definition '${pipelineIdOrSpec}'`)
-  if (row.spec == null) {
-    // Lazy compilation of a legacy NamedWorkflow → PipelineSpec lands in Lane B (B1).
-    throw new Error(`startPipelineRun: definition '${pipelineIdOrSpec}' has no executable spec yet`)
-  }
-  let raw: unknown
-  try { raw = JSON.parse(row.spec) } catch { throw new Error(`startPipelineRun: definition '${pipelineIdOrSpec}' spec is not valid JSON`) }
-  return PipelineSpecSchema.parse(raw)
+  return rowToPipelineSpec(row)
 }
 
 /**
