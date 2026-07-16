@@ -2735,6 +2735,9 @@ const setStageRun = db.prepare(`UPDATE pipeline_stages SET run_id = @runId, base
 const markStagePassed = db.prepare(`UPDATE pipeline_stages SET status = 'passed', result_commit = @resultCommit, exit_code = @exitCode, cost_usd = @costUsd, updated_at = @updatedAt, completed_at = @completedAt WHERE id = @id`)
 const markStageFailed = db.prepare(`UPDATE pipeline_stages SET status = 'failed', failure_class = @failureClass, exit_code = @exitCode, cost_usd = @costUsd, updated_at = @updatedAt, completed_at = @completedAt WHERE id = @id`)
 const markStageAwaitingGate = db.prepare(`UPDATE pipeline_stages SET status = 'awaiting_gate', updated_at = @updatedAt WHERE id = @id`)
+// Single-resolver gate CAS (A5): approve→passed / reject→failed, but ONLY while still parked
+// (status='awaiting_gate') — changes===0 means it was already resolved (the HTTP layer 409s).
+const resolveGateStage = db.prepare(`UPDATE pipeline_stages SET status = @next, gate_resolved_by = @by, gate_note = @note, completed_at = @now, updated_at = @now WHERE id = @id AND status = 'awaiting_gate'`)
 
 // pipeline_edges — the materialized DAG (from_stage_key NULL = an entry edge).
 const insertEdge = db.prepare(`
@@ -2745,33 +2748,50 @@ const listEdges = db.prepare(`SELECT * FROM pipeline_edges WHERE pipeline_run_id
 // Ready-detection reads a target's incoming edges (a stage is ready iff every incoming
 // edge's `from` stage is passed).
 const listIncomingEdges = db.prepare(`SELECT * FROM pipeline_edges WHERE pipeline_run_id = @pipelineRunId AND to_stage_key = @toStageKey`)
+// Dynamic gate insertion (A5): repoint every edge that TARGETED beforeStage so it now targets
+// the freshly-inserted gate. The gate→beforeStage edge is inserted AFTER this runs, so it is
+// never itself repointed (no gate→gate self-loop).
+const repointEdgesTo = db.prepare(`UPDATE pipeline_edges SET to_stage_key = @gateKey WHERE pipeline_run_id = @pid AND to_stage_key = @beforeKey`)
 
-// DAG ready-detection (Lane A / A3). AND-join semantics: a `pending` stage is READY iff
-// every incoming edge with when_cond IN ('always','pass') has its `from` stage passed,
-// AND it is reachable — i.e. it has ≥1 such incoming edge OR no inbound edge at all (the
-// entry). fail/repair edges are IGNORED here (A4/A5 route those explicitly), so a stage
-// reachable ONLY by a fail/repair edge stays pending until routed. The claim CAS
-// (claimStage) still gates the actual dispatch, so an overlapping drain can't double-fire.
+// DAG ready-detection (Lane A / A3 + A5 fail-activation). A `pending` stage is READY iff ANY
+// of three disjuncts holds (the frozen A5 truth table):
+//   • ENTRY          — it has no real inbound edge; OR
+//   • AND-JOIN       — it has ≥1 incoming when_cond IN ('always','pass') edge AND every such
+//                      edge's `from` stage is passed; OR
+//   • FAIL-ACTIVATION — it has ≥1 incoming when_cond='fail' edge whose `from` stage failed.
+// A `repair` edge NEVER activates readiness in Phase 1 (repair-LOOP back-edges deferred). Dead /
+// untaken pending stages are flipped to 'skipped' by markSkips BEFORE this runs, so they never
+// match here. The claim CAS (claimStage) still gates the dispatch, so an overlapping drain can't
+// double-fire.
 const listReadyStages = db.prepare(`
   SELECT s.* FROM pipeline_stages s
   WHERE s.pipeline_run_id = @pid AND s.status = 'pending'
-    AND NOT EXISTS (
-      SELECT 1 FROM pipeline_edges e
-      JOIN pipeline_stages fs ON fs.pipeline_run_id = e.pipeline_run_id AND fs.stage_key = e.from_stage_key
-      WHERE e.pipeline_run_id = s.pipeline_run_id AND e.to_stage_key = s.stage_key
-        AND e.from_stage_key IS NOT NULL AND e.when_cond IN ('always','pass')
-        AND fs.status != 'passed'
-    )
     AND (
-      EXISTS (
-        SELECT 1 FROM pipeline_edges ep
-        WHERE ep.pipeline_run_id = s.pipeline_run_id AND ep.to_stage_key = s.stage_key
-          AND ep.from_stage_key IS NOT NULL AND ep.when_cond IN ('always','pass')
+      NOT EXISTS (
+        SELECT 1 FROM pipeline_edges e0
+        WHERE e0.pipeline_run_id = s.pipeline_run_id AND e0.to_stage_key = s.stage_key
+          AND e0.from_stage_key IS NOT NULL
       )
-      OR NOT EXISTS (
-        SELECT 1 FROM pipeline_edges ea
-        WHERE ea.pipeline_run_id = s.pipeline_run_id AND ea.to_stage_key = s.stage_key
-          AND ea.from_stage_key IS NOT NULL
+      OR (
+        EXISTS (
+          SELECT 1 FROM pipeline_edges ep
+          WHERE ep.pipeline_run_id = s.pipeline_run_id AND ep.to_stage_key = s.stage_key
+            AND ep.from_stage_key IS NOT NULL AND ep.when_cond IN ('always','pass')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM pipeline_edges e
+          JOIN pipeline_stages fs ON fs.pipeline_run_id = e.pipeline_run_id AND fs.stage_key = e.from_stage_key
+          WHERE e.pipeline_run_id = s.pipeline_run_id AND e.to_stage_key = s.stage_key
+            AND e.from_stage_key IS NOT NULL AND e.when_cond IN ('always','pass')
+            AND fs.status != 'passed'
+        )
+      )
+      OR EXISTS (
+        SELECT 1 FROM pipeline_edges ef
+        JOIN pipeline_stages ffs ON ffs.pipeline_run_id = ef.pipeline_run_id AND ffs.stage_key = ef.from_stage_key
+        WHERE ef.pipeline_run_id = s.pipeline_run_id AND ef.to_stage_key = s.stage_key
+          AND ef.from_stage_key IS NOT NULL AND ef.when_cond = 'fail'
+          AND ffs.status = 'failed'
       )
     )
 `)
@@ -2807,9 +2827,9 @@ export const pipelineDb = {
   insertPipelineRun, getPipelineRun, listRunningPipelines, updatePipelineStatus,
   // pipeline_stages
   insertStage, getStage, getStageByRunId, listStagesForPipeline, claimStage,
-  setStageRun, markStagePassed, markStageFailed, markStageAwaitingGate,
+  setStageRun, markStagePassed, markStageFailed, markStageAwaitingGate, resolveGateStage,
   // pipeline_edges
-  insertEdge, listEdges, listIncomingEdges, listReadyStages,
+  insertEdge, listEdges, listIncomingEdges, listReadyStages, repointEdgesTo,
   // pipeline_dispatches
   insertPipelineDispatch, listPendingPipelineDispatches, getPipelineDispatch,
   claimPipelineDispatch, setPipelineDispatchRun, markPipelineDispatchFailed,
@@ -2817,8 +2837,6 @@ export const pipelineDb = {
   setDefSpec, getDefSpec,
   // hook_definitions
   insertHook, listHooks, getHook, setHookTrusted, setHookEnabled,
-  // TODO(Lane A): repointEdgesTo (dynamic gate insertion re-point, A5), resolveGateStage
-  //   (single-resolver gate CAS, A5).
 }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────

@@ -24,8 +24,9 @@
  * finalizes 'failed' once it quiesces.
  */
 
+import { randomUUID, createHash } from 'crypto'
 import { db, pipelineDb, runsDb } from './db.js'
-import { RetryPolicySchema, type RetryPolicy } from '@k/shared'
+import { RetryPolicySchema, StageDefSchema, type RetryPolicy } from '@k/shared'
 import { resolveBaseCommit, mergeBranches, type PipelineEdgeRow } from './pipeline-handoff.js'
 import { WorktreeStageExecutor, type StageExecutor, type StageContext, type StageDispatchResult, type PipelineStageRow } from './pipeline-executor.js'
 import { trackSupervisedRun, isTerminalRunStatus } from './run-lifecycle.js'
@@ -67,6 +68,11 @@ const stampStageBase = db.prepare(`UPDATE pipeline_stages SET base_commit = @bas
 // Increment a stage's retry_count on a retry-in-place (A4). Local prepared statement (the
 // backlog-relay precedent) so db.ts's W0 pipelineDb bundle stays frozen.
 const bumpStageRetryCount = db.prepare(`UPDATE pipeline_stages SET retry_count = @retryCount, updated_at = @updatedAt WHERE id = @id`)
+
+// Dead-branch a pending stage whose activation is now impossible (A5 markSkips). CAS-guarded on
+// status='pending' so it never clobbers an in-flight / already-terminal stage. Local prepared
+// statement (the backlog-relay precedent) so db.ts's W0 pipelineDb bundle stays frozen.
+const markStageSkipped = db.prepare(`UPDATE pipeline_stages SET status = 'skipped', updated_at = @updatedAt WHERE id = @id AND status = 'pending'`)
 
 const STAGE_TERMINAL = new Set(['passed', 'failed', 'skipped'])
 
@@ -283,15 +289,76 @@ export function onStageRunTerminal(stageId: string, runStatus: string): void {
 }
 
 /**
- * Finalize a pipeline once it QUIESCES — no stage in-flight (dispatched/running), no gate
- * parked (A5 resolves those, so a parked gate keeps the pipeline 'running'), and nothing
- * ready to dispatch. A quiesced pipeline with any failed OR any stranded-pending stage (a
- * downstream whose predecessor failed, so it can never become ready — A3 has no repair) is
- * 'failed'; otherwise 'completed'. Idempotent — only a 'running' pipeline is transitioned.
+ * Skip-propagation (A5) — flip every `pending` stage whose activation is now IMPOSSIBLE to
+ * 'skipped', to a fixpoint (a newly-skipped stage can dead-en its own successors). Runs each
+ * scheduler tick BEFORE readiness/dispatch, and inside maybeFinalizePipeline so a caller that
+ * did not pre-run it (reconcilePipelines) still finalizes correctly.
+ *
+ * A pending stage S with ≥1 real incoming edge is DEAD (→ skipped) iff, letting P = its incoming
+ * edges with when IN ('always','pass') and F = its incoming edges with when IN ('fail','repair'):
+ *   • P non-empty AND some e∈P has a terminal-and-NOT-passed source (failed|skipped) — an
+ *     AND-join predecessor can never all-pass; OR
+ *   • P empty AND F non-empty AND EVERY e∈F has a terminal-and-NOT-failed source (passed|skipped)
+ *     — a fail-only stage whose fail branches were all NOT taken can never fail-activate.
+ * An entry stage (no real incoming edge) is never skipped. `awaiting_gate` is NOT terminal, so a
+ * stage below an unresolved gate stays pending until the gate resolves.
+ */
+export function markSkips(pipelineRunId: string): void {
+  const stages = pipelineDb.listStagesForPipeline.all(pipelineRunId) as PipelineStageRow[]
+  const edges = pipelineDb.listEdges.all(pipelineRunId) as PipelineEdgeRow[]
+  const statusByKey = new Map(stages.map(s => [s.stage_key, s.status]))
+  const incomingByKey = new Map<string, PipelineEdgeRow[]>()
+  for (const e of edges) {
+    if (e.from_stage_key == null) continue // an entry edge has no source
+    const list = incomingByKey.get(e.to_stage_key) ?? []
+    list.push(e)
+    incomingByKey.set(e.to_stage_key, list)
+  }
+
+  const terminalNotPassed = (e: PipelineEdgeRow): boolean => {
+    const st = statusByKey.get(e.from_stage_key!)
+    return st === 'failed' || st === 'skipped'
+  }
+  const terminalNotFailed = (e: PipelineEdgeRow): boolean => {
+    const st = statusByKey.get(e.from_stage_key!)
+    return st === 'passed' || st === 'skipped'
+  }
+
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const s of stages) {
+      if (statusByKey.get(s.stage_key) !== 'pending') continue
+      const incoming = incomingByKey.get(s.stage_key) ?? []
+      if (incoming.length === 0) continue // entry — never skipped
+      const P = incoming.filter(e => e.when_cond === 'always' || e.when_cond === 'pass')
+      const F = incoming.filter(e => e.when_cond === 'fail' || e.when_cond === 'repair')
+      const dead =
+        (P.length > 0 && P.some(terminalNotPassed)) ||
+        (P.length === 0 && F.length > 0 && F.every(terminalNotFailed))
+      if (dead) {
+        markStageSkipped.run({ id: s.id, updatedAt: Date.now() })
+        statusByKey.set(s.stage_key, 'skipped') // fixpoint — this may dead-en successors next pass
+        changed = true
+      }
+    }
+  }
+}
+
+/**
+ * Finalize a pipeline once it QUIESCES — SKIP-AWARE (A5). markSkips runs first (dead-branching
+ * untaken/unreachable pending stages), then: quiesced = no stage dispatched/running/awaiting_gate
+ * AND nothing ready to dispatch (a parked gate keeps the pipeline 'running' — A5 resolves it). A
+ * quiesced pipeline is 'failed' iff a `failed` stage has NO out-edge when IN ('fail','repair') —
+ * an UNHANDLED dead-end failure — OR a `pending` stage remains (a guard; markSkips should have
+ * cleared it). `skipped` is NEUTRAL. This replaces the A3 any-stranded-pending heuristic that
+ * mis-failed a successful pipeline whose untaken gate/fail branch was left 'pending'. Idempotent —
+ * only a 'running' pipeline is transitioned.
  */
 export function maybeFinalizePipeline(pipelineRunId: string): void {
   const run = pipelineDb.getPipelineRun.get(pipelineRunId) as PipelineRunRow | undefined
   if (!run || run.status !== 'running') return
+  markSkips(pipelineRunId)
   const stages = pipelineDb.listStagesForPipeline.all(pipelineRunId) as PipelineStageRow[]
   if (stages.length === 0) return
 
@@ -300,13 +367,18 @@ export function maybeFinalizePipeline(pipelineRunId: string): void {
   if (inFlight || awaitingGate) return
   if ((pipelineDb.listReadyStages.all({ pid: pipelineRunId }) as PipelineStageRow[]).length > 0) return
 
-  // Quiesced: no more progress is possible on this tick's DAG.
-  const anyFailed = stages.some(s => s.status === 'failed')
-  const anyStranded = stages.some(s => s.status === 'pending') // unreachable now (upstream failed)
+  // Quiesced: no more progress is possible on this tick's DAG. A failed stage is HANDLED iff it
+  // has a fail/repair out-edge (the fail branch proceeds — A5 forward routing); an unhandled
+  // failed stage (or a leftover pending stage) fails the pipeline. Skipped stages are neutral.
+  const edges = pipelineDb.listEdges.all(pipelineRunId) as PipelineEdgeRow[]
+  const hasFailOutEdge = (key: string): boolean =>
+    edges.some(e => e.from_stage_key === key && (e.when_cond === 'fail' || e.when_cond === 'repair'))
+  const unhandledFailure = stages.some(s => s.status === 'failed' && !hasFailOutEdge(s.stage_key))
+  const anyPending = stages.some(s => s.status === 'pending') // guard — markSkips should have cleared these
   const now = Date.now()
   pipelineDb.updatePipelineStatus.run({
     id: pipelineRunId,
-    status: anyFailed || anyStranded ? 'failed' : 'completed',
+    status: unhandledFailure || anyPending ? 'failed' : 'completed',
     updatedAt: now,
     completedAt: now,
   })
@@ -346,6 +418,68 @@ export function reconcilePipelines(): void {
     }
     maybeFinalizePipeline(run.id)
   }
+}
+
+// ── gates (A5): resolve a park + insert one dynamically ─────────────────────────────────
+
+/** A guard-violation the HTTP layer (Lane C) maps to 409 Conflict — e.g. inserting a gate
+ *  before a stage that has already left 'pending'. Named for recognizability across the seam. */
+export class PipelineConflictError extends Error {}
+
+/**
+ * Resolve a parked gate stage (A5) — single-resolver CAS. approve→passed, reject→failed, applied
+ * ONLY while the stage is still 'awaiting_gate'. Returns true when THIS call resolved it; false
+ * when it was already resolved (a lost race — the HTTP layer 409s). On approve the pass branch
+ * proceeds next scheduler tick; on reject the fail branch (if any) fail-activates, else the
+ * skip-aware finalize fails the pipeline (an unhandled dead-end). K / a risk signal can call this
+ * programmatically with the same contract.
+ */
+export function resolveGate(stageId: string, decision: 'approve' | 'reject', by: string, note?: string): boolean {
+  const next = decision === 'approve' ? 'passed' : 'failed'
+  const res = pipelineDb.resolveGateStage.run({ id: stageId, next, by, note: note ?? null, now: Date.now() })
+  return res.changes === 1
+}
+
+/**
+ * Insert a manual gate stage IMMEDIATELY BEFORE `beforeStageKey` at runtime (A5) — one atomic
+ * transaction: guard the target still 'pending' (else a PipelineConflictError the route 409s),
+ * insert a fresh kind='gate' stage, REPOINT every edge that targeted the stage onto the gate, then
+ * wire gate→beforeStage (share-tree / when='pass'). The gate parks next tick; on approve the
+ * original stage proceeds. The synthetic stage_key is a deterministic hash of the inputs (NO
+ * Math.random/Date), so it is stable + collision-free across repeated inserts (the stage count
+ * salts it). Returns the new gate stage id.
+ */
+export function insertGate(pipelineRunId: string, beforeStageKey: string, opts: { label?: string; by: string }): string {
+  const tx = db.transaction((): string => {
+    const stages = pipelineDb.listStagesForPipeline.all(pipelineRunId) as PipelineStageRow[]
+    const before = stages.find(s => s.stage_key === beforeStageKey)
+    if (!before) throw new PipelineConflictError(`insertGate: no stage '${beforeStageKey}' in pipeline ${pipelineRunId}`)
+    if (before.status !== 'pending') {
+      throw new PipelineConflictError(`insertGate: stage '${beforeStageKey}' is '${before.status}', not pending — cannot insert a gate before it`)
+    }
+    // Deterministic, collision-free key: hash(pipeline + target + current stage count). The count
+    // salts repeated inserts before the same target so each gets a distinct key.
+    const gateKey = 'gate-' + createHash('sha1').update(`${pipelineRunId}:${beforeStageKey}:${stages.length}`).digest('hex').slice(0, 8)
+    const label = opts.label ?? `Approve before ${beforeStageKey}`
+    // Canonicalize a minimal manual-gate StageDef (defaults filled) so the stored spec validates
+    // exactly like an authored one when the executor re-parses it.
+    const gateSpec = StageDefSchema.parse({ kind: 'gate', id: gateKey, label, gate: { mode: 'manual' } })
+    const gateId = randomUUID()
+    const now = Date.now()
+    pipelineDb.insertStage.run({
+      id: gateId, pipelineRunId, stageKey: gateKey, kind: 'gate', profileId: null,
+      spec: JSON.stringify(gateSpec), baseCommit: null, repairStageKey: null, createdAt: now, updatedAt: now,
+    })
+    // Order matters: repoint the target's incoming edges onto the gate FIRST, then add the
+    // gate→target edge (so the new edge is not itself repointed into a gate→gate self-loop).
+    pipelineDb.repointEdgesTo.run({ pid: pipelineRunId, gateKey, beforeKey: beforeStageKey })
+    pipelineDb.insertEdge.run({
+      id: randomUUID(), pipelineRunId, fromStageKey: gateKey, toStageKey: beforeStageKey,
+      handoff: 'share-tree', whenCond: 'pass',
+    })
+    return gateId
+  })
+  return tx()
 }
 
 // ── status writers (one place to keep the completed_at/updated_at bookkeeping) ──────────

@@ -4,8 +4,9 @@
  * (drainPipelines) plus a start/stop wiring fn (startPipelineScheduler) with an env opt-out
  * and an unref'd interval so the loop never keeps the process alive.
  *
- * Per running pipeline, per tick: list the READY pending stages (listReadyStages — AND-join
- * of always/pass predecessors); for each, gate an AGENT stage on the measured budget
+ * Per running pipeline, per tick: dead-branch untaken/unreachable pending stages (markSkips,
+ * A5), then list the READY pending stages (listReadyStages — AND-join of always/pass predecessors
+ * OR a fail-activated stage whose fail source failed); for each, gate an AGENT stage on the budget
  * (budgetGate) + a global in-flight concurrency cap (autonomySettings.maxConcurrency), then
  * atomically CLAIM it (pending→dispatched; changes===0 ⇒ another drain won, skip) and
  * dispatchStage it. After the ready sweep, maybeFinalizePipeline retires a quiesced pipeline.
@@ -23,7 +24,7 @@
 import { db, pipelineDb } from './db.js'
 import { autonomySettings } from './config-store.js'
 import { budgetGate } from './budget-governor.js'
-import { dispatchStage, maybeFinalizePipeline, type PipelineRunRow } from './pipeline-engine.js'
+import { dispatchStage, markSkips, maybeFinalizePipeline, type PipelineRunRow } from './pipeline-engine.js'
 import type { PipelineStageRow } from './pipeline-executor.js'
 
 const DEFAULT_PIPELINE_INTERVAL_MS = 3_000
@@ -54,6 +55,9 @@ export async function drainPipelines(): Promise<number> {
     let dispatched = 0
     const maxConcurrency = autonomySettings().maxConcurrency
     for (const run of pipelineDb.listRunningPipelines.all() as PipelineRunRow[]) {
+      // A5: dead-branch untaken / unreachable pending stages to a fixpoint BEFORE readiness, so a
+      // skipped stage never dispatches and readiness/finalize see the settled skip state.
+      markSkips(run.id)
       const ready = pipelineDb.listReadyStages.all({ pid: run.id }) as PipelineStageRow[]
       for (const stage of ready) {
         // Agent (paid, model-driven) stages re-check the measured budget + the global
