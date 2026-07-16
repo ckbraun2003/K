@@ -896,7 +896,15 @@ export const SCHEMA_VERSION = 15
  *  UPDATE THIS alongside every SCHEMA_VERSION bump — it must always name a column
  *  introduced by the CURRENT version (schema-v15.test.ts enforces this with a
  *  previous-generation fixture; extend that fixture on every future bump). */
-export const SCHEMA_SENTINEL = { table: 'pipeline_ledger', column: 'seq' } as const
+// MUST be a column that migrateSlow() ADDs (a guarded ALTER on an already-existing
+// table) — NOT a column on a table built by the unconditional db.exec DDL block
+// (line 22), which runs BEFORE migrate() on every open. A sentinel on such a table
+// (e.g. pipeline_ledger.seq) is created before migrate()'s check and can never be
+// absent, so a poisoned stamp (v15 stamped, guarded columns missing) would silently
+// fast-path past the heal. skills.pipeline_def_id is the LAST v15 migrateSlow ALTER
+// (its carrier table `skills` is unconditional, but the COLUMN is migrateSlow-added),
+// so its absence-despite-v15-stamp correctly proves the guarded scan didn't run.
+export const SCHEMA_SENTINEL = { table: 'skills', column: 'pipeline_def_id' } as const
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main

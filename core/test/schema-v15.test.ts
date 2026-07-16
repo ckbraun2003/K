@@ -76,9 +76,12 @@ function v14CompleteDb(): Database.Database {
 }
 
 describe('schema v15', () => {
-  it('is version 15 and the sentinel is a v15 column', () => {
+  it('is version 15 and the sentinel is a v15 migrateSlow-added column', () => {
     expect(SCHEMA_VERSION).toBe(15)
-    expect(SCHEMA_SENTINEL).toEqual({ table: 'pipeline_ledger', column: 'seq' })
+    // The sentinel MUST be a column migrateSlow() ADDs (guarded ALTER on an existing
+    // table), never a column on an unconditional-DDL table — see the SCHEMA_SENTINEL
+    // note in db.ts. skills.pipeline_def_id is the last v15 ALTER.
+    expect(SCHEMA_SENTINEL).toEqual({ table: 'skills', column: 'pipeline_def_id' })
   })
 
   it('adds the two v15 tables and the four v15 columns on the live test DB', () => {
@@ -104,7 +107,13 @@ describe('schema v15', () => {
     // Guard the guard: this fixture MUST already hold the OLD (v14) sentinel column — if
     // SCHEMA_SENTINEL still named runs.pipeline_stage_id, this poison would evade it.
     expect(cols(d, 'runs')).toContain('pipeline_stage_id')
-    expect(hasTable(d, SCHEMA_SENTINEL.table)).toBe(false) // pipeline_ledger doesn't exist yet
+    // The sentinel's carrier table (`skills`) IS present in the poison — exactly as the
+    // real app's unconditional db.exec DDL guarantees before migrate() runs — but its
+    // v15 column is absent. That carrier-present / column-absent shape is the real-world
+    // poison a sentinel on an unconditional-DDL table (e.g. pipeline_ledger.seq) could
+    // NOT catch: its carrier is created before migrate() so it's never absent.
+    expect(hasTable(d, SCHEMA_SENTINEL.table)).toBe(true)
+    expect(cols(d, SCHEMA_SENTINEL.table)).not.toContain(SCHEMA_SENTINEL.column)
     expect(cols(d, 'pipeline_stages')).not.toContain('iteration')
     expect(cols(d, 'pipeline_edges')).not.toContain('max_iterations')
     expect(cols(d, 'pipeline_runs')).not.toContain('owner_profile_id')
