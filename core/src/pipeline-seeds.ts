@@ -129,11 +129,15 @@ const REFACTOR_QUALITY_SCAFFOLD = [
 // ─── The 3 executable specs ──────────────────────────────────────────────────────
 
 /**
- * code-wave — the reference pipeline. implementer (retry ×2) fans OUT on `branch` to two
- * isolated review siblings, which fan IN on `merge` to the controller (a 3-way merge join of
- * both review trees); the controller's output passes a declarative review gate, then a
- * verify tail (retry ×2) runs the project's verifyRecipe before `done`. Forward routing only —
- * no repair back-edge (a rejected gate fails the pipeline; the operator re-runs).
+ * code-wave — the reference pipeline. implementer (retry ×2) fans OUT to two review siblings
+ * that each `share-tree` (fork at the implementer's result_commit, so both reviewers INHERIT the
+ * implementer's tree in isolation), which fan IN on `merge` to the controller (a 3-way merge join
+ * of both review trees); the controller's output passes a declarative review gate, then a verify
+ * tail (retry ×2) runs the project's verifyRecipe before `done`. Forward routing only — no repair
+ * back-edge (a rejected gate fails the pipeline; the operator re-runs).
+ *   NB: the reviewers use `share-tree` (fork at the UPSTREAM result), NOT `branch` (fork at the
+ *   PIPELINE BASE) — a code reviewer must see the implementer's changes. `branch` is reserved for
+ *   independent-from-clean-base parallel work, which no reference pipeline needs.
  */
 export const CODE_WAVE_SPEC: PipelineSpec = PipelineSpecSchema.parse({
   name: 'Code wave',
@@ -148,8 +152,8 @@ export const CODE_WAVE_SPEC: PipelineSpec = PipelineSpecSchema.parse({
     { kind: 'deterministic', id: 'verify', label: 'Verify', action: { type: 'verify' }, retry: { maxAttempts: 2 } },
   ],
   edges: [
-    { from: 'implementer', to: 'spec-review', handoff: 'branch', label: 'review' },
-    { from: 'implementer', to: 'quality-review', handoff: 'branch', label: 'review' },
+    { from: 'implementer', to: 'spec-review', handoff: 'share-tree', label: 'review' },
+    { from: 'implementer', to: 'quality-review', handoff: 'share-tree', label: 'review' },
     { from: 'spec-review', to: 'controller', handoff: 'merge', label: 'fixes' },
     { from: 'quality-review', to: 'controller', handoff: 'merge', label: 'fixes' },
     { from: 'controller', to: 'gate-reviews', handoff: 'share-tree' },

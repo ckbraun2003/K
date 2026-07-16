@@ -104,9 +104,12 @@ describe('B1 — reference specs are valid + Phase-1-safe', () => {
     expect(CODE_WAVE_SPEC.stages.map(s => s.id)).toEqual(
       ['implementer', 'spec-review', 'quality-review', 'controller', 'gate-reviews', 'verify'],
     )
-    // implementer branches to BOTH reviews; both reviews merge into the controller.
-    const branchTargets = CODE_WAVE_SPEC.edges.filter(e => e.from === 'implementer' && e.handoff === 'branch').map(e => e.to)
-    expect(branchTargets.sort()).toEqual(['quality-review', 'spec-review'])
+    // implementer fans out to BOTH reviews via share-tree (each reviewer inherits the
+    // implementer's tree — a code reviewer must see the changes); both reviews merge into the
+    // controller (fan-in join).
+    const fanOut = CODE_WAVE_SPEC.edges.filter(e => e.from === 'implementer')
+    expect(fanOut.map(e => e.to).sort()).toEqual(['quality-review', 'spec-review'])
+    expect(fanOut.every(e => e.handoff === 'share-tree')).toBe(true)
     const mergeSources = CODE_WAVE_SPEC.edges.filter(e => e.to === 'controller' && e.handoff === 'merge').map(e => e.from)
     expect(mergeSources.sort()).toEqual(['quality-review', 'spec-review'])
   })
@@ -114,6 +117,10 @@ describe('B1 — reference specs are valid + Phase-1-safe', () => {
 
 describe('B1 — seedPipelineSpecs', () => {
   it('b) idempotent — one workflow_definitions row per seed, spec byte-stable across a re-seed', () => {
+    // Start from a clean seed: the shared test DB may hold a spec an EARLIER code version seeded
+    // (seedPipelineSpecs writes only-when-NULL, so it never rewrites a stale one). Clearing the
+    // rows makes the stored spec reflect the CURRENT CODE_WAVE_SPEC for the round-trip assertion.
+    db.prepare(`DELETE FROM workflow_definitions WHERE id IN ('code-wave','investigate','refactor')`).run()
     seedPipelineSpecs()
     const countBefore = (db.prepare(
       `SELECT COUNT(*) AS n FROM workflow_definitions WHERE id IN ('code-wave','investigate','refactor')`,
