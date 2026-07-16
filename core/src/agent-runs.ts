@@ -63,6 +63,11 @@ export interface StartAgentRunOptions {
    *  tracked+staged changes instead of clean HEAD. Threaded verbatim to startRun;
    *  default false/absent → byte-identical clean-HEAD behavior. */
   carryWorkingTree?: boolean
+  /** D-119 (Pipeline Engine): fork the run's worktree at an explicit base commit
+   *  instead of clean HEAD — the per-edge handoff (share-tree/branch/merge) computes
+   *  it. Threaded verbatim to startRun, which enforces it is MUTUALLY EXCLUSIVE with
+   *  carryWorkingTree. Absent for every non-pipeline activation → unchanged behavior. */
+  baseCommit?: string
 }
 
 /** Map a terminal run status to an agent_runs status. done → completed; any other
@@ -137,6 +142,7 @@ export async function startAgentRun(
       interactive: opts.interactive,
       persistentSession: opts.persistentSession,
       carryWorkingTree: opts.carryWorkingTree,
+      baseCommit: opts.baseCommit,
       // E-02 (D-084): tier default — a plan_gate profile plan-gates its org dispatches,
       // but NEVER an interactive or persistent-session dispatch (those compose to the
       // startRun one-shot throw). Mirrors the routes/runs.ts interactive exemption.
