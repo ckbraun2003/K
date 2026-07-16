@@ -178,6 +178,7 @@ const EDGE_COLOR: Record<EdgeWhen, string> = {
   pass: 'var(--green)',
   fail: 'var(--red)',
   repair: 'var(--amber)',
+  loop: 'var(--accent)',
 }
 
 function isGate(stage: PipelineStageRun): boolean {
