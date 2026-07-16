@@ -939,6 +939,29 @@ export const PipelineHookSchema = z.discriminatedUnion('type', [
 ])
 export type PipelineHook = z.infer<typeof PipelineHookSchema>
 
+// ── Runtime hook-stage contract (B3) ─────────────────────────────────────────────
+// A hook-SCRIPT stage exchanges these over the child's stdin/stdout, mirroring the
+// run-internal `gitnexus-hook.cjs` shape but scoped to a pipeline stage. `HookContext`
+// (JSON on stdin) tells the script which stage/worktree it runs against; `HookResult`
+// (JSON on stdout) is the structured verdict the executor applies. Both are `.strict()`
+// so a mistyped field is rejected (the executor then falls back to the exit-code path).
+// No StageDefSchema union references these — they are a runtime wire contract, not
+// authoring input — but they live here beside the hook block they belong to.
+export const HookContextSchema = z.object({
+  hook_event_name: z.literal('PipelineStage'),
+  pipelineRunId: z.string(), stageId: z.string(), stageKey: z.string(),
+  cwd: z.string(), baseCommit: z.string().nullable(),
+}).strict()
+export type HookContext = z.infer<typeof HookContextSchema>
+
+export const HookResultSchema = z.object({
+  action: z.enum(['continue', 'gate', 'transform', 'inject']).default('continue'),
+  gate: z.object({ pass: z.boolean(), reason: z.string().max(2000).optional() }).optional(),
+  patch: z.string().max(200_000).optional(),            // unified diff (transform)
+  additionalContext: z.string().max(20_000).optional(), // inject (propagation DEFERRED — Phase 3)
+}).strict()
+export type HookResult = z.infer<typeof HookResultSchema>
+
 // Fields common to every stage kind — spread into each discriminated-union member.
 const stageCommon = {
   id:        STAGE_KEY,

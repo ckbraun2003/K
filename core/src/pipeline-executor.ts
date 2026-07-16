@@ -23,7 +23,7 @@ import { execa } from 'execa'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { StageDefSchema, type StageDef, type PipelineHook } from '@k/shared'
+import { StageDefSchema, HookResultSchema, type StageDef, type PipelineHook, type HookContext, type HookResult } from '@k/shared'
 import { startAgentRun } from './agent-runs.js'
 import { addDetachedWorktree, removeWorktreeWithRetry, runChildEnv } from './supervisor.js'
 import { createCheckpoint } from './checkpoints.js'
@@ -123,6 +123,19 @@ function parseStageDef(spec: string): StageDef | null {
   let raw: unknown
   try { raw = JSON.parse(spec) } catch { return null }
   const res = StageDefSchema.safeParse(raw)
+  return res.success ? res.data : null
+}
+
+/** Parse a hook script's stdout as a structured HookResult. Empty / non-JSON / schema-invalid
+ *  output → null, which the caller reads as "no structured verdict" and falls back to the
+ *  exit-code contract. The whole stdout is parsed as one JSON document (the gitnexus-hook shape:
+ *  a single JSON line), so a script that logs extra prose alongside is treated as malformed. */
+function parseHookResult(stdout: string): HookResult | null {
+  const trimmed = stdout.trim()
+  if (!trimmed) return null
+  let raw: unknown
+  try { raw = JSON.parse(trimmed) } catch { return null }
+  const res = HookResultSchema.safeParse(raw)
   return res.success ? res.data : null
 }
 
@@ -248,30 +261,101 @@ export class WorktreeStageExecutor implements StageExecutor {
     }
     if (def.hook.type === 'agent') {
       const profileId = ctx.stage.profile_id ?? def.hook.profileId
+      // AGENT hooks ride the supervised run lifecycle (terminal done → pass, else → fail).
+      // Parsing a structured HookResult out of the agent's own output is a follow-up.
       return this.dispatchSupervised(ctx, profileId, def.hook.promptScaffold, def.hook.model)
     }
     return this.dispatchHookScript(ctx, def.hook)
   }
 
-  /** A hook-SCRIPT stage. A1 minimal pass-through: run the script like a deterministic
-   *  command (HookContext on stdin), exit 0 → passed. TODO(Lane B): parse the stdout
-   *  HookResult and apply the continue|inject|transform|gate contract (§6). */
+  /**
+   * A hook-SCRIPT stage. The script runs in a throwaway worktree forked at base_commit
+   * (under the H-1-scrubbed env), reads a `HookContext` on stdin, and MAY emit a
+   * `HookResult` on stdout. The executor applies the structured verdict:
+   *   - continue  → passed, handoff = the (possibly hook-touched) tree snapshot;
+   *   - gate      → pass:true passed, pass:false failed (detail = reason; the engine routes
+   *                 it per the stage's fail-edge or fails the pipeline);
+   *   - transform → `git apply` the unified-diff patch (atomically; `--check` first, never a
+   *                 partial apply), then snapshot the patched tree → passed; apply failure → failed;
+   *   - inject    → passed; the `additionalContext` is RECORDED but NOT propagated to later
+   *                 stages — cross-stage injection is gated on the Phase-3 injection intelligence.
+   * A script that emits nothing (or malformed/schema-invalid JSON) FALLS BACK to the A1
+   * exit-code contract (exit 0 → passed, else failed) — a legacy pass-through script still works.
+   */
   private async dispatchHookScript(
     ctx: StageContext, hook: Extract<PipelineHook, { type: 'script' }>,
   ): Promise<StageDispatchResult> {
     try {
       return await this.inThrowawayWorktree(ctx, async (wt) => {
-        const hookCtx = JSON.stringify({ hook_event_name: 'PipelineStage', tool_name: null, tool_input: null, cwd: wt })
+        const hookCtx: HookContext = {
+          hook_event_name: 'PipelineStage',
+          pipelineRunId: ctx.pipelineRunId, stageId: ctx.stage.id, stageKey: ctx.stage.stage_key,
+          cwd: wt, baseCommit: ctx.baseCommit ?? null,
+        }
         const child = execa('node', [hook.file], {
-          cwd: wt, input: hookCtx, env: runChildEnv(process.env, {}),
+          cwd: wt, input: JSON.stringify(hookCtx), env: runChildEnv(process.env, {}),
           timeout: hook.timeoutSec * 1000, killSignal: 'SIGKILL', reject: false,
         })
-        const exitCode = await this.runChild(ctx.stage.id, child)
-        return { kind: 'settled', status: exitCode === 0 ? 'passed' : 'failed', exitCode }
+        const { exitCode, stdout } = await this.runChildResult(ctx.stage.id, child)
+
+        const result = parseHookResult(stdout)
+        // Absent/malformed HookResult → the backward-compatible exit-code path.
+        if (!result) {
+          return { kind: 'settled', status: exitCode === 0 ? 'passed' : 'failed', exitCode }
+        }
+        return this.applyHookResult(ctx, wt, result)
       })
     } catch (err) {
       return { kind: 'settled', status: 'failed', detail: `hook script failed: ${(err as Error).message}` }
     }
+  }
+
+  /** Apply a structured HookResult inside the stage's worktree `wt`. Only the two failure
+   *  actions (a rejecting gate, a non-applying patch) short-circuit; every passing action
+   *  funnels through one snapshot-then-pass tail so the handoff commit captures whatever the
+   *  hook left in the tree. */
+  private async applyHookResult(ctx: StageContext, wt: string, result: HookResult): Promise<StageDispatchResult> {
+    switch (result.action) {
+      case 'gate':
+        if (result.gate && !result.gate.pass) {
+          return { kind: 'settled', status: 'failed', detail: result.gate.reason ?? 'hook gate rejected' }
+        }
+        break // pass (or no gate object) → snapshot + pass below
+      case 'transform': {
+        const applied = await this.applyHookPatch(wt, result.patch)
+        if (!applied.ok) return { kind: 'settled', status: 'failed', detail: applied.detail }
+        break
+      }
+      case 'inject':
+        // TODO(Phase 3 injection): thread `additionalContext` into downstream stage prompts. For
+        // now it is recorded only — cross-stage injection is gated on the injection intelligence.
+        if (result.additionalContext) {
+          console.info(
+            `[pipeline-executor] hook inject (pipeline ${ctx.pipelineRunId}, stage ${ctx.stage.id}): ` +
+            `${result.additionalContext.length} chars recorded (propagation deferred to Phase 3)`,
+          )
+        }
+        break
+      case 'continue':
+      default:
+        break
+    }
+    const resultCommit = await this.snapshotHandoff(wt, ctx)
+    return { kind: 'settled', status: 'passed', resultCommit }
+  }
+
+  /** `git apply` a unified-diff `patch` atomically in the worktree. `git apply --check` first
+   *  (git apply is all-or-nothing; on a check failure we never touch the tree), then apply for
+   *  real. Returns the git error as the failure detail. The two git children are bounded by the
+   *  same STAGE_CMD_TIMEOUT as the hook body (matching snapshotHandoff's own git ops). */
+  private async applyHookPatch(wt: string, patch: string | undefined): Promise<{ ok: true } | { ok: false; detail: string }> {
+    if (!patch) return { ok: false, detail: 'transform hook returned no patch' }
+    const bounded = { input: patch, timeout: STAGE_CMD_TIMEOUT_MS, killSignal: 'SIGKILL' as const, reject: false as const }
+    const check = await execa('git', ['-C', wt, 'apply', '--check', '--whitespace=nowarn'], bounded)
+    if (check.exitCode !== 0) return { ok: false, detail: `patch does not apply: ${(check.stderr || '').trim()}` }
+    const applied = await execa('git', ['-C', wt, 'apply', '--whitespace=nowarn'], bounded)
+    if (applied.exitCode !== 0) return { ok: false, detail: `git apply failed: ${(applied.stderr || '').trim()}` }
+    return { ok: true }
   }
 
   // ── worktree / child helpers ────────────────────────────────────────────────────
@@ -282,16 +366,22 @@ export class WorktreeStageExecutor implements StageExecutor {
     return execa(run, { cwd, shell: true, env: runChildEnv(process.env, {}), timeout, killSignal: 'SIGKILL', reject: false })
   }
 
-  /** Register a child for cancel(), await it, return its exit code (killed/timed-out →
-   *  1, i.e. failed). Always de-registers. */
-  private async runChild(stageId: string, child: ReturnType<typeof execa>): Promise<number> {
+  /** Register a child for cancel(), await it (reject:false → it resolves even on a nonzero
+   *  exit / timeout-kill), return its exit code + captured stdout. killed/timed-out → exit 1
+   *  (i.e. failed). Always de-registers. */
+  private async runChildResult(stageId: string, child: ReturnType<typeof execa>): Promise<{ exitCode: number; stdout: string }> {
     this.inFlight.set(stageId, child)
     try {
       const res = await child
-      return res.exitCode ?? 1
+      return { exitCode: res.exitCode ?? 1, stdout: typeof res.stdout === 'string' ? res.stdout : '' }
     } finally {
       this.inFlight.delete(stageId)
     }
+  }
+
+  /** Exit code only — the deterministic/verify path never reads stdout. */
+  private async runChild(stageId: string, child: ReturnType<typeof execa>): Promise<number> {
+    return (await this.runChildResult(stageId, child)).exitCode
   }
 
   /** Snapshot the worktree as this stage's handoff commit (a checkpoint commit that
