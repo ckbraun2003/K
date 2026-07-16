@@ -870,6 +870,9 @@ export const RoutineViewSchema = z.object({
   id: z.string(), name: z.string(), enabled: z.boolean(), schedule: z.string(),
   nextRunAt: z.number().nullable(), lastRunAt: z.number().nullable(),
   runs: z.number().int(), totalCostUsd: z.number(),
+  // Task B.3: non-null when this routine targets a pipeline definition (workflow_definitions.id)
+  // instead of running as a plain skill — the operator-visible counterpart of skills.pipeline_def_id.
+  pipelineDefId: z.string().nullable(),
 })
 export type RoutineView = z.infer<typeof RoutineViewSchema>
 export const NlToCronBodySchema = z.object({ text: z.string().min(1).max(200) }).strict()
@@ -1766,6 +1769,11 @@ export const SkillSchema = z.object({
   triggerType: z.enum(['manual', 'schedule', 'event']),
   schedule: z.string().nullable().optional(),
   eventTrigger: z.string().nullable().optional(),
+  // Orchestration Program Phase 2 (Lane B Task B.3): a schedule-triggered skill (a
+  // "routine") may target a PIPELINE definition (workflow_definitions.id, loose ref, no
+  // FK) instead of running as a plain skill — the cron/scheduler firing path branches on
+  // this. null/omitted = the skill fires as a normal skill run (byte-identical to before).
+  pipelineDefId: z.string().nullable().optional(),
   enabled: z.boolean(),
   createdAt: z.number(),
 })
@@ -1803,6 +1811,9 @@ export const UpdateSkillSchema = z
     name: skillName.optional(),
     description: skillDescription.optional(),
     source: skillSource.optional(),
+    // Task B.3: set/clear the routine's pipeline target. null clears it (the skill reverts
+    // to firing as a plain skill run); omitted leaves the stored value untouched.
+    pipelineDefId: z.string().nullable().optional(),
   })
   .strict()
 export type UpdateSkill = z.infer<typeof UpdateSkillSchema>

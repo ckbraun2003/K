@@ -22,6 +22,7 @@ export async function routinesRoutes(app: FastifyInstance) {
           id: s.id, name: s.name, enabled: s.enabled === true,
           schedule: String(s.schedule), nextRunAt: nextRunAt(String(s.schedule)),
           lastRunAt, runs: runRows.length, totalCostUsd,
+          pipelineDefId: s.pipelineDefId ?? null,
         }
       })
     return reply.send(routines)
