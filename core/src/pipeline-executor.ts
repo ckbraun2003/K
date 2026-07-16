@@ -66,6 +66,11 @@ export interface StageContext {
   projectId: string | null
   cwd: string
   baseCommit: string | null
+  /** D-119 (A4): a retry-in-place model override. The engine's handleStageFailure passes the
+   *  fallback model here so a supervised (agent / hook-agent) retry re-dispatches on the
+   *  downgraded model; absent on a first dispatch (the StageDef's own model governs). Ignored
+   *  by deterministic / gate stages (zero-token — no model). */
+  modelOverride?: string
 }
 
 /** The outcome of dispatching a stage. `supervised` defers to the run lifecycle;
@@ -179,7 +184,9 @@ export class WorktreeStageExecutor implements StageExecutor {
       goal,
       projectId: ctx.projectId ?? undefined,
       cwd: ctx.cwd,
-      model: model ?? undefined,
+      // A4: a retry's fallback model (ctx.modelOverride) wins over the StageDef's model; a first
+      // dispatch has no override, so def.model governs.
+      model: (ctx.modelOverride ?? model) ?? undefined,
       baseCommit: ctx.baseCommit ?? undefined,
       planGate,
     })

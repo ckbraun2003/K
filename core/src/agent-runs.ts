@@ -152,9 +152,11 @@ export async function startAgentRun(
       // E-02 (D-084): tier default — a plan_gate profile plan-gates its org dispatches,
       // but NEVER an interactive or persistent-session dispatch (those compose to the
       // startRun one-shot throw). Mirrors the routes/runs.ts interactive exemption.
-      // D-119 (A3): an explicit per-stage opts.planGate override wins over the profile
-      // default (OR-ed); the interactive/persistent exemption is preserved.
-      planGate: (opts.planGate ?? (profile.planGate === true)) && !opts.interactive && !opts.persistentSession ? true : undefined,
+      // D-119 (A3, A4 NIT-fix): a per-stage opts.planGate is a true OR with the profile
+      // default — EITHER arming the plan park. (The prior `??` let opts.planGate:false
+      // SUPPRESS a plan_gate profile's gate — a latent footgun the A3 review flagged.) The
+      // interactive/persistent exemption is preserved.
+      planGate: ((opts.planGate === true) || (profile.planGate === true)) && !opts.interactive && !opts.persistentSession ? true : undefined,
     })
   } catch (e) {
     agentRunsDb.updateAgentRunStatus.run('failed', Date.now(), agentRunId)
