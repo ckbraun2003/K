@@ -107,7 +107,13 @@ describe('scanProjectArtifacts', () => {
 
 describe('path-escape rejection', () => {
   it('resolveScannedFile refuses any resolution outside the root', () => {
-    expect(resolveScannedFile('C:\\proj\\artifacts', '..\\evil.html')).toBeNull()
+    // Windows backslash-separator escape only parses as a traversal on win32
+    // (path.resolve on POSIX treats "C:\\proj\\artifacts" and "..\\evil.html" as
+    // literal, non-separator characters, so it never actually escapes there —
+    // the POSIX-separator case right below already proves the guard cross-platform).
+    if (process.platform === 'win32') {
+      expect(resolveScannedFile('C:\\proj\\artifacts', '..\\evil.html')).toBeNull()
+    }
     expect(resolveScannedFile('/proj/artifacts', '../evil.html')).toBeNull()
     expect(resolveScannedFile(artDir, 'ok.html')).toBe(path.resolve(artDir, 'ok.html'))
   })
