@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { MetricsTimeseries } from '@k/shared'
-import { stackDays, formatMetricValue, metricLabel, axisTickIndices, type Metric } from '../lib/chart'
+import { stackDays, formatMetricValue, metricLabel, axisTickIndices, tooltipLeftPct as clampTooltipLeftPct, type Metric } from '../lib/chart'
 import { EmptyState } from '../ui/EmptyState'
 
 // Recessive gridlines drawn behind the bars (SVG y is top-down; 20/40/60/80 = 80/60/40/20% of maxTotal).
@@ -50,10 +50,8 @@ export default function TimeseriesChart({ data, metric, height = 180 }: Props) {
   }), [data, metric, hoverIndex])
 
   // Clamped percentage-left position for the floating hover tooltip, so it never
-  // overflows the chart's left/right edge.
-  const tooltipLeftPct = hoverIndex !== null
-    ? Math.min(92, Math.max(8, n === 1 ? 50 : ((hoverIndex + 0.5) / n) * 100))
-    : 0
+  // overflows the chart's left/right edge (shared across every hover-enabled chart).
+  const tooltipLeftPct = hoverIndex !== null ? clampTooltipLeftPct(hoverIndex, n) : 0
 
   return (
     <div>

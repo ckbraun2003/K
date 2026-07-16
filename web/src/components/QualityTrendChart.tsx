@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { MetricsQualityTimeseries } from '@k/shared'
-import { qualityBars, qualityBarRenderHeight, axisTickIndices } from '../lib/chart'
+import { qualityBars, qualityBarRenderHeight, axisTickIndices, tooltipLeftPct } from '../lib/chart'
 import { EmptyState } from '../ui/EmptyState'
 
 // Recessive gridlines drawn behind the bars — same scale convention as TimeseriesChart.
@@ -34,6 +34,7 @@ function shortDate(d: string): string {
 export default function QualityTrendChart({ data, field, color, format, fixedMax, height = 120 }: Props) {
   const values = useMemo(() => data.points.map(p => p[field]), [data, field])
   const { bars, max } = useMemo(() => qualityBars(values, fixedMax), [values, fixedMax])
+  const [hover, setHover] = useState<number | null>(null)
   const n = data.dates.length
 
   // Most recent day carrying data → the headline value (skip trailing gap days).
@@ -67,42 +68,82 @@ export default function QualityTrendChart({ data, field, color, format, fixedMax
             <EmptyState icon="insights" headline="No runs in this window" />
           </div>
         ) : (
-          <svg
-            width="100%"
-            height={height}
-            viewBox={`0 0 ${viewW} 100`}
-            preserveAspectRatio="none"
-            role="img"
-            aria-label={`${field === 'successRate' ? 'Success rate' : 'Latency'} per day`}
-            className="block"
-          >
-            {/* recessive gridlines — drawn behind the bars */}
-            {GRIDLINE_YS.map(y => (
-              <line
-                key={y}
-                x1={0} y1={y} x2={viewW} y2={y}
-                stroke="var(--border)"
-                strokeOpacity={0.4}
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
-
-            {bars.map(b => {
-              // A null day is a GAP (no bar); a REAL value — incl. a genuine 0%/0ms day —
-              // gets a min-visible sliver so a total-failure day is not mistaken for a gap.
-              const h = qualityBarRenderHeight(b)
-              return h == null ? null : (
-                <rect
-                  key={b.index}
-                  x={b.index * 10 + 1.5}
-                  y={100 - h}
-                  width={barWidth}
-                  height={h}
-                  fill={color}
+          <div className="relative h-full w-full">
+            <svg
+              width="100%"
+              height={height}
+              viewBox={`0 0 ${viewW} 100`}
+              preserveAspectRatio="none"
+              role="img"
+              aria-label={`${field === 'successRate' ? 'Success rate' : 'Latency'} per day`}
+              className="block"
+              onMouseLeave={() => setHover(null)}
+            >
+              {/* recessive gridlines — drawn behind the bars */}
+              {GRIDLINE_YS.map(y => (
+                <line
+                  key={y}
+                  x1={0} y1={y} x2={viewW} y2={y}
+                  stroke="var(--border)"
+                  strokeOpacity={0.4}
+                  vectorEffect="non-scaling-stroke"
                 />
-              )
-            })}
-          </svg>
+              ))}
+
+              {bars.map(b => {
+                // A null day is a GAP (no bar); a REAL value — incl. a genuine 0%/0ms day —
+                // gets a min-visible sliver so a total-failure day is not mistaken for a gap.
+                const h = qualityBarRenderHeight(b)
+                return h == null ? null : (
+                  <rect
+                    key={b.index}
+                    x={b.index * 10 + 1.5}
+                    y={100 - h}
+                    width={barWidth}
+                    height={h}
+                    fill={color}
+                  />
+                )
+              })}
+
+              {/* hover overlay rects — one per day, gap days included (still hoverable) */}
+              {Array.from({ length: n }, (_, di) => (
+                <rect
+                  key={`overlay-${di}`}
+                  x={di * 10 + 1.5}
+                  y={0}
+                  width={barWidth}
+                  height={100}
+                  fill={hover === di ? 'rgba(255,255,255,0.04)' : 'transparent'}
+                  onMouseEnter={() => setHover(di)}
+                  style={{ cursor: 'crosshair' }}
+                />
+              ))}
+
+              {/* hover crosshair */}
+              {hover !== null && (
+                <line
+                  x1={hover * 10 + 5} y1={0}
+                  x2={hover * 10 + 5} y2={100}
+                  stroke="var(--border-strong)"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+            </svg>
+
+            {/* floating hover tooltip — gap days (value null) read "no data" */}
+            {hover !== null && (
+              <div
+                className="glass-overlay pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-control px-2 py-1"
+                style={{ left: `${tooltipLeftPct(hover, n)}%` }}
+              >
+                <div className="mono text-micro text-muted">{data.dates[hover]}</div>
+                <div className="mono tabular-nums text-caption text-text">
+                  {values[hover] == null ? 'no data' : format(values[hover] as number)}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 

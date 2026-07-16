@@ -59,6 +59,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Boot-level upgrade gate (DEH-FU-3): boot the real core against a COMMITTED
+  # poisoned-stamp DB (previous-generation shape, current user_version) and require
+  # the sentinel self-heal to fire. Catches module-level prepare crashes at import —
+  # the 2026-07-13 outage class — which migrate() unit tests cannot see.
+  upgrade-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node core/scripts/upgrade-smoke.mjs core/test/fixtures/poisoned-prev-gen.db
+        env:
+          K_SMOKE_EXPECT_POISON: '1'
+          K_SMOKE_PORT: '3299'
+
   # Non-gating: the rigorous-testing campaign's confirmed-fault quarantine.
   # Tests here are RED by design (one per open fault) and MUST NOT block merges —
   # `continue-on-error` keeps them visible without failing the required `ci` job.

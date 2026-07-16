@@ -98,7 +98,7 @@ const orgPayload: ChiefOrgPayload = {
 }
 
 const feedItems: FeedItem[] = [
-  { id: 'f1', kind: 'done', ts: Date.now() - 60_000, runId: 'run-1', runStatus: 'done', projectId: null, projectName: 'web', title: 'added focus ring to the cmd bar', detail: null },
+  { id: 'f1', kind: 'done', ts: Date.now() - 60_000, runId: 'run-1', runStatus: 'done', projectId: null, projectName: 'web', title: 'added focus ring to the cmd bar', detail: null, costUsd: 0.42 },
   { id: 'f2', kind: 'dispatch', ts: Date.now() - 120_000, runId: 'run-2', runStatus: 'running', projectId: null, projectName: 'core', title: 'auth refactor dispatched', detail: null },
 ]
 const feedPayload: FeedPayload = {
@@ -256,14 +256,13 @@ describe('widget catalog', () => {
     const text = (container.textContent ?? '').toLowerCase()
     expect(text).not.toContain('$/token')
     expect(text).not.toContain('est')
-    // The 14-day sparkline (Sparkline renders a bare <svg> even with 1 point, and a
-    // polyline once there are 2+ points — this fixture has 2 buckets).
-    const polylines = container.querySelectorAll('svg polyline')
-    expect(polylines.length).toBeGreaterThan(0)
-    // M-3: MetricCard renders with no `tone` (defaults to 'accent'), whose headline
-    // number is colored --accent-hover — the sparkline must match, not the brand
-    // --accent pink it used to default to regardless of tone.
-    expect(polylines[0].getAttribute('stroke')).toBe('var(--accent-hover)')
+    // Task 9 (impressive-wave-fe) replaced the MetricCard-driven polyline
+    // sparkline with a hand-rolled 14-day bar chart — one <rect> per bucket,
+    // var(--chart-1) fill, native <title> tooltips — so MetricCard itself is
+    // headline-only here now. This fixture has 2 buckets, so 2 bars render.
+    const bars = container.querySelectorAll('svg rect')
+    expect(bars.length).toBe(2)
+    expect(bars[0].getAttribute('fill')).toBe('var(--chart-1)')
   })
 
   it('CostTodayWidget: with no matching bucket for today, headline reads $0 (never a borrowed days total)', async () => {
@@ -373,9 +372,18 @@ describe('widget catalog', () => {
   it('RecentActivityWidget: renders feed rows; See all navigates to the timeline', async () => {
     renderWidget(<RecentActivityWidget />)
     expect(await screen.findAllByTestId('feed-row')).toHaveLength(2)
-    expect(mockFeedList).toHaveBeenCalledWith({ limit: 6 })
+    expect(mockFeedList).toHaveBeenCalledWith({ limit: 8 })
     fireEvent.click(screen.getByTestId('widget-recent-activity-seeall'))
     expect(mockNavigate).toHaveBeenCalledWith('timeline')
+  })
+
+  // INT.2 FE IN-1: a row carrying FeedItem.costUsd shows the billed-actuals cost column;
+  // a row with no costUsd (e.g. a non-run feed item) renders none.
+  it('RecentActivityWidget: renders a cost column only for feed rows carrying costUsd', async () => {
+    renderWidget(<RecentActivityWidget />)
+    const costCells = await screen.findAllByTestId('feed-row-cost')
+    expect(costCells).toHaveLength(1)
+    expect(costCells[0].textContent).toBe('$0.42')
   })
 
   it('RecentActivityWidget: a feed fetch failure surfaces the error state, never a fake "No recent activity."', async () => {

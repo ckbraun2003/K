@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-07-13
+updated: 2026-07-14
 ---
 
 ## Running locally
@@ -25,8 +25,12 @@ pnpm dev                     # both in parallel
   version before its migration exists (see the poisoned-stamp incident under Schema migrations).
 - Before merging anything that touches `core/src/db.ts`, run `pnpm smoke:upgrade`
   (`core/scripts/upgrade-smoke.mjs`) — it copies the real dev DB to a temp dir, boots the merged core
-  against the copy on port 3299, and polls `/api/runs` + `/api/profiles`, proving the **upgrade**
-  path boots (not just a fresh install).
+  against the copy on port 3299 (override: `K_SMOKE_PORT`), and polls `/api/runs` + `/api/profiles`,
+  proving the **upgrade** path boots (not just a fresh install).
+- `pnpm --filter @k/core seed:review-demo` — dev-only 3-file checkpoint-diff fixture (BE-6): seeds a
+  throwaway `seed-review-demo` project + a completed run with a real 2-wave k-checkpoint chain so the
+  Changes surface / DiffViewer renders a genuine multi-file diff without paying for a dispatch.
+  Idempotent (re-run replaces); never runs at boot.
 
 ## Environment (`core/.env`)
 
@@ -61,17 +65,19 @@ recon finding that the Claude default model was an env-frozen `const` read once 
 | SQLite (runs, events, artifacts, projects, verification) | `data/k.db` (WAL) | no |
 | Harness bearer token (first-run generated secret) | `data/auth-token` (0600, gitignored) | no |
 | Shipped agent-config assets (D2) | `agent-config/` (base prompt, tier charters, vendored gitnexus skills/hook) | yes |
-| Bible source | `artifacts/bible/` | no — gitignored K-system dir (same in every project) |
-| Compiled bible | `artifacts/project-bible.html` | no (generated) |
-| Other artifacts | `artifacts/*.md` (+ generated `.html`) | no — gitignored K-system dir |
+| Bible source | `artifacts/bible/` | **K's own repo: yes — tracked** (manifest + sections are the living spec, edited by the section editor). Managed projects: gitignored by the onboard scaffold |
+| Compiled bible | `artifacts/project-bible.html` | **yes — tracked** (recompiled on request/merge and committed alongside section edits; tracked since e903f5c) |
+| Other artifacts | `artifacts/*.md` (+ generated `.html`) | mixed — K's own `ui-demo.html` is tracked (boot-regenerated, deterministic); scratch `.md` artifacts and scanned loose HTML are working files, not deliverables |
 | Task tracker | `tasks/todo.md`, `tasks/lessons.md` | no — gitignored K-system dir |
 | Per-run synthesized config dir (D3) | `<dataDir>/agent-runs/<runId>/config/` | no — ephemeral, gitignored, swept on boot |
 | Run worktrees | `.worktrees/<runId>` git worktrees, pruned after run | no — `.worktrees/` gitignored (P5.7) |
 | Cloned workspaces | workspace/ | no |
 
-`artifacts/` and `tasks/` are **K-system directories** — the same hidden, gitignored names in every
-managed project (`onboard.ts ensureGitignore` adds them); bibles scaffold into `artifacts/bible/`.
-K's own bible therefore lives on-disk as a living spec and is **not** under version control.
+`artifacts/` and `tasks/` are **K-system directories** in *managed projects* — `onboard.ts
+ensureGitignore` hides them there so agent scratch output never dirties a project's history. K's
+OWN repo is the exception by design: the bible sources, the compiled `project-bible.html`, and
+`ui-demo.html` are **git-tracked deliverables** (this section, its HTML, and the demo ship with
+the repo), while `tasks/` stays untracked. When in doubt, `git ls-files artifacts/` is the truth.
 
 **`data/k.db` is a dev database** — disposable test/dev data only, never personal data; the only
 registered project is the K repo itself (`jarvis-core` → the repo root). Treat it as expendable: if
@@ -89,6 +95,12 @@ it needs wiping to recover from a bad state, wipe it.
   edit IS the source and survives every recompile. Editing the *combined* markdown of a bible slug is
   rejected (`400` → the section editor), and a project-bible save stays in the project's own dir
   (never K's `ARTIFACTS_DIR`, never clobbering the row's `html_path`).
+- **Artifact scan (D-117, model in §05).** Loose top-level `<localPath>/artifacts/*.html` an agent
+  drops mid-run are registered as `origin='scanned'` gallery entries by `core/src/artifact-scan.ts` —
+  automatically when one of the project's runs reaches terminal, and on demand via the Artifacts tab's
+  **Refresh from disk** button (`POST /api/projects/:id/artifacts/scan`). The scan is
+  `isPathWithin`-guarded and idempotent; it never touches `origin='compiled'` rows (the bible /
+  `ui-demo`), so a Refresh can only ever add/remove *scanned* rows, never disturb a compiled deliverable.
 
 ## Onboard / verify scaffold-then-commit workflow
 

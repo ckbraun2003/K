@@ -88,10 +88,11 @@ describe('InboxTab — proposal cards', () => {
     await waitFor(() => expect(mockApproveProposal).toHaveBeenCalledWith('wi1'))
   })
 
-  it('clicking Dismiss calls api.inbox.dismissProposal with the workItemId', async () => {
+  it('clicking Dismiss hides the card immediately (the api call is deferred to the undo window — see inbox-undo.test.tsx)', async () => {
     mockList.mockResolvedValue(inboxWithProposal())
     renderPage()
     fireEvent.click(await screen.findByTestId('inbox-dismiss-proposal:wi1'))
-    await waitFor(() => expect(mockDismissProposal).toHaveBeenCalledWith('wi1'))
+    expect(screen.queryByTestId('inbox-card-proposal:wi1')).toBeNull()
+    expect(mockDismissProposal).not.toHaveBeenCalled()
   })
 })

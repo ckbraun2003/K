@@ -67,7 +67,7 @@ never a redirect key).
 | ▶ **Runs** | `#/runs` | — | live + past runs with the rich console, now a plain master-detail (no Workflows sub-tab — Pipelines owns that now) |
 | ∿ **Insights** | `#/insights` | Metrics · Routing · Evals | **4 tabs** — Overview (deterministic deltas + anomalies) · Charts · Routing · Evals |
 | ▦ **Projects** | `#/projects` | — | the fleet; each opens its 7-tab workspace |
-| **Footer** | ❔ **Help** · ⚙ **Settings** | Terminal | Help opens this bible; Settings hosts diagnostics terminal, CLAUDE.md editor, org-default authority/MCP panel |
+| **Footer** | ❔ **Help** · ⚙ **Settings** | Terminal | Help opens the in-app multi-page guide (D-116, below) — no longer a bible deep-link; Settings hosts diagnostics terminal, CLAUDE.md editor, org-default authority/MCP panel |
 
 The active destination sits on a translucent-blush glass pill (`aria-current="page"`); `g` + first
 letter jumps (`web/src/lib/chords.ts`: `h`→Home, `u`→Personal, `a`→Agents, `r`→Runs, `n`→Insights,
@@ -241,9 +241,28 @@ schedule-triggered skill, so it needs derived next-run + measured cost, not a ne
 so `RunsPage` is now exactly a `RunList` + `RunConsole` split with nothing else. Runs render as
 **structured, collapsed-by-default** items — commands (`$ …` with output on expand), file ops (Write
 preview, Edit/MultiEdit diff hunks), and delegated sub-agents (type + label, full prompt + result on
-expand). A **Console ↔ Timeline** toggle exposes the replayable per-seq event log. Interactive runs
-show an **answer box** (ask → answer → continue) with **End session** and **Compact context**, plus
-a **`ctx X / Y · Z%`** pressure meter. (Internals in §13.)
+expand). A **Console / Timeline / Changes** `SegControl` toggles the console between the dense event
+stream, the replayable per-seq **Timeline**, and the **Changes** review surface (below). Interactive
+runs show an **answer box** (ask → answer → continue) with **End session** and **Compact context**,
+plus a **`ctx X / Y · Z%`** pressure meter. (Internals in §13.)
+
+### Changes — the review surface + full-screen PR review (D-118)
+
+The **Changes** tab (`components/ReviewDeck.tsx` → `ChangesLayout.tsx` + `DiffViewer.tsx` v2) is a
+first-class in-run diff review: a left file list (per-file `+`/`-` stat, a persisted **viewed ✓** per
+path via `getViewed(identity)`) beside the right `DiffViewer` pane, which renders `refractor`-tokenized
+code inside the `.code-viewer` scope colored entirely by the `--code-*` tokens above. The deck header
+carries a files·+/− chip, a `truncated` badge, the `VerifyChip`, and two actions — **Request changes**
+(bundles draft comments into a fix run) and **Approve → PR** (publishes the run's final checkpoint as
+a `k-review/*` branch and opens a PR). For checkpoint runs an **Expand context** affordance bumps the
+diff context 3→24 lines on first use (PRs never expand). A `changes-badge` (`N files +A −B`) rides the
+console header, fed by one cheap default-context diff query that dedupes with the deck's own.
+
+**Full-screen PR review** lives at the `pr-review` route (`#/pr-review/<projectId>/<n>`,
+`pages/PrReviewPage.tsx`, registered in `route.ts`'s `KNOWN_VIEWS`) — the **same** `ChangesLayout`
+tree+diff, mounted with **`readOnly`** so comment add/delete and file-expand are disabled and nothing
+is ever posted back to GitHub (K has no GitHub-comment-write plumbing; the read-only boundary is
+honest, not a stub). `PrsCiTab` opens it via an **Open review** action on each PR row.
 
 ## Insights (4 tabs, unchanged)
 
@@ -394,7 +413,12 @@ Terms defined in §14 render an inline `GlossaryTerm` tooltip wherever they appe
   and the run-console HITL reply box: hold to record → `POST /api/transcribe` (core proxies to a
   local Whisper server; the browser holds no key) → the transcript lands as ordinary text for review
   before send. Audio is transcribed locally and never leaves the box.
-- **Help** — opens this bible (and the `g d` / footer chord).
+- **Help** — opens the **in-app multi-page guide** (D-116, `web/src/help/HelpGuide.tsx`), not this
+  bible. A ~880px Radix Dialog with a left page rail + article body, `ArrowLeft`/`ArrowRight` and
+  Prev/Next navigation over **7 bundled pages** (`HELP_PAGES`): Welcome to K · Messaging K &
+  dispatching · Runs & reviewing changes · Projects, bibles & artifacts · Agents & the org · Insights
+  & budget · Settings & shortcuts. Content ships with the web app (no backend, no bible deep-link);
+  Docs/bible remain reachable in-app via edit-in-place per section, just not from the Help entry.
 
 ## Universal interaction patterns
 
@@ -458,10 +482,12 @@ not a single hero/non-hero switch:
 
 | Class | Background | Blur | Radius | Used for |
 |-------|-----------|------|--------|----------|
-| `.glass-chrome` | `--glass-chrome-bg` rgba(42,26,71,.55) | `blur(24px) saturate(1.4)` | (caller's) | persistent shell chrome — Sidebar, TopBar, the Message Dock bar |
-| `.glass-panel` | `--glass-panel-bg` rgba(42,26,71,.72) | `blur(16px) saturate(1.2)` | 18px | in-flow cards/panels — widget cells, KPI tiles, summary cards |
-| `.glass-overlay` | `--glass-overlay-bg` rgba(51,32,92,.82) | `blur(28px) saturate(1.4)` | 18px | floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay |
+| `.glass-chrome` | `--glass-chrome-bg` rgba(42,26,71,.48) | `blur(24px) saturate(1.4)` | (caller's) | persistent shell chrome — Sidebar, TopBar, the Message Dock bar |
+| `.glass-panel` | `--glass-panel-bg` rgba(42,26,71,.64) | `blur(16px) saturate(1.2)` | 18px | in-flow cards/panels — widget cells, KPI tiles, summary cards |
+| `.glass-overlay` | `--glass-overlay-bg` rgba(51,32,92,.76) | `blur(28px) saturate(1.4)` | 18px | floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay |
 | `.surface-solid` | `--surface` (opaque) | none | 14px | dense repeated rows — fleet/roster grids, list rows |
+
+The tier fills dropped one step from the D-114 launch values (`.55/.72/.82` → `.48/.64/.76`) as part of **Liquid Glass 2.0 (D-115, below)**: the brighter living-ambient layer pushed an AA/WCAG contrast re-check, which forced the lighter fills to hold ≥4.5:1 body-text contrast against the brightest blob — an accessibility result, not an aesthetic tweak.
 
 Each blurred tier carries an `@supports not (backdrop-filter: blur(1px))` opaque fallback
 (`.glass-chrome`→`--surface`, `.glass-panel`/`.glass-overlay`→`--raised`) so a browser without
@@ -479,6 +505,62 @@ viewport budget**, checked by a per-wave visual pass at 1440×900 and a final wh
 manual review discipline, not an automated test — that pushes a view over budget (an 11-tile KPI
 row, a large fleet/roster grid) onto `tier="solid"` instead; **(4)** dense data still defaults to
 opaque, unchanged from D-013/D-024.
+
+**Blur-budget accounting under LG2.** The W0.4 refraction layer (D-115, below) is a `::after`
+pseudo-element **of the same tier host**, not a second nested glass surface — so a tier and its own
+`::after` count as **one** blurred region against the ≤6 budget, not two. The no-nested-backdrop-
+filter rule (2) is likewise unchanged: the refract `::after` is a child of its host's box but is not
+a nested glass *element*, so it doesn't trip the nesting ban.
+
+**Accepted exception — Home → Overview (the default landing).** The final whole-app sweep
+(1440×900) found every reskinned route at ≤6 blurred regions *except* Home's Overview, which
+lands at **8**: the three always-present chrome bars (Sidebar, TopBar, Message-Dock bar, all
+`glass-chrome`) plus the default 3×3 grid's five `glass-panel` widget cells. The `>5-widgets →
+solid` flip (`OverviewView.tsx`) only trims the *sixth* widget onward, so the shipped 5-widget
+default sits two regions over the soft ceiling. This is an **accepted, documented exception**, not
+an oversight: the INT.5 performance trace (10s, 93 pointer moves over a `glass-interactive`
+surface) measured a **`LayoutCount` delta of 0** and negligible recalc/paint at eight regions, so
+the budget's underlying goal — no compositor thrash — holds; and the landing view is exactly where
+the "glass where it matters" richness is most wanted. The ≤6 figure remains the design *target*
+for new surfaces; Home Overview is the one sanctioned over-budget view, revisited if a future
+device profile shows real cost. No other surface may adopt this exception without the same
+measured-perf justification.
+
+### Liquid Glass 2.0 — living ambient · refraction · specular edges · pointer sheen (D-115)
+
+A second glass pass layers four effects onto the tier system above, each token-driven and
+motion/capability-guarded. All new tokens live in `index.css` `:root` under the `LG2 (W0.2)` block.
+
+- **Living ambient (W0.3, `shell/Ambient.tsx`).** The old three static radial washes are replaced by
+  **four hue-drifting blobs** (`.ambient-blob-1..4`, one decorative `.ambient` layer, still the
+  single decorative element) over a base `--bg-deep` + fractal-noise wash. Each blob is a
+  `radial-gradient` of a low-alpha `--lg-blob-1..4` (violet / blush / sky / indigo, the D-011 family)
+  animated by `@keyframes lg-drift-1..4` — **GPU-composited `translate3d`/`scale` only**, 66–114 s
+  alternating cycles. `prefers-reduced-motion` zeroes `.ambient`/`.ambient-blob` animation.
+- **Refraction (W0.4, Chromium-first, `@supports`-guarded).** `components/GlassFilterDefs.tsx`
+  (mounted once in `Shell`) renders one hidden `<svg>` holding the `#lg-refract` filter
+  (`feTurbulence` fractalNoise + `feDisplacementMap`, `scale = LG_REFRACT_SCALE = 14`, mirrored by
+  the `--lg-refract-scale` token because SVG filter-primitive attributes can't read a CSS custom
+  property). `.glass-chrome`/`.glass-overlay` gain a `::after` carrying
+  `backdrop-filter: url(#lg-refract) blur(...) saturate(...)`, wrapped in
+  `@supports (backdrop-filter: url(#lg-refract))` so non-Chromium engines fall back to a plain no-op
+  ring. The `::after` sits at `z-index:-1` under `isolation:isolate` (host text stays out of the
+  refracted backdrop) and is masked to the **outer ring** (`radial-gradient(... transparent 58%, #000
+  96%)`) so text-bearing centers stay calm. `.glass-panel` deliberately has **no** refraction
+  `::after` (the mid tier stays flat). Per the blur-budget accounting above, a tier + its own
+  `::after` is **one** region.
+- **Specular edges (W0.5).** Each tier's flat single-color fill is replaced by a **double
+  background** — the fill on `padding-box` plus a `135deg` `var(--lg-edge)`→`var(--glass-tier-border)`
+  wash on `border-box` — and an `inset 0 1px 0 var(--lg-edge)` box-shadow highlight. This supersedes
+  the old `--glass-sheen` highlight everywhere; **`--glass-sheen` is now vestigial** (still defined in
+  `:root`, referenced by no active rule).
+- **Pointer sheen (W0.6, opt-in `.glass-interactive`).** `lib/use-glass-pointer.ts` mounts **one**
+  window-level, rAF-throttled `pointermove` listener in `Shell` that writes `--lg-mx`/`--lg-my`
+  (viewport px) onto `<html>`; `.glass-interactive::before` paints a 10%-alpha `--lg-sheen` radial
+  highlight at those coords via `background-attachment: fixed`, so one variable pair serves every
+  card. Disabled under `prefersReducedMotion()` and `pointer: coarse` (touch) — the hook no-ops and
+  the sheen never appears. (The `ui-demo` mirror carries a static `.glass-interactive` sheen only —
+  the offline demo has no pointer hook; see §11.)
 
 **Shadow ramp:** `--shadow-1` `0 2px 8px rgba(10,4,24,.35)` · `--shadow-2` `0 6px 24px
 rgba(10,4,24,.45)` · `--shadow-3` `0 16px 48px rgba(10,4,24,.60)` — chrome/panel/overlay use
@@ -503,6 +585,15 @@ metrics align.
 `index.css`'s `.shimmer` rule) is consumed directly via `border-radius: var(--radius-sm)`, with no
 Tailwind utility mirror. `rounded-pill` is a separate, unrelated Tailwind radius (`9999px`, fully
 round) for badges/dots/tags — not tied to the 10px small-radius value.
+
+**Code-viewer syntax theme (`--code-*`, DiffViewer v2 — D-118).** Eleven `--code-*` custom
+properties (`--code-keyword`/`-type`/`-function`/`-string`/`-comment`/`-number`/`-operator`/
+`-punctuation`/`-property`/`-tag`/`-attr`) in `:root` define the diff/code syntax palette, derived
+from the D-011 family (e.g. `--code-keyword` violet, `--code-string` green, `--code-comment` a
+4.96:1-on-`--surface` muted violet). A `.code-viewer` scope in `index.css` maps `refractor`/Prism
+`token <type>` class names onto these tokens, so **no third-party syntax-highlighter CSS is ever
+imported** and the ui-token gate stays at zero. Line/word add-remove highlights carry **no** dedicated
+tokens — the FE lane reuses `--green`/`--red` via Tailwind.
 
 **Runtime token access outside the DOM:** `web/src/lib/tokens.ts` exports a hand-kept
 `TOKEN_FALLBACKS` hex mirror of `index.css`'s `:root` plus `readToken(name)` (reads

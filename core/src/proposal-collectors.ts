@@ -7,22 +7,19 @@
  *
  * ── Partial-unique-index decision (idx_work_items_source_key, WHERE source_key IS NOT
  * NULL — one row EVER per key across ALL statuses) ───────────────────────────────────
- * We keep dismissed proposals STICKY ("don't nag again"): dismissProposal (db.ts) only
- * flips status to 'cancelled' — it does NOT null source_key. getProposalBySourceKey has
- * no status filter, so it returns a cancelled row just as readily as a blocked/open one;
- * the dedupe check below (`if (proposalsDb.getProposalBySourceKey.get(...)) continue`)
- * therefore already treats "dismissed" as "already exists" and never re-proposes a
- * signal the operator dismissed. NOTE (honest limitation): the source_key is
- * `<source>:<projectId>` with NO run/date discriminator, so this stickiness is broader than
- * dismissal — once a project-keyed proposal exists in ANY status (including 'done' after being
- * approved + resolved), that key is permanently deduped, so a GENUINE later recurrence (e.g. CI
- * breaks again months later) is NOT re-surfaced until the row is cleared. This is a deliberate,
- * documented limitation while autonomy is default-OFF; a tracked follow-up may scope the dedupe
- * to live statuses (blocked/open/in_progress) so a resolved signal can re-propose while keeping
- * 'cancelled' sticky. This also means insertProposal is never reached for an existing key (dismissed or
- * not), so the partial-unique index can only ever throw on a genuine concurrent-insert
- * race between the dedupe check and the insert — persistProposals below swallows that
- * specific race (unique-constraint) rather than crashing the collector tick.
+ * Dismissal stickiness is now WINDOWED (P5-FU-3): dismissProposal (db.ts) flips status
+ * to 'cancelled' (never nulls source_key) and stamps updated_at = the dismissal time.
+ * A dismissed key whose signal RECURS within RENAG_AFTER_MS stays sticky ("don't nag
+ * again"); once the window has passed, a recurring signal flips the SAME row back to
+ * 'blocked' (renagDismissedProposal — the partial-unique index still allows only one
+ * row per key). 'done' rows (approved + resolved) remain PERMANENTLY sticky — the
+ * source_key is `<source>:<projectId>` with NO run/date discriminator, so a GENUINE
+ * later recurrence of a RESOLVED signal is still not re-surfaced (honest limitation;
+ * a tracked follow-up may scope that dedupe to live statuses). insertProposal is never
+ * reached for an existing key, so the partial-unique index can only ever throw on a
+ * genuine concurrent-insert race between the dedupe check and the insert —
+ * persistProposals below swallows that specific race (unique-constraint) rather than
+ * crashing the collector tick.
  */
 import { randomUUID } from 'crypto'
 import { schedule as cronSchedule } from 'node-cron'
@@ -44,14 +41,31 @@ export interface ProposalCandidate {
 
 export const OPEN_PROPOSAL_CAP = 20
 
+/** P5-FU-3 re-nag window: a dismissed proposal whose signal recurs at least this long
+ *  after its dismissal re-surfaces (flips back to 'blocked'). */
+export const RENAG_AFTER_MS = 7 * 86_400_000
+
 /** Insert candidates as 'blocked' org proposals, skipping any whose source_key already
- *  exists, stopping at OPEN_PROPOSAL_CAP live proposals. Broadcasts proposal_update once
- *  if anything landed. Returns the number inserted. */
+ *  exists (except stale dismissals — see RENAG_AFTER_MS), stopping at OPEN_PROPOSAL_CAP
+ *  live proposals. Broadcasts proposal_update once if anything landed. Returns the
+ *  number inserted/re-surfaced. */
 export function persistProposals(cands: ProposalCandidate[], now = Date.now()): number {
   let inserted = 0
   for (const c of cands) {
     if ((proposalsDb.countOpenProposals.get() as { n: number }).n >= OPEN_PROPOSAL_CAP) break
-    if (proposalsDb.getProposalBySourceKey.get(c.sourceKey)) continue
+    const existing = proposalsDb.getProposalBySourceKey.get(c.sourceKey) as
+      | { status?: string; updated_at?: number } | undefined
+    if (existing) {
+      // P5-FU-3: a DISMISSED key whose signal recurs after the window re-surfaces
+      // (same row flips back to 'blocked' — the partial-unique index allows only one
+      // row per key). Everything else stays sticky: open/blocked (already live),
+      // done (resolved; documented follow-up), and fresh dismissals.
+      if (existing.status === 'cancelled' && (existing.updated_at ?? now) <= now - RENAG_AFTER_MS) {
+        const r = proposalsDb.renagDismissedProposal.run({ sourceKey: c.sourceKey, now, cutoff: now - RENAG_AFTER_MS })
+        if (r.changes > 0) inserted++
+      }
+      continue
+    }
     try {
       proposalsDb.insertProposal.run({
         id: randomUUID(), title: c.title.slice(0, 200), body: c.body,

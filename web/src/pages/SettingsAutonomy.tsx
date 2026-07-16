@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AutonomySettings, AutonomyPatchBody } from '@k/shared'
 import { api } from '../lib/api'
+import { Checkbox } from '../ui/Field'
 
 export function AutonomousOrgSection() {
   const qc = useQueryClient()
@@ -53,14 +54,12 @@ export function AutonomousOrgSection() {
         <div className="glass rounded-xl border border-[var(--border)] p-4">
           <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
             <span className="text-xs font-semibold text-[var(--text)]">Autonomous Org</span>
-            <input
-              type="checkbox"
+            <Checkbox
               aria-label="Autonomous Org"
               data-testid="autonomy-enabled"
               checked={data.enabled}
               disabled={mutation.isPending}
               onChange={e => mutation.mutate({ enabled: e.target.checked })}
-              className="h-4 w-4 accent-[var(--accent)]"
             />
           </div>
 
@@ -74,14 +73,12 @@ export function AutonomousOrgSection() {
             ).map(([field, label]) => (
               <div key={field} className="flex items-center justify-between text-xs">
                 <span className={data.enabled ? 'text-[var(--text)]' : 'text-[var(--muted)]'}>{label}</span>
-                <input
-                  type="checkbox"
+                <Checkbox
                   aria-label={label}
                   data-testid={`autonomy-${field}`}
                   checked={data[field]}
                   disabled={!data.enabled || mutation.isPending}
                   onChange={e => mutation.mutate({ [field]: e.target.checked })}
-                  className="h-4 w-4 accent-[var(--accent)]"
                 />
               </div>
             ))}

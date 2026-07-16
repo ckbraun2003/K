@@ -2,9 +2,11 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import type { MetricsTimeseries, MetricsQualityTimeseries } from '@k/shared'
 import { api } from '../../lib/api'
 import { computeDeltas, detectAnomalies, type DeltaInput, type DeltaResult } from '../../lib/insights-deltas'
+import { weightedSuccessRate } from '../../lib/format-metrics'
 import { KpiTile } from '../../ui/KpiTile'
 import { SkeletonTile } from '../../ui/Skeleton'
 import { EmptyState } from '../../ui/EmptyState'
+import { Icon } from '../../ui/Icon'
 
 type Days = 14 | 30 | 60
 
@@ -26,7 +28,7 @@ function splitHalf<T>(arr: T[]): [T[], T[]] {
   return [arr.slice(0, mid), arr.slice(mid)]
 }
 
-function DeltaTile({ d }: { d: DeltaResult }) {
+function DeltaTile({ d, spark, days }: { d: DeltaResult; spark?: number[]; days: Days }) {
   const value = (VALUE_FMT[d.key] ?? String)(d.current)
   // KpiTile does its own rounding-free `{delta.pct}%` — pre-round to match the old .toFixed(0)
   // display. No baseline (deltaPct == null) omits the delta prop rather than fabricating one.
@@ -36,7 +38,7 @@ function DeltaTile({ d }: { d: DeltaResult }) {
   }
   return (
     <div data-testid={`delta-${d.key}`}>
-      <KpiTile label={d.label} value={value} delta={delta} />
+      <KpiTile label={d.label} value={value} delta={delta} spark={spark} period={`${days}D`} />
     </div>
   )
 }
@@ -85,14 +87,27 @@ export default function OverviewTab({ days }: { days: Days }) {
     inputs.push({ key: 'runs', label: 'Runs', current: sum(l), previous: sum(e), higherIsBetter: true })
   }
   if (sr.length >= 2) {
-    const [e, l] = splitHalf(sr)
-    inputs.push({ key: 'success', label: 'Success rate', current: mean(l), previous: mean(e), higherIsBetter: true })
+    // BE-3a (2026-07-14 audit): success-rate deltas MUST be terminal-weighted (Σterminal·rate/Σterminal),
+    // never an unweighted mean of daily rates — a 1-run 100% day must not offset a 20-run 30% day (the
+    // Overview-vs-Charts contradiction). weightedSuccessRate is the SAME formula as core's
+    // overallSuccessRate (success-rate-definition.test.ts pins their equality); ChartsTab already uses it.
+    const srPairs = qPoints
+      .filter(p => p.successRate != null)
+      .map(p => ({ terminalRuns: p.terminalRuns, successRate: p.successRate as number }))
+    const [e, l] = splitHalf(srPairs)
+    inputs.push({
+      key: 'success', label: 'Success rate',
+      current: weightedSuccessRate(l), previous: weightedSuccessRate(e), higherIsBetter: true,
+    })
   }
   if (lat.length >= 2) {
     const [e, l] = splitHalf(lat)
     inputs.push({ key: 'latency', label: 'Avg latency', current: mean(l), previous: mean(e), higherIsBetter: false })
   }
   const deltas = computeDeltas(inputs)
+  // Per-metric per-day series feeding each tile's sparkline — the same windowed
+  // arrays the deltas themselves are computed from (no separate fetch/derivation).
+  const sparkByKey: Record<string, number[]> = { cost: costPerDay, runs: runsPerDay, success: sr, latency: lat }
 
   const anomalies = detectAnomalies([
     ...(sr.length >= 3 ? [{ key: 'success', label: 'Success rate', series: sr, badTail: 'low' as const }] : []),
@@ -110,7 +125,7 @@ export default function OverviewTab({ days }: { days: Days }) {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {deltas.map((d) => <DeltaTile key={d.key} d={d} />)}
+          {deltas.map((d) => <DeltaTile key={d.key} d={d} spark={sparkByKey[d.key]} days={days} />)}
           {deltas.length === 0 && (
             <div className="col-span-full">
               <EmptyState icon="insights" headline="No measured metrics" hint={`Nothing measured in the last ${days} days.`} />
@@ -120,11 +135,23 @@ export default function OverviewTab({ days }: { days: Days }) {
       )}
       <section data-testid="overview-anomalies">
         <h2 className="mb-2 text-caption font-semibold text-text">Anomalies</h2>
-        {anomalies.length === 0
-          ? <div className="text-caption text-muted">No anomalies in the last {days} days.</div>
-          : anomalies.map((a) => (
-              <div key={a.key} data-testid={`anomaly-${a.key}`} className={`text-caption ${a.severity === 'critical' ? 'text-red' : 'text-amber'}`}>{a.reason}</div>
+        {anomalies.length === 0 ? (
+          <div className="text-caption text-muted">No anomalies in the last {days} days.</div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {anomalies.map((a) => (
+              <span
+                key={a.key}
+                data-testid={`anomaly-${a.key}`}
+                title={a.reason}
+                className={`inline-flex items-center gap-1 rounded-pill border px-2 py-0.5 text-micro font-medium ${
+                  a.severity === 'critical' ? 'border-red/40 bg-red/10 text-red' : 'border-amber/40 bg-amber/10 text-amber'}`}
+              >
+                <Icon name="warning" size={14} /> {a.label}
+              </span>
             ))}
+          </div>
+        )}
       </section>
     </div>
   )

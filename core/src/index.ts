@@ -56,6 +56,7 @@ import { seedWorkflowDefinitions } from './workflow-defs.js'
 import { seedEvalSystems } from './eval/store.js'
 import { ensureHarnessBibleRegistered } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
+import { scanHarnessArtifacts, scanProjectArtifacts, startArtifactScanOnRunTerminal } from './artifact-scan.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
 import { startProposalCollectors } from './proposal-collectors.js'
@@ -120,6 +121,8 @@ let stopNotifications: (() => void) | null = null
 let stopSelfHeal: (() => void) | undefined
 // Same, for the E-27 lesson-proposal cron (repeated verify failures → gated pending lessons).
 let stopLessonProposals: (() => void) | undefined
+// Same, for the D-117 artifact-scan run-terminal subscription (project artifact sweeps).
+let stopArtifactScan: (() => void) | undefined
 // Releases the single-instance lock file (set in start(); undefined in tests).
 let releaseInstanceLock: (() => void) | undefined
 
@@ -355,6 +358,7 @@ export async function buildApp() {
     stopBacklogRelay?.()
     stopSelfHeal?.()
     stopLessonProposals?.()
+    stopArtifactScan?.()
     releaseInstanceLock?.()
   })
   return app
@@ -473,6 +477,15 @@ async function start() {
   // boot only registers a missing row (no HTML rewrite → no per-boot churn).
   await ensureHarnessBibleRegistered()
   await seedUiDemo()  // rebuilt every boot — deterministic HTML, git-tracked
+  // D-117 artifact registry: sweep loose HTML into scanned rows at boot (harness dir +
+  // every registered project), then keep project scopes fresh on run terminals.
+  try {
+    const h = scanHarnessArtifacts()
+    let added = h.added, removed = h.removed
+    for (const p of listProjects()) { const r = scanProjectArtifacts(p.id); added += r.added; removed += r.removed }
+    if (added + removed > 0) console.log(`[artifact-scan] boot sweep: +${added} −${removed}`)
+  } catch (e) { console.warn('[artifact-scan] boot sweep failed (continuing):', e) }
+  stopArtifactScan = startArtifactScanOnRunTerminal()
   seedBuiltinSkills() // ensure the authored agent-config/skills/* appear in the Skills tab
   // D-069 host discovery: refresh the capability catalog from the host layer (user/
   // project/plugin skills + host MCP servers). Guarded — a broken host install must

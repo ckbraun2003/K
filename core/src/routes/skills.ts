@@ -3,7 +3,8 @@ import { validate as cronValidate } from 'node-cron'
 import { CreateSkillSchema, UpdateSkillSchema } from '@k/shared'
 import { skillsDb, projectsDb } from '../db.js'
 import { listSkills, listSkillEvals, registerSkill, rowToSkill, runSkillTest, triggerSkill } from '../skills.js'
-import { sendError, sendZodError } from './http-errors.js'
+import { sendError, sendZodError, sendBudgetCapped } from './http-errors.js'
+import { budgetGate } from '../budget-governor.js'
 
 export async function skillsRoutes(app: FastifyInstance) {
   // GET /api/skills — list all skills
@@ -138,6 +139,10 @@ export async function skillsRoutes(app: FastifyInstance) {
         return sendError(reply, 404, `project not found: ${projectId}`)
       }
     }
+    // P5-FU-1: "run skill now" is a PAID dispatch — same budget park as POST
+    // /api/runs (after the cheap existence checks, before the side effect).
+    const g = budgetGate({ projectId: projectId ?? null })
+    if (!g.allowed) return sendBudgetCapped(reply, g)
     try {
       const result = await triggerSkill(req.params.id, 'manual', projectId ? { projectId } : {})
       return reply.status(202).send(result)

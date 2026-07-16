@@ -3,14 +3,19 @@ import type { Artifact } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { navigate } from '../lib/route'
+import { disambiguateRailRows } from '../lib/artifact-rows'
 import { Icon } from '../ui/Icon'
 import DocViewer from '../components/DocViewer'
 
 export default function DocsPage({ slug }: { slug?: string }) {
   const { data: artifacts = [] } = useQuery<Omit<Artifact, 'md' | 'html'>[]>({
     queryKey: ['artifacts'],
-    queryFn: api.artifacts.list,
+    queryFn: () => api.artifacts.list(),
   })
+  // DF-5: two artifacts can share a display title (legacy harness bible + a
+  // per-project bible) — disambiguate with the slug so every rail row reads
+  // uniquely.
+  const rows = disambiguateRailRows(artifacts)
   const active = slug ?? 'project-bible'
 
   return (
@@ -19,7 +24,7 @@ export default function DocsPage({ slug }: { slug?: string }) {
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Artifacts</h2>
         </div>
-        {artifacts.map(a => (
+        {rows.map(a => (
           <button
             key={a.slug}
             onClick={() => navigate('docs', a.slug)}
@@ -28,7 +33,7 @@ export default function DocsPage({ slug }: { slug?: string }) {
               active === a.slug && 'border-l-2 border-l-accent bg-surface'
             )}
           >
-            <span className="block truncate text-sm text-text">{a.title}</span>
+            <span className="block truncate text-sm text-text">{a.railLabel}</span>
             <span className="mono inline-flex items-center gap-1 text-[10px] text-muted">
               {new Date(a.updatedAt).toLocaleDateString()}
               {a.tags.includes('bible') && (

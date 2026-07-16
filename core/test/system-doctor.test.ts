@@ -12,6 +12,7 @@ import {
   buildDoctorReport,
   probeTool,
   DOCTOR_CATALOG,
+  CLAUDE_PROBE,
   type ProbeResult,
 } from '../src/system-doctor.js'
 
@@ -74,5 +75,17 @@ describe('probeTool (never-throws)', () => {
   it('a non-existent binary → present:false, version:null (no throw)', async () => {
     const r = await probeTool('definitely-not-a-real-binary-xyz', ['--version'], 2_000)
     expect(r).toEqual({ present: false, version: null })
+  })
+})
+
+// ── CLAUDE_PROBE — the ONE claude detection definition (BE-3b) ──────────────────
+
+describe('CLAUDE_PROBE coupling', () => {
+  it('the doctor catalog claude entry probes with exactly the shared definition', () => {
+    expect(DOCTOR_CATALOG.find(t => t.id === 'claude')).toMatchObject({
+      bin: CLAUDE_PROBE.bin,
+      args: [...CLAUDE_PROBE.args],
+    })
+    expect(CLAUDE_PROBE.timeoutMs).toBe(3_000)
   })
 })

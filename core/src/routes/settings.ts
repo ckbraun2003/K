@@ -18,6 +18,7 @@
 
 import { execa } from 'execa'
 import { randomBytes } from 'crypto'
+import { probeTool, CLAUDE_PROBE } from '../system-doctor.js'
 import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -149,14 +150,12 @@ export function buildStatus(probes: StatusProbes, env: StatusEnv): Status {
   }
 }
 
-/** Probe the local `claude` binary via `--version` (short timeout). Never throws. */
+/** Probe the local `claude` binary — DELEGATES to the shared CLAUDE_PROBE definition
+ *  (system-doctor.ts) so /api/status and /api/system/doctor can never disagree on
+ *  bin/args/timeout (BE-3b; the old 2s timeout here raced cold shims). */
 export async function probeClaude(): Promise<StatusProbes['claude']> {
-  try {
-    const { stdout } = await execa('claude', ['--version'], { timeout: 2_000 })
-    return { available: true, version: stdout.trim() || undefined }
-  } catch {
-    return { available: false }
-  }
+  const r = await probeTool(CLAUDE_PROBE.bin, [...CLAUDE_PROBE.args], CLAUDE_PROBE.timeoutMs)
+  return r.present ? { available: true, version: r.version ?? undefined } : { available: false }
 }
 
 /** Probe GitHub auth via `gh auth status` (short timeout). Never throws; returns

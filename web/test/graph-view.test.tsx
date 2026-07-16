@@ -10,8 +10,9 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Project } from '@k/shared'
 
-const { fitSpy, mockList, mockNavigate } = vi.hoisted(() => ({
+const { fitSpy, cameraPositionSpy, mockList, mockNavigate } = vi.hoisted(() => ({
   fitSpy: vi.fn(),
+  cameraPositionSpy: vi.fn(),
   mockList: vi.fn(),
   mockNavigate: vi.fn(),
 }))
@@ -29,7 +30,7 @@ vi.mock('react-force-graph-3d', async () => {
   const Comp = React.forwardRef((props: Record<string, unknown>, ref: React.Ref<unknown>) => {
     React.useImperativeHandle(ref, () => ({
       zoomToFit: fitSpy,
-      cameraPosition: () => {},
+      cameraPosition: cameraPositionSpy,
       d3Force: () => ({ distance: () => {}, strength: () => {} }),
     }))
     // Simulate the layout settling — the real component calls onEngineStop then.
@@ -61,7 +62,7 @@ function renderPage() {
   )
 }
 
-beforeEach(() => { fitSpy.mockClear(); mockList.mockReset(); mockList.mockResolvedValue(projects) })
+beforeEach(() => { fitSpy.mockClear(); cameraPositionSpy.mockClear(); mockList.mockReset(); mockList.mockResolvedValue(projects) })
 afterEach(() => cleanup())
 
 describe('FleetGraphPage — F-043 fit', () => {
@@ -76,5 +77,20 @@ describe('FleetGraphPage — F-043 fit', () => {
     const autoCalls = fitSpy.mock.calls.length
     fireEvent.click(fitBtn)
     expect(fitSpy.mock.calls.length).toBe(autoCalls + 1)
+  })
+})
+
+describe('FleetGraphPage — DF-2 small-fleet camera clamp', () => {
+  it('pins the camera (not zoomToFit) when the fleet has only 1 project', async () => {
+    mockList.mockResolvedValue([projects[0]])
+    renderPage()
+    const fitBtn = await screen.findByTestId('fleet-graph-fit')
+    await waitFor(() => expect(cameraPositionSpy).toHaveBeenCalled())
+    expect(fitSpy).not.toHaveBeenCalled()
+
+    const autoCalls = cameraPositionSpy.mock.calls.length
+    fireEvent.click(fitBtn)
+    expect(cameraPositionSpy.mock.calls.length).toBe(autoCalls + 1)
+    expect(fitSpy).not.toHaveBeenCalled()
   })
 })

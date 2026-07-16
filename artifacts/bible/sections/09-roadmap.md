@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-07-13
+updated: 2026-07-16
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -391,11 +391,61 @@ of invented numbers).
 - [x] **Schema v11→v12.** `work_items.source`/`source_key` (+ partial-unique idx); `runs.retry_of`/
   `retry_count`/`failure_class`; `projects.budget_daily_usd`; the `autonomy.settings` blob.
 
-**Deferred / honest limits (default-OFF, tracked):** project-keyed proposal source_keys are
+**Deferred / honest limits (default-OFF, tracked):** ~~project-keyed proposal source_keys are
 **one-shot per project** (a genuine recurrence isn't re-surfaced until the row clears) and inbox
 dismiss has **no undo** (D-111); the budget park does not yet gate operator-initiated action routes
 (rewind / review-fix / deep-verify / workflows / run-skill-now — D-112); E-27 covers `verify_results`
-only (`eval_results` has no failure-reason column — D-113).
+only (`eval_results` has no failure-reason column — D-113).~~ **All four resolved in the Impressive
+Wave (below):** proposal re-nag after 7 days (P5-FU-3), inbox dismiss undo (FE-7), budget park now
+gates the operator action routes (P5-FU-1), and `eval_results.failure_reason` now feeds the lesson
+gate (P5-FU-5).
+
+## Impressive Wave — Liquid Glass 2.0 + feature verticals + backlog burn-down *(✓ 2026-07-16 — `feat/impressive-wave`, schema v12→v13)*
+
+> Made the Command Deck **impressive, not just professional**, closed the artifacts / help / code-review
+> feature gaps, and burned down the P5 + dev-env-hardening follow-up backlog. Method: a Wave 0 Liquid
+> Glass 2.0 foundation that freezes cross-lane contracts → two parallel lane worktrees (FE 16 tasks /
+> BE 13 tasks, each whole-lane-reviewed MERGE-READY) → serial integration + a whole-implementation
+> review (STANDARDS HELD) + a 1440×900 visual/blur sweep + a real-dispatch live smoke ($0.131255
+> measured). Decisions **D-115..D-118**.
+
+- [x] **Liquid Glass 2.0 (D-115).** Living hue-drift ambient blobs, SVG `#lg-refract` edge refraction
+  (Chromium-first, `@supports`-guarded, additive fallback), specular gradient borders, cursor
+  `.glass-interactive` sheen; tier fills .55/.72/.82→**.48/.64/.76** (AA-gated, not aesthetic); motion
+  v2 (`useCountUp` / `chartDraw` / `successSweep`). Token-driven, reduced-motion/coarse-pointer safe (§08).
+- [x] **In-app Help guide (D-116).** A 7-page `web/src/help` dialog (first-run auto-open once); Help no
+  longer deep-links the bible (§08, §12).
+- [x] **Artifact registry + scan (D-117).** `artifacts.project_id` + `origin`, idempotent path-guarded
+  filesystem scan (`POST /api/projects/:id/artifacts/scan`); ArtifactsTab becomes a gallery of ALL of a
+  project's `.html` artifacts, not just the bible (§05, §11).
+- [x] **Changes surface + DiffViewer v2 (D-118).** Full-screen `#/pr-review/<projectId>/<n>` GitHub-style
+  review — file tree, refractor syntax highlight (`--code-*` tokens), word-level diff, unified/split,
+  viewed marks, run context-expand; PR side read-only (§08, §12).
+- [x] **Impressive pass.** One `Row` primitive + one empty-state system, glass-where-it-matters sweep,
+  chart tooltips + KPI sparklines, TopBar "Message K" pill removed, Insights defaults to Charts; the 5
+  audit defects fixed (bible-iframe overflow, single-node giant-sphere graph, raw-markdown run console,
+  FAB overlap, duplicate bible rail entry).
+- [x] **Data honesty (BE-3).** ONE terminal-weighted success-rate definition shared by Overview + Charts
+  (resolves the 80%-vs-34.7% contradiction); `verify-result` returns 200-null (no 404 noise); the
+  claude-probe status contradiction reconciled (§13).
+- [x] **P5 follow-ups closed.** Budget park gates the operator action routes (P5-FU-1, D-112); proposal
+  re-nag after 7 days (P5-FU-3, D-111); retry-rate zero-fill (P5-FU-4); `eval_results.failure_reason`
+  feeds the D-041 lesson gate (P5-FU-5, D-113).
+- [x] **Dev-env hardening closed.** Bible §11 data-locations fix (DEH-FU-1), upgrade-smoke hardenings
+  (FU-2), committed poisoned-fixture CI gate (FU-3), ollama-branch env scrub (FU-4), vitest realpath
+  live-dir guard (FU-6).
+- [x] **Schema v12→v13.** `artifacts.project_id` / `origin`; `eval_results.failure_reason`.
+
+**Accepted deviation:** Home → Overview lands at **8** simultaneously-blurred regions vs the soft ≤6
+budget (5 glass widget cells + 3 glass chrome bars) — accepted as a documented, perf-justified
+exception (the INT.5 trace measured a `LayoutCount` delta of 0 at eight regions); ≤6 remains the target
+for new surfaces (§08).
+
+**Deferred (non-blocking fast-follows):** DiffViewer's "viewed" toggle uses a raw checkbox rather than
+the `Checkbox` primitive; the HelpGuide remembers its page across reopen; §12's broader "Dashboard tour"
+still narrates the pre-UI-Simplification shell (the mandated Help + run/PR-review sections landed this
+wave; a full §12 rewrite is deferred); a pre-existing latent `/^routes\s*/` escape in the ui-demo's
+`dispatchSend` predates this program.
 
 ## Phase 6 — Intelligence & Scale *(optional)*
 

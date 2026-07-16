@@ -169,6 +169,16 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
 
   const colorFn = useCallback((node: object) => nodeColor(node as GraphNode, filter), [filter])
 
+  // Legend wiring (Impressive Wave Task 10 Step 6): only show entries whose
+  // state is actually present among the currently-displayed nodes — an empty
+  // graph, or one that's all-healthy, shouldn't advertise "Failing"/"Untested"
+  // swatches nobody will ever see. Colour is computed with an EMPTY filter so
+  // the legend reflects real node state, not the text-filter's dim-out effect.
+  const visibleLegend = useMemo(() => {
+    const present = new Set((graph.nodes as unknown as GraphNode[]).map(n => nodeColor(n, '')))
+    return GRAPH_LEGEND.filter(item => present.has(item.color))
+  }, [graph.nodes])
+
   const filteredData = useMemo(() => {
     const nodes = graph.nodes as unknown as GraphNode[]
     const links = graph.links as unknown as GraphLink[]
@@ -299,15 +309,17 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                   enableNodeDrag
                 />
               </GraphErrorBoundary>
-              {/* Legend */}
-              <div className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 glass-overlay px-3 py-2">
-                {GRAPH_LEGEND.map(item => (
-                  <div key={item.label} className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                    <span className="text-[10px] text-muted">{item.label}</span>
-                  </div>
-                ))}
-              </div>
+              {/* Legend — only the states actually present in this graph (Step 6). */}
+              {visibleLegend.length > 0 && (
+                <div data-testid="kg-legend" className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 glass-overlay px-3 py-2">
+                  {visibleLegend.map(item => (
+                    <div key={item.label} className="flex items-center gap-2">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                      <span className="text-[10px] text-muted">{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>

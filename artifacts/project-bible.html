@@ -19,7 +19,11 @@
     font-size: 14.5px; line-height: 1.7;
   }
   .mono { font-family: var(--mono); font-size: .92em; }
-  .layout { display: grid; grid-template-columns: 272px 1fr; min-height: 100vh; }
+  /* DF-1: minmax(0, 1fr) — a grid track's min size defaults to min-content, so
+     wide unbreakable content (long inline code tokens, wide table cells) would
+     otherwise push the content column past the viewport (mid-word clipping
+     behind a horizontal scrollbar at 1440×900). */
+  .layout { display: grid; grid-template-columns: 272px minmax(0, 1fr); min-height: 100vh; }
 
   nav {
     background: var(--surface); border-right: 1px solid var(--border);
@@ -40,7 +44,7 @@
   .nav-title { flex: 1; }
   .nav-foot { margin-top: 1.25rem; padding: .75rem .55rem 0; border-top: 1px solid var(--border); color: var(--muted); font-size: .7rem; }
 
-  main { padding: 3rem 3.5rem 5rem; max-width: 880px; }
+  main { padding: 3rem 3.5rem 5rem; max-width: 880px; min-width: 0; }
   .bible-section { padding-bottom: 2.5rem; margin-bottom: 2.5rem; border-bottom: 1px solid var(--border); }
   .bible-section:last-child { border-bottom: none; }
   .section-head { display: flex; align-items: center; gap: .75rem; margin-bottom: 1rem; }
@@ -58,6 +62,7 @@
     font-family: var(--mono); font-size: .85em; color: #c7c8ff;
     background: var(--raised); border: 1px solid var(--border);
     padding: .1em .35em; border-radius: 4px;
+    overflow-wrap: anywhere;
   }
   pre {
     position: relative; background: var(--surface); border: 1px solid var(--border);
@@ -76,7 +81,7 @@
   table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .84rem; }
   th { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .08em;
        text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--border); font-weight: 600; }
-  td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: var(--surface); }
 
@@ -113,7 +118,7 @@
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   @media (max-width: 860px) {
-    .layout { grid-template-columns: 1fr; }
+    .layout { grid-template-columns: minmax(0, 1fr); }
     nav { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
     main { padding: 1.5rem; }
   }
@@ -201,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-13 18:58</span><br>
+      compiled <span class="mono">2026-07-16 04:15</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -1484,6 +1489,42 @@ see §03 <em>Reused connectors</em>).</p>
 <p><strong>Registration guards (W5b).</strong> A <code>localPath</code> is normalized + case-folded and <strong>rejected <code>409</code></strong> if it duplicates an already-registered project — no two rows managing one repo (F-031). The repo's <strong>default branch</strong> is detected and persisted atomically at registration, and the web PR base prefers it over the CI-branch heuristic. If a registered project's path later <strong>vanishes</strong>, <code>onboard</code> / <code>verify</code> return a single server-side <strong><code>409</code></strong> ("project localPath is missing on disk … — restore it or remove the project") instead of silently <code>mkdir</code>-recreating the directory, and the read surface stamps <code>pathMissing</code> so the UI can disable actions and explain why (the GitHub poller also skips a missing path — §11) (F-033). <strong>Registration</strong> is stricter (F-037): it distinguishes the two failure modes with distinct <code>ClientError</code> messages — <em>path does not exist</em> vs. <em>path is not a git repository (no <code>.git</code> found)</em> — each surfaced as a <strong><code>400</code></strong>, so a caller learns exactly which invariant the folder failed.</p>
 <h2>Project zero</h2>
 <p>The harness applies its own rules to itself: this bible is compiled by the same <code>compileBible()</code> used for every other project, the harness gets a CI workflow, and verification runs against it like any fleet member. If the mechanism is annoying for project zero, it is annoying for everything — fix the mechanism.</p>
+<h2>Project artifacts — registry + filesystem scan (D-117)</h2>
+<p>Every project owns an <strong>artifact gallery</strong> (§08 Projects → Artifacts). The <code>artifacts</code> table (schema
+<strong>v13</strong>, Impressive Wave) carries two provenance columns beyond the P4 shape:</p>
+<pre><code class="language-ts">Artifact {
+  slug: string            // PK
+  title: string
+  tags: string[]          // JSON
+  md: string              // markdown source (bible sections, or a "scanned artifact" stub)
+  html_path?: string      // absolute path to a pre-composed .html served verbatim (else ARTIFACTS_DIR/&lt;slug&gt;.html, else md-render)
+  project_id?: string     // owning project — NULL = harness-scoped (project zero's globals)
+  origin: 'compiled' | 'scanned'   // NOT NULL, CHECK-constrained, default 'compiled'
+  updated_at: number
+}
+</code></pre>
+<ul>
+<li><strong><code>origin='compiled'</code></strong> rows are written by K's own compilers — <code>compileBible()</code>, the <code>ui-demo</code>
+generator, and <code>saveArtifact</code>. These are the privileged, agent-owned outputs.</li>
+<li><strong><code>origin='scanned'</code></strong> rows are filesystem-discovered loose HTML managed by
+<code>core/src/artifact-scan.ts</code>. <code>scanProjectArtifacts(projectId)</code> sweeps a registered project's
+<strong>top-level <code>&lt;localPath&gt;/artifacts/*.html</code></strong> (no recursion) into <code>origin='scanned'</code> rows;
+<code>scanHarnessArtifacts()</code> does the same over K's own <code>ARTIFACTS_DIR</code> with <code>project_id = NULL</code>.</li>
+<li><strong>Path safety.</strong> <code>resolveScannedFile</code> resolves each entry with <code>realpathSync</code> and rejects anything
+that escapes the scanned root via an <code>isPathWithin</code> containment check — a symlink pointing outside
+the dir is never registered.</li>
+<li><strong>Idempotent + non-destructive.</strong> A file already backed by an explicit <code>html_path</code>, or whose
+basename names an existing slug's implicit <code>ARTIFACTS_DIR/&lt;slug&gt;.html</code> fallback, is <strong>skipped</strong> —
+this is what stops the compiled bible / <code>ui-demo</code> from double-registering as <code>scanned</code> duplicates.
+An unchanged already-registered file counts as skipped on re-scan; a <code>scanned</code> row whose file
+vanished is <strong>deleted</strong>; <strong><code>compiled</code> rows are never touched</strong>. <code>project_id</code> has no <code>ON DELETE</code>
+action by contract — <code>db.deleteProject</code> cleans a project's artifact rows explicitly.</li>
+<li><strong>Triggers.</strong> The scan runs automatically when one of a project's runs reaches terminal
+(<code>startArtifactScanOnRunTerminal</code>, boot-wired to the event bus — agents drop reports/demos into
+<code>&lt;localPath&gt;/artifacts</code> mid-run) and on demand via <strong><code>POST /api/projects/:id/artifacts/scan</code></strong>, the
+Artifacts tab's <strong>"Refresh from disk"</strong> button. Serving posture is unchanged: the sandboxed
+<code>DocViewer</code> iframe (no <code>allow-same-origin</code>) renders whatever <code>getArtifact</code> resolves.</li>
+</ul>
 <h2>Workflow runs</h2>
 <p>A <strong>workflow run</strong> records one supervised delegation run launched over a batch of selected todos from the Tasks tab (see §04 Workflows, §08 Tasks tab). It ties the selection to the single agent run that addresses it.</p>
 <pre><code class="language-ts">WorkflowRun {
@@ -1971,7 +2012,7 @@ never a redirect key).</p>
 <td><strong>Footer</strong></td>
 <td>❔ <strong>Help</strong> · ⚙ <strong>Settings</strong></td>
 <td>Terminal</td>
-<td>Help opens this bible; Settings hosts diagnostics terminal, CLAUDE.md editor, org-default authority/MCP panel</td>
+<td>Help opens the in-app multi-page guide (D-116, below) — no longer a bible deep-link; Settings hosts diagnostics terminal, CLAUDE.md editor, org-default authority/MCP panel</td>
 </tr>
 </tbody></table>
 <p>The active destination sits on a translucent-blush glass pill (<code>aria-current="page"</code>); <code>g</code> + first
@@ -2197,9 +2238,25 @@ schedule-triggered skill, so it needs derived next-run + measured cost, not a ne
 so <code>RunsPage</code> is now exactly a <code>RunList</code> + <code>RunConsole</code> split with nothing else. Runs render as
 <strong>structured, collapsed-by-default</strong> items — commands (<code>$ …</code> with output on expand), file ops (Write
 preview, Edit/MultiEdit diff hunks), and delegated sub-agents (type + label, full prompt + result on
-expand). A <strong>Console ↔ Timeline</strong> toggle exposes the replayable per-seq event log. Interactive runs
-show an <strong>answer box</strong> (ask → answer → continue) with <strong>End session</strong> and <strong>Compact context</strong>, plus
-a <strong><code>ctx X / Y · Z%</code></strong> pressure meter. (Internals in §13.)</p>
+expand). A <strong>Console / Timeline / Changes</strong> <code>SegControl</code> toggles the console between the dense event
+stream, the replayable per-seq <strong>Timeline</strong>, and the <strong>Changes</strong> review surface (below). Interactive
+runs show an <strong>answer box</strong> (ask → answer → continue) with <strong>End session</strong> and <strong>Compact context</strong>,
+plus a <strong><code>ctx X / Y · Z%</code></strong> pressure meter. (Internals in §13.)</p>
+<h3>Changes — the review surface + full-screen PR review (D-118)</h3>
+<p>The <strong>Changes</strong> tab (<code>components/ReviewDeck.tsx</code> → <code>ChangesLayout.tsx</code> + <code>DiffViewer.tsx</code> v2) is a
+first-class in-run diff review: a left file list (per-file <code>+</code>/<code>-</code> stat, a persisted <strong>viewed ✓</strong> per
+path via <code>getViewed(identity)</code>) beside the right <code>DiffViewer</code> pane, which renders <code>refractor</code>-tokenized
+code inside the <code>.code-viewer</code> scope colored entirely by the <code>--code-*</code> tokens above. The deck header
+carries a files·+/− chip, a <code>truncated</code> badge, the <code>VerifyChip</code>, and two actions — <strong>Request changes</strong>
+(bundles draft comments into a fix run) and <strong>Approve → PR</strong> (publishes the run's final checkpoint as
+a <code>k-review/*</code> branch and opens a PR). For checkpoint runs an <strong>Expand context</strong> affordance bumps the
+diff context 3→24 lines on first use (PRs never expand). A <code>changes-badge</code> (<code>N files +A −B</code>) rides the
+console header, fed by one cheap default-context diff query that dedupes with the deck's own.</p>
+<p><strong>Full-screen PR review</strong> lives at the <code>pr-review</code> route (<code>#/pr-review/&lt;projectId&gt;/&lt;n&gt;</code>,
+<code>pages/PrReviewPage.tsx</code>, registered in <code>route.ts</code>'s <code>KNOWN_VIEWS</code>) — the <strong>same</strong> <code>ChangesLayout</code>
+tree+diff, mounted with <strong><code>readOnly</code></strong> so comment add/delete and file-expand are disabled and nothing
+is ever posted back to GitHub (K has no GitHub-comment-write plumbing; the read-only boundary is
+honest, not a stub). <code>PrsCiTab</code> opens it via an <strong>Open review</strong> action on each PR row.</p>
 <h2>Insights (4 tabs, unchanged)</h2>
 <p><strong>Overview</strong> (deterministic deltas + z-score anomalies, measured-only, no LLM) · <strong>Charts</strong>
 (tokens/cost/run trends, KPI tiles, cost-by-lead, error-rate, latency p50/p95, success+latency day
@@ -2402,7 +2459,12 @@ per-model Remove, a curated catalog with a "fits on disk?" badge and Pull with a
 and the run-console HITL reply box: hold to record → <code>POST /api/transcribe</code> (core proxies to a
 local Whisper server; the browser holds no key) → the transcript lands as ordinary text for review
 before send. Audio is transcribed locally and never leaves the box.</li>
-<li><strong>Help</strong> — opens this bible (and the <code>g d</code> / footer chord).</li>
+<li><strong>Help</strong> — opens the <strong>in-app multi-page guide</strong> (D-116, <code>web/src/help/HelpGuide.tsx</code>), not this
+bible. A ~880px Radix Dialog with a left page rail + article body, <code>ArrowLeft</code>/<code>ArrowRight</code> and
+Prev/Next navigation over <strong>7 bundled pages</strong> (<code>HELP_PAGES</code>): Welcome to K · Messaging K &amp;
+dispatching · Runs &amp; reviewing changes · Projects, bibles &amp; artifacts · Agents &amp; the org · Insights
+&amp; budget · Settings &amp; shortcuts. Content ships with the web app (no backend, no bible deep-link);
+Docs/bible remain reachable in-app via edit-in-place per section, just not from the Help entry.</li>
 </ul>
 <h2>Universal interaction patterns</h2>
 <ul>
@@ -2471,21 +2533,21 @@ not a single hero/non-hero switch:</p>
 </thead>
 <tbody><tr>
 <td><code>.glass-chrome</code></td>
-<td><code>--glass-chrome-bg</code> rgba(42,26,71,.55)</td>
+<td><code>--glass-chrome-bg</code> rgba(42,26,71,.48)</td>
 <td><code>blur(24px) saturate(1.4)</code></td>
 <td>(caller's)</td>
 <td>persistent shell chrome — Sidebar, TopBar, the Message Dock bar</td>
 </tr>
 <tr>
 <td><code>.glass-panel</code></td>
-<td><code>--glass-panel-bg</code> rgba(42,26,71,.72)</td>
+<td><code>--glass-panel-bg</code> rgba(42,26,71,.64)</td>
 <td><code>blur(16px) saturate(1.2)</code></td>
 <td>18px</td>
 <td>in-flow cards/panels — widget cells, KPI tiles, summary cards</td>
 </tr>
 <tr>
 <td><code>.glass-overlay</code></td>
-<td><code>--glass-overlay-bg</code> rgba(51,32,92,.82)</td>
+<td><code>--glass-overlay-bg</code> rgba(51,32,92,.76)</td>
 <td><code>blur(28px) saturate(1.4)</code></td>
 <td>18px</td>
 <td>floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay</td>
@@ -2498,6 +2560,7 @@ not a single hero/non-hero switch:</p>
 <td>dense repeated rows — fleet/roster grids, list rows</td>
 </tr>
 </tbody></table>
+<p>The tier fills dropped one step from the D-114 launch values (<code>.55/.72/.82</code> → <code>.48/.64/.76</code>) as part of <strong>Liquid Glass 2.0 (D-115, below)</strong>: the brighter living-ambient layer pushed an AA/WCAG contrast re-check, which forced the lighter fills to hold ≥4.5:1 body-text contrast against the brightest blob — an accessibility result, not an aesthetic tweak.</p>
 <p>Each blurred tier carries an <code>@supports not (backdrop-filter: blur(1px))</code> opaque fallback
 (<code>.glass-chrome</code>→<code>--surface</code>, <code>.glass-panel</code>/<code>.glass-overlay</code>→<code>--raised</code>) so a browser without
 backdrop-filter support never renders transparent text-on-text.</p>
@@ -2513,6 +2576,57 @@ viewport budget</strong>, checked by a per-wave visual pass at 1440×900 and a f
 manual review discipline, not an automated test — that pushes a view over budget (an 11-tile KPI
 row, a large fleet/roster grid) onto <code>tier="solid"</code> instead; <strong>(4)</strong> dense data still defaults to
 opaque, unchanged from D-013/D-024.</p>
+<p><strong>Blur-budget accounting under LG2.</strong> The W0.4 refraction layer (D-115, below) is a <code>::after</code>
+pseudo-element <strong>of the same tier host</strong>, not a second nested glass surface — so a tier and its own
+<code>::after</code> count as <strong>one</strong> blurred region against the ≤6 budget, not two. The no-nested-backdrop-
+filter rule (2) is likewise unchanged: the refract <code>::after</code> is a child of its host's box but is not
+a nested glass <em>element</em>, so it doesn't trip the nesting ban.</p>
+<p><strong>Accepted exception — Home → Overview (the default landing).</strong> The final whole-app sweep
+(1440×900) found every reskinned route at ≤6 blurred regions <em>except</em> Home's Overview, which
+lands at <strong>8</strong>: the three always-present chrome bars (Sidebar, TopBar, Message-Dock bar, all
+<code>glass-chrome</code>) plus the default 3×3 grid's five <code>glass-panel</code> widget cells. The <code>&gt;5-widgets → solid</code> flip (<code>OverviewView.tsx</code>) only trims the <em>sixth</em> widget onward, so the shipped 5-widget
+default sits two regions over the soft ceiling. This is an <strong>accepted, documented exception</strong>, not
+an oversight: the INT.5 performance trace (10s, 93 pointer moves over a <code>glass-interactive</code>
+surface) measured a <strong><code>LayoutCount</code> delta of 0</strong> and negligible recalc/paint at eight regions, so
+the budget's underlying goal — no compositor thrash — holds; and the landing view is exactly where
+the "glass where it matters" richness is most wanted. The ≤6 figure remains the design <em>target</em>
+for new surfaces; Home Overview is the one sanctioned over-budget view, revisited if a future
+device profile shows real cost. No other surface may adopt this exception without the same
+measured-perf justification.</p>
+<h3>Liquid Glass 2.0 — living ambient · refraction · specular edges · pointer sheen (D-115)</h3>
+<p>A second glass pass layers four effects onto the tier system above, each token-driven and
+motion/capability-guarded. All new tokens live in <code>index.css</code> <code>:root</code> under the <code>LG2 (W0.2)</code> block.</p>
+<ul>
+<li><strong>Living ambient (W0.3, <code>shell/Ambient.tsx</code>).</strong> The old three static radial washes are replaced by
+<strong>four hue-drifting blobs</strong> (<code>.ambient-blob-1..4</code>, one decorative <code>.ambient</code> layer, still the
+single decorative element) over a base <code>--bg-deep</code> + fractal-noise wash. Each blob is a
+<code>radial-gradient</code> of a low-alpha <code>--lg-blob-1..4</code> (violet / blush / sky / indigo, the D-011 family)
+animated by <code>@keyframes lg-drift-1..4</code> — <strong>GPU-composited <code>translate3d</code>/<code>scale</code> only</strong>, 66–114 s
+alternating cycles. <code>prefers-reduced-motion</code> zeroes <code>.ambient</code>/<code>.ambient-blob</code> animation.</li>
+<li><strong>Refraction (W0.4, Chromium-first, <code>@supports</code>-guarded).</strong> <code>components/GlassFilterDefs.tsx</code>
+(mounted once in <code>Shell</code>) renders one hidden <code>&lt;svg&gt;</code> holding the <code>#lg-refract</code> filter
+(<code>feTurbulence</code> fractalNoise + <code>feDisplacementMap</code>, <code>scale = LG_REFRACT_SCALE = 14</code>, mirrored by
+the <code>--lg-refract-scale</code> token because SVG filter-primitive attributes can't read a CSS custom
+property). <code>.glass-chrome</code>/<code>.glass-overlay</code> gain a <code>::after</code> carrying
+<code>backdrop-filter: url(#lg-refract) blur(...) saturate(...)</code>, wrapped in
+<code>@supports (backdrop-filter: url(#lg-refract))</code> so non-Chromium engines fall back to a plain no-op
+ring. The <code>::after</code> sits at <code>z-index:-1</code> under <code>isolation:isolate</code> (host text stays out of the
+refracted backdrop) and is masked to the <strong>outer ring</strong> (<code>radial-gradient(... transparent 58%, #000 96%)</code>) so text-bearing centers stay calm. <code>.glass-panel</code> deliberately has <strong>no</strong> refraction
+<code>::after</code> (the mid tier stays flat). Per the blur-budget accounting above, a tier + its own
+<code>::after</code> is <strong>one</strong> region.</li>
+<li><strong>Specular edges (W0.5).</strong> Each tier's flat single-color fill is replaced by a <strong>double
+background</strong> — the fill on <code>padding-box</code> plus a <code>135deg</code> <code>var(--lg-edge)</code>→<code>var(--glass-tier-border)</code>
+wash on <code>border-box</code> — and an <code>inset 0 1px 0 var(--lg-edge)</code> box-shadow highlight. This supersedes
+the old <code>--glass-sheen</code> highlight everywhere; <strong><code>--glass-sheen</code> is now vestigial</strong> (still defined in
+<code>:root</code>, referenced by no active rule).</li>
+<li><strong>Pointer sheen (W0.6, opt-in <code>.glass-interactive</code>).</strong> <code>lib/use-glass-pointer.ts</code> mounts <strong>one</strong>
+window-level, rAF-throttled <code>pointermove</code> listener in <code>Shell</code> that writes <code>--lg-mx</code>/<code>--lg-my</code>
+(viewport px) onto <code>&lt;html&gt;</code>; <code>.glass-interactive::before</code> paints a 10%-alpha <code>--lg-sheen</code> radial
+highlight at those coords via <code>background-attachment: fixed</code>, so one variable pair serves every
+card. Disabled under <code>prefersReducedMotion()</code> and <code>pointer: coarse</code> (touch) — the hook no-ops and
+the sheen never appears. (The <code>ui-demo</code> mirror carries a static <code>.glass-interactive</code> sheen only —
+the offline demo has no pointer hook; see §11.)</li>
+</ul>
 <p><strong>Shadow ramp:</strong> <code>--shadow-1</code> <code>0 2px 8px rgba(10,4,24,.35)</code> · <code>--shadow-2</code> <code>0 6px 24px rgba(10,4,24,.45)</code> · <code>--shadow-3</code> <code>0 16px 48px rgba(10,4,24,.60)</code> — chrome/panel/overlay use
 1/2/3 respectively (deeper tier, deeper shadow).</p>
 <p><strong>Motion tokens:</strong> <code>--dur-1</code> 120ms · <code>--dur-2</code> 180ms · <code>--dur-3</code> 240ms · <code>--ease</code>
@@ -2532,6 +2646,14 @@ metrics align.</p>
 <code>index.css</code>'s <code>.shimmer</code> rule) is consumed directly via <code>border-radius: var(--radius-sm)</code>, with no
 Tailwind utility mirror. <code>rounded-pill</code> is a separate, unrelated Tailwind radius (<code>9999px</code>, fully
 round) for badges/dots/tags — not tied to the 10px small-radius value.</p>
+<p><strong>Code-viewer syntax theme (<code>--code-*</code>, DiffViewer v2 — D-118).</strong> Eleven <code>--code-*</code> custom
+properties (<code>--code-keyword</code>/<code>-type</code>/<code>-function</code>/<code>-string</code>/<code>-comment</code>/<code>-number</code>/<code>-operator</code>/
+<code>-punctuation</code>/<code>-property</code>/<code>-tag</code>/<code>-attr</code>) in <code>:root</code> define the diff/code syntax palette, derived
+from the D-011 family (e.g. <code>--code-keyword</code> violet, <code>--code-string</code> green, <code>--code-comment</code> a
+4.96:1-on-<code>--surface</code> muted violet). A <code>.code-viewer</code> scope in <code>index.css</code> maps <code>refractor</code>/Prism
+<code>token &lt;type&gt;</code> class names onto these tokens, so <strong>no third-party syntax-highlighter CSS is ever
+imported</strong> and the ui-token gate stays at zero. Line/word add-remove highlights carry <strong>no</strong> dedicated
+tokens — the FE lane reuses <code>--green</code>/<code>--red</code> via Tailwind.</p>
 <p><strong>Runtime token access outside the DOM:</strong> <code>web/src/lib/tokens.ts</code> exports a hand-kept
 <code>TOKEN_FALLBACKS</code> hex mirror of <code>index.css</code>'s <code>:root</code> plus <code>readToken(name)</code> (reads
 <code>getComputedStyle</code> when <code>window</code> exists, else the mirror) — used by the canvas-rendered
@@ -2706,7 +2828,7 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
         <span class="section-icon">➤</span>
         <h1>Roadmap</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-16</span>
       </header>
       <p>Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.</p>
 <div class="roadmap-progress"><div class="phase-row">
@@ -2749,6 +2871,10 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
       <span class="phase-name">K Expansion — Phase 5: Autonomy (✓ 2026-07-13 — `feat/exp-p5`, schema v11→v12)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
       <span class="phase-pct mono">10/10</span>
+    </div><div class="phase-row">
+      <span class="phase-name">Impressive Wave — Liquid Glass 2.0 + feature verticals + backlog burn-down (✓ 2026-07-16 — `feat/impressive-wave`, schema v12→v13)</span>
+      <span class="phase-bar"><span class="phase-fill"></span></span>
+      <span class="phase-pct mono">9/9</span>
     </div><div class="phase-row">
       <span class="phase-name">Phase 6 — Intelligence &amp; Scale (optional)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
@@ -3146,11 +3272,60 @@ no new rail slot (D-110; §08).</li>
 <li><input checked disabled type="checkbox" /> <strong>Schema v11→v12.</strong> <code>work_items.source</code>/<code>source_key</code> (+ partial-unique idx); <code>runs.retry_of</code>/
 <code>retry_count</code>/<code>failure_class</code>; <code>projects.budget_daily_usd</code>; the <code>autonomy.settings</code> blob.</li>
 </ul>
-<p><strong>Deferred / honest limits (default-OFF, tracked):</strong> project-keyed proposal source_keys are
+<p><strong>Deferred / honest limits (default-OFF, tracked):</strong> <del>project-keyed proposal source_keys are
 <strong>one-shot per project</strong> (a genuine recurrence isn't re-surfaced until the row clears) and inbox
 dismiss has <strong>no undo</strong> (D-111); the budget park does not yet gate operator-initiated action routes
 (rewind / review-fix / deep-verify / workflows / run-skill-now — D-112); E-27 covers <code>verify_results</code>
-only (<code>eval_results</code> has no failure-reason column — D-113).</p>
+only (<code>eval_results</code> has no failure-reason column — D-113).</del> <strong>All four resolved in the Impressive
+Wave (below):</strong> proposal re-nag after 7 days (P5-FU-3), inbox dismiss undo (FE-7), budget park now
+gates the operator action routes (P5-FU-1), and <code>eval_results.failure_reason</code> now feeds the lesson
+gate (P5-FU-5).</p>
+<h2>Impressive Wave — Liquid Glass 2.0 + feature verticals + backlog burn-down <em>(✓ 2026-07-16 — <code>feat/impressive-wave</code>, schema v12→v13)</em></h2>
+<blockquote>
+<p>Made the Command Deck <strong>impressive, not just professional</strong>, closed the artifacts / help / code-review
+feature gaps, and burned down the P5 + dev-env-hardening follow-up backlog. Method: a Wave 0 Liquid
+Glass 2.0 foundation that freezes cross-lane contracts → two parallel lane worktrees (FE 16 tasks /
+BE 13 tasks, each whole-lane-reviewed MERGE-READY) → serial integration + a whole-implementation
+review (STANDARDS HELD) + a 1440×900 visual/blur sweep + a real-dispatch live smoke ($0.131255
+measured). Decisions <strong>D-115..D-118</strong>.</p>
+</blockquote>
+<ul>
+<li><input checked disabled type="checkbox" /> <strong>Liquid Glass 2.0 (D-115).</strong> Living hue-drift ambient blobs, SVG <code>#lg-refract</code> edge refraction
+(Chromium-first, <code>@supports</code>-guarded, additive fallback), specular gradient borders, cursor
+<code>.glass-interactive</code> sheen; tier fills .55/.72/.82→<strong>.48/.64/.76</strong> (AA-gated, not aesthetic); motion
+v2 (<code>useCountUp</code> / <code>chartDraw</code> / <code>successSweep</code>). Token-driven, reduced-motion/coarse-pointer safe (§08).</li>
+<li><input checked disabled type="checkbox" /> <strong>In-app Help guide (D-116).</strong> A 7-page <code>web/src/help</code> dialog (first-run auto-open once); Help no
+longer deep-links the bible (§08, §12).</li>
+<li><input checked disabled type="checkbox" /> <strong>Artifact registry + scan (D-117).</strong> <code>artifacts.project_id</code> + <code>origin</code>, idempotent path-guarded
+filesystem scan (<code>POST /api/projects/:id/artifacts/scan</code>); ArtifactsTab becomes a gallery of ALL of a
+project's <code>.html</code> artifacts, not just the bible (§05, §11).</li>
+<li><input checked disabled type="checkbox" /> <strong>Changes surface + DiffViewer v2 (D-118).</strong> Full-screen <code>#/pr-review/&lt;projectId&gt;/&lt;n&gt;</code> GitHub-style
+review — file tree, refractor syntax highlight (<code>--code-*</code> tokens), word-level diff, unified/split,
+viewed marks, run context-expand; PR side read-only (§08, §12).</li>
+<li><input checked disabled type="checkbox" /> <strong>Impressive pass.</strong> One <code>Row</code> primitive + one empty-state system, glass-where-it-matters sweep,
+chart tooltips + KPI sparklines, TopBar "Message K" pill removed, Insights defaults to Charts; the 5
+audit defects fixed (bible-iframe overflow, single-node giant-sphere graph, raw-markdown run console,
+FAB overlap, duplicate bible rail entry).</li>
+<li><input checked disabled type="checkbox" /> <strong>Data honesty (BE-3).</strong> ONE terminal-weighted success-rate definition shared by Overview + Charts
+(resolves the 80%-vs-34.7% contradiction); <code>verify-result</code> returns 200-null (no 404 noise); the
+claude-probe status contradiction reconciled (§13).</li>
+<li><input checked disabled type="checkbox" /> <strong>P5 follow-ups closed.</strong> Budget park gates the operator action routes (P5-FU-1, D-112); proposal
+re-nag after 7 days (P5-FU-3, D-111); retry-rate zero-fill (P5-FU-4); <code>eval_results.failure_reason</code>
+feeds the D-041 lesson gate (P5-FU-5, D-113).</li>
+<li><input checked disabled type="checkbox" /> <strong>Dev-env hardening closed.</strong> Bible §11 data-locations fix (DEH-FU-1), upgrade-smoke hardenings
+(FU-2), committed poisoned-fixture CI gate (FU-3), ollama-branch env scrub (FU-4), vitest realpath
+live-dir guard (FU-6).</li>
+<li><input checked disabled type="checkbox" /> <strong>Schema v12→v13.</strong> <code>artifacts.project_id</code> / <code>origin</code>; <code>eval_results.failure_reason</code>.</li>
+</ul>
+<p><strong>Accepted deviation:</strong> Home → Overview lands at <strong>8</strong> simultaneously-blurred regions vs the soft ≤6
+budget (5 glass widget cells + 3 glass chrome bars) — accepted as a documented, perf-justified
+exception (the INT.5 trace measured a <code>LayoutCount</code> delta of 0 at eight regions); ≤6 remains the target
+for new surfaces (§08).</p>
+<p><strong>Deferred (non-blocking fast-follows):</strong> DiffViewer's "viewed" toggle uses a raw checkbox rather than
+the <code>Checkbox</code> primitive; the HelpGuide remembers its page across reopen; §12's broader "Dashboard tour"
+still narrates the pre-UI-Simplification shell (the mandated Help + run/PR-review sections landed this
+wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/</code> escape in the ui-demo's
+<code>dispatchSend</code> predates this program.</p>
 <h2>Phase 6 — Intelligence &amp; Scale <em>(optional)</em></h2>
 <ul>
 <li><input disabled type="checkbox" /> EventBus → NATS/Redis Streams + worker processes</li>
@@ -3166,7 +3341,7 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-14</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -4072,7 +4247,7 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
 <td>D-112</td>
 <td>2026-07-13</td>
 <td>Budget park = reactive refuse-with-reason, measured rolling-24h, zero forecasting (+ deferred operator-action routes)</td>
-<td><strong>E-17 caps on MEASURED <code>runs.cost_usd</code> over a rolling 24h window — ZERO forecasting (no price×token, no projection). Org cap (autonomy settings) + per-project caps (<code>projects.budget_daily_usd</code>). At cap a dispatch is PARKED = refused-with-reason (<code>429</code> / <code>BudgetCapError</code>), no queue — the operator raises the cap. Gated paths: <code>startAgentRun</code> (autonomous schedule/event/delegation), manual <code>POST /api/runs</code> (→429), operator→Chief <code>delegateToChief</code> (→429), and autonomous scheduled/event skill dispatch. EXEMPT: interactive/persistent K turns.</strong></td>
+<td><strong>E-17 caps on MEASURED <code>runs.cost_usd</code> over a rolling 24h window — ZERO forecasting (no price×token, no projection). Org cap (autonomy settings) + per-project caps (<code>projects.budget_daily_usd</code>). At cap a dispatch is PARKED = refused-with-reason (<code>429</code> / <code>BudgetCapError</code>), no queue — the operator raises the cap. Gated paths: <code>startAgentRun</code> (autonomous schedule/event/delegation), manual <code>POST /api/runs</code> (→429), operator→Chief <code>delegateToChief</code> (→429), and autonomous scheduled/event skill dispatch. EXEMPT: interactive/persistent K turns.</strong> <em>2026-07-14 (P5-FU-1): the park now ALSO gates the operator action routes — rewind, review-fix, deep-verify, workflow dispatch, run-skill-now — with the same 429 payload (<code>sendBudgetCapped</code>); the interactive-K exemption is unchanged and now the only one.</em></td>
 <td>Measured-only honors the program's no-price-coupling rule (the committed no-price-tables grep gate stays green); a reactive refuse-with-reason is simpler and truer than a queue or a projection; exempting interactive K keeps the operator's own conversation with their secretary unblocked. Operator-initiated action routes (rewind / review-fix / deep-verify / workflows / run-skill-now) are a <strong>tracked follow-up</strong>, documented honestly rather than claimed.</td>
 <td>Forecasting / "projected" spend (price-coupled, banned); a queue that runs the parked work later (hidden deferred spend); gating interactive K (blocks the operator talking to their own secretary).</td>
 </tr>
@@ -4092,6 +4267,38 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
 <td>The prior binary (glass on hero surfaces, opaque on dense data) couldn't express nesting (a dialog floating over an already-glass chrome) or a numeric blur budget (an 11-tile KPI row blows the frame-rate budget even though KPI tiles read as a hero surface) — a graded, role-based tier system with an explicit nesting rule replaces per-component ad hoc calls with one discipline; gating icons behind one typed map keeps the icon vocabulary closed and auditable; a shrinking-to-empty allowlist makes "no raw color left in the app" a verifiable, continuously-enforced fact rather than a one-time claim. The <code>--chart-1..8</code> dataviz palette was validated, not redesigned — a CVD check against the real dark surface caught one failing adjacent pair (chart-7↔chart-8, ΔE 1.1) fixed by snapping <code>--chart-8</code> to <code>#6366f1</code> (ΔE 15.4); a separate lightness-band check fails all 8 tokens against a generic heuristic and is accepted as non-actionable since the palette is brand-locked and contrast ≥3:1 still holds.</td>
 <td>A single opaque/glass switch per component (already broken by nesting cases the program had to resolve one-by-one); an automated blur-region-count lint (no static check reliably counts simultaneously-rendered, responsive-layout-dependent blur regions — kept as a manual per-wave and whole-app visual review instead); repainting the chart palette wholesale to satisfy the lightness-band heuristic (palette is brand-locked; the one real contrast failure needed only a single-token snap).</td>
 </tr>
+<tr>
+<td>D-115</td>
+<td>2026-07-15</td>
+<td>Liquid Glass 2.0 — living ambient, SVG refraction, specular edges, pointer sheen; tier fills re-graded .48/.64/.76</td>
+<td><strong><code>Ambient.tsx</code> gains 4 blob divs (<code>ambient-blob-1..4</code>) animated by <code>@keyframes lg-drift-1..4</code> — GPU-only <code>translate3d</code>/<code>scale</code>, 66-114s alternating cycles, frozen under <code>prefers-reduced-motion</code> — replacing the old static radial-gradient wash. <code>GlassFilterDefs.tsx</code> (mounted once in Shell) renders one hidden <code>&lt;svg&gt;</code> <code>#lg-refract</code> filter (<code>feTurbulence</code> + <code>feDisplacementMap scale={LG_REFRACT_SCALE=14}</code>, mirrored by <code>--lg-refract-scale</code> in <code>index.css</code>) driving a Chromium-first, <code>@supports</code>-guarded <code>backdrop-filter: url(#lg-refract) ...</code> on each tier's <code>::after</code>. The W0.5 specular-edge technique replaces each tier's flat single-color fill with a double background (<code>fillColor</code> on <code>padding-box</code> + a <code>135deg</code> <code>var(--lg-edge)</code>→border wash on <code>border-box</code>) and an <code>inset 0 1px 0 var(--lg-edge)</code> box-shadow highlight, superseding <code>--glass-sheen</code> (now vestigial — still defined in <code>:root</code>, referenced nowhere). Tier fill opacities drop one step, <code>.55/.72/.82</code> → <code>.48/.64/.76</code>. <code>.glass-interactive</code> + <code>useGlassPointer</code> add an opt-in pointer sheen: ONE window-level, rAF-throttled <code>pointermove</code> listener writes <code>--lg-mx</code>/<code>--lg-my</code> (viewport px) onto <code>document.documentElement</code>, disabled under <code>prefersReducedMotion()</code> and <code>pointer: coarse</code> (touch), mounted once in Shell.</strong></td>
+<td>An AA/WCAG contrast pass (≥4.5:1 against the brightest blob) forced the tier-fill step down — proof the new ambient layer didn't quietly erode text contrast, not an aesthetic choice. Gating refraction behind <code>@supports</code> + Chromium-first is an honest platform-capability boundary (an explicit no-op fallback) rather than a silent visual break on unsupported browsers. One shared filter definition and one shared pointer listener (not one per glass surface) keep the runtime cost O(1) regardless of how many tiered surfaces render.</td>
+<td>Per-element pointer listeners (n listeners for n glass surfaces defeats the point of a single shared CSS-variable hook); shipping refraction unconditionally with no <code>@supports</code> guard (renders wrong on non-Chromium engines); keeping the old <code>.55/.72/.82</code> fills (would fail the AA check once the brighter ambient blobs replaced the flatter static wash).</td>
+</tr>
+<tr>
+<td>D-116</td>
+<td>2026-07-15</td>
+<td>In-app multi-page Help guide replaces the bible deep-link</td>
+<td><strong><code>web/src/help/HelpGuide.tsx</code>, a ~880px Radix Dialog, plus <code>web/src/help/pages/*</code> ship 7 bundled pages (<code>HELP_PAGES</code>): <code>welcome</code>/"Welcome to K", <code>messaging</code>/"Messaging K &amp; dispatching", <code>runs</code>/"Runs &amp; reviewing changes", <code>projects</code>/"Projects, bibles &amp; artifacts", <code>agents</code>/"Agents &amp; the org", <code>insights</code>/"Insights &amp; budget", <code>settings</code>/"Settings &amp; shortcuts" — a left page rail plus an article body, <code>ArrowLeft</code>/<code>ArrowRight</code> and Prev/Next navigation. The sidebar's Help entry now opens this dialog; it no longer navigates to the compiled bible. No backend involved — content ships bundled with the web app.</strong></td>
+<td>Bundling help content in the app removes a runtime dependency on the bible being compiled and served, and lets help text version alongside the UI it documents. A fixed 7-page rail follows the app's own information architecture (messaging, runs, projects, agents, insights, settings) rather than mirroring the bible's own section structure, which readers of the app have never seen.</td>
+<td>Iframe-embedding the compiled bible HTML (couples help availability to bible-build freshness, and the bible's section IA doesn't map 1:1 onto the app's); one long scrolling help page (defeats task-oriented, page-per-topic navigation).</td>
+</tr>
+<tr>
+<td>D-117</td>
+<td>2026-07-15</td>
+<td>Artifact registry: <code>artifacts.project_id</code> + <code>origin</code>, filesystem scan makes ArtifactsTab a gallery</td>
+<td><strong><code>core/src/artifact-scan.ts</code> — <code>scanProjectArtifacts(projectId)</code> sweeps <code>&lt;localPath&gt;/artifacts/*.html</code> (top-level only, no recursion); <code>scanHarnessArtifacts()</code> sweeps the harness's own <code>ARTIFACTS_DIR</code> (<code>projectId</code> NULL). Both are <code>isPathWithin</code>-guarded (<code>resolveScannedFile</code> rejects symlink escapes via <code>realpathSync</code> + a containment check) and idempotent: an unchanged already-registered file is skipped, a vanished scanned row's file is deleted, and compiled (non-<code>scanned</code>) rows are never touched or overwritten. A file already backed by an explicit <code>html_path</code> match, or whose basename names an existing slug's implicit <code>ARTIFACTS_DIR/&lt;slug&gt;.html</code> fallback, is skipped — this is what stops the compiled bible / ui-demo from double-registering as <code>scanned</code> duplicates. Triggered on every terminal run (<code>startArtifactScanOnRunTerminal</code>, boot-wired via the event bus) and on demand via <code>POST /api/projects/:id/artifacts/scan</code> (ArtifactsTab's "Refresh from disk" button).</strong></td>
+<td>Agents already drop ad hoc HTML reports/demos into a project's <code>artifacts/</code> directory with no registry entry — a guarded, idempotent scan surfaces those without requiring agents to call a registration API, while the path guard and skip-on-existing-match rules preserve the compiled bible/demo as the one privileged, non-overwritable pair per project.</td>
+<td>Recursive directory scanning (larger path-escape surface for no current use case — nested artifact directories aren't a real pattern yet); requiring agents to self-register artifacts via an API call (an extra step agents reliably forget; a passive scan reports what was actually produced, not what was declared).</td>
+</tr>
+<tr>
+<td>D-118</td>
+<td>2026-07-15</td>
+<td>First-class Changes/review surface: <code>ChangesLayout</code> + DiffViewer v2, full-screen <code>pr-review</code> route; PR side read-only</td>
+<td><strong><code>ChangesLayout.tsx</code> pairs a left file list (per-file <code>+</code>/<code>-</code> stat, a persisted <code>viewed</code> ✓ via <code>getViewed(identity)</code>) with a right <code>DiffViewer</code> v2 pane. <code>DiffViewer</code> renders <code>refractor</code>-tokenized code inside a <code>.code-viewer</code> region colored entirely by the <code>--code-*</code> custom properties in <code>index.css</code>, via <code>refractor</code>'s own <code>token &lt;type&gt;</code> class names — <code>DiffViewer</code> itself never tracks a token-to-color mapping. A <code>readOnly</code> prop disables comment add/delete and file-expand affordances. <code>#/pr-review/&lt;projectId&gt;/&lt;n&gt;</code> (<code>PrReviewPage.tsx</code>, registered in <code>route.ts</code>'s <code>KNOWN_VIEWS</code>) is a full-screen, read-only view of a GitHub PR's diff, reusing the same <code>ChangesLayout</code> with <code>readOnly</code> set; comments stay run-only and are never posted back to GitHub. <code>PrsCiTab</code> gains an "Open review" action linking into that route.</strong></td>
+<td>Reusing one <code>ChangesLayout</code>/<code>DiffViewer</code> for both run-review and PR-review — rather than building two diff UIs — keeps the review experience (viewed marks, file list, code coloring) identical regardless of what is under review. Making the PR path explicitly read-only is an honest boundary: K has no GitHub-comment-write plumbing today, so the UI doesn't imply one.</td>
+<td>A separate, lighter diff view built just for PRs (would drift from the run-review UI over time as one surface gets features the other doesn't); allowing PR-side comment writes now (no GitHub-write plumbing exists — would be a fabricated capability).</td>
+</tr>
 </tbody></table>
 
     </section>
@@ -4101,7 +4308,7 @@ only (<code>eval_results</code> has no failure-reason column — D-113).</p>
         <span class="section-icon">⌘</span>
         <h1>Operations</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-14</span>
       </header>
       <h2>Running locally</h2>
 <pre><code class="language-bash"># Prerequisites: Node 20, pnpm 10, claude CLI authenticated, gh CLI authenticated
@@ -4120,8 +4327,12 @@ schema/migrations in <code>core/src/db.ts</code> — an in-place restart can boo
 version before its migration exists (see the poisoned-stamp incident under Schema migrations).</li>
 <li>Before merging anything that touches <code>core/src/db.ts</code>, run <code>pnpm smoke:upgrade</code>
 (<code>core/scripts/upgrade-smoke.mjs</code>) — it copies the real dev DB to a temp dir, boots the merged core
-against the copy on port 3299, and polls <code>/api/runs</code> + <code>/api/profiles</code>, proving the <strong>upgrade</strong>
-path boots (not just a fresh install).</li>
+against the copy on port 3299 (override: <code>K_SMOKE_PORT</code>), and polls <code>/api/runs</code> + <code>/api/profiles</code>,
+proving the <strong>upgrade</strong> path boots (not just a fresh install).</li>
+<li><code>pnpm --filter @k/core seed:review-demo</code> — dev-only 3-file checkpoint-diff fixture (BE-6): seeds a
+throwaway <code>seed-review-demo</code> project + a completed run with a real 2-wave k-checkpoint chain so the
+Changes surface / DiffViewer renders a genuine multi-file diff without paying for a dispatch.
+Idempotent (re-run replaces); never runs at boot.</li>
 </ul>
 <h2>Environment (<code>core/.env</code>)</h2>
 <pre><code>PORT=3001
@@ -4171,17 +4382,17 @@ recon finding that the Claude default model was an env-frozen <code>const</code>
 <tr>
 <td>Bible source</td>
 <td><code>artifacts/bible/</code></td>
-<td>no — gitignored K-system dir (same in every project)</td>
+<td><strong>K's own repo: yes — tracked</strong> (manifest + sections are the living spec, edited by the section editor). Managed projects: gitignored by the onboard scaffold</td>
 </tr>
 <tr>
 <td>Compiled bible</td>
 <td><code>artifacts/project-bible.html</code></td>
-<td>no (generated)</td>
+<td><strong>yes — tracked</strong> (recompiled on request/merge and committed alongside section edits; tracked since e903f5c)</td>
 </tr>
 <tr>
 <td>Other artifacts</td>
 <td><code>artifacts/*.md</code> (+ generated <code>.html</code>)</td>
-<td>no — gitignored K-system dir</td>
+<td>mixed — K's own <code>ui-demo.html</code> is tracked (boot-regenerated, deterministic); scratch <code>.md</code> artifacts and scanned loose HTML are working files, not deliverables</td>
 </tr>
 <tr>
 <td>Task tracker</td>
@@ -4204,9 +4415,10 @@ recon finding that the Claude default model was an env-frozen <code>const</code>
 <td>no</td>
 </tr>
 </tbody></table>
-<p><code>artifacts/</code> and <code>tasks/</code> are <strong>K-system directories</strong> — the same hidden, gitignored names in every
-managed project (<code>onboard.ts ensureGitignore</code> adds them); bibles scaffold into <code>artifacts/bible/</code>.
-K's own bible therefore lives on-disk as a living spec and is <strong>not</strong> under version control.</p>
+<p><code>artifacts/</code> and <code>tasks/</code> are <strong>K-system directories</strong> in <em>managed projects</em> — <code>onboard.ts ensureGitignore</code> hides them there so agent scratch output never dirties a project's history. K's
+OWN repo is the exception by design: the bible sources, the compiled <code>project-bible.html</code>, and
+<code>ui-demo.html</code> are <strong>git-tracked deliverables</strong> (this section, its HTML, and the demo ship with
+the repo), while <code>tasks/</code> stays untracked. When in doubt, <code>git ls-files artifacts/</code> is the truth.</p>
 <p><strong><code>data/k.db</code> is a dev database</strong> — disposable test/dev data only, never personal data; the only
 registered project is the K repo itself (<code>jarvis-core</code> → the repo root). Treat it as expendable: if
 it needs wiping to recover from a bad state, wipe it.</p>
@@ -4222,6 +4434,12 @@ body back to that <code>sections/&lt;slug&gt;.md</code> <strong>source</strong> 
 edit IS the source and survives every recompile. Editing the <em>combined</em> markdown of a bible slug is
 rejected (<code>400</code> → the section editor), and a project-bible save stays in the project's own dir
 (never K's <code>ARTIFACTS_DIR</code>, never clobbering the row's <code>html_path</code>).</li>
+<li><strong>Artifact scan (D-117, model in §05).</strong> Loose top-level <code>&lt;localPath&gt;/artifacts/*.html</code> an agent
+drops mid-run are registered as <code>origin='scanned'</code> gallery entries by <code>core/src/artifact-scan.ts</code> —
+automatically when one of the project's runs reaches terminal, and on demand via the Artifacts tab's
+<strong>Refresh from disk</strong> button (<code>POST /api/projects/:id/artifacts/scan</code>). The scan is
+<code>isPathWithin</code>-guarded and idempotent; it never touches <code>origin='compiled'</code> rows (the bible /
+<code>ui-demo</code>), so a Refresh can only ever add/remove <em>scanned</em> rows, never disturb a compiled deliverable.</li>
 </ul>
 <h2>Onboard / verify scaffold-then-commit workflow</h2>
 <p>Onboarding (<code>POST /api/projects/:id/onboard</code>) and verification (<code>POST /api/projects/:id/verify</code>) may scaffold files into the <strong>working tree — uncommitted</strong>: a starter <code>.github/workflows/ci.yml</code> and/or a starter bible, written for operator review rather than pushed. Nothing is committed or pushed on your behalf. After running either, inspect the proposed changes with <code>git status</code> / <code>git diff</code>, then commit manually if you accept them. The score reflects the pre-fix state; the next verify observes the now-present files.</p>
@@ -4752,7 +4970,9 @@ Direct/Observe IA <strong>shipped with Phase 5</strong> (§03, §08) — this gu
 (dispatching runs, projects, verification, the graph) and notes where the org reshapes them.
 It mirrors the README quick-start and stays consistent with §08 (Dashboard) and §11 (Operations) —
 those hold the design spec and the full operations reference; this is the <em>how do I actually use it</em>
-guide. Reach it any time from the <strong>Help</strong> entry in the sidebar.</p>
+guide. This section is part of the compiled bible (reach it in-app via a project's Artifacts tab or
+the Docs view); the sidebar <strong>Help</strong> entry now opens the <strong>in-app multi-page guide</strong> instead (D-116,
+below), no longer this bible.</p>
 <h2>Getting started — install &amp; run</h2>
 <p>Prerequisites: <strong>Node 20+</strong>, <strong>pnpm 10+</strong>, an authenticated <strong><code>claude</code></strong> CLI (agent runs dispatch through it), and optionally an authenticated <strong><code>gh</code></strong> CLI (only needed for GitHub features).</p>
 <pre><code class="language-bash">pnpm install      # native deps build automatically
@@ -4863,7 +5083,43 @@ pnpm dev          # core (http://localhost:3001) + dashboard (http://localhost:5
 <p>Onboarding enforces the project invariants by <strong>scaffolding</strong> whatever is missing — a starter bible and/or a starter <code>.github/workflows/ci.yml</code>. Trigger it from the <strong>Skills</strong> tab (the <code>onboarding</code> workflow) or via the API. Important: scaffolded files are written into the working tree <strong>uncommitted</strong>, for you to review — nothing is committed or pushed on your behalf. Inspect them with <code>git status</code> / <code>git diff</code>, then commit manually if you accept them.</p>
 <h2>Editing a project's bible</h2>
 <p>Open the project workspace's <strong>Artifacts</strong> tab (formerly "Bible"). The compiled bible renders in-app; each section has an <strong>edit</strong> action that opens the markdown source. Save your edit, then <strong>recompile</strong> — the tab triggers a fresh compile and re-renders. (Under the hood: sections live as markdown under the bible directory; the compiler regenerates the self-contained HTML. Never hand-edit the compiled HTML — it's regenerated and your changes would be lost.)</p>
-<p>The section <strong>edit</strong> and <strong>Recompile</strong> actions live <strong>only</strong> in this project-workspace Artifacts tab. The sidebar <strong>Help</strong> view — where the Help entry opens this guide — is <strong>read-only</strong> (it just renders compiled artifacts), so reach for the workspace Artifacts tab when you actually want to change a section.</p>
+<p>The section <strong>edit</strong> and <strong>Recompile</strong> actions live <strong>only</strong> in this project-workspace Artifacts tab. Other in-app views of a bible (the Docs view) are <strong>read-only</strong> (they just render compiled artifacts), so reach for the workspace Artifacts tab when you actually want to change a section.</p>
+<h2>Help — the in-app guide (D-116)</h2>
+<p>The sidebar <strong>❔ Help</strong> entry opens a <strong>multi-page guide built into the app</strong> — a dialog with a left
+page rail and an article body, navigated with the <strong>← / →</strong> arrow keys or the <strong>Prev / Next</strong>
+buttons. It ships <strong>seven pages</strong> and needs no backend (the content travels with the web app, so it
+works offline and versions alongside the UI it documents):</p>
+<ol>
+<li><strong>Welcome to K</strong> — the you-direct-an-org mental model.</li>
+<li><strong>Messaging K &amp; dispatching</strong> — the Message Dock, K-routing, and confirm-card escalation.</li>
+<li><strong>Runs &amp; reviewing changes</strong> — the run console and the Changes review surface (below).</li>
+<li><strong>Projects, bibles &amp; artifacts</strong> — registering projects, editing bibles, the artifact gallery.</li>
+<li><strong>Agents &amp; the org</strong> — the roster, skills, and pipelines.</li>
+<li><strong>Insights &amp; budget</strong> — metrics, charts, and the autonomy budget.</li>
+<li><strong>Settings &amp; shortcuts</strong> — configuration and the keyboard chords.</li>
+</ol>
+<p>This guide (the bible §12) and the in-app Help guide are complementary: the in-app guide is a quick,
+task-oriented tour that follows the app's own navigation; this section is the fuller reference. Help
+<strong>no longer deep-links the bible</strong> — the two are maintained separately.</p>
+<h2>Reviewing a run's changes (the Changes tab)</h2>
+<p>When a run edits code, its console carries a <strong>Console / Timeline / Changes</strong> toggle. Open <strong>Changes</strong>
+to review what the run wrote as a real diff:</p>
+<ul>
+<li>The left <strong>file list</strong> shows every changed file with its <code>+</code>/<code>−</code> line counts; clicking a file marks
+it <strong>viewed ✓</strong> (the mark persists, so you can track your way through a large review).</li>
+<li>The right <strong>diff pane</strong> renders syntax-highlighted code (the <code>--code-*</code> theme, §08).</li>
+<li><strong>Expand context</strong> widens a checkpoint diff from 3 to 24 surrounding lines when you need more of the
+file around a change.</li>
+<li>You can leave <strong>comments</strong> on lines, then <strong>Request changes</strong> (bundles your comments into a fix run)
+or <strong>Approve → PR</strong> (publishes the run's final checkpoint as a <code>k-review/*</code> branch and opens a PR
+against the project's default branch).</li>
+</ul>
+<h2>Reviewing a GitHub PR (full-screen review)</h2>
+<p>From a project's <strong>PRs &amp; CI</strong> tab, each PR row has an <strong>Open review</strong> action that opens a
+<strong>full-screen PR review</strong> at <code>#/pr-review/&lt;project&gt;/&lt;n&gt;</code> — the <em>same</em> file-list-plus-diff surface as a
+run's Changes tab, so viewed marks and code coloring work identically. The PR view is <strong>read-only</strong>:
+you can read the diff and mark files viewed, but comments are not posted back to GitHub (K reviews the
+diff; it never writes GitHub comments). Use it to read a PR's changes without leaving the dashboard.</p>
 <h2>Using host skills, MCP servers, and local models</h2>
 <p>K discovers what your Claude Code install already has — global skills, project skills, plugin
 skills, and MCP servers — into a <strong>capability catalog</strong> (§04). Everything lands <strong>disabled</strong> until
@@ -4935,7 +5191,7 @@ has no undo</strong>. Both are deliberate for this first, default-OFF cut.</p>
         <span class="section-icon">👁</span>
         <h1>Observability</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-14</span>
       </header>
       <p>Phase 4's Track D makes the harness <strong>observable</strong>: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard <em>surfaces</em> it powers. The <em>Implementation history</em> appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.</p>
 <h2>Event-data enrichment foundation (D3, D-015)</h2>
@@ -5126,6 +5382,19 @@ because a retry is a real row stamped <code>retry_of</code>/<code>retry_count</c
 invalidates the series live. A retry is a fallback-model re-dispatch, so the chart reads how often the
 org is self-correcting rather than parking.</li>
 </ul>
+<h3>Success-rate definition (one number, everywhere)</h3>
+<p><strong>Success rate = <code>done / (done + error + interrupted)</code></strong> — operator-<strong>killed</strong> runs excluded
+(F-082) — over the SELECTED window's <strong>whole terminal population</strong>. Any multi-day aggregate is
+<strong>terminal-run-weighted</strong>, <strong>never a mean of daily rates</strong>: a 1-run 100% day must not offset a
+20-run 30% day. The formula lives in two mirror helpers pinned equal, not a single import:
+<code>overallSuccessRate</code> (<code>core/src/metrics.ts</code>, server side) and <strong><code>weightedSuccessRate({terminalRuns, successRate})</code></strong> (<code>web/src/lib/format-metrics.ts</code>, client side), which re-weights per-day rates by
+each day's terminal-run count. Both <strong>Charts</strong> and <strong>Overview</strong> consume it: Charts reads the weighted
+number directly, and the <strong>Overview success-rate delta</strong> compares <code>weightedSuccessRate</code> over each half
+of the window (BE-3a / INT.2) — it previously took a flat unweighted <code>mean()</code> of daily rates, the
+"Overview 80% vs Charts 34.7%" contradiction the audit caught (<code>mean()</code> survives only for the latency
+delta, which is correctly unweighted). Two tests pin it: <code>core/test/success-rate-definition.test.ts</code>
+(core ≡ web) and <code>web/test/insights-overview.test.tsx</code> (a 1-run-100% vs 20-run-30% fixture proves the
+tile renders the terminal-weighted delta, not the naive-mean one).</p>
 <h2>Implementation history (dashboard)</h2>
 <blockquote>
 <p>Moved here from §08 so that section stays a UI <em>spec</em>. These are the as-built milestone records

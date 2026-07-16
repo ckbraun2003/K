@@ -169,7 +169,7 @@ describe('TasksTab — work items (personal/org scope)', () => {
     mockWiList.mockResolvedValue([])
     renderTab()
     const section = await screen.findByTestId('tasks-workitems')
-    expect(await within(section).findByText('No personal work items yet.')).toBeTruthy()
+    expect(await within(section).findByText('No personal work items yet')).toBeTruthy()
     cleanup()
 
     mockWiList.mockRejectedValue(new Error('down'))
@@ -191,7 +191,7 @@ describe('TasksTab — Notes + Schedule cards', () => {
     mockNotes.mockResolvedValue([])
     renderTab()
     const empty = await screen.findByTestId('tasks-notes')
-    expect(await within(empty).findByText('No notes yet — ask K to take one.')).toBeTruthy()
+    expect(await within(empty).findByText('No notes yet')).toBeTruthy()
   })
 
   it('renders the schedule card (event + overdue reminder) and its empty state', async () => {

@@ -20,7 +20,9 @@ const isTab = (t: string | undefined): t is InsightsTab =>
   t === 'overview' || t === 'charts' || t === 'routing' || t === 'evals'
 
 export default function InsightsPage({ tab }: { tab?: string }) {
-  const active: InsightsTab = isTab(tab) ? tab : 'overview'
+  // Charts is the default sub-tab (impressive-wave Q2/FE-3); #/insights lands
+  // here, #/insights/overview stays deep-linkable, labels unchanged.
+  const active: InsightsTab = isTab(tab) ? tab : 'charts'
   // Shared cross-filter window across Overview/Charts/Routing (Evals is independent).
   const [days, setDays] = useState<Days>(14)
   return (

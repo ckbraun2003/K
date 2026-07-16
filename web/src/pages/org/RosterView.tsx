@@ -3,12 +3,15 @@ import type { OrchestratorRosterPayload, OrchestratorRosterEntry } from '@k/shar
 import { api } from '../../lib/api'
 import { navigate } from '../../lib/route'
 import { cn } from '../../lib/cn'
+import { relativeTime } from '../../lib/verify'
 import { GlassPanel } from '../../ui/GlassPanel'
 import { StatusPill } from '../../ui/StatusPill'
 import { Button } from '../../ui/Button'
+import { Tag } from '../../ui/Tag'
 import { EmptyState } from '../../ui/EmptyState'
 import { ErrorState } from '../../ui/ErrorState'
 import { SkeletonRow } from '../../ui/Skeleton'
+import Sparkline from '../../components/Sparkline'
 
 /**
  * Orchestrators roster (P5.3a) — the five discipline leads as slim cards. ONE batched
@@ -21,7 +24,7 @@ import { SkeletonRow } from '../../ui/Skeleton'
 
 /** One slim roster card. Exported for render-testing (prop-fed, no queries). */
 export function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) {
-  const { profile, live, wakes, recent } = entry
+  const { profile, live, wakes, recent, latestRun, activitySeries } = entry
   return (
     <GlassPanel
       // solid, not glass: the lead grid is unbounded (N leads) and >6 simultaneous
@@ -53,11 +56,25 @@ export function OrchestratorCard({ entry }: { entry: OrchestratorRosterEntry }) 
         </p>
       )}
 
-      <div className="mt-2 flex items-center gap-2 text-caption text-muted">
+      <div className="mt-2 flex flex-wrap min-w-0 items-center gap-2 text-caption text-muted">
         {/* StatusPill has no rest-prop passthrough, so the testid lives on a wrapper span. */}
         <span data-testid={`orchestrator-status-${profile.id}`}>
           <StatusPill status={live ? 'running' : 'idle'} label={live ? 'live' : 'idle'} />
         </span>
+        {/* IN-3: 14d activation-count sparkline — a flat line at zero activity is a
+            real signal (an idle lead), so it renders whenever the series is present,
+            never hidden behind an "any activity" gate. */}
+        {activitySeries && activitySeries.length >= 2 && (
+          <span data-testid={`orchestrator-sparkline-${profile.id}`} className="flex-shrink-0">
+            <Sparkline values={activitySeries} width={64} height={18} />
+          </span>
+        )}
+        {latestRun && (
+          <>
+            <Tag tint="neutral" className="mono">{latestRun.model}</Tag>
+            <span className="mono tabular-nums">{relativeTime(latestRun.createdAt)}</span>
+          </>
+        )}
         <span>
           <span className="mono tabular-nums">{wakes}</span> wake{wakes === 1 ? '' : 's'}
         </span>

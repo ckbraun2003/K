@@ -3,7 +3,6 @@ import type { ChiefOrgLead, NamedWorkflow, Project } from '@k/shared'
 import { DESTINATIONS } from './Sidebar'
 import { api } from '../lib/api'
 import { isKnownView, navigate } from '../lib/route'
-import { focusDock } from '../lib/dock-bus'
 import NotificationBell from '../components/NotificationBell'
 import { Icon, type IconName } from '../ui/Icon'
 
@@ -23,6 +22,7 @@ const DETAIL_PARENTS: Record<string, string> = {
   orchestrator: 'agents',
   project: 'projects',
   timeline: 'home',
+  'pr-review': 'projects',
 }
 
 /**
@@ -71,7 +71,7 @@ export default function TopBar({ view, param, connected }: Props) {
   const iconName: IconName = dest?.icon ?? parentDest?.icon ?? (isKnownView(view) ? 'home' : 'warning')
   return (
     <header className="relative z-20 flex items-center gap-4 glass-chrome border-x-0 border-t-0 border-b border-[var(--border)] px-5 py-3">
-      <h1 data-testid="topbar-title" className="text-sm font-semibold tracking-wide text-[var(--text)]">
+      <h1 data-testid="topbar-title" className="mr-auto text-sm font-semibold tracking-wide text-[var(--text)]">
         <Icon name={iconName} size={16} className="mr-2 text-accent" />
         {parentDest ? (
           <>
@@ -95,23 +95,6 @@ export default function TopBar({ view, param, connected }: Props) {
           title
         )}
       </h1>
-      {/* NOTE (micro-UX dedup, spec §7.2): this button reads as "Message K… ⌘K" —
-          text-first, the ⌘K chip trailing — and calls the SAME focusDock() the
-          Ctrl/Cmd+K shortcut does. It's a native <button> (role="button" is
-          implicit), unchanged. Reskinned off the input-mimicking look toward an
-          opaque button surface: it's a DOM CHILD of this header, which already
-          carries glass-chrome — stacking a second glass tier here would be a
-          nested backdrop-filter (disallowed), so this uses solid bg-surface
-          instead of a second .glass-chrome. */}
-      <button
-        data-testid="topbar-dock-launcher"
-        onClick={() => focusDock()}
-        aria-label="Message K ⌘K"
-        className="ml-auto flex w-80 items-center gap-2 rounded-control border border-border bg-surface px-3.5 py-2 text-left text-xs text-muted transition-colors duration-150 hover:border-accent-hover/50 hover:text-text"
-      >
-        <span className="flex-1 truncate">Message K…</span>
-        <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px]">⌘K</kbd>
-      </button>
       <NotificationBell />
       <span
         data-testid="ws-dot"

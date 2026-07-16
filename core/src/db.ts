@@ -80,7 +80,15 @@ db.exec(`
     -- (e.g. a REGISTERED project's own <localPath>/artifacts/project-bible.html).
     -- When NULL, getArtifact falls back to ARTIFACTS_DIR/<slug>.html then md-render.
     -- Keeps a project's artifacts in the PROJECT dir, never copied into K's.
-    html_path   TEXT
+    html_path   TEXT,
+    -- v13 (Impressive Wave, D-117): owning project (NULL = harness-scoped) and
+    -- provenance. origin='compiled' rows are written by K's compilers (bible /
+    -- ui-demo / saveArtifact); origin='scanned' rows are filesystem-discovered
+    -- loose HTML managed by artifact-scan.ts (deleted when their file vanishes,
+    -- never touched by the compilers). project_id has NO ON DELETE action by
+    -- contract — db.deleteProject cleans artifacts rows explicitly (BE.2).
+    project_id  TEXT REFERENCES projects(id),
+    origin      TEXT NOT NULL DEFAULT 'compiled' CHECK(origin IN ('compiled','scanned'))
   );
 
   CREATE TABLE IF NOT EXISTS projects (
@@ -398,6 +406,10 @@ db.exec(`
     ms             INTEGER,
     numTurns       INTEGER,
     error          TEXT,
+    -- v13 (P5-FU-5): free-text failure reason for FAILED results — the runner sink
+    -- derives it (error string, else deterministic criticalFailures); the E-27
+    -- lesson gate (lesson-proposals.ts) groups on it. NULL for passes.
+    failure_reason TEXT,
     raw            TEXT,                            -- JSON full record
     createdAt      INTEGER NOT NULL
   );
@@ -713,15 +725,17 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 12
+export const SCHEMA_VERSION = 13
 
 /** Sentinel for the CURRENT schema version: a column the LAST migration in
  *  migrateSlow() creates. migrate()'s fast path only trusts the version stamp when
  *  this column exists — a stamp written without the columns (an intermediate
  *  dev-watch boot mid-schema-edit; the 2026-07-13 outage) otherwise disables
  *  repair forever while module-level prepares crash at import.
- *  UPDATE THIS alongside every SCHEMA_VERSION bump. */
-export const SCHEMA_SENTINEL = { table: 'projects', column: 'budget_daily_usd' } as const
+ *  UPDATE THIS alongside every SCHEMA_VERSION bump — it must always name a column
+ *  introduced by the CURRENT version (schema-v13.test.ts enforces this with a
+ *  previous-generation fixture; extend that fixture on every future bump). */
+export const SCHEMA_SENTINEL = { table: 'artifacts', column: 'origin' } as const
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1527,6 +1541,26 @@ function migrateSlow(d: Database.Database): void {
   if (hasTable(d, 'projects')) {
     addColumn(d, 'projects', 'budget_daily_usd', 'REAL')
   }
+
+  // ── Impressive Wave (SCHEMA_VERSION 13) ─────────────────────────────────────
+  // D-117 artifact registry: owning project + provenance on artifacts, and the
+  // slug-prefix backfill for rows minted by compileProjectBible/compileProjectUiDemo
+  // before the column existed. Only ids still present in projects are stamped
+  // (FK-safe under foreign_keys=ON); a slug for a deleted project stays NULL.
+  if (hasTable(d, 'artifacts')) {
+    addColumn(d, 'artifacts', 'project_id', 'TEXT REFERENCES projects(id)')
+    addColumn(d, 'artifacts', 'origin', "TEXT NOT NULL DEFAULT 'compiled' CHECK(origin IN ('compiled','scanned'))")
+    d.exec(`
+      UPDATE artifacts SET project_id = (
+        SELECT p.id FROM projects p WHERE artifacts.slug LIKE 'project-' || p.id || '-%'
+      )
+      WHERE project_id IS NULL AND slug LIKE 'project-%'
+    `)
+  }
+  // P5-FU-5: eval failure reason (see the eval_results DDL comment above).
+  if (hasTable(d, 'eval_results')) {
+    addColumn(d, 'eval_results', 'failure_reason', 'TEXT')
+  }
 }
 
 migrate(db)
@@ -1727,8 +1761,8 @@ export const notificationsDb = {
 // ─── Artifact helpers ─────────────────────────────────────────────────────────
 
 const upsertArtifact = db.prepare(`
-  INSERT INTO artifacts (slug, title, phase, status, tags, linked_run_id, updated_at, md, html_path)
-  VALUES (@slug, @title, @phase, @status, @tags, @linkedRunId, @updatedAt, @md, @htmlPath)
+  INSERT INTO artifacts (slug, title, phase, status, tags, linked_run_id, updated_at, md, html_path, project_id)
+  VALUES (@slug, @title, @phase, @status, @tags, @linkedRunId, @updatedAt, @md, @htmlPath, @projectId)
   ON CONFLICT(slug) DO UPDATE SET
     title = excluded.title,
     phase = excluded.phase,
@@ -1737,13 +1771,43 @@ const upsertArtifact = db.prepare(`
     linked_run_id = excluded.linked_run_id,
     updated_at = excluded.updated_at,
     md = excluded.md,
-    html_path = excluded.html_path
+    html_path = excluded.html_path,
+    -- a projectId-less recompile of the same slug must not null an existing stamp (BE.5d)
+    project_id = COALESCE(excluded.project_id, artifacts.project_id)
 `)
+// origin is deliberately ABSENT from upsertArtifact: inserts default to 'compiled'
+// (the DDL DEFAULT), and conflicts (recompiles) never flip provenance.
 
 const getArtifact = db.prepare(`SELECT * FROM artifacts WHERE slug = ?`)
-const listArtifacts = db.prepare(`SELECT slug, title, phase, status, tags, updated_at FROM artifacts ORDER BY updated_at DESC`)
+const listArtifacts = db.prepare(`SELECT slug, title, phase, status, tags, updated_at, project_id, origin FROM artifacts ORDER BY updated_at DESC`)
+const listArtifactsByProject = db.prepare(`SELECT slug, title, phase, status, tags, updated_at, project_id, origin FROM artifacts WHERE project_id = ? ORDER BY updated_at DESC`)
 
-export const artifactsDb = { upsertArtifact, getArtifact, listArtifacts }
+// D-117 scan-managed rows. The DO UPDATE WHERE clause is a second belt: a slug
+// collision with a compiled row silently no-ops instead of flipping provenance
+// (the scanner's backing-path check should prevent it ever firing).
+const upsertScannedArtifact = db.prepare(`
+  INSERT INTO artifacts (slug, title, phase, status, tags, linked_run_id, updated_at, md, html_path, project_id, origin)
+  VALUES (@slug, @title, NULL, NULL, @tags, NULL, @updatedAt, @md, @htmlPath, @projectId, 'scanned')
+  ON CONFLICT(slug) DO UPDATE SET
+    title = excluded.title, updated_at = excluded.updated_at,
+    html_path = excluded.html_path, project_id = excluded.project_id
+  WHERE artifacts.origin = 'scanned'
+`)
+const listScannedArtifacts = db.prepare(`
+  SELECT slug, html_path FROM artifacts
+  WHERE origin = 'scanned' AND ((@projectId IS NULL AND project_id IS NULL) OR project_id = @projectId)
+`)
+const deleteScannedArtifact = db.prepare(`DELETE FROM artifacts WHERE slug = ? AND origin = 'scanned'`)
+const deleteArtifact = db.prepare(`DELETE FROM artifacts WHERE slug = ?`)
+// Every path that already BACKS a row: explicit html_path sources. Rows served from
+// the ARTIFACTS_DIR/<slug>.html fallback are covered by the scanner's slug check.
+const listArtifactHtmlPaths = db.prepare(`SELECT slug, html_path FROM artifacts WHERE html_path IS NOT NULL`)
+
+export const artifactsDb = {
+  upsertArtifact, getArtifact, listArtifacts, listArtifactsByProject,
+  upsertScannedArtifact, listScannedArtifacts, deleteScannedArtifact, deleteArtifact,
+  listArtifactHtmlPaths,
+}
 
 // ─── Project helpers ─────────────────────────────────────────────────────────
 
@@ -1829,6 +1893,12 @@ const deleteProjectWorkItems = db.prepare(`DELETE FROM work_items WHERE project_
 // delete throws. (Discovered project SKILLS are a deliberately loose ref — no FK —
 // and degrade to status='missing' at the next rescan instead; see the skills DDL note.)
 const deleteProjectHostMcpServers = db.prepare(`DELETE FROM host_mcp_servers WHERE project_id = ?`)
+// v13 (D-117): artifacts.project_id is a plain NO-ACTION FK by contract — scanned
+// rows (filesystem-discovered) are deleted outright; compiled rows (harness-authored,
+// e.g. the bible) are kept but detached to project_id NULL so the row survives the
+// project's removal instead of FK-failing the delete.
+const deleteProjectScannedArtifacts = db.prepare(`DELETE FROM artifacts WHERE project_id = ? AND origin = 'scanned'`)
+const clearProjectArtifactsProjectId = db.prepare(`UPDATE artifacts SET project_id = NULL WHERE project_id = ?`)
 const deleteProjectRow = db.prepare(`DELETE FROM projects WHERE id = ?`)
 // E-17: set/clear a project's daily budget cap (NULL = no cap).
 const setProjectBudget = db.prepare(`UPDATE projects SET budget_daily_usd = ? WHERE id = ?`)
@@ -1842,6 +1912,8 @@ const deleteProject = db.transaction((id: string) => {
   deleteProjectGithubCache.run(id)
   deleteProjectWorkItems.run(id) // project-scoped work_items: NO-ACTION FK, delete before the project row
   deleteProjectHostMcpServers.run(id) // project-scoped discovered MCP servers: same NO-ACTION FK pattern
+  deleteProjectScannedArtifacts.run(id) // v13: scanned rows are project-owned filesystem mirrors — gone with the project
+  clearProjectArtifactsProjectId.run(id) // v13: compiled rows (bible etc.) detach, not delete
   deleteProjectRow.run(id) // cascades workflow_runs + project_graphs (project_tasks is gone — dropped in P5.1d2b)
 })
 
@@ -2155,6 +2227,15 @@ const dismissProposal = db.prepare(`
   UPDATE work_items SET status='cancelled', updated_at=@now
   WHERE id=@id AND scope='org' AND status='blocked' AND source IS NOT NULL
 `)
+// P5-FU-3: re-surface a DISMISSED proposal whose signal recurred after the re-nag
+// window. dismissed_at ≡ the cancelled row's updated_at (dismissProposal stamps it);
+// last_seen ≡ the collector observing the candidate NOW. Guarded to cancelled+sourced
+// org rows so approve/done stay sticky.
+const renagDismissedProposal = db.prepare(`
+  UPDATE work_items SET status='blocked', updated_at=@now
+  WHERE source_key=@sourceKey AND scope='org' AND source IS NOT NULL
+    AND status='cancelled' AND updated_at <= @cutoff
+`)
 // Backlog = open org items (approved proposals OR operator/agent-created org tickets).
 const listOpenBacklog = db.prepare(`
   SELECT * FROM work_items WHERE scope='org' AND status='open' ORDER BY created_at ASC LIMIT ?
@@ -2169,7 +2250,7 @@ const claimBacklogItem = db.prepare(`
 const setWorkItemRun = db.prepare(`UPDATE work_items SET run_id=@runId, updated_at=@now WHERE id=@id`)
 export const proposalsDb = {
   insertProposal, listProposals, getProposalBySourceKey, countOpenProposals,
-  approveProposal, dismissProposal, listOpenBacklog, claimBacklogItem, setWorkItemRun,
+  approveProposal, dismissProposal, renagDismissedProposal, listOpenBacklog, claimBacklogItem, setWorkItemRun,
 }
 
 // ── E-17 measured spend (rolling window; NO forecasting) ─────────────────────
@@ -2181,9 +2262,8 @@ export const budgetDb = { orgSpendSince, projectSpendSince }
 // ── E-18 retry lineage ───────────────────────────────────────────────────────
 const setRunRetry = db.prepare(`UPDATE runs SET retry_of=@retryOf, retry_count=@retryCount WHERE id=@id`)
 const setRunFailureClass = db.prepare(`UPDATE runs SET failure_class=@failureClass WHERE id=@id`)
-const countRunsSince = db.prepare(`SELECT COUNT(*) AS n FROM runs WHERE created_at >= ?`)
-const countRetriesSince = db.prepare(`SELECT COUNT(*) AS n FROM runs WHERE retry_of IS NOT NULL AND created_at >= ?`)
-export const retryDb = { setRunRetry, setRunFailureClass, countRunsSince, countRetriesSince }
+// (countRunsSince/countRetriesSince removed — zero callers; retry-metrics.ts owns the series SQL.)
+export const retryDb = { setRunRetry, setRunFailureClass }
 
 // ── E-16 routine measured cost (skill_runs has NO cost; JOIN to runs) — MAJOR 4 ──
 // skill_runs (db.ts:261-269) columns: id, skillId, runId, triggeredBy, startedAt, completedAt, status.
@@ -2676,8 +2756,8 @@ export const evalRunsDb = {
 }
 
 const insertEvalResult = db.prepare(`
-  INSERT INTO eval_results (id, evalRunId, systemId, caseId, model, variant, detPass, detScore, formatScore, judgeOverall, judgeVerdict, refusalCorrect, costUsd, ms, numTurns, error, raw, createdAt)
-  VALUES (@id, @evalRunId, @systemId, @caseId, @model, @variant, @detPass, @detScore, @formatScore, @judgeOverall, @judgeVerdict, @refusalCorrect, @costUsd, @ms, @numTurns, @error, @raw, @createdAt)
+  INSERT INTO eval_results (id, evalRunId, systemId, caseId, model, variant, detPass, detScore, formatScore, judgeOverall, judgeVerdict, refusalCorrect, costUsd, ms, numTurns, error, failure_reason, raw, createdAt)
+  VALUES (@id, @evalRunId, @systemId, @caseId, @model, @variant, @detPass, @detScore, @formatScore, @judgeOverall, @judgeVerdict, @refusalCorrect, @costUsd, @ms, @numTurns, @error, @failureReason, @raw, @createdAt)
 `)
 const listEvalResultsByRun = db.prepare(`SELECT * FROM eval_results WHERE evalRunId = ? ORDER BY createdAt ASC`)
 

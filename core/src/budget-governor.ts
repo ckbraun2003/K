@@ -12,12 +12,17 @@
  *       delegation triggers (agent-runs.ts);
  *     - autonomous scheduled/event SKILL runs, which reach startRun directly, NOT via
  *       startAgentRun (skills.ts startScheduler + startEventListener — E-17 e17 fix);
- *     - manual dispatch via POST /api/runs (routes/runs.ts → 429).
+ *     - manual dispatch via POST /api/runs (routes/runs.ts → 429);
+ *     - operator action routes (P5-FU-1, this wave): rewind (routes/rewind.ts),
+ *       review-fix request-changes (routes/review.ts), DEEP verify + workflow
+ *       tasks/dispatch (routes/projects.ts), and the operator "run skill now"
+ *       trigger (routes/skills.ts) — all park with the same 429 envelope
+ *       (sendBudgetCapped, routes/http-errors.ts).
  *   NOT GATED (deliberate):
  *     - interactive / persistent-session K-secretary turns — the operator must always
- *       be able to reach K to raise the cap;
- *     - operator-initiated action routes (rewind / review-fix / deep-verify / workflows)
- *       and the operator "run skill now" trigger — a TRACKED FOLLOW-UP, not yet gated.
+ *       be able to reach K to raise the cap (the ONLY remaining exemption);
+ *     - the free deterministic verify (deep-less POST /api/projects/:id/verify) —
+ *       zero-token local work.
  */
 import type { BudgetStatus, BudgetScopeStatus } from '@k/shared'
 import { budgetDb, projectsDb } from './db.js'

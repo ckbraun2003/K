@@ -15,6 +15,7 @@ import type { FastifyInstance } from 'fastify'
 import { v4 as uuid } from 'uuid'
 import { db, agentRunsDb, runsDb } from '../src/db.js'
 import { seedProfiles, getProfile } from '../src/profiles.js'
+import { dailyActivitySeries, ACTIVITY_SERIES_DAYS } from '../src/routes/org-shared.js'
 import type { ChiefOrgLead, OrchestratorRosterPayload, AgentProfile } from '@k/shared'
 
 const TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
@@ -42,6 +43,36 @@ afterAll(async () => {
   await app.close()
 })
 
+// INT.2 FE IN-3 — pure bucketing unit tests (no app/DB needed).
+describe('dailyActivitySeries', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const now = 1_700_000_000_000
+
+  it('buckets rows into oldest→newest day slots, today last', () => {
+    const rows = [
+      { created_at: now },                    // today -> last index
+      { created_at: now - DAY_MS },            // 1 day ago
+      { created_at: now - DAY_MS },            // 1 day ago (2nd)
+      { created_at: now - 13 * DAY_MS },       // oldest tracked day -> index 0
+    ]
+    const series = dailyActivitySeries(rows, 14, now)
+    expect(series).toHaveLength(14)
+    expect(series[13]).toBe(1)   // today
+    expect(series[12]).toBe(2)   // 1 day ago
+    expect(series[0]).toBe(1)    // 13 days ago
+    expect(series.reduce((a, b) => a + b, 0)).toBe(4)
+  })
+
+  it('drops rows older than the window and future-stamped (clock-skew) rows', () => {
+    const rows = [{ created_at: now - 20 * DAY_MS }, { created_at: now + DAY_MS }]
+    expect(dailyActivitySeries(rows, 14, now)).toEqual(new Array(14).fill(0))
+  })
+
+  it('returns an all-zero series for a lead with no activation history', () => {
+    expect(dailyActivitySeries([], 14, now)).toEqual(new Array(14).fill(0))
+  })
+})
+
 describe('GET /api/orchestrators', () => {
   it('returns the five discipline leads + an activeLeads count', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/orchestrators', headers: AUTH })
@@ -67,6 +98,13 @@ describe('GET /api/orchestrators', () => {
     expect(fe.recent!.succeeded + fe.recent!.failed).toBeLessThanOrEqual(fe.recent!.total)
     expect(typeof body.activeLeads).toBe('number')
     expect(body.activeLeads).toBe(0)
+
+    // INT.2 FE IN-3 — every roster entry carries a fixed-length 14d activity series.
+    for (const lead of body.leads) {
+      expect(Array.isArray(lead.activitySeries)).toBe(true)
+      expect(lead.activitySeries).toHaveLength(ACTIVITY_SERIES_DAYS)
+      for (const n of lead.activitySeries!) expect(Number.isInteger(n) && n >= 0).toBe(true)
+    }
   })
 
   it('surfaces recent-health counts on BOTH the roster entry and the detail (one authority)', async () => {

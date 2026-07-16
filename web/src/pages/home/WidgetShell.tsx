@@ -1,6 +1,7 @@
 import type { HomeLayout, HomeWidgetPlacement } from '@k/shared'
 import SegControl from '../../components/SegControl'
 import { fits } from '../../lib/home-layout'
+import { WIDGET_DEFS } from './widgets'
 import { IconButton } from '../../ui/Button'
 
 type SizeKey = '1x1' | '2x1' | '1x2' | '2x2'
@@ -30,6 +31,7 @@ interface Props {
  * `seg-<size>`.
  */
 export default function WidgetShell({ placement, layout, onChange }: Props) {
+  const title = WIDGET_DEFS[placement.id].title
   function replace(next: HomeWidgetPlacement) {
     onChange({ widgets: layout.widgets.map(w => (w.id === placement.id ? next : w)) })
   }
@@ -45,11 +47,11 @@ export default function WidgetShell({ placement, layout, onChange }: Props) {
 
   return (
     <div className="flex flex-wrap items-center gap-1 border-b border-border bg-bg/70 p-1 text-micro">
-      <span className="mr-auto truncate font-medium text-text">{placement.id}</span>
+      <span className="mr-auto truncate font-medium text-text">{title}</span>
       <SegControl<SizeKey>
         size="sm"
         activeTone="accent"
-        ariaLabel={`Resize ${placement.id}`}
+        ariaLabel={`Resize ${title}`}
         options={SIZES.map(({ key, w, h }) => {
           const active = placement.w === w && placement.h === h
           return { label: key, value: key, disabled: !active && !fits(layout, { ...placement, w, h }, placement.id) }
@@ -61,7 +63,7 @@ export default function WidgetShell({ placement, layout, onChange }: Props) {
         }}
       />
       <select
-        aria-label={`Move ${placement.id}`}
+        aria-label={`Move ${title}`}
         data-testid={`widget-move-${placement.id}`}
         value={`${placement.x},${placement.y}`}
         onChange={(e) => {
@@ -76,7 +78,7 @@ export default function WidgetShell({ placement, layout, onChange }: Props) {
       </select>
       <IconButton
         name="close"
-        label={`Remove ${placement.id}`}
+        label={`Remove ${title}`}
         variant="ghost"
         size="sm"
         data-testid={`widget-remove-${placement.id}`}

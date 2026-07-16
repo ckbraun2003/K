@@ -9,7 +9,8 @@
  *   - a parent-less detail view with no async entity name ('timeline') still
  *     names itself in the breadcrumb tail, via its own Sidebar destination label
  *   - an unknown view surfaces 'Not found' (never masquerades as Home)
- *   - the ⌘K launcher no longer opens a command palette — it calls focusDock()
+ *   - the launcher pill is deleted (impressive-wave Q1); ⌘K chord → focusDock() is
+ *     covered by shell-keys.test.tsx + Shell's useShellKeys binding
  * api + route.navigate + dock-bus.focusDock are mocked (vi.hoisted, mirroring
  * the sibling suites).
  */
@@ -126,9 +127,9 @@ describe('TopBar', () => {
     expect(screen.getByTestId('topbar-title').textContent).toContain('Not found')
   })
 
-  it('the ⌘K launcher calls focusDock(), not a command palette', () => {
+  it('has no dock-launcher pill — ⌘K/dock focus lives in the chord path (shell-keys.test) and the dock itself', () => {
     renderBar('home')
-    fireEvent.click(screen.getByTestId('topbar-dock-launcher'))
-    expect(mockFocusDock).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('topbar-dock-launcher')).toBeNull()
+    expect(mockFocusDock).not.toHaveBeenCalled()
   })
 })

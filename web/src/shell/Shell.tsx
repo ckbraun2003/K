@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
+import Ambient from './Ambient'
+import GlassFilterDefs from '../components/GlassFilterDefs'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import MessageDock from './MessageDock'
@@ -17,19 +19,24 @@ import WorkflowNudge from '../components/WorkflowNudge'
 import SettingsPage from '../pages/SettingsPage'
 import OrchestratorDetailPage from '../pages/OrchestratorDetailPage'
 import TimelinePage from '../pages/TimelinePage'
+import PrReviewPage from '../pages/PrReviewPage'
 import NotFound from '../pages/NotFound'
+import HelpGuide from '../help/HelpGuide'
 import { useHashRoute, isKnownView } from '../lib/route'
 import { connectWs, onWsMessage, onWsStatus } from '../lib/ws'
 import { focusDock } from '../lib/dock-bus'
+import { onHelpOpen, shouldAutoOpenHelp } from '../lib/help-bus'
 import { stageTransition } from '../lib/motion'
 import { CHORDS } from '../lib/chords'
 import { useShellKeys } from '../lib/use-shell-keys'
+import { useGlassPointer } from '../lib/use-glass-pointer'
 import useLiveInvalidators from './useLiveInvalidators'
 
 export default function Shell() {
   const route = useHashRoute()
   const [connected, setConnected] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [navCollapsed, setNavCollapsed] = useState<boolean>(
     () => localStorage.getItem('k.nav.collapsed') === '1',
   )
@@ -61,6 +68,12 @@ export default function Shell() {
     onToggleLegend: () => setLegendOpen(o => !o),
     onCloseLegend: () => setLegendOpen(false),
   })
+  useGlassPointer()
+
+  // Sidebar's Help entry opens the guide via the bus (FE-6); Shell owns the
+  // dialog's open state so it can also auto-open it on first run, below.
+  useEffect(() => onHelpOpen(() => setHelpOpen(true)), [])
+  useEffect(() => { if (shouldAutoOpenHelp()) setHelpOpen(true) }, [])
 
   // The ONE live-invalidator subscription for the whole app — mounted at Shell
   // level so invalidation never depends on which page happens to be routed
@@ -73,7 +86,8 @@ export default function Shell() {
       className="grid h-screen grid-rows-[auto_1fr_auto] bg-bg"
       style={{ gridTemplateColumns: `${navCollapsed ? 60 : 220}px 1fr` }}
     >
-      <div className="ambient" aria-hidden />
+      <Ambient />
+      <GlassFilterDefs />
       <Sidebar active={route.view} collapsed={navCollapsed} onToggleCollapse={toggleNav} />
       <TopBar view={route.view} param={route.param} connected={connected} />
 
@@ -98,6 +112,7 @@ export default function Shell() {
             {route.view === 'insights' && <InsightsPage tab={route.param} />}
             {route.view === 'verify' && <ProjectVerification projectId={route.param} />}
             {route.view === 'project' && <ProjectWorkspace projectId={route.param} tab={route.subParam} />}
+            {route.view === 'pr-review' && <PrReviewPage projectId={route.param} prNumber={route.subParam} />}
             {route.view === 'skill-creator' && <SkillCreatorPage draftId={route.param} />}
             {route.view === 'settings' && <SettingsPage />}
             {!isKnownView(route.view) && <NotFound route={route.view} />}
@@ -109,6 +124,10 @@ export default function Shell() {
       {/* Global nudge: a finalized task-workflow prompts the operator to review + close
           its tasks (F-076 — the harness never auto-closes them). */}
       <WorkflowNudge />
+
+      {/* The in-app user guide (FE-6) — a top-level sibling since it's a dialog,
+          not a route; opened via Sidebar's Help entry or first-run auto-open. */}
+      <HelpGuide open={helpOpen} onOpenChange={setHelpOpen} />
 
       {/* Pending g-chord affordance — shown while a `g` chord is armed so the
           prefix isn't an invisible mode that times out silently (F-009). */}
@@ -158,21 +177,31 @@ export default function Shell() {
             >
               <h3 className="text-sm font-semibold text-text">Keyboard shortcuts</h3>
               <p className="mt-1 text-xs text-muted">Press <kbd className="mono rounded bg-raised px-1 py-0.5 text-[10px]">?</kbd> any time to toggle this panel.</p>
-              <ul className="mt-4 flex flex-col gap-1.5">
-                <li className="flex items-center justify-between text-xs">
+              <ul className="mt-4 flex flex-col divide-y divide-border">
+                <li className="flex items-center justify-between py-1.5 text-xs">
                   <span className="text-text">Message K</span>
                   <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">⌘K</kbd>
                 </li>
                 {CHORDS.map(c => (
-                  <li key={c.key} className="flex items-center justify-between text-xs">
+                  <li key={c.key} className="flex items-center justify-between py-1.5 text-xs">
                     <span className="text-text">{c.label}</span>
-                    <span className="mono text-[10px] text-muted">
-                      <kbd className="rounded bg-raised px-1.5 py-0.5">g</kbd>
-                      {' '}
-                      <kbd className="rounded bg-raised px-1.5 py-0.5">{c.key}</kbd>
+                    <span className="flex items-center gap-1">
+                      <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">g</kbd>
+                      <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">{c.key}</kbd>
                     </span>
                   </li>
                 ))}
+                <li className="flex items-center justify-between py-1.5 text-xs">
+                  <span className="text-text">Changes — next / prev file</span>
+                  <span className="flex items-center gap-1">
+                    <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">j</kbd>
+                    <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">k</kbd>
+                  </span>
+                </li>
+                <li className="flex items-center justify-between py-1.5 text-xs">
+                  <span className="text-text">Close dialogs &amp; overlays</span>
+                  <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">Esc</kbd>
+                </li>
               </ul>
             </motion.div>
           </motion.div>

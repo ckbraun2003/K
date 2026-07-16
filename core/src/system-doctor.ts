@@ -38,6 +38,14 @@ export interface DoctorToolSpec {
   args: string[]
 }
 
+/** The ONE claude-CLI detection definition (BE-3b). Both surfaces — the Settings
+ *  status pill (/api/status → routes/settings.ts::probeClaude) and the doctor card
+ *  (/api/system/doctor) — MUST probe with these exact bin/args/timeout, or a cold
+ *  shim that needs >2s can read "NOT FOUND" beside "CLI INSTALLED" on one screen
+ *  (the 2026-07-14 audit contradiction). Caveat: the two 15s caches may still
+ *  disagree for one TTL after an install/uninstall — same probe, same verdict after. */
+export const CLAUDE_PROBE = { bin: 'claude', args: ['--version'], timeoutMs: 3_000 } as const
+
 /** The host tools the desktop app relies on. `claude` is the agent engine K drives
  *  and is NOT bundled; git/node are hard prerequisites; gh/ollama are optional
  *  (K degrades gracefully without them). */
@@ -48,8 +56,8 @@ export const DOCTOR_CATALOG: readonly DoctorToolSpec[] = [
     required: true,
     purpose: 'The agent engine K drives — not bundled; install and authenticate it.',
     installUrl: 'https://docs.claude.com/en/docs/claude-code/overview',
-    bin: 'claude',
-    args: ['--version'],
+    bin: CLAUDE_PROBE.bin,
+    args: [...CLAUDE_PROBE.args],
   },
   {
     id: 'git',
@@ -144,7 +152,10 @@ let doctorCache: { report: DoctorReport; ts: number } | null = null
 export async function runDoctor(): Promise<DoctorReport> {
   if (doctorCache && Date.now() - doctorCache.ts < DOCTOR_TTL_MS) return doctorCache.report
   const entries = await Promise.all(
-    DOCTOR_CATALOG.map(async spec => [spec.id, await probeTool(spec.bin, spec.args, 3_000)] as const),
+    // 3s for every tool; CLAUDE_PROBE.timeoutMs is the coupling point for claude
+    // (routes/settings.ts::probeClaude delegates to the same constant).
+    DOCTOR_CATALOG.map(async spec =>
+      [spec.id, await probeTool(spec.bin, spec.args, spec.id === 'claude' ? CLAUDE_PROBE.timeoutMs : 3_000)] as const),
   )
   const report = buildDoctorReport(Object.fromEntries(entries))
   doctorCache = { report, ts: Date.now() }

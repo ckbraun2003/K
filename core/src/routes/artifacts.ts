@@ -1,11 +1,8 @@
 import type { FastifyInstance } from 'fastify'
-import { getArtifact, listArtifacts, saveArtifact } from '../artifacts.js'
+import { getArtifact, listArtifacts, saveArtifact, SLUG_RE } from '../artifacts.js'
 import { compileBible, isBibleSlug, listBibleSections, saveBibleSection, BibleEditError } from '../bible.js'
 import { compileProjectUiDemo, seedUiDemo } from '../ui-artifact.js'
-
-// URL-safe slug: leading alphanumeric, then up to 79 of [alnum _ -]. No dots,
-// slashes, or %-escapes survive — blocks ../ and ..%2f path-traversal at the boundary.
-const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/
+import { projectsDb } from '../db.js'
 
 export async function artifactsRoutes(app: FastifyInstance) {
   // POST /api/bible/compile — recompile the project bible from its sections
@@ -49,8 +46,15 @@ export async function artifactsRoutes(app: FastifyInstance) {
     },
   )
 
-  // GET /api/artifacts — list all (no md/html, metadata only)
-  app.get('/api/artifacts', async (_req, reply) => {
+  // GET /api/artifacts — list all (metadata only). ?projectId= filters to one
+  // project's rows (unknown project → 400, matching routes/runs.ts precedent).
+  app.get<{ Querystring: { projectId?: string } }>('/api/artifacts', async (req, reply) => {
+    const projectId = req.query.projectId
+    if (projectId !== undefined) {
+      if (!SLUG_RE.test(projectId)) return reply.status(400).send({ error: 'invalid projectId' })
+      if (!projectsDb.getProject.get(projectId)) return reply.status(400).send({ error: 'unknown projectId' })
+      return reply.send(listArtifacts(projectId))
+    }
     return reply.send(listArtifacts())
   })
 

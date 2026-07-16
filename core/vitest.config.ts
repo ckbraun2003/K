@@ -1,4 +1,5 @@
 import { defineConfig, configDefaults } from 'vitest/config'
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -47,14 +48,25 @@ export default defineConfig({
       // NEVER the repo's live data dir, though: an inherited live pointer (H-1 —
       // a lead running `pnpm core test` inside a run bound vitest to the LIVE DB
       // and deleted a live row) must not bind tests to the real DB even if it
-      // leaks into the env vitest is invoked from. Case-insensitive compare
-      // (Windows paths).
+      // leaks into the env vitest is invoked from.
       K_DATA_DIR: (() => {
         const ext = process.env.K_DATA_DIR
-        const live = path.resolve(here, '../data').toLowerCase()
-        if (ext && path.resolve(ext).toLowerCase() !== live) return ext
-        if (ext) console.warn('[vitest] K_DATA_DIR pointed at the LIVE data dir — overriding to a temp dir (H-1 guard)')
-        return path.join(os.tmpdir(), 'k-core-vitest-data')
+        const fallback = path.join(os.tmpdir(), 'k-core-vitest-data')
+        if (!ext) return fallback
+        // H-1 guard, hardened (DEH-FU-6): canonicalize BOTH sides through the OS
+        // (realpath resolves 8.3 short names like DATA~1 and junctions/symlinks)
+        // and block the live dir AND anything inside it — the old exact-string
+        // compare let `data\sub`, short paths, and junctions through.
+        const canon = (p: string): string => {
+          try { return fs.realpathSync.native(p).toLowerCase() } catch { return path.resolve(p).toLowerCase() }
+        }
+        const live = canon(path.resolve(here, '../data'))
+        const extCanon = canon(ext)
+        if (extCanon === live || extCanon.startsWith(live + path.sep)) {
+          console.warn('[vitest] K_DATA_DIR points at (or inside) the LIVE data dir — overriding to a temp dir (H-1 guard)')
+          return fallback
+        }
+        return ext
       })(),
       HARNESS_TOKEN: 'dev-token-change-me',
     },

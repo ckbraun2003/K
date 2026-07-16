@@ -181,14 +181,48 @@ export function recentHealth(runsForLead: Row[]): RecentRunHealth {
   }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+export const ACTIVITY_SERIES_DAYS = 14
+
+/**
+ * IN-3 — last-{@link ACTIVITY_SERIES_DAYS} daily activation counts, oldest→newest
+ * (index 0 = the oldest day, last index = today), from the SAME bounded scanLead rows
+ * rosterVitals already fetched — no extra query. Bucketed by whole-day offset from
+ * `now` (the scan rows carry epoch ms only, not calendar-day boundaries). A lead whose
+ * true daily volume exceeds AGENT_RUN_SCAN within the window will under-count its
+ * oldest bucket(s) — the same bounded-scan tradeoff every rosterVitals field accepts.
+ * Pure + exported for unit-testing.
+ */
+export function dailyActivitySeries(
+  runsForLead: Row[],
+  days: number = ACTIVITY_SERIES_DAYS,
+  now: number = Date.now(),
+): number[] {
+  const series = new Array(days).fill(0) as number[]
+  for (const r of runsForLead) {
+    const createdAt = Number(r.created_at)
+    if (!Number.isFinite(createdAt)) continue
+    const age = now - createdAt
+    if (age < 0) continue // clock-skew guard: a future-stamped row never buckets
+    const dayIndex = Math.floor(age / DAY_MS)
+    if (dayIndex >= days) continue
+    series[days - 1 - dayIndex]++
+  }
+  return series
+}
+
 /** The SLIM roster entry for one lead — latest run + live flag + a recent-activation
- *  count (bounded by the scan) + recent-health counts, WITHOUT the per-lead
- *  delegate-events fetch the roster never renders. Reuses scanLead so
- *  `latestRun`/`live` agree with the detail view. */
+ *  count (bounded by the scan) + recent-health counts + a 14d activity series,
+ *  WITHOUT the per-lead delegate-events fetch the roster never renders. Reuses
+ *  scanLead so `latestRun`/`live` agree with the detail view. */
 export function rosterVitals(profile: AgentProfile): OrchestratorRosterEntry {
   const { runsForLead, latestRun } = scanLead(profile)
   const live = latestRun != null && LIVE_RUN_STATUSES.has(latestRun.status)
-  return { profile, latestRun, live, wakes: runsForLead.length, recent: recentHealth(runsForLead) }
+  return {
+    profile, latestRun, live, wakes: runsForLead.length,
+    recent: recentHealth(runsForLead),
+    activitySeries: dailyActivitySeries(runsForLead),
+  }
 }
 
 /**

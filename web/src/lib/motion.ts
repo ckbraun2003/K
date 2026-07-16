@@ -100,3 +100,29 @@ export const fade: Variants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.2, ease: 'easeOut' } },
   exit: { opacity: 0, y: 8, transition: { duration: 0.15 } },
 }
+
+/* ── chart + success presets (impressive-wave W0.7) ─────────────────────── */
+
+/** Draw-in for SVG chart paths on mount (≤400ms, once per mount — key it to
+ *  the mount, never to refetch state). Bars: keep `staggerItem` (scaleY on
+ *  rects distorts strokes; opacity + rise reads better at 400ms). */
+export const chartDraw: Variants = {
+  hidden: { pathLength: 0, opacity: 0 },
+  visible: { pathLength: 1, opacity: 1, transition: { duration: 0.4, ease: 'easeOut' } },
+}
+
+/** One-shot glow sweep for a run row / console header the moment a run reaches
+ *  `succeeded` (600ms, no confetti; MotionConfig reducedMotion="user" drops it).
+ *  rgba literals mirror the --green token's RGB — rgba is outside the token
+ *  gate's hex/palette regexes and matches .glow-live's values in index.css. */
+export const successSweep: Variants = {
+  idle: { boxShadow: '0 0 0 0 rgba(52, 211, 153, 0)' },
+  sweep: {
+    boxShadow: [
+      '0 0 0 0 rgba(52, 211, 153, 0)',
+      '0 0 24px 2px rgba(52, 211, 153, 0.35)',
+      '0 0 0 0 rgba(52, 211, 153, 0)',
+    ],
+    transition: { duration: 0.6, ease: 'easeOut' },
+  },
+}

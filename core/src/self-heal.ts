@@ -13,6 +13,7 @@ import { eventBus } from './events.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
 import { runsDb, retryDb, agentRunsDb, eventsDb, proposalsDb } from './db.js'
 import { classifyFailure, fallbackModel, isRetryable } from './failure-classifier.js'
+import { OPEN_PROPOSAL_CAP } from './proposal-collectors.js'
 import { autonomySettings } from './config-store.js'
 import { budgetGate } from './budget-governor.js'
 import { startRun } from './supervisor.js'
@@ -65,7 +66,14 @@ export async function onRunTerminalForHeal(run: Run, now = Date.now()): Promise<
     }
   }
   // Park: one Inbox proposal with a one-line diagnosis (deduped by source_key).
+  // P5 SEAMS minor (cap-bypass edge): this direct insert must respect the same
+  // OPEN_PROPOSAL_CAP the collectors enforce — an unbounded park flood could bury
+  // the inbox. When full, log and skip (the run row + failure_class still record it).
   if (!proposalsDb.getProposalBySourceKey.get(`self_heal:${run.id}`)) {
+    if ((proposalsDb.countOpenProposals.get() as { n: number }).n >= OPEN_PROPOSAL_CAP) {
+      console.warn(`[self-heal] proposal cap reached — not parking run ${run.id} (${cls})`)
+      return 'parked'
+    }
     proposalsDb.insertProposal.run({
       id: randomUUID(), title: `Failed run needs attention (${cls})`,
       body: `Run ${run.id} ended ${run.status}. Diagnosis: ${(stderr ?? 'no error output').slice(0, 200)}`,

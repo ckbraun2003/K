@@ -689,6 +689,15 @@ export function runChildEnv(
   return { ...rest, ...extra }
 }
 
+/** Options for the LEGACY `ollama run <model> <prompt>` spawn (the non-synth branch).
+ *  DEH-FU-4 defense-in-depth: the old exemption inherited the FULL env ("plain binary,
+ *  no agent code") — true, but it still left HARNESS_TOKEN/K_DATA_DIR/PORT sitting in a
+ *  subprocess env for anything that inspects it. Scrub costs nothing; ollama needs none
+ *  of the three. Exported for the unit test. */
+export function legacySpawnOptions(cwd: string): { cwd: string; reject: false; all: true; env: NodeJS.ProcessEnv } {
+  return { cwd, reject: false, all: true, env: runChildEnv(process.env, {}) }
+}
+
 /** True when a stream-json line marks the end of an agent turn (`{type:"result"}`).
  *  In interactive mode this is the boundary where we park the run at awaiting_input
  *  instead of completing it (the process stays alive on stdin). */
@@ -890,15 +899,12 @@ async function runAgent(
         // bind vitest to the LIVE data dir, and HARNESS_TOKEN/PORT are a credential/port
         // leak to agent-authored code). K_RUN_ID identifies the run to the kstore MCP
         // child (it also reads it from mcp.json env — this is the process-wide,
-        // defense-in-depth copy). legacy ollama (`else` below) is EXEMPT from the
-        // scrub: that branch spawns the plain `ollama run <model> <prompt>` binary,
-        // which has no bash/tool/file-write access and executes no agent-authored
-        // code — there is nothing there that can act on a leaked K_DATA_DIR/PORT/
-        // HARNESS_TOKEN, so it keeps today's env-free spawn options byte-for-byte
-        // unchanged.
+        // defense-in-depth copy). The legacy ollama branch's old full-env exemption is
+        // RETIRED (DEH-FU-4): it now spawns with the same scrubbed env via
+        // legacySpawnOptions — ollama needs none of the three pointers.
         synth
           ? { cwd, reject: false, all: true, env: runChildEnv(process.env, { CLAUDE_CONFIG_DIR: synth.configDir, K_RUN_ID: run.id, ...synth.authEnv }) }
-          : { cwd, reject: false, all: true }
+          : legacySpawnOptions(cwd)
       )
 
       activeProcesses.set(run.id, { kill: proc.kill.bind(proc), stdin: proc.stdin, interactive })

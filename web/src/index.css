@@ -32,9 +32,9 @@
   /* glass tiers, shadow ramp, motion tokens — task 4 (bible §6). The tier
      border keeps its -tier- name from the migration era, when a legacy
      --glass-border (removed in task 22) still occupied the plain name. */
-  --glass-chrome-bg: rgba(42, 26, 71, 0.55);
-  --glass-panel-bg: rgba(42, 26, 71, 0.72);
-  --glass-overlay-bg: rgba(51, 32, 92, 0.82);
+  --glass-chrome-bg: rgba(42, 26, 71, 0.48);
+  --glass-panel-bg: rgba(42, 26, 71, 0.64);
+  --glass-overlay-bg: rgba(51, 32, 92, 0.76);
   --glass-tier-border: rgba(179, 166, 205, 0.14);
   --glass-sheen: rgba(255, 255, 255, 0.07);
   --shadow-1: 0 2px 8px rgba(10, 4, 24, 0.35);
@@ -42,6 +42,36 @@
   --shadow-3: 0 16px 48px rgba(10, 4, 24, 0.60);
   --dur-1: 120ms; --dur-2: 180ms; --dur-3: 240ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
+  /* ── LG2 (impressive-wave W0.2) ── living-ambient blobs, specular edge,
+     pointer sheen, refraction scale. Hues derived from the D-011 family:
+     chart-5 violet / accent blush / accent-hover sky / indigo (chart-8-adjacent)
+     at low alpha. Tier fills dropped one step (.55/.72/.82 → .48/.64/.76) —
+     AA-verified vs the brightest blob (see plan W0.2: all ≥4.5:1). */
+  --lg-blob-1: rgba(168, 85, 247, 0.16);
+  --lg-blob-2: rgba(255, 143, 192, 0.13);
+  --lg-blob-3: rgba(56, 189, 248, 0.11);
+  --lg-blob-4: rgba(99, 102, 241, 0.10);
+  --lg-edge: rgba(244, 240, 255, 0.30);
+  --lg-sheen: rgba(244, 240, 255, 0.10);
+  /* mirrored as a literal in web/src/components/GlassFilterDefs.tsx — CSS
+     custom properties cannot reach SVG filter-primitive attributes */
+  --lg-refract-scale: 14;
+  /* code-viewer syntax tokens (DiffViewer v2 theme — exactly the ELEVEN
+     prism-class tokens the FE lane's Task 12 consumes; refractor/Prism classes
+     map to these in the .code-viewer block below; no library CSS is ever
+     imported; token gate stays at zero). Diff add/remove highlights have NO
+     dedicated tokens — the FE lane reuses --green/--red via Tailwind. */
+  --code-keyword: #c084fc;
+  --code-type: #fcd34d;      /* derived light amber (family: --amber) */
+  --code-function: #38bdf8;
+  --code-string: #34d399;
+  --code-comment: #958ab5;   /* derived muted-violet — 4.96:1 on --surface */
+  --code-number: #fbbf24;
+  --code-operator: #7dd3fc;  /* derived light sky (family: --accent-hover) */
+  --code-punctuation: #b3a6cd;
+  --code-property: #818cf8;  /* derived indigo (family: --chart-8) */
+  --code-tag: #ff8fc0;
+  --code-attr: #fcd34d;      /* shares the light amber with --code-type (html vs TS grammars) */
 }
 
 * { box-sizing: border-box; }
@@ -62,28 +92,38 @@ body { font-variant-numeric: tabular-nums; }
 
 /* ── flare layer ──────────────────────────────────────────────────────────── */
 
-/* Ambient aurora behind the stage — barely-there indigo drift. Pure decoration
-   budget: this is the ONE decorative element; everything else must inform. */
+/* ── LG2 living ambient (impressive-wave W0.3) — base wash + four hue-drifting
+   blobs (markup: shell/Ambient.tsx). GPU-composited transforms only
+   (translate3d/scale); 60–120s cycles; frozen under prefers-reduced-motion.
+   The three static radial washes of the D-107 ambient are superseded by the
+   blobs (same hue family, now moving). */
 .ambient {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 0;
+  overflow: hidden;
   background:
-    radial-gradient(58rem 46rem at 25% 25%, rgba(168, 85, 247, 0.10), transparent 60%),
-    radial-gradient(54rem 42rem at 100% 30%, rgba(255, 143, 192, 0.07), transparent 60%),
-    radial-gradient(54rem 40rem at 35% 100%, rgba(56, 189, 248, 0.06), transparent 60%),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
     var(--bg-deep);
-  animation: ambient-drift 72s ease-in-out infinite alternate;
-  /* Promote to its own compositor layer so the continuously-animating ambient
-     drift doesn't repaint the now-glass ActivityStrip above it (60fps mitigation). */
-  will-change: transform;
 }
-@keyframes ambient-drift {
-  from { transform: translateX(-2%) translateY(0); opacity: 0.8; }
-  to   { transform: translateX(2%) translateY(1.5%); opacity: 1; }
-}
+.ambient-blob { position: absolute; border-radius: 9999px; will-change: transform; }
+.ambient-blob-1 { width: 56rem; height: 46rem; left: -8%; top: -14%;
+  background: radial-gradient(closest-side, var(--lg-blob-1), transparent 70%);
+  animation: lg-drift-1 96s ease-in-out infinite alternate; }
+.ambient-blob-2 { width: 50rem; height: 42rem; right: -14%; top: 2%;
+  background: radial-gradient(closest-side, var(--lg-blob-2), transparent 70%);
+  animation: lg-drift-2 78s ease-in-out infinite alternate; }
+.ambient-blob-3 { width: 52rem; height: 40rem; left: 16%; bottom: -18%;
+  background: radial-gradient(closest-side, var(--lg-blob-3), transparent 70%);
+  animation: lg-drift-3 114s ease-in-out infinite alternate; }
+.ambient-blob-4 { width: 40rem; height: 36rem; right: 6%; bottom: -10%;
+  background: radial-gradient(closest-side, var(--lg-blob-4), transparent 70%);
+  animation: lg-drift-4 66s ease-in-out infinite alternate; }
+@keyframes lg-drift-1 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(9%, 6%, 0) scale(1.12); } }
+@keyframes lg-drift-2 { from { transform: translate3d(0, 0, 0) scale(1.08); } to { transform: translate3d(-7%, 9%, 0) scale(0.94); } }
+@keyframes lg-drift-3 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(11%, -7%, 0) scale(1.10); } }
+@keyframes lg-drift-4 { from { transform: translate3d(0, 0, 0) scale(0.95); } to { transform: translate3d(-9%, -5%, 0) scale(1.08); } }
 
 /* Live-element glow: only things that are genuinely live may pulse */
 .glow-live {
@@ -125,16 +165,33 @@ body { font-variant-numeric: tabular-nums; }
 @layer components {
   .glass-chrome, .glass-panel, .glass-overlay {
     border: 1px solid var(--glass-tier-border);
-    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
+    box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-1);
   }
-  .glass-chrome { background: var(--glass-chrome-bg);
-    -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); }
-  .glass-panel { background: var(--glass-panel-bg);
-    -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
-    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-2); }
-  .glass-overlay { background: var(--glass-overlay-bg);
-    -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4);
-    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-3); }
+  .glass-chrome {
+    background:
+      linear-gradient(var(--glass-chrome-bg), var(--glass-chrome-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
+    -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    backdrop-filter: blur(24px) saturate(1.4);
+  }
+  .glass-panel {
+    background:
+      linear-gradient(var(--glass-panel-bg), var(--glass-panel-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    backdrop-filter: blur(16px) saturate(1.2);
+    border-radius: var(--radius-lg);
+    box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-2);
+  }
+  .glass-overlay {
+    background:
+      linear-gradient(var(--glass-overlay-bg), var(--glass-overlay-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
+    -webkit-backdrop-filter: blur(28px) saturate(1.4);
+    backdrop-filter: blur(28px) saturate(1.4);
+    border-radius: var(--radius-lg);
+    box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-3);
+  }
   .surface-solid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
   .micro-label { font-size: 10px; line-height: 12px; letter-spacing: 0.08em;
     text-transform: uppercase; font-weight: 500; color: var(--muted); }
@@ -145,8 +202,66 @@ body { font-variant-numeric: tabular-nums; }
   .glass-chrome { background: var(--surface); }
   .glass-panel, .glass-overlay { background: var(--raised); }
 }
+/* ── LG2 refraction (impressive-wave W0.4) — Chromium-first, strictly additive.
+   The refract layer is a ::after of the SAME tier element (never a second tier
+   inside another tier's blur); z-index -1 + isolation keep the host's own text
+   out of the refracted backdrop; the mask confines distortion to the outer
+   ring so backdrops behind text-bearing centers stay calm. Inside @layer
+   components so positioning utilities on call sites (fixed/absolute/z-*)
+   still win over the position fallback. */
+@layer components {
+  @supports ((backdrop-filter: url(#lg-refract)) or (-webkit-backdrop-filter: url(#lg-refract))) {
+    .glass-chrome, .glass-overlay { position: relative; isolation: isolate; }
+    .glass-chrome::after, .glass-overlay::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      border-radius: inherit;
+      pointer-events: none;
+      -webkit-mask-image: radial-gradient(130% 130% at 50% 50%, transparent 58%, #000 96%);
+      mask-image: radial-gradient(130% 130% at 50% 50%, transparent 58%, #000 96%);
+    }
+    .glass-chrome::after {
+      -webkit-backdrop-filter: url(#lg-refract) blur(24px) saturate(1.4);
+      backdrop-filter: url(#lg-refract) blur(24px) saturate(1.4);
+    }
+    .glass-overlay::after {
+      -webkit-backdrop-filter: url(#lg-refract) blur(28px) saturate(1.4);
+      backdrop-filter: url(#lg-refract) blur(28px) saturate(1.4);
+    }
+  }
+}
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; } }
+
+/* ── LG2 pointer sheen (impressive-wave W0.6) — opt-in .glass-interactive ─────
+   useGlassPointer (mounted once in Shell) writes --lg-mx/--lg-my in viewport
+   px on <html>; background-attachment: fixed anchors the radial highlight to
+   those viewport coords, so one pair of vars serves every card. The overlay is
+   a decorative 10%-alpha wash (never load-bearing for contrast) that parks
+   off-viewport until the first pointermove; on touch/reduced-motion the hook
+   no-ops and the sheen simply never appears. A standalone ::before (its own
+   background, independent of the tier's own `background` shorthand) — composes
+   with the W0.5 double-background tier fill/edge without touching it, and
+   with W0.4's z-index:-1 refract ::after: refract paints in the stacking
+   context's negative-z step (behind all normal content), this ::before has no
+   z-index (auto) so it paints in the positioned/auto step AFTER normal content
+   — i.e. the sheen highlights on top, the refraction distorts the backdrop
+   behind, exactly the desired relative order. No edits to .glass-chrome/
+   .glass-panel/.glass-overlay's own `background` or `::after` rules. */
+@layer components {
+  .glass-interactive { position: relative; }
+  .glass-interactive::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: radial-gradient(11rem 11rem at var(--lg-mx, -100vmax) var(--lg-my, -100vmax), var(--lg-sheen), transparent 70%);
+    background-attachment: fixed;
+  }
+}
 
 /* ── doc-markdown (FU-5) ──────────────────────────────────────────────────────
    DocViewer's `.md` view — replaces an inert @tailwindcss/typography `prose*`
@@ -172,6 +287,25 @@ body { font-variant-numeric: tabular-nums; }
   .doc-markdown li { color: var(--text); }
 }
 
+/* ── code-viewer syntax theme (impressive-wave W0.2) ──────────────────────────
+   DiffViewer v2 (FE lane Task 12) renders refractor/Prism token spans inside a
+   `.code-viewer` scope. Colors flow ONLY from the eleven --code-* tokens above
+   so the FE lane never edits index.css (a W0-owned file). Line/word add/remove
+   highlights are FE-lane Tailwind utilities on --green/--red — no classes here. */
+@layer components {
+  .code-viewer .token.keyword, .code-viewer .token.atrule, .code-viewer .token.rule { color: var(--code-keyword); }
+  .code-viewer .token.class-name, .code-viewer .token.builtin, .code-viewer .token.namespace { color: var(--code-type); }
+  .code-viewer .token.function { color: var(--code-function); }
+  .code-viewer .token.string, .code-viewer .token.char, .code-viewer .token.attr-value, .code-viewer .token.regex { color: var(--code-string); }
+  .code-viewer .token.comment, .code-viewer .token.prolog, .code-viewer .token.cdata { color: var(--code-comment); font-style: italic; }
+  .code-viewer .token.number, .code-viewer .token.boolean, .code-viewer .token.constant { color: var(--code-number); }
+  .code-viewer .token.operator { color: var(--code-operator); }
+  .code-viewer .token.punctuation { color: var(--code-punctuation); }
+  .code-viewer .token.property { color: var(--code-property); }
+  .code-viewer .token.tag, .code-viewer .token.selector, .code-viewer .token.symbol { color: var(--code-tag); }
+  .code-viewer .token.attr-name { color: var(--code-attr); }
+}
+
 /* ── chrome ───────────────────────────────────────────────────────────────── */
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -182,6 +316,6 @@ body { font-variant-numeric: tabular-nums; }
 :focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; border-radius: 4px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ambient, .glow-live { animation: none; }
+  .ambient, .ambient-blob, .glow-live { animation: none; }
   * { transition-duration: 0.01ms !important; }
 }

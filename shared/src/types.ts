@@ -129,6 +129,11 @@ export const ArtifactSchema = z.object({
   updatedAt: z.number(),     // unix ms
   md: z.string(),            // raw markdown content
   html: z.string().optional(), // rendered html (generated, not stored in DB)
+  // impressive-wave W0.9 (BE-1 contract, DB v13) — both optional so pre-v13
+  // rows and older callers keep parsing: projectId null/absent = harness-scope;
+  // origin absent reads as 'compiled' (legacy compiled rows).
+  projectId: z.string().nullable().optional(),
+  origin: z.enum(['compiled', 'scanned']).optional(),
 })
 export type Artifact = z.infer<typeof ArtifactSchema>
 
@@ -291,6 +296,9 @@ export const CiRunInfoSchema = z.object({
   status: z.string(),              // completed | in_progress | queued
   conclusion: z.string().nullable(), // success | failure | … | null while running
   createdAt: z.string(),
+  // INT.2 FE IN-2: wall-clock duration (updatedAt - createdAt) for a COMPLETED run only;
+  // absent while queued/in_progress (no end timestamp yet) — never a fabricated 0.
+  durationMs: z.number().optional(),
 })
 export type CiRunInfo = z.infer<typeof CiRunInfoSchema>
 
@@ -765,6 +773,9 @@ export const FeedItemSchema = z.object({
   projectName: z.string().nullable(),
   title: z.string(),
   detail: z.string().nullable(),
+  // INT.2 FE IN-1: billed actuals for run-derived rows (never price*token math);
+  // absent/undefined for non-run rows (notif/verify/pr) that have no run cost to show.
+  costUsd: z.number().optional(),
 })
 export type FeedItem = z.infer<typeof FeedItemSchema>
 
@@ -1344,6 +1355,11 @@ export interface OrchestratorRosterEntry {
   /** Success/failure counts over the lead's recent activations. Optional (mirrors
    *  ChiefOrgLead.recent) so existing fixtures/older payloads keep compiling. */
   recent?: RecentRunHealth
+  /** INT.2 FE IN-3 — last-14d daily activation counts, oldest→newest (index 0 =
+   *  13 days ago, index 13 = today). Derived from the SAME bounded per-lead scan
+   *  rosterVitals already pays for (org-shared.ts::dailyActivitySeries) — no extra
+   *  query. Optional so older payloads/fixtures keep compiling. */
+  activitySeries?: number[]
 }
 
 export interface OrchestratorRosterPayload {

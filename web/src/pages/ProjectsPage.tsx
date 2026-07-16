@@ -11,6 +11,7 @@ import { SectionHeader } from '../ui/SectionHeader'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
 import { Input } from '../ui/Field'
+import { Icon } from '../ui/Icon'
 
 export default function ProjectsPage() {
   const qc = useQueryClient()
@@ -29,6 +30,23 @@ export default function ProjectsPage() {
       if (!r.projectId) continue
       const cur = m.get(r.projectId)
       if (!cur || r.createdAt > cur.createdAt) m.set(r.projectId, r)
+    }
+    return m
+  }, [fleetRuns])
+  // Per-project runs/day over the last 14 days — derived from the already-fetched
+  // fleet-level runs (no new fetch) for each card's sparkline (FE-4 systemic #4).
+  const sparkByProject = useMemo(() => {
+    const days = 14
+    const dayKey = (ts: number) => new Date(ts).toISOString().slice(0, 10)
+    const keys = Array.from({ length: days }, (_, i) => dayKey(Date.now() - (days - 1 - i) * 86_400_000))
+    const m = new Map<string, number[]>()
+    for (const r of fleetRuns) {
+      if (!r.projectId) continue
+      const idx = keys.indexOf(dayKey(r.createdAt))
+      if (idx === -1) continue
+      const arr = m.get(r.projectId) ?? Array(days).fill(0)
+      arr[idx] += 1
+      m.set(r.projectId, arr)
     }
     return m
   }, [fleetRuns])
@@ -87,9 +105,19 @@ export default function ProjectsPage() {
             project={p}
             gh={githubFor(p.id)}
             lastRun={lastRunByProject.get(p.id) ?? null}
+            spark={sparkByProject.get(p.id)}
             onDelete={() => setDeleting(p)}
           />
         ))}
+        <button
+          type="button"
+          data-testid="register-ghost"
+          onClick={() => setOpen(true)}
+          className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-panel border border-dashed border-border-strong text-muted transition-colors duration-[var(--dur-1)] hover:text-text"
+        >
+          <Icon name="plus" size={20} />
+          <span className="text-caption">Register a project</span>
+        </button>
       </div>
       {projects.length === 0 && (
         <GettingStarted projects={projects} forceOpen onRegister={() => setOpen(true)} />

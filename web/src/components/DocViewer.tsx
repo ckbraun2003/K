@@ -94,7 +94,10 @@ export default function DocViewer({ slug }: Props) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
+      {/* IN-5: root fix for the bible's own horizontal overflow is BE-owned template CSS
+          (core/src/bible.ts); this is only a container guard so the iframe can't grow a
+          horizontal scrollbar on its parent (DF-1). */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0">
         {view === 'md' && (
           // FU-5: this project has no @tailwindcss/typography plugin registered
           // (tailwind.config.ts `plugins: []`), so every `prose*` utility below

@@ -80,6 +80,43 @@ describe('PUT /api/artifacts/:slug — path-traversal rejection', () => {
       const get = await app.inject({ method: 'GET', url: `/api/artifacts/${slug}` })
       expect(get.statusCode).toBe(200)
       expect(get.json().md).toContain('# Hello')
+
+      // v13 (D-117): list rows carry projectId/origin; a saveArtifact row is
+      // harness-scoped and compiled.
+      const list = await app.inject({ method: 'GET', url: '/api/artifacts' })
+      expect(list.statusCode).toBe(200)
+      const row = (list.json() as Array<{ slug: string; projectId: string | null; origin: string }>)
+        .find(r => r.slug === slug)
+      expect(row).toBeDefined()
+      expect(row?.projectId).toBeNull()
+      expect(row?.origin).toBe('compiled')
+    } finally {
+      await app.close()
+    }
+  })
+})
+
+describe('GET /api/artifacts?projectId= — v13 filter boundary', () => {
+  it('rejects an unknown projectId with 400', async () => {
+    const app = await makeApp()
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/artifacts?projectId=99999999-0000-0000-0000-000000000000',
+      })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error).toBe('unknown projectId')
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('rejects a malformed projectId with 400', async () => {
+    const app = await makeApp()
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/artifacts?projectId=..%2fevil' })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error).toBe('invalid projectId')
     } finally {
       await app.close()
     }

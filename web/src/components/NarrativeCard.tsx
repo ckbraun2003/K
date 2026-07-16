@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import type { RunNarrative } from '@k/shared'
 import { api } from '../lib/api'
+import Markdown from './Markdown'
 import { StatusPill } from '../ui/StatusPill'
 import { Tag } from '../ui/Tag'
 
@@ -35,7 +36,7 @@ export default function NarrativeCard({ runId }: { runId: string }) {
       {/* deterministic fields (computed from events/verify/run) */}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
         <dt className="text-muted">Goal</dt>
-        <dd data-testid="narrative-goal" className="text-text">{n.goal}</dd>
+        <dd data-testid="narrative-goal" className="text-text"><Markdown inline text={n.goal} /></dd>
 
         <dt className="text-muted">Files</dt>
         <dd className="mono text-text">
@@ -68,7 +69,7 @@ export default function NarrativeCard({ runId }: { runId: string }) {
               <>
                 <div className="micro-label">Decisions</div>
                 <ul className="mb-1 list-disc pl-4 text-label text-text">
-                  {n.bullets.decisions.map((d, i) => <li key={`d${i}`}>{d}</li>)}
+                  {n.bullets.decisions.map((d, i) => <li key={`d${i}`}><Markdown inline text={d} /></li>)}
                 </ul>
               </>
             )}
@@ -76,7 +77,7 @@ export default function NarrativeCard({ runId }: { runId: string }) {
               <>
                 <div className="micro-label">Risks</div>
                 <ul className="list-disc pl-4 text-label text-text">
-                  {n.bullets.risks.map((r, i) => <li key={`r${i}`}>{r}</li>)}
+                  {n.bullets.risks.map((r, i) => <li key={`r${i}`}><Markdown inline text={r} /></li>)}
                 </ul>
               </>
             )}

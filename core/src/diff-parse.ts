@@ -124,3 +124,25 @@ export function parseUnifiedDiff(raw: string): { files: DiffFile[]; truncated: b
   push()
   return { files, truncated }
 }
+
+/**
+ * Parse `git diff --name-status -M -z` output: NUL-separated records of
+ * `status, path` — or `status, oldPath, newPath` when status starts with R/C.
+ * Pure; tolerates a trailing NUL. Powers the file-at-ref allowed-path check.
+ */
+export function parseNameStatusZ(raw: string): Array<{ status: string; oldPath: string | null; path: string }> {
+  const parts = raw.split('\0')
+  const out: Array<{ status: string; oldPath: string | null; path: string }> = []
+  for (let i = 0; i < parts.length - 1; ) {
+    const status = parts[i]
+    if (!status) { i++; continue }
+    if (status.startsWith('R') || status.startsWith('C')) {
+      out.push({ status, oldPath: parts[i + 1] ?? null, path: parts[i + 2] ?? '' })
+      i += 3
+    } else {
+      out.push({ status, oldPath: null, path: parts[i + 1] ?? '' })
+      i += 2
+    }
+  }
+  return out
+}

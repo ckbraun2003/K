@@ -123,9 +123,10 @@ describe('MessageDock', () => {
     await waitFor(() => expect(screen.getByTestId('dock-target').textContent).toBe('→ Refactor the router'))
   })
 
-  it('shows "New chat" as the destination label when selection is null', async () => {
+  it('Task 9: a fresh (null-selection) draft renders no dock-target — redundant with "+ New chat"', async () => {
     renderDock('bar')
-    expect(await screen.findByTestId('dock-target')).toHaveProperty('textContent', '→ New chat')
+    await screen.findByTestId('dock-input')
+    expect(screen.queryByTestId('dock-target')).toBeNull()
   })
 
   it('resolves an ARCHIVED selection by id: header shows its real title + an archived hint, not "New chat"', async () => {
@@ -155,7 +156,8 @@ describe('MessageDock', () => {
     act(() => { selectThread('kt-del') })
 
     await waitFor(() => expect(getSelectedThread()).toBeNull())
-    await waitFor(() => expect(screen.getByTestId('dock-target').textContent).toBe('→ New chat'))
+    // Task 9: a null (new-chat draft) selection renders no dock-target at all.
+    await waitFor(() => expect(screen.queryByTestId('dock-target')).toBeNull())
   })
 
   it('demotes a DELETED selection to the NEWEST remaining thread, not a blank draft (M-D4)', async () => {
@@ -308,9 +310,10 @@ describe('MessageDock', () => {
     await waitFor(() => expect(screen.getByTestId('dock-target').textContent).toBe('→ Beta'))
     expect(getSelectedThread()).toBe('kt-b')
 
-    // And the picker's New-chat row resets it back to a new-chat draft.
+    // And the picker's New-chat row resets it back to a new-chat draft — Task 9: no dock-target
+    // renders for a null selection (redundant next to "+ New chat").
     fireEvent.click(screen.getByTestId('dock-picker-new-chat'))
-    await waitFor(() => expect(screen.getByTestId('dock-target').textContent).toBe('→ New chat'))
+    await waitFor(() => expect(screen.queryByTestId('dock-target')).toBeNull())
     expect(getSelectedThread()).toBeNull()
   })
 
@@ -329,7 +332,8 @@ describe('MessageDock', () => {
     await screen.findByText('→ Existing')
 
     fireEvent.click(screen.getByTestId('dock-new-chat'))
-    await waitFor(() => expect(screen.getByTestId('dock-target').textContent).toBe('→ New chat'))
+    // Task 9: no dock-target renders for a null (new-chat draft) selection.
+    await waitFor(() => expect(screen.queryByTestId('dock-target')).toBeNull())
   })
 
   it('a successful send raises the undo toast; Undo calls api.k.undo', async () => {

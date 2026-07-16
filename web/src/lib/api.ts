@@ -135,7 +135,9 @@ export const api = {
     end: (id: string) =>
       req<{ ended: boolean }>(`/runs/${id}/end`, { method: 'POST' }),
     // ── P1 Trust Core ────────────────────────────────────────────────────────
-    diff: (id: string) => req<DiffPayload>(`/runs/${id}/diff`),
+    // FE-5 IN-7: optional context param (whole-diff expand bumps 3→24). BE-2
+    // will honor it server-side; until then it's harmlessly ignored.
+    diff: (id: string, context = 3) => req<DiffPayload>(`/runs/${id}/diff?context=${context}`),
     comments: (id: string) => req<ReviewComment[]>(`/runs/${id}/comments`),
     createComment: (id: string, body: { file: string; line?: number | null; side?: 'old' | 'new'; body: string }) =>
       req<ReviewComment>(`/runs/${id}/comments`, {
@@ -160,7 +162,12 @@ export const api = {
       req<Run>(`/runs/${id}/rewind`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       }),
-    verifyResult: (id: string) => req<VerifyResult>(`/runs/${id}/verify-result`),
+    // Contract (impressive-wave BE-3): absent → 200 {result:null}; present may be
+    // bare VerifyResult or {result}. Tolerant unwrap; null = "never verified".
+    verifyResult: async (id: string): Promise<VerifyResult | null> => {
+      const r = await req<VerifyResult | { result: VerifyResult | null }>(`/runs/${id}/verify-result`)
+      return r != null && typeof r === 'object' && 'result' in r ? r.result : r
+    },
     impact: (id: string) => req<RunImpactPayload>(`/runs/${id}/impact`),
     // ── P2 Human Gates ───────────────────────────────────────────────────────
     plan: (id: string) => req<RunPlan>(`/runs/${id}/plan`),
@@ -175,7 +182,10 @@ export const api = {
     narrative: (id: string) => req<RunNarrative>(`/runs/${id}/narrative`),
   },
   artifacts: {
-    list: () => req<Omit<Artifact, 'md' | 'html'>[]>('/artifacts'),
+    // Optional projectId filters to that project's own rows (BE-1 contract);
+    // omitted, the harness-wide list (unfiltered) is returned.
+    list: (projectId?: string) =>
+      req<Omit<Artifact, 'md' | 'html'>[]>(projectId ? `/artifacts?projectId=${encodeURIComponent(projectId)}` : '/artifacts'),
     get: (slug: string) => req<Artifact>(`/artifacts/${slug}`),
     save: (slug: string, body: { md: string; title?: string; phase?: string; status?: string; tags?: string[] }) =>
       req<{ slug: string; updatedAt: number }>(`/artifacts/${slug}`, {
@@ -246,6 +256,10 @@ export const api = {
       req<{ htmlPath: string; sections: string[]; compiledAt: number }>(`/projects/${id}/bible/compile`, {
         method: 'POST',
       }),
+    // Scan this project's local artifact directories for anything not yet in
+    // the compiled/registered set (BE-1 contract — 404s harmlessly until BE lands).
+    scanArtifacts: (id: string) =>
+      req<{ added: number; removed: number; skipped: number }>(`/projects/${id}/artifacts/scan`, { method: 'POST' }),
     verify: (id: string, opts?: { deep?: boolean }) =>
       req<VerificationReport>(`/projects/${id}/verify`, {
         method: 'POST',

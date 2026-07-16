@@ -20,6 +20,28 @@ function todayUtcKey(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+function yesterdayUtcKey(): string {
+  return new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+}
+
+/**
+ * UIP-FU-3 — today vs. yesterday cost delta. Pure over the already-fetched daily
+ * buckets (no new fetch). Null (no delta rendered) when yesterday has no bucket
+ * (no runs that day) or yesterday's spend was exactly zero — a percentage over a
+ * zero denominator would be either fabricated (Infinity) or misleadingly 0%.
+ * Always `badUp`: cost rising is always the bad direction (D-087, no exceptions).
+ */
+export function costTodayDelta(
+  buckets: Array<{ key: string; costUsd: number }>,
+  todayKey: string,
+  yesterdayKey: string,
+): { pct: number; polarity: 'badUp' } | null {
+  const today = buckets.find(b => b.key === todayKey)?.costUsd
+  const yesterday = buckets.find(b => b.key === yesterdayKey)?.costUsd
+  if (today == null || yesterday == null || yesterday === 0) return null
+  return { pct: Math.round(((today - yesterday) / yesterday) * 100), polarity: 'badUp' }
+}
+
 /**
  * CostTodayWidget (UI Simplification Task 13) — MEASURED actuals only (D-087):
  * today's billed `cost_usd` total + a 14-day daily sparkline, read from the
@@ -43,12 +65,14 @@ export default function CostTodayWidget() {
   const buckets = data?.buckets ?? []
   const today = buckets.find(b => b.key === todayUtcKey())
   const todayCostUsd = today?.costUsd ?? 0
-  // Server returns buckets key DESC (most recent first) — reverse to chronological for the sparkline.
-  const spark = [...buckets].reverse().map(b => b.costUsd)
+  // Server returns buckets key DESC (most recent first) — reverse to chronological for the chart.
+  const orderedBuckets = [...buckets].reverse()
+  const spark = orderedBuckets.map(b => b.costUsd)
+  const delta = costTodayDelta(buckets, todayUtcKey(), yesterdayUtcKey())
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3" data-testid="widget-cost-today">
-      <SectionHeader label="Cost today" as="h2" />
+      <SectionHeader label="Cost today" as="h2" action={<span className="micro-label opacity-70">TODAY</span>} />
       {isPending ? (
         // FU-2: tier="solid" avoids nesting glass-panel inside this cell's
         // GlassPanel tier="panel" ancestor (OverviewView) — backdrop-filter
@@ -58,7 +82,37 @@ export default function CostTodayWidget() {
       ) : isError ? (
         <p data-testid="widget-cost-today-error" className="text-caption text-red">Failed to load cost data.</p>
       ) : (
-        <MetricCard label="Measured, billed" value={`$${todayCostUsd.toFixed(4)}`} spark={spark} accent />
+        <>
+          <MetricCard label="Measured, billed" value={`$${todayCostUsd.toFixed(4)}`} accent />
+          {spark.length > 1 && (
+            <div>
+              <svg viewBox={`0 0 ${spark.length * 10} 40`} preserveAspectRatio="none" role="img"
+                aria-label="Cost per day, last 14 days" className="block h-10 w-full">
+                {spark.map((v, i) => {
+                  const max = Math.max(...spark, 0.0001)
+                  const h = v === 0 ? 1 : Math.max(2, (v / max) * 40)
+                  return (
+                    <rect key={i} x={i * 10 + 1.5} y={40 - h} width={7} height={h} fill="var(--chart-1)">
+                      <title>{`${orderedBuckets[i].key}: $${v.toFixed(4)}`}</title>
+                    </rect>
+                  )
+                })}
+              </svg>
+              <div className="mono flex justify-between text-micro text-muted">
+                <span>{orderedBuckets[0]?.key.slice(5)}</span>
+                <span>{orderedBuckets[orderedBuckets.length - 1]?.key.slice(5)}</span>
+              </div>
+            </div>
+          )}
+          {delta && (
+            <span
+              className={`mono text-caption ${delta.pct === 0 ? 'text-muted' : delta.pct > 0 ? 'text-red' : 'text-green'}`}
+              data-testid="cost-delta"
+            >
+              {delta.pct > 0 ? '+' : ''}{delta.pct}% vs yesterday
+            </span>
+          )}
+        </>
       )}
     </div>
   )

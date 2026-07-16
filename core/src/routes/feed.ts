@@ -4,7 +4,7 @@ import { FeedKindSchema } from '@k/shared'
 import { db } from '../db.js'
 
 const listRunHeads = db.prepare(`
-  SELECT r.id, r.prompt, r.status, r.model, r.created_at, r.ended_at, r.project_id, p.name AS project_name
+  SELECT r.id, r.prompt, r.status, r.model, r.created_at, r.ended_at, r.project_id, p.name AS project_name, r.cost_usd
   FROM runs r LEFT JOIN projects p ON p.id = r.project_id
   ORDER BY COALESCE(r.ended_at, r.created_at) DESC
   LIMIT ?
@@ -101,6 +101,9 @@ export async function feedRoutes(app: FastifyInstance) {
         projectId: r.project_id != null ? String(r.project_id) : null,
         projectName: r.project_name != null ? String(r.project_name) : null,
         title: firstLine(r.prompt), detail: r.model != null ? String(r.model) : null,
+        // IN-1: billed actuals straight from runs.cost_usd (0 is a real, shown value —
+        // only a genuinely absent column, i.e. null, is omitted).
+        ...(r.cost_usd != null ? { costUsd: Number(r.cost_usd) } : {}),
       })
     }
     for (const n of listReviewReadyNotifs.all(SOURCE_CAP) as Record<string, unknown>[]) {

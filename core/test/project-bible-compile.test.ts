@@ -1,9 +1,10 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, afterAll } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { compileProjectBible, projectBibleSlug } from '../src/bible.js'
 import { listArtifacts, getArtifact, ARTIFACTS_DIR } from '../src/artifacts.js'
+import { db, projectsDb } from '../src/db.js'
 
 // ── temp helpers ────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,28 @@ function makeTmp(prefix = 'k-projbible-'): string {
 }
 afterEach(() => {
   for (const d of tmps.splice(0)) fs.rmSync(d, { recursive: true, force: true })
+})
+
+// v13 (D-117): compileProjectBible stamps artifacts.project_id (an FK), so the
+// project must EXIST — as it always does in production (routes resolve via
+// getProject before compiling).
+const seededProjects: string[] = []
+function seedProjectRow(id: string, localPath: string): void {
+  // Idempotent across runs: this file uses FIXED ids, and the shared vitest data
+  // dir persists between runs — clear any stale rows before inserting.
+  try { db.prepare('DELETE FROM artifacts WHERE project_id = ?').run(id) } catch { /* ignore */ }
+  try { db.prepare('DELETE FROM projects WHERE id = ?').run(id) } catch { /* ignore */ }
+  projectsDb.insertProject.run({
+    id, name: `projbible-${id.slice(0, 8)}`, localPath,
+    githubRemote: null, workspaceManaged: 0, bibleDir: 'artifacts/bible', createdAt: Date.now(),
+  })
+  seededProjects.push(id)
+}
+afterAll(() => {
+  for (const id of seededProjects) {
+    try { db.prepare('DELETE FROM artifacts WHERE project_id = ?').run(id) } catch { /* ignore */ }
+    try { db.prepare('DELETE FROM projects WHERE id = ?').run(id) } catch { /* ignore */ }
+  }
 })
 
 /** Seed a minimal, real (authored) project bible under <localPath>/artifacts/bible/. */
@@ -40,6 +63,7 @@ describe('compileProjectBible', () => {
     const localPath = makeTmp()
     seedProjectBible(localPath)
     const id = 'a4a062fb-4590-4bb7-8d11-8c1fdf099c05'
+    seedProjectRow(id, localPath)
 
     const res = await compileProjectBible({ id, localPath })
     expect(res).not.toBeNull()
@@ -80,6 +104,7 @@ describe('compileProjectBible', () => {
     const localPath = makeTmp()
     seedProjectBible(localPath)
     const id = 'b1b1b1b1-0000-4000-8000-000000000001'
+    seedProjectRow(id, localPath)
     await compileProjectBible({ id, localPath })
     const slug = projectBibleSlug(id)
     const inRepoPath = path.join(localPath, 'artifacts', 'project-bible.html')
