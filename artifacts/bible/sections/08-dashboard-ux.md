@@ -485,9 +485,9 @@ not a single hero/non-hero switch:
 | `.glass-chrome` | `--glass-chrome-bg` rgba(42,26,71,.48) | `blur(24px) saturate(1.4)` | (caller's) | persistent shell chrome — Sidebar, TopBar, the Message Dock bar |
 | `.glass-panel` | `--glass-panel-bg` rgba(42,26,71,.64) | `blur(16px) saturate(1.2)` | 18px | in-flow cards/panels — widget cells, KPI tiles, summary cards |
 | `.glass-overlay` | `--glass-overlay-bg` rgba(51,32,92,.76) | `blur(28px) saturate(1.4)` | 18px | floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay |
+| `.surface-solid` | `--surface` (opaque) | none | 14px | dense repeated rows — fleet/roster grids, list rows |
 
 The tier fills dropped one step from the D-114 launch values (`.55/.72/.82` → `.48/.64/.76`) as part of **Liquid Glass 2.0 (D-115, below)**: the brighter living-ambient layer pushed an AA/WCAG contrast re-check, which forced the lighter fills to hold ≥4.5:1 body-text contrast against the brightest blob — an accessibility result, not an aesthetic tweak.
-| `.surface-solid` | `--surface` (opaque) | none | 14px | dense repeated rows — fleet/roster grids, list rows |
 
 Each blurred tier carries an `@supports not (backdrop-filter: blur(1px))` opaque fallback
 (`.glass-chrome`→`--surface`, `.glass-panel`/`.glass-overlay`→`--raised`) so a browser without

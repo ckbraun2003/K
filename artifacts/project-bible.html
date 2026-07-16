@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-16 00:36</span><br>
+      compiled <span class="mono">2026-07-16 00:51</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -2552,9 +2552,15 @@ not a single hero/non-hero switch:</p>
 <td>18px</td>
 <td>floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay</td>
 </tr>
+<tr>
+<td><code>.surface-solid</code></td>
+<td><code>--surface</code> (opaque)</td>
+<td>none</td>
+<td>14px</td>
+<td>dense repeated rows — fleet/roster grids, list rows</td>
+</tr>
 </tbody></table>
-<p>The tier fills dropped one step from the D-114 launch values (<code>.55/.72/.82</code> → <code>.48/.64/.76</code>) as part of <strong>Liquid Glass 2.0 (D-115, below)</strong>: the brighter living-ambient layer pushed an AA/WCAG contrast re-check, which forced the lighter fills to hold ≥4.5:1 body-text contrast against the brightest blob — an accessibility result, not an aesthetic tweak.
-| <code>.surface-solid</code> | <code>--surface</code> (opaque) | none | 14px | dense repeated rows — fleet/roster grids, list rows |</p>
+<p>The tier fills dropped one step from the D-114 launch values (<code>.55/.72/.82</code> → <code>.48/.64/.76</code>) as part of <strong>Liquid Glass 2.0 (D-115, below)</strong>: the brighter living-ambient layer pushed an AA/WCAG contrast re-check, which forced the lighter fills to hold ≥4.5:1 body-text contrast against the brightest blob — an accessibility result, not an aesthetic tweak.</p>
 <p>Each blurred tier carries an <code>@supports not (backdrop-filter: blur(1px))</code> opaque fallback
 (<code>.glass-chrome</code>→<code>--surface</code>, <code>.glass-panel</code>/<code>.glass-overlay</code>→<code>--raised</code>) so a browser without
 backdrop-filter support never renders transparent text-on-text.</p>
