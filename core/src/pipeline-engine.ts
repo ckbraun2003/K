@@ -239,8 +239,16 @@ export async function handleStageFailure(
       pipelineRunId: run.id, stage: fresh, projectId: run.project_id, cwd: run.cwd,
       baseCommit: fresh.base_commit, modelOverride,
     }
-    const result = await executor.dispatch(ctx)
-    await recordDispatchResult(run, fresh, result, { isRetry: true, originalRunId }, executor)
+    try {
+      const result = await executor.dispatch(ctx)
+      await recordDispatchResult(run, fresh, result, { isRetry: true, originalRunId }, executor)
+    } catch (err) {
+      // A retry re-dispatch throw (e.g. startAgentRun fails AFTER the budget gate) must never leave
+      // the stage stuck 'running': the scheduler's try/catch guards only the INITIAL dispatch, but
+      // this path is reached fire-and-forget from onStageRunTerminal's bus tick. Settle it failed.
+      console.warn(`[pipeline-engine] stage ${fresh.id} retry re-dispatch failed:`, err)
+      markStageFailed(fresh.id, failureClass, exitCode)
+    }
     return
   }
   markStageFailed(fresh.id, failureClass, exitCode)
