@@ -50,6 +50,45 @@ Onboarding now **actively scaffolds** the missing invariants rather than merely 
 
 The harness applies its own rules to itself: this bible is compiled by the same `compileBible()` used for every other project, the harness gets a CI workflow, and verification runs against it like any fleet member. If the mechanism is annoying for project zero, it is annoying for everything — fix the mechanism.
 
+## Project artifacts — registry + filesystem scan (D-117)
+
+Every project owns an **artifact gallery** (§08 Projects → Artifacts). The `artifacts` table (schema
+**v13**, Impressive Wave) carries two provenance columns beyond the P4 shape:
+
+```ts
+Artifact {
+  slug: string            // PK
+  title: string
+  tags: string[]          // JSON
+  md: string              // markdown source (bible sections, or a "scanned artifact" stub)
+  html_path?: string      // absolute path to a pre-composed .html served verbatim (else ARTIFACTS_DIR/<slug>.html, else md-render)
+  project_id?: string     // owning project — NULL = harness-scoped (project zero's globals)
+  origin: 'compiled' | 'scanned'   // NOT NULL, CHECK-constrained, default 'compiled'
+  updated_at: number
+}
+```
+
+- **`origin='compiled'`** rows are written by K's own compilers — `compileBible()`, the `ui-demo`
+  generator, and `saveArtifact`. These are the privileged, agent-owned outputs.
+- **`origin='scanned'`** rows are filesystem-discovered loose HTML managed by
+  `core/src/artifact-scan.ts`. `scanProjectArtifacts(projectId)` sweeps a registered project's
+  **top-level `<localPath>/artifacts/*.html`** (no recursion) into `origin='scanned'` rows;
+  `scanHarnessArtifacts()` does the same over K's own `ARTIFACTS_DIR` with `project_id = NULL`.
+- **Path safety.** `resolveScannedFile` resolves each entry with `realpathSync` and rejects anything
+  that escapes the scanned root via an `isPathWithin` containment check — a symlink pointing outside
+  the dir is never registered.
+- **Idempotent + non-destructive.** A file already backed by an explicit `html_path`, or whose
+  basename names an existing slug's implicit `ARTIFACTS_DIR/<slug>.html` fallback, is **skipped** —
+  this is what stops the compiled bible / `ui-demo` from double-registering as `scanned` duplicates.
+  An unchanged already-registered file counts as skipped on re-scan; a `scanned` row whose file
+  vanished is **deleted**; **`compiled` rows are never touched**. `project_id` has no `ON DELETE`
+  action by contract — `db.deleteProject` cleans a project's artifact rows explicitly.
+- **Triggers.** The scan runs automatically when one of a project's runs reaches terminal
+  (`startArtifactScanOnRunTerminal`, boot-wired to the event bus — agents drop reports/demos into
+  `<localPath>/artifacts` mid-run) and on demand via **`POST /api/projects/:id/artifacts/scan`**, the
+  Artifacts tab's **"Refresh from disk"** button. Serving posture is unchanged: the sandboxed
+  `DocViewer` iframe (no `allow-same-origin`) renders whatever `getArtifact` resolves.
+
 ## Workflow runs
 
 A **workflow run** records one supervised delegation run launched over a batch of selected todos from the Tasks tab (see §04 Workflows, §08 Tasks tab). It ties the selection to the single agent run that addresses it.

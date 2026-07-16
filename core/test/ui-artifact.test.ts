@@ -158,6 +158,23 @@ describe('uiDemoHtml — Phase 5 full-scale "Agentic Org" demo', () => {
     expect(html).toContain('Message K')
   })
 
+  it('re-points the help screen at the FE-6 guide mock (D-116, INT.3)', () => {
+    // still the same view key — only its internal content changed
+    expect(html).toContain('data-view="help"')
+    expect(html).toContain('Guide pages')
+    // all 7 HELP_PAGES titles (web/src/help/pages/index.tsx), in order
+    for (const title of [
+      'Welcome to K', 'Messaging K &amp; dispatching', 'Runs &amp; reviewing changes',
+      'Projects, bibles &amp; artifacts', 'Agents &amp; the org', 'Insights &amp; budget',
+      'Settings &amp; shortcuts',
+    ]) {
+      expect(html, `missing help page title ${title}`).toContain(title)
+    }
+    // the old two-panel doc-viewer mock (pre-FE-6) is gone
+    expect(html).not.toContain('Pattern gallery (design reference)')
+    expect(html).not.toContain('Getting started')
+  })
+
   it('keeps the offline / sandbox-safe hard constraints (no CDN / link / storage)', () => {
     expect(html).toContain('<style>')
     expect(html).toContain('<script>')
@@ -188,6 +205,23 @@ describe('uiDemoHtml — Phase 5 full-scale "Agentic Org" demo', () => {
     expect(html).toContain('--lg-blob-1')
     expect(html).toContain('--code-keyword')
     expect(html).toContain('rgba(42,26,71,.48)')   // chrome fill dropped .55→.48 (AA-verified)
+    // LG2 structural CSS parity (INT.3): living ambient blobs + drift keyframes
+    // replace the old static .ambient wash (W0.3), mirrored verbatim from index.css.
+    expect(html).toContain('ambient-blob')
+    expect(html).toContain('lg-drift-1')
+  })
+
+  it('mirrors the LG2 living-ambient markup and specular tier edge (INT.3 parity)', () => {
+    // four positioned blob divs inside the ambient layer, each with its own drift animation
+    for (let i = 1; i <= 4; i++) {
+      expect(html, `missing ambient-blob-${i}`).toContain(`ambient-blob-${i}`)
+      expect(html, `missing lg-drift-${i} keyframes`).toContain(`@keyframes lg-drift-${i}`)
+    }
+    // W0.5 specular double-background edge on the glass tiers (fill padding-box +
+    // lg-edge border-box wash) — the demo's own var names, not the app's literal values.
+    expect(html).toContain('var(--lg-edge)')
+    // static (no pointer hook) glass-interactive sheen note
+    expect(html).toContain('.glass-interactive')
   })
 
   it('renders the universal confirm-card + authority-tier control plane + terminal banners', () => {

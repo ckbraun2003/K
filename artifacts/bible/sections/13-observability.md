@@ -215,11 +215,17 @@ data already stored — no forecasting, no new spend**:
 
 **Success rate = `done / (done + error + interrupted)`** — operator-**killed** runs excluded
 (F-082) — over the SELECTED window's **whole terminal population**. Any multi-day aggregate is
-**terminal-run-weighted** (`overallSuccessRate`, `core/src/metrics.ts`), **never a mean of daily
-rates**: a 1-run 100% day must not offset a 20-run 30% day. Overview and Charts consume this ONE
-number (2026-07-14 audit fix — the 80%-vs-34.7% contradiction was Overview averaging per-day rates
-unweighted); `success-rate-definition.test.ts` pins core and web (`weightedSuccessRate`) to the
-same formula.
+**terminal-run-weighted**, **never a mean of daily rates**: a 1-run 100% day must not offset a
+20-run 30% day. The formula lives in two mirror helpers pinned equal, not a single import:
+`overallSuccessRate` (`core/src/metrics.ts`, server side) and **`weightedSuccessRate({terminalRuns,
+successRate})`** (`web/src/lib/format-metrics.ts`, client side), which re-weights per-day rates by
+each day's terminal-run count. Both **Charts** and **Overview** consume it: Charts reads the weighted
+number directly, and the **Overview success-rate delta** compares `weightedSuccessRate` over each half
+of the window (BE-3a / INT.2) — it previously took a flat unweighted `mean()` of daily rates, the
+"Overview 80% vs Charts 34.7%" contradiction the audit caught (`mean()` survives only for the latency
+delta, which is correctly unweighted). Two tests pin it: `core/test/success-rate-definition.test.ts`
+(core ≡ web) and `web/test/insights-overview.test.tsx` (a 1-run-100% vs 20-run-30% fixture proves the
+tile renders the terminal-weighted delta, not the naive-mean one).
 
 ## Implementation history (dashboard)
 

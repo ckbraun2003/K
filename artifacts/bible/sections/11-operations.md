@@ -95,6 +95,12 @@ it needs wiping to recover from a bad state, wipe it.
   edit IS the source and survives every recompile. Editing the *combined* markdown of a bible slug is
   rejected (`400` → the section editor), and a project-bible save stays in the project's own dir
   (never K's `ARTIFACTS_DIR`, never clobbering the row's `html_path`).
+- **Artifact scan (D-117, model in §05).** Loose top-level `<localPath>/artifacts/*.html` an agent
+  drops mid-run are registered as `origin='scanned'` gallery entries by `core/src/artifact-scan.ts` —
+  automatically when one of the project's runs reaches terminal, and on demand via the Artifacts tab's
+  **Refresh from disk** button (`POST /api/projects/:id/artifacts/scan`). The scan is
+  `isPathWithin`-guarded and idempotent; it never touches `origin='compiled'` rows (the bible /
+  `ui-demo`), so a Refresh can only ever add/remove *scanned* rows, never disturb a compiled deliverable.
 
 ## Onboard / verify scaffold-then-commit workflow
 

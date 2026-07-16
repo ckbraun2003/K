@@ -12,7 +12,9 @@ Direct/Observe IA **shipped with Phase 5** (§03, §08) — this guide covers th
 (dispatching runs, projects, verification, the graph) and notes where the org reshapes them.
 It mirrors the README quick-start and stays consistent with §08 (Dashboard) and §11 (Operations) —
 those hold the design spec and the full operations reference; this is the *how do I actually use it*
-guide. Reach it any time from the **Help** entry in the sidebar.
+guide. This section is part of the compiled bible (reach it in-app via a project's Artifacts tab or
+the Docs view); the sidebar **Help** entry now opens the **in-app multi-page guide** instead (D-116,
+below), no longer this bible.
 
 ## Getting started — install & run
 
@@ -97,7 +99,48 @@ Onboarding enforces the project invariants by **scaffolding** whatever is missin
 
 Open the project workspace's **Artifacts** tab (formerly "Bible"). The compiled bible renders in-app; each section has an **edit** action that opens the markdown source. Save your edit, then **recompile** — the tab triggers a fresh compile and re-renders. (Under the hood: sections live as markdown under the bible directory; the compiler regenerates the self-contained HTML. Never hand-edit the compiled HTML — it's regenerated and your changes would be lost.)
 
-The section **edit** and **Recompile** actions live **only** in this project-workspace Artifacts tab. The sidebar **Help** view — where the Help entry opens this guide — is **read-only** (it just renders compiled artifacts), so reach for the workspace Artifacts tab when you actually want to change a section.
+The section **edit** and **Recompile** actions live **only** in this project-workspace Artifacts tab. Other in-app views of a bible (the Docs view) are **read-only** (they just render compiled artifacts), so reach for the workspace Artifacts tab when you actually want to change a section.
+
+## Help — the in-app guide (D-116)
+
+The sidebar **❔ Help** entry opens a **multi-page guide built into the app** — a dialog with a left
+page rail and an article body, navigated with the **← / →** arrow keys or the **Prev / Next**
+buttons. It ships **seven pages** and needs no backend (the content travels with the web app, so it
+works offline and versions alongside the UI it documents):
+
+1. **Welcome to K** — the you-direct-an-org mental model.
+2. **Messaging K & dispatching** — the Message Dock, K-routing, and confirm-card escalation.
+3. **Runs & reviewing changes** — the run console and the Changes review surface (below).
+4. **Projects, bibles & artifacts** — registering projects, editing bibles, the artifact gallery.
+5. **Agents & the org** — the roster, skills, and pipelines.
+6. **Insights & budget** — metrics, charts, and the autonomy budget.
+7. **Settings & shortcuts** — configuration and the keyboard chords.
+
+This guide (the bible §12) and the in-app Help guide are complementary: the in-app guide is a quick,
+task-oriented tour that follows the app's own navigation; this section is the fuller reference. Help
+**no longer deep-links the bible** — the two are maintained separately.
+
+## Reviewing a run's changes (the Changes tab)
+
+When a run edits code, its console carries a **Console / Timeline / Changes** toggle. Open **Changes**
+to review what the run wrote as a real diff:
+
+- The left **file list** shows every changed file with its `+`/`−` line counts; clicking a file marks
+  it **viewed ✓** (the mark persists, so you can track your way through a large review).
+- The right **diff pane** renders syntax-highlighted code (the `--code-*` theme, §08).
+- **Expand context** widens a checkpoint diff from 3 to 24 surrounding lines when you need more of the
+  file around a change.
+- You can leave **comments** on lines, then **Request changes** (bundles your comments into a fix run)
+  or **Approve → PR** (publishes the run's final checkpoint as a `k-review/*` branch and opens a PR
+  against the project's default branch).
+
+## Reviewing a GitHub PR (full-screen review)
+
+From a project's **PRs & CI** tab, each PR row has an **Open review** action that opens a
+**full-screen PR review** at `#/pr-review/<project>/<n>` — the *same* file-list-plus-diff surface as a
+run's Changes tab, so viewed marks and code coloring work identically. The PR view is **read-only**:
+you can read the diff and mark files viewed, but comments are not posted back to GitHub (K reviews the
+diff; it never writes GitHub comments). Use it to read a PR's changes without leaving the dashboard.
 
 ## Using host skills, MCP servers, and local models
 

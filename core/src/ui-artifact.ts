@@ -269,16 +269,28 @@ export function uiDemoHtml(): string {
   .gi { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 1.6;
     stroke-linecap: round; stroke-linejoin: round; vertical-align: -0.16em; flex-shrink: 0; }
 
-  /* ── ambient ── */
-  .ambient { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  /* ── ambient (LG2 W0.3 — living blobs, verbatim from web/src/index.css) ── */
+  .ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden;
     background:
-      radial-gradient(58rem 46rem at 25% 25%, rgba(168,85,247,.10), transparent 60%),
-      radial-gradient(54rem 42rem at 100% 30%, rgba(255,143,192,.07), transparent 60%),
-      radial-gradient(54rem 40rem at 35% 100%, rgba(56,189,248,.06), transparent 60%),
       url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
-      var(--bg-deep);
-    animation: drift 72s ease-in-out infinite alternate; will-change: transform; }
-  @keyframes drift { from { transform: translateX(-2%) translateY(0); opacity: .8; } to { transform: translateX(2%) translateY(1.5%); opacity: 1; } }
+      var(--bg-deep); }
+  .ambient-blob { position: absolute; border-radius: 9999px; will-change: transform; }
+  .ambient-blob-1 { width: 56rem; height: 46rem; left: -8%; top: -14%;
+    background: radial-gradient(closest-side, var(--lg-blob-1), transparent 70%);
+    animation: lg-drift-1 96s ease-in-out infinite alternate; }
+  .ambient-blob-2 { width: 50rem; height: 42rem; right: -14%; top: 2%;
+    background: radial-gradient(closest-side, var(--lg-blob-2), transparent 70%);
+    animation: lg-drift-2 78s ease-in-out infinite alternate; }
+  .ambient-blob-3 { width: 52rem; height: 40rem; left: 16%; bottom: -18%;
+    background: radial-gradient(closest-side, var(--lg-blob-3), transparent 70%);
+    animation: lg-drift-3 114s ease-in-out infinite alternate; }
+  .ambient-blob-4 { width: 40rem; height: 36rem; right: 6%; bottom: -10%;
+    background: radial-gradient(closest-side, var(--lg-blob-4), transparent 70%);
+    animation: lg-drift-4 66s ease-in-out infinite alternate; }
+  @keyframes lg-drift-1 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(9%, 6%, 0) scale(1.12); } }
+  @keyframes lg-drift-2 { from { transform: translate3d(0, 0, 0) scale(1.08); } to { transform: translate3d(-7%, 9%, 0) scale(0.94); } }
+  @keyframes lg-drift-3 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(11%, -7%, 0) scale(1.10); } }
+  @keyframes lg-drift-4 { from { transform: translate3d(0, 0, 0) scale(0.95); } to { transform: translate3d(-9%, -5%, 0) scale(1.08); } }
 
   /* ── shell grid ── */
   .deck { position: relative; z-index: 10; display: grid;
@@ -288,9 +300,12 @@ export function uiDemoHtml(): string {
   .deck.no-dockbar { grid-template-rows: 52px 1fr 0; }
 
   /* ── sidebar ── */
-  aside { grid-row: 1 / span 3; background: var(--glass-chrome-bg); border-right: 1px solid var(--border);
+  aside { grid-row: 1 / span 3; border-right: 1px solid var(--border);
+    background:
+      linear-gradient(var(--glass-chrome-bg), var(--glass-chrome-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
     -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4);
-    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
+    box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-1);
     display: flex; flex-direction: column; padding: .7rem .6rem; overflow: hidden; }
   .brand { display: flex; align-items: center; gap: .5rem; padding: .3rem .5rem .8rem; }
   .brand .logo { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center;
@@ -328,9 +343,12 @@ export function uiDemoHtml(): string {
 
   /* ── top bar ── */
   .topbar { grid-column: 2; display: flex; align-items: center; gap: .8rem;
-    padding: 0 1.1rem; background: var(--glass-chrome-bg);
+    padding: 0 1.1rem;
+    background:
+      linear-gradient(var(--glass-chrome-bg), var(--glass-chrome-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
     -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4);
-    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
+    box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-1);
     border-bottom: 1px solid var(--border); }
   .topbar .title { display: flex; align-items: center; gap: .45rem; } /* size/weight: .text-title */
   .topbar .crumb { color: var(--muted); font-size: .82rem; }
@@ -360,20 +378,40 @@ export function uiDemoHtml(): string {
   .rowhead .right { margin-left: auto; display: flex; gap: .5rem; align-items: center; }
 
   /* ── surfaces ── */
-  /* 4-tier glass system — verbatim from web/src/index.css @layer components (task 4, bible §6) */
+  /* 4-tier glass system — verbatim from web/src/index.css @layer components (task 4, bible §6);
+     specular double-background edge = LG2 W0.5 (fill on padding-box, a 135deg lg-edge→border
+     wash on border-box gives the glass rim its highlight; the inset box-shadow's top hairline
+     also switched from --glass-sheen to --lg-edge to match). The W0.4 ::after SVG-refraction
+     distortion is NOT mirrored here — it needs a live #lg-refract filter def; this static demo
+     only needs the resting-state fill/edge to visibly match the app. */
   .glass-chrome, .glass-panel, .glass-overlay {
     border: 1px solid var(--glass-tier-border);
-    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1);
+    box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-1);
   }
-  .glass-chrome { background: var(--glass-chrome-bg);
+  .glass-chrome {
+    background:
+      linear-gradient(var(--glass-chrome-bg), var(--glass-chrome-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
     -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); }
-  .glass-panel { background: var(--glass-panel-bg);
+  .glass-panel {
+    background:
+      linear-gradient(var(--glass-panel-bg), var(--glass-panel-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
     -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
-    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-2); }
-  .glass-overlay { background: var(--glass-overlay-bg);
+    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-2); }
+  .glass-overlay {
+    background:
+      linear-gradient(var(--glass-overlay-bg), var(--glass-overlay-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
     -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4);
-    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-3); }
+    border-radius: var(--radius-lg); box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-3); }
   .surface-solid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  /* LG2 pointer sheen (W0.6) — static reference only: the real app's useGlassPointer hook
+     writes --lg-mx/--lg-my from real pointermove events; this demo has no pointer hook, so
+     the highlight is parked at a fixed point rather than tracked. */
+  .glass-interactive { position: relative; }
+  .glass-interactive::before { content: ''; position: absolute; inset: 0; border-radius: inherit;
+    pointer-events: none; background: radial-gradient(11rem 11rem at 30% 20%, var(--lg-sheen), transparent 70%); }
   .micro-label { font-size: 10px; line-height: 12px; letter-spacing: .08em;
     text-transform: uppercase; font-weight: 500; color: var(--muted); }
   /* ── type scale (verbatim from web/tailwind.config.ts fontSize; 6th tier
@@ -701,8 +739,11 @@ export function uiDemoHtml(): string {
      the sidebar/topbar chrome. */
   .dockbar { grid-column: 2; display: none; align-items: center; gap: .6rem; padding: 0 1.1rem; font-size: .85rem;
     color: var(--text); border-top: 1px solid var(--border);
-    background: var(--glass-chrome-bg); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4);
-    box-shadow: inset 0 1px 0 var(--glass-sheen), var(--shadow-1); will-change: transform; }
+    background:
+      linear-gradient(var(--glass-chrome-bg), var(--glass-chrome-bg)) padding-box,
+      linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
+    -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4);
+    box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-1); will-change: transform; }
   .dockbar.show { display: flex; }
   .dockbar input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: .9rem; }
   .dockbar .gi { color: var(--accent); flex-shrink: 0; }
@@ -776,7 +817,7 @@ export function uiDemoHtml(): string {
 </style>
 </head>
 <body>
-<div class="ambient"></div>
+<div class="ambient"><div class="ambient-blob ambient-blob-1"></div><div class="ambient-blob ambient-blob-2"></div><div class="ambient-blob ambient-blob-3"></div><div class="ambient-blob ambient-blob-4"></div></div>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5 10v9h14v-9"/></symbol>
@@ -1849,14 +1890,23 @@ This is the shared system prompt for every agent the harness runs.</textarea>
 
     <!-- ============ HELP / DOCS ============ -->
     <section class="screen" data-view="help">
-      <h1 class="page text-display">Help / Docs</h1>
+      <h1 class="page text-display">Help — user guide</h1>
+      <p class="sub">In-app multi-page guide (D-116) — bundled UI, no bible deep-link, no backend.</p>
       <div class="split balance">
-        <div class="panel"><h2>Contents</h2>
+        <div class="panel"><h2>Guide pages <span class="right muted mono" style="text-transform:none;letter-spacing:0">1 / 7</span></h2>
           <div class="list">
-            <div class="row selrow sel" data-action="select-row"><span class="grow">Getting started</span></div>
-            <div class="row selrow" data-action="select-row"><span class="grow">1. Concepts</span></div>
-            <div class="row selrow" data-action="select-row"><span class="grow">10. User guide</span></div>
+            <div class="row selrow sel" data-action="select-row"><span class="mono muted" style="margin-right:.5rem">1</span><span class="grow">Welcome to K</span></div>
+            <div class="row selrow" data-action="select-row"><span class="mono muted" style="margin-right:.5rem">2</span><span class="grow">Messaging K &amp; dispatching</span></div>
+            <div class="row selrow" data-action="select-row"><span class="mono muted" style="margin-right:.5rem">3</span><span class="grow">Runs &amp; reviewing changes</span></div>
+            <div class="row selrow" data-action="select-row"><span class="mono muted" style="margin-right:.5rem">4</span><span class="grow">Projects, bibles &amp; artifacts</span></div>
+            <div class="row selrow" data-action="select-row"><span class="mono muted" style="margin-right:.5rem">5</span><span class="grow">Agents &amp; the org</span></div>
+            <div class="row selrow" data-action="select-row"><span class="mono muted" style="margin-right:.5rem">6</span><span class="grow">Insights &amp; budget</span></div>
+            <div class="row selrow" data-action="select-row"><span class="mono muted" style="margin-right:.5rem">7</span><span class="grow">Settings &amp; shortcuts</span></div>
           </div>
+        </div>
+        <div class="panel"><h2>Welcome to K</h2>
+          <p class="muted" style="font-size:.82rem">K is the one front door to a small agentic org — message K, it routes to the right lead, you review the diff, then approve or undo. ArrowLeft / ArrowRight turn the page; Esc closes the guide.</p>
+          <div class="banner disabled"><svg class="gi"><use href="#i-info"></use></svg> web/src/help — no backend, no bible deep-link (D-116).</div>
           <h2 style="margin-top:1rem">Shortcuts</h2>
           <div class="list mono" style="font-size:.74rem">
             <div class="row"><span class="grow">Message K</span><span class="meta">Ctrl K</span></div>
@@ -1865,22 +1915,10 @@ This is the shared system prompt for every agent the harness runs.</textarea>
             <div class="row"><span class="grow">Docs / Settings</span><span class="meta">g d / g ,</span></div>
             <div class="row"><span class="grow">Shortcut help</span><span class="meta">?</span></div>
           </div>
-        </div>
-        <div class="panel"><h2>Viewer <span class="right seg"><button class="active">.md</button><button>.html</button></span></h2>
-          <div class="banner disabled"><svg class="gi"><use href="#i-info"></use></svg> This viewer is read-only. To edit a project's bible, open Projects → project → Artifacts.</div>
-          <p class="muted" style="font-size:.82rem"># K — User Guide … talk to K, direct the org.</p>
-
-          <h2 style="margin-top:1rem">Pattern gallery (design reference)</h2>
-          <p class="muted" style="font-size:.78rem;margin:0 0 .6rem">Ordinary dispatch is one Send + a 5s undo toast (no confirm-card). A full confirm-card appears ONLY on escalation: T3 authority, cross-project, or destructive (kill / delete / reassign).</p>
-          <div class="grid2">
-            <div class="dialog glass-overlay" style="margin:0"><h3><svg class="gi" style="color:var(--red)"><use href="#i-alert"></use></svg> Escalation — confirm required</h3>
-              <p class="muted" style="font-size:.78rem">Cross-project dispatch to k-harness. Reaches outside the current project.</p>
-              <div class="actions"><span class="grow"></span><button class="btn ghost sm">Cancel</button><button class="btn danger sm">Confirm ↵</button></div></div>
-            <div class="stack">
-              <div class="toast success" style="position:static"><svg class="gi"><use href="#i-check"></use></svg><span>Dispatched · → Chief → Backend Lead</span><button class="toast-link">Undo</button></div>
-              <div class="toast error" style="position:static"><svg class="gi"><use href="#i-alert"></use></svg><span>Run failed to start</span><button class="toast-link">Retry</button></div>
-              <div class="toast info" style="position:static"><svg class="gi"><use href="#i-trash"></use></svg><span>Note deleted</span><button class="toast-link">Undo</button></div>
-            </div>
+          <div class="kv" style="margin-top:.8rem">
+            <button class="btn ghost sm" disabled>← Previous</button>
+            <span class="mono muted" style="font-size:.72rem">1 / 7</span>
+            <button class="btn ghost sm">Next →</button>
           </div>
           <div class="kv" style="margin-top:.8rem"><button class="btn ghost sm" data-action="route" data-arg="login">View login screen</button><button class="btn ghost sm" data-action="route" data-arg="notfound">View not-found</button></div>
         </div>
