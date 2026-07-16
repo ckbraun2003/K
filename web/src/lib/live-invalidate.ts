@@ -156,6 +156,24 @@ export function makeCapabilitiesInvalidator(
   }
 }
 
+/**
+ * D-119: a `pipeline_update` delta carries the FULL refreshed PipelineRunView, so
+ * write it straight into that run's detail cache (['pipeline-run', id]) — the live
+ * DAG + stage cards re-render instantly, no refetch. Also invalidate the recent-runs
+ * list (['pipeline-runs']) since a stage transition may flip the run's own status
+ * (running → completed/failed). App-wide (Shell-mounted), so the DAG stays live
+ * regardless of which surface created the run. Non-pipeline messages are ignored.
+ */
+export function makePipelineInvalidator(
+  qc: Pick<QueryClient, 'invalidateQueries' | 'setQueryData'>,
+): (msg: WsMessage) => void {
+  return (msg: WsMessage) => {
+    if (msg.type !== 'pipeline_update') return
+    qc.setQueryData(['pipeline-run', msg.pipelineRunId], msg.view)
+    void qc.invalidateQueries({ queryKey: ['pipeline-runs'] })
+  }
+}
+
 /** verify_update → refresh the one chip cache for that run. */
 export function makeVerifyInvalidator(qc: QueryClient): (msg: WsMessage) => void {
   return (msg) => {

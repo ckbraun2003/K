@@ -12,6 +12,7 @@ import {
   makeRunUpdateInvalidator,
   makeProjectListInvalidator,
   makeWorkflowCompleteInvalidator,
+  makePipelineInvalidator,
 } from '../src/lib/live-invalidate'
 
 const runUpdate = { type: 'run_update', run: {} as never } as WsMessage
@@ -237,5 +238,34 @@ describe('makeInboxInvalidator (E-05/E-19)', () => {
     handler(otherMsg)
 
     expect(invalidateQueries).not.toHaveBeenCalled()
+  })
+})
+
+// ── makePipelineInvalidator (D-119 C3) ────────────────────────────────────────
+describe('makePipelineInvalidator (D-119)', () => {
+  const view = { run: { id: 'pr1' }, stages: [], edges: [] } as never
+  const pipelineUpdate = { type: 'pipeline_update', pipelineRunId: 'pr1', stageId: 's1', view } as WsMessage
+
+  it('writes the fresh view into the run detail cache and invalidates the runs list', () => {
+    const invalidateQueries = vi.fn()
+    const setQueryData = vi.fn()
+    const handler = makePipelineInvalidator({ invalidateQueries, setQueryData })
+
+    handler(pipelineUpdate)
+
+    expect(setQueryData).toHaveBeenCalledWith(['pipeline-run', 'pr1'], view)
+    expect(keyCounts(invalidateQueries)['pipeline-runs']).toBe(1)
+  })
+
+  it('ignores non-pipeline messages', () => {
+    const invalidateQueries = vi.fn()
+    const setQueryData = vi.fn()
+    const handler = makePipelineInvalidator({ invalidateQueries, setQueryData })
+
+    handler(runUpdate)
+    handler(otherMsg)
+
+    expect(invalidateQueries).not.toHaveBeenCalled()
+    expect(setQueryData).not.toHaveBeenCalled()
   })
 })
