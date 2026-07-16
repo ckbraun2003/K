@@ -11,6 +11,7 @@ import { EmptyState } from '../../ui/EmptyState'
 import { SkeletonRow } from '../../ui/Skeleton'
 import { StatusPill } from '../../ui/StatusPill'
 import { Icon } from '../../ui/Icon'
+import { Checkbox, Input } from '../../ui/Field'
 
 type Scope = 'personal' | 'org'
 
@@ -117,14 +118,13 @@ export default function TasksTab() {
           <div className="mt-3 space-y-1.5">
             {filtered.map(item => (
               <div key={item.id} data-testid={`tasks-workitem-${item.id}`} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   data-testid={`tasks-workitem-toggle-${item.id}`}
                   aria-label={`Mark "${item.title}" ${item.status === 'done' ? 'open' : 'done'}`}
                   checked={item.status === 'done'}
                   disabled={toggleItem.isPending}
                   onChange={() => toggleItem.mutate(item)}
-                  className="flex-shrink-0 accent-accent"
+                  className="flex-shrink-0"
                 />
                 <span
                   className={`min-w-0 flex-1 truncate text-body ${item.status === 'done' ? 'text-muted line-through' : 'text-text'}`}
@@ -149,14 +149,14 @@ export default function TasksTab() {
             so Org shows an honest hint instead (review fix, Task 14). */}
         {scope === 'personal' ? (
           <div className="mt-3 flex items-center gap-2">
-            <input
+            <Input
               data-testid="tasks-workitem-add-input"
               value={newItemTitle}
               onChange={e => setNewItemTitle(e.target.value)}
               onKeyDown={onAddItemKeyDown}
               placeholder="add a work item…"
               aria-label="New work item title"
-              className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-caption text-text placeholder-muted outline-none focus:border-accent-hover/35"
+              className="min-w-0 flex-1 px-2 py-1 text-caption"
             />
             <Button
               variant="ghost"

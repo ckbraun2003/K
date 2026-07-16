@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AutonomySettings, AutonomyPatchBody } from '@k/shared'
 import { api } from '../lib/api'
-import { Checkbox } from '../ui/Field'
+import { Checkbox, Input } from '../ui/Field'
 
 export function AutonomousOrgSection() {
   const qc = useQueryClient()
@@ -87,7 +87,7 @@ export function AutonomousOrgSection() {
           <div className="grid grid-cols-2 gap-4 pt-3">
             <label className="flex flex-col gap-1 text-xs text-[var(--text)]">
               Max concurrency
-              <input
+              <Input
                 type="number"
                 min={1}
                 max={10}
@@ -100,12 +100,12 @@ export function AutonomousOrgSection() {
                   if (Number.isInteger(n) && n >= 1 && n <= 10) mutation.mutate({ maxConcurrency: n })
                   else setMaxConcurrencyDraft(String(data.maxConcurrency))
                 }}
-                className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+                className="px-2 py-1"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-[var(--text)]">
               Org daily budget (USD)
-              <input
+              <Input
                 type="number"
                 min={0}
                 step="0.01"
@@ -120,7 +120,7 @@ export function AutonomousOrgSection() {
                   if (Number.isFinite(n) && n >= 0) mutation.mutate({ orgDailyBudgetUsd: n })
                   else setBudgetDraft(data.orgDailyBudgetUsd == null ? '' : String(data.orgDailyBudgetUsd))
                 }}
-                className="rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2 py-1 text-[var(--text)] outline-none focus:border-[color:rgba(56,189,248,0.35)]"
+                className="px-2 py-1"
               />
             </label>
             <label className="col-span-2 flex flex-col gap-1 text-xs text-[var(--text)]">

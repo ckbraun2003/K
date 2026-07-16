@@ -16,6 +16,7 @@ import { Icon } from '../ui/Icon'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
 import { EmptyState } from '../ui/EmptyState'
+import { Input } from '../ui/Field'
 
 /**
  * Orchestrator detail (P5.3a) — a single discipline lead's authority editor (left,
@@ -285,13 +286,13 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                   }
                 }}
               >
-                <input
+                <Input
                   value={toolInput}
                   onChange={e => setToolInput(e.target.value)}
                   placeholder="add tool by name"
                   list="orchestrator-tool-suggestions"
                   data-testid="orchestrator-tool-input"
-                  className="min-w-0 flex-1 rounded-lg border border-border bg-raised px-2 py-1 text-xs text-text outline-none focus:border-accent-hover/35"
+                  className="min-w-0 flex-1 px-2 py-1 text-xs"
                 />
                 <datalist id="orchestrator-tool-suggestions">
                   {(orgDefault?.allowedTools ?? [])

@@ -6,6 +6,7 @@ import { SectionHeader } from '../../../ui/SectionHeader'
 import { EmptyState } from '../../../ui/EmptyState'
 import { Icon } from '../../../ui/Icon'
 import { Skeleton } from '../../../ui/Skeleton'
+import { Checkbox, Input } from '../../../ui/Field'
 
 /**
  * PersonalTasksWidget (UI Simplification Task 13) — ports KHome's "Your
@@ -68,14 +69,13 @@ export default function PersonalTasksWidget() {
         <div className="flex flex-col gap-1">
           {items.map(item => (
             <div key={item.id} data-testid={`widget-personal-tasks-item-${item.id}`} className="flex items-center gap-2">
-              <input
-                type="checkbox"
+              <Checkbox
                 data-testid={`widget-personal-tasks-toggle-${item.id}`}
                 aria-label={`Mark "${item.title}" ${item.status === 'done' ? 'open' : 'done'}`}
                 checked={item.status === 'done'}
                 disabled={toggleItem.isPending}
                 onChange={() => toggleItem.mutate(item)}
-                className="flex-shrink-0 accent-accent"
+                className="flex-shrink-0"
               />
               <span className={`min-w-0 flex-1 truncate text-body ${item.status === 'done' ? 'text-muted line-through' : 'text-text'}`}>
                 {item.title}
@@ -85,14 +85,14 @@ export default function PersonalTasksWidget() {
         </div>
       )}
       <div className="mt-auto flex items-center gap-1.5">
-        <input
+        <Input
           data-testid="widget-personal-tasks-add-input"
           value={title}
           onChange={e => setTitle(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="add a task…"
           aria-label="New work item title"
-          className="min-w-0 flex-1 rounded-control border border-border bg-surface px-2 py-1 text-body text-text outline-none placeholder:text-muted focus:border-accent/40"
+          className="min-w-0 flex-1 px-2 py-1 text-body"
         />
         <button
           type="button"

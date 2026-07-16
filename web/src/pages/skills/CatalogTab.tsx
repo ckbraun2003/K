@@ -13,7 +13,7 @@ import SourceBadge from '../../components/SourceBadge'
 import WarningsBanner from '../../components/WarningsBanner'
 import { GlassPanel } from '../../ui/GlassPanel'
 import { Button } from '../../ui/Button'
-import { Input } from '../../ui/Field'
+import { Checkbox, Input } from '../../ui/Field'
 import { EmptyState } from '../../ui/EmptyState'
 import { ErrorState } from '../../ui/ErrorState'
 import { SkeletonRow } from '../../ui/Skeleton'
@@ -166,12 +166,10 @@ export default function CatalogTab() {
           onChange={setCompat}
         />
         <label className="flex cursor-pointer items-center gap-1.5 text-caption text-muted">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={enabledOnly}
             onChange={e => setEnabledOnly(e.target.checked)}
             data-testid="catalog-enabled-only"
-            className="accent-accent"
           />
           enabled only
         </label>

@@ -27,7 +27,7 @@ import { GlassPanel } from '../ui/GlassPanel'
 import { SectionHeader } from '../ui/SectionHeader'
 import { StatusPill } from '../ui/StatusPill'
 import { SkeletonRow } from '../ui/Skeleton'
-import { Textarea, Checkbox } from '../ui/Field'
+import { Textarea, Checkbox, Input } from '../ui/Field'
 
 // T20 — every StatusCard verdict label maps to exactly one canonical StatusPill
 // status through this guard map (never an arbitrary string), picked by VISUAL
@@ -247,12 +247,12 @@ function AuthorityList({
           }
         }}
       >
-        <input
+        <Input
           value={input}
           onChange={e => setInput(e.target.value)}
           placeholder={addPlaceholder}
           data-testid={`${testidPrefix}-input`}
-          className="min-w-0 flex-1 rounded-lg border border-border bg-raised px-2 py-1 text-label text-text outline-none focus:border-accent-hover/35"
+          className="min-w-0 flex-1 px-2 py-1 text-label"
         />
         <button
           type="submit"
