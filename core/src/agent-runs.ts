@@ -68,6 +68,12 @@ export interface StartAgentRunOptions {
    *  it. Threaded verbatim to startRun, which enforces it is MUTUALLY EXCLUSIVE with
    *  carryWorkingTree. Absent for every non-pipeline activation → unchanged behavior. */
   baseCommit?: string
+  /** D-119 (Pipeline Engine, A3): per-STAGE plan-gate override. A pipeline stage can arm
+   *  the plan park regardless of the resolved profile's own planGate (a StageDef.planGate).
+   *  OR'd with the profile default below; the interactive/persistent-session exemption
+   *  still applies. Absent for every non-pipeline activation → the profile default alone
+   *  governs (byte-identical). */
+  planGate?: boolean
 }
 
 /** Map a terminal run status to an agent_runs status. done → completed; any other
@@ -146,7 +152,9 @@ export async function startAgentRun(
       // E-02 (D-084): tier default — a plan_gate profile plan-gates its org dispatches,
       // but NEVER an interactive or persistent-session dispatch (those compose to the
       // startRun one-shot throw). Mirrors the routes/runs.ts interactive exemption.
-      planGate: profile.planGate === true && !opts.interactive && !opts.persistentSession ? true : undefined,
+      // D-119 (A3): an explicit per-stage opts.planGate override wins over the profile
+      // default (OR-ed); the interactive/persistent exemption is preserved.
+      planGate: (opts.planGate ?? (profile.planGate === true)) && !opts.interactive && !opts.persistentSession ? true : undefined,
     })
   } catch (e) {
     agentRunsDb.updateAgentRunStatus.run('failed', Date.now(), agentRunId)

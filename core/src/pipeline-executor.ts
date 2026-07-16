@@ -164,15 +164,14 @@ export class WorktreeStageExecutor implements StageExecutor {
       return { kind: 'settled', status: 'failed', detail: 'agent stage has an invalid spec' }
     }
     const profileId = ctx.stage.profile_id ?? def.profileId ?? roleToProfileId(def.role)
-    // def.planGate is DEFERRED: startAgentRun derives planGate from the resolved
-    // profile only (the profile's own plan-gate still applies). A per-stage planGate
-    // override needs an additive option on the CRITICAL-risk startAgentRun hub and is
-    // wired with the engine wave. TODO(A3).
-    return this.dispatchSupervised(ctx, profileId, def.promptScaffold, def.model)
+    // A3: the per-stage planGate override rides the additive startAgentRun option (undefined
+    // = the resolved profile's own plan-gate governs; true = force the plan park for this
+    // stage). The interactive/persistent exemption still applies inside startAgentRun.
+    return this.dispatchSupervised(ctx, profileId, def.promptScaffold, def.model, def.planGate || undefined)
   }
 
   private async dispatchSupervised(
-    ctx: StageContext, profileId: string, scaffold: string, model: string | null,
+    ctx: StageContext, profileId: string, scaffold: string, model: string | null, planGate?: boolean,
   ): Promise<StageDispatchResult> {
     const goal = renderScaffold(scaffold, this.resolveGoal(ctx))
     const { runId } = await startAgentRun(profileId, {
@@ -182,6 +181,7 @@ export class WorktreeStageExecutor implements StageExecutor {
       cwd: ctx.cwd,
       model: model ?? undefined,
       baseCommit: ctx.baseCommit ?? undefined,
+      planGate,
     })
     // The engine (A3) stamps runs.pipeline_stage_id + trackSupervisedRun — NOT here.
     return { kind: 'supervised', runId }
@@ -287,15 +287,35 @@ export class WorktreeStageExecutor implements StageExecutor {
     }
   }
 
-  /** Snapshot the worktree as this stage's handoff commit (a checkpoint commit —
-   *  reachable via refs/k-checkpoints/<stageId>, outlives the worktree). No changes →
-   *  createCheckpoint returns null → the fork base IS the result. A checkpoint failure
-   *  must never fail the stage (logged, base falls through). */
+  /** Snapshot the worktree as this stage's handoff commit (a checkpoint commit that
+   *  outlives the worktree). No changes → createCheckpoint returns null → the fork base
+   *  IS the result. A checkpoint failure must never fail the stage (logged, base falls
+   *  through).
+   *
+   *  A3 MUST-FIX (handoff-ref durability): createCheckpoint writes the commit to
+   *  refs/k-checkpoints/<stageId>, which the RUN-keyed boot sweep (sweepCheckpointRefs,
+   *  runExists(stageId)=false) would delete — orphaning the handoff commit across a
+   *  mid-pipeline reboot. So MOVE it to a sweep-immune pipeline namespace,
+   *  refs/k-pipelines/<pipelineRunId>/<stageKey>, and drop the k-checkpoints ref.
+   *  sweepCheckpointRefs scans ONLY refs/k-checkpoints/, so the new ref survives; the
+   *  pipeline-aware sweepPipelineRefs (keyed on pipeline_runs existence) reclaims it. */
   private async snapshotHandoff(wt: string, ctx: StageContext): Promise<string | undefined> {
     let resultCommit = ctx.baseCommit ?? undefined
     try {
       const ck = await createCheckpoint(wt, ctx.stage.id, 1, null)
-      if (ck) resultCommit = ck.sha
+      if (ck) {
+        resultCommit = ck.sha
+        const plRef = `refs/k-pipelines/${ctx.pipelineRunId}/${ctx.stage.stage_key}`
+        const bounded = { timeout: 30_000, killSignal: 'SIGKILL' as const }
+        try {
+          await execa('git', ['-C', wt, 'update-ref', plRef, ck.sha], bounded)
+          await execa('git', ['-C', wt, 'update-ref', '-d', ck.ref], bounded)
+        } catch (err) {
+          // Non-fatal: the commit object is still reachable via the k-checkpoints ref (it
+          // just isn't sweep-immune). Log and hand off the sha regardless.
+          console.warn(`[pipeline-executor] handoff ref move failed (stage ${ctx.stage.id}):`, (err as Error).message)
+        }
+      }
     } catch (err) {
       console.warn(`[pipeline-executor] handoff checkpoint failed (stage ${ctx.stage.id}):`, (err as Error).message)
     }

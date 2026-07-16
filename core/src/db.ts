@@ -2743,8 +2743,38 @@ const insertEdge = db.prepare(`
 `)
 const listEdges = db.prepare(`SELECT * FROM pipeline_edges WHERE pipeline_run_id = ?`)
 // Ready-detection reads a target's incoming edges (a stage is ready iff every incoming
-// edge's `from` stage is passed — that NOT-EXISTS query itself is deferred to Lane A).
+// edge's `from` stage is passed).
 const listIncomingEdges = db.prepare(`SELECT * FROM pipeline_edges WHERE pipeline_run_id = @pipelineRunId AND to_stage_key = @toStageKey`)
+
+// DAG ready-detection (Lane A / A3). AND-join semantics: a `pending` stage is READY iff
+// every incoming edge with when_cond IN ('always','pass') has its `from` stage passed,
+// AND it is reachable — i.e. it has ≥1 such incoming edge OR no inbound edge at all (the
+// entry). fail/repair edges are IGNORED here (A4/A5 route those explicitly), so a stage
+// reachable ONLY by a fail/repair edge stays pending until routed. The claim CAS
+// (claimStage) still gates the actual dispatch, so an overlapping drain can't double-fire.
+const listReadyStages = db.prepare(`
+  SELECT s.* FROM pipeline_stages s
+  WHERE s.pipeline_run_id = @pid AND s.status = 'pending'
+    AND NOT EXISTS (
+      SELECT 1 FROM pipeline_edges e
+      JOIN pipeline_stages fs ON fs.pipeline_run_id = e.pipeline_run_id AND fs.stage_key = e.from_stage_key
+      WHERE e.pipeline_run_id = s.pipeline_run_id AND e.to_stage_key = s.stage_key
+        AND e.from_stage_key IS NOT NULL AND e.when_cond IN ('always','pass')
+        AND fs.status != 'passed'
+    )
+    AND (
+      EXISTS (
+        SELECT 1 FROM pipeline_edges ep
+        WHERE ep.pipeline_run_id = s.pipeline_run_id AND ep.to_stage_key = s.stage_key
+          AND ep.from_stage_key IS NOT NULL AND ep.when_cond IN ('always','pass')
+      )
+      OR NOT EXISTS (
+        SELECT 1 FROM pipeline_edges ea
+        WHERE ea.pipeline_run_id = s.pipeline_run_id AND ea.to_stage_key = s.stage_key
+          AND ea.from_stage_key IS NOT NULL
+      )
+    )
+`)
 
 // pipeline_dispatches — the K/Chief→pipeline intent queue (mirrors lead_dispatches).
 const insertPipelineDispatch = db.prepare(`
@@ -2779,7 +2809,7 @@ export const pipelineDb = {
   insertStage, getStage, getStageByRunId, listStagesForPipeline, claimStage,
   setStageRun, markStagePassed, markStageFailed, markStageAwaitingGate,
   // pipeline_edges
-  insertEdge, listEdges, listIncomingEdges,
+  insertEdge, listEdges, listIncomingEdges, listReadyStages,
   // pipeline_dispatches
   insertPipelineDispatch, listPendingPipelineDispatches, getPipelineDispatch,
   claimPipelineDispatch, setPipelineDispatchRun, markPipelineDispatchFailed,
@@ -2787,8 +2817,8 @@ export const pipelineDb = {
   setDefSpec, getDefSpec,
   // hook_definitions
   insertHook, listHooks, getHook, setHookTrusted, setHookEnabled,
-  // TODO(Lane A): listReadyStages (DAG NOT-EXISTS ready-detection), repointEdgesTo
-  //   (dynamic gate insertion re-point), resolveGateStage (single-resolver gate CAS).
+  // TODO(Lane A): repointEdgesTo (dynamic gate insertion re-point, A5), resolveGateStage
+  //   (single-resolver gate CAS, A5).
 }
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────

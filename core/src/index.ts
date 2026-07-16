@@ -48,7 +48,7 @@ import { routinesRoutes } from './routes/routines.js'
 import { retryMetricsRoutes } from './routes/retry-metrics.js'
 import { registerRunVerify } from './run-verify.js'
 import { registerNotifications } from './notify.js'
-import { sweepCheckpointRefs } from './checkpoints.js'
+import { sweepCheckpointRefs, sweepPipelineRefs } from './checkpoints.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { syncHostDiscovery } from './host-discovery.js'
 import { seedProfiles } from './profiles.js'
@@ -63,13 +63,15 @@ import { startProposalCollectors } from './proposal-collectors.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
 import { startBudgetBroadcast } from './budget-governor.js'
 import { startBacklogRelay } from './backlog-relay.js'
+import { startPipelineScheduler } from './pipeline-scheduler.js'
+import { reconcilePipelines } from './pipeline-engine.js'
 import { startSelfHeal } from './self-heal.js'
 import { startLessonProposals } from './lesson-proposals.js'
 import { getProject, listProjects, warnStaleProjectPaths } from './projects.js'
 import { reconcileOnBoot, REPO_ROOT } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
 import { acquireInstanceLock } from './instance-lock.js'
-import { DATA_DIR, runsDb } from './db.js'
+import { DATA_DIR, runsDb, pipelineDb } from './db.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
 import { startGithubPoller, stopGithubPoller } from './github.js'
 import {
@@ -113,6 +115,8 @@ let stopLeadDispatchRelay: (() => void) | undefined
 let stopBudgetBroadcast: (() => void) | undefined
 // Same, for the E-15 backlog auto-pull relay (drains open org work_items; opt-in, default OFF).
 let stopBacklogRelay: (() => void) | undefined
+// Same, for the D-119 pipeline scheduler (drains running pipelines' ready stages; PIPELINE_SCHEDULER=0).
+let stopPipelineScheduler: (() => void) | undefined
 // Same, for the E-04 run-verify engine (terminal-'done' → recipe battery; W0 stub).
 let stopRunVerify: (() => void) | null = null
 // Same, for the E-19 notification engine (rules-gated run/verify → notifications; W0 stub).
@@ -356,6 +360,7 @@ export async function buildApp() {
     stopLeadDispatchRelay?.()
     stopBudgetBroadcast?.()
     stopBacklogRelay?.()
+    stopPipelineScheduler?.()
     stopSelfHeal?.()
     stopLessonProposals?.()
     stopArtifactScan?.()
@@ -459,13 +464,22 @@ async function start() {
   // Crash recovery: mark runs left `running`/`queued` by a prior crash as
   // interrupted and prune orphaned worktrees, before serving traffic.
   reconcileOnBoot()
+  // D-119: reconcile RUNNING pipelines — runs AFTER reconcileOnBoot's stale-run sweep so a
+  // crashed stage's linked run is already terminal and derivable (done→passed / else failed);
+  // a 'dispatched' stage with no run_id is failed (never re-executed); quiesced pipelines
+  // finalize. Kept in index.ts (not reconcileOnBoot) to avoid a supervisor→engine import cycle,
+  // exactly as the checkpoint-ref sweep below lives here rather than in reconcileOnBoot.
+  try { reconcilePipelines() } catch (e) { console.warn('[pipeline] reconcilePipelines failed (continuing):', e) }
+  const sweepRoots = [REPO_ROOT, ...listProjects().map(p => p.localPath)]
   // P1: prune checkpoint refs for runs whose rows were deleted (best-effort, async;
   // roots = the harness repo + every registered project).
-  void sweepCheckpointRefs(
-    [REPO_ROOT, ...listProjects().map(p => p.localPath)],
-    (runId) => runsDb.getRun.get(runId) !== undefined,
-  )
+  void sweepCheckpointRefs(sweepRoots, (runId) => runsDb.getRun.get(runId) !== undefined)
     .then(n => { if (n > 0) console.log(`[checkpoints] pruned ${n} orphaned checkpoint ref(s)`) })
+    .catch(() => { /* best-effort */ })
+  // D-119: prune sweep-immune pipeline handoff refs (refs/k-pipelines/<pipelineRunId>/…) whose
+  // pipeline_runs row is gone — the pipeline-keyed mirror of the checkpoint-ref sweep above.
+  void sweepPipelineRefs(sweepRoots, (plrId) => pipelineDb.getPipelineRun.get(plrId) !== undefined)
+    .then(n => { if (n > 0) console.log(`[pipeline] pruned ${n} orphaned pipeline handoff ref(s)`) })
     .catch(() => { /* best-effort */ })
   // F-033: warn once per registered project whose localPath has vanished on disk, so
   // a silently-broken project surfaces in the boot log (its workspace actions are
@@ -541,6 +555,9 @@ async function start() {
   // oldest item under the default orchestrator. Inert until the operator enables it
   // (autonomySettings.enabled + backlogAutoPull, default OFF). Opt out: BACKLOG_RELAY=0.
   stopBacklogRelay = startBacklogRelay()
+  // D-119 pipeline scheduler: drain running pipelines' ready stages on an interval (budget +
+  // concurrency gated for agent stages). Inert until a pipeline is running. Opt out: PIPELINE_SCHEDULER=0.
+  stopPipelineScheduler = startPipelineScheduler()
   // E-18 self-healing runs: on a terminal FAILED org/auto run, classify and (if the operator
   // enabled Autonomy + Self-heal, budget permitting) retry with a model fallback, else park an
   // Inbox proposal. Inert until autonomy is enabled; subscribes to the run-update bus.
