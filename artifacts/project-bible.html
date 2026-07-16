@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-16 01:51</span><br>
+      compiled <span class="mono">2026-07-16 04:15</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -2828,7 +2828,7 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
         <span class="section-icon">➤</span>
         <h1>Roadmap</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-16</span>
       </header>
       <p>Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.</p>
 <div class="roadmap-progress"><div class="phase-row">
@@ -2871,6 +2871,10 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
       <span class="phase-name">K Expansion — Phase 5: Autonomy (✓ 2026-07-13 — `feat/exp-p5`, schema v11→v12)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
       <span class="phase-pct mono">10/10</span>
+    </div><div class="phase-row">
+      <span class="phase-name">Impressive Wave — Liquid Glass 2.0 + feature verticals + backlog burn-down (✓ 2026-07-16 — `feat/impressive-wave`, schema v12→v13)</span>
+      <span class="phase-bar"><span class="phase-fill"></span></span>
+      <span class="phase-pct mono">9/9</span>
     </div><div class="phase-row">
       <span class="phase-name">Phase 6 — Intelligence &amp; Scale (optional)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
@@ -3268,11 +3272,60 @@ no new rail slot (D-110; §08).</li>
 <li><input checked disabled type="checkbox" /> <strong>Schema v11→v12.</strong> <code>work_items.source</code>/<code>source_key</code> (+ partial-unique idx); <code>runs.retry_of</code>/
 <code>retry_count</code>/<code>failure_class</code>; <code>projects.budget_daily_usd</code>; the <code>autonomy.settings</code> blob.</li>
 </ul>
-<p><strong>Deferred / honest limits (default-OFF, tracked):</strong> project-keyed proposal source_keys are
+<p><strong>Deferred / honest limits (default-OFF, tracked):</strong> <del>project-keyed proposal source_keys are
 <strong>one-shot per project</strong> (a genuine recurrence isn't re-surfaced until the row clears) and inbox
 dismiss has <strong>no undo</strong> (D-111); the budget park does not yet gate operator-initiated action routes
 (rewind / review-fix / deep-verify / workflows / run-skill-now — D-112); E-27 covers <code>verify_results</code>
-only (<code>eval_results</code> has no failure-reason column — D-113).</p>
+only (<code>eval_results</code> has no failure-reason column — D-113).</del> <strong>All four resolved in the Impressive
+Wave (below):</strong> proposal re-nag after 7 days (P5-FU-3), inbox dismiss undo (FE-7), budget park now
+gates the operator action routes (P5-FU-1), and <code>eval_results.failure_reason</code> now feeds the lesson
+gate (P5-FU-5).</p>
+<h2>Impressive Wave — Liquid Glass 2.0 + feature verticals + backlog burn-down <em>(✓ 2026-07-16 — <code>feat/impressive-wave</code>, schema v12→v13)</em></h2>
+<blockquote>
+<p>Made the Command Deck <strong>impressive, not just professional</strong>, closed the artifacts / help / code-review
+feature gaps, and burned down the P5 + dev-env-hardening follow-up backlog. Method: a Wave 0 Liquid
+Glass 2.0 foundation that freezes cross-lane contracts → two parallel lane worktrees (FE 16 tasks /
+BE 13 tasks, each whole-lane-reviewed MERGE-READY) → serial integration + a whole-implementation
+review (STANDARDS HELD) + a 1440×900 visual/blur sweep + a real-dispatch live smoke ($0.131255
+measured). Decisions <strong>D-115..D-118</strong>.</p>
+</blockquote>
+<ul>
+<li><input checked disabled type="checkbox" /> <strong>Liquid Glass 2.0 (D-115).</strong> Living hue-drift ambient blobs, SVG <code>#lg-refract</code> edge refraction
+(Chromium-first, <code>@supports</code>-guarded, additive fallback), specular gradient borders, cursor
+<code>.glass-interactive</code> sheen; tier fills .55/.72/.82→<strong>.48/.64/.76</strong> (AA-gated, not aesthetic); motion
+v2 (<code>useCountUp</code> / <code>chartDraw</code> / <code>successSweep</code>). Token-driven, reduced-motion/coarse-pointer safe (§08).</li>
+<li><input checked disabled type="checkbox" /> <strong>In-app Help guide (D-116).</strong> A 7-page <code>web/src/help</code> dialog (first-run auto-open once); Help no
+longer deep-links the bible (§08, §12).</li>
+<li><input checked disabled type="checkbox" /> <strong>Artifact registry + scan (D-117).</strong> <code>artifacts.project_id</code> + <code>origin</code>, idempotent path-guarded
+filesystem scan (<code>POST /api/projects/:id/artifacts/scan</code>); ArtifactsTab becomes a gallery of ALL of a
+project's <code>.html</code> artifacts, not just the bible (§05, §11).</li>
+<li><input checked disabled type="checkbox" /> <strong>Changes surface + DiffViewer v2 (D-118).</strong> Full-screen <code>#/pr-review/&lt;projectId&gt;/&lt;n&gt;</code> GitHub-style
+review — file tree, refractor syntax highlight (<code>--code-*</code> tokens), word-level diff, unified/split,
+viewed marks, run context-expand; PR side read-only (§08, §12).</li>
+<li><input checked disabled type="checkbox" /> <strong>Impressive pass.</strong> One <code>Row</code> primitive + one empty-state system, glass-where-it-matters sweep,
+chart tooltips + KPI sparklines, TopBar "Message K" pill removed, Insights defaults to Charts; the 5
+audit defects fixed (bible-iframe overflow, single-node giant-sphere graph, raw-markdown run console,
+FAB overlap, duplicate bible rail entry).</li>
+<li><input checked disabled type="checkbox" /> <strong>Data honesty (BE-3).</strong> ONE terminal-weighted success-rate definition shared by Overview + Charts
+(resolves the 80%-vs-34.7% contradiction); <code>verify-result</code> returns 200-null (no 404 noise); the
+claude-probe status contradiction reconciled (§13).</li>
+<li><input checked disabled type="checkbox" /> <strong>P5 follow-ups closed.</strong> Budget park gates the operator action routes (P5-FU-1, D-112); proposal
+re-nag after 7 days (P5-FU-3, D-111); retry-rate zero-fill (P5-FU-4); <code>eval_results.failure_reason</code>
+feeds the D-041 lesson gate (P5-FU-5, D-113).</li>
+<li><input checked disabled type="checkbox" /> <strong>Dev-env hardening closed.</strong> Bible §11 data-locations fix (DEH-FU-1), upgrade-smoke hardenings
+(FU-2), committed poisoned-fixture CI gate (FU-3), ollama-branch env scrub (FU-4), vitest realpath
+live-dir guard (FU-6).</li>
+<li><input checked disabled type="checkbox" /> <strong>Schema v12→v13.</strong> <code>artifacts.project_id</code> / <code>origin</code>; <code>eval_results.failure_reason</code>.</li>
+</ul>
+<p><strong>Accepted deviation:</strong> Home → Overview lands at <strong>8</strong> simultaneously-blurred regions vs the soft ≤6
+budget (5 glass widget cells + 3 glass chrome bars) — accepted as a documented, perf-justified
+exception (the INT.5 trace measured a <code>LayoutCount</code> delta of 0 at eight regions); ≤6 remains the target
+for new surfaces (§08).</p>
+<p><strong>Deferred (non-blocking fast-follows):</strong> DiffViewer's "viewed" toggle uses a raw checkbox rather than
+the <code>Checkbox</code> primitive; the HelpGuide remembers its page across reopen; §12's broader "Dashboard tour"
+still narrates the pre-UI-Simplification shell (the mandated Help + run/PR-review sections landed this
+wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/</code> escape in the ui-demo's
+<code>dispatchSend</code> predates this program.</p>
 <h2>Phase 6 — Intelligence &amp; Scale <em>(optional)</em></h2>
 <ul>
 <li><input disabled type="checkbox" /> EventBus → NATS/Redis Streams + worker processes</li>
