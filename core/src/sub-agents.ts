@@ -217,12 +217,16 @@ export type UpdateSubAgentPatch = Partial<
 >
 
 /** Patch an operator worker's mutable fields (read-merge-write, mirroring
- *  updateWorkflowDef). Throws if `id` names a K-native worker (read-only) or
- *  no operator row matches `id`. */
+ *  updateWorkflowDef). Throws if `id` names a K-native worker (read-only), no
+ *  operator row matches `id`, or `patch.name` collides with a K-native worker's
+ *  name (K-native is read-only — never shadowable). */
 export function updateSubAgent(id: string, patch: UpdateSubAgentPatch): SubAgentDef {
   assertOperatorId(id)
   const row = subAgentDb.getSubAgent.get(id) as Record<string, unknown> | undefined
   if (!row) throw new Error(`sub-agents: operator worker not found: ${id}`)
+  if (patch.name !== undefined && listKNativeSubAgents().some(a => a.name === patch.name)) {
+    throw new Error(`sub-agents: name "${patch.name}" collides with a K-native worker (read-only)`)
+  }
   const current = rowToSubAgentDef(row)
   subAgentDb.updateSubAgent.run({
     id,

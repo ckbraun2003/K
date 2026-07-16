@@ -1174,7 +1174,7 @@ export const SubAgentSourceSchema = z.enum(['k', 'operator'])
 export type SubAgentSource = z.infer<typeof SubAgentSourceSchema>
 export const SubAgentDefSchema = z.object({
   id: z.string(), name: z.string().min(1).max(64),
-  role: z.string().min(1).max(200),            // one-line goal/description
+  role: z.string().min(1).max(500),             // one-line goal/description
   model: z.string().nullable(),                 // null = runtime default
   allowedTools: z.array(z.string()),
   mcpServers: z.array(z.string()),

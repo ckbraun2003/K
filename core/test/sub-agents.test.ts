@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
+import { SubAgentDefSchema } from '@k/shared'
 import { db } from '../src/db.js'
 import {
   listSubAgents,
@@ -111,5 +112,25 @@ describe('K-native workers are read-only', () => {
         prompt: 'x',
       }),
     ).toThrow()
+  })
+
+  it('updateSubAgent renaming an operator row to a K-native name throws (shadow guard)', () => {
+    const name = `test-operator-${uuid().slice(0, 8)}`
+    const created = createSubAgent({
+      name,
+      role: 'A test operator worker',
+      prompt: 'You are a test worker.',
+    })
+    createdIds.push(created.id)
+
+    expect(() => updateSubAgent(created.id, { name: 'implementer' })).toThrow()
+  })
+})
+
+describe('listSubAgents entries validate against SubAgentDefSchema', () => {
+  it('every entry (K-native + operator) parses cleanly, proving role max(500) fits real K-native descriptions', () => {
+    for (const entry of listSubAgents()) {
+      expect(SubAgentDefSchema.safeParse(entry).success).toBe(true)
+    }
   })
 })
