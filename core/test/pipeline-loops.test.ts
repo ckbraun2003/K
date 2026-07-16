@@ -20,7 +20,7 @@ import path from 'node:path'
 import { startPipelineRun } from '../src/pipeline-defs.js'
 import { drainPipelines } from '../src/pipeline-scheduler.js'
 import { maybeFinalizePipeline } from '../src/pipeline-engine.js'
-import { pipelineDb } from '../src/db.js'
+import { pipelineDb, runsDb } from '../src/db.js'
 import { listLedger } from '../src/pipeline-ledger.js'
 import type { PipelineStageRow } from '../src/pipeline-executor.js'
 
@@ -153,6 +153,60 @@ describe('bounded loops (A.2)', () => {
     expect(stageByKey(pipelineRunId, 'impl').iteration).toBe(2)
     expect(stageByKey(pipelineRunId, 'verify').status).toBe('failed')
     expect(listLedger(pipelineRunId).filter(e => e.kind === 'iteration')).toHaveLength(2)
+  }, 240_000)
+
+  it('does NOT reset an in-flight loop-body sibling when the loop source fails (review I-1)', async () => {
+    // The reviewer's triggering shape: impl (loop head) fans out to verify (loop source, fails fast)
+    // AND slow (a parallel sibling that stays running). A premature loop re-entry — run BEFORE the
+    // finalize quiescence guards — reset impl's WHOLE downstream closure (which includes `slow`) to
+    // pending and NULLed slow's run_id WHILE its supervised run was still executing (orphaned run +
+    // double-execution). The re-entry must not fire until the pipeline otherwise quiesces.
+    const spec = {
+      name: 'loop-inflight-guard',
+      stages: [
+        { kind: 'deterministic', id: 'impl', label: 'implement', action: { type: 'command', run: counterStep(counterPath('impl'), '0') } },
+        { kind: 'deterministic', id: 'verify', label: 'verify', action: { type: 'command', run: counterStep(counterPath('verify'), '9') } },
+        { kind: 'deterministic', id: 'slow', label: 'slow', action: { type: 'command', run: counterStep(counterPath('slow'), '0') } },
+      ],
+      edges: [
+        { from: 'impl', to: 'verify', handoff: 'share-tree' },
+        { from: 'impl', to: 'slow', handoff: 'share-tree' },
+        { from: 'verify', to: 'impl', handoff: 'share-tree', when: 'loop', maxIterations: 3 },
+        { from: 'verify', to: 'done', handoff: 'share-tree', when: 'pass' },
+        { from: 'slow', to: 'done', handoff: 'share-tree', when: 'pass' },
+      ],
+      entry: 'impl',
+    }
+    const { pipelineRunId } = await startPipelineRun(spec, { cwd: repo, goal: 'in-flight loop-body guard' })
+
+    // Hand-set the exact mid-flight state the bug triggers on (test-3's synchronous state-set style —
+    // a deterministic `slow` settles within a drain tick and can't be held 'running' via drain): the
+    // loop head passed, the loop source `verify` has just settled FAILED this pass, and its parallel
+    // sibling `slow` is still RUNNING under a supervised run — precisely the window a premature
+    // re-entry would clobber.
+    const impl = stageByKey(pipelineRunId, 'impl')
+    const verify = stageByKey(pipelineRunId, 'verify')
+    const slow = stageByKey(pipelineRunId, 'slow')
+    const now = Date.now()
+    pipelineDb.markStagePassed.run({ id: impl.id, resultCommit: baseCommit, exitCode: 0, costUsd: null, updatedAt: now, completedAt: now })
+    pipelineDb.markStageFailed.run({ id: verify.id, failureClass: 'transient', exitCode: 9, costUsd: null, updatedAt: now, completedAt: now })
+    const slowRunId = randomUUID()
+    runsDb.insertRun.run({ id: slowRunId, prompt: 'p', cwd: repo, worktree: null, status: 'running', provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: null, createdAt: now })
+    pipelineDb.setStageRun.run({ id: slow.id, runId: slowRunId, baseCommit, updatedAt: now }) // → status 'running', run_id set
+
+    // The scheduler calls this at the end of the drain pass in which `verify` failed.
+    maybeFinalizePipeline(pipelineRunId)
+
+    // The in-flight sibling is UNTOUCHED: not reset to pending, run_id preserved. The loop must NOT
+    // re-enter while it runs — impl.iteration unchanged, no iteration ledger entry, pipeline running.
+    const slowAfter = stageByKey(pipelineRunId, 'slow')
+    expect(slowAfter.status).toBe('running')
+    expect(slowAfter.run_id).toBe(slowRunId)
+    expect(stageByKey(pipelineRunId, 'impl').iteration).toBe(0)
+    expect(listLedger(pipelineRunId).filter(e => e.kind === 'iteration')).toHaveLength(0)
+    expect((pipelineDb.getPipelineRun.get(pipelineRunId) as { status: string }).status).toBe('running')
+
+    pipelineDb.updatePipelineStatus.run({ id: pipelineRunId, status: 'cancelled', updatedAt: Date.now(), completedAt: Date.now() })
   }, 240_000)
 
   it('a loop edge alone NEVER marks its target ready', () => {

@@ -39,6 +39,7 @@ import { isPathWithin } from './paths.js'
 // resolveTsxLoader, so this import is a (benign) cycle — both module bodies are
 // inert; every cross-reference happens inside functions, at call time.
 import { resolveRunAssets } from './run-assets.js'
+import { kNativeSourceStem } from './sub-agents.js'
 import type { ProjectRef } from './host-discovery.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -467,9 +468,14 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
   if (opts.subagent) {
     const sa = opts.subagent
     if (sa.source === 'k') {
-      assertSafeSegment(sa.name, 'subagent name')
-      const src = path.join(assetsDir, 'agents', `${sa.name}.md`)
-      if (fs.existsSync(src)) guardedCopy(configDir, src, path.join(configDir, 'agents', `${sa.name}.md`))
+      // Mount by the source FILE STEM, not the frontmatter `name` — the two differ for a
+      // renamed/forked worker, and keying on `name` would silently miss the file (review I-3).
+      // kNativeSourceStem resolves the on-disk `<stem>.md`; fall back to `name` (existsSync then
+      // false → not mounted, exactly the prior behavior) when no K-native file's name matches.
+      const stem = kNativeSourceStem(sa.name) ?? sa.name
+      assertSafeSegment(stem, 'subagent stem')
+      const src = path.join(assetsDir, 'agents', `${stem}.md`)
+      if (fs.existsSync(src)) guardedCopy(configDir, src, path.join(configDir, 'agents', `${stem}.md`))
     } else if (sa.enabled) {
       assertSafeSegment(sa.id, 'subagent id')
       const agentsRoot = path.join(dataDir, 'agents')

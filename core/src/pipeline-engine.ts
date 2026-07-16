@@ -89,8 +89,13 @@ const rewindResetTargetRetry = db.prepare(`UPDATE pipeline_stages SET retry_coun
 // pass (drops run/handoff/exit columns AND resets retry_count so each iteration gets its full
 // retry budget) — mirrors rewindResetStage but iteration-bounded. Local prepared statements (the
 // backlog-relay precedent) so db.ts's W0 pipelineDb bundle stays frozen.
+// review I-1 (belt-and-suspenders): the reset is CAS-guarded to never touch a 'running'/'dispatched'
+// stage — a loop re-entry that raced an in-flight body sibling would otherwise NULL its run_id mid-
+// flight (orphaned run + double-execution). maybeFinalizePipeline already defers re-entry until the
+// pipeline quiesces (so this never fires on an in-flight stage in practice), but the guard makes the
+// invariant explicit at the SQL layer.
 const bumpStageIteration = db.prepare(`UPDATE pipeline_stages SET iteration = @iteration, updated_at = @updatedAt WHERE id = @id`)
-const resetStageForLoop = db.prepare(`UPDATE pipeline_stages SET status = 'pending', run_id = NULL, result_commit = NULL, exit_code = NULL, failure_class = NULL, retry_count = 0, started_at = NULL, completed_at = NULL, updated_at = @updatedAt WHERE id = @id`)
+const resetStageForLoop = db.prepare(`UPDATE pipeline_stages SET status = 'pending', run_id = NULL, result_commit = NULL, exit_code = NULL, failure_class = NULL, retry_count = 0, started_at = NULL, completed_at = NULL, updated_at = @updatedAt WHERE id = @id AND status NOT IN ('running','dispatched')`)
 
 const STAGE_TERMINAL = new Set(['passed', 'failed', 'skipped'])
 
@@ -443,18 +448,26 @@ function reopenExhaustibleLoops(pipelineRunId: string): boolean {
   if (loopEdges.length === 0) return false
   const stages = pipelineDb.listStagesForPipeline.all(pipelineRunId) as PipelineStageRow[]
   const byKey = new Map(stages.map(s => [s.stage_key, s]))
+  // review I-2: reopen each HEAD at most ONCE per drain pass. The validator permits two distinct
+  // failed sources to loop back to the SAME head; without this guard each loop edge would reopen +
+  // bump the head's iteration, double-counting one logical iteration (and burning the cap twice as
+  // fast). The status snapshot above is never refreshed across reopenLoop calls, so we track the
+  // heads reopened this pass and skip a repeat rather than re-reading.
+  const reopenedHeads = new Set<string>()
   let reopened = false
   for (const le of loopEdges) {
     const source = byKey.get(le.from_stage_key!) // the stage that loops back on failure
     const head = byKey.get(le.to_stage_key)        // the ancestor re-entered
     if (!source || !head) continue
     if (source.status !== 'failed') continue       // only a FAILED loop source triggers a re-entry
+    if (reopenedHeads.has(head.stage_key)) continue // already reopened this pass — never double-bump
     // The head runs at most `maxIterations` times: iteration 0 is the first run, each loop-back
     // bumps it, so a re-entry is permitted only while (iteration + 1) < maxIterations. A missing
     // cap (should never happen — the schema requires it) fails CLOSED at 1 (no loop).
     const maxIterations = le.max_iterations ?? 1
     if (head.iteration + 1 >= maxIterations) continue // cap reached — leave the source failed
     reopenLoop(pipelineRunId, head, edges, stages)
+    reopenedHeads.add(head.stage_key)
     reopened = true
   }
   return reopened
@@ -490,11 +503,6 @@ function reopenLoop(pipelineRunId: string, head: PipelineStageRow, edges: Pipeli
 export function maybeFinalizePipeline(pipelineRunId: string): void {
   const run = pipelineDb.getPipelineRun.get(pipelineRunId) as PipelineRunRow | undefined
   if (!run || run.status !== 'running') return
-  // orch-p2 A.2: re-enter any bounded loop whose source just failed with iterations remaining —
-  // BEFORE skip-propagation/finalize — so a loop source's failure loops back instead of finalizing
-  // the pipeline 'failed'. A re-open leaves the loop body 'pending' (not quiesced) → return early;
-  // the next scheduler tick re-drives the loop head.
-  if (reopenExhaustibleLoops(pipelineRunId)) return
   markSkips(pipelineRunId)
   const stages = pipelineDb.listStagesForPipeline.all(pipelineRunId) as PipelineStageRow[]
   if (stages.length === 0) return
@@ -503,6 +511,17 @@ export function maybeFinalizePipeline(pipelineRunId: string): void {
   const awaitingGate = stages.some(s => s.status === 'awaiting_gate')
   if (inFlight || awaitingGate) return
   if ((pipelineDb.listReadyStages.all({ pid: pipelineRunId }) as PipelineStageRow[]).length > 0) return
+
+  // orch-p2 A.2 (review I-1): re-enter any bounded loop whose source just failed with iterations
+  // remaining — but ONLY once the pipeline has otherwise QUIESCED (the two early-returns above:
+  // no in-flight/dispatched stage, no awaiting gate, no ready stage). Running this BEFORE those
+  // guards (the original order) let resetStageForLoop clobber a still-running loop-body sibling of
+  // the source — its downstream-closure reset NULLed the run_id of a stage whose supervised run was
+  // mid-flight, orphaning that run and double-executing it. When the loop source is terminal and
+  // nothing else can progress, a loop re-entry is the ONLY remaining forward progress, so deferring
+  // it to here is safe. A re-open leaves the loop body 'pending' (not quiesced) → return early; the
+  // next scheduler tick re-drives the loop head.
+  if (reopenExhaustibleLoops(pipelineRunId)) return
 
   // Quiesced: no more progress is possible on this tick's DAG. A failed stage is HANDLED iff it
   // has a fail/repair out-edge (the fail branch proceeds — A5 forward routing); an unhandled

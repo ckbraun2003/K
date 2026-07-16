@@ -1108,13 +1108,14 @@ export const PipelineSpecSchema = z.object({
     if (has(e.from) && !(has(e.to) && reachableFrom(e.to).has(e.from))) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `loop edge target '${e.to}' is not an ancestor of '${e.from}' in the forward graph`, path: ['edges', i, 'to'] })
     }
-    // The loop head must also have a non-loop forward exit — a pass/always edge,
-    // or an edge (of any when) into a gate stage — or the pipeline can never leave
-    // the loop even after maxIterations is exhausted.
+    // The loop SOURCE (the `from` stage — the engine names `e.to` the head and `e.from` the
+    // source) must also have a non-loop forward exit — a pass/always edge, or an edge (of any
+    // when) into a gate stage — or the pipeline can never leave the loop even after
+    // maxIterations is exhausted.
     const hasForwardExit = p.edges.some(o =>
       o.from === e.from && o.when !== 'loop' &&
       (o.when === 'pass' || o.when === 'always' || stageById.get(o.to)?.kind === 'gate'))
-    if (!hasForwardExit) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `loop head '${e.from}' has no non-loop forward exit (needs a pass/always edge, or an edge into a gate)`, path: ['edges', i] })
+    if (!hasForwardExit) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `loop-from stage '${e.from}' has no non-loop forward exit (needs a pass/always edge, or an edge into a gate)`, path: ['edges', i] })
   })
   // reachability from entry — a stage no forward/repair edge can reach can never run.
   // Repair targets fold into the adjacency (a repair-only stage is legitimately entered

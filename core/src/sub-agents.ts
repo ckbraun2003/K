@@ -115,9 +115,13 @@ export function parseKNativeAgentFile(text: string, fallbackName: string): Parse
 }
 
 /** Read + parse the 6 K-native workers from agent-config/agents/*.md, sorted by
- *  filename for a stable order. A missing/unreadable AGENTS_DIR degrades to []
- *  rather than throwing (mirrors listChildDirs' ENOENT tolerance). */
-function listKNativeSubAgents(): SubAgentDef[] {
+ *  filename for a stable order, CARRYING each worker's source-file stem alongside
+ *  its SubAgentDef. The stem is the on-disk filename (`<stem>.md`); the def's `name`
+ *  comes from YAML frontmatter and CAN differ (a forked/renamed worker), so the
+ *  agent-config mount seam must key off the stem, not the name (review I-3). A
+ *  missing/unreadable AGENTS_DIR degrades to [] rather than throwing (mirrors
+ *  listChildDirs' ENOENT tolerance). */
+function listKNativeWithStem(): Array<{ def: SubAgentDef; stem: string }> {
   let files: string[]
   try {
     files = fs
@@ -131,7 +135,7 @@ function listKNativeSubAgents(): SubAgentDef[] {
     const stem = file.slice(0, -'.md'.length)
     const text = fs.readFileSync(path.join(AGENTS_DIR, file), 'utf8')
     const parsed = parseKNativeAgentFile(text, stem)
-    return {
+    const def: SubAgentDef = {
       id: `${K_NATIVE_ID_PREFIX}${parsed.name}`,
       name: parsed.name,
       role: parsed.description,
@@ -143,7 +147,24 @@ function listKNativeSubAgents(): SubAgentDef[] {
       source: 'k',
       enabled: true,
     }
+    return { def, stem }
   })
+}
+
+/** The 6 K-native workers as bare SubAgentDefs (stem dropped) — the public registry view. */
+function listKNativeSubAgents(): SubAgentDef[] {
+  return listKNativeWithStem().map(x => x.def)
+}
+
+/**
+ * Resolve the on-disk `.md` file STEM for a K-native worker by its (frontmatter) `name`.
+ * The agent-config mount reads `agent-config/agents/<stem>.md`, but a worker's frontmatter
+ * `name` can differ from its filename (a forked/renamed worker), so mounting by `name` would
+ * silently miss the file (review I-3). Returns undefined when no K-native file's parsed name
+ * matches (an operator worker, or none) — the caller then leaves the worker unmounted, as before.
+ */
+export function kNativeSourceStem(name: string): string | undefined {
+  return listKNativeWithStem().find(x => x.def.name === name)?.stem
 }
 
 // ── operator id guard ───────────────────────────────────────────────────────
