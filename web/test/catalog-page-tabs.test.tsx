@@ -10,7 +10,9 @@
  * (design §2.3: "their routes redirect into Automations") — it is not re-tested
  * here; its standalone component still has its own dedicated test files
  * (skills-history-empty/e11-sweep/routines-ui.test.tsx import it directly).
- * A 4th "Sub Agents" tab is added on top of this file by Task B.5.
+ * Task B.5 adds a 4th "Sub Agents" tab — its own dedicated coverage (list render,
+ * fork flow, save/PATCH, K-native has no delete) lives in sub-agents-tab.test.tsx;
+ * this file only locks the deep-link routing into that tab.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
@@ -27,6 +29,7 @@ beforeAll(() => {
 const {
   mockCatalogSkills, mockCatalogMcp, mockCatalogHooks, mockSummary,
   mockSkillsList, mockProjectsList, mockNavigate, mockRoutinesList, mockParseCron,
+  mockSubAgentsList,
 } = vi.hoisted(() => ({
   mockCatalogSkills: vi.fn(),
   mockCatalogMcp: vi.fn(),
@@ -37,6 +40,7 @@ const {
   mockNavigate: vi.fn(),
   mockRoutinesList: vi.fn(),
   mockParseCron: vi.fn(),
+  mockSubAgentsList: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
@@ -55,6 +59,7 @@ vi.mock('../src/lib/api', () => ({
     skills: { list: mockSkillsList, evals: vi.fn().mockResolvedValue([]), runs: vi.fn().mockResolvedValue([]) },
     projects: { list: mockProjectsList },
     routines: { list: mockRoutinesList, parseCron: mockParseCron },
+    subAgents: { list: mockSubAgentsList, create: vi.fn(), update: vi.fn(), delete: vi.fn() },
   },
 }))
 vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
@@ -92,6 +97,7 @@ beforeEach(() => {
   mockSkillsList.mockResolvedValue([])
   mockProjectsList.mockResolvedValue([])
   mockRoutinesList.mockResolvedValue([])
+  mockSubAgentsList.mockResolvedValue([])
 })
 afterEach(() => cleanup())
 
@@ -119,6 +125,12 @@ describe('CatalogPage — routed tabs', () => {
     expect(screen.getByTestId('hooks-info-banner').textContent).toContain(
       'K never executes host hooks',
     )
+  })
+
+  it('deep link #/agents/catalog/sub-agents renders the Sub Agents tab', async () => {
+    renderPage('sub-agents')
+    expect(screen.getByTestId('tab-sub-agents').getAttribute('aria-selected')).toBe('true')
+    await screen.findByText(/Sub agents ·/)
   })
 
   it('clicking a tab NAVIGATES (hash-routed), rather than flipping local state', () => {

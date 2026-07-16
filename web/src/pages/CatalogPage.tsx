@@ -4,13 +4,14 @@ import CapabilityStatRow from '../components/CapabilityStatRow'
 import CatalogTab from './skills/CatalogTab'
 import McpTab from './skills/McpTab'
 import HooksTab from './skills/HooksTab'
+import SubAgentsTab from './catalog/SubAgentsTab'
 
 // The Catalog destination (orchestration-p2 Task B.4, renamed from SkillsPage) —
 // one Agents-hub tab, routed sub-tabs:
 //   #/agents/catalog          → Skills (default): the unified capability catalog (D-069)
 //   #/agents/catalog/mcp      → MCP servers with trust gating (D-070)
 //   #/agents/catalog/hooks    → host-hook visibility (read-only by scope decision)
-// A 4th "Sub Agents" tab (the editable worker-bee registry) is added by Task B.5.
+//   #/agents/catalog/sub-agents → the dispatchable worker-bee registry (Task B.5)
 //
 // The old 4th "Automations" sub-tab (the pre-catalog K automation registry —
 // skills/hooks/workflows with schedule/event triggers) is RETIRED from Catalog
@@ -28,6 +29,7 @@ const TABS = [
   { id: 'skills', label: 'Skills', param: undefined },
   { id: 'mcp', label: 'MCP', param: 'mcp' },
   { id: 'hooks', label: 'Hooks', param: 'hooks' },
+  { id: 'sub-agents', label: 'Sub Agents', param: 'sub-agents' },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -77,6 +79,7 @@ export default function CatalogPage({ tab }: { tab?: string }) {
                 {t.id === 'skills' && <CatalogTab />}
                 {t.id === 'mcp' && <McpTab />}
                 {t.id === 'hooks' && <HooksTab />}
+                {t.id === 'sub-agents' && <SubAgentsTab />}
               </>
             )}
           </div>
