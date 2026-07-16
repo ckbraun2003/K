@@ -1210,6 +1210,11 @@ export const PipelineRunSchema = z.object({
   id: z.string(), definitionId: z.string().nullable(), projectId: z.string().nullable(),
   title: z.string(), status: PipelineRunStatusSchema,
   createdAt: z.number(), updatedAt: z.number(), completedAt: z.number().nullable(),
+  // orch-p2 C.3: the Chief-child orchestrator AgentProfile that owns/oversees this run
+  // (pipeline_runs.owner_profile_id, migrated nullable — unset until a dispatch path
+  // stamps it). Null = unattributed; the orchestrator multi-pipeline view buckets these
+  // separately rather than hiding them.
+  ownerProfileId: z.string().nullable(),
 })
 export type PipelineRun = z.infer<typeof PipelineRunSchema>
 

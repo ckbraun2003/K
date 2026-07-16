@@ -14,6 +14,7 @@ import PipelineGraph from '../../components/PipelineGraph'
 import PipelineStageCard from '../../components/PipelineStageCard'
 import PipelineGateDialog from '../../components/PipelineGateDialog'
 import PipelineDefInspector from '../../components/PipelineDefInspector'
+import PipelineLedgerPanel from '../../components/PipelineLedgerPanel'
 import Toast from '../../components/Toast'
 import { StatusPill } from '../../ui/StatusPill'
 import { SectionHeader } from '../../ui/SectionHeader'
@@ -235,6 +236,10 @@ function RunDetail({ runId }: { runId: string }) {
             onView={applyView}
           />
         ))}
+      </div>
+
+      <div className="surface-solid rounded-panel p-3">
+        <PipelineLedgerPanel runId={runId} />
       </div>
 
       <PipelineGateDialog

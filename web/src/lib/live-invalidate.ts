@@ -163,6 +163,13 @@ export function makeCapabilitiesInvalidator(
  * list (['pipeline-runs']) since a stage transition may flip the run's own status
  * (running → completed/failed). App-wide (Shell-mounted), so the DAG stays live
  * regardless of which surface created the run. Non-pipeline messages are ignored.
+ *
+ * orch-p2 C.3: when the delta carries a `ledgerSeq` cursor (the latest
+ * PipelineLedgerEntry.seq for this run at emit time — W0's additive, optional
+ * field), also invalidate that run's ledger query (['pipeline-ledger', id]) so
+ * PipelineLedgerPanel refetches the new rows live instead of on a manual reload.
+ * A delta with no cursor (older core, or a non-ledger-writing transition) leaves
+ * the ledger query untouched.
  */
 export function makePipelineInvalidator(
   qc: Pick<QueryClient, 'invalidateQueries' | 'setQueryData'>,
@@ -171,6 +178,9 @@ export function makePipelineInvalidator(
     if (msg.type !== 'pipeline_update') return
     qc.setQueryData(['pipeline-run', msg.pipelineRunId], msg.view)
     void qc.invalidateQueries({ queryKey: ['pipeline-runs'] })
+    if (msg.ledgerSeq != null) {
+      void qc.invalidateQueries({ queryKey: ['pipeline-ledger', msg.pipelineRunId] })
+    }
   }
 }
 

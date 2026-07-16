@@ -268,4 +268,26 @@ describe('makePipelineInvalidator (D-119)', () => {
     expect(invalidateQueries).not.toHaveBeenCalled()
     expect(setQueryData).not.toHaveBeenCalled()
   })
+
+  it('orch-p2 C.3: also invalidates the ledger cursor query when the delta carries a ledgerSeq', () => {
+    const invalidateQueries = vi.fn()
+    const setQueryData = vi.fn()
+    const handler = makePipelineInvalidator({ invalidateQueries, setQueryData })
+
+    handler({ ...pipelineUpdate, ledgerSeq: 7 } as WsMessage)
+
+    const counts = keyCounts(invalidateQueries)
+    expect(counts['pipeline-runs']).toBe(1)
+    expect(counts['pipeline-ledger']).toBe(1)
+  })
+
+  it('orch-p2 C.3: omits the ledger invalidation when no ledgerSeq cursor is present', () => {
+    const invalidateQueries = vi.fn()
+    const setQueryData = vi.fn()
+    const handler = makePipelineInvalidator({ invalidateQueries, setQueryData })
+
+    handler(pipelineUpdate)
+
+    expect(keyCounts(invalidateQueries)['pipeline-ledger']).toBeUndefined()
+  })
 })
