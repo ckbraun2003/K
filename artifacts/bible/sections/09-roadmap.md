@@ -447,6 +447,23 @@ still narrates the pre-UI-Simplification shell (the mandated Help + run/PR-revie
 wave; a full §12 rewrite is deferred); a pre-existing latent `/^routes\s*/` escape in the ui-demo's
 `dispatchSend` predates this program.
 
+## Orchestration Program — Phase 1: Executable Pipeline Engine (D-119)
+
+*The deferred D-012 `workflow_stages`, built 2026-07-16 on `feat/pipeline-engine` (schema v13→v14). Turns prose-delegation-in-one-run into real staged, per-stage-visible pipelines — the substrate for the later phases below.*
+
+- [x] **Executable pipeline DAG.** `PipelineSpec` (evolves `workflow_definitions.spec`) with `agent`/`deterministic`/`gate`/`hook` stages + per-edge handoff (`share-tree`/`branch`/`merge`, parallel fan-out/fan-in); a main-process `PipelineEngine`+scheduler (lead-relay-shaped: DB ledger + CAS claim), checkpoint handoff to sweep-immune `refs/k-pipelines/…`, retry-in-place (factored self-heal brain + `runs.pipeline_stage_id` ownership guard), gates (declarative + dynamic `insertGate`, CAS resolve) + conditional forward routing (`markSkips` + skip-aware finalize), reboot reconcile, `StageExecutor` seam (Docker later).
+- [x] **Delegation + API + UI.** `delegate_pipeline` (kstore tool → `pipeline-dispatch-relay` → `onPipelineTerminal` report-back to K); `GET/POST /api/pipelines/*` (8 endpoints, budget-gated `/run`, gate/rewind/cancel); an upgraded Agents→Pipelines tab (hand-laid live DAG + stage cards + gate dialog + launcher, `pipeline_update` WS).
+- [x] **Reference pipelines + hook stages.** Seeded `code-wave`/`investigate`/`refactor`; the `hook` stage kind's script `HookResult` contract (`continue`/`gate`/`transform`).
+
+**Deferred within Phase 1 (documented):** repair-LOOP back-edges (forward routing + retry-in-place instead); `commit`/`ci` deterministic actions (agents open their own PRs); hook `inject` cross-stage propagation + agent-hook structured `HookResult`.
+
+**Later phases of the Orchestration Program:**
+- [ ] **Phase 1.5 — Run-internal operator hooks.** Generalize the config-dir hook mounting (PreToolUse/PreSkill), confined operator scripts, gitnexus-as-registry-row, trust card. *(Operator-deferred from Phase 1; pairs with Phase 3.)*
+- [ ] **Phase 2 — Intent & auto-delegation.** K decomposes/scopes and AUTO-SELECTS a pipeline from a vague request (be-less-precise).
+- [ ] **Phase 3 — Context/memory injection intelligence.** The ContextAssembler + memory-retrieval loop that fills the hook-`inject` + injection seam (subsumes the old "memory layer B" item below).
+- [ ] **Phase 4 — Sandboxes.** Docker `StageExecutor`; ephemeral + persistent sandboxes; Playwright / native-desktop verification stages.
+- [ ] **Phase 5 — Token-efficiency & scale.** Skill promotion, caching/dedup, cheap-model routing for mechanical stages, high-concurrency scheduling.
+
 ## Phase 6 — Intelligence & Scale *(optional)*
 
 - [ ] EventBus → NATS/Redis Streams + worker processes
