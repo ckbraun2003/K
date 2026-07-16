@@ -9,9 +9,11 @@
  *   - the `sub` prop threads through to the active child as its own seg/tab/defId prop
  *   - clicking a tab navigates to agents/<tab>
  *   - the default tab (no `tab` prop) is org
- * The three children (OrgPage/SkillsPage/WorkflowsView) are mocked to marker divs —
- * this file locks AgentsPage's OWN routing/mounting logic; each child's internals have
- * their own test files (org-page.test.tsx, skills-page-tabs.test.tsx, workflows-defs.test.tsx).
+ * The three children (OrgPage/SkillsPage/AutomationsView — orch-p2 C.4 replaced
+ * the legacy WorkflowsView-fronting Pipelines tab with AutomationsView) are mocked
+ * to marker divs — this file locks AgentsPage's OWN routing/mounting logic; each
+ * child's internals have their own test files (org-page.test.tsx,
+ * skills-page-tabs.test.tsx, automations-view.test.tsx).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
@@ -25,8 +27,8 @@ vi.mock('../src/pages/OrgPage', () => ({
 vi.mock('../src/pages/SkillsPage', () => ({
   default: (p: { tab?: string }) => <div data-testid="skills-page-mock">tab:{p.tab ?? 'none'}</div>,
 }))
-vi.mock('../src/pages/runs/WorkflowsView', () => ({
-  default: (p: { defId?: string }) => <div data-testid="workflows-view-mock">defId:{p.defId ?? 'none'}</div>,
+vi.mock('../src/pages/runs/AutomationsView', () => ({
+  default: (p: { defId?: string }) => <div data-testid="automations-view-mock">defId:{p.defId ?? 'none'}</div>,
 }))
 
 import AgentsPage from '../src/pages/AgentsPage'
@@ -66,10 +68,10 @@ describe('AgentsPage', () => {
     expect(screen.queryByTestId('org-page-mock')).toBeNull()
   })
 
-  it('tab=pipelines mounts WorkflowsView with sub threaded as its defId prop', () => {
+  it('tab=pipelines mounts AutomationsView with sub threaded as its defId prop', () => {
     render(<AgentsPage tab="pipelines" sub="def-1" />)
     expect(screen.getByTestId('tab-pipelines').getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByTestId('workflows-view-mock').textContent).toBe('defId:def-1')
+    expect(screen.getByTestId('automations-view-mock').textContent).toBe('defId:def-1')
     expect(screen.queryByTestId('org-page-mock')).toBeNull()
   })
 

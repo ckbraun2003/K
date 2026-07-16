@@ -866,10 +866,16 @@ export const RetryRateSeriesSchema = z.object({ windowDays: z.number().int(), po
 export type RetryRateSeries = z.infer<typeof RetryRateSeriesSchema>
 
 // E-16 — a routine is a schedule-triggered skill with derived next-run + measured cost.
+// orch-p2 C.4: `pipelineDefId` is additive/optional — the skills.pipeline_def_id column
+// exists (db.ts, W0-inherited), but core/src/routes/routines.ts's projection doesn't
+// populate it yet (Lane B / Task B.3's assignment). Not `.strict()`, so this widening is
+// zero-blast-radius; the Automations "Schedules" pane treats a missing field as "not yet
+// wired," not an error.
 export const RoutineViewSchema = z.object({
   id: z.string(), name: z.string(), enabled: z.boolean(), schedule: z.string(),
   nextRunAt: z.number().nullable(), lastRunAt: z.number().nullable(),
   runs: z.number().int(), totalCostUsd: z.number(),
+  pipelineDefId: z.string().nullable().optional(),
 })
 export type RoutineView = z.infer<typeof RoutineViewSchema>
 export const NlToCronBodySchema = z.object({ text: z.string().min(1).max(200) }).strict()
