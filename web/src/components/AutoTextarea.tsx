@@ -1,4 +1,6 @@
 import { forwardRef, useCallback, useEffect, useRef, type TextareaHTMLAttributes } from 'react'
+import { cn } from '../lib/cn'
+import { SKIN } from '../ui/Field'
 
 type Props = TextareaHTMLAttributes<HTMLTextAreaElement> & {
   /** Max height in px before the textarea scrolls instead of growing further. */
@@ -38,7 +40,21 @@ const AutoTextarea = forwardRef<HTMLTextAreaElement, Props>(function AutoTextare
     el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden'
   }, [value, maxHeight])
 
-  return <textarea ref={setRefs} value={value} rows={1} className={className} {...rest} />
+  // SKIN is the base (orch-p2 C.6) — every caller's own className is merged in
+  // LAST via cn()/tailwind-merge, so an existing full chrome override (border/bg/
+  // padding literals) still wins on conflict and renders byte-identical; only a
+  // caller with a minimal/no className picks up the shared skin by default.
+  // `resize-none` is a sane default (dragging would fight the auto-grow measurement)
+  // but stays overridable the same way.
+  return (
+    <textarea
+      ref={setRefs}
+      value={value}
+      rows={1}
+      className={cn(SKIN, 'resize-none border-border hover:border-border-strong', className)}
+      {...rest}
+    />
+  )
 })
 
 export default AutoTextarea

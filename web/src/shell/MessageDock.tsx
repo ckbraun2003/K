@@ -19,7 +19,7 @@ import AutoTextarea from '../components/AutoTextarea'
 import MicButton from '../components/MicButton'
 import Toast from '../components/Toast'
 import { Button, IconButton } from '../ui/Button'
-import { Checkbox } from '../ui/Field'
+import { Checkbox, Input, Select } from '../ui/Field'
 
 /** A project-scoped dispatch the user has picked from the `@project` list — held
  *  while the confirm card previews it, before `runs.start` actually fires. */
@@ -125,7 +125,7 @@ function Composer({
       )}
       <div className="mt-1.5 flex items-center gap-2 rounded-control border border-border bg-surface px-3 py-2">
         <span className="text-accent">⚡</span>
-        <input
+        <Input
           ref={inputRef}
           data-testid="dock-input"
           value={text}
@@ -133,7 +133,7 @@ function Composer({
           onKeyDown={onKeyDown}
           placeholder="Message K…"
           aria-label="Message K"
-          className="min-w-0 flex-1 bg-transparent text-sm text-text placeholder-muted outline-none"
+          className="min-w-0 flex-1 border-0 bg-transparent px-0 py-0 text-sm text-text placeholder-muted"
         />
         <MicButton
           title="Hold to talk — release to transcribe into the dock"
@@ -169,29 +169,29 @@ function Composer({
       </div>
       {expanded && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-          <select
+          <Select
             data-testid="dock-model-select"
             aria-label="Model override"
             value={model}
             onChange={e => onModelChange(e.target.value)}
-            className="rounded-control border border-border bg-surface px-2 py-1 text-[11px] text-muted"
+            className="px-2 py-1 text-[11px] text-muted"
           >
             <option value="default">model: default</option>
             {modelOptions.map(o => (
               <option key={o.id} value={o.id}>{o.label}</option>
             ))}
-          </select>
-          <select
+          </Select>
+          <Select
             data-testid="dock-force-route"
             aria-label="Force route"
             value={forceRoute}
             onChange={e => onForceRouteChange(e.target.value as '' | KForceRoute)}
-            className="rounded-control border border-border bg-surface px-2 py-1 text-[11px] text-muted"
+            className="px-2 py-1 text-[11px] text-muted"
           >
             {FORCE_ROUTE_OPTIONS.map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
-          </select>
+          </Select>
         </div>
       )}
       {error && (
@@ -565,17 +565,17 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
               </dd>
               <dt className="text-muted">Model</dt>
               <dd className="text-text">
-                <select
+                <Select
                   aria-label="Model"
                   data-testid="dock-dispatch-model"
                   value={dispatchModel}
                   onChange={e => setDispatchModel(e.target.value)}
-                  className="rounded-control border border-border bg-surface px-2 py-1 text-xs text-text"
+                  className="px-2 py-1 text-xs text-text"
                 >
                   {dispatchModelOptions.map(o => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
-                </select>
+                </Select>
                 <span className="ml-2 text-muted">
                   {dispatchModel === 'auto' ? 'routing may select another' : 'sent explicitly'}
                 </span>

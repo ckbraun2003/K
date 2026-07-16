@@ -11,7 +11,7 @@ import DelegationTree from '../../components/DelegationTree'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import Toast from '../../components/Toast'
 import { Button } from '../../ui/Button'
-import { Select } from '../../ui/Field'
+import { Input, Select } from '../../ui/Field'
 import { Icon } from '../../ui/Icon'
 import { StatusPill } from '../../ui/StatusPill'
 import { ErrorState } from '../../ui/ErrorState'
@@ -292,13 +292,13 @@ export default function TreeView() {
             </h2>
             <div className="mt-2 flex items-center gap-2 rounded-control border border-border bg-surface px-3 py-2">
               <Icon name="bolt" size={16} className="text-accent" />
-              <input
+              <Input
                 value={handQuery}
                 onChange={e => setHandQuery(e.target.value)}
                 onKeyDown={onHandKeyDown}
                 placeholder="Describe an objective for the Chief to delegate…"
                 aria-label="Hand Chief work"
-                className="flex-1 bg-transparent text-body text-text placeholder:text-muted outline-none"
+                className="flex-1 border-0 bg-transparent px-0 py-0 text-body text-text placeholder:text-muted"
               />
               <Button
                 variant="primary"
