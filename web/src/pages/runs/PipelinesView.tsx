@@ -13,6 +13,7 @@ import { cn } from '../../lib/cn'
 import PipelineGraph from '../../components/PipelineGraph'
 import PipelineStageCard from '../../components/PipelineStageCard'
 import PipelineGateDialog from '../../components/PipelineGateDialog'
+import PipelineDefInspector from '../../components/PipelineDefInspector'
 import Toast from '../../components/Toast'
 import { StatusPill } from '../../ui/StatusPill'
 import { SectionHeader } from '../../ui/SectionHeader'
@@ -257,6 +258,7 @@ function RunDetail({ runId }: { runId: string }) {
  */
 export default function PipelinesView(): JSX.Element {
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
+  const [inspectDefId, setInspectDefId] = useState<string | undefined>(undefined)
   const [launcherOpen, setLauncherOpen] = useState(false)
   const [toastRunId, setToastRunId] = useState<string | null>(null)
   const qc = useQueryClient()
@@ -319,15 +321,28 @@ export default function PipelinesView(): JSX.Element {
                     className="rounded-control border border-border px-3 py-2"
                     data-testid={`pipeline-def-${def.id}`}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate text-body font-semibold text-text">{def.name}</span>
-                      {def.hasSpec && (
-                        <Tag tint="accent" className="flex-shrink-0 text-micro uppercase tracking-wide">
-                          spec
-                        </Tag>
-                      )}
-                    </div>
-                    {def.description && <p className="mt-0.5 truncate text-caption text-muted">{def.description}</p>}
+                    <button
+                      type="button"
+                      className="w-full text-left"
+                      data-testid={`pipeline-def-inspect-${def.id}`}
+                      disabled={!def.hasSpec}
+                      onClick={() => setInspectDefId(id => (id === def.id ? undefined : def.id))}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-body font-semibold text-text">{def.name}</span>
+                        {def.hasSpec && (
+                          <Tag tint="accent" className="flex-shrink-0 text-micro uppercase tracking-wide">
+                            spec
+                          </Tag>
+                        )}
+                      </div>
+                      {def.description && <p className="mt-0.5 truncate text-caption text-muted">{def.description}</p>}
+                    </button>
+                    {inspectDefId === def.id && (
+                      <div className="mt-3 border-t border-border pt-3">
+                        <PipelineDefInspector defId={def.id} />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
