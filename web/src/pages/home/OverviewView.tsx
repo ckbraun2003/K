@@ -56,7 +56,10 @@ export default function OverviewView() {
       <div className="flex items-center justify-end gap-2">
         {!loaded && <span className="text-micro text-muted">Loading layout...</span>}
         <Button
-          variant="glass"
+          // variant="ghost" (not the Button default "glass", INT.5 blur-budget fix) —
+          // a lone toolbar toggle has no business being its own independent glass
+          // tier; see ProjectCard.tsx's delete IconButton for the same convention.
+          variant="ghost"
           size="sm"
           icon="edit"
           aria-pressed={customize}

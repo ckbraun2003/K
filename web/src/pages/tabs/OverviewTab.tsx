@@ -280,9 +280,15 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
           </Button>
           <span className="text-micro text-muted">Score the project against the bible checklist.</span>
         </div>
+        {/* INT.5 blur-budget fix: these are secondary quick-actions alongside one
+            primary CTA (Run Verification, above) — each was `variant="glass"`,
+            making 5 independent glass-chrome tiers on top of nav/header/dock-fab
+            chrome (8 total, over the ≤6 budget). `variant="ghost"` matches the
+            established secondary-action convention (see ProjectCard.tsx's delete
+            IconButton) without losing the icon+label affordance. */}
         <div className="flex flex-col items-start gap-1">
           <Button
-            variant="glass"
+            variant="ghost"
             size="sm"
             icon="check"
             onClick={() => verify.mutate(true)}
@@ -294,7 +300,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
         </div>
         <div className="flex flex-col items-start gap-1">
           <Button
-            variant="glass"
+            variant="ghost"
             size="sm"
             icon="insights"
             onClick={() => navigate('project', projectId, 'knowledge-graph')}
@@ -305,7 +311,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
         </div>
         <div className="flex flex-col items-start gap-1">
           <Button
-            variant="glass"
+            variant="ghost"
             size="sm"
             icon="docs"
             onClick={() => onboard.mutate()}
@@ -318,7 +324,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
         </div>
         <div className="flex flex-col items-start gap-1">
           <Button
-            variant="glass"
+            variant="ghost"
             size="sm"
             icon="bolt"
             onClick={() => { if (!pathMissing) navigate('project', projectId, 'runs') }}
@@ -330,7 +336,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
           <span className="text-micro text-muted">Start a new agent run against this project.</span>
         </div>
         <div className="flex flex-col items-start gap-1">
-          <Button variant="glass" size="sm" icon="monitor" onClick={() => navigate('docs', 'ui-demo')}>
+          <Button variant="ghost" size="sm" icon="monitor" onClick={() => navigate('docs', 'ui-demo')}>
             UI Demo
           </Button>
           <span className="text-micro text-muted">Preview the shipped component + token system.</span>
