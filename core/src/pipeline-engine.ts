@@ -33,6 +33,7 @@ import { trackSupervisedRun, isTerminalRunStatus } from './run-lifecycle.js'
 import { listRunCheckpoints } from './checkpoints.js'
 import { budgetGate } from './budget-governor.js'
 import { classifyRunFailure, stampRetryLineage } from './self-heal.js'
+import { appendLedger } from './pipeline-ledger.js'
 
 /** A materialized `pipeline_runs` row (the DDL columns the engine reads; db.ts:705). */
 export interface PipelineRunRow {
@@ -82,6 +83,14 @@ const rewindResetStage = db.prepare(`UPDATE pipeline_stages SET status = 'pendin
 // The rewind TARGET additionally resets retry_count so a manual retry starts a fresh ladder
 // (downstream stages keep theirs — they were pending/skipped, i.e. already 0).
 const rewindResetTargetRetry = db.prepare(`UPDATE pipeline_stages SET retry_count = 0, updated_at = @updatedAt WHERE id = @id`)
+
+// orch-p2 A.2 — bounded loop re-entry. `bumpStageIteration` advances a loop HEAD's re-entry
+// counter; `resetStageForLoop` returns a loop BODY stage to a clean 'pending' slate for its next
+// pass (drops run/handoff/exit columns AND resets retry_count so each iteration gets its full
+// retry budget) — mirrors rewindResetStage but iteration-bounded. Local prepared statements (the
+// backlog-relay precedent) so db.ts's W0 pipelineDb bundle stays frozen.
+const bumpStageIteration = db.prepare(`UPDATE pipeline_stages SET iteration = @iteration, updated_at = @updatedAt WHERE id = @id`)
+const resetStageForLoop = db.prepare(`UPDATE pipeline_stages SET status = 'pending', run_id = NULL, result_commit = NULL, exit_code = NULL, failure_class = NULL, retry_count = 0, started_at = NULL, completed_at = NULL, updated_at = @updatedAt WHERE id = @id`)
 
 const STAGE_TERMINAL = new Set(['passed', 'failed', 'skipped'])
 
@@ -138,8 +147,12 @@ export async function dispatchStage(
   stage: PipelineStageRow,
   executor: StageExecutor = defaultExecutor,
 ): Promise<void> {
-  // Compute the fork base from the incoming edges + the upstream stages' result_commits.
-  const incoming = pipelineDb.listIncomingEdges.all({ pipelineRunId: run.id, toStageKey: stage.stage_key }) as PipelineEdgeRow[]
+  // Compute the fork base from the incoming edges + the upstream stages' result_commits. A
+  // `when:'loop'` back-edge is EXCLUDED (orch-p2 A.2): it is a pure control-flow trigger, never a
+  // data-handoff source, so a re-opened loop head re-forks from its FORWARD incoming edge(s)
+  // (the pre-loop stages' results) — never ambiguously from the loop source's tree.
+  const incoming = (pipelineDb.listIncomingEdges.all({ pipelineRunId: run.id, toStageKey: stage.stage_key }) as PipelineEdgeRow[])
+    .filter(e => e.when_cond !== 'loop')
   const byKey = new Map((pipelineDb.listStagesForPipeline.all(run.id) as PipelineStageRow[]).map(s => [s.stage_key, s]))
   const resolution = resolveBaseCommit(incoming, byKey, run.base_commit)
 
@@ -351,6 +364,7 @@ export function markSkips(pipelineRunId: string): void {
   const incomingByKey = new Map<string, PipelineEdgeRow[]>()
   for (const e of edges) {
     if (e.from_stage_key == null) continue // an entry edge has no source
+    if (e.when_cond === 'loop') continue // a loop back-edge never forecloses a stage's activation (A.2)
     const list = incomingByKey.get(e.to_stage_key) ?? []
     list.push(e)
     incomingByKey.set(e.to_stage_key, list)
@@ -400,9 +414,74 @@ export function markSkips(pipelineRunId: string): void {
  * mis-failed a successful pipeline whose untaken gate/fail branch was left 'pending'. Idempotent —
  * only a 'running' pipeline is transitioned.
  */
+/**
+ * Bounded-loop re-entry (orch-p2 A.2) — the crux that keeps a loop from ever false-COMPLETING.
+ * For each `when:'loop'` back-edge whose SOURCE stage has just reached 'failed': if the loop HEAD
+ * (the edge's ancestor target) still has iterations remaining, re-open the loop — reset the head +
+ * its downstream closure (the loop body, up to and through the source) to a clean 'pending' slate,
+ * bump the head's `iteration`, and record a `kind:'iteration'` ledger entry. On cap-exhaustion the
+ * source is LEFT failed: a loop edge is never a `fail` out-edge, so the skip-aware finalize then
+ * fails the pipeline (or, if the author routed the source's forward exit through a gate, that gate
+ * parks) — NEVER a false COMPLETED. Returns true when ≥1 loop re-opened (pipeline not quiesced).
+ */
+function reopenExhaustibleLoops(pipelineRunId: string): boolean {
+  const edges = pipelineDb.listEdges.all(pipelineRunId) as PipelineEdgeRow[]
+  const loopEdges = edges.filter(e => e.when_cond === 'loop' && e.from_stage_key != null)
+  if (loopEdges.length === 0) return false
+  const stages = pipelineDb.listStagesForPipeline.all(pipelineRunId) as PipelineStageRow[]
+  const byKey = new Map(stages.map(s => [s.stage_key, s]))
+  let reopened = false
+  for (const le of loopEdges) {
+    const source = byKey.get(le.from_stage_key!) // the stage that loops back on failure
+    const head = byKey.get(le.to_stage_key)        // the ancestor re-entered
+    if (!source || !head) continue
+    if (source.status !== 'failed') continue       // only a FAILED loop source triggers a re-entry
+    // The head runs at most `maxIterations` times: iteration 0 is the first run, each loop-back
+    // bumps it, so a re-entry is permitted only while (iteration + 1) < maxIterations. A missing
+    // cap (should never happen — the schema requires it) fails CLOSED at 1 (no loop).
+    const maxIterations = le.max_iterations ?? 1
+    if (head.iteration + 1 >= maxIterations) continue // cap reached — leave the source failed
+    reopenLoop(pipelineRunId, head, edges, stages)
+    reopened = true
+  }
+  return reopened
+}
+
+/** Reset a loop body (the head + its out-edge closure) to a clean pending slate and bump the
+ *  head's iteration counter, atomically, then record the re-entry on the ledger. */
+function reopenLoop(pipelineRunId: string, head: PipelineStageRow, edges: PipelineEdgeRow[], stages: PipelineStageRow[]): void {
+  const now = Date.now()
+  const nextIteration = head.iteration + 1
+  // The loop body = the head plus every stage reachable from it (following the back-edge, this
+  // includes the loop source); resetting them re-runs the whole body. Stages downstream of the
+  // forward exit are pending during a re-entry (the source failed, so the exit never fired), so
+  // resetting them is a harmless no-op. Pre-loop stages feed INTO the head and are NOT in this
+  // out-edge closure, so their passed work is preserved.
+  const body = downstreamClosure(head.stage_key, edges)
+  const tx = db.transaction(() => {
+    for (const s of stages) {
+      if (!body.has(s.stage_key)) continue
+      resetStageForLoop.run({ id: s.id, updatedAt: now })
+    }
+    bumpStageIteration.run({ id: head.id, iteration: nextIteration, updatedAt: now })
+  })
+  tx()
+  appendLedger(pipelineRunId, {
+    stageKey: head.stage_key,
+    kind: 'iteration',
+    goal: `loop iteration ${nextIteration}`,
+    detail: { head: head.stage_key, iteration: nextIteration },
+  })
+}
+
 export function maybeFinalizePipeline(pipelineRunId: string): void {
   const run = pipelineDb.getPipelineRun.get(pipelineRunId) as PipelineRunRow | undefined
   if (!run || run.status !== 'running') return
+  // orch-p2 A.2: re-enter any bounded loop whose source just failed with iterations remaining —
+  // BEFORE skip-propagation/finalize — so a loop source's failure loops back instead of finalizing
+  // the pipeline 'failed'. A re-open leaves the loop body 'pending' (not quiesced) → return early;
+  // the next scheduler tick re-drives the loop head.
+  if (reopenExhaustibleLoops(pipelineRunId)) return
   markSkips(pipelineRunId)
   const stages = pipelineDb.listStagesForPipeline.all(pipelineRunId) as PipelineStageRow[]
   if (stages.length === 0) return

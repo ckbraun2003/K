@@ -46,6 +46,8 @@ export interface PipelineStageRow {
   exit_code: number | null
   failure_class: string | null
   retry_count: number
+  /** orch-p2 A.2 — the loop head's re-entry counter (0 on first entry, bumped per loop-back). */
+  iteration: number
   repair_stage_key: string | null
   repairs_used: number
   gate_resolved_by: string | null

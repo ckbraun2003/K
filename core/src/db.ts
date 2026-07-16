@@ -761,7 +761,7 @@ db.exec(`
     to_stage_key    TEXT NOT NULL,
     handoff         TEXT NOT NULL CHECK(handoff IN ('share-tree','branch','merge')),
     when_cond       TEXT NOT NULL DEFAULT 'always'
-                      CHECK(when_cond IN ('always','pass','fail','repair'))
+                      CHECK(when_cond IN ('always','pass','fail','repair','loop'))
   );
   CREATE INDEX IF NOT EXISTS idx_pipeline_edges_to ON pipeline_edges(pipeline_run_id, to_stage_key);
 
@@ -1754,6 +1754,9 @@ function migrateSlow(d: Database.Database): void {
   }
   if (hasTable(d, 'pipeline_edges')) {
     addColumn(d, 'pipeline_edges', 'max_iterations', 'INTEGER')
+    // NB: the when_cond CHECK repair (adding 'loop') is NOT here — it must run even on an
+    // already-v15 DB that migrate()'s version gate fast-paths past, so it lives in the
+    // UNCONDITIONAL repairPipelineEdgesWhenCond(d) below, invoked after migrate(db).
   }
   // pipeline_runs.owner_profile_id: which orchestrator AgentProfile owns/oversees
   // this run (design §6.2 — the multi-pipeline visibility view groups runs by
@@ -1778,7 +1781,61 @@ function migrateSlow(d: Database.Database): void {
   }
 }
 
+/**
+ * UNCONDITIONAL, idempotent repair of the pipeline_edges `when_cond` CHECK (orch-p2 A.2 /
+ * design §8). The Phase-1 CHECK predates the bounded-loop edge and rejects when_cond='loop';
+ * SQLite can't ALTER a CHECK, so rebuild the table (the proven verification_reports / work_items /
+ * skills idiom) — data / index / FK preserved. This must run OUTSIDE migrate()'s version gate: a
+ * DB that W0 already stamped v15 carries the OLD CHECK yet fast-paths past migrateSlow, so a
+ * gated repair would never reach it. Invoked AFTER migrate(db), so `max_iterations` (a migrateSlow
+ * ALTER) is guaranteed present when copied. Idempotency guard: rebuild ONLY while the sqlite_master
+ * DDL still lacks the 'loop' literal (the old CHECK) — a permanent no-op after the rebuild, and on
+ * any fresh install whose CREATE TABLE already lists 'loop'.
+ */
+function repairPipelineEdgesWhenCond(d: Database.Database): void {
+  if (!hasTable(d, 'pipeline_edges')) return
+  const ddl = d
+    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='pipeline_edges'`)
+    .get() as { sql?: string } | undefined
+  if (!(ddl?.sql != null && !/'loop'/.test(ddl.sql))) return
+  d.pragma('foreign_keys = OFF')
+  try {
+    const rebuild = d.transaction(() => {
+      // Race re-check INSIDE the lock (multi-process boot: main server + per-run stdio MCP
+      // children each open the DB): a process that lost the race must no-op.
+      const current = d
+        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='pipeline_edges'`)
+        .get() as { sql?: string } | undefined
+      if (!(current?.sql != null && !/'loop'/.test(current.sql))) return
+      d.exec(`
+        CREATE TABLE pipeline_edges_new (
+          id              TEXT PRIMARY KEY,
+          pipeline_run_id TEXT NOT NULL REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+          from_stage_key  TEXT,
+          to_stage_key    TEXT NOT NULL,
+          handoff         TEXT NOT NULL CHECK(handoff IN ('share-tree','branch','merge')),
+          when_cond       TEXT NOT NULL DEFAULT 'always'
+                            CHECK(when_cond IN ('always','pass','fail','repair','loop')),
+          max_iterations  INTEGER
+        );
+        INSERT INTO pipeline_edges_new (rowid, id, pipeline_run_id, from_stage_key,
+          to_stage_key, handoff, when_cond, max_iterations)
+        SELECT rowid, id, pipeline_run_id, from_stage_key,
+          to_stage_key, handoff, when_cond, max_iterations
+        FROM pipeline_edges;
+        DROP TABLE pipeline_edges;
+        ALTER TABLE pipeline_edges_new RENAME TO pipeline_edges;
+        CREATE INDEX IF NOT EXISTS idx_pipeline_edges_to ON pipeline_edges(pipeline_run_id, to_stage_key);
+      `)
+    })
+    rebuild.immediate()
+  } finally {
+    d.pragma('foreign_keys = ON')
+  }
+}
+
 migrate(db)
+repairPipelineEdgesWhenCond(db)
 
 // ─── Run helpers ─────────────────────────────────────────────────────────────
 
@@ -2839,16 +2896,19 @@ const listIncomingEdges = db.prepare(`SELECT * FROM pipeline_edges WHERE pipelin
 // never itself repointed (no gate→gate self-loop).
 const repointEdgesTo = db.prepare(`UPDATE pipeline_edges SET to_stage_key = @gateKey WHERE pipeline_run_id = @pid AND to_stage_key = @beforeKey`)
 
-// DAG ready-detection (Lane A / A3 + A5 fail-activation). A `pending` stage is READY iff ANY
-// of three disjuncts holds (the frozen A5 truth table):
-//   • ENTRY          — it has no real inbound edge; OR
+// DAG ready-detection (Lane A / A3 + A5 fail-activation; orch-p2 A.2 loop exclusion). A `pending`
+// stage is READY iff ANY of three disjuncts holds (the frozen A5 truth table):
+//   • ENTRY          — it has no real NON-LOOP inbound edge; OR
 //   • AND-JOIN       — it has ≥1 incoming when_cond IN ('always','pass') edge AND every such
 //                      edge's `from` stage is passed; OR
 //   • FAIL-ACTIVATION — it has ≥1 incoming when_cond='fail' edge whose `from` stage failed.
-// A `repair` edge NEVER activates readiness in Phase 1 (repair-LOOP back-edges deferred). Dead /
-// untaken pending stages are flipped to 'skipped' by markSkips BEFORE this runs, so they never
-// match here. The claim CAS (claimStage) still gates the dispatch, so an overlapping drain can't
-// double-fire.
+// A `when:'loop'` edge NEVER satisfies readiness (orch-p2 §8, the F1 discipline): it is excluded
+// from the ENTRY probe below (so a loop TARGET whose only real inbound is a back-edge is still an
+// entry) AND it is naturally excluded from the AND-JOIN / FAIL disjuncts (their when_cond filters
+// list only 'always'/'pass'/'fail'). A `repair` edge likewise never activates readiness (deferred).
+// Dead / untaken pending stages are flipped to 'skipped' by markSkips BEFORE this runs, so they
+// never match here. The claim CAS (claimStage) still gates the dispatch, so an overlapping drain
+// can't double-fire.
 const listReadyStages = db.prepare(`
   SELECT s.* FROM pipeline_stages s
   WHERE s.pipeline_run_id = @pid AND s.status = 'pending'
@@ -2856,7 +2916,7 @@ const listReadyStages = db.prepare(`
       NOT EXISTS (
         SELECT 1 FROM pipeline_edges e0
         WHERE e0.pipeline_run_id = s.pipeline_run_id AND e0.to_stage_key = s.stage_key
-          AND e0.from_stage_key IS NOT NULL
+          AND e0.from_stage_key IS NOT NULL AND e0.when_cond != 'loop'
       )
       OR (
         EXISTS (

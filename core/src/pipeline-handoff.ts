@@ -30,6 +30,8 @@ export interface PipelineEdgeRow {
   to_stage_key: string
   handoff: HandoffMode
   when_cond: EdgeWhen
+  /** orch-p2 A.2 — the hard iteration cap on a `when_cond='loop'` back-edge (NULL otherwise). */
+  max_iterations: number | null
 }
 
 /** The computed fork point for a target stage: either a single base commit
