@@ -61,7 +61,9 @@ describe('pipeline loop edges', () => {
         { from: 'c', to: 'done', when: 'pass' },
       ],
     }
-    expect(PipelineSpecSchema.safeParse(spec).success).toBe(false)
+    const result = PipelineSpecSchema.safeParse(spec)
+    expect(result.success).toBe(false)
+    expect(issuePaths(result)).toContain('edges.2.maxIterations')
   })
 
   test('maxIterations:11 is rejected', () => {
@@ -75,7 +77,9 @@ describe('pipeline loop edges', () => {
         { from: 'c', to: 'done', when: 'pass' },
       ],
     }
-    expect(PipelineSpecSchema.safeParse(spec).success).toBe(false)
+    const result = PipelineSpecSchema.safeParse(spec)
+    expect(result.success).toBe(false)
+    expect(issuePaths(result)).toContain('edges.2.maxIterations')
   })
 
   // (d) loop target not an ancestor of the loop head is rejected
@@ -157,5 +161,25 @@ describe('pipeline loop edges', () => {
     }
     const result = PipelineSpecSchema.safeParse(spec)
     expect(result.success).toBe(true)
+  })
+
+  // (i) regression (Task 0.1 review): a when:'loop' edge aimed at the terminal
+  //     'done' sink must be REJECTED. 'done' is not a stage node, so it can never
+  //     be an ancestor of the loop head — earlier the has(e.to) precondition let
+  //     this false-accept through. This is the exact counterexample the reviewer found.
+  test('loop edge targeting the done sink is rejected', () => {
+    const spec = {
+      name: 'loop-to-done', entry: 'a',
+      stages: [stage('a'), stage('b'), stage('c')],
+      edges: [
+        { from: 'a', to: 'b' },
+        { from: 'b', to: 'c' },
+        { from: 'c', to: 'done', when: 'loop', maxIterations: 3 },
+        { from: 'c', to: 'done', when: 'pass' },
+      ],
+    }
+    const result = PipelineSpecSchema.safeParse(spec)
+    expect(result.success).toBe(false)
+    expect(issuePaths(result)).toContain('edges.2.to')
   })
 })

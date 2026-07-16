@@ -1099,7 +1099,13 @@ export const PipelineSpecSchema = z.object({
   p.edges.forEach((e, i) => {
     if (e.when !== 'loop') return
     if (e.maxIterations == null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `when:'loop' edge requires maxIterations (1..10)`, path: ['edges', i, 'maxIterations'] })
-    if (has(e.from) && has(e.to) && !reachableFrom(e.to).has(e.from)) {
+    // The `to` must be a real stage AND an ancestor of `from`. Guarding on
+    // has(e.to) inside the AND (rather than as a precondition) is deliberate: the
+    // terminal 'done' sink has has('done')===false, so a `when:'loop'` edge aimed
+    // at 'done' (a plausible authoring mistake) MUST fail here — it can never be an
+    // ancestor of the loop head. A non-'done' unknown `to` also fails the general
+    // edge-target check above; a doubled issue on one bad edge is acceptable.
+    if (has(e.from) && !(has(e.to) && reachableFrom(e.to).has(e.from))) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `loop edge target '${e.to}' is not an ancestor of '${e.from}' in the forward graph`, path: ['edges', i, 'to'] })
     }
     // The loop head must also have a non-loop forward exit — a pass/always edge,
