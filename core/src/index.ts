@@ -25,6 +25,7 @@ import { orchestratorsRoutes } from './routes/orchestrators.js'
 import { profilesRoutes } from './routes/profiles.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { pipelinesRoutes } from './routes/pipelines.js'
+import { subAgentsRoutes } from './routes/sub-agents.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
 import { modelsRoutes } from './routes/models.js'
@@ -202,6 +203,7 @@ export async function buildApp() {
   await app.register(profilesRoutes)
   await app.register(workflowsRoutes)
   await app.register(pipelinesRoutes)
+  await app.register(subAgentsRoutes)
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
   await app.register(modelsRoutes)
