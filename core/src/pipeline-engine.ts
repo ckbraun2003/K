@@ -147,6 +147,11 @@ export async function dispatchStage(
   stage: PipelineStageRow,
   executor: StageExecutor = defaultExecutor,
 ): Promise<void> {
+  // A.3 ledger: the engine picked this stage up for execution this tick.
+  appendLedger(run.id, {
+    stageKey: stage.stage_key, kind: 'transition', actor: stageActor(stage),
+    goal: `${stage.stage_key} dispatched`, detail: { event: 'dispatch', kind: stage.kind },
+  })
   // Compute the fork base from the incoming edges + the upstream stages' result_commits. A
   // `when:'loop'` back-edge is EXCLUDED (orch-p2 A.2): it is a pure control-flow trigger, never a
   // data-handoff source, so a re-opened loop head re-forks from its FORWARD incoming edge(s)
@@ -226,6 +231,10 @@ async function recordDispatchResult(
     }
     case 'parked': {
       pipelineDb.markStageAwaitingGate.run({ id: stage.id, updatedAt: Date.now() })
+      appendLedger(run.id, {
+        stageKey: stage.stage_key, kind: 'gate', actor: stageActor(stage),
+        goal: `${stage.stage_key} awaiting approval`, detail: { event: 'park' },
+      })
       break
     }
   }
@@ -293,6 +302,10 @@ export async function handleStageFailure(
     const originalRunId = fresh.run_id ?? undefined
     bumpStageRetryCount.run({ id: fresh.id, retryCount: attemptsMade, updatedAt: Date.now() })
     fresh.retry_count = attemptsMade // keep in-memory in sync for the lineage stamp below
+    appendLedger(run.id, {
+      stageKey: fresh.stage_key, kind: 'transition', actor: stageActor(fresh),
+      goal: `${fresh.stage_key} retry ${attemptsMade}`, detail: { event: 'retry', attempt: attemptsMade, failureClass },
+    })
     // Re-dispatch the SAME stage at its STORED base_commit (fixed fork point) — the fallback
     // model for an agent stage, undefined for a deterministic one (ignored there anyway).
     const ctx: StageContext = {
@@ -505,6 +518,11 @@ export function maybeFinalizePipeline(pipelineRunId: string): void {
   const now = Date.now()
   const finalStatus: 'completed' | 'failed' = unhandledFailure || anyPending ? 'failed' : 'completed'
   pipelineDb.updatePipelineStatus.run({ id: pipelineRunId, status: finalStatus, updatedAt: now, completedAt: now })
+  // A.3 ledger: the run-level terminal — the last entry a reconstruction reads.
+  appendLedger(pipelineRunId, {
+    stageKey: null, kind: 'transition', actor: null,
+    goal: `pipeline ${finalStatus}`, detail: { event: 'pipeline', status: finalStatus },
+  })
   // Notify the terminal listeners AFTER the status write commits (the C1 K report-back joins the
   // outcome to its delegating thread). The `run.status !== 'running'` guard above makes this fire
   // exactly once per pipeline — a later tick that re-enters returns before reaching here.
@@ -564,6 +582,15 @@ export class PipelineConflictError extends Error {}
 export function resolveGate(stageId: string, decision: 'approve' | 'reject', by: string, note?: string): boolean {
   const next = decision === 'approve' ? 'passed' : 'failed'
   const res = pipelineDb.resolveGateStage.run({ id: stageId, next, by, note: note ?? null, now: Date.now() })
+  if (res.changes === 1) {
+    const stage = pipelineDb.getStage.get(stageId) as PipelineStageRow | undefined
+    if (stage) {
+      appendLedger(stage.pipeline_run_id, {
+        stageKey: stage.stage_key, kind: 'gate', actor: by,
+        goal: `gate ${decision}`, detail: { event: 'resolve', decision, by, note: note ?? null },
+      })
+    }
+  }
   return res.changes === 1
 }
 
@@ -674,9 +701,49 @@ export function rewindPipelineToStage(pipelineRunId: string, stageKey: string): 
 function markStagePassed(stageId: string, resultCommit: string | null, exitCode: number | null): void {
   const now = Date.now()
   pipelineDb.markStagePassed.run({ id: stageId, resultCommit, exitCode, costUsd: null, updatedAt: now, completedAt: now })
+  ledgerStageTerminal(stageId, 'passed')
 }
 
 function markStageFailed(stageId: string, failureClass: string | null, exitCode: number | null): void {
   const now = Date.now()
   pipelineDb.markStageFailed.run({ id: stageId, failureClass, exitCode, costUsd: null, updatedAt: now, completedAt: now })
+  ledgerStageTerminal(stageId, 'failed')
+}
+
+// ── ledger instrumentation (A.3) ────────────────────────────────────────────────────────
+//
+// Every engine transition writes a PipelineLedgerEntry so a run reconstructs from its ledger
+// alone (design §6.1). The status writers above own the TERMINAL entries (one place, so every
+// path — supervised terminal, retry-exhaust, reconcile, merge-conflict — is covered uniformly);
+// dispatch / gate / retry / pipeline-terminal entries are emitted at their own seams.
+
+/** Best-effort actor label for a stage's ledger entries: an agent stage's subagentType or role,
+ *  else the stage kind. Parses the frozen StageDef spec defensively (never throws). */
+function stageActor(stage: PipelineStageRow): string {
+  try {
+    const def = JSON.parse(stage.spec) as { kind?: string; subagentType?: string | null; role?: string }
+    if (def?.kind === 'agent') return def.subagentType ?? def.role ?? 'agent'
+  } catch { /* fall through to the kind */ }
+  return stage.kind
+}
+
+/** Record a stage's terminal transition (+ an `artifact` entry when it produced a handoff commit).
+ *  Re-reads the freshly-updated row so result/exit/cost reflect the write that just committed. */
+function ledgerStageTerminal(stageId: string, status: 'passed' | 'failed'): void {
+  const stage = pipelineDb.getStage.get(stageId) as PipelineStageRow | undefined
+  if (!stage) return
+  appendLedger(stage.pipeline_run_id, {
+    stageKey: stage.stage_key,
+    kind: 'transition',
+    actor: stageActor(stage),
+    goal: `${stage.stage_key} ${status}`,
+    cost: stage.cost_usd,
+    detail: { event: 'terminal', status, kind: stage.kind, resultCommit: stage.result_commit, exitCode: stage.exit_code, failureClass: stage.failure_class },
+  })
+  if (status === 'passed' && stage.result_commit) {
+    appendLedger(stage.pipeline_run_id, {
+      stageKey: stage.stage_key, kind: 'artifact', actor: stageActor(stage),
+      goal: `${stage.stage_key} handoff`, detail: { resultCommit: stage.result_commit },
+    })
+  }
 }
