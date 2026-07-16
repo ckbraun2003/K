@@ -23,6 +23,7 @@ import {
   LessonStatusSchema,
   WorkflowStepKindSchema,
   WorkflowStepStatusSchema,
+  isKnownModel,
   type WorkItem,
   type Lesson,
   type WorkflowStep,
@@ -354,6 +355,10 @@ function delegatePipeline(args: unknown, ctx: KStoreContext): {
     if (!project) throw new KStoreError(`project "${a.project}" not found.`)
     projectId = project.id
   }
+  // Validate the optional model at this boundary — every HTTP entrance guards it via isKnownModel,
+  // so the tool must too, else a typo flows through applyModelOverride → StageDef.model →
+  // startAgentRun and every stage mis-dispatches opaquely (SEAMS F4).
+  if (a.model !== undefined && !isKnownModel(a.model)) throw new KStoreError(`unknown model "${a.model}".`)
   // Record the intent ONLY (k_run_id = the owning K/Chief run, like dispatch_lead's chief_run_id);
   // the MAIN-process relay drains + executes it.
   const dispatchId = uuid()

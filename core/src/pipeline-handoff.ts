@@ -108,6 +108,7 @@ export async function mergeBranches(
   pipelineBaseCommit: string,
   resultCommits: string[],
   cwd: string,
+  refKey?: string,
 ): Promise<{ mergedSha: string } | { conflict: true; detail: string }> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'k-pl-merge-'))
   const wt = path.join(tmp, 'wt')
@@ -125,6 +126,13 @@ export async function mergeBranches(
       }
     }
     const mergedSha = (await execa('git', ['-C', wt, 'rev-parse', 'HEAD'], GIT_BOUND)).stdout.trim()
+    // Anchor the merge commit with a sweep-immune ref (SEAMS F2): otherwise it is reachable only
+    // transitively by the immediate downstream consumer, so a `git gc --prune` during a long gate
+    // park could reclaim it before the next stage forks from it. `refs/k-pipelines/<pid>/…` is
+    // reaped by sweepPipelineRefs (keyed on the <pid> first segment) once the pipeline_run is gone.
+    if (refKey) {
+      await execa('git', ['-C', cwd, 'update-ref', `refs/k-pipelines/${refKey}`, mergedSha], { reject: false, ...GIT_BOUND })
+    }
     return { mergedSha }
   } finally {
     await removeWorktreeWithRetry(() =>

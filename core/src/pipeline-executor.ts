@@ -317,10 +317,13 @@ export class WorktreeStageExecutor implements StageExecutor {
   private async applyHookResult(ctx: StageContext, wt: string, result: HookResult): Promise<StageDispatchResult> {
     switch (result.action) {
       case 'gate':
-        if (result.gate && !result.gate.pass) {
-          return { kind: 'settled', status: 'failed', detail: result.gate.reason ?? 'hook gate rejected' }
+        // Fail CLOSED: only an explicit `gate.pass === true` proceeds. A `{action:'gate'}` with no
+        // gate object (schema-legal) is an inconclusive check → fail the stage (SEAMS NIT), rather
+        // than silently passing.
+        if (!result.gate || !result.gate.pass) {
+          return { kind: 'settled', status: 'failed', detail: result.gate?.reason ?? 'hook gate returned no pass decision' }
         }
-        break // pass (or no gate object) → snapshot + pass below
+        break // gate.pass === true → snapshot + pass below
       case 'transform': {
         const applied = await this.applyHookPatch(wt, result.patch)
         if (!applied.ok) return { kind: 'settled', status: 'failed', detail: applied.detail }

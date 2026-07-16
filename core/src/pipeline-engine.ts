@@ -145,7 +145,7 @@ export async function dispatchStage(
 
   let base: string
   if ('merge' in resolution) {
-    const merged = await mergeBranches(run.base_commit, resolution.merge, run.cwd)
+    const merged = await mergeBranches(run.base_commit, resolution.merge, run.cwd, `${run.id}/${stage.stage_key}-mergebase`)
     if ('conflict' in merged) {
       // NEVER auto-resolve. A4 routes repair on a merge conflict; A3 records the failure and
       // the pipeline finalizes 'failed' once it quiesces.
@@ -373,10 +373,14 @@ export function markSkips(pipelineRunId: string): void {
       const incoming = incomingByKey.get(s.stage_key) ?? []
       if (incoming.length === 0) continue // entry — never skipped
       const P = incoming.filter(e => e.when_cond === 'always' || e.when_cond === 'pass')
-      const F = incoming.filter(e => e.when_cond === 'fail' || e.when_cond === 'repair')
-      const dead =
-        (P.length > 0 && P.some(terminalNotPassed)) ||
-        (P.length === 0 && F.length > 0 && F.every(terminalNotFailed))
+      const F = incoming.filter(e => e.when_cond === 'fail') // 'repair' never activates readiness (deferred)
+      // Dead only when BOTH activation paths are foreclosed — mirrors listReadyStages' OR semantics
+      // (AND-join OR fail-activation). Skipping on pass-dead alone over-skipped a mixed pass+fail
+      // stage the readiness query would have fail-activated (SEAMS F3). An all-empty incoming set is
+      // unreachable here (the `incoming.length === 0` entry guard above already `continue`d).
+      const passDead = P.length === 0 || P.some(terminalNotPassed)
+      const failDead = F.length === 0 || F.every(terminalNotFailed)
+      const dead = passDead && failDead
       if (dead) {
         markStageSkipped.run({ id: s.id, updatedAt: Date.now() })
         statusByKey.set(s.stage_key, 'skipped') // fixpoint — this may dead-en successors next pass
@@ -412,8 +416,11 @@ export function maybeFinalizePipeline(pipelineRunId: string): void {
   // has a fail/repair out-edge (the fail branch proceeds — A5 forward routing); an unhandled
   // failed stage (or a leftover pending stage) fails the pipeline. Skipped stages are neutral.
   const edges = pipelineDb.listEdges.all(pipelineRunId) as PipelineEdgeRow[]
+  // Only a `fail` out-edge credits a failed stage as "handled" (its fail-branch proceeds). `repair`
+  // is EXCLUDED (SEAMS F1): repair routing is deferred + rejected at authoring, and crediting it here
+  // would let a failed stage with a repair edge finalize FALSE-COMPLETED even though nothing ran.
   const hasFailOutEdge = (key: string): boolean =>
-    edges.some(e => e.from_stage_key === key && (e.when_cond === 'fail' || e.when_cond === 'repair'))
+    edges.some(e => e.from_stage_key === key && e.when_cond === 'fail')
   const unhandledFailure = stages.some(s => s.status === 'failed' && !hasFailOutEdge(s.stage_key))
   const anyPending = stages.some(s => s.status === 'pending') // guard — markSkips should have cleared these
   const now = Date.now()
@@ -573,8 +580,10 @@ export function rewindPipelineToStage(pipelineRunId: string, stageKey: string): 
       rewindResetStage.run({ id: s.id, updatedAt: now })
       if (s.stage_key === stageKey) rewindResetTargetRetry.run({ id: s.id, updatedAt: now })
     }
-    // Reopen a finalized pipeline (a still-running one is left running); clear completed_at.
-    if (run.status !== 'running') {
+    // Reopen a COMPLETED/FAILED pipeline for the re-run (a still-running one is left running); clear
+    // completed_at. A `cancelled` pipeline is NOT resurrected — a deliberate cancel stays terminal
+    // (SEAMS NIT); rewinding a cancelled run resets the stages but leaves the pipeline cancelled.
+    if (run.status === 'completed' || run.status === 'failed') {
       pipelineDb.updatePipelineStatus.run({ id: pipelineRunId, status: 'running', updatedAt: now, completedAt: null })
     }
   })

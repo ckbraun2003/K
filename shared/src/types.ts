@@ -1026,12 +1026,19 @@ export const PipelineSpecSchema = z.object({
   p.edges.forEach((e, i) => {
     if (!has(e.from)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `edge.from '${e.from}' is not a stage id`, path: ['edges', i, 'from'] })
     if (e.to !== 'done' && !has(e.to)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `edge.to '${e.to}' is not a stage id or 'done'`, path: ['edges', i, 'to'] })
-    if (e.from === e.to && e.when !== 'repair') ctx.addIssue({ code: z.ZodIssueCode.custom, message: `self-loop on '${e.from}' is only allowed when:'repair'`, path: ['edges', i] })
+    // Repair-LOOP back-edges are a documented Phase-1 deferral. The runtime CANNOT activate a
+    // `when:'repair'` edge (readiness ignores it) yet a naive finalize would credit it as
+    // "failure handled" → a repair spec could finalize FALSE-COMPLETED. Reject authoring it until
+    // the repair engine lands (use forward routing + retry-in-place instead).
+    if (e.when === 'repair') ctx.addIssue({ code: z.ZodIssueCode.custom, message: `when:'repair' routing is not yet supported (Phase-1 deferral — use forward routing + retry)`, path: ['edges', i, 'when'] })
+    if (e.from === e.to) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `self-loop on '${e.from}' is not allowed (repair routing deferred)`, path: ['edges', i] })
   })
   // every repair.toStage ∈ ids (null = hard-fail the pipeline, 'done' = terminal — both allowed)
   p.stages.forEach((s, i) => {
-    const to = s.repair?.toStage
-    if (to != null && to !== 'done' && !has(to)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `repair.toStage '${to}' is not a stage id`, path: ['stages', i, 'repair', 'toStage'] })
+    // Repair routing is deferred (see the edge check above) — reject a repair TARGET until the
+    // repair engine lands. `RepairRoutingSchema` stays defined for the future engine; only its USE
+    // is fenced. (`toStage: null` = plain hard-fail, which is already the default, so it's harmless.)
+    if (s.repair?.toStage != null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `repair.toStage routing is not yet supported (Phase-1 deferral)`, path: ['stages', i, 'repair', 'toStage'] })
   })
   // reachability from entry — a stage no forward/repair edge can reach can never run.
   // Repair targets fold into the adjacency (a repair-only stage is legitimately entered
