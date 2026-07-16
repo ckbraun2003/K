@@ -23,8 +23,9 @@ import { execa } from 'execa'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { StageDefSchema, HookResultSchema, type StageDef, type PipelineHook, type HookContext, type HookResult } from '@k/shared'
+import { StageDefSchema, HookResultSchema, type StageDef, type PipelineHook, type HookContext, type HookResult, type SubAgentDef } from '@k/shared'
 import { startAgentRun } from './agent-runs.js'
+import { getSubAgentByName } from './sub-agents.js'
 import { addDetachedWorktree, removeWorktreeWithRetry, runChildEnv } from './supervisor.js'
 import { createCheckpoint } from './checkpoints.js'
 import { getProject } from './projects.js'
@@ -184,14 +185,19 @@ export class WorktreeStageExecutor implements StageExecutor {
       return { kind: 'settled', status: 'failed', detail: 'agent stage has an invalid spec' }
     }
     const profileId = ctx.stage.profile_id ?? def.profileId ?? roleToProfileId(def.role)
+    // orch-p2 A.5: resolve the stage's worker-bee (subagentType) → its def, so startAgentRun can
+    // mount it (K-native or confined operator) into the run's config dir. An unknown name resolves
+    // to undefined → no worker mounted (the stage still runs under its role/profile).
+    const subagent = def.subagentType ? getSubAgentByName(def.subagentType) ?? null : null
     // A3: the per-stage planGate override rides the additive startAgentRun option (undefined
     // = the resolved profile's own plan-gate governs; true = force the plan park for this
     // stage). The interactive/persistent exemption still applies inside startAgentRun.
-    return this.dispatchSupervised(ctx, profileId, def.promptScaffold, def.model, def.planGate || undefined)
+    return this.dispatchSupervised(ctx, profileId, def.promptScaffold, def.model, def.planGate || undefined, subagent)
   }
 
   private async dispatchSupervised(
     ctx: StageContext, profileId: string, scaffold: string, model: string | null, planGate?: boolean,
+    subagent?: SubAgentDef | null,
   ): Promise<StageDispatchResult> {
     const goal = renderScaffold(scaffold, this.resolveGoal(ctx))
     const { runId } = await startAgentRun(profileId, {
@@ -204,6 +210,9 @@ export class WorktreeStageExecutor implements StageExecutor {
       model: (ctx.modelOverride ?? model) ?? undefined,
       baseCommit: ctx.baseCommit ?? undefined,
       planGate,
+      // A.5: the resolved worker-bee def to mount into the run's config dir (absent for a
+      // hook-agent or a stage with no subagentType).
+      subagent: subagent ?? undefined,
     })
     // The engine (A3) stamps runs.pipeline_stage_id + trackSupervisedRun — NOT here.
     return { kind: 'supervised', runId }

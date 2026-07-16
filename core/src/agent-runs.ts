@@ -29,7 +29,7 @@ import { startRun } from './supervisor.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
 import { agentRunsDb } from './db.js'
 import { budgetGate, BudgetCapError } from './budget-governor.js'
-import type { AgentRunTrigger } from '@k/shared'
+import type { AgentRunTrigger, SubAgentDef } from '@k/shared'
 
 /** How a profile was activated (bible §03). The canonical union lives in @k/shared
  *  (AgentRunTriggerSchema); re-exported here so importers keep resolving it from
@@ -74,6 +74,10 @@ export interface StartAgentRunOptions {
    *  still applies. Absent for every non-pipeline activation → the profile default alone
    *  governs (byte-identical). */
   planGate?: boolean
+  /** orch-p2 A.5 (Pipeline sub-agents): the resolved worker-bee def to mount into the run's
+   *  synthesized config dir. Threaded verbatim to startRun → synthesizeConfigDir. Absent for
+   *  every non-pipeline / no-subagent activation → unchanged behavior. */
+  subagent?: SubAgentDef | null
 }
 
 /** Map a terminal run status to an agent_runs status. done → completed; any other
@@ -157,6 +161,8 @@ export async function startAgentRun(
       // SUPPRESS a plan_gate profile's gate — a latent footgun the A3 review flagged.) The
       // interactive/persistent exemption is preserved.
       planGate: ((opts.planGate === true) || (profile.planGate === true)) && !opts.interactive && !opts.persistentSession ? true : undefined,
+      // A.5: thread the resolved worker-bee def to synthesizeConfigDir (via startRun).
+      subagent: opts.subagent,
     })
   } catch (e) {
     agentRunsDb.updateAgentRunStatus.run('failed', Date.now(), agentRunId)

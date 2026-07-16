@@ -16,7 +16,7 @@ import { v4 as uuid } from 'uuid'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { AgentEventSchema, PlanDocSchema, type AgentEvent, type Run, type AgentProfile, type PlanDoc } from '@k/shared'
+import { AgentEventSchema, PlanDocSchema, type AgentEvent, type Run, type AgentProfile, type PlanDoc, type SubAgentDef } from '@k/shared'
 import { eventBus } from './events.js'
 import { db, runsDb, projectsDb, runPlansDb, eventsDb } from './db.js'
 import { route } from './router.js'
@@ -177,6 +177,9 @@ export type StartRunOptions = {
    *  precedent above) OR when the worktree fallback fires (non-git cwd / failed
    *  worktree add): a park without run.worktree is permanently unapprovable. */
   planGate?: boolean
+  /** orch-p2 A.5: the resolved worker-bee def to mount into the run's synthesized config dir
+   *  (threaded verbatim to synthesizeConfigDir). Absent for non-pipeline runs → unchanged. */
+  subagent?: SubAgentDef | null
 }
 
 /**
@@ -321,7 +324,7 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   // stable run dir + session id/resume through. planGate scaffolds the spawn prompt to
   // demand a PlanDoc and arms the clean-exit park inside runAgent.
   const session = ps ? { runDir: kPaths!.runDir, sessionId: ps.sessionId, resume: ps.resume } : undefined
-  void runAgent(run, planGate ? buildPlanScaffold(prompt) : prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE, session, planGate)
+  void runAgent(run, planGate ? buildPlanScaffold(prompt) : prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE, session, planGate, false, opts.subagent)
 
   return run
 }
@@ -747,6 +750,10 @@ async function runAgent(
   // every other caller is byte-identical.
   planGate = false,
   planResume = false,
+  // orch-p2 A.5: the resolved worker-bee def to mount into this run's synthesized config dir.
+  // Undefined for a plan RESUME (its persisted config dir already carries the original mount) and
+  // every non-pipeline run.
+  subagent?: SubAgentDef | null,
 ) {
   emitStatusEvent(run.id, 'running', nextSeq(run.id), Date.now())
   eventBus.emitRunUpdate({ ...run, status: 'running' })
@@ -827,8 +834,8 @@ async function runAgent(
         // projectId (D-069/A3): the run's target project scopes which discovered
         // claude-project assets may mount (others are dropped at resolve).
         session
-          ? { runId: run.id, projectId: run.projectId, runDirOverride: session.runDir, persist: true, suppressGitnexus }
-          : { runId: run.id, projectId: run.projectId, suppressGitnexus },
+          ? { runId: run.id, projectId: run.projectId, runDirOverride: session.runDir, persist: true, suppressGitnexus, subagent }
+          : { runId: run.id, projectId: run.projectId, suppressGitnexus, subagent },
       )
     }
 
