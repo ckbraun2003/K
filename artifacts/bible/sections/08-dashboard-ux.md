@@ -512,6 +512,20 @@ pseudo-element **of the same tier host**, not a second nested glass surface — 
 filter rule (2) is likewise unchanged: the refract `::after` is a child of its host's box but is not
 a nested glass *element*, so it doesn't trip the nesting ban.
 
+**Accepted exception — Home → Overview (the default landing).** The final whole-app sweep
+(1440×900) found every reskinned route at ≤6 blurred regions *except* Home's Overview, which
+lands at **8**: the three always-present chrome bars (Sidebar, TopBar, Message-Dock bar, all
+`glass-chrome`) plus the default 3×3 grid's five `glass-panel` widget cells. The `>5-widgets →
+solid` flip (`OverviewView.tsx`) only trims the *sixth* widget onward, so the shipped 5-widget
+default sits two regions over the soft ceiling. This is an **accepted, documented exception**, not
+an oversight: the INT.5 performance trace (10s, 93 pointer moves over a `glass-interactive`
+surface) measured a **`LayoutCount` delta of 0** and negligible recalc/paint at eight regions, so
+the budget's underlying goal — no compositor thrash — holds; and the landing view is exactly where
+the "glass where it matters" richness is most wanted. The ≤6 figure remains the design *target*
+for new surfaces; Home Overview is the one sanctioned over-budget view, revisited if a future
+device profile shows real cost. No other surface may adopt this exception without the same
+measured-perf justification.
+
 ### Liquid Glass 2.0 — living ambient · refraction · specular edges · pointer sheen (D-115)
 
 A second glass pass layers four effects onto the tier system above, each token-driven and
