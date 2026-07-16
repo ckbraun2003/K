@@ -25,6 +25,21 @@ selection of todos as a checklist and instructs one supervised controller run to
 delegation loop in its own worktree, producing one reviewable PR (decision D-012). That loop is
 **prose methodology** the orchestrator carries out internally — it is not a multi-run engine.
 
+> **SUPERSEDED — the executable pipeline engine landed (D-119, 2026-07-16).** The "not a multi-run
+> engine" limitation is now closed. `workflow_definitions.spec` carries an executable `PipelineSpec`
+> (Zod in `@k/shared`) that a main-process `PipelineEngine` + scheduler walks as a real DAG:
+> `agent`/`deterministic`/`gate`/`hook` stages, per-edge `share-tree`/`branch`/`merge` handoff via the
+> checkpoint chain (sweep-immune `refs/k-pipelines/…`), declarative + dynamically-inserted gates,
+> retry-in-place (the self-heal retry brain + the `runs.pipeline_stage_id` ownership guard that prevents
+> double-fire), conditional forward routing (`markSkips` + skip-aware finalize), and reboot reconcile —
+> all built the lead-relay way (DB ledger + CAS claim). K (or the operator) delegates via
+> `delegate_pipeline` / `POST /api/pipelines/:id/run`, and the Agents→Pipelines tab renders the live DAG.
+> The legacy `NamedWorkflow`/`buildDelegationPrompt` path stays for backward-compat — a legacy row lazily
+> compiles via `namedWorkflowToPipeline`. Seeded reference pipelines: `code-wave` (implementer → parallel
+> share-tree reviews → merge-join controller → gate → verify), `investigate`, `refactor`. See §10 D-119
+> and the §09 roadmap. **Deferred:** repair-LOOP back-edges, `commit`/`ci` deterministic actions, hook
+> `inject` propagation, run-internal operator hooks (Phase 1.5), the injection intelligence (Phase 3).
+
 Phase 5 generalizes that single loop into **named workflow definitions** a lead selects per goal. A
 definition is a small declarative record — its role sequence, the prompt scaffold, and a scope flag —
 that `startAgentRun(profileId, { workflowId, … })` seeds into a run:

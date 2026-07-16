@@ -41,10 +41,10 @@ function v12CompleteDb(): Database.Database {
 }
 
 describe('schema v13', () => {
-  it('is version 13 and the sentinel is a v13 column', () => {
-    expect(SCHEMA_VERSION).toBe(13)
-    expect(SCHEMA_SENTINEL).toEqual({ table: 'artifacts', column: 'origin' })
-  })
+  // v13 columns must persist across later bumps; the exact-version + sentinel pin now
+  // lives in schema-v14.test.ts (moved there when v14 relocated SCHEMA_SENTINEL to
+  // runs.pipeline_stage_id). Mirrors how schema-v12.test.ts relaxed its own pin at v13.
+  it('is version 13 or later', () => { expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(13) })
 
   it('adds the three v13 columns on the live test DB', () => {
     expect(cols(db as unknown as Database.Database, 'artifacts'))
@@ -73,10 +73,12 @@ describe('schema v13', () => {
     d.close()
   })
 
-  it('NEWEST-COLUMN sentinel: a v12-complete DB stamped 13 (missing only v13 columns) self-heals', () => {
+  it('back-compat: a v12-complete DB poison-stamped at the current version self-heals', () => {
     const d = v12CompleteDb()
-    // Guard the guard: this fixture MUST already hold the OLD sentinel column — if
-    // SCHEMA_SENTINEL still named projects.budget_daily_usd, this poison would evade it.
+    // The precise newest-column sentinel contract lives in schema-v14.test.ts. Here we
+    // prove a TWO-generations-old (v12-complete) DB, poison-stamped at the current
+    // version, still re-runs the full scan and heals to current: the fixture holds the
+    // v12 columns but NOT the current sentinel (runs.pipeline_stage_id), so it's caught.
     expect(cols(d, 'projects')).toContain('budget_daily_usd')
     expect(cols(d, SCHEMA_SENTINEL.table)).not.toContain(SCHEMA_SENTINEL.column)
     d.pragma(`user_version = ${SCHEMA_VERSION}`) // the poison

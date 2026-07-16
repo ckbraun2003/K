@@ -17,13 +17,14 @@ import { randomUUID } from 'crypto'
 import { v4 as uuid } from 'uuid'
 import type { KThread, KThreadTurn, KAskResult, KRoute, KForceRoute } from '@k/shared'
 import { routeForMessage, routeForTarget } from '@k/shared'
-import { kThreadsDb, runsDb, eventsDb, mgmtDb, db } from './db.js'
+import { kThreadsDb, runsDb, eventsDb, mgmtDb, pipelineDb, db } from './db.js'
 import { eventBus } from './events.js'
 import { startAgentRun } from './agent-runs.js'
 import { BudgetCapError } from './budget-governor.js'
 import { kill } from './supervisor.js'
 import { leadRosterHint } from './chief-dispatch.js'
 import { isTerminalRunStatus, trackSupervisedRun } from './run-lifecycle.js'
+import { onPipelineTerminal } from './pipeline-engine.js'
 
 /** The singleton default K thread — the one front-door conversation for now. */
 export const DEFAULT_K_THREAD_ID = 'k-default'
@@ -464,6 +465,50 @@ export function continueLeadOutcomeToK(chiefRunId: string, leadRunId: string, le
       if (threadId == null) return // Chief woke autonomously — nothing to continue up to K.
       appendTurn(threadId, 'k', summarizeChiefLeadContinuation(leadRunId, lead, status), leadRunId)
     },
+  })
+}
+
+// ── pipeline→K continuation (C1 — complete the up-chain for a delegated pipeline) ─
+//
+// A K/Chief-delegated pipeline (delegate_pipeline → pipeline-dispatch-relay) is MULTI-run: there
+// is no single supervised run to ride the way continueLeadOutcomeToK rides the lead run. So this
+// hooks the ENGINE's terminal seam (pipeline-engine.ts::onPipelineTerminal, fired once when a
+// pipeline reaches completed/failed) and continues the outcome UP onto K's durable thread when the
+// pipeline was linked to a `pipeline_dispatches` row carrying a k_run_id.
+
+/** Resolve the k_run_id that delegated a given pipeline run, or null. setPipelineDispatchRun stamps
+ *  pipeline_run_id onto exactly the one intent that started it, so a lookup by that id is unique;
+ *  a NULL k_run_id (or no row) ⇒ the pipeline was not a K/Chief delegation (an operator HTTP run or
+ *  an ad-hoc start), so there is nothing to continue up. Local prepared statement (the engine's
+ *  backlog-relay precedent) so db.ts's W0 pipelineDb bundle stays frozen. */
+const getDelegatingKRunForPipeline = db.prepare(
+  `SELECT k_run_id FROM pipeline_dispatches WHERE pipeline_run_id = ? AND k_run_id IS NOT NULL`,
+)
+
+/** A concise terminal-outcome line for a delegated pipeline, framed by its title. Pure + exported
+ *  so a test can assert the phrasing. */
+export function summarizePipelineOutcome(pipelineRunId: string, status: 'completed' | 'failed'): string {
+  const run = pipelineDb.getPipelineRun.get(pipelineRunId) as { title?: string } | undefined
+  const label = run?.title ? `"${String(run.title)}"` : `pipeline ${pipelineRunId}`
+  return `Pipeline ${label} ${status}.`
+}
+
+/**
+ * Register the pipeline→K continuation as a GLOBAL engine terminal listener (wired once at boot).
+ * On EACH pipeline terminal: if the pipeline was linked to a delegation intent with a k_run_id AND
+ * that K/Chief run was itself a K-thread delegation (a k_thread_turn links it — the SAME derivation
+ * continueLeadOutcomeToK uses), append a concise `k` outcome turn onto the delegating thread. A
+ * pipeline that was NOT a K delegation, or whose owner woke autonomously, is a no-op. Returns the
+ * unregister fn (mirrors startLeadDispatchRelay's stop-fn shape) so boot can tear it down.
+ */
+export function continuePipelineOutcomeToK(): () => void {
+  return onPipelineTerminal((pipelineRunId, status) => {
+    const row = getDelegatingKRunForPipeline.get(pipelineRunId) as { k_run_id?: string } | undefined
+    if (!row?.k_run_id) return // not a K/Chief-delegated pipeline — nothing to continue up.
+    const threadId = resolveKDelegationThread(String(row.k_run_id))
+    if (threadId == null) return // the owning K/Chief run was not a K-thread delegation.
+    // No single run owns a multi-run pipeline's outcome, so the turn links to no run (null).
+    appendTurn(threadId, 'k', summarizePipelineOutcome(pipelineRunId, status), null)
   })
 }
 

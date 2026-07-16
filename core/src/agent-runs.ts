@@ -63,6 +63,17 @@ export interface StartAgentRunOptions {
    *  tracked+staged changes instead of clean HEAD. Threaded verbatim to startRun;
    *  default false/absent → byte-identical clean-HEAD behavior. */
   carryWorkingTree?: boolean
+  /** D-119 (Pipeline Engine): fork the run's worktree at an explicit base commit
+   *  instead of clean HEAD — the per-edge handoff (share-tree/branch/merge) computes
+   *  it. Threaded verbatim to startRun, which enforces it is MUTUALLY EXCLUSIVE with
+   *  carryWorkingTree. Absent for every non-pipeline activation → unchanged behavior. */
+  baseCommit?: string
+  /** D-119 (Pipeline Engine, A3): per-STAGE plan-gate override. A pipeline stage can arm
+   *  the plan park regardless of the resolved profile's own planGate (a StageDef.planGate).
+   *  OR'd with the profile default below; the interactive/persistent-session exemption
+   *  still applies. Absent for every non-pipeline activation → the profile default alone
+   *  governs (byte-identical). */
+  planGate?: boolean
 }
 
 /** Map a terminal run status to an agent_runs status. done → completed; any other
@@ -137,10 +148,15 @@ export async function startAgentRun(
       interactive: opts.interactive,
       persistentSession: opts.persistentSession,
       carryWorkingTree: opts.carryWorkingTree,
+      baseCommit: opts.baseCommit,
       // E-02 (D-084): tier default — a plan_gate profile plan-gates its org dispatches,
       // but NEVER an interactive or persistent-session dispatch (those compose to the
       // startRun one-shot throw). Mirrors the routes/runs.ts interactive exemption.
-      planGate: profile.planGate === true && !opts.interactive && !opts.persistentSession ? true : undefined,
+      // D-119 (A3, A4 NIT-fix): a per-stage opts.planGate is a true OR with the profile
+      // default — EITHER arming the plan park. (The prior `??` let opts.planGate:false
+      // SUPPRESS a plan_gate profile's gate — a latent footgun the A3 review flagged.) The
+      // interactive/persistent exemption is preserved.
+      planGate: ((opts.planGate === true) || (profile.planGate === true)) && !opts.interactive && !opts.persistentSession ? true : undefined,
     })
   } catch (e) {
     agentRunsDb.updateAgentRunStatus.run('failed', Date.now(), agentRunId)

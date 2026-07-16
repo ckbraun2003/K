@@ -9,6 +9,7 @@ import {
   makeInboxInvalidator,
   makeFeedInvalidator,
   makeAutonomyInvalidator,
+  makePipelineInvalidator,
 } from '../lib/live-invalidate'
 import { raiseBrowserNotification } from '../lib/notifications'
 
@@ -35,6 +36,9 @@ export default function useLiveInvalidators(): void {
     const feedInvalidator = makeFeedInvalidator(qc)
     // P5 autonomy: budget_update → ['budget'], run_retried → ['runs']+['retry-rate'].
     const autonomyInvalidator = makeAutonomyInvalidator(qc)
+    // D-119 pipelines: pipeline_update → write the fresh view into ['pipeline-run', id]
+    // + invalidate ['pipeline-runs'] so the live DAG updates without a manual refresh.
+    const pipelineInvalidator = makePipelineInvalidator(qc)
     const unsubscribe = onWsMessage(msg => {
       runUpdateInvalidator.handler(msg)
       projectListInvalidator(msg)
@@ -43,6 +47,7 @@ export default function useLiveInvalidators(): void {
       inboxInvalidator(msg)
       feedInvalidator(msg)
       autonomyInvalidator(msg)
+      pipelineInvalidator(msg)
       raiseBrowserNotification(msg) // E-19 browser leg (visibility- + permission-gated)
     })
     return () => {

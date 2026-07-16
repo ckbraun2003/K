@@ -874,6 +874,256 @@ export const RoutineViewSchema = z.object({
 export type RoutineView = z.infer<typeof RoutineViewSchema>
 export const NlToCronBodySchema = z.object({ text: z.string().min(1).max(200) }).strict()
 
+// ─── Executable pipelines (D-119 — Pipeline Engine W0 frozen contracts) ───────
+// TWO type layers: DEFINITION-TIME (`PipelineSpec`, authored + stored as JSON in
+// workflow_definitions.spec) and RUNTIME (DB rows + wire views, further below). Zod
+// is the type truth. Every leaf/enum schema is declared BEFORE the StageDef/WsMessage
+// discriminated unions that reference it (the eager-eval rule at types.ts:636) — which
+// is why this whole block sits just above the WebSocket-message union. Reuses
+// FailureClassSchema (above) for retry classification and CanonicalStatusSchema (top).
+
+// ── Definition-time (authoring) ───────────────────────────────────────────────
+export const HandoffModeSchema = z.enum(['share-tree', 'branch', 'merge'])
+export type HandoffMode = z.infer<typeof HandoffModeSchema>
+export const EdgeWhenSchema = z.enum(['always', 'pass', 'fail', 'repair'])
+export type EdgeWhen = z.infer<typeof EdgeWhenSchema>
+
+// A stage key is a short slug — the stable id edges/repair/gates reference.
+const STAGE_KEY = z.string().min(1).max(100).regex(/^[a-z0-9-]+$/i)
+
+export const RetryPolicySchema = z.object({
+  maxAttempts: z.number().int().min(1).max(10).default(1),
+  backoffMs:   z.number().int().min(0).max(600_000).default(0),
+  retryOn:     z.array(FailureClassSchema).default(['transient', 'timeout', 'model_capacity']),
+}).strict()
+export type RetryPolicy = z.infer<typeof RetryPolicySchema>
+
+export const RepairRoutingSchema = z.object({
+  toStage:    z.string().min(1).max(100).nullable(),   // null = hard-fail the pipeline
+  maxRepairs: z.number().int().min(0).max(10).default(2),
+}).strict()
+export type RepairRouting = z.infer<typeof RepairRoutingSchema>
+
+export const GatePredicateSchema = z.object({
+  verifyStatus:   z.enum(['pass', 'fail']).optional(),
+  maxCostUsd:     z.number().nonnegative().optional(),
+  requireCleanCi: z.boolean().optional(),
+  expr:           z.string().max(2000).optional(),     // SEAM — deferred eval
+}).strict()
+export type GatePredicate = z.infer<typeof GatePredicateSchema>
+
+export const GateAttrSchema = z.object({
+  mode:      z.enum(['declarative', 'manual', 'agent']).default('declarative'),
+  predicate: GatePredicateSchema.default({}),
+}).strict()
+export type GateAttr = z.infer<typeof GateAttrSchema>
+
+// Injection intelligence is DEFERRED (Phase 3) — this is the field/seam only.
+export const InjectionPolicySchema = z.object({
+  mode:  z.enum(['off', 'auto']).default('off'),
+  hints: z.array(z.string().max(200)).max(20).default([]),
+}).strict()
+export type InjectionPolicy = z.infer<typeof InjectionPolicySchema>
+
+export const HookRefSchema = z.object({
+  hookId: z.string().min(1).max(200),
+  when:   z.enum(['pre', 'post']).default('pre'),
+}).strict()
+export type HookRef = z.infer<typeof HookRefSchema>
+
+export const PipelineHookSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('script'), file: z.string().min(1).max(200),
+             timeoutSec: z.number().int().min(1).max(120).default(30) }),
+  z.object({ type: z.literal('agent'), profileId: z.string(), model: z.string().nullable().default(null),
+             promptScaffold: z.string().min(1), timeoutSec: z.number().int().min(1).max(600).default(120) }),
+])
+export type PipelineHook = z.infer<typeof PipelineHookSchema>
+
+// ── Runtime hook-stage contract (B3) ─────────────────────────────────────────────
+// A hook-SCRIPT stage exchanges these over the child's stdin/stdout, mirroring the
+// run-internal `gitnexus-hook.cjs` shape but scoped to a pipeline stage. `HookContext`
+// (JSON on stdin) tells the script which stage/worktree it runs against; `HookResult`
+// (JSON on stdout) is the structured verdict the executor applies. Both are `.strict()`
+// so a mistyped field is rejected (the executor then falls back to the exit-code path).
+// No StageDefSchema union references these — they are a runtime wire contract, not
+// authoring input — but they live here beside the hook block they belong to.
+export const HookContextSchema = z.object({
+  hook_event_name: z.literal('PipelineStage'),
+  pipelineRunId: z.string(), stageId: z.string(), stageKey: z.string(),
+  cwd: z.string(), baseCommit: z.string().nullable(),
+}).strict()
+export type HookContext = z.infer<typeof HookContextSchema>
+
+export const HookResultSchema = z.object({
+  action: z.enum(['continue', 'gate', 'transform', 'inject']).default('continue'),
+  gate: z.object({ pass: z.boolean(), reason: z.string().max(2000).optional() }).optional(),
+  patch: z.string().max(200_000).optional(),            // unified diff (transform)
+  additionalContext: z.string().max(20_000).optional(), // inject (propagation DEFERRED — Phase 3)
+}).strict()
+export type HookResult = z.infer<typeof HookResultSchema>
+
+// Fields common to every stage kind — spread into each discriminated-union member.
+const stageCommon = {
+  id:        STAGE_KEY,
+  label:     z.string().min(1).max(200),
+  hooks:     z.array(HookRefSchema).max(20).default([]),
+  injection: InjectionPolicySchema.default({}),
+  retry:     RetryPolicySchema.default({}),
+  repair:    RepairRoutingSchema.optional(),
+} as const
+
+// Each member is `.strict()` so an operator-authored spec with a mistyped field
+// (e.g. `plangate` for `planGate`) is REJECTED rather than silently dropped +
+// defaulted. Zod allows per-member strict objects inside a discriminatedUnion.
+export const StageDefSchema = z.discriminatedUnion('kind', [
+  z.object({ ...stageCommon, kind: z.literal('agent'),
+    role: z.string().min(1).max(100), profileId: z.string().nullable().default(null),
+    model: z.string().nullable().default(null), promptScaffold: z.string().min(1),
+    planGate: z.boolean().default(false) }).strict(),
+  z.object({ ...stageCommon, kind: z.literal('deterministic'),
+    action: z.discriminatedUnion('type', [
+      z.object({ type: z.literal('verify') }).strict(),
+      z.object({ type: z.literal('command'), run: z.string().min(1).max(2000) }).strict(),
+      z.object({ type: z.literal('commit') }).strict(),
+      z.object({ type: z.literal('ci') }).strict(),
+    ]) }).strict(),
+  z.object({ ...stageCommon, kind: z.literal('gate'), gate: GateAttrSchema }).strict(),
+  z.object({ ...stageCommon, kind: z.literal('hook'), hook: PipelineHookSchema }).strict(),
+])
+export type StageDef = z.infer<typeof StageDefSchema>
+
+export const EdgeDefSchema = z.object({
+  from: STAGE_KEY, to: STAGE_KEY,
+  handoff: HandoffModeSchema.default('share-tree'),
+  when: EdgeWhenSchema.default('always'),
+  label: z.string().max(100).optional(),
+}).strict()
+export type EdgeDef = z.infer<typeof EdgeDefSchema>
+
+export const PipelineSpecSchema = z.object({
+  name: z.string().min(1).max(200),
+  version: z.number().int().min(1).default(1),
+  description: z.string().max(2000).optional(),
+  stages: z.array(StageDefSchema).min(1).max(50),
+  edges: z.array(EdgeDefSchema).max(200),
+  entry: STAGE_KEY,
+  crossProject: z.boolean().default(false),
+}).strict().superRefine((p, ctx) => {
+  // unique stage ids; 'done' is the reserved terminal-sink edge target and may not
+  // name a stage (else its id is unaddressable — every edge to it reads as the sink).
+  const ids = p.stages.map(s => s.id)
+  const idSet = new Set<string>()
+  for (const id of ids) {
+    if (id === 'done') ctx.addIssue({ code: z.ZodIssueCode.custom, message: `'done' is reserved (the terminal edge target) and cannot be a stage id`, path: ['stages'] })
+    if (idSet.has(id)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate stage id: ${id}`, path: ['stages'] })
+    idSet.add(id)
+  }
+  const has = (k: string) => idSet.has(k)
+  // entry ∈ ids
+  if (!has(p.entry)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `entry '${p.entry}' is not a stage id`, path: ['entry'] })
+  // every edge.from ∈ ids; edge.to ∈ ids or the literal 'done' (the terminal sink). A
+  // self-loop is only meaningful as a repair back-edge (when:'repair').
+  p.edges.forEach((e, i) => {
+    if (!has(e.from)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `edge.from '${e.from}' is not a stage id`, path: ['edges', i, 'from'] })
+    if (e.to !== 'done' && !has(e.to)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `edge.to '${e.to}' is not a stage id or 'done'`, path: ['edges', i, 'to'] })
+    // Repair-LOOP back-edges are a documented Phase-1 deferral. The runtime CANNOT activate a
+    // `when:'repair'` edge (readiness ignores it) yet a naive finalize would credit it as
+    // "failure handled" → a repair spec could finalize FALSE-COMPLETED. Reject authoring it until
+    // the repair engine lands (use forward routing + retry-in-place instead).
+    if (e.when === 'repair') ctx.addIssue({ code: z.ZodIssueCode.custom, message: `when:'repair' routing is not yet supported (Phase-1 deferral — use forward routing + retry)`, path: ['edges', i, 'when'] })
+    if (e.from === e.to) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `self-loop on '${e.from}' is not allowed (repair routing deferred)`, path: ['edges', i] })
+  })
+  // every repair.toStage ∈ ids (null = hard-fail the pipeline, 'done' = terminal — both allowed)
+  p.stages.forEach((s, i) => {
+    // Repair routing is deferred (see the edge check above) — reject a repair TARGET until the
+    // repair engine lands. `RepairRoutingSchema` stays defined for the future engine; only its USE
+    // is fenced. (`toStage: null` = plain hard-fail, which is already the default, so it's harmless.)
+    if (s.repair?.toStage != null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `repair.toStage routing is not yet supported (Phase-1 deferral)`, path: ['stages', i, 'repair', 'toStage'] })
+  })
+  // reachability from entry — a stage no forward/repair edge can reach can never run.
+  // Repair targets fold into the adjacency (a repair-only stage is legitimately entered
+  // when its source fails, so it must not be flagged as an orphan).
+  if (has(p.entry)) {
+    const adj = new Map<string, string[]>()
+    const link = (from: string, to: string) => {
+      if (to === 'done' || !has(to)) return
+      const list = adj.get(from) ?? []
+      list.push(to)
+      adj.set(from, list)
+    }
+    for (const e of p.edges) link(e.from, e.to)
+    for (const s of p.stages) if (s.repair?.toStage) link(s.id, s.repair.toStage)
+    const seen = new Set<string>([p.entry])
+    const stack = [p.entry]
+    while (stack.length) {
+      const cur = stack.pop()!
+      for (const nxt of adj.get(cur) ?? []) if (!seen.has(nxt)) { seen.add(nxt); stack.push(nxt) }
+    }
+    for (const id of ids) if (!seen.has(id)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `stage '${id}' is unreachable from entry`, path: ['stages'] })
+  }
+})
+export type PipelineSpec = z.infer<typeof PipelineSpecSchema>
+
+/** Faithful lift of a legacy NamedWorkflow into an executable PipelineSpec. Today's
+ *  dispatchTaskWorkflow launches exactly ONE orchestrator run (which itself spawns the
+ *  role sub-agents in-context), so the honest executable form is a SINGLE `agent` stage
+ *  carrying the workflow's prompt scaffold — not a multi-stage role chain (that richer
+ *  lift waits until each role is its own run). `WorkflowDefinition`/`NamedWorkflow`/
+ *  `DELEGATION_WORKFLOW` stay untouched. (The `NamedWorkflow` interface is declared later
+ *  in this file — a type-only forward reference, which TypeScript hoists.) */
+export function namedWorkflowToPipeline(nw: NamedWorkflow): PipelineSpec {
+  return PipelineSpecSchema.parse({
+    name: nw.name,
+    version: 1,
+    stages: [{
+      kind: 'agent',
+      id: 'orchestrator',
+      label: 'Orchestrator',
+      role: 'orchestrator',
+      // prompt_scaffold is NOT NULL but may be '' — the agent stage requires min(1),
+      // so normalize an empty scaffold to a minimal instruction rather than throwing.
+      promptScaffold: nw.promptScaffold.trim() || `Run the "${nw.name}" workflow.`,
+    }],
+    edges: [],
+    entry: 'orchestrator',
+    crossProject: nw.crossProject,
+  })
+}
+
+// ── Runtime wire views (DB rows → API/WS projections) ─────────────────────────
+export const PipelineRunStatusSchema  = z.enum(['running', 'completed', 'failed', 'cancelled'])
+export type PipelineRunStatus = z.infer<typeof PipelineRunStatusSchema>
+export const PipelineStageStatusSchema = z.enum(['pending', 'dispatched', 'running', 'awaiting_gate', 'passed', 'failed', 'skipped'])
+export type PipelineStageStatus = z.infer<typeof PipelineStageStatusSchema>
+
+export const PipelineStageRunSchema = z.object({
+  id: z.string(), pipelineRunId: z.string(), stageKey: z.string(), kind: z.string(),
+  status: PipelineStageStatusSchema, canonical: CanonicalStatusSchema.optional(),
+  runId: z.string().nullable(), attempt: z.number().int(), maxAttempts: z.number().int(),
+  repairs: z.number().int(), costUsd: z.number().nullable(),
+  failureClass: FailureClassSchema.nullable(), gateNote: z.string().nullable(),
+  baseCommit: z.string().nullable(), resultCommit: z.string().nullable(),
+  startedAt: z.number().nullable(), completedAt: z.number().nullable(),
+})
+export type PipelineStageRun = z.infer<typeof PipelineStageRunSchema>
+
+export const PipelineEdgeViewSchema = z.object({
+  from: z.string().nullable(), to: z.string(), handoff: HandoffModeSchema, when: EdgeWhenSchema,
+})
+export type PipelineEdgeView = z.infer<typeof PipelineEdgeViewSchema>
+
+export const PipelineRunSchema = z.object({
+  id: z.string(), definitionId: z.string().nullable(), projectId: z.string().nullable(),
+  title: z.string(), status: PipelineRunStatusSchema,
+  createdAt: z.number(), updatedAt: z.number(), completedAt: z.number().nullable(),
+})
+export type PipelineRun = z.infer<typeof PipelineRunSchema>
+
+export const PipelineRunViewSchema = z.object({
+  run: PipelineRunSchema, stages: z.array(PipelineStageRunSchema), edges: z.array(PipelineEdgeViewSchema),
+})
+export type PipelineRunView = z.infer<typeof PipelineRunViewSchema>
+
 // ─── WebSocket messages ──────────────────────────────────────────────────────
 
 export const WsMessageSchema = z.discriminatedUnion('type', [
@@ -925,6 +1175,11 @@ export const WsMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('budget_update'), status: BudgetStatusSchema }),
   // E-18: a failed run was auto-retried.
   z.object({ type: z.literal('run_retried'), originalRunId: z.string(), retryRunId: z.string(), failureClass: FailureClassSchema }),
+  // D-119: a pipeline stage transitioned (dispatch/pass/fail/gate) — carries the full
+  // refreshed run view so the live DAG re-renders. `stageId` names the transitioned
+  // stage (null for run-level transitions: creation/finalize).
+  z.object({ type: z.literal('pipeline_update'), pipelineRunId: z.string(),
+             stageId: z.string().nullable(), view: PipelineRunViewSchema }),
   z.object({ type: z.literal('ping') }),
   z.object({ type: z.literal('pong') }),
 ])
@@ -2179,5 +2434,32 @@ export function canonicalizeDelegationNodeStatus(s: DelegationNodeStatus): Canon
     case 'error':   return { state: 'failed',  attention: 'none', health: 'broken' }
     case 'queued':  return { state: 'queued',  attention: 'none', health: 'ok' }
     case 'idle':    return { state: 'idle',    attention: 'none', health: 'ok' }
+  }
+}
+
+// D-119 pipeline canonicalizers — the DAG colors stages/runs off the shared triple.
+/** pipeline_runs status → canonical triple. `cancelled` = an operator-chosen stop
+ *  (benign, like a killed run), NOT a failure. */
+export function canonicalizePipelineRunStatus(s: PipelineRunStatus): CanonicalStatus {
+  switch (s) {
+    case 'running':   return { state: 'running', attention: 'none', health: 'ok' }
+    case 'completed': return { state: 'done',    attention: 'none', health: 'ok' }
+    case 'failed':    return { state: 'failed',  attention: 'none', health: 'broken' }
+    case 'cancelled': return { state: 'stopped', attention: 'none', health: 'ok' }
+  }
+}
+
+/** pipeline_stages status → canonical triple. `dispatched` (claimed; the run is being
+ *  created) reads as running; `awaiting_gate` parks on operator review (mirrors a run's
+ *  awaiting_plan); `skipped` (an untaken when-branch) is a benign terminal stop. */
+export function canonicalizePipelineStageStatus(s: PipelineStageStatus): CanonicalStatus {
+  switch (s) {
+    case 'pending':       return { state: 'queued',  attention: 'none',          health: 'ok' }
+    case 'dispatched':    return { state: 'running', attention: 'none',          health: 'ok' }
+    case 'running':       return { state: 'running', attention: 'none',          health: 'ok' }
+    case 'awaiting_gate': return { state: 'waiting', attention: 'review_needed', health: 'ok' }
+    case 'passed':        return { state: 'done',    attention: 'none',          health: 'ok' }
+    case 'failed':        return { state: 'failed',  attention: 'none',          health: 'broken' }
+    case 'skipped':       return { state: 'stopped', attention: 'none',          health: 'ok' }
   }
 }

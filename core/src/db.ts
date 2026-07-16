@@ -691,6 +691,121 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_lead_dispatches_status ON lead_dispatches(status, created_at);
   CREATE INDEX IF NOT EXISTS idx_lead_dispatches_assignment ON lead_dispatches(assignment_id);
+
+  -- ── Pipeline Engine (D-119, SCHEMA_VERSION 14) ─────────────────────────────
+  -- Executable-pipeline runtime ledger. One pipeline_runs row per instantiated
+  -- PipelineSpec; its stages/edges are materialized rows (the engine mutates STATUS,
+  -- never the frozen definition). Brand-new tables → CREATE-only here (no migrate()
+  -- ALTER — the lead_dispatches convention), styled after agent_runs/lead_dispatches.
+
+  -- One execution of a pipeline. status: running -> completed | failed | cancelled.
+  -- base_commit is the fork point the per-edge handoff computes bases from; cwd is the
+  -- scoped project's localPath. project_id ON DELETE SET NULL keeps run history if the
+  -- project is later removed.
+  CREATE TABLE IF NOT EXISTS pipeline_runs (
+    id            TEXT PRIMARY KEY,
+    definition_id TEXT,   -- loose ref (no FK): the workflow_definitions template it was instantiated from; NULL for an ad-hoc spec
+    project_id    TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    title         TEXT NOT NULL,
+    cwd           TEXT NOT NULL,
+    base_commit   TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'running'
+                    CHECK(status IN ('running','completed','failed','cancelled')),
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL,
+    completed_at  INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status, created_at);
+
+  -- One materialized stage of a pipeline run. spec is the frozen StageDef JSON;
+  -- status walks pending -> dispatched -> running -> passed|failed (or awaiting_gate
+  -- for a gate, or skipped for an untaken when-branch). run_id (ON DELETE SET NULL) is
+  -- the supervised run an agent stage dispatched; result_commit is its terminal
+  -- checkpoint SHA (the handoff hand-off). UNIQUE(pipeline_run_id, stage_key) makes the
+  -- claim CAS + edge joins key on the stable slug.
+  CREATE TABLE IF NOT EXISTS pipeline_stages (
+    id               TEXT PRIMARY KEY,
+    pipeline_run_id  TEXT NOT NULL REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+    stage_key        TEXT NOT NULL,
+    kind             TEXT NOT NULL CHECK(kind IN ('agent','deterministic','gate','hook')),
+    profile_id       TEXT,
+    spec             TEXT NOT NULL DEFAULT '{}',
+    status           TEXT NOT NULL DEFAULT 'pending'
+                       CHECK(status IN ('pending','dispatched','running','awaiting_gate','passed','failed','skipped')),
+    run_id           TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    base_commit      TEXT,
+    result_commit    TEXT,
+    exit_code        INTEGER,
+    failure_class    TEXT,
+    retry_count      INTEGER NOT NULL DEFAULT 0,
+    repair_stage_key TEXT,
+    repairs_used     INTEGER NOT NULL DEFAULT 0,
+    gate_resolved_by TEXT,
+    gate_note        TEXT,
+    cost_usd         REAL,
+    created_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL,
+    started_at       INTEGER,
+    completed_at     INTEGER,
+    UNIQUE(pipeline_run_id, stage_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_pipeline_stages_run ON pipeline_stages(pipeline_run_id, status);
+  CREATE INDEX IF NOT EXISTS idx_pipeline_stages_run_id ON pipeline_stages(run_id);
+
+  -- The materialized DAG edges of a pipeline run (from_stage_key NULL = an entry edge).
+  -- handoff = the per-edge base-commit rule; when_cond = the branch predicate.
+  CREATE TABLE IF NOT EXISTS pipeline_edges (
+    id              TEXT PRIMARY KEY,
+    pipeline_run_id TEXT NOT NULL REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+    from_stage_key  TEXT,
+    to_stage_key    TEXT NOT NULL,
+    handoff         TEXT NOT NULL CHECK(handoff IN ('share-tree','branch','merge')),
+    when_cond       TEXT NOT NULL DEFAULT 'always'
+                      CHECK(when_cond IN ('always','pass','fail','repair'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_pipeline_edges_to ON pipeline_edges(pipeline_run_id, to_stage_key);
+
+  -- K/Chief -> pipeline dispatch INTENT queue — mirrors lead_dispatches exactly (the
+  -- child delegate_pipeline tool RECORDS a 'pending' intent; the main-process relay
+  -- drains + claims + calls startPipelineRun). status: pending -> dispatched | failed.
+  -- k_run_id is the parent K/Chief run; pipeline_run_id is the started pipeline once
+  -- executed (both ON DELETE SET NULL).
+  CREATE TABLE IF NOT EXISTS pipeline_dispatches (
+    id              TEXT PRIMARY KEY,
+    pipeline_id     TEXT NOT NULL,
+    k_run_id        TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    goal            TEXT NOT NULL,
+    project_id      TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    model           TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                      CHECK(status IN ('pending','dispatched','failed')),
+    pipeline_run_id TEXT REFERENCES pipeline_runs(id) ON DELETE SET NULL,
+    created_at      INTEGER NOT NULL,
+    dispatched_at   INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_pipeline_dispatches_status ON pipeline_dispatches(status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_pipeline_dispatches_project ON pipeline_dispatches(project_id);
+
+  -- Run-internal hook registry — the PreToolUse/PostToolUse/PreSkill scripts
+  -- synthesizeConfigDir mounts into a run's settings.json. source 'k' = harness-native
+  -- (agent-config/hooks/*, always trusted); 'operator' = confined data/hooks/<id>/,
+  -- fail-closed until trusted=1 (the hook_trust Inbox card). scope tiers global ->
+  -- project -> pipeline. Brand-new table -> CREATE-only.
+  CREATE TABLE IF NOT EXISTS hook_definitions (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    event       TEXT NOT NULL CHECK(event IN ('PreToolUse','PostToolUse','PreSkill')),
+    matcher     TEXT NOT NULL,
+    impl        TEXT NOT NULL,
+    timeout_sec INTEGER NOT NULL DEFAULT 10,
+    scope       TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global','project','pipeline')),
+    project_id  TEXT,
+    source      TEXT NOT NULL DEFAULT 'operator' CHECK(source IN ('k','operator')),
+    trusted     INTEGER NOT NULL DEFAULT 0,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -725,7 +840,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 13
+export const SCHEMA_VERSION = 14
 
 /** Sentinel for the CURRENT schema version: a column the LAST migration in
  *  migrateSlow() creates. migrate()'s fast path only trusts the version stamp when
@@ -733,9 +848,9 @@ export const SCHEMA_VERSION = 13
  *  dev-watch boot mid-schema-edit; the 2026-07-13 outage) otherwise disables
  *  repair forever while module-level prepares crash at import.
  *  UPDATE THIS alongside every SCHEMA_VERSION bump — it must always name a column
- *  introduced by the CURRENT version (schema-v13.test.ts enforces this with a
+ *  introduced by the CURRENT version (schema-v14.test.ts enforces this with a
  *  previous-generation fixture; extend that fixture on every future bump). */
-export const SCHEMA_SENTINEL = { table: 'artifacts', column: 'origin' } as const
+export const SCHEMA_SENTINEL = { table: 'runs', column: 'pipeline_stage_id' } as const
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1561,6 +1676,20 @@ function migrateSlow(d: Database.Database): void {
   if (hasTable(d, 'eval_results')) {
     addColumn(d, 'eval_results', 'failure_reason', 'TEXT')
   }
+
+  // ── Pipeline Engine (SCHEMA_VERSION 14, D-119) ──────────────────────────────
+  // Evolve workflow_definitions into a Zod-typed executable form (a nullable `spec`
+  // JSON column — legacy rows lazily compile via namedWorkflowToPipeline). Guarded on
+  // the table existing (minimal migration fixtures predate it, exactly like the
+  // artifacts/eval_results steps above).
+  if (hasTable(d, 'workflow_definitions')) {
+    addColumn(d, 'workflow_definitions', 'spec', 'TEXT')
+  }
+  // runs.pipeline_stage_id: the owning pipeline stage back-ref AND the v14 SENTINEL (a
+  // column the LAST migration creates — see SCHEMA_SENTINEL). runs is unconditionally
+  // present (the top of this scan ALTERs it unguarded), so this stays unguarded too.
+  addColumn(d, 'runs', 'pipeline_stage_id', 'TEXT')
+  d.exec(`CREATE INDEX IF NOT EXISTS idx_runs_pipeline_stage ON runs(pipeline_stage_id)`)
 }
 
 migrate(db)
@@ -2570,6 +2699,145 @@ const claimLeadDispatch = db.prepare(`UPDATE lead_dispatches SET status = 'dispa
 const setLeadDispatchRun = db.prepare(`UPDATE lead_dispatches SET lead_run_id = @leadRunId WHERE id = @id`)
 const markLeadDispatchFailed = db.prepare(`UPDATE lead_dispatches SET status = 'failed', dispatched_at = @dispatchedAt WHERE id = @id AND status = 'dispatched'`)
 export const leadDispatchDb = { insertLeadDispatch, listPendingLeadDispatches, getLeadDispatch, getActiveLeadDispatchByAssignment, claimLeadDispatch, setLeadDispatchRun, markLeadDispatchFailed }
+
+// ─── Pipeline Engine helpers (D-119, SCHEMA_VERSION 14) ──────────────────────
+// The executable-pipeline runtime ledger (pipeline_runs / pipeline_stages /
+// pipeline_edges / pipeline_dispatches / hook_definitions). Stage + dispatch claims
+// are atomic CAS (…→dispatched WHERE status='pending') so an overlapping scheduler
+// drain can never double-dispatch — mirrors leadDispatchDb.claimLeadDispatch. The
+// engine mutates STATUS rows only; the frozen definition lives in pipeline_stages.spec.
+
+// pipeline_runs — one execution of a pipeline.
+const insertPipelineRun = db.prepare(`
+  INSERT INTO pipeline_runs (id, definition_id, project_id, title, cwd, base_commit, status, created_at, updated_at, completed_at)
+  VALUES (@id, @definitionId, @projectId, @title, @cwd, @baseCommit, 'running', @createdAt, @updatedAt, NULL)
+`)
+const getPipelineRun = db.prepare(`SELECT * FROM pipeline_runs WHERE id = ?`)
+const listRunningPipelines = db.prepare(`SELECT * FROM pipeline_runs WHERE status = 'running' ORDER BY created_at ASC`)
+// status → completed|failed|cancelled; pass completedAt on a terminal transition (NULL keeps it running).
+const updatePipelineStatus = db.prepare(`UPDATE pipeline_runs SET status = @status, updated_at = @updatedAt, completed_at = @completedAt WHERE id = @id`)
+
+// pipeline_stages — the materialized stages the engine walks.
+const insertStage = db.prepare(`
+  INSERT INTO pipeline_stages (id, pipeline_run_id, stage_key, kind, profile_id, spec, status, run_id, base_commit, result_commit, exit_code, failure_class, retry_count, repair_stage_key, repairs_used, gate_resolved_by, gate_note, cost_usd, created_at, updated_at, started_at, completed_at)
+  VALUES (@id, @pipelineRunId, @stageKey, @kind, @profileId, @spec, 'pending', NULL, @baseCommit, NULL, NULL, NULL, 0, @repairStageKey, 0, NULL, NULL, NULL, @createdAt, @updatedAt, NULL, NULL)
+`)
+const getStage = db.prepare(`SELECT * FROM pipeline_stages WHERE id = ?`)
+// The pipeline-ownership probe the global self-heal subscriber uses to SKIP a pipeline
+// stage's run (else every stage would retry twice — §10 mandatory guard).
+const getStageByRunId = db.prepare(`SELECT * FROM pipeline_stages WHERE run_id = ?`)
+const listStagesForPipeline = db.prepare(`SELECT * FROM pipeline_stages WHERE pipeline_run_id = ? ORDER BY created_at ASC`)
+// Atomic pending→dispatched claim (changes===0 → another drain won the race).
+const claimStage = db.prepare(`UPDATE pipeline_stages SET status = 'dispatched', updated_at = @updatedAt, started_at = @startedAt WHERE id = @id AND status = 'pending'`)
+// Wire the dispatched run + its computed fork base and flip dispatched→running. run_id is
+// written synchronously at dispatch so a reboot can reconcile the claim window (§10).
+const setStageRun = db.prepare(`UPDATE pipeline_stages SET run_id = @runId, base_commit = @baseCommit, status = 'running', updated_at = @updatedAt WHERE id = @id`)
+const markStagePassed = db.prepare(`UPDATE pipeline_stages SET status = 'passed', result_commit = @resultCommit, exit_code = @exitCode, cost_usd = @costUsd, updated_at = @updatedAt, completed_at = @completedAt WHERE id = @id`)
+const markStageFailed = db.prepare(`UPDATE pipeline_stages SET status = 'failed', failure_class = @failureClass, exit_code = @exitCode, cost_usd = @costUsd, updated_at = @updatedAt, completed_at = @completedAt WHERE id = @id`)
+const markStageAwaitingGate = db.prepare(`UPDATE pipeline_stages SET status = 'awaiting_gate', updated_at = @updatedAt WHERE id = @id`)
+// Single-resolver gate CAS (A5): approve→passed / reject→failed, but ONLY while still parked
+// (status='awaiting_gate') — changes===0 means it was already resolved (the HTTP layer 409s).
+const resolveGateStage = db.prepare(`UPDATE pipeline_stages SET status = @next, gate_resolved_by = @by, gate_note = @note, completed_at = @now, updated_at = @now WHERE id = @id AND status = 'awaiting_gate'`)
+
+// pipeline_edges — the materialized DAG (from_stage_key NULL = an entry edge).
+const insertEdge = db.prepare(`
+  INSERT INTO pipeline_edges (id, pipeline_run_id, from_stage_key, to_stage_key, handoff, when_cond)
+  VALUES (@id, @pipelineRunId, @fromStageKey, @toStageKey, @handoff, @whenCond)
+`)
+const listEdges = db.prepare(`SELECT * FROM pipeline_edges WHERE pipeline_run_id = ?`)
+// Ready-detection reads a target's incoming edges (a stage is ready iff every incoming
+// edge's `from` stage is passed).
+const listIncomingEdges = db.prepare(`SELECT * FROM pipeline_edges WHERE pipeline_run_id = @pipelineRunId AND to_stage_key = @toStageKey`)
+// Dynamic gate insertion (A5): repoint every edge that TARGETED beforeStage so it now targets
+// the freshly-inserted gate. The gate→beforeStage edge is inserted AFTER this runs, so it is
+// never itself repointed (no gate→gate self-loop).
+const repointEdgesTo = db.prepare(`UPDATE pipeline_edges SET to_stage_key = @gateKey WHERE pipeline_run_id = @pid AND to_stage_key = @beforeKey`)
+
+// DAG ready-detection (Lane A / A3 + A5 fail-activation). A `pending` stage is READY iff ANY
+// of three disjuncts holds (the frozen A5 truth table):
+//   • ENTRY          — it has no real inbound edge; OR
+//   • AND-JOIN       — it has ≥1 incoming when_cond IN ('always','pass') edge AND every such
+//                      edge's `from` stage is passed; OR
+//   • FAIL-ACTIVATION — it has ≥1 incoming when_cond='fail' edge whose `from` stage failed.
+// A `repair` edge NEVER activates readiness in Phase 1 (repair-LOOP back-edges deferred). Dead /
+// untaken pending stages are flipped to 'skipped' by markSkips BEFORE this runs, so they never
+// match here. The claim CAS (claimStage) still gates the dispatch, so an overlapping drain can't
+// double-fire.
+const listReadyStages = db.prepare(`
+  SELECT s.* FROM pipeline_stages s
+  WHERE s.pipeline_run_id = @pid AND s.status = 'pending'
+    AND (
+      NOT EXISTS (
+        SELECT 1 FROM pipeline_edges e0
+        WHERE e0.pipeline_run_id = s.pipeline_run_id AND e0.to_stage_key = s.stage_key
+          AND e0.from_stage_key IS NOT NULL
+      )
+      OR (
+        EXISTS (
+          SELECT 1 FROM pipeline_edges ep
+          WHERE ep.pipeline_run_id = s.pipeline_run_id AND ep.to_stage_key = s.stage_key
+            AND ep.from_stage_key IS NOT NULL AND ep.when_cond IN ('always','pass')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM pipeline_edges e
+          JOIN pipeline_stages fs ON fs.pipeline_run_id = e.pipeline_run_id AND fs.stage_key = e.from_stage_key
+          WHERE e.pipeline_run_id = s.pipeline_run_id AND e.to_stage_key = s.stage_key
+            AND e.from_stage_key IS NOT NULL AND e.when_cond IN ('always','pass')
+            AND fs.status != 'passed'
+        )
+      )
+      OR EXISTS (
+        SELECT 1 FROM pipeline_edges ef
+        JOIN pipeline_stages ffs ON ffs.pipeline_run_id = ef.pipeline_run_id AND ffs.stage_key = ef.from_stage_key
+        WHERE ef.pipeline_run_id = s.pipeline_run_id AND ef.to_stage_key = s.stage_key
+          AND ef.from_stage_key IS NOT NULL AND ef.when_cond = 'fail'
+          AND ffs.status = 'failed'
+      )
+    )
+`)
+
+// pipeline_dispatches — the K/Chief→pipeline intent queue (mirrors lead_dispatches).
+const insertPipelineDispatch = db.prepare(`
+  INSERT INTO pipeline_dispatches (id, pipeline_id, k_run_id, goal, project_id, model, status, pipeline_run_id, created_at, dispatched_at)
+  VALUES (@id, @pipelineId, @kRunId, @goal, @projectId, @model, 'pending', NULL, @createdAt, NULL)
+`)
+const listPendingPipelineDispatches = db.prepare(`SELECT * FROM pipeline_dispatches WHERE status = 'pending' ORDER BY created_at ASC`)
+const getPipelineDispatch = db.prepare(`SELECT * FROM pipeline_dispatches WHERE id = ?`)
+const claimPipelineDispatch = db.prepare(`UPDATE pipeline_dispatches SET status = 'dispatched', dispatched_at = @dispatchedAt WHERE id = @id AND status = 'pending'`)
+const setPipelineDispatchRun = db.prepare(`UPDATE pipeline_dispatches SET pipeline_run_id = @pipelineRunId WHERE id = @id`)
+const markPipelineDispatchFailed = db.prepare(`UPDATE pipeline_dispatches SET status = 'failed', dispatched_at = @dispatchedAt WHERE id = @id AND status = 'dispatched'`)
+
+// workflow_definitions.spec — the executable-definition evolution (JSON PipelineSpec;
+// NULL for a legacy row that lazily compiles via namedWorkflowToPipeline).
+const setDefSpec = db.prepare(`UPDATE workflow_definitions SET spec = @spec WHERE id = @id`)
+const getDefSpec = db.prepare(`SELECT spec FROM workflow_definitions WHERE id = ?`)
+
+// hook_definitions — the run-internal hook registry.
+const insertHook = db.prepare(`
+  INSERT INTO hook_definitions (id, name, event, matcher, impl, timeout_sec, scope, project_id, source, trusted, enabled, created_at, updated_at)
+  VALUES (@id, @name, @event, @matcher, @impl, @timeoutSec, @scope, @projectId, @source, @trusted, @enabled, @createdAt, @updatedAt)
+`)
+const listHooks = db.prepare(`SELECT * FROM hook_definitions ORDER BY created_at ASC`)
+const getHook = db.prepare(`SELECT * FROM hook_definitions WHERE id = ?`)
+const setHookTrusted = db.prepare(`UPDATE hook_definitions SET trusted = @trusted, updated_at = @updatedAt WHERE id = @id`)
+const setHookEnabled = db.prepare(`UPDATE hook_definitions SET enabled = @enabled, updated_at = @updatedAt WHERE id = @id`)
+
+export const pipelineDb = {
+  // pipeline_runs
+  insertPipelineRun, getPipelineRun, listRunningPipelines, updatePipelineStatus,
+  // pipeline_stages
+  insertStage, getStage, getStageByRunId, listStagesForPipeline, claimStage,
+  setStageRun, markStagePassed, markStageFailed, markStageAwaitingGate, resolveGateStage,
+  // pipeline_edges
+  insertEdge, listEdges, listIncomingEdges, listReadyStages, repointEdgesTo,
+  // pipeline_dispatches
+  insertPipelineDispatch, listPendingPipelineDispatches, getPipelineDispatch,
+  claimPipelineDispatch, setPipelineDispatchRun, markPipelineDispatchFailed,
+  // workflow_definitions.spec
+  setDefSpec, getDefSpec,
+  // hook_definitions
+  insertHook, listHooks, getHook, setHookTrusted, setHookEnabled,
+}
 
 // ─── GitHub cache helpers ────────────────────────────────────────────────────
 

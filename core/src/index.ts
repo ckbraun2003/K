@@ -24,6 +24,7 @@ import { chiefRoutes } from './routes/chief.js'
 import { orchestratorsRoutes } from './routes/orchestrators.js'
 import { profilesRoutes } from './routes/profiles.js'
 import { workflowsRoutes } from './routes/workflows.js'
+import { pipelinesRoutes } from './routes/pipelines.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
 import { modelsRoutes } from './routes/models.js'
@@ -48,11 +49,12 @@ import { routinesRoutes } from './routes/routines.js'
 import { retryMetricsRoutes } from './routes/retry-metrics.js'
 import { registerRunVerify } from './run-verify.js'
 import { registerNotifications } from './notify.js'
-import { sweepCheckpointRefs } from './checkpoints.js'
+import { sweepCheckpointRefs, sweepPipelineRefs } from './checkpoints.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { syncHostDiscovery } from './host-discovery.js'
 import { seedProfiles } from './profiles.js'
 import { seedWorkflowDefinitions } from './workflow-defs.js'
+import { seedPipelineSpecs } from './pipeline-seeds.js'
 import { seedEvalSystems } from './eval/store.js'
 import { ensureHarnessBibleRegistered } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
@@ -63,13 +65,18 @@ import { startProposalCollectors } from './proposal-collectors.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
 import { startBudgetBroadcast } from './budget-governor.js'
 import { startBacklogRelay } from './backlog-relay.js'
+import { startPipelineScheduler } from './pipeline-scheduler.js'
+import { startPipelineDispatchRelay } from './pipeline-dispatch-relay.js'
+import { startPipelineUpdateBroadcast } from './pipeline-views.js'
+import { reconcilePipelines } from './pipeline-engine.js'
+import { continuePipelineOutcomeToK } from './k-thread.js'
 import { startSelfHeal } from './self-heal.js'
 import { startLessonProposals } from './lesson-proposals.js'
 import { getProject, listProjects, warnStaleProjectPaths } from './projects.js'
 import { reconcileOnBoot, REPO_ROOT } from './supervisor.js'
 import { startOllamaProbe } from './router.js'
 import { acquireInstanceLock } from './instance-lock.js'
-import { DATA_DIR, runsDb } from './db.js'
+import { DATA_DIR, runsDb, pipelineDb } from './db.js'
 import type { WsMessage, AgentEvent, Run } from '@k/shared'
 import { startGithubPoller, stopGithubPoller } from './github.js'
 import {
@@ -113,6 +120,13 @@ let stopLeadDispatchRelay: (() => void) | undefined
 let stopBudgetBroadcast: (() => void) | undefined
 // Same, for the E-15 backlog auto-pull relay (drains open org work_items; opt-in, default OFF).
 let stopBacklogRelay: (() => void) | undefined
+// Same, for the D-119 pipeline scheduler (drains running pipelines' ready stages; PIPELINE_SCHEDULER=0).
+let stopPipelineScheduler: (() => void) | undefined
+// Same, for the C1 pipeline-dispatch relay (drains the child-recorded delegate_pipeline queue; PIPELINE_DISPATCH_RELAY=0).
+let stopPipelineDispatchRelay: (() => void) | undefined
+// Unregister fn for the C1 pipeline→K report-back (a global engine terminal listener).
+let stopPipelineOutcomeToK: (() => void) | undefined
+let stopPipelineUpdateBroadcast: (() => void) | undefined
 // Same, for the E-04 run-verify engine (terminal-'done' → recipe battery; W0 stub).
 let stopRunVerify: (() => void) | null = null
 // Same, for the E-19 notification engine (rules-gated run/verify → notifications; W0 stub).
@@ -187,6 +201,7 @@ export async function buildApp() {
   await app.register(orchestratorsRoutes)
   await app.register(profilesRoutes)
   await app.register(workflowsRoutes)
+  await app.register(pipelinesRoutes)
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
   await app.register(modelsRoutes)
@@ -356,6 +371,10 @@ export async function buildApp() {
     stopLeadDispatchRelay?.()
     stopBudgetBroadcast?.()
     stopBacklogRelay?.()
+    stopPipelineScheduler?.()
+    stopPipelineDispatchRelay?.()
+    stopPipelineOutcomeToK?.()
+    stopPipelineUpdateBroadcast?.()
     stopSelfHeal?.()
     stopLessonProposals?.()
     stopArtifactScan?.()
@@ -459,13 +478,22 @@ async function start() {
   // Crash recovery: mark runs left `running`/`queued` by a prior crash as
   // interrupted and prune orphaned worktrees, before serving traffic.
   reconcileOnBoot()
+  // D-119: reconcile RUNNING pipelines — runs AFTER reconcileOnBoot's stale-run sweep so a
+  // crashed stage's linked run is already terminal and derivable (done→passed / else failed);
+  // a 'dispatched' stage with no run_id is failed (never re-executed); quiesced pipelines
+  // finalize. Kept in index.ts (not reconcileOnBoot) to avoid a supervisor→engine import cycle,
+  // exactly as the checkpoint-ref sweep below lives here rather than in reconcileOnBoot.
+  try { reconcilePipelines() } catch (e) { console.warn('[pipeline] reconcilePipelines failed (continuing):', e) }
+  const sweepRoots = [REPO_ROOT, ...listProjects().map(p => p.localPath)]
   // P1: prune checkpoint refs for runs whose rows were deleted (best-effort, async;
   // roots = the harness repo + every registered project).
-  void sweepCheckpointRefs(
-    [REPO_ROOT, ...listProjects().map(p => p.localPath)],
-    (runId) => runsDb.getRun.get(runId) !== undefined,
-  )
+  void sweepCheckpointRefs(sweepRoots, (runId) => runsDb.getRun.get(runId) !== undefined)
     .then(n => { if (n > 0) console.log(`[checkpoints] pruned ${n} orphaned checkpoint ref(s)`) })
+    .catch(() => { /* best-effort */ })
+  // D-119: prune sweep-immune pipeline handoff refs (refs/k-pipelines/<pipelineRunId>/…) whose
+  // pipeline_runs row is gone — the pipeline-keyed mirror of the checkpoint-ref sweep above.
+  void sweepPipelineRefs(sweepRoots, (plrId) => pipelineDb.getPipelineRun.get(plrId) !== undefined)
+    .then(n => { if (n > 0) console.log(`[pipeline] pruned ${n} orphaned pipeline handoff ref(s)`) })
     .catch(() => { /* best-effort */ })
   // F-033: warn once per registered project whose localPath has vanished on disk, so
   // a silently-broken project surfaces in the boot log (its workspace actions are
@@ -502,6 +530,7 @@ async function start() {
   }
   seedProfiles()      // ensure the durable agent-org profiles (K, Chief, orchestrator + leads) exist
   seedWorkflowDefinitions() // ensure the built-in named workflow templates (code-wave, investigate, refactor) exist
+  seedPipelineSpecs() // evolve those templates into executable pipeline specs (workflow_definitions.spec); preserves operator edits
   // Seed the eval registry (testing/eval/* → eval_* tables) so the Evals surface has systems to run.
   // Idempotent; guarded so a missing/garbled testing/eval/ dir logs and continues rather than aborting boot.
   try {
@@ -541,6 +570,22 @@ async function start() {
   // oldest item under the default orchestrator. Inert until the operator enables it
   // (autonomySettings.enabled + backlogAutoPull, default OFF). Opt out: BACKLOG_RELAY=0.
   stopBacklogRelay = startBacklogRelay()
+  // D-119 pipeline scheduler: drain running pipelines' ready stages on an interval (budget +
+  // concurrency gated for agent stages). Inert until a pipeline is running. Opt out: PIPELINE_SCHEDULER=0.
+  stopPipelineScheduler = startPipelineScheduler()
+  // C1 pipeline-dispatch relay: drain the DB-backed delegate_pipeline intent queue in this long-lived
+  // process (so a delegated pipeline's scheduler + report-back outlive the ephemeral MCP child that
+  // recorded it). Inert until a pipeline is delegated. Opt out: PIPELINE_DISPATCH_RELAY=0.
+  stopPipelineDispatchRelay = startPipelineDispatchRelay()
+  // C1 pipeline→K report-back: a GLOBAL engine terminal listener that, when a delegated pipeline
+  // finishes, appends its outcome onto the delegating K thread. Inert unless a pipeline linked to a
+  // K delegation reaches terminal.
+  stopPipelineOutcomeToK = continuePipelineOutcomeToK()
+  // C2 pipeline_update WS: broadcast the refreshed run view when a pipeline reaches terminal
+  // (onPipelineTerminal), so the live DAG's finalize is on the wire without coupling the engine
+  // writers to the WS. Stage dispatch/gate/rewind/cancel transitions broadcast from the scheduler
+  // + routes; this covers the finalize. Inert unless a pipeline runs.
+  stopPipelineUpdateBroadcast = startPipelineUpdateBroadcast()
   // E-18 self-healing runs: on a terminal FAILED org/auto run, classify and (if the operator
   // enabled Autonomy + Self-heal, budget permitting) retry with a model fallback, else park an
   // Inbox proposal. Inert until autonomy is enabled; subscribes to the run-update bus.

@@ -534,6 +534,24 @@ export function reconcileOrphanedLeadDispatches(d: import('better-sqlite3').Data
 }
 
 /**
+ * Finalize pipeline-dispatch INTENTS stranded 'dispatched' with no pipeline_run_id (C1). The
+ * pipeline-dispatch relay (pipeline-dispatch-relay.ts) claims a queued intent (pending→dispatched
+ * CAS) BEFORE it awaits startPipelineRun; a main-process crash in that window leaves the row
+ * 'dispatched', pipeline_run_id NULL. Nothing else recovers it (it is no longer 'pending', so the
+ * drain skips it), so mark it 'failed'. We deliberately do NOT re-'pending' it: a crash AFTER
+ * startPipelineRun instantiated the pipeline but BEFORE setPipelineDispatchRun recorded it would
+ * then double-execute the pipeline — the exact lead-dispatch policy. (A 'dispatched' row WITH a
+ * pipeline_run_id is complete — untouched.) Mirrors reconcileOrphanedLeadDispatches (pure DB; takes
+ * the handle for unit-testing). Returns rows reconciled.
+ */
+export function reconcileOrphanedPipelineDispatches(d: import('better-sqlite3').Database = db): number {
+  const res = d
+    .prepare(`UPDATE pipeline_dispatches SET status = 'failed', dispatched_at = ? WHERE status = 'dispatched' AND pipeline_run_id IS NULL`)
+    .run(Date.now())
+  return res.changes
+}
+
+/**
  * Clear k_threads stranded pointing at a DEAD run. Live-observed after a
  * crash/boot: a thread stuck status='active' with an active_run_id whose run is
  * already terminal (the captureAnswers subscriber that would have cleared it does
@@ -661,6 +679,12 @@ export function reconcileOnBoot(): void {
     if (p > 0) console.log(`[supervisor] boot sweep: reset ${p} stranded lead-dispatch intent(s) to failed`)
   } catch (err) {
     console.warn('[supervisor] reconcileOrphanedLeadDispatches failed:', (err as Error).message)
+  }
+  try {
+    const pp = reconcileOrphanedPipelineDispatches()
+    if (pp > 0) console.log(`[supervisor] boot sweep: reset ${pp} stranded pipeline-dispatch intent(s) to failed`)
+  } catch (err) {
+    console.warn('[supervisor] reconcileOrphanedPipelineDispatches failed:', (err as Error).message)
   }
   // E-02: surviving plan parks hold their worktree + config dir until approve/discard.
   const parkedPlanIds = new Set(

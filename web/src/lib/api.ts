@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -45,6 +45,22 @@ export interface BibleSectionView {
  *  SkillDraftEditor mutates. Everything else on a draft is lifecycle-owned by the
  *  backend (status/revision/runId move via refine/evaluate/save, never a PATCH). */
 export type SkillDraftPatch = Partial<Pick<SkillDraft, 'skillMd' | 'nameHint'>>
+
+/** One pipeline DEFINITION summary (GET /api/pipelines) — mirrors core's list projection:
+ *  identity + `hasSpec` (an executable spec exists vs a legacy row that lazily compiles). */
+export interface PipelineDefSummary {
+  id: string
+  name: string
+  description: string | null
+  hasSpec: boolean
+}
+
+/** POST /api/pipelines/:id/run body — the operator delegation entrance (mirrors core's Zod). */
+export interface RunPipelineBody {
+  goal: string
+  projectId?: string
+  model?: string
+}
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
 export interface OnboardResult {
@@ -498,6 +514,33 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       }),
+  },
+  // Executable pipelines (D-119) — the definition list/detail, the operator run entrance, and the
+  // live run views + gate/rewind/cancel mutations (each mutation returns the refreshed
+  // PipelineRunView). Typed against the @k/shared wire schemas; the live DAG (C3) also subscribes
+  // to the `pipeline_update` WS delta for incremental refreshes.
+  pipelines: {
+    list: () => req<PipelineDefSummary[]>('/pipelines'),
+    get: (id: string) => req<PipelineSpec>(`/pipelines/${id}`),
+    run: (id: string, body: RunPipelineBody) =>
+      req<{ pipelineRunId: string }>(`/pipelines/${id}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    listRuns: (limit?: number) =>
+      req<PipelineRun[]>(`/pipelines/runs${limit != null ? `?limit=${limit}` : ''}`),
+    getRun: (id: string) => req<PipelineRunView>(`/pipelines/runs/${id}`),
+    resolveGate: (runId: string, stageId: string, body: { decision: 'approve' | 'reject'; note?: string }) =>
+      req<PipelineRunView>(`/pipelines/runs/${runId}/stages/${stageId}/gate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    rewindStage: (runId: string, stageId: string) =>
+      req<PipelineRunView>(`/pipelines/runs/${runId}/stages/${stageId}/rewind`, { method: 'POST' }),
+    cancel: (runId: string) =>
+      req<PipelineRunView>(`/pipelines/runs/${runId}/cancel`, { method: 'POST' }),
   },
   // Org-default authority (P5.3b) — the default-orchestrator grant each discipline lead
   // inherits unless overridden. `update` is grant-guarded server-side (an ungranted MCP

@@ -234,3 +234,43 @@ export async function sweepCheckpointRefs(
   }
   return deleted
 }
+
+/**
+ * Boot sweep for PIPELINE handoff refs (D-119, A3). A stage's deterministic handoff
+ * commit lives at `refs/k-pipelines/<pipelineRunId>/<stageKey>` — a namespace immune to
+ * the RUN-keyed `sweepCheckpointRefs` above (which scans only `refs/k-checkpoints/`), so
+ * a handoff commit is NOT orphaned when its stage's run row is swept mid-pipeline. This
+ * mirror sweep is keyed on `pipeline_runs` existence instead: it deletes refs whose
+ * `<pipelineRunId>` segment names a pipeline run that no longer exists (deleted/cascaded).
+ * Same best-effort + bounded + dedup-roots posture (and the same single-core-per-repo
+ * assumption) as sweepCheckpointRefs. Returns refs deleted.
+ */
+export async function sweepPipelineRefs(
+  repoRoots: string[],
+  pipelineRunExists: (pipelineRunId: string) => boolean,
+): Promise<number> {
+  const bounded = { timeout: 30_000, killSignal: 'SIGKILL' as const }
+  const seen = new Set<string>()
+  let deleted = 0
+  for (const root of repoRoots) {
+    const key = path.resolve(root).toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    try {
+      const { stdout } = await execa(
+        'git', ['-C', root, 'for-each-ref', '--format=%(refname)', 'refs/k-pipelines/'], bounded,
+      )
+      for (const ref of stdout.split('\n').map(s => s.trim()).filter(Boolean)) {
+        // refs/k-pipelines/<pipelineRunId>/<stageKey> — key on the first segment. stageKey
+        // is [a-z0-9-] (no slash), so the split is unambiguous.
+        const pipelineRunId = ref.slice('refs/k-pipelines/'.length).split('/')[0]
+        if (pipelineRunId === '' || pipelineRunExists(pipelineRunId)) continue
+        try {
+          await execa('git', ['-C', root, 'update-ref', '-d', ref], bounded)
+          deleted++
+        } catch { /* best-effort per ref */ }
+      }
+    } catch { /* not a git repo / git unavailable — skip this root */ }
+  }
+  return deleted
+}

@@ -23,11 +23,13 @@ import {
   LessonStatusSchema,
   WorkflowStepKindSchema,
   WorkflowStepStatusSchema,
+  isKnownModel,
   type WorkItem,
   type Lesson,
   type WorkflowStep,
 } from '@k/shared'
-import { workItemsDb, agentMemoryDb, workflowStepsDb, workflowRunsDb, runsDb, agentRunsDb } from '../db.js'
+import { workItemsDb, agentMemoryDb, workflowStepsDb, workflowRunsDb, runsDb, agentRunsDb, pipelineDb, workflowDefsDb } from '../db.js'
+import { getProject, getProjectByName } from '../projects.js'
 
 /** Per-call context the server/CLI injects. `runId` is the managed run (K_RUN_ID). */
 export interface KStoreContext {
@@ -316,6 +318,62 @@ function workflowStatusSet(args: unknown, ctx: KStoreContext): { ok: true; statu
   return { ok: true, status: a.status }
 }
 
+// ── pipeline delegation (C1) ──────────────────────────────────────────────────
+
+const DelegatePipelineInput = {
+  pipelineId: z.string().min(1).max(100),
+  goal: z.string().min(1).max(20_000),
+  project: z.string().min(1).max(200).optional(),
+  model: z.string().min(1).max(100).optional(),
+}
+/** RECORD (not execute): record the intent to run a pipeline. Like `dispatch_lead`, this tool runs
+ *  inside the ephemeral per-K/Chief-run stdio MCP CHILD process (it dies at the delegating turn's
+ *  end), so it CANNOT own a MULTI-run pipeline itself — the scheduler that walks the DAG + each
+ *  stage's report-back must outlive the child. Instead it validates the pipeline DEFINITION exists
+ *  (by workflow_definitions id, then name) + the optional project resolves, then inserts a 'pending'
+ *  row into the DB-backed `pipeline_dispatches` queue scoped to the owning K run. The long-lived MAIN
+ *  process relay (pipeline-dispatch-relay.ts::drainPipelineDispatches) claims it, resolves the
+ *  project→cwd scope, and calls startPipelineRun — all in a process that stays up.
+ *  Returns { dispatchId, pipelineId, projectId, status:'pending' }. */
+function delegatePipeline(args: unknown, ctx: KStoreContext): {
+  dispatchId: string
+  pipelineId: string
+  projectId: string | null
+  status: 'pending'
+} {
+  const a = z.object(DelegatePipelineInput).parse(args ?? {})
+  // Validate the pipeline definition exists BEFORE recording — resolve by id, then by name (the arg
+  // accepts either), and pin the canonical id so the relay's startPipelineRun resolves it by id.
+  const def = (workflowDefsDb.getWorkflowDefRow.get(a.pipelineId) ??
+    workflowDefsDb.getWorkflowDefByNameRow.get(a.pipelineId)) as { id?: string } | undefined
+  if (!def?.id) throw new KStoreError(`no pipeline definition "${a.pipelineId}".`)
+  // Resolve the optional project scope (name first, then id) to its id up front — a clean error now
+  // beats a silent relay-time failure. NULL scope runs the pipeline against K's own repo.
+  let projectId: string | null = null
+  if (a.project !== undefined) {
+    const project = getProjectByName(a.project) ?? getProject(a.project)
+    if (!project) throw new KStoreError(`project "${a.project}" not found.`)
+    projectId = project.id
+  }
+  // Validate the optional model at this boundary — every HTTP entrance guards it via isKnownModel,
+  // so the tool must too, else a typo flows through applyModelOverride → StageDef.model →
+  // startAgentRun and every stage mis-dispatches opaquely (SEAMS F4).
+  if (a.model !== undefined && !isKnownModel(a.model)) throw new KStoreError(`unknown model "${a.model}".`)
+  // Record the intent ONLY (k_run_id = the owning K/Chief run, like dispatch_lead's chief_run_id);
+  // the MAIN-process relay drains + executes it.
+  const dispatchId = uuid()
+  pipelineDb.insertPipelineDispatch.run({
+    id: dispatchId,
+    pipelineId: def.id,
+    kRunId: resolveOwnerRunId(ctx),
+    goal: a.goal,
+    projectId,
+    model: a.model ?? null,
+    createdAt: Date.now(),
+  })
+  return { dispatchId, pipelineId: def.id, projectId, status: 'pending' }
+}
+
 // ── registry ────────────────────────────────────────────────────────────────
 
 export interface KStoreTool {
@@ -376,5 +434,12 @@ export const kStoreTools: KStoreTool[] = [
       'Set the overall status of the current workflow run (running | completed | failed). Returns ok, or a clean notice if this run is not in a workflow.',
     inputShape: WorkflowStatusSetInput,
     handler: workflowStatusSet,
+  },
+  {
+    name: 'delegate_pipeline',
+    description:
+      "Delegate a multi-agent PIPELINE (a built-in workflow like 'code-wave', 'investigate', or 'refactor') to run autonomously. pipelineId is the pipeline's id or name; goal is what it should accomplish; project (optional) scopes it to a registered project's repo (else K's own); model (optional) runs every stage on a chosen model. Records the intent — the pipeline runs in the background and reports its outcome back here. Returns { dispatchId, pipelineId, projectId, status:'pending' }.",
+    inputShape: DelegatePipelineInput,
+    handler: delegatePipeline,
   },
 ]

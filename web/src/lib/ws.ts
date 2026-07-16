@@ -1,4 +1,4 @@
-import type { WsMessage } from '@k/shared'
+import { WsMessageSchema, type WsMessage } from '@k/shared'
 import { effectiveToken, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import { coreWsBase } from './core-origin'
@@ -44,7 +44,9 @@ export function connectWs() {
 
   socket.onmessage = (e) => {
     try {
-      const msg = JSON.parse(e.data as string) as WsMessage
+      const parsed = WsMessageSchema.safeParse(JSON.parse(e.data as string))
+      if (!parsed.success) return // ignore a contract-violating message (SEAMS F5 — defensive)
+      const msg: WsMessage = parsed.data
       if (msg.type === 'pong') return
       for (const h of handlers) {
         try { h(msg) } catch { /* handler errors must not kill the socket */ }

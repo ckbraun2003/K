@@ -13,7 +13,7 @@ import type { WsMessage } from '@k/shared'
 
 const {
   capturedHandler, unsubscribeSpy, runUpdateHandler, runUpdateDispose,
-  projectListSpy, capabilitiesSpy, verifySpy, inboxSpy, feedSpy, autonomySpy, notifySpy,
+  projectListSpy, capabilitiesSpy, verifySpy, inboxSpy, feedSpy, autonomySpy, pipelineSpy, notifySpy,
 } = vi.hoisted(() => ({
   capturedHandler: { current: null as ((msg: WsMessage) => void) | null },
   unsubscribeSpy: vi.fn(),
@@ -25,6 +25,7 @@ const {
   inboxSpy: vi.fn(),
   feedSpy: vi.fn(),
   autonomySpy: vi.fn(),
+  pipelineSpy: vi.fn(),
   notifySpy: vi.fn(),
 }))
 
@@ -46,6 +47,8 @@ vi.mock('../src/lib/live-invalidate', () => ({
   makeFeedInvalidator: () => feedSpy,
   // P5 autonomy invalidator (budget_update / run_retried) — same Shell-only ownership.
   makeAutonomyInvalidator: () => autonomySpy,
+  // D-119 pipeline invalidator (pipeline_update → ['pipeline-run', id] / ['pipeline-runs']).
+  makePipelineInvalidator: () => pipelineSpy,
 }))
 
 vi.mock('../src/lib/notifications', () => ({ raiseBrowserNotification: notifySpy }))
@@ -70,6 +73,7 @@ beforeEach(() => {
   inboxSpy.mockClear()
   feedSpy.mockClear()
   autonomySpy.mockClear()
+  pipelineSpy.mockClear()
   notifySpy.mockClear()
 })
 afterEach(() => cleanup())
@@ -88,6 +92,7 @@ describe('useLiveInvalidators', () => {
     expect(inboxSpy).toHaveBeenCalledWith(msg)
     expect(feedSpy).toHaveBeenCalledWith(msg)
     expect(autonomySpy).toHaveBeenCalledWith(msg)
+    expect(pipelineSpy).toHaveBeenCalledWith(msg)
     expect(notifySpy).toHaveBeenCalledWith(msg)
   })
 

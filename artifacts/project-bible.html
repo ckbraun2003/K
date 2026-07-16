@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-16 04:15</span><br>
+      compiled <span class="mono">2026-07-16 17:11</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -1145,6 +1145,22 @@ configuration, not new engines — the substrate is the supervisor/EventBus alre
 selection of todos as a checklist and instructs one supervised controller run to act out the
 delegation loop in its own worktree, producing one reviewable PR (decision D-012). That loop is
 <strong>prose methodology</strong> the orchestrator carries out internally — it is not a multi-run engine.</p>
+<blockquote>
+<p><strong>SUPERSEDED — the executable pipeline engine landed (D-119, 2026-07-16).</strong> The "not a multi-run
+engine" limitation is now closed. <code>workflow_definitions.spec</code> carries an executable <code>PipelineSpec</code>
+(Zod in <code>@k/shared</code>) that a main-process <code>PipelineEngine</code> + scheduler walks as a real DAG:
+<code>agent</code>/<code>deterministic</code>/<code>gate</code>/<code>hook</code> stages, per-edge <code>share-tree</code>/<code>branch</code>/<code>merge</code> handoff via the
+checkpoint chain (sweep-immune <code>refs/k-pipelines/…</code>), declarative + dynamically-inserted gates,
+retry-in-place (the self-heal retry brain + the <code>runs.pipeline_stage_id</code> ownership guard that prevents
+double-fire), conditional forward routing (<code>markSkips</code> + skip-aware finalize), and reboot reconcile —
+all built the lead-relay way (DB ledger + CAS claim). K (or the operator) delegates via
+<code>delegate_pipeline</code> / <code>POST /api/pipelines/:id/run</code>, and the Agents→Pipelines tab renders the live DAG.
+The legacy <code>NamedWorkflow</code>/<code>buildDelegationPrompt</code> path stays for backward-compat — a legacy row lazily
+compiles via <code>namedWorkflowToPipeline</code>. Seeded reference pipelines: <code>code-wave</code> (implementer → parallel
+share-tree reviews → merge-join controller → gate → verify), <code>investigate</code>, <code>refactor</code>. See §10 D-119
+and the §09 roadmap. <strong>Deferred:</strong> repair-LOOP back-edges, <code>commit</code>/<code>ci</code> deterministic actions, hook
+<code>inject</code> propagation, run-internal operator hooks (Phase 1.5), the injection intelligence (Phase 3).</p>
+</blockquote>
 <p>Phase 5 generalizes that single loop into <strong>named workflow definitions</strong> a lead selects per goal. A
 definition is a small declarative record — its role sequence, the prompt scaffold, and a scope flag —
 that <code>startAgentRun(profileId, { workflowId, … })</code> seeds into a run:</p>
@@ -2876,6 +2892,10 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
       <span class="phase-bar"><span class="phase-fill"></span></span>
       <span class="phase-pct mono">9/9</span>
     </div><div class="phase-row">
+      <span class="phase-name">Orchestration Program — Phase 1: Executable Pipeline Engine (D-119)</span>
+      <span class="phase-bar"><span class="phase-fill"></span></span>
+      <span class="phase-pct mono">3/8</span>
+    </div><div class="phase-row">
       <span class="phase-name">Phase 6 — Intelligence &amp; Scale (optional)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
       <span class="phase-pct mono">0/4</span>
@@ -3326,6 +3346,22 @@ the <code>Checkbox</code> primitive; the HelpGuide remembers its page across reo
 still narrates the pre-UI-Simplification shell (the mandated Help + run/PR-review sections landed this
 wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/</code> escape in the ui-demo's
 <code>dispatchSend</code> predates this program.</p>
+<h2>Orchestration Program — Phase 1: Executable Pipeline Engine (D-119)</h2>
+<p><em>The deferred D-012 <code>workflow_stages</code>, built 2026-07-16 on <code>feat/pipeline-engine</code> (schema v13→v14). Turns prose-delegation-in-one-run into real staged, per-stage-visible pipelines — the substrate for the later phases below.</em></p>
+<ul>
+<li><input checked disabled type="checkbox" /> <strong>Executable pipeline DAG.</strong> <code>PipelineSpec</code> (evolves <code>workflow_definitions.spec</code>) with <code>agent</code>/<code>deterministic</code>/<code>gate</code>/<code>hook</code> stages + per-edge handoff (<code>share-tree</code>/<code>branch</code>/<code>merge</code>, parallel fan-out/fan-in); a main-process <code>PipelineEngine</code>+scheduler (lead-relay-shaped: DB ledger + CAS claim), checkpoint handoff to sweep-immune <code>refs/k-pipelines/…</code>, retry-in-place (factored self-heal brain + <code>runs.pipeline_stage_id</code> ownership guard), gates (declarative + dynamic <code>insertGate</code>, CAS resolve) + conditional forward routing (<code>markSkips</code> + skip-aware finalize), reboot reconcile, <code>StageExecutor</code> seam (Docker later).</li>
+<li><input checked disabled type="checkbox" /> <strong>Delegation + API + UI.</strong> <code>delegate_pipeline</code> (kstore tool → <code>pipeline-dispatch-relay</code> → <code>onPipelineTerminal</code> report-back to K); <code>GET/POST /api/pipelines/*</code> (8 endpoints, budget-gated <code>/run</code>, gate/rewind/cancel); an upgraded Agents→Pipelines tab (hand-laid live DAG + stage cards + gate dialog + launcher, <code>pipeline_update</code> WS).</li>
+<li><input checked disabled type="checkbox" /> <strong>Reference pipelines + hook stages.</strong> Seeded <code>code-wave</code>/<code>investigate</code>/<code>refactor</code>; the <code>hook</code> stage kind's script <code>HookResult</code> contract (<code>continue</code>/<code>gate</code>/<code>transform</code>).</li>
+</ul>
+<p><strong>Deferred within Phase 1 (documented):</strong> repair-LOOP back-edges (forward routing + retry-in-place instead); <code>commit</code>/<code>ci</code> deterministic actions (agents open their own PRs); hook <code>inject</code> cross-stage propagation + agent-hook structured <code>HookResult</code>.</p>
+<p><strong>Later phases of the Orchestration Program:</strong></p>
+<ul>
+<li><input disabled type="checkbox" /> <strong>Phase 1.5 — Run-internal operator hooks.</strong> Generalize the config-dir hook mounting (PreToolUse/PreSkill), confined operator scripts, gitnexus-as-registry-row, trust card. <em>(Operator-deferred from Phase 1; pairs with Phase 3.)</em></li>
+<li><input disabled type="checkbox" /> <strong>Phase 2 — Intent &amp; auto-delegation.</strong> K decomposes/scopes and AUTO-SELECTS a pipeline from a vague request (be-less-precise).</li>
+<li><input disabled type="checkbox" /> <strong>Phase 3 — Context/memory injection intelligence.</strong> The ContextAssembler + memory-retrieval loop that fills the hook-<code>inject</code> + injection seam (subsumes the old "memory layer B" item below).</li>
+<li><input disabled type="checkbox" /> <strong>Phase 4 — Sandboxes.</strong> Docker <code>StageExecutor</code>; ephemeral + persistent sandboxes; Playwright / native-desktop verification stages.</li>
+<li><input disabled type="checkbox" /> <strong>Phase 5 — Token-efficiency &amp; scale.</strong> Skill promotion, caching/dedup, cheap-model routing for mechanical stages, high-concurrency scheduling.</li>
+</ul>
 <h2>Phase 6 — Intelligence &amp; Scale <em>(optional)</em></h2>
 <ul>
 <li><input disabled type="checkbox" /> EventBus → NATS/Redis Streams + worker processes</li>
@@ -4298,6 +4334,14 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
 <td><strong><code>ChangesLayout.tsx</code> pairs a left file list (per-file <code>+</code>/<code>-</code> stat, a persisted <code>viewed</code> ✓ via <code>getViewed(identity)</code>) with a right <code>DiffViewer</code> v2 pane. <code>DiffViewer</code> renders <code>refractor</code>-tokenized code inside a <code>.code-viewer</code> region colored entirely by the <code>--code-*</code> custom properties in <code>index.css</code>, via <code>refractor</code>'s own <code>token &lt;type&gt;</code> class names — <code>DiffViewer</code> itself never tracks a token-to-color mapping. A <code>readOnly</code> prop disables comment add/delete and file-expand affordances. <code>#/pr-review/&lt;projectId&gt;/&lt;n&gt;</code> (<code>PrReviewPage.tsx</code>, registered in <code>route.ts</code>'s <code>KNOWN_VIEWS</code>) is a full-screen, read-only view of a GitHub PR's diff, reusing the same <code>ChangesLayout</code> with <code>readOnly</code> set; comments stay run-only and are never posted back to GitHub. <code>PrsCiTab</code> gains an "Open review" action linking into that route.</strong></td>
 <td>Reusing one <code>ChangesLayout</code>/<code>DiffViewer</code> for both run-review and PR-review — rather than building two diff UIs — keeps the review experience (viewed marks, file list, code coloring) identical regardless of what is under review. Making the PR path explicitly read-only is an honest boundary: K has no GitHub-comment-write plumbing today, so the UI doesn't imply one.</td>
 <td>A separate, lighter diff view built just for PRs (would drift from the run-review UI over time as one surface gets features the other doesn't); allowing PR-side comment writes now (no GitHub-write plumbing exists — would be a fabricated capability).</td>
+</tr>
+<tr>
+<td>D-119</td>
+<td>2026-07-16</td>
+<td>Executable pipeline engine (the deferred D-012 <code>workflow_stages</code>) — a multi-run DAG: agent/deterministic/gate/hook stages, per-edge handoff, declarative+dynamic gates, retry-in-place, <code>delegate_pipeline</code>, live Pipelines UI</td>
+<td><strong>A <code>PipelineSpec</code> (stored in the new <code>workflow_definitions.spec</code>, Zod in <code>@k/shared</code>) is an executable DAG: stages of kind <code>agent</code> (a supervised <code>startAgentRun</code>), <code>deterministic</code> (zero-token <code>command</code>/<code>verify</code> script), <code>gate</code> (human checkpoint), or <code>hook</code> (a script returning a <code>HookResult</code>); edges carry a per-edge <code>handoff</code> (<code>share-tree</code> = fork at the upstream <code>result_commit</code> incl. fan-out, <code>branch</code> = fork at the pipeline base, <code>merge</code> = 3-way fan-in) and a <code>when</code> condition (<code>always</code>/<code>pass</code>/<code>fail</code>/<code>repair</code>). A main-process <code>PipelineEngine</code> + <code>pipeline-scheduler</code> drives it exactly like the lead-dispatch relay — a DB ledger (<code>pipeline_runs</code>/<code>pipeline_stages</code>/<code>pipeline_edges</code>) + a <code>draining</code> latch + per-stage CAS claim (<code>pending→dispatched</code>) on an unref'd interval; readiness is an AND-join over <code>always</code>/<code>pass</code> predecessors plus <code>fail</code>-activation, <code>markSkips</code> dead-branches unreachable stages to <code>skipped</code>, and a skip-aware <code>maybeFinalizePipeline</code> completes/fails on quiesce. Stage-to-stage state hands off through the existing checkpoint chain: each stage forks a worktree at a computed base commit and its output is its terminal checkpoint SHA, written to a sweep-immune <code>refs/k-pipelines/&lt;pipelineRunId&gt;/&lt;stageKey&gt;</code> (a new <code>sweepPipelineRefs</code> reaps them by <code>pipeline_runs</code> existence). Failure retries IN PLACE via the retry brain factored out of self-heal (<code>classifyRunFailure</code>+<code>stampRetryLineage</code>), bounded by <code>StageDef.retry.maxAttempts</code>, at the SAME base commit on a fallback model — and a mandatory ownership guard (<code>runs.pipeline_stage_id</code>, the v14 sentinel, stamped on every dispatch incl. retries) makes the global self-heal SKIP pipeline runs so they never double-fire. Gates park at <code>awaiting_gate</code> (reusing the plan-gate park), resolve via a single-resolver CAS (<code>resolveGate</code>, 409 on a lost race), and can be inserted dynamically (<code>insertGate</code> + <code>repointEdgesTo</code>); <code>rewindPipelineToStage</code> resets a stage + its downstream closure for an operator re-run. Execution is behind a <code>StageExecutor</code> seam (worktree/process now; Docker later). K (or the operator) delegates via <code>delegate_pipeline</code> (a kstore tool → <code>pipeline_dispatches</code> queue → <code>pipeline-dispatch-relay</code> → <code>startPipelineRun</code>), and a single <code>onPipelineTerminal</code> callback reports the outcome back onto the K thread; <code>POST /api/pipelines/:id/run</code> is the same seam without K. <code>GET/POST /api/pipelines/*</code> (8 endpoints, budget-gated <code>/run</code>) + a <code>pipeline_update</code> WS delta drive an upgraded Agents→Pipelines UI (a hand-laid live DAG, per-stage cards, gate dialog, launcher). Schema v13→v14 (5 tables + the sentinel + <code>spec</code>). Three seeded reference pipelines (<code>code-wave</code> = implementer → parallel share-tree reviews → merge-join controller → gate → verify; <code>investigate</code>; <code>refactor</code>).</strong></td>
+<td>Turns the prose-delegation-in-ONE-run NamedWorkflow (D-012/D-047) into real staged, per-stage-visible/retryable/gated pipelines — the substrate every later orchestration pillar builds on — while REUSING the proven relay, checkpoint-chain, self-heal, budget-governor, and plan-gate machinery rather than inventing parallel mechanisms (the whole engine is the lead-relay shape applied to a DAG). Handoff rides checkpoints (no long-lived pipeline worktree), so a mid-pipeline reboot is fully reconcilable; the <code>runs.pipeline_stage_id</code> back-ref (not <code>pipeline_stages.run_id</code>, which a retry overwrites) is what keeps the failed original recognized as engine-owned. Forward routing + retry-in-place covers the reference loop without the bug-prone automatic repair-LOOP.</td>
+<td>A brand-new <code>workflow_stages</code> concept (the executable form EVOLVES <code>workflow_definitions</code> with a <code>spec</code> column — legacy rows lazily compile via <code>namedWorkflowToPipeline</code>); a long-lived pipeline-owned worktree (checkpoint handoff is reboot-safe and reuses existing plumbing); keying the self-heal guard on <code>pipeline_stages.run_id</code> (a retry overwrites it → the failed original double-fires); silent fan-in conflict auto-resolution (surfaced as a stage failure). <strong>Deferred (documented):</strong> repair-LOOP back-edges (re-running an already-passed upstream stage — forward routing + retry instead); <code>commit</code>/<code>ci</code> deterministic actions (agents open their own PRs); hook <code>inject</code> cross-stage propagation + agent-hook structured <code>HookResult</code> (Phase-3 injection); run-internal operator hooks (PreToolUse/PreSkill generalization — a Phase-1.5 fast-follow, operator-chosen); the full ContextAssembler injection intelligence (Phase 3); auto-pipeline-selection from a vague request (Phase 2); the Docker <code>StageExecutor</code> backend (Phase 4).</td>
 </tr>
 </tbody></table>
 

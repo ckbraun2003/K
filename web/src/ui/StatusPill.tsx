@@ -1,8 +1,10 @@
+import type { CanonicalStatus } from '@k/shared'
 import { cn } from '../lib/cn'
 import {
   runStatusMeta,
   agentRunStatusMeta,
   delegationStatusMeta,
+  metaForCanonical,
   type StatusMeta,
 } from '../lib/status'
 
@@ -26,10 +28,16 @@ const STATUS_META: Record<string, StatusMeta> = {
 
 const FALLBACK_META = STATUS_META.idle
 
-export function StatusPill({ status, label, className }: {
-  status: string; label?: string; className?: string
+// `canonical` colors a pill directly off the shared status triple — for surfaces
+// (D-119 pipelines) whose statuses aren't in the Run/AgentRun/DelegationNode
+// literal set above. Additive + backward-compatible: `status` callers are
+// unchanged; a `canonical` caller passes its own `label` (the triple has none).
+export function StatusPill({ status, canonical, label, className }: {
+  status?: string; canonical?: CanonicalStatus; label?: string; className?: string
 }) {
-  const meta = STATUS_META[status] ?? FALLBACK_META
+  const meta: StatusMeta = canonical
+    ? { label: label ?? '', ...metaForCanonical(canonical) }
+    : STATUS_META[status ?? ''] ?? FALLBACK_META
   return (
     <span className={cn('inline-flex items-center gap-1.5 rounded-pill px-2 py-0.5 text-micro font-medium',
       'bg-raised border border-border', className)}>
