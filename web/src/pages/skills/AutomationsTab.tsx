@@ -458,6 +458,14 @@ function SkillRow({
             <Tag className={cn('text-micro uppercase tracking-wide', TRIGGER_COLORS[skill.triggerType])}>
               {skill.triggerType}
             </Tag>
+            {/* Review fix: a routine carrying a pipelineDefId fires a PIPELINE run
+                (skills.ts::triggerSkill), not a plain skill run — surface that so the
+                operator isn't surprised by the trigger's actual behavior. */}
+            {routine?.pipelineDefId && (
+              <Tag className="text-micro uppercase tracking-wide bg-accent/15 text-accent">
+                → pipeline
+              </Tag>
+            )}
             {!skill.enabled && (
               <Tag tint="neutral" className="text-micro uppercase tracking-wide">
                 disabled

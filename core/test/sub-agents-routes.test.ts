@@ -84,6 +84,27 @@ describe('POST /api/sub-agents — plain create', () => {
   })
 })
 
+describe('POST /api/sub-agents — operator-vs-operator name collision', () => {
+  it('409s creating a second operator worker with a name that already belongs to an operator row', async () => {
+    const name = `test-op-collision-${Date.now()}`
+    const first = await app.inject({
+      method: 'POST', url: '/api/sub-agents', headers: AUTH,
+      payload: { name, role: 'first', prompt: 'p1' },
+    })
+    expect(first.statusCode).toBe(201)
+    createdIds.push(first.json().id)
+
+    // Same name again — not a K-native collision (that's the 403 path above); this is the
+    // raw DB UNIQUE-constraint branch mapSubAgentError classifies as 409 (routes/sub-agents.ts:71-72).
+    const second = await app.inject({
+      method: 'POST', url: '/api/sub-agents', headers: AUTH,
+      payload: { name, role: 'second', prompt: 'p2' },
+    })
+    expect(second.statusCode).toBe(409)
+    expect(second.json().error).toMatch(/already exists/i)
+  })
+})
+
 describe('POST /api/sub-agents — clone (fork-to-edit)', () => {
   it('forks a K-native worker into a new operator row carrying its role/prompt/tools', async () => {
     const forked = await app.inject({

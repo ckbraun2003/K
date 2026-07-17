@@ -236,7 +236,7 @@ export async function triggerSkill(
   skillId: string,
   triggeredBy: string,
   opts: { projectId?: string } = {},
-): Promise<{ skillRunId: string; runId: string }> {
+): Promise<{ skillRunId: string; runId: string } | { pipelineRunId: string }> {
   const row = skillsDb.getSkill.get(skillId) as Record<string, unknown> | undefined
   if (!row) throw new Error(`Skill not found: ${skillId}`)
   const skill = rowToSkill(row)
@@ -251,6 +251,27 @@ export async function triggerSkill(
     if (!projectRow) throw new Error(`Project not found: ${opts.projectId}`)
     runOpts.cwd = String(projectRow.local_path)
     runOpts.projectId = opts.projectId
+  }
+
+  // Task B.3 review fix: a skill/routine carrying a `pipelineDefId` targets a PIPELINE
+  // definition instead of a plain skill run — start it via the SAME engine seam the
+  // operator's `POST /api/pipelines/:id/run` and K's `delegate_pipeline` funnel through
+  // (pipeline-defs.ts::startPipelineRun). THIS is now the ONE branch point every trigger
+  // path shares: this function's own callers (the MANUAL `POST /api/skills/:id/trigger`
+  // route, and startEventListener's event dispatch below) get it directly; fireScheduledSkill
+  // (the cron path) delegates straight to this function. Previously the branch lived ONLY in
+  // fireScheduledSkill, so a pipeline-targeted routine fired manually silently ran as a plain
+  // skill instead — fixed by hoisting the branch here. Deliberately bypasses the skill_runs
+  // bookkeeping below — a pipeline run tracks its OWN lifecycle in
+  // pipeline_runs/pipeline_stages/pipeline_edges, not skill_runs. The optional project selector
+  // above still applies (a pipeline-targeted skill run against a chosen project's checkout);
+  // no projectId → REPO_ROOT, exactly like the pre-existing scheduler/event dispatch paths.
+  if (skill.pipelineDefId) {
+    return startPipelineRun(skill.pipelineDefId, {
+      cwd: runOpts.cwd ?? REPO_ROOT,
+      goal: skill.description || `Pipeline run for routine "${skill.name}" (${triggeredBy})`,
+      projectId: opts.projectId ?? null,
+    })
   }
 
   const skillRunId = randomUUID()
@@ -285,31 +306,20 @@ export async function triggerSkill(
 }
 
 /**
- * Fire a SCHEDULE-triggered skill (the cron path — Task B.3). When the skill row carries a
- * `pipelineDefId` (a routine targeting a pipeline definition instead of a plain skill), START
- * THE PIPELINE via the SAME engine seam the operator's `POST /api/pipelines/:id/run` and K's
- * `delegate_pipeline` funnel through (pipeline-defs.ts::startPipelineRun) — this only
- * INSTANTIATES the ledger (pipeline_runs/pipeline_stages/pipeline_edges); the separate pipeline
- * scheduler's own interval dispatches the entry stage, exactly like every other pipeline
- * entrance. A pipeline run tracks its OWN lifecycle there, not via skill_runs, so this
- * deliberately bypasses triggerSkill's skill_runs bookkeeping for that branch. No pipelineDefId
- * → falls back to triggerSkill, byte-identical to the pre-B.3 scheduler behavior. cwd is always
- * REPO_ROOT (a schedule-triggered routine has no per-run project selector, mirroring the
- * existing scheduler/event dispatch paths above, which also run unscoped against K's own repo).
+ * Fire a SCHEDULE-triggered skill (the cron path — Task B.3). Delegates straight to
+ * triggerSkill, which is the SINGLE branch point for `pipelineDefId` → startPipelineRun (review
+ * fix: that branch used to live only here, duplicated, and — worse — the MANUAL trigger path
+ * never got it at all; see triggerSkill's own doc comment). A schedule-triggered routine has no
+ * per-run project selector (no `opts.projectId` is passed), so this is byte-identical to the
+ * pre-review-fix behavior: cwd REPO_ROOT for the pipeline branch, and REPO_ROOT-scoped for the
+ * plain-skill fallback, exactly as before. Kept as its own named export because the scheduler's
+ * cron callback calls it explicitly (not triggerSkill directly) — the distinct name documents
+ * that contract at the call site.
  */
 export async function fireScheduledSkill(
   skillId: string,
   triggeredBy: string,
 ): Promise<{ skillRunId: string; runId: string } | { pipelineRunId: string }> {
-  const row = skillsDb.getSkill.get(skillId) as Record<string, unknown> | undefined
-  if (!row) throw new Error(`Skill not found: ${skillId}`)
-  const skill = rowToSkill(row)
-  if (skill.pipelineDefId) {
-    return startPipelineRun(skill.pipelineDefId, {
-      cwd: REPO_ROOT,
-      goal: skill.description || `Scheduled pipeline run: ${skill.name}`,
-    })
-  }
   return triggerSkill(skillId, triggeredBy)
 }
 

@@ -146,6 +146,37 @@ describe('PATCH /api/skills/:id — pipelineDefId (B.3)', () => {
   })
 })
 
+describe('POST /api/skills/:id/trigger (MANUAL path) — review fix', () => {
+  it('starts a PIPELINE run (not a plain skill run) when pipelineDefId is set', async () => {
+    // Precondition: the PATCH block above set skillId.pipelineDefId = DEF_ID and it has not
+    // been cleared yet (the "falls back to a plain skill run" test below clears it AFTER this
+    // block runs). Before the fix, triggerSkill (which the manual route calls) ignored
+    // pipelineDefId entirely and always fired a plain skill run — this proves it now doesn't.
+    const before = (db
+      .prepare('SELECT COUNT(*) as n FROM skill_runs WHERE skillId = ?')
+      .get(skillId) as { n: number }).n
+
+    const res = await app.inject({
+      method: 'POST', url: `/api/skills/${skillId}/trigger`, headers: AUTH,
+    })
+    expect(res.statusCode).toBe(202)
+    const body = res.json() as { pipelineRunId?: string; skillRunId?: string; runId?: string }
+    expect(body.pipelineRunId).toBeDefined()
+    expect(body.skillRunId).toBeUndefined()
+    createdPipelineRunIds.push(body.pipelineRunId!)
+
+    const row = db.prepare('SELECT * FROM pipeline_runs WHERE id = ?').get(body.pipelineRunId)
+    expect(row).toBeDefined()
+
+    // The pipeline branch bypasses skill_runs bookkeeping entirely (mirrors the scheduler
+    // branch) — no new skill_runs row for this manual trigger.
+    const after = (db
+      .prepare('SELECT COUNT(*) as n FROM skill_runs WHERE skillId = ?')
+      .get(skillId) as { n: number }).n
+    expect(after).toBe(before)
+  })
+})
+
 describe('fireScheduledSkill (the scheduler cron callback) — B.3', () => {
   it('starts a PIPELINE run (not a skill run) when pipelineDefId is set', async () => {
     const { fireScheduledSkill } = await import('../src/skills.js')
