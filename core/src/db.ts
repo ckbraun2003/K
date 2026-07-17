@@ -912,6 +912,7 @@ db.exec(`
     created_at        INTEGER NOT NULL,
     delivered_at      INTEGER
   );
+  CREATE INDEX IF NOT EXISTS idx_agent_messages_queue ON agent_messages(to_profile_id, status);
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
