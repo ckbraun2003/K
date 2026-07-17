@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
-import { WORKER_CEILING_TIER } from '@k/shared'
+import { WORKER_CEILING_TIER, isKnownModel } from '@k/shared'
 import { listSubAgents, createSubAgent, updateSubAgent, deleteSubAgent } from '../sub-agents.js'
 import { sendError, sendZodError } from './http-errors.js'
 import { resolveAvailableModels, availableModelIds } from '../models.js'
@@ -109,7 +109,16 @@ export async function subAgentsRoutes(app: FastifyInstance) {
     // (no override) for consistency with the orchestrator/org-default model gates;
     // an explicit null or an omitted field both skip the check.
     if (b.model === '') b.model = null
-    if (b.model != null) {
+    const resolvedModel = b.model !== undefined ? b.model : (base?.model ?? null)
+    // Validate ONLY an explicitly-supplied model against the available set (a known
+    // Claude id skips the Ollama round-trip — SEAMS#1 follow-up). A `cloneFrom`-
+    // INHERITED model is deliberately NOT re-validated (SEAMS#2 M1, accepted): it
+    // originates from a trusted K-native `.md` frontmatter — which legitimately uses
+    // Claude Code model ALIASES like `sonnet`/`haiku` that are NOT KNOWN_MODELS ids
+    // and are resolved later by the router — or from an already-validated operator
+    // row; enforcing the available-set invariant on it would reject valid forks for
+    // no security gain (the model reaches only a `--model <id>` argv, never a shell).
+    if (b.model != null && !isKnownModel(b.model)) {
       const avail = availableModelIds(await resolveAvailableModels())
       if (!avail.has(b.model)) return sendError(reply, 400, 'unknown model')
     }
@@ -135,7 +144,7 @@ export async function subAgentsRoutes(app: FastifyInstance) {
       const created = createSubAgent({
         name: b.name,
         role: b.role ?? base!.role,
-        model: b.model !== undefined ? b.model : (base?.model ?? null),
+        model: resolvedModel,
         allowedTools: resolvedGrants.allowedTools,
         mcpServers: resolvedGrants.mcpServers,
         skills: resolvedGrants.skills,
@@ -156,7 +165,8 @@ export async function subAgentsRoutes(app: FastifyInstance) {
 
     // Same available-model gate as POST (C.2); '' normalizes to null (clear).
     if (p.model === '') p.model = null
-    if (p.model != null) {
+    // Known Claude id skips the Ollama round-trip (SEAMS#1 follow-up).
+    if (p.model != null && !isKnownModel(p.model)) {
       const avail = availableModelIds(await resolveAvailableModels())
       if (!avail.has(p.model)) return sendError(reply, 400, 'unknown model')
     }

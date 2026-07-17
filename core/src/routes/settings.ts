@@ -24,7 +24,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { type Status, SystemPromptBodySchema, BACKGROUND_VARIANTS, BackgroundVariantSchema } from '@k/shared'
+import { type Status, SystemPromptBodySchema, BACKGROUND_VARIANTS, BackgroundVariantSchema, isKnownModel } from '@k/shared'
 import { resolveAvailableModels, availableModelIds } from '../models.js'
 import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel, backgroundVariant, setBackgroundVariant } from '../config-store.js'
@@ -368,7 +368,9 @@ export async function settingsRoutes(app: FastifyInstance) {
     // default. '' normalizes to that same clear-sentinel FIRST — it is the storage
     // encoding of "no override" (db.ts rowToAgentProfile), so it must clear, never 400.
     if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
-    if (parsed.data.defaultModel != null) {
+    // Short-circuit the common Claude-id path (SEAMS#1 follow-up) — a known model
+    // never waits on the Ollama round-trip resolveAvailableModels() makes.
+    if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
       const avail = availableModelIds(await resolveAvailableModels())
       if (!avail.has(parsed.data.defaultModel)) return sendError(reply, 400, 'unknown model')
     }

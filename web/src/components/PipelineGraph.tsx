@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -6,6 +6,7 @@ import {
   Controls,
   MiniMap,
   MarkerType,
+  useNodesState,
   type Node as RFNode,
   type Edge as RFEdge,
   type NodeMouseHandler,
@@ -49,14 +50,23 @@ function PipelineGraphInner({
   selectedStageKey?: string
   onSelectStage?: (stageKey: string) => void
 }) {
-  const { nodes, edges } = useMemo(() => layoutPipeline(view), [view])
+  const { nodes: laidNodes, edges } = useMemo(() => layoutPipeline(view), [view])
 
-  const rfNodes: RFNode<PipelineStageNodeData>[] = useMemo(
-    () =>
-      nodes.map(n => ({
+  // React Flow node state is the source of truth for POSITIONS (so drag works);
+  // `onNodesChange` writes drag/selection deltas into it. Everything else — which
+  // nodes exist and their live `data.stage` — is re-synced from the layout on every
+  // view change below, so status keeps updating live.
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode<PipelineStageNodeData>>([])
+
+  useEffect(() => {
+    setRfNodes(prev => {
+      // Preserve a position the user has dragged so an in-flight live-status update
+      // never snaps a moved node back to its dagre-computed spot.
+      const posById = new Map(prev.map(n => [n.id, n.position]))
+      return laidNodes.map(n => ({
         id: n.id,
-        type: 'stage',
-        position: n.position,
+        type: 'stage' as const,
+        position: posById.get(n.id) ?? n.position,
         // Thread the selection callback into node data so the node's own inner
         // control can fire it on keyboard (Enter/Space) — React Flow's built-in
         // node keydown only mutates its INTERNAL selection store and never calls
@@ -67,9 +77,9 @@ function PipelineGraphInner({
         // Node owns a single focus target (its inner role="button"); suppress RF's
         // own wrapper tabIndex so there is exactly one tab stop per node.
         focusable: false,
-      })),
-    [nodes, selectedStageKey, onSelectStage],
-  )
+      }))
+    })
+  }, [laidNodes, selectedStageKey, onSelectStage, setRfNodes])
 
   const rfEdges: RFEdge[] = useMemo(
     () =>
@@ -99,6 +109,7 @@ function PipelineGraphInner({
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
+        onNodesChange={onNodesChange}
         nodeTypes={nodeTypes}
         fitView
         nodesDraggable

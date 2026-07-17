@@ -81,4 +81,14 @@ describe('PipelineGraph render', () => {
     fireEvent.click(screen.getByText('implement'))
     expect(onSelect).toHaveBeenCalledWith('implement')
   })
+
+  it('reflects a live status update when the view object changes (useNodesState sync)', () => {
+    const { rerender } = render(<PipelineGraph view={view()} />)
+    expect(screen.getByText('passed')).toBeTruthy() // implement starts passed
+    // A pipeline_update WS message rewrites the query cache with a FRESH view object.
+    const next = view()
+    next.stages[0].status = 'failed'
+    rerender(<PipelineGraph view={next} />)
+    expect(screen.getByText('failed')).toBeTruthy() // node data re-synced from the new view
+  })
 })

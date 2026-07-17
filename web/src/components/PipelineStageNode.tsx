@@ -65,7 +65,7 @@ function PipelineStageNode({ id, data, selected }: NodeProps & { data: PipelineS
           {(stage.costUsd != null || stage.attempt != null) && (
             <div className="mt-0.5 truncate text-micro text-muted">
               {stage.costUsd != null && <span>${stage.costUsd.toFixed(2)}</span>}
-              {stage.costUsd != null && stage.maxAttempts != null && <span> · </span>}
+              {stage.costUsd != null && stage.attempt != null && stage.maxAttempts != null && <span> · </span>}
               {stage.attempt != null && stage.maxAttempts != null && (
                 <span>
                   attempt {stage.attempt}/{stage.maxAttempts}

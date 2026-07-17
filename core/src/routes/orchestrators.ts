@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { OrchestratorRosterPayload } from '@k/shared'
+import { isKnownModel } from '@k/shared'
 import { GrantError } from '../authority.js'
 import { getProfile, listProfiles, updateProfile } from '../profiles.js'
 import { assembleLead, isLead, rosterVitals } from './org-shared.js'
@@ -81,7 +82,9 @@ export async function orchestratorsRoutes(app: FastifyInstance) {
     // default. '' normalizes to that same clear-sentinel FIRST — it is the storage
     // encoding of "no override" (db.ts rowToAgentProfile), so it must clear, never 400.
     if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
-    if (parsed.data.defaultModel != null) {
+    // Short-circuit the common Claude-id path so a known model never waits on the
+    // Ollama round-trip resolveAvailableModels() makes (SEAMS#1 follow-up).
+    if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
       const avail = availableModelIds(await resolveAvailableModels())
       if (!avail.has(parsed.data.defaultModel)) return sendError(reply, 400, 'unknown model')
     }
