@@ -154,8 +154,11 @@ export type StartRunOptions = {
    *  per-run config. `key` is the K thread id (keys the stable dir/cwd); `sessionId` is
    *  the CLI session id; `resume` false → establish it (`--session-id`), true → continue
    *  it (`--resume`). Absent for every regular dispatch run → fresh worktree, fresh
-   *  synthesized config, no session flags — byte-for-byte the prior behavior. */
-  persistentSession?: { key: string; sessionId: string; resume: boolean }
+   *  synthesized config, no session flags — byte-for-byte the prior behavior.
+   *  Continuous Agents W0.3 (D-122): `homeDir`, when set, is a generalized session's
+   *  stable home (agent-config.ts::agentSessionPaths base) — the run dir + cwd derive
+   *  from IT instead of kSecretaryConfigPaths(key). Absent → the K path, byte-identical. */
+  persistentSession?: { key: string; sessionId: string; resume: boolean; homeDir?: string }
   /** H8 (OPT-IN): after adding the run's detached worktree, replay the SOURCE repo's
    *  UNCOMMITTED tracked+staged changes into it so the agent starts from the operator's
    *  dirty state (see applyWorkingTreeInto for the exact semantics — untracked/ignored
@@ -224,7 +227,15 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   // keyed by cwd, persist for `--resume`) — never a fresh worktree. Absent for regular
   // runs → the caller's cwd (or the repo root), unchanged.
   const ps = opts.persistentSession
-  const kPaths = ps ? kSecretaryConfigPaths(ps.key) : undefined
+  // Continuous Agents W0.3 (D-122): a generalized agent session supplies its own stable
+  // home (`homeDir`, the agentSessionPaths base) — derive the run dir + cwd from it with
+  // the SAME `agent/` + `cwd/` layout agentSessionPaths returns (keep in lockstep).
+  // homeDir absent → the K-secretary path, byte-identical (kSecretaryConfigPaths).
+  const kPaths = ps
+    ? ps.homeDir
+      ? { runDir: path.join(ps.homeDir, 'agent'), cwd: path.join(ps.homeDir, 'cwd') }
+      : kSecretaryConfigPaths(ps.key)
+    : undefined
   const cwd = kPaths?.cwd ?? opts.cwd ?? REPO_ROOT
   const worktreePath = path.join(WORKTREES_DIR, runId)
   const now = Date.now()

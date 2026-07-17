@@ -619,6 +619,29 @@ export function kSecretaryConfigPaths(key: string, dataDir?: string): { runDir: 
 }
 
 /**
+ * Resolve the STABLE per-(profile, thread) session home an agent session reuses across
+ * sends — Continuous Agents W0.3 (D-122), the generalization of kSecretaryConfigPaths
+ * (above, untouched) to ANY profile. `base` is what agent_sessions.home_dir persists and
+ * what sendToSession threads to the supervisor as `persistentSession.homeDir`; the
+ * supervisor derives the same `agent/` (config run dir) + `cwd/` (stable working dir the
+ * CLI keys its session files under, so `--resume` finds them) layout from it — keep the
+ * two in lockstep. Like the K namespace, `sessions/` lives deliberately OUTSIDE
+ * `agent-runs/` so the boot orphan-sweep (pruneOrphanAgentRuns), which reaps every
+ * `agent-runs/<id>` not held by a live run, never deletes persistent session state.
+ * Both segments are interpolated into fs paths, so both are segment-checked.
+ */
+export function agentSessionPaths(
+  profileId: string,
+  threadId: string,
+  dataDir?: string,
+): { base: string; runDir: string; cwd: string } {
+  assertSafeSegment(profileId, 'session profile id')
+  assertSafeSegment(threadId, 'session thread id')
+  const base = path.join(dataDir ?? process.env.K_DATA_DIR ?? DEFAULT_DATA_DIR, 'sessions', profileId, threadId)
+  return { base, runDir: path.join(base, 'agent'), cwd: path.join(base, 'cwd') }
+}
+
+/**
  * Best-effort boot sweep of orphaned per-run config dirs left by crashed runs.
  * Removes every `<dataDir>/agent-runs/<id>` whose `id` is NOT in `activeRunIds`.
  * Mirrors supervisor.pruneOrphanWorktrees: every step is guarded and logged, the
