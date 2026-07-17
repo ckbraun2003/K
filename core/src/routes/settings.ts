@@ -24,7 +24,8 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { type Status, SystemPromptBodySchema, isKnownModel, BACKGROUND_VARIANTS, BackgroundVariantSchema } from '@k/shared'
+import { type Status, SystemPromptBodySchema, BACKGROUND_VARIANTS, BackgroundVariantSchema } from '@k/shared'
+import { resolveAvailableModels, availableModelIds } from '../models.js'
 import { isOllamaReachable } from '../router.js'
 import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel, backgroundVariant, setBackgroundVariant } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
@@ -361,13 +362,15 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (Object.keys(parsed.data).length === 0) {
       return sendError(reply, 400, 'empty patch')
     }
-    // defaultModel must be a known Claude model id (same gate as PUT /api/claude/model);
-    // null explicitly CLEARS the override back to the runtime default. '' normalizes to
-    // that same clear-sentinel FIRST — it is the storage encoding of "no override"
-    // (db.ts rowToAgentProfile), so it must clear, never 400.
+    // defaultModel must be an available model id — Claude KNOWN_MODELS ∪ whatever
+    // Ollama models are actually installed (usability-access C.2; was Claude-only
+    // isKnownModel). null explicitly CLEARS the override back to the runtime
+    // default. '' normalizes to that same clear-sentinel FIRST — it is the storage
+    // encoding of "no override" (db.ts rowToAgentProfile), so it must clear, never 400.
     if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
-    if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
-      return sendError(reply, 400, 'unknown model')
+    if (parsed.data.defaultModel != null) {
+      const avail = availableModelIds(await resolveAvailableModels())
+      if (!avail.has(parsed.data.defaultModel)) return sendError(reply, 400, 'unknown model')
     }
     // Skills must exist in the tier's authored skill set (F-049). The tier bundle is
     // the synthesizer's CEILING — agent-config.ts throws at DISPATCH time on a profile

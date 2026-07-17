@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { listSubAgents, createSubAgent, updateSubAgent, deleteSubAgent } from '../sub-agents.js'
 import { sendError, sendZodError } from './http-errors.js'
+import { resolveAvailableModels, availableModelIds } from '../models.js'
 
 /**
  * Sub-agent worker REST surface (Orchestration Program Phase 2, Lane B Task
@@ -101,6 +102,16 @@ export async function subAgentsRoutes(app: FastifyInstance) {
       if (!base) return sendError(reply, 404, `clone source not found: ${b.cloneFrom}`)
     }
 
+    // model must be an available model id — Claude KNOWN_MODELS ∪ whatever Ollama
+    // models are actually installed (usability-access C.2). '' normalizes to null
+    // (no override) for consistency with the orchestrator/org-default model gates;
+    // an explicit null or an omitted field both skip the check.
+    if (b.model === '') b.model = null
+    if (b.model != null) {
+      const avail = availableModelIds(await resolveAvailableModels())
+      if (!avail.has(b.model)) return sendError(reply, 400, 'unknown model')
+    }
+
     try {
       const created = createSubAgent({
         name: b.name,
@@ -122,8 +133,17 @@ export async function subAgentsRoutes(app: FastifyInstance) {
   app.patch<{ Params: { id: string } }>('/api/sub-agents/:id', async (req, reply) => {
     const parsed = UpdateBodySchema.safeParse(req.body)
     if (!parsed.success) return sendZodError(reply, parsed.error)
+    const p = parsed.data
+
+    // Same available-model gate as POST (C.2); '' normalizes to null (clear).
+    if (p.model === '') p.model = null
+    if (p.model != null) {
+      const avail = availableModelIds(await resolveAvailableModels())
+      if (!avail.has(p.model)) return sendError(reply, 400, 'unknown model')
+    }
+
     try {
-      return reply.send(updateSubAgent(req.params.id, parsed.data))
+      return reply.send(updateSubAgent(req.params.id, p))
     } catch (e) {
       return mapSubAgentError(reply, req, e)
     }
