@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { AgentProfile, ChiefOrgLead, LessonStatus, RecentActuals } from '@k/shared'
+import type { AgentProfile, ChiefOrgLead, LessonStatus, RecentActuals, AvailableModelsResponse } from '@k/shared'
 import { api, type OrchestratorPatch } from '../lib/api'
 import { navigate } from '../lib/route'
 import { leadNode } from '../lib/delegation'
@@ -16,7 +16,7 @@ import { Icon } from '../ui/Icon'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
 import { EmptyState } from '../ui/EmptyState'
-import { Input } from '../ui/Field'
+import { Input, Select } from '../ui/Field'
 
 /**
  * Orchestrator detail (P5.3a) — a single discipline lead's authority editor (left,
@@ -112,6 +112,15 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
     enabled: !!id && tab === 'tools',
   })
 
+  // Unified available-models aggregate (usability-access C.4) — Claude
+  // KNOWN_MODELS ∪ whatever Ollama models are actually installed locally.
+  // Feeds the editable default-model Select in the header.
+  const { data: modelsResp } = useQuery<AvailableModelsResponse>({
+    queryKey: ['models-available'],
+    queryFn: api.models.available,
+    enabled: !!id,
+  })
+
   const mutation = useMutation({
     mutationFn: (patch: OrchestratorPatch) => api.orchestrators.update(id!, patch),
     onSuccess: () => {
@@ -160,8 +169,27 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
         <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-on-accent">
           {profile.tier}
         </span>
+        {/* Editable default-model Select (C.4) — options from the unified
+            Claude+local aggregate; "(runtime default)" (value="") clears the
+            override back to null. */}
+        <Select
+          value={profile.defaultModel ?? ''}
+          onChange={e => patch({ defaultModel: e.target.value || null })}
+          disabled={mutation.isPending}
+          data-testid="orchestrator-model-select"
+          className="w-auto px-2 py-1 text-[11px]"
+          aria-label="Default model"
+        >
+          <option value="">(runtime default)</option>
+          {(modelsResp?.models ?? []).map(m => (
+            <option key={m.id} value={m.id}>
+              {m.label}{m.kind === 'local' ? ' (local)' : ''}
+            </option>
+          ))}
+        </Select>
         {/* The model the NEXT dispatch will actually use — override vs runtime
-            default, exactly as the server resolved it (org-shared.ts). */}
+            default, exactly as the server resolved it (org-shared.ts). Kept as
+            helper text alongside the editable Select above. */}
         {detail.effectiveModel && (
           <span
             data-testid="orchestrator-effective-model"

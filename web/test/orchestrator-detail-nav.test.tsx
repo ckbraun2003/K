@@ -11,13 +11,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ChiefOrgLead, AgentProfile, RecentActuals } from '@k/shared'
 import type { MemoryLesson } from '../src/lib/memory'
 
-const { mockGet, mockLessons, mockNavigate, mockRecentActuals, mockApprove, mockReject } = vi.hoisted(() => ({
+const { mockGet, mockLessons, mockNavigate, mockRecentActuals, mockApprove, mockReject, mockModelsAvailable } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockLessons: vi.fn(),
   mockNavigate: vi.fn(),
   mockRecentActuals: vi.fn(),
   mockApprove: vi.fn(),
   mockReject: vi.fn(),
+  mockModelsAvailable: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
@@ -26,6 +27,11 @@ vi.mock('../src/lib/api', () => ({
     memory: { lessons: mockLessons, approve: mockApprove, reject: mockReject },
     orgDefault: { get: vi.fn() },
     metrics: { recentActuals: mockRecentActuals },
+    // C.4 — OrchestratorDetailPage now unconditionally fetches the unified
+    // model aggregate for its editable default-model Select; this file's
+    // pre-existing tests don't exercise that Select, so an empty resolved
+    // list is enough to keep them from hitting an unmocked-call crash.
+    models: { available: mockModelsAvailable },
   },
 }))
 vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
@@ -65,10 +71,12 @@ function renderPage(id?: string) {
 beforeEach(() => {
   mockGet.mockReset(); mockLessons.mockReset(); mockNavigate.mockClear()
   mockRecentActuals.mockReset(); mockApprove.mockReset(); mockReject.mockReset()
+  mockModelsAvailable.mockReset()
   mockLessons.mockResolvedValue([])
   mockRecentActuals.mockResolvedValue(NO_ACTUALS)
   mockApprove.mockResolvedValue({})
   mockReject.mockResolvedValue({})
+  mockModelsAvailable.mockResolvedValue({ models: [], localDegraded: false })
 })
 afterEach(() => cleanup())
 
