@@ -98,3 +98,10 @@ export function delegationStatusMeta(status: DelegationNodeStatus): StatusMeta {
 export function stageCanonical(stage: PipelineStageRun): CanonicalStatus {
   return stage.canonical ?? canonicalizePipelineStageStatus(stage.status)
 }
+
+/** A stage is a human gate when its kind is `gate` or it is parked awaiting one.
+ *  Lives here (leaf module) so PipelineGraph (re-exported) and PipelineStageNode
+ *  share ONE definition — same anti-duplication reason as stageCanonical. */
+export function isGate(stage: PipelineStageRun): boolean {
+  return stage.kind === 'gate' || stage.status === 'awaiting_gate'
+}

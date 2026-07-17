@@ -27,4 +27,10 @@ it('assigns a position to every stage + the done sink', () => {
   expect(edges.find(e => e.source === 'impl' && e.target === 'plan')?.data.when).toBe('loop')
   // the 'done' target maps to the sink node id
   expect(edges.find(e => e.target === '__done__')).toBeTruthy()
+
+  // Topological ordering holds (rankdir 'LR'): plan → impl → done ranks left→right.
+  // Guards against a dagre misconfiguration that collapses every node to one rank.
+  const x = (id: string) => nodes.find(n => n.id === id)!.position.x
+  expect(x('plan')).toBeLessThan(x('impl'))
+  expect(x('impl')).toBeLessThan(x('__done__'))
 })

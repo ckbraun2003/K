@@ -317,5 +317,8 @@ body { font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
   .ambient, .ambient-blob, .glow-live { animation: none; }
+  /* React Flow marks `animated` (pass) edges with a marching-ants dash animation
+     on the SVG path — freeze it too (usability-access P2.6 Lane A). */
+  .react-flow__edge.animated path { animation: none !important; }
   * { transition-duration: 0.01ms !important; }
 }

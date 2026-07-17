@@ -1,21 +1,23 @@
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { PipelineStageRun } from '@k/shared'
-import { metaForCanonical, stageCanonical } from '../lib/status'
+import { metaForCanonical, stageCanonical, isGate } from '../lib/status'
+import { DONE_NODE_ID } from '../lib/pipeline-layout'
 import { cn } from '../lib/cn'
-
-function isGate(stage: PipelineStageRun): boolean {
-  return stage.kind === 'gate' || stage.status === 'awaiting_gate'
-}
 
 // `extends Record<string, unknown>` — @xyflow/react's `Node<T>` generic requires
 // its data payload to satisfy that constraint.
 export interface PipelineStageNodeData extends Record<string, unknown> {
   stage?: PipelineStageRun
   isDone: boolean
+  /** Fires the app's stage selection (Enter/Space keyboard activation). Absent for
+   *  the non-interactive `__done__` sink. Mouse selection rides React Flow's
+   *  onNodeClick at the graph level. */
+  onSelect?: (stageKey: string) => void
 }
 
-function PipelineStageNode({ data, selected }: NodeProps & { data: PipelineStageNodeData }) {
-  const { stage, isDone } = data
+function PipelineStageNode({ id, data, selected }: NodeProps & { data: PipelineStageNodeData }) {
+  const { stage, isDone, onSelect } = data
   const canonical = stage ? stageCanonical(stage) : { state: 'done' as const, attention: 'none' as const, health: 'ok' as const }
   const meta = metaForCanonical(canonical)
   const gate = stage ? isGate(stage) : false
@@ -25,8 +27,28 @@ function PipelineStageNode({ data, selected }: NodeProps & { data: PipelineStage
     selected ? 'border-accent' : gate ? 'border-amber/45' : 'border-border',
   )
 
+  // Keyboard parity with the graph's mouse onNodeClick: a real stage tile is a
+  // focusable button that selects on Enter/Space. RF wrapper focus is suppressed
+  // (focusable:false at the graph) so this is the single tab stop per node.
+  const interactive = !isDone
+  const onKeyDown = interactive
+    ? (e: ReactKeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect?.(id)
+        }
+      }
+    : undefined
+
   return (
-    <div className={className} data-testid={isDone ? `pipeline-node-${'__done__'}` : `pipeline-node-${stage?.stageKey}`}>
+    <div
+      className={className}
+      data-testid={isDone ? `pipeline-node-${DONE_NODE_ID}` : `pipeline-node-${stage?.stageKey}`}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={interactive && stage ? `stage ${stage.stageKey}, ${stage.status}` : undefined}
+      onKeyDown={onKeyDown}
+    >
       <Handle type="target" position={Position.Left} />
       {stage ? (
         <>

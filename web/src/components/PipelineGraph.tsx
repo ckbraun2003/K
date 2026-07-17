@@ -11,9 +11,9 @@ import {
   type NodeMouseHandler,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import type { EdgeWhen, PipelineRunView, PipelineStageRun } from '@k/shared'
-import { stageCanonical } from '../lib/status'
-import { layoutPipeline } from '../lib/pipeline-layout'
+import type { EdgeWhen, PipelineRunView } from '@k/shared'
+import { stageCanonical, isGate } from '../lib/status'
+import { layoutPipeline, DONE_NODE_ID } from '../lib/pipeline-layout'
 import { nodeTypes, type PipelineStageNodeData } from './PipelineStageNode'
 
 /**
@@ -26,12 +26,10 @@ import { nodeTypes, type PipelineStageNodeData } from './PipelineStageNode'
  * `['pipeline-run', runId]` query cache — no new WS plumbing.
  */
 
-const DONE = '__done__'
-
-/** A stage's canonical triple — from the wire view, or derived if the projection omitted
- *  it. Defined in `lib/status.ts` (shared with PipelineStageNode, no circular import)
- *  and re-exported here — `PipelineStageCard.tsx` imports it from this module. */
-export { stageCanonical }
+/** `stageCanonical`/`isGate` live in `lib/status.ts` (a leaf module shared with
+ *  PipelineStageNode, no circular import) and are re-exported here — external
+ *  callers (`PipelineStageCard.tsx`, tests) import them from this module. */
+export { stageCanonical, isGate }
 
 /** Edge stroke color per condition — semantic tokens only (no raw hex). */
 export const EDGE_COLOR: Record<EdgeWhen, string> = {
@@ -40,10 +38,6 @@ export const EDGE_COLOR: Record<EdgeWhen, string> = {
   fail: 'var(--red)',
   repair: 'var(--amber)',
   loop: 'var(--accent)', // orch-p2: bounded loop back-edge
-}
-
-export function isGate(stage: PipelineStageRun): boolean {
-  return stage.kind === 'gate' || stage.status === 'awaiting_gate'
 }
 
 function PipelineGraphInner({
@@ -63,11 +57,18 @@ function PipelineGraphInner({
         id: n.id,
         type: 'stage',
         position: n.position,
-        data: n.data,
+        // Thread the selection callback into node data so the node's own inner
+        // control can fire it on keyboard (Enter/Space) — React Flow's built-in
+        // node keydown only mutates its INTERNAL selection store and never calls
+        // onNodeClick, so without this a focused node is mouse-selectable only.
+        data: { ...n.data, onSelect: n.id === DONE_NODE_ID ? undefined : onSelectStage },
         selected: n.id === selectedStageKey,
         draggable: true,
+        // Node owns a single focus target (its inner role="button"); suppress RF's
+        // own wrapper tabIndex so there is exactly one tab stop per node.
+        focusable: false,
       })),
-    [nodes, selectedStageKey],
+    [nodes, selectedStageKey, onSelectStage],
   )
 
   const rfEdges: RFEdge[] = useMemo(
@@ -89,7 +90,7 @@ function PipelineGraphInner({
   )
 
   const handleNodeClick: NodeMouseHandler = (_event, node) => {
-    if (node.id === DONE) return
+    if (node.id === DONE_NODE_ID) return
     onSelectStage?.(node.id)
   }
 
