@@ -78,7 +78,10 @@ describe('PipelinesView run detail — sized React Flow container', () => {
 
     await waitFor(() => expect(screen.getByTestId('pipeline-graph')).toBeTruthy())
     // scope to the graph container — the stage-cards list below also renders the
-    // stageKey text, so an unscoped query would multi-match
-    expect(within(screen.getByTestId('pipeline-graph')).getByText('implement')).toBeTruthy()
+    // stageKey text, so an unscoped query would multi-match. waitFor the node itself:
+    // React Flow can paint the container a tick before its node DOM.
+    await waitFor(() =>
+      expect(within(screen.getByTestId('pipeline-graph')).getByText('implement')).toBeTruthy(),
+    )
   })
 })

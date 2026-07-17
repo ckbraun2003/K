@@ -52,34 +52,39 @@ function PipelineGraphInner({
 }) {
   const { nodes: laidNodes, edges } = useMemo(() => layoutPipeline(view), [view])
 
-  // React Flow node state is the source of truth for POSITIONS (so drag works);
-  // `onNodesChange` writes drag/selection deltas into it. Everything else — which
-  // nodes exist and their live `data.stage` — is re-synced from the layout on every
-  // view change below, so status keeps updating live.
-  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode<PipelineStageNodeData>>([])
-
-  useEffect(() => {
-    setRfNodes(prev => {
-      // Preserve a position the user has dragged so an in-flight live-status update
-      // never snaps a moved node back to its dagre-computed spot.
-      const posById = new Map(prev.map(n => [n.id, n.position]))
-      return laidNodes.map(n => ({
+  // The desired RF nodes derived purely from the layout + external state (live
+  // `data.stage`, selection, the keyboard-select callback). `onSelect` is threaded
+  // into node data so the node's inner control can fire it on keyboard (Enter/Space)
+  // — React Flow's own node keydown only mutates its INTERNAL selection store and
+  // never calls onNodeClick. `focusable:false` leaves the node's inner role="button"
+  // as the single tab stop.
+  const built = useMemo<RFNode<PipelineStageNodeData>[]>(
+    () =>
+      laidNodes.map(n => ({
         id: n.id,
-        type: 'stage' as const,
-        position: posById.get(n.id) ?? n.position,
-        // Thread the selection callback into node data so the node's own inner
-        // control can fire it on keyboard (Enter/Space) — React Flow's built-in
-        // node keydown only mutates its INTERNAL selection store and never calls
-        // onNodeClick, so without this a focused node is mouse-selectable only.
+        type: 'stage',
+        position: n.position,
         data: { ...n.data, onSelect: n.id === DONE_NODE_ID ? undefined : onSelectStage },
         selected: n.id === selectedStageKey,
         draggable: true,
-        // Node owns a single focus target (its inner role="button"); suppress RF's
-        // own wrapper tabIndex so there is exactly one tab stop per node.
         focusable: false,
-      }))
+      })),
+    [laidNodes, selectedStageKey, onSelectStage],
+  )
+
+  // RF node state is the source of truth for POSITIONS (so drag works). INITIALIZE it
+  // from the first layout so the nodes render on the FIRST paint (a `useNodesState([])`
+  // + effect-populate leaves an empty first render — a race the synchronous tests and
+  // CI caught). The effect below re-syncs data/selection on every view change while
+  // PRESERVING any user-dragged position, so live status keeps updating.
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode<PipelineStageNodeData>>(built)
+
+  useEffect(() => {
+    setRfNodes(prev => {
+      const posById = new Map(prev.map(n => [n.id, n.position]))
+      return built.map(n => ({ ...n, position: posById.get(n.id) ?? n.position }))
     })
-  }, [laidNodes, selectedStageKey, onSelectStage, setRfNodes])
+  }, [built, setRfNodes])
 
   const rfEdges: RFEdge[] = useMemo(
     () =>
