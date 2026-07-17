@@ -5,6 +5,7 @@ import { alignHunk, commentAnchorKey, intralineDiff, type IntraSpan, type Aligne
 import { langForPath, ensureLangs, highlightLine, type HastNode } from '../lib/highlight'
 import AutoTextarea from './AutoTextarea'
 import { Button, IconButton } from '../ui/Button'
+import { Checkbox } from '../ui/Field'
 
 export interface DiffViewerProps {
   files: DiffFile[]
@@ -118,11 +119,10 @@ export default function DiffViewer({
               </span>
               {onToggleViewed && (
                 <label className="flex flex-shrink-0 cursor-pointer items-center gap-1 text-[10px] text-muted">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={isViewed}
                     onChange={() => onToggleViewed(file.path)}
-                    className="h-3 w-3 accent-accent"
+                    className="h-3 w-3"
                     data-testid={`diff-viewed-${file.path}`}
                   />
                   viewed

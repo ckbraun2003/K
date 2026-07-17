@@ -15,7 +15,7 @@ function view(): PipelineRunView {
   return {
     run: {
       id: 'pr1', definitionId: 'd1', projectId: null, title: 'Ship it',
-      status: 'running', createdAt: 0, updatedAt: 0, completedAt: null,
+      status: 'running', createdAt: 0, updatedAt: 0, completedAt: null, ownerProfileId: null,
     },
     stages: [
       {

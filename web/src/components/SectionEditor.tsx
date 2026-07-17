@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { BibleSectionView } from '../lib/api'
 import { api } from '../lib/api'
+import { Select, Textarea } from '../ui/Field'
 
 /**
  * P4 E-30 — edit-in-place for bible docs. Uses the EXISTING section-write API
@@ -37,9 +38,9 @@ export default function SectionEditor({ slug }: { slug: string }) {
     <div data-testid="section-editor" className="flex flex-col gap-2 border-t border-border p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold text-text">Edit sections</span>
-        <select
+        <Select
           data-testid="section-editor-select"
-          className="rounded border border-border bg-raised px-2 py-1 text-xs text-text"
+          className="px-2 py-1 text-xs"
           value={activeSlug ?? ''}
           onChange={(e) => {
             const next = sections.find((s) => s.slug === e.target.value) ?? null
@@ -50,14 +51,14 @@ export default function SectionEditor({ slug }: { slug: string }) {
         >
           <option value="">Choose a section…</option>
           {sections.map((s) => <option key={s.slug} value={s.slug}>{s.title}</option>)}
-        </select>
+        </Select>
         {savedAt && <span className="text-[10px] text-green">saved · recompiled {new Date(savedAt).toLocaleTimeString()}</span>}
       </div>
       {active && (
         <>
-          <textarea
+          <Textarea
             data-testid="section-editor-body"
-            className="min-h-40 w-full rounded border border-border bg-bg p-2 font-mono text-xs text-text"
+            className="min-h-40 w-full p-2 font-mono text-xs"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
           />

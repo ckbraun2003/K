@@ -201,7 +201,6 @@ export default function AutomationsTab() {
               >
                 <option value="skill">skill</option>
                 <option value="hook">hook</option>
-                <option value="workflow">workflow</option>
               </Select>
             </div>
             <div>

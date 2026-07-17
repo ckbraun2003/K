@@ -178,7 +178,7 @@ const EDGE_COLOR: Record<EdgeWhen, string> = {
   pass: 'var(--green)',
   fail: 'var(--red)',
   repair: 'var(--amber)',
-  loop: 'var(--accent)', // orch-p2: bounded loop back-edge (Lane C refines the visualization)
+  loop: 'var(--accent)', // orch-p2: bounded loop back-edge
 }
 
 function isGate(stage: PipelineStageRun): boolean {

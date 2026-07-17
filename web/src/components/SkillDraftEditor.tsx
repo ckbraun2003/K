@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import AutoTextarea from './AutoTextarea'
+import { Input } from '../ui/Field'
 
 /**
  * Editor for an agent-drafted SKILL.md (D-071) — deliberately NOT the
@@ -108,7 +109,7 @@ export default function SkillDraftEditor({
           <label htmlFor="draft-editor-name" className="mb-1 block text-xs text-muted">
             Frontmatter · name
           </label>
-          <input
+          <Input
             id="draft-editor-name"
             data-testid="draft-editor-name"
             className={inputCls}
@@ -121,7 +122,7 @@ export default function SkillDraftEditor({
           <label htmlFor="draft-editor-description" className="mb-1 block text-xs text-muted">
             Frontmatter · description (the trigger — what makes agents load this skill)
           </label>
-          <input
+          <Input
             id="draft-editor-description"
             data-testid="draft-editor-description"
             className={inputCls}

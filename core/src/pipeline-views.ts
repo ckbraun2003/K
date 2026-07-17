@@ -88,6 +88,7 @@ export function pipelineRunRowToWire(r: PipelineRunRow): PipelineRun {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     completedAt: r.completed_at,
+    ownerProfileId: r.owner_profile_id,
   })
 }
 

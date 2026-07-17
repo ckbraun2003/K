@@ -10,6 +10,7 @@ import AutoTextarea from '../components/AutoTextarea'
 import { Icon } from '../ui/Icon'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
+import { Input } from '../ui/Field'
 
 /**
  * Skill Creator (D-071) — build → refine → evaluate → save-to-K-library, on a
@@ -152,7 +153,7 @@ function BriefForm() {
         <label htmlFor="brief-name-hint" className="mb-1 block text-xs text-muted">
           Name hint (optional — the agent picks one otherwise)
         </label>
-        <input
+        <Input
           id="brief-name-hint"
           data-testid="brief-name-hint"
           className={inputCls}
@@ -559,7 +560,7 @@ function SaveBar({ draft }: { draft: SkillDraft }) {
           if (trimmed !== '') save.mutate(trimmed)
         }}
       >
-        <input
+        <Input
           data-testid="save-name"
           aria-label="Skill name"
           className={inputCls}

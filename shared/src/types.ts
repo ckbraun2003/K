@@ -866,13 +866,20 @@ export const RetryRateSeriesSchema = z.object({ windowDays: z.number().int(), po
 export type RetryRateSeries = z.infer<typeof RetryRateSeriesSchema>
 
 // E-16 — a routine is a schedule-triggered skill with derived next-run + measured cost.
+// orch-p2 C.4: `pipelineDefId` is additive/optional — the skills.pipeline_def_id column
+// exists (db.ts, W0-inherited), but core/src/routes/routines.ts's projection doesn't
+// populate it yet (Lane B / Task B.3's assignment). Not `.strict()`, so this widening is
+// zero-blast-radius; the Automations "Schedules" pane treats a missing field as "not yet
+// wired," not an error.
 export const RoutineViewSchema = z.object({
   id: z.string(), name: z.string(), enabled: z.boolean(), schedule: z.string(),
   nextRunAt: z.number().nullable(), lastRunAt: z.number().nullable(),
   runs: z.number().int(), totalCostUsd: z.number(),
   // Task B.3: non-null when this routine targets a pipeline definition (workflow_definitions.id)
   // instead of running as a plain skill — the operator-visible counterpart of skills.pipeline_def_id.
-  pipelineDefId: z.string().nullable(),
+  // `.optional()` too so an older projection that omits the field still parses (the Schedules pane
+  // treats absent/null identically as "not a pipeline routine").
+  pipelineDefId: z.string().nullable().optional(),
 })
 export type RoutineView = z.infer<typeof RoutineViewSchema>
 export const NlToCronBodySchema = z.object({ text: z.string().min(1).max(200) }).strict()
@@ -1214,6 +1221,11 @@ export const PipelineRunSchema = z.object({
   id: z.string(), definitionId: z.string().nullable(), projectId: z.string().nullable(),
   title: z.string(), status: PipelineRunStatusSchema,
   createdAt: z.number(), updatedAt: z.number(), completedAt: z.number().nullable(),
+  // orch-p2 C.3: the Chief-child orchestrator AgentProfile that owns/oversees this run
+  // (pipeline_runs.owner_profile_id, migrated nullable — unset until a dispatch path
+  // stamps it). Null = unattributed; the orchestrator multi-pipeline view buckets these
+  // separately rather than hiding them.
+  ownerProfileId: z.string().nullable(),
 })
 export type PipelineRun = z.infer<typeof PipelineRunSchema>
 

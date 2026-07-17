@@ -6,6 +6,7 @@ import { navigate } from '../lib/route'
 import { formatCompact } from '../lib/format-metrics'
 import { profileSubtotal } from '../lib/capability-tokens'
 import SourceBadge from './SourceBadge'
+import { Input } from '../ui/Field'
 
 /**
  * Catalog-backed mount editor for a profile's skills / MCP servers (wave C3) —
@@ -233,7 +234,7 @@ export default function CapabilityPicker({
             if (target) handleAdd(target)
           }}
         >
-          <input
+          <Input
             value={query}
             onChange={e => {
               setQuery(e.target.value)
@@ -260,7 +261,7 @@ export default function CapabilityPicker({
             aria-autocomplete="list"
             aria-activedescendant={selected ? `${testidPrefix}-option-${selected.id}` : undefined}
             data-testid={`${testidPrefix}-input`}
-            className="min-w-0 flex-1 rounded-lg border border-border bg-raised px-2 py-1 text-xs text-text outline-none focus:border-accent-hover/35"
+            className="min-w-0 flex-1 px-2 py-1 text-xs"
           />
         </form>
         {comboOpen && (

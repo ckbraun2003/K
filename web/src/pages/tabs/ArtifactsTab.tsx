@@ -7,7 +7,7 @@ import DocViewer from '../../components/DocViewer'
 import Toast from '../../components/Toast'
 import { Icon, type IconName } from '../../ui/Icon'
 import { Button, IconButton } from '../../ui/Button'
-import { Select } from '../../ui/Field'
+import { Select, Textarea } from '../../ui/Field'
 import { EmptyState } from '../../ui/EmptyState'
 import { Tag } from '../../ui/Tag'
 
@@ -336,12 +336,12 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
               </p>
             ) : (
               <>
-                <textarea
+                <Textarea
                   value={editingIsBible ? sectionDisplay : displayMd}
                   onChange={e => (editingIsBible ? setSectionBody(e.target.value) : setEditMd(e.target.value))}
                   spellCheck={false}
                   data-testid="artifact-editor-textarea"
-                  className="mono min-h-[400px] w-full resize-y bg-raised px-4 py-3 text-xs text-text focus:outline-none"
+                  className="mono min-h-[400px] w-full resize-y rounded-none border-0 bg-raised px-4 py-3 text-xs"
                 />
                 {editError && (
                   <p className="flex items-center gap-1 px-4 py-1 text-[11px] text-red" data-testid="artifact-editor-error">

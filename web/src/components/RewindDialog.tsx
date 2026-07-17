@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { navigate } from '../lib/route'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
+import { Textarea } from '../ui/Field'
 import Toast from './Toast'
 
 export interface RewindDialogProps {
@@ -93,14 +94,14 @@ export default function RewindDialog({ runId, checkpoint, onClose }: RewindDialo
                   wave {checkpoint.wave} · {checkpoint.sha.slice(0, 10)}
                 </span>
               </div>
-              <textarea
+              <Textarea
                 ref={promptRef}
                 data-testid="rewind-prompt"
                 aria-label="Rewind prompt"
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
                 placeholder="What should the follow-up run do from this state?"
-                className="w-full h-24 rounded-control border border-border bg-raised p-2 text-body text-text resize-none"
+                className="h-24 w-full resize-none p-2"
               />
               {rewind.isError && (
                 <p className="pt-1 text-caption text-red">{(rewind.error as Error).message}</p>

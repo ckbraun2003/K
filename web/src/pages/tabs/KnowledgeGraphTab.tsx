@@ -22,6 +22,7 @@ import {
 import { Icon } from '../../ui/Icon'
 import { Button, IconButton } from '../../ui/Button'
 import { Spinner } from '../../ui/Spinner'
+import { Input } from '../../ui/Field'
 
 type GraphLink = {
   source: string | GraphNode
@@ -210,11 +211,11 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
     <div className="flex h-full flex-col">
       {/* Controls bar */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2">
-        <input
+        <Input
           value={filter}
           onChange={e => setFilter(e.target.value)}
           placeholder="Filter nodes…"
-          className="w-48 rounded-lg border border-border bg-raised px-2.5 py-1 text-xs text-text placeholder-muted outline-none focus:border-accent"
+          className="w-48 px-2.5 py-1 text-xs"
         />
         <Button variant="glass" size="sm" onClick={() => graphRef.current?.zoomToFit(400)} title="Fit view (f)">
           Fit (f)

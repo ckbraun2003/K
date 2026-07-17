@@ -17,7 +17,7 @@ import Toast from '../../components/Toast'
 import SegControl from '../../components/SegControl'
 import { Button } from '../../ui/Button'
 import { Tag } from '../../ui/Tag'
-import { Input, Select } from '../../ui/Field'
+import { Checkbox, Input, Select } from '../../ui/Field'
 import { EmptyState } from '../../ui/EmptyState'
 import { ErrorState } from '../../ui/ErrorState'
 
@@ -486,12 +486,11 @@ function RunWorkflowDialog({
                     {openTasks.map(t => (
                       <li key={t.id}>
                         <label className="flex cursor-pointer items-center gap-2 rounded-control border border-border bg-raised px-2 py-1.5 text-label text-text">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             data-testid={`workflow-run-task-${t.id}`}
                             checked={checked.has(t.id)}
                             onChange={() => toggleTask(t.id)}
-                            className="flex-shrink-0 accent-accent"
+                            className="flex-shrink-0"
                           />
                           <span className="min-w-0 flex-1 truncate">{t.title}</span>
                         </label>
