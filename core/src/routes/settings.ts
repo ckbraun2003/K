@@ -24,10 +24,16 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { type Status, SystemPromptBodySchema, BACKGROUND_VARIANTS, BackgroundVariantSchema, isKnownModel } from '@k/shared'
+import {
+  type Status, SystemPromptBodySchema, isKnownModel,
+  GRADIENT_PRESETS, BACKGROUND_KINDS, BackgroundSettingsSchema, BackgroundImageUploadSchema,
+} from '@k/shared'
 import { resolveAvailableModels, availableModelIds } from '../models.js'
 import { isOllamaReachable } from '../router.js'
-import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel, backgroundVariant, setBackgroundVariant } from '../config-store.js'
+import {
+  ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel,
+  backgroundSettings, setBackgroundSettings, wallpaperDir,
+} from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 import { credentialPosture, type CredentialPosture } from '../agent-config.js'
 import { probeWhisper } from '../transcription.js'
@@ -241,6 +247,53 @@ const OrgDefaultPatchSchema = z
  *  DEFAULT_PROFILE fallback in profiles.ts). */
 const ORG_DEFAULT_ID = 'default-orchestrator'
 
+// ── Background wallpaper (usability-access B.3 → wallpaper settings model) ──────
+// The uploaded wallpaper is stored on disk as a FIXED filename `wallpaper.<ext>`
+// under wallpaperDir() (core/src/config-store.ts) — never a request-derived path,
+// so there is no traversal surface. mime<->ext is a small closed map (png/jpeg/
+// webp only); anything else is rejected by BackgroundImageUploadSchema before we
+// ever touch the bytes.
+
+const MIME_TO_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }
+const EXT_TO_MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' }
+const MAX_WALLPAPER_BYTES = 8 * 1024 * 1024 // 8 MB (decoded)
+// Fastify's default bodyLimit is 1 MiB — far below an 8 MB image's base64
+// footprint (~4/3 expansion) once wrapped in the { dataUrl } JSON envelope. Cap
+// this route's request body generously above that so oversize requests reach
+// the handler's decoded-size check (→ a clean 400) instead of a raw 413 from
+// the transport layer; still bounded, not unlimited.
+const MAX_UPLOAD_BODY_BYTES = Math.ceil((MAX_WALLPAPER_BYTES * 4) / 3) + 2 * 1024 * 1024
+
+/** Remove any existing `wallpaper.*` file in dir (best-effort — a stale second
+ *  extension from a prior upload of a different format must never linger). */
+async function clearExistingWallpaper(dir: string): Promise<void> {
+  let entries: string[] = []
+  try {
+    entries = await fs.readdir(dir)
+  } catch {
+    return
+  }
+  await Promise.all(
+    entries
+      .filter(f => f.startsWith('wallpaper.'))
+      .map(f => fs.unlink(path.join(dir, f)).catch(() => {})),
+  )
+}
+
+/** Find the currently-stored wallpaper file (fixed basename, one of the three
+ *  known extensions). Returns null if none is present. */
+async function findWallpaperFile(dir: string): Promise<{ file: string; ext: string } | null> {
+  let entries: string[] = []
+  try {
+    entries = await fs.readdir(dir)
+  } catch {
+    return null
+  }
+  const found = entries.find(f => f.startsWith('wallpaper.') && EXT_TO_MIME[f.split('.').pop() ?? ''])
+  if (!found) return null
+  return { file: found, ext: found.split('.').pop()! }
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 export async function settingsRoutes(app: FastifyInstance) {
@@ -249,17 +302,63 @@ export async function settingsRoutes(app: FastifyInstance) {
     return reply.send(buildStatus(await cachedProbes(), liveStatusEnv()))
   })
 
-  // GET /api/settings/background — the operator's background preference + the
-  // full variant list (so the client never hardcodes the options).
+  // GET /api/settings/background — the operator's background settings + the
+  // full preset/kind lists (so the client never hardcodes the options).
   app.get('/api/settings/background', async (_req, reply) =>
-    reply.send({ variant: backgroundVariant(), options: BACKGROUND_VARIANTS }))
+    reply.send({ settings: backgroundSettings(), presets: GRADIENT_PRESETS, kinds: BACKGROUND_KINDS }))
 
-  // PUT /api/settings/background — set the preference. 400 on an unknown variant.
+  // PUT /api/settings/background — set kind + preset. imageVersion is preserved
+  // (it is only ever advanced by the image-upload route below). Selecting
+  // kind:'image' with no wallpaper on disk is rejected — the client can never
+  // point the app at an image that doesn't exist.
   app.put('/api/settings/background', async (req, reply) => {
-    const parsed = z.object({ variant: BackgroundVariantSchema }).safeParse(req.body)
-    if (!parsed.success) return sendError(reply, 400, 'invalid background variant')
-    setBackgroundVariant(parsed.data.variant)
-    return reply.send({ variant: parsed.data.variant })
+    const parsed = BackgroundSettingsSchema.pick({ kind: true, preset: true }).safeParse(req.body)
+    if (!parsed.success) return sendZodError(reply, parsed.error, 'invalid background settings')
+
+    const prev = backgroundSettings()
+    if (parsed.data.kind === 'image') {
+      const existing = await findWallpaperFile(wallpaperDir())
+      if (!existing) return sendError(reply, 400, 'no image uploaded')
+    }
+
+    const next = { ...parsed.data, imageVersion: prev.imageVersion }
+    setBackgroundSettings(next)
+    return reply.send({ settings: next })
+  })
+
+  // PUT /api/settings/background/image — upload a wallpaper image as a data:
+  // URL. Validated + size-capped before any bytes are decoded; written to a
+  // FIXED filename under wallpaperDir() (no request-derived path segment).
+  app.put('/api/settings/background/image', { bodyLimit: MAX_UPLOAD_BODY_BYTES }, async (req, reply) => {
+    const parsed = BackgroundImageUploadSchema.safeParse(req.body)
+    if (!parsed.success) return sendZodError(reply, parsed.error, 'invalid image upload')
+
+    const match = parsed.data.dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/)
+    if (!match) return sendError(reply, 400, 'invalid image upload')
+    const [, mime, b64] = match
+    const ext = MIME_TO_EXT[mime]
+    if (!ext) return sendError(reply, 400, 'unsupported image type')
+
+    const buf = Buffer.from(b64, 'base64')
+    if (buf.length > MAX_WALLPAPER_BYTES) return sendError(reply, 400, 'image too large')
+
+    const dir = wallpaperDir()
+    await clearExistingWallpaper(dir)
+    await fs.writeFile(path.join(dir, `wallpaper.${ext}`), buf)
+
+    const prev = backgroundSettings()
+    const next = { kind: 'image' as const, preset: null, imageVersion: (prev.imageVersion ?? 0) + 1 }
+    setBackgroundSettings(next)
+    return reply.send({ settings: next })
+  })
+
+  // GET /api/settings/background/image — serve the currently-stored wallpaper
+  // bytes. 404 when none has been uploaded.
+  app.get('/api/settings/background/image', async (_req, reply) => {
+    const found = await findWallpaperFile(wallpaperDir())
+    if (!found) return sendError(reply, 404, 'no image uploaded')
+    const bytes = await fs.readFile(path.join(wallpaperDir(), found.file))
+    return reply.header('cache-control', 'no-cache').type(EXT_TO_MIME[found.ext]).send(bytes)
   })
 
   // GET /api/system-prompt — the human-editable region of the prompt file only.
