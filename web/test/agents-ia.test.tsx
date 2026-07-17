@@ -11,7 +11,7 @@
  *   - the default tab (no `tab` prop) is org
  *   - every old deep-link (top-level legacy hashes + the renamed agents sub-params)
  *     resolves to the new canonical route via `resolveRoute`
- * The children (OrgPage/CatalogPage/WorkflowsView) are mocked to marker divs — this
+ * The children (OrgPage/CatalogPage/AutomationsView) are mocked to marker divs — this
  * file locks AgentsPage's OWN routing/mounting logic; each child owns its own tests
  * (org-page.test.tsx, catalog-page-tabs.test.tsx, workflows-defs.test.tsx).
  */
@@ -30,8 +30,8 @@ vi.mock('../src/pages/OrgPage', () => ({
 vi.mock('../src/pages/CatalogPage', () => ({
   default: (p: { tab?: string }) => <div data-testid="catalog-page-mock">tab:{p.tab ?? 'none'}</div>,
 }))
-vi.mock('../src/pages/runs/WorkflowsView', () => ({
-  default: (p: { defId?: string }) => <div data-testid="workflows-view-mock">defId:{p.defId ?? 'none'}</div>,
+vi.mock('../src/pages/runs/AutomationsView', () => ({
+  default: (p: { defId?: string }) => <div data-testid="automations-view-mock">defId:{p.defId ?? 'none'}</div>,
 }))
 
 import AgentsPage from '../src/pages/AgentsPage'
@@ -72,10 +72,10 @@ describe('AgentsPage — Org / Catalog / Automations', () => {
     expect(screen.queryByTestId('org-page-mock')).toBeNull()
   })
 
-  it('tab=automations with a sub mounts WorkflowsView (legacy def deep-link) with sub as its defId prop', () => {
+  it('tab=automations with a sub mounts AutomationsView (legacy def deep-link) with sub as its defId prop', () => {
     render(<AgentsPage tab="automations" sub="def-1" />)
     expect(screen.getByTestId('tab-automations').getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByTestId('workflows-view-mock').textContent).toBe('defId:def-1')
+    expect(screen.getByTestId('automations-view-mock').textContent).toBe('defId:def-1')
     expect(screen.queryByTestId('org-page-mock')).toBeNull()
   })
 

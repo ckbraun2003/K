@@ -57,7 +57,6 @@ vi.mock('../src/lib/api', () => ({
 // AgentsPage's own children — probe 1 only locks the tab BAR label, never
 // their bodies (each already has its own dedicated test file).
 vi.mock('../src/pages/CatalogPage', () => ({ default: () => <div data-testid="catalog-page-mock" /> }))
-vi.mock('../src/pages/runs/WorkflowsView', () => ({ default: () => <div data-testid="workflows-view-mock" /> }))
 // OrgPage itself stays REAL for probe 2 (the autonomy chip lives on it) — only
 // its own leaf views are mocked, mirroring org-page.test.tsx.
 vi.mock('../src/pages/org/RosterView', () => ({ default: () => <div data-testid="seg-body-roster" /> }))

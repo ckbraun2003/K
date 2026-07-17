@@ -1,15 +1,12 @@
 /** UI Simplification Task 16 — RunsPage slims to master-detail only. The former
- *  Workflows fold (SegControl + workflows branch, P4 C1) is REMOVED: Pipelines now
- *  lives under the Agents hub (WorkflowsView mounted as a tab — agents-page.test.tsx).
+ *  Workflows fold (SegControl + workflows branch, P4 C1) is REMOVED: Automations now
+ *  lives under the Agents hub (AutomationsView mounted as a tab — agents-ia.test.tsx).
  *  RunsPage takes only `runId` (Shell already passes just that — Task 10); this
  *  locks the slimmed shape has no leftover fold surface (no SegControl, no
- *  WorkflowsView mount, no special-cased 'workflows' runId branch). */
+ *  Automations mount, no special-cased 'workflows' runId branch). */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 
-vi.mock('../src/pages/runs/WorkflowsView', () => ({
-  default: () => <div data-testid="workflows-view" />,
-}))
 vi.mock('../src/components/RunList', () => ({ default: () => <div data-testid="run-list" /> }))
 vi.mock('../src/components/RunConsole', () => ({ default: (p: { runId: string }) => <div data-testid="run-console">{p.runId}</div> }))
 vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
@@ -30,12 +27,11 @@ describe('RunsPage — slimmed to master-detail only', () => {
     expect(screen.getByTestId('run-console').textContent).toBe('run-abc')
   })
 
-  it('has no leftover SegControl / Workflows surface (the fold moved to Agents/Pipelines)', () => {
+  it('has no leftover SegControl / Workflows surface (the fold moved to Agents/Automations)', () => {
     render(<RunsPage runId="workflows" />)
     // 'workflows' is just an ordinary (nonexistent) runId now — no special branch.
     expect(screen.queryByTestId('seg-runs')).toBeNull()
     expect(screen.queryByTestId('seg-workflows')).toBeNull()
-    expect(screen.queryByTestId('workflows-view')).toBeNull()
     expect(screen.getByTestId('run-console').textContent).toBe('workflows')
   })
 })
