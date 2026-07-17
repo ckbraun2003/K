@@ -8,6 +8,8 @@ import { Textarea } from '../ui/Field'
 import { SectionHeader } from '../ui/SectionHeader'
 import { ErrorState } from '../ui/ErrorState'
 import { SkeletonTile } from '../ui/Skeleton'
+import PipelineGraph from './PipelineGraph'
+import { previewViewFromSpec } from '../lib/pipeline-preview'
 
 /** The actor a given stage runs as — a sub-agent worker if named, else the bare role. */
 function actorOf(stage: StageDef): string {
@@ -131,6 +133,10 @@ export default function PipelineDefInspector({ defId }: { defId: string }) {
           className="mono h-48 w-full text-micro"
         />
       )}
+
+      <div className="surface-solid rounded-panel h-[20rem] p-3">
+        <PipelineGraph view={previewViewFromSpec(spec)} />
+      </div>
 
       <div>
         <SectionHeader label="Stages" count={spec.stages.length} as="h3" />
