@@ -633,7 +633,8 @@ motion/capability-guarded. All new tokens live in `index.css` `:root` under the 
   status still updates live; custom `PipelineStageNode`s are keyboard-activable (`role=button`,
   Enter/Space → select), and pass-edge marching-ants animation is frozen under `prefers-reduced-motion`.
 - **Unified Access console (`pages/AccessPage.tsx`, the 4th Agents-hub tab).** A who-has-what matrix —
-  orchestrator leads + operator sub-agent workers × model / tools / skills / MCP — with expandable
+  orchestrator leads + sub-agent workers (K-native read-only + operator editable) × model / tools /
+  skills / MCP — with expandable
   inline editing (the editable default-model `<Select>` + catalog-backed `CapabilityPicker`s, patched
   through the same validated `api.orchestrators.update` / `api.subAgents.update` endpoints; K-native
   workers render read-only) and a prominent **Auto-index** (capability rescan) button. Sub-agent workers
