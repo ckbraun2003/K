@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
+import { WORKER_CEILING_TIER } from '@k/shared'
 import { listSubAgents, createSubAgent, updateSubAgent, deleteSubAgent } from '../sub-agents.js'
 import { sendError, sendZodError } from './http-errors.js'
 import { resolveAvailableModels, availableModelIds } from '../models.js'
+import { assertEffectiveGrants, GrantError } from '../authority.js'
 
 /**
  * Sub-agent worker REST surface (Orchestration Program Phase 2, Lane B Task
@@ -112,14 +114,31 @@ export async function subAgentsRoutes(app: FastifyInstance) {
       if (!avail.has(b.model)) return sendError(reply, 400, 'unknown model')
     }
 
+    // D-121: a sub-agent worker runs INSIDE an orchestrator's authority, so its
+    // resolved grants may never exceed the orchestrator tier ceiling. Validate the
+    // SAME resolved allowedTools/mcpServers/skills expressions createSubAgent below
+    // is about to persist — not the raw (possibly partial/cloned-from) body — so a
+    // fork that inherits an already-in-ceiling source is never spuriously rejected.
+    const resolvedGrants = {
+      allowedTools: b.allowedTools ?? base?.allowedTools ?? [],
+      mcpServers: b.mcpServers ?? base?.mcpServers ?? [],
+      skills: b.skills ?? base?.skills ?? [],
+    }
+    try {
+      assertEffectiveGrants(WORKER_CEILING_TIER, resolvedGrants)
+    } catch (e) {
+      if (e instanceof GrantError) return sendError(reply, 400, e.message)
+      throw e
+    }
+
     try {
       const created = createSubAgent({
         name: b.name,
         role: b.role ?? base!.role,
         model: b.model !== undefined ? b.model : (base?.model ?? null),
-        allowedTools: b.allowedTools ?? base?.allowedTools ?? [],
-        mcpServers: b.mcpServers ?? base?.mcpServers ?? [],
-        skills: b.skills ?? base?.skills ?? [],
+        allowedTools: resolvedGrants.allowedTools,
+        mcpServers: resolvedGrants.mcpServers,
+        skills: resolvedGrants.skills,
         prompt: b.prompt ?? base!.prompt,
         enabled: b.enabled,
       })
@@ -140,6 +159,29 @@ export async function subAgentsRoutes(app: FastifyInstance) {
     if (p.model != null) {
       const avail = availableModelIds(await resolveAvailableModels())
       if (!avail.has(p.model)) return sendError(reply, 400, 'unknown model')
+    }
+
+    // D-121: fetch the CURRENT worker and merge the patch's grant arrays over it
+    // FIRST, then validate the MERGED result — never just the patch's own delta.
+    // A patch that leaves allowedTools/mcpServers/skills untouched must be judged
+    // against the worker's existing (already-valid) arrays, not an empty one; a
+    // patch that DOES touch a field is judged against the full merged set. This
+    // runs before the mutating updateSubAgent call so a rejected patch never
+    // reaches the registry (K-native 403 / not-found 404 still classified below —
+    // a K-native id IS found here, so its already-in-ceiling grants pass this
+    // check and the read-only rejection surfaces from updateSubAgent as today).
+    const current = listSubAgents().find(a => a.id === req.params.id)
+    if (!current) return sendError(reply, 404, 'not found')
+    const mergedGrants = {
+      allowedTools: p.allowedTools ?? current.allowedTools,
+      mcpServers: p.mcpServers ?? current.mcpServers,
+      skills: p.skills ?? current.skills,
+    }
+    try {
+      assertEffectiveGrants(WORKER_CEILING_TIER, mergedGrants)
+    } catch (e) {
+      if (e instanceof GrantError) return sendError(reply, 400, e.message)
+      throw e
     }
 
     try {
