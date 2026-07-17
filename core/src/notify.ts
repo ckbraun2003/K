@@ -25,6 +25,7 @@ const DEFAULT_RULES: Record<NotificationEventKey, { inapp: boolean; browser: boo
   run_failed:         { inapp: true, browser: false },
   verify_fail:        { inapp: true, browser: false },
   memory_saved:       { inapp: true, browser: false },
+  message_failed:     { inapp: true, browser: false },
 }
 
 function ruleFor(key: NotificationEventKey): { inapp: boolean; browser: boolean } {

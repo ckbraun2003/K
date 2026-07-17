@@ -607,7 +607,7 @@ export type UpdateRunPlanBody = z.infer<typeof UpdateRunPlanBodySchema>
 // E-19 — the notify engine's event keys.
 export const NotificationEventKeySchema = z.enum([
   'run_awaiting_input', 'run_awaiting_plan', 'run_review_ready', 'run_failed', 'verify_fail',
-  'memory_saved',
+  'memory_saved', 'message_failed',
 ])
 export type NotificationEventKey = z.infer<typeof NotificationEventKeySchema>
 
