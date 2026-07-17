@@ -21,6 +21,7 @@
 
 import { db, pipelineDb, runsDb } from './db.js'
 import { eventBus } from './events.js'
+import { latestLedgerSeq } from './pipeline-ledger.js'
 import {
   PipelineRunSchema,
   PipelineRunViewSchema,
@@ -147,7 +148,9 @@ export function getPipelineRunView(pipelineRunId: string): PipelineRunView | nul
 export function broadcastPipelineUpdate(pipelineRunId: string, stageId: string | null = null): void {
   const view = getPipelineRunView(pipelineRunId)
   if (!view) return
-  eventBus.broadcast({ type: 'pipeline_update', pipelineRunId, stageId, view })
+  // ledgerSeq (orch-p2 C.3 seam): the latest ledger cursor so the client's ledger query
+  // refetches only when new entries exist. Additive/optional — existing consumers ignore it.
+  eventBus.broadcast({ type: 'pipeline_update', pipelineRunId, stageId, view, ledgerSeq: latestLedgerSeq(pipelineRunId) })
 }
 
 /**

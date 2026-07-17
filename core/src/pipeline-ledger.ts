@@ -63,3 +63,12 @@ export function appendLedger(pipelineRunId: string, input: AppendLedgerInput): P
 export function listLedger(pipelineRunId: string): PipelineLedgerEntry[] {
   return (pipelineLedgerDb.listLedgerByRun.all(pipelineRunId) as Record<string, unknown>[]).map(rowToPipelineLedgerEntry)
 }
+
+/** The highest `seq` assigned in a run's ledger (0 if empty). Stamped into the
+ *  pipeline_update WS delta's `ledgerSeq` cursor so the client's ledger query
+ *  refetches only when new entries exist (live-invalidate.ts). listLedgerByRun is
+ *  seq-ordered, so the last row's seq is the max — no extra prepared statement. */
+export function latestLedgerSeq(pipelineRunId: string): number {
+  const rows = pipelineLedgerDb.listLedgerByRun.all(pipelineRunId) as Record<string, unknown>[]
+  return rows.length ? Number(rows[rows.length - 1].seq) : 0
+}

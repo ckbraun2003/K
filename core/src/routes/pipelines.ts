@@ -6,6 +6,7 @@ import { rowToPipelineSpec, startPipelineRun } from '../pipeline-defs.js'
 import { resolveGate, rewindPipelineToStage, PipelineConflictError, type PipelineRunRow } from '../pipeline-engine.js'
 import type { PipelineStageRow } from '../pipeline-executor.js'
 import { getPipelineRunView, listRecentPipelineRuns, pipelineRunRowToWire, broadcastPipelineUpdate } from '../pipeline-views.js'
+import { listLedger } from '../pipeline-ledger.js'
 import { budgetGate } from '../budget-governor.js'
 import { getProject } from '../projects.js'
 import { resolveDispatchScope } from '../lead-dispatch-relay.js'
@@ -81,6 +82,15 @@ export async function pipelinesRoutes(app: FastifyInstance) {
     const view = getPipelineRunView(req.params.id)
     if (!view) return sendError(reply, 404, 'not found')
     return reply.send(view)
+  })
+
+  // GET /api/pipelines/runs/:id/ledger — the run's append-only progress ledger (design §6.1),
+  // oldest→newest by seq. 404 for an unknown run. Read-only; the Runs pane's PipelineLedgerPanel
+  // renders from this and refetches live off the pipeline_update `ledgerSeq` cursor.
+  app.get<{ Params: { id: string } }>('/api/pipelines/runs/:id/ledger', async (req, reply) => {
+    const run = pipelineDb.getPipelineRun.get(req.params.id) as PipelineRunRow | undefined
+    if (!run) return sendError(reply, 404, 'not found')
+    return reply.send(listLedger(req.params.id))
   })
 
   // POST /api/pipelines/runs/:id/stages/:sid/gate — resolve a parked gate (single-resolver CAS).
