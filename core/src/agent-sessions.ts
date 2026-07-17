@@ -1,45 +1,71 @@
 /**
- * Agent sessions — the FROZEN session-engine interface + the W0 interim adapter
- * (Continuous Agents W0.3, D-122).
+ * Agent sessions — the FROZEN session-engine interface + the Lane A HYBRID
+ * RUNTIME (Continuous Agents A.1, D-122).
  *
  * THE CONTRACT IS FROZEN: Lanes A/B/C build against these exact exported
  * signatures (getOrCreateConversation / ensureSession / sendToSession /
  * demoteSession / liveSessionCount / MAX_LIVE_SESSIONS and the MessageFrom /
- * SendResult shapes). Lane A replaces the INTERNALS with the hybrid live/stdin
- * runtime; the signatures must not change.
+ * SendResult shapes). A.1 replaced the W0 interim adapter's INTERNALS with the
+ * hybrid live/stdin runtime; the signatures did not change.
  *
- * WHAT W0 SHIPS (the interim adapter): today's K-secretary resumable one-shot
- * (k-thread.ts::askK, W7a design A) generalized to ANY profile. Each conversation
- * is a k_threads row (the durable source of truth); each (profile, thread) pair
- * has ONE agent_sessions row whose `home_dir` is a stable per-session directory
- * (agent-config.ts::agentSessionPaths) so the CLI's session files persist across
- * sends and `--resume` finds them. A send is: durable user turn first, then
- * establish (`--session-id`, seeded with a bounded neutral transcript replay) or
- * resume (`--resume`, body only) via startAgentRun's persistentSession — which
- * also makes the dispatch budget-exempt and plan-gate-exempt, exactly like K's
- * own asks. W0 never attaches a live process, so `SendResult.mode` is always
- * 'spawned' ('stdin' is Lane A's hybrid delivery) and no session ever enters
- * state 'live' from here.
+ * THE HYBRID RUNTIME (A.1): each conversation is a k_threads row (the durable
+ * source of truth); each (profile, thread) pair has ONE agent_sessions row whose
+ * `home_dir` is a stable per-session directory (agent-config.ts::
+ * agentSessionPaths) so the CLI's session files persist across sends and
+ * `--resume` finds them. A send is: durable user turn FIRST, then
+ *  - LIVE ATTACHMENT (this process spawned an interactive run for the session):
+ *    deliver the body into the SAME run via supervisor.sendInput — no new spawn.
+ *    A mid-turn send (sendInput false: the run isn't parked at awaiting_input)
+ *    queues on the attachment and drains at the next awaiting_input boundary.
+ *  - NO ATTACHMENT: spawn an INTERACTIVE run (D-014 persistent stdin — the park
+ *    machinery IS the live path) via startAgentRun with persistentSession
+ *    {key, sessionId, resume, homeDir}: cli_session_id NULL → establish
+ *    (`--session-id`, seeded with a bounded neutral transcript replay); set →
+ *    resume (`--resume`, body only). persistentSession also keeps the dispatch
+ *    budget-exempt and plan-gate-exempt, exactly like K's own asks.
  *
- * CONCURRENT-SEND POSTURE (accepted for W0, documented): sends to one session are
- * NOT serialized — two sends before the first 'done' both read cli_session_id
- * NULL and each establishes its own CLI session in the shared home_dir; the LAST
- * 'done' wins the setCliSessionId stamp and the loser's context is simply never
- * resumed (its answer still lands on the durable thread via captureAnswers).
- * This is exactly askK's inherited exposure (no active-run guard there either);
- * Lane A's live path owns real serialization. Likewise a resume against a
- * genuinely dead CLI session retries forever in W0 — plan A.2 (resume rejected →
- * 'stale' → renderSeed reseed) is Lane A's checklist item.
+ * ONE eventBus.onRunUpdate subscription per attachment owns the run lifecycle
+ * (replacing W0's trackSupervisedRun finalize):
+ *  - INIT (r.cliSessionId observed) → persist cli_session_id NOW, not only on
+ *    'done' — a mid-turn death after INIT no longer loses the CLI session.
+ *  - awaiting_input → state 'live', context_tokens refresh, drain pending.
+ *  - terminal → detach + state rules: 'done' → 'resumable' (with the
+ *    belt-and-suspenders establish stamp below); non-done WITH INIT observed →
+ *    'resumable' (a real CLI session exists — its id was persisted at INIT, so a
+ *    mid-turn death keeps its context); non-done establish WITHOUT INIT →
+ *    'stale' (id stays NULL — nothing ever came up); non-done resume WITHOUT
+ *    INIT → 'resumable' (A.1 retry posture). A.2 upgrades these to the full rule
+ *    set (resume-rejected → 'stale' + id clear, undo taint, forcedState).
+ * NB: on 'done' with NO INIT observed (the mocked-supervisor test path — a real
+ * establish always INITs), an establishing attachment still stamps its own
+ * sessionId — the D-062 persist-on-success posture kept as a backstop; the INIT
+ * stamp is the primary.
+ *
+ * captureAnswers (k-thread.ts) keeps owning reply-turn capture — it already
+ * handles awaiting_input boundaries repeatedly, so each parked turn's assistant
+ * text folds onto the durable thread as it lands.
+ *
+ * CONCURRENT-SEND POSTURE (A.1, documented): two sends racing BEFORE the first
+ * attachment registers can still double-establish (the W0 exposure, inherited
+ * from askK) — both spawn, the second attachment replaces the first in the map,
+ * and the two runs briefly coexist until their terminals. Teardown is
+ * IDENTITY-GUARDED (finalize only deletes the map entry it owns), so the
+ * loser's terminal can never evict the surviving attachment. A.2's per-session
+ * send lock closes the entry race itself. Once an attachment exists, concurrent
+ * sends converge on the one live run by construction.
  *
  * SDK-free like k-thread.ts: no transport import, unit-testable directly against
- * the DB + EventBus.
+ * the DB + EventBus (supervisor.sendInput is the one process-touching import,
+ * mocked in tests).
  */
 import { randomUUID } from 'crypto'
 import type { KThread, AgentSession, AgentRunTrigger } from '@k/shared'
-import { db, kThreadsDb, agentSessionsDb } from './db.js'
+import { db, kThreadsDb, agentSessionsDb, runsDb } from './db.js'
 import { startAgentRun } from './agent-runs.js'
 import { agentSessionPaths, assertSafeSegment } from './agent-config.js'
-import { trackSupervisedRun } from './run-lifecycle.js'
+import { sendInput } from './supervisor.js'
+import { isTerminalRunStatus } from './run-lifecycle.js'
+import { eventBus } from './events.js'
 import {
   appendTurn,
   captureAnswers,
@@ -53,8 +79,8 @@ import {
 /** Who a message came from: the operator, or another agent profile. */
 export type MessageFrom = { kind: 'user' } | { kind: 'profile'; profileId: string }
 
-/** How a send was delivered: 'spawned' = a new run was dispatched (the only W0
- *  mode); 'stdin' = delivered into a live parked run (Lane A's hybrid path). */
+/** How a send was delivered: 'spawned' = a new run was dispatched (cold path);
+ *  'stdin' = delivered into a live attached run (the hybrid live path). */
 export type SendResult = { mode: 'stdin'; runId: string } | { mode: 'spawned'; runId: string }
 
 /** Thrown when sendToSession/demoteSession is handed an unknown session id —
@@ -74,8 +100,8 @@ export function parseMaxLiveSessions(raw: string | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 3
 }
 
-/** How many sessions may hold a live process at once (Lane A's LRU bound; unused
- *  by the W0 adapter itself, but frozen here so all lanes read ONE knob). */
+/** How many sessions may hold a live process at once (A.2's LRU bound enforces
+ *  it; frozen here so all lanes read ONE knob). */
 export const MAX_LIVE_SESSIONS: number = parseMaxLiveSessions(process.env.K_MAX_LIVE_SESSIONS)
 
 /** How many recent turns fold into an establishing seed (mirrors k-thread.ts's
@@ -185,123 +211,276 @@ export function ensureSession(profileId: string, threadId: string): AgentSession
   return rowToAgentSession(row)
 }
 
+// ── live attachments (the hybrid runtime's module state) ─────────────────────
+
+/** A live run attached to a session: the in-process record binding the session
+ *  to ITS interactive run, torn down at the run's terminal. */
+type Attachment = {
+  runId: string
+  /** Durably-recorded bodies awaiting the next turn boundary (mid-turn sends). */
+  pending: string[]
+  /** The run emitted its stream-json INIT line (cli_session_id observed). */
+  initSeen: boolean
+  /** This attachment was spawned with `--resume`. */
+  resume: boolean
+  /** The CLI session id the spawn established/resumed. */
+  cliSessionId: string
+  /** demoteSession('error') override for the terminal finalize (A.2). */
+  forcedState?: 'stale'
+  unsub: () => void
+}
+
+/** sessionId → live run attachment. In-process only: a session another process
+ *  (or a previous boot) spawned is simply not attached here — sends to it take
+ *  the cold spawn path (A.2's boot sweep reconciles the stranded 'live' rows). */
+const attachments = new Map<string, Attachment>()
+/** runId → sessionId reverse lookup (undo taint without a DB roundtrip — A.4). */
+const runToSession = new Map<string, string>()
+
+// Local statements (the frozen-db-bundle precedent — see insertProfileConversation).
+const setSessionContextTokens = db.prepare(
+  `UPDATE agent_sessions SET context_tokens = ?, updated_at = ? WHERE id = ?`,
+)
+const latestContextTokens = db.prepare(
+  `SELECT context_tokens FROM events WHERE run_id = ? AND context_tokens IS NOT NULL
+   ORDER BY seq DESC LIMIT 1`,
+)
+
+/** Refresh the session row's context_tokens from the run's latest observed
+ *  context-size event (Wave D6 column) — the demote-at-threshold signal. */
+function updateSessionContextTokens(sessionId: string, runId: string): void {
+  const row = latestContextTokens.get(runId) as { context_tokens?: number | null } | undefined
+  if (row?.context_tokens != null) {
+    setSessionContextTokens.run(Number(row.context_tokens), Date.now(), sessionId)
+  }
+}
+
 /**
  * Render the establishing seed for a fresh/reset session: the last
  * {@link SESSION_SEED_TURN_WINDOW} durable turns as NEUTRAL `You:` / `Agent:`
- * lines, then the current `You: <body>` line. sendToSession persists the current
- * user turn BEFORE calling this, so the newest turn is sliced OFF the history
- * window (`…, -1`) and appears exactly once as the trailing line — the
- * k-thread.ts::renderSeed shape, minus K_SEED_INSTRUCTION: that instruction is
- * K-routing-specific (secretary store/route steering) and must not leak into an
- * arbitrary profile's seed. renderSeed itself stays the K-path fallback (plan
- * W0.3); this neutral replay is the generalized-session fallback.
+ * lines, then one `You: <body>` line per current body. The caller persists the
+ * current user turn(s) BEFORE this runs, so the trailing `bodies.length` turns
+ * are sliced OFF the history window and appear exactly once as the trailing
+ * lines — the k-thread.ts::renderSeed shape, minus K_SEED_INSTRUCTION: that
+ * instruction is K-routing-specific (secretary store/route steering) and must
+ * not leak into an arbitrary profile's seed. Takes a body ARRAY because A.2's
+ * pending re-dispatch reseeds a batch of queued bodies in one spawn.
  */
-function renderSessionSeed(threadId: string, body: string): string {
-  const recent = listKThreadTurns(threadId).slice(-(SESSION_SEED_TURN_WINDOW + 1), -1)
+function renderSessionSeed(threadId: string, bodies: string[]): string {
+  const turns = listKThreadTurns(threadId)
+  const recent = turns.slice(-(SESSION_SEED_TURN_WINDOW + bodies.length), turns.length - bodies.length)
   const lines = recent.map(t => `${t.role === 'user' ? 'You' : 'Agent'}: ${t.text}`)
-  lines.push(`You: ${body}`)
+  for (const b of bodies) lines.push(`You: ${b}`)
   return lines.join('\n')
 }
 
 /**
- * Send one message into a session — the W0 interim adapter: K's resumable
- * one-shot recipe (askK) run against the SESSION row instead of the thread row.
- *
- *  1. The durable `user` turn lands FIRST (the thread is the source of truth; it
- *     survives a dispatch throw, mirroring askK). A profile-sent message gets a
- *     `[from <profileId>] ` provenance prefix in the TURN TEXT ONLY — an interim
- *     visibility aid; Lane B owns real provenance (agent_messages rows) — the
- *     dispatch seed carries the raw body.
- *  2. cli_session_id NULL → ESTABLISH (a fresh `--session-id`, seeded with the
- *     neutral transcript replay); set → RESUME (`--resume`, body only).
- *  3. Dispatch via startAgentRun with persistentSession {key, sessionId, resume,
- *     homeDir} — homeDir (the session's stable home) is what generalizes the
- *     mechanics beyond K's k-secretary/<thread> namespace. Trigger: a user send
- *     is 'user-message'; a profile send is 'delegation' — the most honest member
- *     of today's AgentRunTrigger union for one profile handing a message to
- *     another (there is no 'message' trigger until Lane B).
- *  4. captureAnswers folds the reply onto the thread and clears the thread's
- *     active-run pointer on terminal — deliberately WITHOUT sessionIdToPersist:
- *     session-id ownership moves from k_threads to agent_sessions, so a separate
- *     terminal hook (trackSupervisedRun, the house seam) stamps the SESSION row:
- *     'done' → persist the CLI session id (when establishing) + 'resumable';
- *     any other terminal → an establishing session stays unpersisted + 'stale'
- *     (the next send reseeds fresh), a resuming session keeps its id +
- *     'resumable' (resume retries) — K's persist-only-on-success posture.
- *     Undo/kill taint handling stays Lane A scope.
- *
- * Always returns mode 'spawned' in W0 — 'stdin' arrives with Lane A's live path.
+ * Send one message into a session — the hybrid live path (see the module
+ * header for the full delivery contract). Validates the id, then delivers.
+ * A.2 wraps the delivery in the per-session send lock; in A.1 the call is
+ * direct (the W0 double-establish exposure stands until then, documented).
  */
 export async function sendToSession(
   sessionId: string,
   body: string,
   opts?: { from?: MessageFrom; model?: string },
 ): Promise<SendResult> {
+  if (!agentSessionsDb.get.get(sessionId)) throw new AgentSessionNotFoundError(sessionId)
+  return deliverToSession(sessionId, body, opts ?? {})
+}
+
+/**
+ * The delivery core: durable user turn first (the thread is the source of
+ * truth; it survives a dispatch throw), then stdin into the live attachment or
+ * a cold interactive spawn. A profile-sent message gets a `[from <profileId>] `
+ * provenance prefix in the TURN TEXT ONLY — Lane B owns real provenance
+ * (agent_messages rows) — the dispatch/stdin payload carries the raw body.
+ * Re-reads the session row itself so A.2's lock can serialize on a fresh view.
+ */
+async function deliverToSession(
+  sessionId: string,
+  body: string,
+  opts: { from?: MessageFrom; model?: string },
+): Promise<SendResult> {
   const row = agentSessionsDb.get.get(sessionId) as Row | undefined
   if (!row) throw new AgentSessionNotFoundError(sessionId)
   const session = rowToAgentSession(row)
 
-  const from: MessageFrom = opts?.from ?? { kind: 'user' }
+  const from: MessageFrom = opts.from ?? { kind: 'user' }
   const turnText = from.kind === 'profile' ? `[from ${from.profileId}] ${body}` : body
   const turn = appendTurn(session.threadId, 'user', turnText, null)
 
+  const att = attachments.get(sessionId)
+  if (att) {
+    // Live attachment: the turn belongs to the attached run either way — as a
+    // parked-turn delivery (sendInput true) or as a queued body drained at the
+    // next awaiting_input boundary (sendInput false: the run is mid-turn).
+    kThreadsDb.patchTurnRunId.run(att.runId, turn.id)
+    if (!sendInput(att.runId, body)) att.pending.push(body)
+    agentSessionsDb.touch(sessionId, Date.now())
+    return { mode: 'stdin', runId: att.runId }
+  }
+
+  const runId = await spawnSessionRun(session, [body], { from, model: opts.model, turnIds: [turn.id] })
+  return { mode: 'spawned', runId }
+}
+
+/**
+ * Spawn the session's INTERACTIVE run and wire the attachment. cli_session_id
+ * NULL → establish (fresh `--session-id`, neutral transcript seed); set →
+ * resume (`--resume`, bodies only). Trigger: a user send is 'user-message'; a
+ * profile send is 'delegation' — the most honest member of today's
+ * AgentRunTrigger union for one profile handing a message to another (there is
+ * no 'message' trigger until Lane B). A dispatch throw propagates unchanged
+ * (startAgentRun already rolled its tracking row back to 'failed'); the durable
+ * user turn stays and the session row is untouched — the next send simply tries
+ * the same establish/resume again, with no attachment left behind.
+ */
+async function spawnSessionRun(
+  session: AgentSession,
+  bodies: string[],
+  opts: { from: MessageFrom; model?: string; turnIds: string[] },
+): Promise<string> {
   const resume = session.cliSessionId != null
   const cliSessionId = session.cliSessionId ?? randomUUID()
-  const seed = resume ? body : renderSessionSeed(session.threadId, body)
-  const trigger: AgentRunTrigger = from.kind === 'profile' ? 'delegation' : 'user-message'
-
-  // A dispatch throw propagates unchanged (startAgentRun already rolled its
-  // tracking row back to 'failed'); the durable user turn stays and the session
-  // row is untouched — the next send simply tries the same establish/resume again.
+  const seed = resume ? bodies.join('\n\n') : renderSessionSeed(session.threadId, bodies)
+  const trigger: AgentRunTrigger = opts.from.kind === 'profile' ? 'delegation' : 'user-message'
   const { runId } = await startAgentRun(session.profileId, {
     trigger,
     thread: seed,
-    model: opts?.model,
+    model: opts.model,
+    interactive: true, // the D-014 park machinery IS the live path
+    // A.3: sessionId stamp — startAgentRun does not accept a `sessionId` opt yet;
+    // A.3 adds it (threaded to startRun → runs.session_id) alongside runs.kind.
     persistentSession: { key: session.threadId, sessionId: cliSessionId, resume, homeDir: session.homeDir },
   })
-
   kThreadsDb.updateThreadActiveRun.run(runId, Date.now(), session.threadId)
-  kThreadsDb.patchTurnRunId.run(runId, turn.id)
+  for (const id of opts.turnIds) kThreadsDb.patchTurnRunId.run(runId, id)
   captureAnswers(session.threadId, runId)
-
-  trackSupervisedRun(runId, {
-    onStarted: () => { /* runId already known — nothing to patch */ },
-    finalize: status => {
-      const now = Date.now()
-      if (status === 'done') {
-        // Persist-on-success (the W7a posture): only a send that ANSWERED records
-        // the CLI session for later `--resume`. setCliSessionId is last-wins here
-        // (unlike k_threads' write-once), which is what a re-seeded session needs.
-        if (!resume) agentSessionsDb.setCliSessionId.run(cliSessionId, now, session.id)
-        agentSessionsDb.setState.run('resumable', now, session.id)
-        agentSessionsDb.touch(session.id, now)
-      } else if (!resume) {
-        // Establish failed/killed: nothing worth resuming — stay 'stale' with
-        // cli_session_id NULL so the next send reseeds cleanly.
-        agentSessionsDb.setState.run('stale', now, session.id)
-      } else {
-        // Resume failed/killed: the underlying CLI session is still intact —
-        // keep its id and stay 'resumable' so the next send retries the resume.
-        agentSessionsDb.setState.run('resumable', now, session.id)
-      }
-    },
-  })
-
-  // The send itself is session activity, independent of how the run ends.
+  attachSessionRun(session.id, runId, { resume, cliSessionId })
   agentSessionsDb.touch(session.id, Date.now())
-  return { mode: 'spawned', runId }
+  return runId
+}
+
+/**
+ * Register the session ↔ run attachment and its ONE run-update subscription
+ * (INIT persist / park handling / terminal finalize — module header). Finalize
+ * is once-latched with unsub-before-write and a subscribe-race backstop — the
+ * captureAnswers / trackSupervisedRun discipline, owned here because the
+ * attachment must also detach itself (Maps + subscription) at terminal.
+ */
+function attachSessionRun(
+  sessionId: string,
+  runId: string,
+  meta: { resume: boolean; cliSessionId: string },
+): void {
+  const att: Attachment = {
+    runId,
+    pending: [],
+    initSeen: false,
+    resume: meta.resume,
+    cliSessionId: meta.cliSessionId,
+    unsub: () => {},
+  }
+  attachments.set(sessionId, att)
+  runToSession.set(runId, sessionId)
+  let done = false
+  const finalize = (status: string): void => {
+    if (done) return
+    done = true
+    att.unsub()
+    // Identity-guarded teardown: under the pre-A.2 double-establish race a
+    // SECOND attachment may have replaced this one in the map — an unconditional
+    // delete would tear down the LIVE successor's entry and strand its run.
+    // Only remove what is still ours (runToSession is keyed by our unique runId,
+    // so that delete is unconditionally safe).
+    if (attachments.get(sessionId) === att) attachments.delete(sessionId)
+    runToSession.delete(runId)
+    finalizeSessionTerminal(sessionId, att, status)
+  }
+  att.unsub = eventBus.onRunUpdate(r => {
+    if (r.id !== runId) return
+    if (!att.initSeen && r.cliSessionId) {
+      // INIT — persist NOW, not only on done: a mid-turn death after this point
+      // keeps the CLI session resumable (the old persist-only-on-done loss).
+      att.initSeen = true
+      agentSessionsDb.setCliSessionId.run(r.cliSessionId, Date.now(), sessionId)
+    }
+    if (r.status === 'awaiting_input') {
+      const now = Date.now()
+      agentSessionsDb.setState.run('live', now, sessionId)
+      updateSessionContextTokens(sessionId, runId)
+      agentSessionsDb.touch(sessionId, now)
+      drainPending(att)
+      return
+    }
+    if (isTerminalRunStatus(r.status)) finalize(r.status)
+  })
+  // Backstop the await/subscribe race: a fast-failing run can reach terminal
+  // before the subscription above existed — finalize from the DB status (once).
+  const current = (runsDb.getRun.get(runId) as { status?: string } | undefined)?.status
+  if (isTerminalRunStatus(current)) finalize(current)
+}
+
+/** Drain queued mid-turn bodies into the (now parked) run as ONE combined turn.
+ *  A refused drain (the park was consumed concurrently) re-queues for the next
+ *  boundary — a body is never dropped WHILE THE ATTACHMENT LIVES. Bodies still
+ *  queued when the run reaches terminal are stranded in A.1 (documented at
+ *  finalizeSessionTerminal; A.2's terminal re-dispatch closes it). */
+function drainPending(att: Attachment): void {
+  if (att.pending.length === 0) return
+  const combined = att.pending.splice(0).join('\n\n')
+  if (!sendInput(att.runId, combined)) att.pending.push(combined)
+}
+
+/**
+ * Terminal state rules — the A.1 subset (A.2 replaces this with the full set:
+ * resume-rejected → 'stale' + id clear, undo taint, forcedState):
+ *  - 'done' → 'resumable'; an ESTABLISH that never INITed additionally stamps
+ *    its own sessionId (belt-and-suspenders D-062 — the INIT stamp is primary,
+ *    and a resume never overwrites the id it resumed).
+ *  - non-done WITH INIT observed → 'resumable': a REAL CLI session exists — its
+ *    id was persisted at the INIT event, so a mid-turn death (error/kill) keeps
+ *    the context and the next send resumes it. Covers establish AND resume —
+ *    exactly the continuity the INIT-time persist exists for.
+ *  - non-done ESTABLISH without INIT → 'stale' (cli_session_id still NULL): no
+ *    CLI session ever came up — the next send reseeds cleanly.
+ *  - non-done RESUME without INIT → 'resumable' in A.1 (W0 parity: the resume
+ *    retries); A.2's resume-rejected rule turns EXACTLY this case into 'stale'
+ *    + id clear.
+ * context_tokens refreshes on every terminal (the run's last observed size).
+ * PENDING STRAND (A.1, documented): bodies still queued at terminal are NOT
+ * re-sent — their durable turns survive and fold into a later ESTABLISH's seed
+ * replay, but a RESUME will not carry them. A.2's terminal re-dispatch closes
+ * this.
+ */
+function finalizeSessionTerminal(sessionId: string, att: Attachment, status: string): void {
+  const now = Date.now()
+  updateSessionContextTokens(sessionId, att.runId)
+  if (status === 'done') {
+    if (!att.initSeen && !att.resume) {
+      agentSessionsDb.setCliSessionId.run(att.cliSessionId, now, sessionId)
+    }
+    agentSessionsDb.setState.run('resumable', now, sessionId)
+    agentSessionsDb.touch(sessionId, now)
+  } else if (att.initSeen) {
+    agentSessionsDb.setState.run('resumable', now, sessionId)
+  } else if (!att.resume) {
+    agentSessionsDb.setState.run('stale', now, sessionId)
+  } else {
+    agentSessionsDb.setState.run('resumable', now, sessionId)
+  }
 }
 
 // ── demotion + counters ───────────────────────────────────────────────────────
 
 /**
- * Demote a session — W0 interim: a PURE state transition, no process work (Lane A
- * adds the real live-process demotion: graceful stdin close, boot sweep, LRU
- * eviction). 'error' → 'stale' from any state; 'idle'/'boot'/'lru' → 'resumable'
- * only when currently 'live' (a no-op otherwise — the W0 adapter never creates
- * 'live', so these reasons only matter once Lane A lands). Writes go through the
- * agentSessionsDb helpers so updated_at always advances. An unknown id is a
- * silent no-op: demotion is idempotent housekeeping called from sweeps/timers.
+ * Demote a session — still the W0-pure state transition in A.1 (A.2 adds the
+ * real live-process demotion: graceful stdin close, boot sweep, LRU eviction).
+ * 'error' → 'stale' from any state; 'idle'/'boot'/'lru' → 'resumable' only when
+ * currently 'live' (a no-op otherwise). Writes go through the agentSessionsDb
+ * helpers so updated_at always advances. An unknown id is a silent no-op:
+ * demotion is idempotent housekeeping called from sweeps/timers.
  */
 export function demoteSession(sessionId: string, reason: 'idle' | 'boot' | 'lru' | 'error'): void {
   const row = agentSessionsDb.get.get(sessionId) as Row | undefined
@@ -315,7 +494,7 @@ export function demoteSession(sessionId: string, reason: 'idle' | 'boot' | 'lru'
 }
 
 /** How many sessions currently hold state 'live'. A full-row list is fine at
- *  this scale (bounded by MAX_LIVE_SESSIONS once Lane A enforces the cap). */
+ *  this scale (bounded by MAX_LIVE_SESSIONS once A.2 enforces the cap). */
 export function liveSessionCount(): number {
   return (agentSessionsDb.listByState.all('live') as Row[]).length
 }
