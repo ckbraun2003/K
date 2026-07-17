@@ -27,7 +27,9 @@ export interface SubAgentFormValues {
   enabled: boolean
 }
 
-function ChipListField({
+/** Exported for reuse by AccessPage (C.6) — the free-text add-by-name chip
+ *  field for raw tool ids (no catalog exists for those, unlike skills/MCP). */
+export function ChipListField({
   label,
   values,
   onChange,
