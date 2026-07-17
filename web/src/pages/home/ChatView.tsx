@@ -196,7 +196,7 @@ export default function ChatView() {
   return (
     <div className="flex min-h-0 flex-1 gap-3">
       {/* Thread list */}
-      <div className="surface-solid rounded-panel flex w-72 shrink-0 flex-col overflow-y-auto">
+      <div data-testid="chat-thread-rail" className="glass-panel rounded-panel flex w-72 shrink-0 flex-col overflow-y-auto">
         <div className="px-2 pt-2">
           <SectionHeader
             label="Chats"
@@ -280,7 +280,7 @@ export default function ChatView() {
       </div>
 
       {/* Transcript */}
-      <div className="surface-solid rounded-panel flex-1 overflow-y-auto p-4">
+      <div data-testid="chat-transcript" className="glass-panel rounded-panel flex-1 overflow-y-auto p-4">
         {effectiveId === null ? (
           <div data-testid="chat-empty" className="flex h-full flex-col items-center justify-center gap-4">
             <EmptyState
