@@ -1,14 +1,15 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { PipelineStageRun } from '@k/shared'
-import { stageCanonical } from './PipelineGraph'
-import { metaForCanonical } from '../lib/status'
+import { metaForCanonical, stageCanonical } from '../lib/status'
 import { cn } from '../lib/cn'
 
 function isGate(stage: PipelineStageRun): boolean {
   return stage.kind === 'gate' || stage.status === 'awaiting_gate'
 }
 
-export interface PipelineStageNodeData {
+// `extends Record<string, unknown>` — @xyflow/react's `Node<T>` generic requires
+// its data payload to satisfy that constraint.
+export interface PipelineStageNodeData extends Record<string, unknown> {
   stage?: PipelineStageRun
   isDone: boolean
 }
