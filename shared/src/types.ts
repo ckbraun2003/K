@@ -2600,3 +2600,6 @@ export function canonicalizePipelineStageStatus(s: PipelineStageStatus): Canonic
     case 'skipped':       return { state: 'stopped', attention: 'none',          health: 'ok' }
   }
 }
+
+// ─── Continuous Agents (W0.2) — session/message/domain contracts + role map ──
+export * from './sessions.js'
