@@ -17,6 +17,8 @@ import Toast from '../components/Toast'
 import { ClaudeModelSection, LocalModelsSection } from './SettingsModels'
 // P5.4 — self-contained voice (push-to-talk) status section.
 import { VoiceSection } from './SettingsVoice'
+// usability-access B.5 — self-contained background-preference (Appearance) section.
+import { BackgroundSection } from './SettingsAppearance'
 // Wave 2 — self-contained host-prerequisite "doctor" section.
 import { SystemRequirementsSection } from './SettingsDoctor'
 // P5-B — self-contained autonomous-org on/off front door section.
@@ -447,6 +449,7 @@ const SETTINGS_NAV: Array<{ id: string; label: string }> = [
   { id: 'models', label: 'Claude Model' },
   { id: 'local-models', label: 'Local Models' },
   { id: 'voice', label: 'Voice' },
+  { id: 'appearance', label: 'Appearance' },
   { id: 'org-default', label: 'Org Default' },
   { id: 'autonomy', label: 'Autonomous Org' },
   { id: 'notifications', label: 'Notifications' },
@@ -499,6 +502,11 @@ export default function SettingsPage() {
 
           <section id="voice" className="mb-8 scroll-mt-16">
             <VoiceSection />
+          </section>
+
+          {/* usability-access B.5 — the ambient backdrop preference. */}
+          <section id="appearance" className="mb-8 scroll-mt-16">
+            <BackgroundSection />
           </section>
 
           {/* P5.3b — org-default orchestrator authority (leads inherit unless overridden). */}
