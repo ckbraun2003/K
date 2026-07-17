@@ -12,6 +12,7 @@
     "test:regressions": "vitest run --config vitest.regressions.config.ts"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@k/shared": "workspace:*",
@@ -20,6 +21,7 @@
     "@tanstack/react-query": "^5.50.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "@xyflow/react": "^12.11.2",
     "clsx": "^2.1.1",
     "d3-force-3d": "^3.0.6",
     "framer-motion": "^11.3.0",

@@ -33,6 +33,9 @@ vi.mock('../src/pages/CatalogPage', () => ({
 vi.mock('../src/pages/runs/AutomationsView', () => ({
   default: (p: { defId?: string }) => <div data-testid="automations-view-mock">defId:{p.defId ?? 'none'}</div>,
 }))
+vi.mock('../src/pages/AccessPage', () => ({
+  default: () => <div data-testid="access-page-mock" />,
+}))
 
 import AgentsPage from '../src/pages/AgentsPage'
 import { resolveRoute } from '../src/lib/route'
@@ -41,11 +44,12 @@ beforeEach(() => mockNavigate.mockClear())
 afterEach(() => cleanup())
 
 describe('AgentsPage — Org / Catalog / Automations', () => {
-  it('renders all 3 tabs', () => {
+  it('renders all 4 tabs', () => {
     render(<AgentsPage />)
     expect(screen.getByTestId('tab-org')).toBeTruthy()
     expect(screen.getByTestId('tab-catalog')).toBeTruthy()
     expect(screen.getByTestId('tab-automations')).toBeTruthy()
+    expect(screen.getByTestId('tab-access')).toBeTruthy()
   })
 
   it('defaults to the org tab and mounts OrgPage', () => {
@@ -85,8 +89,17 @@ describe('AgentsPage — Org / Catalog / Automations', () => {
     expect(mockNavigate).toHaveBeenCalledWith('agents', 'catalog')
     fireEvent.click(screen.getByTestId('tab-automations'))
     expect(mockNavigate).toHaveBeenCalledWith('agents', 'automations')
+    fireEvent.click(screen.getByTestId('tab-access'))
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'access')
     fireEvent.click(screen.getByTestId('tab-org'))
     expect(mockNavigate).toHaveBeenCalledWith('agents', 'org')
+  })
+
+  it('tab=access mounts AccessPage', () => {
+    render(<AgentsPage tab="access" />)
+    expect(screen.getByTestId('tab-access').getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('access-page-mock')).toBeTruthy()
+    expect(screen.queryByTestId('org-page-mock')).toBeNull()
   })
 })
 

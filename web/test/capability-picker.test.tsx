@@ -36,6 +36,10 @@ vi.mock('../src/lib/api', () => ({
     capabilities: { skills: mockCatalogSkills, mcp: mockCatalogMcp },
     orchestrators: { get: mockOrchGet, update: mockOrchUpdate },
     orgDefault: { get: vi.fn().mockResolvedValue({ skills: [], allowedTools: [], mcpServers: [] }) },
+    // C.4 gave OrchestratorDetailPage a models-available query for its default-model
+    // Select; this adoption test only exercises the grant-guard banner, so an empty
+    // available-models list is enough to let the page mount.
+    models: { available: vi.fn().mockResolvedValue({ models: [], localDegraded: false }) },
     memory: { lessons: mockLessons, approve: vi.fn(), reject: vi.fn() },
     metrics: { recentActuals: mockRecentActuals },
   },

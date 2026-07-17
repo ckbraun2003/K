@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { isKnownModel, type OrchestratorRosterPayload } from '@k/shared'
+import type { OrchestratorRosterPayload } from '@k/shared'
+import { isKnownModel } from '@k/shared'
 import { GrantError } from '../authority.js'
 import { getProfile, listProfiles, updateProfile } from '../profiles.js'
 import { assembleLead, isLead, rosterVitals } from './org-shared.js'
 import { sendError, describePatchRejection } from './http-errors.js'
+import { resolveAvailableModels, availableModelIds } from '../models.js'
 
 /**
  * Orchestrators control-plane route (P5.3a) — the roster + detail + per-lead
@@ -74,13 +76,17 @@ export async function orchestratorsRoutes(app: FastifyInstance) {
     if (Object.keys(parsed.data).length === 0) {
       return sendError(reply, 400, 'empty patch')
     }
-    // defaultModel must be a known Claude model id (same gate as PUT /api/claude/model);
-    // null explicitly CLEARS the override back to the runtime default. '' normalizes to
-    // that same clear-sentinel FIRST — it is the storage encoding of "no override"
-    // (db.ts rowToAgentProfile), so it must clear, never 400.
+    // defaultModel must be an available model id — Claude KNOWN_MODELS ∪ whatever
+    // Ollama models are actually installed (usability-access C.2; was Claude-only
+    // isKnownModel). null explicitly CLEARS the override back to the runtime
+    // default. '' normalizes to that same clear-sentinel FIRST — it is the storage
+    // encoding of "no override" (db.ts rowToAgentProfile), so it must clear, never 400.
     if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
+    // Short-circuit the common Claude-id path so a known model never waits on the
+    // Ollama round-trip resolveAvailableModels() makes (SEAMS#1 follow-up).
     if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
-      return sendError(reply, 400, 'unknown model')
+      const avail = availableModelIds(await resolveAvailableModels())
+      if (!avail.has(parsed.data.defaultModel)) return sendError(reply, 400, 'unknown model')
     }
 
     const existing = getProfile(req.params.id)
