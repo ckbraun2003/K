@@ -218,7 +218,7 @@ function RunDetail({ runId }: { runId: string }) {
 
       {cancel.isError && <p className="text-caption text-red">{(cancel.error as Error).message}</p>}
 
-      <div className="surface-solid rounded-panel p-3">
+      <div className="surface-solid rounded-panel h-[24rem] p-3">
         <PipelineGraph view={view} selectedStageKey={selectedStageKey} onSelectStage={setSelectedStageKey} />
       </div>
 

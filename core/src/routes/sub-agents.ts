@@ -1,7 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
+import { WORKER_CEILING_TIER, isKnownModel } from '@k/shared'
 import { listSubAgents, createSubAgent, updateSubAgent, deleteSubAgent } from '../sub-agents.js'
 import { sendError, sendZodError } from './http-errors.js'
+import { resolveAvailableModels, availableModelIds } from '../models.js'
+import { assertEffectiveGrants, GrantError } from '../authority.js'
 
 /**
  * Sub-agent worker REST surface (Orchestration Program Phase 2, Lane B Task
@@ -101,14 +104,50 @@ export async function subAgentsRoutes(app: FastifyInstance) {
       if (!base) return sendError(reply, 404, `clone source not found: ${b.cloneFrom}`)
     }
 
+    // model must be an available model id — Claude KNOWN_MODELS ∪ whatever Ollama
+    // models are actually installed (usability-access C.2). '' normalizes to null
+    // (no override) for consistency with the orchestrator/org-default model gates;
+    // an explicit null or an omitted field both skip the check.
+    if (b.model === '') b.model = null
+    const resolvedModel = b.model !== undefined ? b.model : (base?.model ?? null)
+    // Validate ONLY an explicitly-supplied model against the available set (a known
+    // Claude id skips the Ollama round-trip — SEAMS#1 follow-up). A `cloneFrom`-
+    // INHERITED model is deliberately NOT re-validated (SEAMS#2 M1, accepted): it
+    // originates from a trusted K-native `.md` frontmatter — which legitimately uses
+    // Claude Code model ALIASES like `sonnet`/`haiku` that are NOT KNOWN_MODELS ids
+    // and are resolved later by the router — or from an already-validated operator
+    // row; enforcing the available-set invariant on it would reject valid forks for
+    // no security gain (the model reaches only a `--model <id>` argv, never a shell).
+    if (b.model != null && !isKnownModel(b.model)) {
+      const avail = availableModelIds(await resolveAvailableModels())
+      if (!avail.has(b.model)) return sendError(reply, 400, 'unknown model')
+    }
+
+    // D-121: a sub-agent worker runs INSIDE an orchestrator's authority, so its
+    // resolved grants may never exceed the orchestrator tier ceiling. Validate the
+    // SAME resolved allowedTools/mcpServers/skills expressions createSubAgent below
+    // is about to persist — not the raw (possibly partial/cloned-from) body — so a
+    // fork that inherits an already-in-ceiling source is never spuriously rejected.
+    const resolvedGrants = {
+      allowedTools: b.allowedTools ?? base?.allowedTools ?? [],
+      mcpServers: b.mcpServers ?? base?.mcpServers ?? [],
+      skills: b.skills ?? base?.skills ?? [],
+    }
+    try {
+      assertEffectiveGrants(WORKER_CEILING_TIER, resolvedGrants)
+    } catch (e) {
+      if (e instanceof GrantError) return sendError(reply, 400, e.message)
+      throw e
+    }
+
     try {
       const created = createSubAgent({
         name: b.name,
         role: b.role ?? base!.role,
-        model: b.model !== undefined ? b.model : (base?.model ?? null),
-        allowedTools: b.allowedTools ?? base?.allowedTools ?? [],
-        mcpServers: b.mcpServers ?? base?.mcpServers ?? [],
-        skills: b.skills ?? base?.skills ?? [],
+        model: resolvedModel,
+        allowedTools: resolvedGrants.allowedTools,
+        mcpServers: resolvedGrants.mcpServers,
+        skills: resolvedGrants.skills,
         prompt: b.prompt ?? base!.prompt,
         enabled: b.enabled,
       })
@@ -122,8 +161,53 @@ export async function subAgentsRoutes(app: FastifyInstance) {
   app.patch<{ Params: { id: string } }>('/api/sub-agents/:id', async (req, reply) => {
     const parsed = UpdateBodySchema.safeParse(req.body)
     if (!parsed.success) return sendZodError(reply, parsed.error)
+    const p = parsed.data
+
+    // Same available-model gate as POST (C.2); '' normalizes to null (clear).
+    if (p.model === '') p.model = null
+    // Known Claude id skips the Ollama round-trip (SEAMS#1 follow-up).
+    if (p.model != null && !isKnownModel(p.model)) {
+      const avail = availableModelIds(await resolveAvailableModels())
+      if (!avail.has(p.model)) return sendError(reply, 400, 'unknown model')
+    }
+
+    // D-121: the orchestrator-tier ceiling gate applies only to EDITABLE operator
+    // workers — the plan keeps "K-native workers (403) unaffected" by it. A
+    // K-native worker is read-only, so validating its grants would return a
+    // misleading 400 ("exceeds ceiling") for an over-ceiling payload instead of
+    // the canonical 403 "read-only"; skip the check for K-native ids and let
+    // updateSubAgent surface the 403 (mapSubAgentError). For an operator worker,
+    // fetch the CURRENT row and merge the patch's grant arrays over it FIRST, then
+    // validate the MERGED result — never just the patch's own delta. A patch that
+    // leaves allowedTools/mcpServers/skills untouched is judged against the
+    // worker's existing (already-valid) arrays; a patch that DOES touch a field is
+    // judged against the full merged set (a two-step smuggle can't slip an
+    // over-ceiling grant past a field the patch never names).
+    const current = listSubAgents().find(a => a.id === req.params.id)
+    if (!current) return sendError(reply, 404, 'not found')
+
+    let writePatch: typeof p = p
+    if (current.source !== 'k') {
+      const mergedGrants = {
+        allowedTools: p.allowedTools ?? current.allowedTools,
+        mcpServers: p.mcpServers ?? current.mcpServers,
+        skills: p.skills ?? current.skills,
+      }
+      try {
+        assertEffectiveGrants(WORKER_CEILING_TIER, mergedGrants)
+      } catch (e) {
+        if (e instanceof GrantError) return sendError(reply, 400, e.message)
+        throw e
+      }
+      // Persist EXACTLY the validated arrays rather than relying on updateSubAgent
+      // to independently re-derive a byte-identical merge (D-121 defense in depth:
+      // the written grants are the ones the ceiling check just approved).
+      writePatch = { ...p, ...mergedGrants }
+    }
+
+    // A K-native id reaches updateSubAgent, which throws "read-only" → 403.
     try {
-      return reply.send(updateSubAgent(req.params.id, parsed.data))
+      return reply.send(updateSubAgent(req.params.id, writePatch))
     } catch (e) {
       return mapSubAgentError(reply, req, e)
     }

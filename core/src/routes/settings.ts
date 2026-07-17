@@ -24,9 +24,10 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { type Status, SystemPromptBodySchema, isKnownModel } from '@k/shared'
+import { type Status, SystemPromptBodySchema, BACKGROUND_VARIANTS, BackgroundVariantSchema, isKnownModel } from '@k/shared'
+import { resolveAvailableModels, availableModelIds } from '../models.js'
 import { isOllamaReachable } from '../router.js'
-import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
+import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel, backgroundVariant, setBackgroundVariant } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 import { credentialPosture, type CredentialPosture } from '../agent-config.js'
 import { probeWhisper } from '../transcription.js'
@@ -248,6 +249,19 @@ export async function settingsRoutes(app: FastifyInstance) {
     return reply.send(buildStatus(await cachedProbes(), liveStatusEnv()))
   })
 
+  // GET /api/settings/background — the operator's background preference + the
+  // full variant list (so the client never hardcodes the options).
+  app.get('/api/settings/background', async (_req, reply) =>
+    reply.send({ variant: backgroundVariant(), options: BACKGROUND_VARIANTS }))
+
+  // PUT /api/settings/background — set the preference. 400 on an unknown variant.
+  app.put('/api/settings/background', async (req, reply) => {
+    const parsed = z.object({ variant: BackgroundVariantSchema }).safeParse(req.body)
+    if (!parsed.success) return sendError(reply, 400, 'invalid background variant')
+    setBackgroundVariant(parsed.data.variant)
+    return reply.send({ variant: parsed.data.variant })
+  })
+
   // GET /api/system-prompt — the human-editable region of the prompt file only.
   app.get('/api/system-prompt', async (_req, reply) => {
     let content = ''
@@ -348,13 +362,17 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (Object.keys(parsed.data).length === 0) {
       return sendError(reply, 400, 'empty patch')
     }
-    // defaultModel must be a known Claude model id (same gate as PUT /api/claude/model);
-    // null explicitly CLEARS the override back to the runtime default. '' normalizes to
-    // that same clear-sentinel FIRST — it is the storage encoding of "no override"
-    // (db.ts rowToAgentProfile), so it must clear, never 400.
+    // defaultModel must be an available model id — Claude KNOWN_MODELS ∪ whatever
+    // Ollama models are actually installed (usability-access C.2; was Claude-only
+    // isKnownModel). null explicitly CLEARS the override back to the runtime
+    // default. '' normalizes to that same clear-sentinel FIRST — it is the storage
+    // encoding of "no override" (db.ts rowToAgentProfile), so it must clear, never 400.
     if (parsed.data.defaultModel === '') parsed.data.defaultModel = null
+    // Short-circuit the common Claude-id path (SEAMS#1 follow-up) — a known model
+    // never waits on the Ollama round-trip resolveAvailableModels() makes.
     if (parsed.data.defaultModel != null && !isKnownModel(parsed.data.defaultModel)) {
-      return sendError(reply, 400, 'unknown model')
+      const avail = availableModelIds(await resolveAvailableModels())
+      if (!avail.has(parsed.data.defaultModel)) return sendError(reply, 400, 'unknown model')
     }
     // Skills must exist in the tier's authored skill set (F-049). The tier bundle is
     // the synthesizer's CEILING — agent-config.ts throws at DISPATCH time on a profile

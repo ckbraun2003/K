@@ -120,6 +120,17 @@ body { font-variant-numeric: tabular-nums; }
 .ambient-blob-4 { width: 40rem; height: 36rem; right: 6%; bottom: -10%;
   background: radial-gradient(closest-side, var(--lg-blob-4), transparent 70%);
   animation: lg-drift-4 66s ease-in-out infinite alternate; }
+
+/* `aurora` background variant (usability-access B.4) — a static gradient wash
+   built from the same LG2 blob tokens as `.ambient-blob`, so it stays on the
+   sanctioned palette without a JS animation loop. */
+.lg-aurora {
+  background:
+    radial-gradient(60% 50% at 20% 20%, var(--lg-blob-1), transparent 70%),
+    radial-gradient(55% 45% at 80% 10%, var(--lg-blob-2), transparent 70%),
+    radial-gradient(50% 60% at 50% 90%, var(--lg-blob-3), transparent 70%),
+    var(--bg-deep);
+}
 @keyframes lg-drift-1 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(9%, 6%, 0) scale(1.12); } }
 @keyframes lg-drift-2 { from { transform: translate3d(0, 0, 0) scale(1.08); } to { transform: translate3d(-7%, 9%, 0) scale(0.94); } }
 @keyframes lg-drift-3 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(11%, -7%, 0) scale(1.10); } }
@@ -235,32 +246,35 @@ body { font-variant-numeric: tabular-nums; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; } }
 
-/* ── LG2 pointer sheen (impressive-wave W0.6) — opt-in .glass-interactive ─────
-   useGlassPointer (mounted once in Shell) writes --lg-mx/--lg-my in viewport
-   px on <html>; background-attachment: fixed anchors the radial highlight to
-   those viewport coords, so one pair of vars serves every card. The overlay is
-   a decorative 10%-alpha wash (never load-bearing for contrast) that parks
-   off-viewport until the first pointermove; on touch/reduced-motion the hook
-   no-ops and the sheen simply never appears. A standalone ::before (its own
-   background, independent of the tier's own `background` shorthand) — composes
-   with the W0.5 double-background tier fill/edge without touching it, and
-   with W0.4's z-index:-1 refract ::after: refract paints in the stacking
-   context's negative-z step (behind all normal content), this ::before has no
-   z-index (auto) so it paints in the positioned/auto step AFTER normal content
-   — i.e. the sheen highlights on top, the refraction distorts the backdrop
-   behind, exactly the desired relative order. No edits to .glass-chrome/
-   .glass-panel/.glass-overlay's own `background` or `::after` rules. */
+/* ── glass static hover sheen (usability-access B.1) — opt-in .glass-interactive ──
+   Replaces the LG2 pointer-tracking sheen (useGlassPointer, deleted): no window
+   pointermove listener, no viewport-coordinate CSS vars — a static diagonal wash
+   that fades in on :hover plus a small brightness lift, both pointer-independent
+   (works identically on touch/keyboard focus-visible via :hover parity in modern
+   browsers). Reuses the --lg-sheen token so the LG2 token contract (tokens.test.ts)
+   stays intact. A standalone ::before (its own background, independent of the
+   tier's own `background` shorthand) — composes with the W0.5 double-background
+   tier fill/edge without touching it, and with W0.4's z-index:-1 refract ::after:
+   refract paints in the stacking context's negative-z step (behind all normal
+   content), this ::before has no z-index (auto) so it paints in the
+   positioned/auto step AFTER normal content — i.e. the sheen highlights on top,
+   the refraction distorts the backdrop behind, exactly the desired relative
+   order. No edits to .glass-chrome/.glass-panel/.glass-overlay's own `background`
+   or `::after` rules. */
 @layer components {
-  .glass-interactive { position: relative; }
+  .glass-interactive { position: relative; transition: filter var(--dur-2) var(--ease); }
   .glass-interactive::before {
     content: '';
     position: absolute;
     inset: 0;
     border-radius: inherit;
     pointer-events: none;
-    background: radial-gradient(11rem 11rem at var(--lg-mx, -100vmax) var(--lg-my, -100vmax), var(--lg-sheen), transparent 70%);
-    background-attachment: fixed;
+    opacity: 0;
+    background: linear-gradient(135deg, var(--lg-sheen), transparent 60%);
+    transition: opacity var(--dur-2) var(--ease);
   }
+  .glass-interactive:hover::before { opacity: 1; }
+  .glass-interactive:hover { filter: brightness(1.04); }
 }
 
 /* ── doc-markdown (FU-5) ──────────────────────────────────────────────────────
@@ -317,5 +331,8 @@ body { font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
   .ambient, .ambient-blob, .glow-live { animation: none; }
+  /* React Flow marks `animated` (pass) edges with a marching-ants dash animation
+     on the SVG path — freeze it too (usability-access P2.6 Lane A). */
+  .react-flow__edge.animated path { animation: none !important; }
   * { transition-duration: 0.01ms !important; }
 }

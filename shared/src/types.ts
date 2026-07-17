@@ -1338,6 +1338,31 @@ export function modelContextWindow(id: string): number | undefined {
   return KNOWN_MODELS.find(m => m.id === id)?.contextWindow
 }
 
+// ── Usability & Access (Phase 2.6) ───────────────────────────────────────────
+export const BACKGROUND_VARIANTS = ['galaxy', 'aurora', 'blobs', 'solid'] as const
+export const BackgroundVariantSchema = z.enum(BACKGROUND_VARIANTS)
+export type BackgroundVariant = z.infer<typeof BackgroundVariantSchema>
+export const DEFAULT_BACKGROUND: BackgroundVariant = 'galaxy'
+
+export const AvailableModelSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  kind: z.enum(['claude', 'local']),
+  contextWindow: z.number().int().positive().optional(),
+})
+export type AvailableModel = z.infer<typeof AvailableModelSchema>
+export const AvailableModelsResponseSchema = z.object({
+  models: z.array(AvailableModelSchema),
+  localDegraded: z.boolean(), // true = Ollama unreachable, local set is best-effort empty
+})
+export type AvailableModelsResponse = z.infer<typeof AvailableModelsResponseSchema>
+
+/** Sub-agent workers run inside an orchestrator's authority; their grants are
+ *  ceiling-validated at the orchestrator tier and may never exceed it (D-121).
+ *  `as const` (not `: AgentTier`) so this can sit above AgentTierSchema without a
+ *  forward-reference; the literal still satisfies AgentTier at the call site. */
+export const WORKER_CEILING_TIER = 'orchestrator' as const
+
 export const StartRunBodySchema = z.object({
   prompt: z.string().min(1),
   cwd: z.string().optional(),       // defaults to k/ root

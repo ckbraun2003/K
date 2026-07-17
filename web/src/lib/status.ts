@@ -18,10 +18,11 @@
  * RunsTab's formerly-unstyled awaiting_input rows gain the amber treatment).
  * Every other adopted surface keeps its exact prior labels and classes.
  */
-import type { AgentRunStatus, CanonicalStatus, DelegationNodeStatus, RunStatus } from '@k/shared'
+import type { AgentRunStatus, CanonicalStatus, DelegationNodeStatus, PipelineStageRun, RunStatus } from '@k/shared'
 import {
   canonicalizeAgentRunStatus,
   canonicalizeDelegationNodeStatus,
+  canonicalizePipelineStageStatus,
   canonicalizeRunStatus,
 } from '@k/shared'
 
@@ -88,4 +89,19 @@ export function agentRunStatusMeta(status: AgentRunStatus): StatusMeta {
 /** Presentation for a delegation-tree node status (Chief org tree). */
 export function delegationStatusMeta(status: DelegationNodeStatus): StatusMeta {
   return { label: status, ...metaForCanonical(canonicalizeDelegationNodeStatus(status)) }
+}
+
+/** A pipeline stage's canonical triple — from the wire view, or derived if the
+ *  projection omitted it (D-119 C3; usability-access P2.6 Lane A). Shared by
+ *  PipelineGraph (re-exported) and PipelineStageNode to avoid a circular import
+ *  between the two component modules. */
+export function stageCanonical(stage: PipelineStageRun): CanonicalStatus {
+  return stage.canonical ?? canonicalizePipelineStageStatus(stage.status)
+}
+
+/** A stage is a human gate when its kind is `gate` or it is parked awaiting one.
+ *  Lives here (leaf module) so PipelineGraph (re-exported) and PipelineStageNode
+ *  share ONE definition — same anti-duplication reason as stageCanonical. */
+export function isGate(stage: PipelineStageRun): boolean {
+  return stage.kind === 'gate' || stage.status === 'awaiting_gate'
 }

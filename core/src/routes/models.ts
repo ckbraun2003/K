@@ -14,6 +14,7 @@ import { z } from 'zod'
 import type { FastifyInstance } from 'fastify'
 import { KNOWN_MODELS, isKnownModel } from '@k/shared'
 import { claudeDefaultModel, setClaudeDefaultModel } from '../config-store.js'
+import { resolveAvailableModels } from '../models.js'
 
 const ModelBodySchema = z.object({ model: z.string().min(1).max(200) })
 
@@ -34,5 +35,12 @@ export async function modelsRoutes(app: FastifyInstance) {
     if (!isKnownModel(parsed.data.model)) return reply.status(400).send({ error: 'unknown model' })
     setClaudeDefaultModel(parsed.data.model)
     return reply.send({ model: parsed.data.model })
+  })
+
+  // GET /api/models/available — the unified Claude + local (Ollama) model set,
+  // for any per-agent model picker (orchestrator/sub-agent defaults). Never
+  // 500s when Ollama is unreachable; degrades to Claude-only + localDegraded.
+  app.get('/api/models/available', async (_req, reply) => {
+    return reply.send(await resolveAvailableModels())
   })
 }
