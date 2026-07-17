@@ -10,6 +10,7 @@ import AutoTextarea from '../components/AutoTextarea'
 import { Icon } from '../ui/Icon'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
+import { Input } from '../ui/Field'
 
 /**
  * Skill Creator (D-071) — build → refine → evaluate → save-to-K-library, on a
@@ -39,7 +40,7 @@ export default function SkillCreatorPage({ draftId }: { draftId?: string }) {
       {/* ── Left rail — resumable drafts + new. ───────────────────────────── */}
       <aside className="flex w-64 flex-shrink-0 flex-col border-r border-border bg-surface">
         <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-          <Button variant="ghost" size="sm" icon="arrowLeft" onClick={() => navigate('agents', 'skills')}>
+          <Button variant="ghost" size="sm" icon="arrowLeft" onClick={() => navigate('agents', 'catalog')}>
             Catalog
           </Button>
           <button
@@ -152,7 +153,7 @@ function BriefForm() {
         <label htmlFor="brief-name-hint" className="mb-1 block text-xs text-muted">
           Name hint (optional — the agent picks one otherwise)
         </label>
-        <input
+        <Input
           id="brief-name-hint"
           data-testid="brief-name-hint"
           className={inputCls}
@@ -523,7 +524,7 @@ function SaveBar({ draft }: { draft: SkillDraft }) {
       } catch {
         // sessionStorage unavailable (private mode) — the save still worked.
       }
-      navigate('agents', 'skills')
+      navigate('agents', 'catalog')
     },
   })
 
@@ -537,7 +538,7 @@ function SaveBar({ draft }: { draft: SkillDraft }) {
         <button
           type="button"
           data-testid="save-view-catalog"
-          onClick={() => navigate('agents', 'skills')}
+          onClick={() => navigate('agents', 'catalog')}
           className="text-[11px] text-accent-hover hover:underline"
         >
           view in catalog →
@@ -559,7 +560,7 @@ function SaveBar({ draft }: { draft: SkillDraft }) {
           if (trimmed !== '') save.mutate(trimmed)
         }}
       >
-        <input
+        <Input
           data-testid="save-name"
           aria-label="Skill name"
           className={inputCls}

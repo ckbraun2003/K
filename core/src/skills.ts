@@ -15,7 +15,7 @@ import { randomUUID } from 'crypto'
 import { schedule as cronSchedule, validate as cronValidate } from 'node-cron'
 import type { Skill, CreateSkill, SkillEval } from '@k/shared'
 import { db, skillsDb, skillEvalsDb, projectsDb } from './db.js'
-import { startRun, type StartRunOptions } from './supervisor.js'
+import { startRun, REPO_ROOT, type StartRunOptions } from './supervisor.js'
 import { fileURLToPath } from 'url'
 import { eventBus } from './events.js'
 import { trackSupervisedRun } from './run-lifecycle.js'
@@ -23,6 +23,7 @@ import { isPathWithin } from './paths.js'
 import { resolveSkillRoots, confineToRoots, type SkillRoots } from './skill-roots.js'
 import { registeredProjectSkillRoots } from './host-discovery.js'
 import { budgetGate } from './budget-governor.js'
+import { startPipelineRun } from './pipeline-defs.js'
 
 // agent-config is READ-ONLY bundled assets, resolved __dirname-relative (like
 // agent-config.ts / skill-roots.ts) — NOT via REPO_ROOT, which the desktop app
@@ -50,6 +51,9 @@ export function rowToSkill(r: Record<string, unknown>): Skill {
     triggerType: r.triggerType as Skill['triggerType'],
     schedule: r.schedule != null ? String(r.schedule) : null,
     eventTrigger: r.eventTrigger != null ? String(r.eventTrigger) : null,
+    // Task B.3: snake_case column (the v15 ALTER — SCHEMA_SENTINEL), unlike its
+    // camelCase siblings above (schedule/eventTrigger predate that convention shift).
+    pipelineDefId: r.pipeline_def_id != null ? String(r.pipeline_def_id) : null,
     enabled: Number(r.enabled) === 1,
     createdAt: Number(r.createdAt),
   }
@@ -232,7 +236,7 @@ export async function triggerSkill(
   skillId: string,
   triggeredBy: string,
   opts: { projectId?: string } = {},
-): Promise<{ skillRunId: string; runId: string }> {
+): Promise<{ skillRunId: string; runId: string } | { pipelineRunId: string }> {
   const row = skillsDb.getSkill.get(skillId) as Record<string, unknown> | undefined
   if (!row) throw new Error(`Skill not found: ${skillId}`)
   const skill = rowToSkill(row)
@@ -247,6 +251,27 @@ export async function triggerSkill(
     if (!projectRow) throw new Error(`Project not found: ${opts.projectId}`)
     runOpts.cwd = String(projectRow.local_path)
     runOpts.projectId = opts.projectId
+  }
+
+  // Task B.3 review fix: a skill/routine carrying a `pipelineDefId` targets a PIPELINE
+  // definition instead of a plain skill run — start it via the SAME engine seam the
+  // operator's `POST /api/pipelines/:id/run` and K's `delegate_pipeline` funnel through
+  // (pipeline-defs.ts::startPipelineRun). THIS is now the ONE branch point every trigger
+  // path shares: this function's own callers (the MANUAL `POST /api/skills/:id/trigger`
+  // route, and startEventListener's event dispatch below) get it directly; fireScheduledSkill
+  // (the cron path) delegates straight to this function. Previously the branch lived ONLY in
+  // fireScheduledSkill, so a pipeline-targeted routine fired manually silently ran as a plain
+  // skill instead — fixed by hoisting the branch here. Deliberately bypasses the skill_runs
+  // bookkeeping below — a pipeline run tracks its OWN lifecycle in
+  // pipeline_runs/pipeline_stages/pipeline_edges, not skill_runs. The optional project selector
+  // above still applies (a pipeline-targeted skill run against a chosen project's checkout);
+  // no projectId → REPO_ROOT, exactly like the pre-existing scheduler/event dispatch paths.
+  if (skill.pipelineDefId) {
+    return startPipelineRun(skill.pipelineDefId, {
+      cwd: runOpts.cwd ?? REPO_ROOT,
+      goal: skill.description || `Pipeline run for routine "${skill.name}" (${triggeredBy})`,
+      projectId: opts.projectId ?? null,
+    })
   }
 
   const skillRunId = randomUUID()
@@ -278,6 +303,24 @@ export async function triggerSkill(
   })
 
   return { skillRunId, runId: run.id }
+}
+
+/**
+ * Fire a SCHEDULE-triggered skill (the cron path — Task B.3). Delegates straight to
+ * triggerSkill, which is the SINGLE branch point for `pipelineDefId` → startPipelineRun (review
+ * fix: that branch used to live only here, duplicated, and — worse — the MANUAL trigger path
+ * never got it at all; see triggerSkill's own doc comment). A schedule-triggered routine has no
+ * per-run project selector (no `opts.projectId` is passed), so this is byte-identical to the
+ * pre-review-fix behavior: cwd REPO_ROOT for the pipeline branch, and REPO_ROOT-scoped for the
+ * plain-skill fallback, exactly as before. Kept as its own named export because the scheduler's
+ * cron callback calls it explicitly (not triggerSkill directly) — the distinct name documents
+ * that contract at the call site.
+ */
+export async function fireScheduledSkill(
+  skillId: string,
+  triggeredBy: string,
+): Promise<{ skillRunId: string; runId: string } | { pipelineRunId: string }> {
+  return triggerSkill(skillId, triggeredBy)
 }
 
 // ─── Skill eval-harness testing ──────────────────────────────────────────────
@@ -493,7 +536,7 @@ export function startScheduler(): void {
           )
           return
         }
-        triggerSkill(skill.id, 'scheduler').catch(err =>
+        fireScheduledSkill(skill.id, 'scheduler').catch(err =>
           console.warn(`[skills] schedule trigger failed for ${skill.name}:`, err),
         )
       })

@@ -6,6 +6,7 @@ import { EMPTY_FEED, feedQueryFnLimited, FEED_ICON } from '../lib/feed-query'
 import FeedRow from '../components/FeedRow'
 import NarrativeCard from '../components/NarrativeCard'
 import { EmptyState } from '../ui/EmptyState'
+import { Checkbox } from '../ui/Field'
 
 const ALL_KINDS: FeedKind[] = ['dispatch', 'park', 'plan_gate', 'review_ready', 'pr', 'merge', 'verify_pass', 'verify_fail', 'failure', 'done']
 const TIMELINE_LIMIT = 500
@@ -58,7 +59,7 @@ export default function TimelinePage() {
             </button>
           ))}
           <label className="ml-2 flex items-center gap-1 text-[10px] text-muted">
-            <input type="checkbox" checked={digest} onChange={e => setDigest(e.target.checked)} data-testid="feed-digest-toggle" />
+            <Checkbox checked={digest} onChange={e => setDigest(e.target.checked)} data-testid="feed-digest-toggle" />
             digest
           </label>
         </div>

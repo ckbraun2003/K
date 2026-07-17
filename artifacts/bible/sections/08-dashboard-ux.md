@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-13
+updated: 2026-07-16
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -63,8 +63,8 @@ never a redirect key).
 |------|-------|---------|---------|
 | ⌂ **K** *(landing)* | `#/` | K-home | **Chat** with K (default) or **Overview** — a SegControl toggle, not two routes |
 | ☑ **Personal** | `#/personal` | Inbox · Tasks · Chats · Memories | your needs-you queue, work items, chat-thread management, and durable memories — 4 tabs |
-| ♛ **Agents** | `#/agents` | Org · Skills · Workflows | the agent organization — **Org** (Roster/Tree/Graph), **Skills** (catalog), **Pipelines** (named workflow defs) — 3 tabs |
-| ▶ **Runs** | `#/runs` | — | live + past runs with the rich console, now a plain master-detail (no Workflows sub-tab — Pipelines owns that now) |
+| ♛ **Agents** | `#/agents` | Org · Skills · Workflows | the agent organization — **Org** (Roster/Tree/Graph), **Catalog** (Skills/MCP/Hooks/Sub Agents), **Automations** (Library/Runs/Schedules — the unified pipeline surface) — 3 tabs *(D-120 restructured the tab names/shape; superseded D-101's Org·Skills·Pipelines split — see below)* |
+| ▶ **Runs** | `#/runs` | — | live + past runs with the rich console, now a plain master-detail (no Workflows sub-tab — Agents → Automations → Runs owns pipeline-run visibility now) |
 | ∿ **Insights** | `#/insights` | Metrics · Routing · Evals | **4 tabs** — Overview (deterministic deltas + anomalies) · Charts · Routing · Evals |
 | ▦ **Projects** | `#/projects` | — | the fleet; each opens its 7-tab workspace |
 | **Footer** | ❔ **Help** · ⚙ **Settings** | Terminal | Help opens the in-app multi-page guide (D-116, below) — no longer a bible deep-link; Settings hosts diagnostics terminal, CLAUDE.md editor, org-default authority/MCP panel |
@@ -198,15 +198,19 @@ wired into **K's secretary charter only** (`agent-config/tiers/secretary.charter
 the leads neither call the tool nor carry the injection, keeping "knows the operator" a property of
 the one agent that actually talks to them.
 
-## Agents hub (D-101, 3 tabs)
+## Agents hub (D-101 folded the surfaces in; D-120 restructured the tab shape)
 
-`AgentsPage` merges Org + Skills + the former standalone Workflows page under one `Tabs` surface:
+`AgentsPage` merges Org + the capability catalog + the pipeline surface under one `Tabs` surface.
+**The Orchestration Program Phase 2 IA restructure (D-120) renamed and reshaped the original D-101
+`Org · Skills · Pipelines` split into three top tabs — `Org` / `Catalog` / `Automations`**
+(`web/src/pages/AgentsPage.tsx` `TAB_IDS`); legacy `#/agents/skills/*` and `#/agents/pipelines/*`
+deep links redirect straight into the new tabs (Retirements & redirects, below):
 
 | Tab | Content |
 |-----|---------|
 | **Org** (default) | the roster of leads behind a **Roster / Tree / Graph** `SegControl` (`OrgPage`) — unchanged from P4's "one org surface" (D-096): Roster is slim cards, Tree is the whole-org DelegationTree, Graph is the fleet 3D graph. Carries a **read-only autonomy status chip** (Autonomy OFF/ON) deep-linking to Settings → Autonomous Org — no duplicated controls (P5 Autonomy, D-107) |
-| **Skills** | the capability catalog — unchanged 4 routed sub-tabs: Catalog · MCP · Hooks · Automations (below) |
-| **Pipelines** | named workflow **definitions** — the former standalone Workflows page, folded in here rather than under Runs (its P4 home); a definition's role sequence, prompt scaffold, cross-project flag, and the "Run this workflow" launcher |
+| **Catalog** | the reusable building blocks — formerly the standalone "Skills" tab, now 4 routed sub-tabs: **Skills** (the capability catalog itself, default — below) · **MCP** · **Hooks** · **Sub Agents** (NEW, D-120 — the editable worker registry, below) |
+| **Automations** | the unified pipeline surface (`AutomationsView`) — formerly the standalone "Pipelines" tab plus the Catalog-side workflow-skills registry, now 3 sub-tabs: **Library** (pipeline definitions, incl. the 6 seeded standard pipelines, below) · **Runs** (pipeline execution history + the live DAG) · **Schedules** (cron-triggered skills AND pipeline schedules — merges the old triggers/schedules/eval-history registry, below) |
 
 ### Orchestrator detail (drill-in, `#/orchestrator/:id`)
 
@@ -219,26 +223,55 @@ stored run costs, never price × token estimation — alongside the existing rec
 `effectiveModel` chip. The **per-lead authority override panel** still reads "inherits the org
 default unless overridden"; the org-default itself is edited only in Settings.
 
-### Skills — the capability catalog (unchanged)
+### Catalog — the capability catalog + worker registry (D-069..D-071, D-120)
 
-Still **one destination, four routed tabs** — Catalog (source badge, model-compat badge, est-token
-chip, enable toggle, SKILL.md preview) · MCP (tier-template + discovered-host servers behind the
-TrustDialog) · Hooks (read-only host-hook visibility) · Automations (triggers, schedules, eval
-history) — headed by the `CapabilityStatRow` totals strip. Content is unchanged from the
-host-integration program (D-069..D-071); only its address moved from a standalone rail entry to
-Agents → Skills.
+`CatalogPage` (`Agents → Catalog`) is **one destination, four routed sub-tabs** — **Skills**
+(source badge, model-compat badge, est-token chip, enable toggle, SKILL.md preview; the *default*
+sub-tab and the direct successor of the old standalone "Catalog" sub-tab) · **MCP** (tier-template +
+discovered-host servers behind the TrustDialog) · **Hooks** (read-only host-hook visibility) ·
+**Sub Agents** (NEW, D-120 — below) — headed by the `CapabilityStatRow` totals strip. Skills/MCP/Hooks
+content is unchanged from the host-integration program; only its address moved, first from a
+standalone rail entry to `Agents → Skills` (D-101), then to `Agents → Catalog` (D-120). The old
+4th "Automations" sub-tab (triggers/schedules/eval history) is **retired from Catalog** — its data
+and affordances now live on `Agents → Automations → Schedules` (below); legacy
+`#/agents/skills/automations` redirects there.
 
-**Routines are first-class on the Automations tab (P5 Autonomy, E-16, D-110).** No new table and no
-new rail slot — the existing node-cron Automations registry (over the `skills` table) gains: an
-**NL→cron helper** (RULES-ONLY, no model — an unmappable phrase returns `400` at the route boundary,
-never a guess), a **next-run** display, and a **measured cost per routine** (summed from its run
-history via a JOIN to `runs.cost_usd` — measured actuals, never estimated). A routine *is* a
-schedule-triggered skill, so it needs derived next-run + measured cost, not a new entity.
+**Sub Agents — the editable worker registry (NEW, D-120).** Every profile an orchestrator's pipeline
+stage can dispatch to, catalog-style: **K-native rows** (`source:'k'`, parsed live from
+`agent-config/agents/*.md`) are **read-only** here — a **Fork to edit** action clones one into a new
+**operator row** rather than mutating the shipped file — while **operator rows**
+(`source:'operator'`, the `sub_agent_defs` table) carry full CRUD (edit/delete/enable) through
+`GET/POST/PATCH/DELETE /api/sub-agents`. A pipeline `agent` stage names its actor via `subagentType`,
+resolved against this registry at dispatch time. **Honest limitation (Phase 2.5, tracked):**
+creating or editing an operator worker here does not yet make it *runnable* as a live pipeline stage
+— the registry row exists and is fully editable, but the create-time materializer that mounts it as
+a confined, dispatchable worker file is a later phase (§09 roadmap).
+
+## Automations — the unified pipeline surface (D-120)
+
+`AutomationsView` (`Agents → Automations`) folds the former standalone "Pipelines" tab and the old
+Catalog-side workflow-skills registry into **one surface, three panes**:
+
+- **Library** — pipeline **definitions**, including the **6 seeded standard pipelines** (Implementation
+  Cycle, Deep Research, Bug Triage & Fix, Refactor, Security Audit, Quick Task) plus any custom
+  `PipelineSpec`/`NamedWorkflow` defs; a definition's stage sequence, cross-project flag, and the
+  **"Run this workflow"**-style pipeline launcher (`RunPipelineDialog`) all live here — the direct
+  successor of the old standalone Pipelines tab.
+- **Runs** — pipeline execution history and the **live DAG** (`PipelineGraph`, per-stage cards, gate
+  dialog), plus the **progress ledger** panel (`PipelineLedgerPanel`, D-120) and an **orchestrator
+  multi-pipeline view** — runs grouped by owning orchestrator via `pipeline_runs.owner_profile_id`.
+- **Schedules** — cron-triggered skills AND **pipeline schedules** in one list. **Routines were made
+  first-class here in P5 Autonomy (E-16, D-110)**: an **NL→cron helper** (RULES-ONLY, no model — an
+  unmappable phrase returns `400` at the route boundary, never a guess), a **next-run** display, and a
+  **measured cost per routine** (summed from its run history via a JOIN to `runs.cost_usd` — measured
+  actuals, never estimated). **D-120 extends the same routine with an optional pipeline target**
+  (`skills.pipeline_def_id` → `RoutineView.pipelineDefId`) — a routine can now trigger a pipeline
+  manually or on its cron schedule, not just a skill.
 
 ## Runs (rail entry, now a plain master-detail)
 
-**Runs no longer carries a Workflows sub-tab** — that content moved to Agents → Pipelines (above),
-so `RunsPage` is now exactly a `RunList` + `RunConsole` split with nothing else. Runs render as
+**Runs no longer carries a Workflows sub-tab** — that content moved to Agents → Automations → Library/Runs
+(above), so `RunsPage` is now exactly a `RunList` + `RunConsole` split with nothing else. Runs render as
 **structured, collapsed-by-default** items — commands (`$ …` with output on expand), file ops (Write
 preview, Edit/MultiEdit diff hunks), and delegated sub-agents (type + label, full prompt + result on
 expand). A **Console / Timeline / Changes** `SegControl` toggles the console between the dense event
@@ -306,11 +339,14 @@ A project opens into its workspace, unchanged in shape:
 
 All three are additive to schema v10 (P4) — no destructive migration, no `WsMessage` shape change.
 
-## Retirements & redirects (D-106)
+## Retirements & redirects (D-106; extended by D-120)
 
-Every view string this restructure removed from `KNOWN_VIEWS` keeps a `VIEW_REDIRECTS` entry
+Every view string either restructure removed from `KNOWN_VIEWS` keeps a `VIEW_REDIRECTS` entry
 (`web/src/lib/route.ts`) so a bookmarked or shared legacy hash still resolves — applied via
-`history.replaceState` (never a push), so Back never bounces through a dead intermediate hash:
+`history.replaceState` (never a push), so Back never bounces through a dead intermediate hash. **D-120
+added the `agents/skills/*` → `agents/catalog/*` and `agents/pipelines/*` → `agents/automations/*`
+entries below** (operating on Agents' own sub-param, mirroring the pre-existing `runs` entry, so an
+already-canonical `#/agents/<catalog|automations|org>/*` hash passes through unchanged):
 
 | Legacy hash | Redirects to |
 |-------------|---------------|
@@ -320,14 +356,16 @@ Every view string this restructure removed from `KNOWN_VIEWS` keeps a `VIEW_REDI
 | `#/metrics` | Insights → Charts |
 | `#/routing` | Insights → Routing |
 | `#/evals` | Insights → Evals |
-| `#/workflows[/:id]` | Agents → Pipelines[/:id] |
-| `#/workflow-detail/:id` | Agents → Pipelines/:id |
+| `#/workflows[/:id]` | Agents → Automations[/:id] |
+| `#/workflow-detail/:id` | Agents → Automations/:id |
 | `#/memory` , `#/lessons` | Personal → Inbox |
 | `#/terminal` | Settings |
 | `#/org[/:seg]` (P4-era) | Agents → Org[/:seg] |
-| `#/skills[/:tab]` (P4-era) | Agents → Skills[/:tab] |
+| `#/skills[/:tab]` (P4-era) | Agents → Catalog[/:tab] *(D-120; a bare `#/skills/automations` — the retired workflow-skills registry sub-tab — redirects to the top-level Automations tab instead of a nonexistent Catalog sub-tab)* |
+| `#/agents/skills[/:tab]` (D-101-era) | Agents → Catalog[/:tab] *(D-120)* |
+| `#/agents/pipelines[/:id]` (D-101-era) | Agents → Automations[/:id] *(D-120)* |
 | `#/inbox` (P4-era) | Personal → Inbox |
-| `#/runs/workflows[/:id]` | Agents → Pipelines[/:id] — plain `#/runs/:runId` is unaffected (identity redirect, `resolveRoute` never re-navigates a real run id) |
+| `#/runs/workflows[/:id]` | Agents → Automations[/:id] — plain `#/runs/:runId` is unaffected (identity redirect, `resolveRoute` never re-navigates a real run id) |
 
 An unrouted hash that matches none of the above (and isn't a canonical view) is still a 404
 (`Shell`'s default `NotFound` branch) — the redirect table only covers views that genuinely moved.
@@ -434,7 +472,9 @@ Terms defined in §14 render an inline `GlossaryTerm` tooltip wherever they appe
   events invalidate the Agents/Org queries too, throttled leading+trailing at 250 ms
   (`lib/live-invalidate.ts`).
 - **Breadcrumbs.** `TopBar` renders real breadcrumbs for the param-routed detail views —
-  *Agents › Org › \<name\>*, *Agents › Pipelines › \<name\>*, *Projects › \<name\>*.
+  *Agents › Org › \<name\>*, *Agents › Automations › \<name\>*, *Projects › \<name\>*. **D-120 dropped
+  the leading tab icon from `TopBar`'s title** (`topbar-title` is title/breadcrumb text only now — the
+  `Icon`/`IconName` lookup it used was deleted, not merely hidden).
 - **Focus + a11y.** The Message Dock overlay carries `role="dialog"`/`aria-modal`/label and a focus
   trap (`lib/useFocusTrap.ts`) that returns focus to the FAB on Escape; ConfirmDialog and the evals
   RunDialog get the same trap. Accent fills always use dark `--bg` text via the `--on-accent` token.

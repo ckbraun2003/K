@@ -132,4 +132,9 @@ describe('TopBar', () => {
     expect(screen.queryByTestId('topbar-dock-launcher')).toBeNull()
     expect(mockFocusDock).not.toHaveBeenCalled()
   })
+
+  it('renders no tab icon in the page header — title/breadcrumb only (orch-p2 C.5)', () => {
+    renderBar('runs')
+    expect(screen.getByTestId('topbar-title').querySelector('svg')).toBeNull()
+  })
 })

@@ -33,11 +33,13 @@ import path from 'path'
 import { createRequire } from 'module'
 import { fileURLToPath, pathToFileURL } from 'url'
 import type { AgentProfile } from './profiles.js'
+import type { SubAgentDef } from '@k/shared'
 import { isPathWithin } from './paths.js'
 // NOTE (A3): run-assets.ts imports THIS module's assertSafeSegment/KNOWN_CHARTERS/
 // resolveTsxLoader, so this import is a (benign) cycle — both module bodies are
 // inert; every cross-reference happens inside functions, at call time.
 import { resolveRunAssets } from './run-assets.js'
+import { kNativeSourceStem } from './sub-agents.js'
 import type { ProjectRef } from './host-discovery.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -109,6 +111,12 @@ export interface SynthesizeOpts {
   claudeHome?: string
   claudeJsonPath?: string
   projects?: ProjectRef[]
+  // orch-p2 A.5: the resolved worker-bee def a pipeline `agent` stage's subagentType names
+  // (getSubAgentByName, W0). Mounted into the run's agents/ dir (§3.2): a K-native worker copies
+  // from assetsDir/agents/<name>.md; an operator worker is copied CONFINED from
+  // dataDir/agents/<id>/ (fail-closed — disabled workers skipped, path-escape ids rejected).
+  // Absent for every non-pipeline / no-subagent dispatch → unchanged behavior.
+  subagent?: SubAgentDef | null
 }
 
 // ── path guard ─────────────────────────────────────────────────────────────────
@@ -451,6 +459,29 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     const src = path.join(assetsDir, 'agents', `${agent}.md`)
     if (!fs.existsSync(src)) throw new Error(`agent-config: bundle agent "${agent}" not found`)
     guardedCopy(configDir, src, path.join(configDir, 'agents', `${agent}.md`))
+  }
+  // orch-p2 A.5: mount the stage's resolved worker-bee def (subagentType). A K-native worker
+  // ships in assetsDir/agents/<name>.md (bundle-style guardedCopy). An OPERATOR worker is copied
+  // CONFINED from dataDir/agents/<id>/ (the Phase-1 hook data/hooks/ confinement idiom — src-side
+  // symlink/realpath guards + hard caps). Fail-CLOSED: a DISABLED operator worker is NOT mounted,
+  // and assertSafeSegment blocks a path-escape name (K-native filename) or id (operator dir).
+  if (opts.subagent) {
+    const sa = opts.subagent
+    if (sa.source === 'k') {
+      // Mount by the source FILE STEM, not the frontmatter `name` — the two differ for a
+      // renamed/forked worker, and keying on `name` would silently miss the file (review I-3).
+      // kNativeSourceStem resolves the on-disk `<stem>.md`; fall back to `name` (existsSync then
+      // false → not mounted, exactly the prior behavior) when no K-native file's name matches.
+      const stem = kNativeSourceStem(sa.name) ?? sa.name
+      assertSafeSegment(stem, 'subagent stem')
+      const src = path.join(assetsDir, 'agents', `${stem}.md`)
+      if (fs.existsSync(src)) guardedCopy(configDir, src, path.join(configDir, 'agents', `${stem}.md`))
+    } else if (sa.enabled) {
+      assertSafeSegment(sa.id, 'subagent id')
+      const agentsRoot = path.join(dataDir, 'agents')
+      const srcDir = path.join(agentsRoot, sa.id)
+      if (fs.existsSync(srcDir)) copyDirConfined(agentsRoot, srcDir, configDir, path.join(configDir, 'agents', sa.id))
+    }
   }
 
   // 5. vendor hooks/ into the run dir.

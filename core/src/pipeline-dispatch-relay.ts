@@ -35,11 +35,22 @@
  * a terminal pipeline back to this dispatch's k_run_id.
  */
 
-import { pipelineDb } from './db.js'
+import { pipelineDb, agentRunsDb } from './db.js'
 import { startPipelineRun } from './pipeline-defs.js'
 import { getProject } from './projects.js'
 import { resolveDispatchScope } from './lead-dispatch-relay.js'
 import { REPO_ROOT } from './supervisor.js'
+
+/** Resolve the delegating orchestrator's AgentProfile id from the dispatch's `k_run_id` (orch-p2
+ *  INT fix I-1): that run is the K/Chief/lead activation whose turn called `delegate_pipeline`, so
+ *  its `agent_runs.profile_id` (getAgentRunProfileByRunId — the same seam self-heal.ts / chief-wake.ts
+ *  use to resolve a run's owning activation) IS the delegating orchestrator. Null when the dispatch
+ *  is unscoped (no k_run_id) or that run has no resolvable activation row — never invented. */
+function resolveDispatchOwnerProfileId(kRunId: unknown): string | null {
+  if (kRunId == null) return null
+  const owner = agentRunsDb.getAgentRunProfileByRunId.get(String(kRunId)) as { profile_id?: string } | undefined
+  return owner?.profile_id ?? null
+}
 
 /** Default poll interval for the relay (ms). Overridable via env; read lazily inside
  *  startPipelineDispatchRelay so it can be set after import (mirrors the lead relay). */
@@ -98,6 +109,7 @@ export async function drainPipelineDispatches(): Promise<number> {
           projectId,
           cwd,
           model: row.model != null ? String(row.model) : undefined,
+          ownerProfileId: resolveDispatchOwnerProfileId(row.k_run_id),
         })
         dispatched++
         // Record the started pipeline on the intent so continuePipelineOutcomeToK can join the

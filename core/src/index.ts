@@ -25,6 +25,7 @@ import { orchestratorsRoutes } from './routes/orchestrators.js'
 import { profilesRoutes } from './routes/profiles.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { pipelinesRoutes } from './routes/pipelines.js'
+import { subAgentsRoutes } from './routes/sub-agents.js'
 import { settingsRoutes } from './routes/settings.js'
 import { ollamaRoutes } from './routes/ollama.js'
 import { modelsRoutes } from './routes/models.js'
@@ -55,6 +56,7 @@ import { syncHostDiscovery } from './host-discovery.js'
 import { seedProfiles } from './profiles.js'
 import { seedWorkflowDefinitions } from './workflow-defs.js'
 import { seedPipelineSpecs } from './pipeline-seeds.js'
+import { migrateLegacyDefs } from './pipeline-migrate-legacy.js'
 import { seedEvalSystems } from './eval/store.js'
 import { ensureHarnessBibleRegistered } from './bible.js'
 import { seedUiDemo } from './ui-artifact.js'
@@ -202,6 +204,7 @@ export async function buildApp() {
   await app.register(profilesRoutes)
   await app.register(workflowsRoutes)
   await app.register(pipelinesRoutes)
+  await app.register(subAgentsRoutes)
   await app.register(settingsRoutes)
   await app.register(ollamaRoutes)
   await app.register(modelsRoutes)
@@ -531,6 +534,17 @@ async function start() {
   seedProfiles()      // ensure the durable agent-org profiles (K, Chief, orchestrator + leads) exist
   seedWorkflowDefinitions() // ensure the built-in named workflow templates (code-wave, investigate, refactor) exist
   seedPipelineSpecs() // evolve those templates into executable pipeline specs (workflow_definitions.spec); preserves operator edits
+  // orch-p2 A.4: convert legacy NamedWorkflows + workflow-skills into persisted pipeline defs and
+  // re-home their routines (design §4, convert + retire). One-time (app_config marker + per-row
+  // guards); guarded so a bad legacy row logs and continues rather than aborting boot.
+  try {
+    const m = migrateLegacyDefs()
+    if (!m.skipped && (m.workflowsMigrated || m.skillsRehomed)) {
+      console.log(`[migrate-legacy] converted ${m.workflowsMigrated} workflow def(s) + re-homed ${m.skillsRehomed} workflow-skill routine(s) to pipelines`)
+    }
+  } catch (e) {
+    console.warn('[migrate-legacy] legacy→pipeline migration failed (continuing):', e)
+  }
   // Seed the eval registry (testing/eval/* → eval_* tables) so the Evals surface has systems to run.
   // Idempotent; guarded so a missing/garbled testing/eval/ dir logs and continues rather than aborting boot.
   try {

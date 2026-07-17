@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -61,6 +61,27 @@ export interface RunPipelineBody {
   projectId?: string
   model?: string
 }
+
+/** POST /api/sub-agents body (Lane B Task B.2) — plain create (name+role+prompt) or a
+ *  fork (cloneFrom set; role/model/tool-lists/prompt fall back to the cloned source's
+ *  own fields server-side). Mirrors core's local Zod schema (routes/sub-agents.ts). */
+export interface CreateSubAgentBody {
+  name: string
+  role?: string
+  model?: string | null
+  allowedTools?: string[]
+  mcpServers?: string[]
+  skills?: string[]
+  prompt?: string
+  enabled?: boolean
+  cloneFrom?: string
+}
+
+/** PATCH /api/sub-agents/:id body — every operator-mutable field on a SubAgentDef,
+ *  all optional (read-merge-write server-side). 403s when the target is K-native. */
+export type UpdateSubAgentBody = Partial<
+  Pick<SubAgentDef, 'name' | 'role' | 'model' | 'allowedTools' | 'mcpServers' | 'skills' | 'prompt' | 'enabled'>
+>
 
 /** Result of POST /api/projects/:id/onboard — mirrors core's OnboardResult. */
 export interface OnboardResult {
@@ -541,6 +562,24 @@ export const api = {
       req<PipelineRunView>(`/pipelines/runs/${runId}/stages/${stageId}/rewind`, { method: 'POST' }),
     cancel: (runId: string) =>
       req<PipelineRunView>(`/pipelines/runs/${runId}/cancel`, { method: 'POST' }),
+    // orch-p2 C.3: the append-only progress ledger for a run (design §6.1) — every
+    // stage transition, retry, loop iteration, gate decision, and cost event, in
+    // seq order. Live via `pipeline_update`'s optional `ledgerSeq` cursor (see
+    // makePipelineInvalidator), not its own WS message.
+    ledger: (runId: string) => req<PipelineLedgerEntry[]>(`/pipelines/runs/${runId}/ledger`),
+  },
+  // Sub-agent worker registry (Lane B Task B.2/B.5) — K-native (read-only, source:'k')
+  // + operator (full CRUD, source:'operator') workers an `agent` pipeline stage's
+  // subagentType resolves against. Mutations 403 when targeting a K-native id — the
+  // Catalog UI's "Fork to edit" affordance is `create({ cloneFrom: kNativeId, name })`.
+  subAgents: {
+    list: () => req<SubAgentDef[]>('/sub-agents'),
+    get: (id: string) => req<SubAgentDef>(`/sub-agents/${id}`),
+    create: (body: CreateSubAgentBody) =>
+      req<SubAgentDef>('/sub-agents', { method: 'POST', headers: JSON_H, body: JSON.stringify(body) }),
+    update: (id: string, patch: UpdateSubAgentBody) =>
+      req<SubAgentDef>(`/sub-agents/${id}`, { method: 'PATCH', headers: JSON_H, body: JSON.stringify(patch) }),
+    delete: (id: string) => req<void>(`/sub-agents/${id}`, { method: 'DELETE' }),
   },
   // Org-default authority (P5.3b) — the default-orchestrator grant each discipline lead
   // inherits unless overridden. `update` is grant-guarded server-side (an ungranted MCP

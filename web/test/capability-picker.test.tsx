@@ -221,7 +221,7 @@ describe('CapabilityPicker — add combobox', () => {
     expect(onChange).not.toHaveBeenCalled()
     // deep link goes to the skills catalog tab
     fireEvent.click(screen.getByTestId('pick-catalog-link'))
-    expect(mockNavigate).toHaveBeenCalledWith('agents', 'skills', undefined)
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'catalog', undefined)
   })
 
   it('an untrusted MCP server is grayed and the deep link targets #/skills/mcp', async () => {
@@ -234,7 +234,7 @@ describe('CapabilityPicker — add combobox', () => {
     fireEvent.click(opt)
     expect(onChange).not.toHaveBeenCalled()
     fireEvent.click(screen.getByTestId('pick-catalog-link'))
-    expect(mockNavigate).toHaveBeenCalledWith('agents', 'skills', 'mcp')
+    expect(mockNavigate).toHaveBeenCalledWith('agents', 'catalog', 'mcp')
   })
 
   it('Enter adds only an exact ADDABLE match (keyboard cannot bypass the gray-out)', async () => {

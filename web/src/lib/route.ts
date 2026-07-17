@@ -30,17 +30,39 @@ export const VIEW_REDIRECTS: Record<string, ViewRedirect> = {
   metrics: () => ({ view: 'insights', param: 'charts' }),
   routing: () => ({ view: 'insights', param: 'routing' }),
   evals: () => ({ view: 'insights', param: 'evals' }),
-  workflows: (r) => ({ view: 'agents', param: 'pipelines', subParam: r.param }),
-  'workflow-detail': (r) => ({ view: 'agents', param: 'pipelines', subParam: r.param }),
+  workflows: (r) => ({ view: 'agents', param: 'automations', subParam: r.param }),
+  'workflow-detail': (r) => ({ view: 'agents', param: 'automations', subParam: r.param }),
   memory: () => ({ view: 'personal', param: 'inbox' }),
   terminal: () => ({ view: 'settings' }),
   // P4-era views folding into the hubs
   org: (r) => ({ view: 'agents', param: 'org', subParam: r.param ?? 'roster' }),
-  skills: (r) => ({ view: 'agents', param: 'skills', subParam: r.param }),
+  // orchestration-p2 Task B.4 — 'Skills' (top-level Agents tab) renamed 'Catalog'.
+  // A bare legacy #/skills/automations targeted the now-retired workflow-skills
+  // registry sub-tab; it redirects straight to the new top-level Automations tab
+  // rather than into a (nonexistent) Catalog sub-tab.
+  skills: (r) => (r.param === 'automations'
+    ? { view: 'agents', param: 'automations' }
+    : { view: 'agents', param: 'catalog', subParam: r.param }),
   inbox: () => ({ view: 'personal', param: 'inbox' }),
   lessons: () => ({ view: 'personal', param: 'inbox' }),
   // Runs keeps its view; only its folded 'workflows' sub-view moved
-  runs: (r) => (r.param === 'workflows' ? { view: 'agents', param: 'pipelines', subParam: r.subParam } : r),
+  runs: (r) => (r.param === 'workflows' ? { view: 'agents', param: 'automations', subParam: r.subParam } : r),
+  // orchestration-p2 Task B.4 — Agents' own top tabs were renamed
+  // (skills→catalog, pipelines→automations). This redirect operates on
+  // Agents' OWN sub-param (mirroring the `runs` entry above) rather than the
+  // top-level view, so an already-canonical #/agents/<catalog|automations|org>/*
+  // hash passes through unchanged (identity — no redirect loop). The retired
+  // Catalog "automations" sub-tab (the old workflow-skills registry) redirects
+  // up to the top-level Automations tab, same as the bare `skills` case above.
+  agents: (r) => {
+    if (r.param === 'skills') {
+      return r.subParam === 'automations'
+        ? { view: 'agents', param: 'automations' }
+        : { view: 'agents', param: 'catalog', subParam: r.subParam }
+    }
+    if (r.param === 'pipelines') return { view: 'agents', param: 'automations', subParam: r.subParam }
+    return r
+  },
 }
 
 /** Apply a legacy-hash redirect if one exists; canonical routes pass through unchanged

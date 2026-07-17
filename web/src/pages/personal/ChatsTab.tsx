@@ -167,7 +167,7 @@ export default function ChatsTab() {
               testid={`chats-row-${t.id}`}
               title={
                 renamingId === t.id ? (
-                  <input
+                  <Input
                     autoFocus
                     data-testid={`chats-rename-input-${t.id}`}
                     aria-label="Rename chat"
@@ -175,7 +175,7 @@ export default function ChatsTab() {
                     onChange={e => setRenameText(e.target.value)}
                     onKeyDown={e => onRenameKeyDown(e, t.id)}
                     onBlur={() => setRenamingId(null)}
-                    className="w-full min-w-0 rounded border border-border bg-surface px-1.5 py-0.5 text-body text-text outline-none"
+                    className="w-full min-w-0 px-1.5 py-0.5"
                   />
                 ) : (
                   t.title ?? 'New chat'

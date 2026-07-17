@@ -50,10 +50,10 @@ function v13CompleteDb(): Database.Database {
 }
 
 describe('schema v14', () => {
-  it('is version 14 and the sentinel is a v14 column', () => {
-    expect(SCHEMA_VERSION).toBe(14)
-    expect(SCHEMA_SENTINEL).toEqual({ table: 'runs', column: 'pipeline_stage_id' })
-  })
+  // v14 columns must persist across later bumps; the exact-version + sentinel pin now
+  // lives in schema-v15.test.ts (moved there when v15 relocated SCHEMA_SENTINEL to
+  // pipeline_ledger.seq). Mirrors how schema-v13.test.ts relaxed its own pin at v14.
+  it('is version 14 or later', () => { expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(14) })
 
   it('adds the two v14 columns and the five pipeline tables on the live test DB', () => {
     const live = db as unknown as Database.Database

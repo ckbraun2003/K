@@ -25,6 +25,7 @@ import { db, pipelineDb, workflowDefsDb } from '../src/db.js'
 import { setAutonomySettings, __resetConfigCache } from '../src/config-store.js'
 import { budgetStatus } from '../src/budget-governor.js'
 import { getPipelineRunView } from '../src/pipeline-views.js'
+import { appendLedger } from '../src/pipeline-ledger.js'
 import { eventBus } from '../src/events.js'
 import { PipelineRunViewSchema, type WsMessage } from '@k/shared'
 
@@ -71,7 +72,7 @@ function seedPipeline(
   createdPipelineRunIds.push(plr)
   const now = Date.now()
   pipelineDb.insertPipelineRun.run({
-    id: plr, definitionId: null, projectId: null, title: 't', cwd: repo, baseCommit, createdAt: now, updatedAt: now,
+    id: plr, definitionId: null, projectId: null, title: 't', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null,
   })
   if (status !== 'running') pipelineDb.updatePipelineStatus.run({ id: plr, status, updatedAt: now, completedAt: now })
   const ids: Record<string, string> = {}
@@ -188,6 +189,24 @@ describe('POST /pipelines/:id/run → view roundtrip', () => {
     expect(typeof res.json().capUsd).toBe('number')
 
     setAutonomySettings({ orgDailyBudgetUsd: null }); __resetConfigCache()
+  })
+})
+
+describe('ledger endpoint (orch-p2 C.3 integration seam)', () => {
+  it('GET /runs/:id/ledger returns the run ledger oldest→newest; 404 for an unknown run', async () => {
+    const { plr } = seedPipeline(
+      'running',
+      [{ key: 'impl', kind: 'agent', status: 'passed' }],
+      [{ from: null, to: 'impl' }, { from: 'impl', to: 'done' }],
+    )
+    appendLedger(plr, { kind: 'transition', stageKey: 'impl', actor: 'implementer', goal: 'implement' })
+    appendLedger(plr, { kind: 'cost', stageKey: 'impl', cost: 0.01 })
+    const res = await app.inject({ method: 'GET', url: `/api/pipelines/runs/${plr}/ledger`, headers: AUTH })
+    expect(res.statusCode).toBe(200)
+    const entries = res.json() as Array<{ seq: number; kind: string }>
+    expect(entries.map(e => e.seq)).toEqual([1, 2]) // atomic per-run seq, oldest→newest
+    expect(entries[0].kind).toBe('transition')
+    expect((await app.inject({ method: 'GET', url: `/api/pipelines/runs/${randomUUID()}/ledger`, headers: AUTH })).statusCode).toBe(404)
   })
 })
 

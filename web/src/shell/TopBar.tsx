@@ -4,7 +4,6 @@ import { DESTINATIONS } from './Sidebar'
 import { api } from '../lib/api'
 import { isKnownView, navigate } from '../lib/route'
 import NotificationBell from '../components/NotificationBell'
-import { Icon, type IconName } from '../ui/Icon'
 
 interface Props {
   view: string
@@ -65,14 +64,9 @@ export default function TopBar({ view, param, connected }: Props) {
   const detailName = asyncDetailName ?? dest?.label
   // An unrouted hash must not masquerade as Home — surface the not-found state.
   const title = dest?.label.split(' ·')[0] ?? (isKnownView(view) ? 'Home' : 'Not found')
-  // 'warning' is itself a real IconName (Icon.tsx's ICONS map), so the old
-  // '⌂'/'⌀' fallback chain folds directly into one IconName resolution — no
-  // separate boolean needed to special-case the not-found icon.
-  const iconName: IconName = dest?.icon ?? parentDest?.icon ?? (isKnownView(view) ? 'home' : 'warning')
   return (
     <header className="relative z-20 flex items-center gap-4 glass-chrome border-x-0 border-t-0 border-b border-[var(--border)] px-5 py-3">
       <h1 data-testid="topbar-title" className="mr-auto text-sm font-semibold tracking-wide text-[var(--text)]">
-        <Icon name={iconName} size={16} className="mr-2 text-accent" />
         {parentDest ? (
           <>
             <button

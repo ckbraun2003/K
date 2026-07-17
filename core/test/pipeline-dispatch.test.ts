@@ -22,12 +22,14 @@ import { v4 as uuid } from 'uuid'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { db, pipelineDb, projectsDb } from '../src/db.js'
+import { db, pipelineDb, projectsDb, agentRunsDb } from '../src/db.js'
 import { seedPipelineSpecs } from '../src/pipeline-seeds.js'
+import { seedProfiles } from '../src/profiles.js'
 import { kStoreTools } from '../src/mcp/k-store.js'
 import { startPipelineRun } from '../src/pipeline-defs.js'
 import { drainPipelineDispatches, startPipelineDispatchRelay } from '../src/pipeline-dispatch-relay.js'
 import { onPipelineTerminal, maybeFinalizePipeline, type PipelineRunRow } from '../src/pipeline-engine.js'
+import { getPipelineRunView } from '../src/pipeline-views.js'
 import { reconcileOrphanedPipelineDispatches } from '../src/supervisor.js'
 
 const bases: string[] = []
@@ -35,6 +37,13 @@ const createdPipelineIds = new Set<string>()
 const createdDispatchIds = new Set<string>()
 const createdProjectIds = new Set<string>()
 const K_RUN = `pl-dispatch-k-run-${uuid().slice(0, 8)}` // the delegating K run (a real runs row)
+// A second delegating run, backed by a real agent_runs activation row (profile 'lead-backend'),
+// so the owner-stamping test (I-1) has a run whose delegating orchestrator IS resolvable — mirrors
+// how a real lead's turn calls delegate_pipeline. K_RUN above deliberately has NO agent_runs row
+// (a bare `runs` row, like askK's own chat run), so it stays the "unresolvable owner" fixture.
+const OWNED_K_RUN = `pl-dispatch-owned-run-${uuid().slice(0, 8)}`
+const OWNER_PROFILE_ID = 'lead-backend'
+let ownedAgentRunId: string | null = null
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' })
@@ -89,8 +98,28 @@ const dispatchRow = (id: string) => pipelineDb.getPipelineDispatch.get(id) as Re
 beforeAll(() => {
   // The 3 executable pipeline specs (so 'investigate' resolves) + a real delegating K run row.
   seedPipelineSpecs()
+  // The durable org roster (idempotent, by name) — OWNER_PROFILE_ID ('lead-backend') must exist for
+  // the agent_runs FK below; safe to call even if another suite already seeded it.
+  seedProfiles()
   db.prepare(`INSERT OR IGNORE INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'k', '.', 'done', ?)`)
     .run(K_RUN, Date.now())
+  db.prepare(`INSERT OR IGNORE INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'k', '.', 'done', ?)`)
+    .run(OWNED_K_RUN, Date.now())
+  // OWNED_K_RUN's activation row: the delegating orchestrator's agent_runs.profile_id — the exact
+  // seam resolveDispatchOwnerProfileId (pipeline-dispatch-relay.ts) reads via getAgentRunProfileByRunId.
+  ownedAgentRunId = uuid()
+  agentRunsDb.insertAgentRun.run({
+    id: ownedAgentRunId,
+    profileId: OWNER_PROFILE_ID,
+    runId: OWNED_K_RUN,
+    trigger: 'delegation',
+    goal: 'lead-backend activation for pipeline-dispatch owner test',
+    projectId: null,
+    workflowId: null,
+    status: 'running',
+    createdAt: Date.now(),
+    completedAt: null,
+  })
   // This suite is the sole producer of pipeline_dispatches; clear any 'pending' leftovers a crashed
   // prior run left in the shared vitest DB so a global drain here only ever sees our own rows.
   db.prepare(`DELETE FROM pipeline_dispatches WHERE status = 'pending'`).run()
@@ -107,7 +136,9 @@ afterEach(() => {
 
 afterAll(() => {
   for (const id of createdProjectIds) { try { db.prepare(`DELETE FROM projects WHERE id = ?`).run(id) } catch { /* ignore */ } }
+  if (ownedAgentRunId) db.prepare(`DELETE FROM agent_runs WHERE id = ?`).run(ownedAgentRunId)
   db.prepare(`DELETE FROM runs WHERE id = ?`).run(K_RUN)
+  db.prepare(`DELETE FROM runs WHERE id = ?`).run(OWNED_K_RUN)
   for (const b of bases.splice(0)) { try { fs.rmSync(b, { recursive: true, force: true }) } catch { /* best-effort */ } }
 })
 
@@ -173,12 +204,35 @@ describe('drainPipelineDispatches: record → drain', () => {
     expect(run.definition_id).toBe('investigate')
     expect(run.project_id).toBe(proj.id)
     expect(run.status).toBe('running')
+    // K_RUN has no agent_runs activation row (a bare chat run, like askK's own) — the delegating
+    // owner is UNRESOLVABLE, so owner_profile_id stays honestly null (I-1: never invented).
+    expect(run.owner_profile_id).toBeNull()
     // The seeded investigate DAG materialized its two agent stages.
     const stageKeys = (pipelineDb.listStagesForPipeline.all(pipelineRunId) as Array<{ stage_key: string }>).map(s => s.stage_key)
     expect(stageKeys).toEqual(expect.arrayContaining(['investigator', 'synthesizer']))
 
     // Nothing left pending — a follow-up drain is a no-op.
     expect(await drainPipelineDispatches()).toBe(0)
+  })
+
+  // I-1 (whole-impl review): pipeline_runs.owner_profile_id had no writer, so the orchestrator
+  // multi-pipeline view (OrchestratorPipelinesPanel) could never populate. Proves the drain now
+  // stamps the DELEGATING orchestrator's profile id, resolved from the dispatch's k_run_id via
+  // agent_runs.profile_id (pipeline-dispatch-relay.ts::resolveDispatchOwnerProfileId) — exercising
+  // BOTH the raw ledger row AND the getPipelineRunView wire projection the UI actually reads.
+  it('stamps owner_profile_id from the delegating orchestrator run, and exposes it on the view', async () => {
+    const { dispatchId } = delegate({ pipelineId: 'investigate', goal: 'owner-stamping demo' }, OWNED_K_RUN)
+    expect(await drainPipelineDispatches()).toBe(1)
+
+    const pipelineRunId = String(dispatchRow(dispatchId).pipeline_run_id)
+    expect(pipelineRunId).toBeTruthy()
+    createdPipelineIds.add(pipelineRunId)
+
+    const run = pipelineDb.getPipelineRun.get(pipelineRunId) as PipelineRunRow
+    expect(run.owner_profile_id).toBe(OWNER_PROFILE_ID)
+
+    const view = getPipelineRunView(pipelineRunId)
+    expect(view?.run.ownerProfileId).toBe(OWNER_PROFILE_ID)
   })
 })
 

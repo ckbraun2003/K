@@ -27,10 +27,22 @@ const OLD_SCHEMA_DDL = `
     status TEXT NOT NULL DEFAULT 'queued', created_at INTEGER NOT NULL, ended_at INTEGER
   );
   -- pre-v13 minimal shape (no sentinel column). The current SCHEMA_SENTINEL lives on
-  -- runs.pipeline_stage_id; artifacts exists here so the v13 backfill has a table to touch.
+  -- skills.pipeline_def_id (v15); the sentinel test below ALTER-adds that column onto
+  -- skills, so skills must exist here. artifacts exists here so the v13 backfill has a
+  -- table to touch.
   CREATE TABLE artifacts (
     slug TEXT PRIMARY KEY, title TEXT NOT NULL, updated_at INTEGER NOT NULL, md TEXT NOT NULL
   );
+  -- Full D-069 catalog shape (matches the fresh-install DDL) so migrate()'s skills-rebuild
+  -- step is a guaranteed no-op on the full-scan tests, and carries the v15 sentinel column.
+  CREATE TABLE skills (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
+    type TEXT NOT NULL CHECK(type IN ('skill','hook','workflow')), source TEXT NOT NULL,
+    triggerType TEXT NOT NULL CHECK(triggerType IN ('manual','schedule','event')),
+    schedule TEXT, eventTrigger TEXT, enabled INTEGER NOT NULL DEFAULT 1, createdAt INTEGER NOT NULL,
+    source_kind TEXT NOT NULL DEFAULT 'k', origin_path TEXT, project_id TEXT, plugin_id TEXT,
+    plugin_version TEXT, content_hash TEXT, est_tokens INTEGER, est_tokens_meta INTEGER,
+    status TEXT NOT NULL DEFAULT 'ok', last_scanned_at INTEGER, qualified_key TEXT NOT NULL UNIQUE);
 `
 
 const tmpFiles: string[] = []

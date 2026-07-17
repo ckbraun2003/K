@@ -13,6 +13,7 @@ import { EmptyState } from '../../ui/EmptyState'
 import { SkeletonRow } from '../../ui/Skeleton'
 import { Button, IconButton } from '../../ui/Button'
 import { Tag } from '../../ui/Tag'
+import { Input } from '../../ui/Field'
 
 /** A thrown `api.threads.get` error that means the thread is DELETED (a 404) — the not-found
  *  route answers `{ error: 'not found' }`, a bare non-ok falls back to `404 <statusText>`. Lets
@@ -236,7 +237,7 @@ export default function ChatView() {
                   }`}
                 >
                   {renamingId === t.id ? (
-                    <input
+                    <Input
                       autoFocus
                       data-testid={`chat-rename-input-${t.id}`}
                       aria-label="Rename chat"
@@ -244,7 +245,7 @@ export default function ChatView() {
                       onChange={e => setRenameText(e.target.value)}
                       onKeyDown={e => onRenameKeyDown(e, t.id)}
                       onBlur={() => setRenamingId(null)}
-                      className="min-w-0 flex-1 rounded-control border border-border bg-surface px-1.5 py-1 text-body text-text outline-none"
+                      className="min-w-0 flex-1 px-1.5 py-1"
                     />
                   ) : (
                     <button type="button" onClick={() => selectThread(t.id)} className="min-w-0 flex-1 text-left">

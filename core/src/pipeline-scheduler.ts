@@ -26,6 +26,7 @@ import { autonomySettings } from './config-store.js'
 import { budgetGate } from './budget-governor.js'
 import { dispatchStage, markSkips, maybeFinalizePipeline, type PipelineRunRow } from './pipeline-engine.js'
 import { broadcastPipelineUpdate } from './pipeline-views.js'
+import { appendLedger } from './pipeline-ledger.js'
 import type { PipelineStageRow } from './pipeline-executor.js'
 
 const DEFAULT_PIPELINE_INTERVAL_MS = 3_000
@@ -82,6 +83,11 @@ export async function drainPipelines(): Promise<number> {
           pipelineDb.markStageFailed.run({
             id: stage.id, failureClass: null, exitCode: null, costUsd: null,
             updatedAt: Date.now(), completedAt: Date.now(),
+          })
+          // A.3 ledger: this direct settle bypasses the engine's markStageFailed instrumentation.
+          appendLedger(run.id, {
+            stageKey: stage.stage_key, kind: 'transition', actor: stage.kind,
+            goal: `${stage.stage_key} failed`, detail: { event: 'terminal', status: 'failed', reason: 'dispatch-threw' },
           })
           console.warn(`[pipeline-scheduler] stage ${stage.id} dispatch failed:`, err)
         }

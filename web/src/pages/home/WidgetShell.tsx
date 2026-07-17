@@ -3,6 +3,7 @@ import SegControl from '../../components/SegControl'
 import { fits } from '../../lib/home-layout'
 import { WIDGET_DEFS } from './widgets'
 import { IconButton } from '../../ui/Button'
+import { Select } from '../../ui/Field'
 
 type SizeKey = '1x1' | '2x1' | '1x2' | '2x2'
 const SIZES: Array<{ key: SizeKey; w: 1 | 2; h: 1 | 2 }> = [
@@ -62,7 +63,7 @@ export default function WidgetShell({ placement, layout, onChange }: Props) {
           replace({ ...placement, w: s.w, h: s.h })
         }}
       />
-      <select
+      <Select
         aria-label={`Move ${title}`}
         data-testid={`widget-move-${placement.id}`}
         value={`${placement.x},${placement.y}`}
@@ -70,12 +71,12 @@ export default function WidgetShell({ placement, layout, onChange }: Props) {
           const [x, y] = e.target.value.split(',').map(Number)
           replace({ ...placement, x, y })
         }}
-        className="rounded-control border border-border bg-transparent px-1 py-0.5 text-muted"
+        className="border-0 bg-transparent px-1 py-0.5 text-muted"
       >
         {moveCells.map(({ x, y }) => (
           <option key={`${x}-${y}`} value={`${x},${y}`}>{x},{y}</option>
         ))}
-      </select>
+      </Select>
       <IconButton
         name="close"
         label={`Remove ${title}`}

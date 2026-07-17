@@ -8,7 +8,7 @@ import Toast from '../../components/Toast'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { Icon } from '../../ui/Icon'
 import { Button, IconButton } from '../../ui/Button'
-import { Input } from '../../ui/Field'
+import { Checkbox, Input } from '../../ui/Field'
 import { EmptyState } from '../../ui/EmptyState'
 
 interface Props {
@@ -196,13 +196,12 @@ export default function TasksTab({ projectId }: Props) {
       {tasks.length > 0 && (
         <div className="flex-shrink-0 px-4 py-1.5 border-b border-border flex items-center gap-3">
           <label className="flex items-center gap-1.5 text-[11px] text-muted cursor-pointer select-none">
-            <input
-              type="checkbox"
+            <Checkbox
               data-testid="tasks-select-all"
               checked={allSelected}
               ref={el => { if (el) el.indeterminate = someSelected }}
               onChange={toggleSelectAll}
-              className="h-3.5 w-3.5 cursor-pointer accent-accent"
+              className="h-3.5 w-3.5"
             />
             Select all
           </label>
@@ -237,13 +236,12 @@ export default function TasksTab({ projectId }: Props) {
             className="group flex items-center gap-3 px-4 py-3 border-b border-border hover:bg-surface transition-colors"
           >
             {/* Multi-select checkbox (workflow delegation path) */}
-            <input
-              type="checkbox"
+            <Checkbox
               data-testid={`task-select-${task.id}`}
               checked={selectedIds.has(task.id)}
               onChange={() => toggleSelect(task.id)}
               aria-label={`Select task: ${task.title}`}
-              className="flex-shrink-0 h-3.5 w-3.5 cursor-pointer accent-accent"
+              className="flex-shrink-0 h-3.5 w-3.5"
             />
 
             {/* Status toggle */}

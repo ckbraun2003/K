@@ -1,12 +1,18 @@
 /**
- * D-119 Lane B / wave B1 — the 3 executable reference pipelines + seed + rowToPipelineSpec
+ * D-119 Lane B / wave B1 (3 reference pipelines) + orch-p2 Lane C task C.1 (the standard library's
+ * remaining 6, design spec §5) — the 8 executable pipeline specs + seed + rowToPipelineSpec
  * (TOKEN-FREE). No `claude` ever spawns: the DAG-shape test drives the engine with a STUB
  * StageExecutor (agent + deterministic stages settle passed; the gate parks), so the reference
  * code-wave DAG is proven well-formed WITHOUT any real dispatch. Real git only for the fan-in
  * merge the engine computes (isolated throwaway repo). Proves:
- *   a) all 3 seeded specs PipelineSpecSchema.safeParse success — and none use the deferred
+ *   a) all 8 seeded specs PipelineSpecSchema.safeParse success — and none use the deferred
  *      commit/ci actions or a repair back-edge (the Phase-1 as-built constraints);
- *   b) seedPipelineSpecs() is idempotent — one row per seed, spec byte-stable across a re-seed;
+ *   a4) the 4 looped C.1 specs (Implementation Cycle, Deep Research, Bug Triage, Security Audit)
+ *      each carry ≥1 well-formed bounded `when:'loop'` edge (maxIterations 1..10 + a companion
+ *      non-loop forward exit from the same loop head) — the loop-authoring shape PipelineSpecSchema
+ *      itself already enforces (orch-p2 W0), asserted here as an explicit library-content guarantee;
+ *   b) seedPipelineSpecs() is idempotent — one row per seed (Phase-1 AND C.1-native, which have no
+ *      legacy SEED_WORKFLOWS counterpart), spec byte-stable across a re-seed;
  *   c) rowToPipelineSpec — a seeded row's spec parses; a legacy (null-spec) row compiles to the
  *      single-orchestrator lift (namedWorkflowToPipeline);
  *   d) the code-wave DAG runs to `completed` under the stub, and the parallel branch reviews both
@@ -19,13 +25,36 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { PipelineSpecSchema } from '@k/shared'
-import { CODE_WAVE_SPEC, INVESTIGATE_SPEC, REFACTOR_SPEC, seedPipelineSpecs } from '../src/pipeline-seeds.js'
+import {
+  CODE_WAVE_SPEC, INVESTIGATE_SPEC, REFACTOR_SPEC,
+  IMPLEMENTATION_CYCLE_SPEC, DEEP_RESEARCH_SPEC, BUG_TRIAGE_SPEC, SECURITY_AUDIT_SPEC, QUICK_TASK_SPEC,
+  seedPipelineSpecs,
+} from '../src/pipeline-seeds.js'
 import { instantiatePipeline, rowToPipelineSpec } from '../src/pipeline-defs.js'
 import { dispatchStage, markSkips, maybeFinalizePipeline, resolveGate, type PipelineRunRow } from '../src/pipeline-engine.js'
 import { db, pipelineDb, workflowDefsDb } from '../src/db.js'
 import type { StageExecutor, PipelineStageRow } from '../src/pipeline-executor.js'
 
-const ALL_SPECS = { 'Code wave': CODE_WAVE_SPEC, Investigate: INVESTIGATE_SPEC, Refactor: REFACTOR_SPEC }
+const ALL_SPECS = {
+  'Code wave': CODE_WAVE_SPEC,
+  Investigate: INVESTIGATE_SPEC,
+  Refactor: REFACTOR_SPEC,
+  'Implementation Cycle': IMPLEMENTATION_CYCLE_SPEC,
+  'Deep Research': DEEP_RESEARCH_SPEC,
+  'Bug Triage & Fix': BUG_TRIAGE_SPEC,
+  'Security Audit': SECURITY_AUDIT_SPEC,
+  'Quick Task': QUICK_TASK_SPEC,
+}
+const LOOPED_SPECS = {
+  'Implementation Cycle': IMPLEMENTATION_CYCLE_SPEC,
+  'Deep Research': DEEP_RESEARCH_SPEC,
+  'Bug Triage & Fix': BUG_TRIAGE_SPEC,
+  'Security Audit': SECURITY_AUDIT_SPEC,
+}
+const ALL_SEED_IDS = [
+  'code-wave', 'investigate', 'refactor',
+  'implementation-cycle', 'deep-research', 'bug-triage', 'security-audit', 'quick-task',
+]
 
 const bases: string[] = []
 const createdPipelineIds = new Set<string>()
@@ -78,7 +107,7 @@ function stageByKey(pipelineRunId: string, key: string): PipelineStageRow {
 }
 
 describe('B1 — reference specs are valid + Phase-1-safe', () => {
-  it('a) all 3 seeded specs pass PipelineSpecSchema.safeParse', () => {
+  it('a) all 8 seeded specs pass PipelineSpecSchema.safeParse', () => {
     for (const spec of Object.values(ALL_SPECS)) {
       expect(PipelineSpecSchema.safeParse(spec).success).toBe(true)
     }
@@ -113,32 +142,61 @@ describe('B1 — reference specs are valid + Phase-1-safe', () => {
     const mergeSources = CODE_WAVE_SPEC.edges.filter(e => e.to === 'controller' && e.handoff === 'merge').map(e => e.from)
     expect(mergeSources.sort()).toEqual(['quality-review', 'spec-review'])
   })
+
+  it('a4) the C.1 library — each looped pipeline has ≥1 well-formed bounded loop edge', () => {
+    for (const [name, spec] of Object.entries(LOOPED_SPECS)) {
+      const loopEdges = spec.edges.filter(e => e.when === 'loop')
+      expect(loopEdges.length, `${name}: expected at least one loop edge`).toBeGreaterThan(0)
+      for (const e of loopEdges) {
+        // maxIterations is required + bounded (schema enforces 1..10 — re-asserted here as a
+        // content guarantee of the seeded library, not just the schema's own capability).
+        expect(e.maxIterations, `${name}: loop edge ${e.from}->${e.to} needs maxIterations`).toBeDefined()
+        expect(e.maxIterations!).toBeGreaterThanOrEqual(1)
+        expect(e.maxIterations!).toBeLessThanOrEqual(10)
+        // The loop head must also have a non-loop forward exit (a pass/always edge, or an edge
+        // into a gate stage) — else the pipeline could never leave the loop.
+        const stageById = new Map(spec.stages.map(s => [s.id, s]))
+        const hasForwardExit = spec.edges.some(o =>
+          o.from === e.from && o.when !== 'loop' &&
+          (o.when === 'pass' || o.when === 'always' || stageById.get(o.to)?.kind === 'gate'))
+        expect(hasForwardExit, `${name}: loop head '${e.from}' has no non-loop forward exit`).toBe(true)
+      }
+    }
+  })
 })
 
 describe('B1 — seedPipelineSpecs', () => {
   it('b) idempotent — one workflow_definitions row per seed, spec byte-stable across a re-seed', () => {
     // Start from a clean seed: the shared test DB may hold a spec an EARLIER code version seeded
     // (seedPipelineSpecs writes only-when-NULL, so it never rewrites a stale one). Clearing the
-    // rows makes the stored spec reflect the CURRENT CODE_WAVE_SPEC for the round-trip assertion.
-    db.prepare(`DELETE FROM workflow_definitions WHERE id IN ('code-wave','investigate','refactor')`).run()
+    // rows makes the stored spec reflect the CURRENT specs for the round-trip assertions below.
+    // The 5 C.1-native ids (implementation-cycle etc.) have no legacy SEED_WORKFLOWS row —
+    // seedPipelineSpecs must create their workflow_definitions row itself (ensureWorkflowDefRow).
+    const idList = ALL_SEED_IDS.map(id => `'${id}'`).join(',')
+    db.prepare(`DELETE FROM workflow_definitions WHERE id IN (${idList})`).run()
     seedPipelineSpecs()
     const countBefore = (db.prepare(
-      `SELECT COUNT(*) AS n FROM workflow_definitions WHERE id IN ('code-wave','investigate','refactor')`,
+      `SELECT COUNT(*) AS n FROM workflow_definitions WHERE id IN (${idList})`,
     ).get() as { n: number }).n
     const firstSpec = (pipelineDb.getDefSpec.get('code-wave') as { spec: string }).spec
+    const firstIcSpec = (pipelineDb.getDefSpec.get('implementation-cycle') as { spec: string }).spec
 
-    seedPipelineSpecs() // second pass must not duplicate rows or rewrite the spec
+    seedPipelineSpecs() // second pass must not duplicate rows or rewrite any spec
 
     const countAfter = (db.prepare(
-      `SELECT COUNT(*) AS n FROM workflow_definitions WHERE id IN ('code-wave','investigate','refactor')`,
+      `SELECT COUNT(*) AS n FROM workflow_definitions WHERE id IN (${idList})`,
     ).get() as { n: number }).n
     const secondSpec = (pipelineDb.getDefSpec.get('code-wave') as { spec: string }).spec
+    const secondIcSpec = (pipelineDb.getDefSpec.get('implementation-cycle') as { spec: string }).spec
 
-    expect(countBefore).toBe(3)
-    expect(countAfter).toBe(3)
+    expect(countBefore).toBe(ALL_SEED_IDS.length)
+    expect(countAfter).toBe(ALL_SEED_IDS.length)
     expect(secondSpec).toBe(firstSpec) // stable — an operator-edited spec would survive too
-    // The stored spec round-trips back to the authored CODE_WAVE_SPEC.
+    expect(secondIcSpec).toBe(firstIcSpec) // same stability for a C.1-native (no-legacy-row) seed
+    // The stored spec round-trips back to the authored spec, for a legacy-row seed and a
+    // C.1-native (ensureWorkflowDefRow-created) seed alike.
     expect(rowToPipelineSpec(workflowDefsDb.getWorkflowDefRow.get('code-wave') as Record<string, unknown>)).toEqual(CODE_WAVE_SPEC)
+    expect(rowToPipelineSpec(workflowDefsDb.getWorkflowDefRow.get('implementation-cycle') as Record<string, unknown>)).toEqual(IMPLEMENTATION_CYCLE_SPEC)
   })
 })
 

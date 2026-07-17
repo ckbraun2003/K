@@ -59,13 +59,14 @@ export interface PipelineLayout {
   height: number
 }
 
-/** Longest-path column index per stage, ignoring `repair` back-edges (they loop
- *  backward and would otherwise inflate depth / never settle). Pure + exported. */
+/** Longest-path column index per stage, ignoring `repair` AND `loop` back-edges
+ *  (both point backward to an ancestor and would otherwise inflate depth / never
+ *  settle — a `loop` edge is orch-p2's bounded back-edge). Pure + exported. */
 export function pipelineDepths(view: PipelineRunView): Map<string, number> {
   const keys = view.stages.map(s => s.stageKey)
   const keySet = new Set(keys)
   const forward = view.edges.filter(
-    e => e.from != null && e.from !== e.to && e.when !== 'repair' && (e.to === 'done' || keySet.has(e.to)),
+    e => e.from != null && e.from !== e.to && e.when !== 'repair' && e.when !== 'loop' && (e.to === 'done' || keySet.has(e.to)),
   )
   const depth = new Map<string, number>(keys.map(k => [k, 0]))
   // Bellman-style relaxation, capped at node count — a repair-free forward graph is
@@ -178,6 +179,7 @@ const EDGE_COLOR: Record<EdgeWhen, string> = {
   pass: 'var(--green)',
   fail: 'var(--red)',
   repair: 'var(--amber)',
+  loop: 'var(--accent)', // orch-p2: bounded loop back-edge
 }
 
 function isGate(stage: PipelineStageRun): boolean {

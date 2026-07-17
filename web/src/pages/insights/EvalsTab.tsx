@@ -10,6 +10,7 @@ import { GlassPanel } from '../../ui/GlassPanel'
 import { StatusPill } from '../../ui/StatusPill'
 import { Skeleton, SkeletonRow } from '../../ui/Skeleton'
 import { EmptyState } from '../../ui/EmptyState'
+import { Checkbox } from '../../ui/Field'
 import {
   formatPct,
   formatScore,
@@ -280,8 +281,7 @@ function RunDialog({
                   key={s.id}
                   className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs text-[var(--text)] hover:bg-[var(--surface)]"
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     data-testid={`evals-system-check-${s.id}`}
                     checked={selected.has(s.id)}
                     onChange={() => toggleSystem(s.id)}
@@ -294,8 +294,7 @@ function RunDialog({
 
             {/* The gated real-run control. DEFAULT = dry. */}
             <label className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--text)]">
-              <input
-                type="checkbox"
+              <Checkbox
                 data-testid="evals-real-toggle"
                 checked={realRun}
                 onChange={e => setRealRun(e.target.checked)}
