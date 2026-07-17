@@ -580,7 +580,9 @@ db.exec(`
   -- (survives reload), while execution is ephemeral. active_run_id is the warm
   -- interactive run K is chatting on (null when cold/idle); ON DELETE SET NULL so
   -- clearing a finished run keeps the thread. status is a display hint.
-  -- CREATE TABLE IF NOT EXISTS (fresh installs); NOT evolved via migrate().
+  -- CREATE TABLE IF NOT EXISTS (fresh installs); later columns are appended via
+  -- migrateSlow ALTERs (v6 cli_session_id; v16 profile_id + last_read_at), so
+  -- migrated DBs may order them after the columns below.
   CREATE TABLE IF NOT EXISTS k_threads (
     id            TEXT PRIMARY KEY,
     title         TEXT,
@@ -852,6 +854,64 @@ db.exec(`
     UNIQUE(pipeline_run_id, seq)
   );
   CREATE INDEX IF NOT EXISTS idx_pipeline_ledger_run ON pipeline_ledger(pipeline_run_id, seq);
+
+  -- ── Continuous Agents W0 (SCHEMA_VERSION 16, D-122..D-127) ──────────────────
+  -- Domains registry (D-125): a domain groups agent profiles + pipeline
+  -- definitions under a manager profile whose supervision loop
+  -- (domain-supervisor.ts, Lane C) oversees every run attributed to the domain.
+  -- manager_profile_id is a loose ref (no FK, CODE-enforced) — deleting a profile
+  -- must never invalidate the registry. Brand-new table -> CREATE-only.
+  CREATE TABLE IF NOT EXISTS domains (
+    id                 TEXT PRIMARY KEY,
+    name               TEXT NOT NULL UNIQUE,
+    description        TEXT,
+    manager_profile_id TEXT,
+    created_at         INTEGER NOT NULL
+  );
+
+  -- The session layer (D-122): at most ONE session per (profile, thread) — the
+  -- hybrid warm/resumable continuity record agent-sessions.ts (Lane A) drives.
+  -- state walks live (warm parked process) -> resumable (cold; cli_session_id can
+  -- --resume) -> stale (must re-seed). home_dir is the session's synthesized
+  -- config/home dir; context_tokens is the last observed context size (the
+  -- demote-at-threshold signal). profile_id/thread_id are loose refs (no FK,
+  -- CODE-enforced — session history survives a deleted profile/thread, mirroring
+  -- pipeline_runs.owner_profile_id). Brand-new table -> CREATE-only.
+  CREATE TABLE IF NOT EXISTS agent_sessions (
+    id               TEXT PRIMARY KEY,
+    profile_id       TEXT NOT NULL,
+    thread_id        TEXT NOT NULL,
+    cli_session_id   TEXT,
+    home_dir         TEXT NOT NULL,
+    state            TEXT NOT NULL DEFAULT 'stale' CHECK (state IN ('live','resumable','stale')),
+    context_tokens   INTEGER,
+    last_activity_at INTEGER,
+    created_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL,
+    UNIQUE (profile_id, thread_id)
+  );
+
+  -- The priority mailbox (D-124): a DB-queue of operator/agent -> agent messages
+  -- the main-process relay (message-relay.ts, Lane B) drains and delivers by the
+  -- TARGET session's state — the lead_dispatches/pipeline_dispatches queue
+  -- pattern. status walks queued -> delivered | failed; delivered_at is stamped
+  -- on delivery ONLY. from_profile_id is set when from_kind='profile';
+  -- provenance_run_id records the sending run. All loose refs (no FK,
+  -- CODE-enforced — same rationale as agent_sessions). Brand-new table ->
+  -- CREATE-only.
+  CREATE TABLE IF NOT EXISTS agent_messages (
+    id                TEXT PRIMARY KEY,
+    to_profile_id     TEXT NOT NULL,
+    to_thread_id      TEXT,
+    from_kind         TEXT NOT NULL CHECK (from_kind IN ('user','profile')),
+    from_profile_id   TEXT,
+    body              TEXT NOT NULL,
+    priority          TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('normal','urgent')),
+    status            TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','delivered','failed')),
+    provenance_run_id TEXT,
+    created_at        INTEGER NOT NULL,
+    delivered_at      INTEGER
+  );
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -886,7 +946,7 @@ function addColumn(d: Database.Database, table: string, col: string, decl: strin
  *  below — a DB stamped with an older version then re-runs the full scan (and is
  *  re-stamped) on its next open. Exported so tests derive the CURRENT version
  *  instead of hardcoding it. */
-export const SCHEMA_VERSION = 15
+export const SCHEMA_VERSION = 16
 
 /** Sentinel for the CURRENT schema version: a column the LAST migration in
  *  migrateSlow() creates. migrate()'s fast path only trusts the version stamp when
@@ -894,17 +954,18 @@ export const SCHEMA_VERSION = 15
  *  dev-watch boot mid-schema-edit; the 2026-07-13 outage) otherwise disables
  *  repair forever while module-level prepares crash at import.
  *  UPDATE THIS alongside every SCHEMA_VERSION bump — it must always name a column
- *  introduced by the CURRENT version (schema-v15.test.ts enforces this with a
+ *  introduced by the CURRENT version (schema-v16.test.ts enforces this with a
  *  previous-generation fixture; extend that fixture on every future bump). */
 // MUST be a column that migrateSlow() ADDs (a guarded ALTER on an already-existing
 // table) — NOT a column on a table built by the unconditional db.exec DDL block
 // (line 22), which runs BEFORE migrate() on every open. A sentinel on such a table
-// (e.g. pipeline_ledger.seq) is created before migrate()'s check and can never be
-// absent, so a poisoned stamp (v15 stamped, guarded columns missing) would silently
-// fast-path past the heal. skills.pipeline_def_id is the LAST v15 migrateSlow ALTER
-// (its carrier table `skills` is unconditional, but the COLUMN is migrateSlow-added),
-// so its absence-despite-v15-stamp correctly proves the guarded scan didn't run.
-export const SCHEMA_SENTINEL = { table: 'skills', column: 'pipeline_def_id' } as const
+// (e.g. agent_sessions.state) is created before migrate()'s check and can never be
+// absent, so a poisoned stamp (v16 stamped, guarded columns missing) would silently
+// fast-path past the heal. pipeline_runs.domain_id is the LAST v16 migrateSlow ALTER
+// (its carrier table `pipeline_runs` is unconditional, but the COLUMN is
+// migrateSlow-added), so its absence-despite-v16-stamp correctly proves the guarded
+// scan didn't run.
+export const SCHEMA_SENTINEL = { table: 'pipeline_runs', column: 'domain_id' } as const
 
 /**
  * Guarded, idempotent schema evolution — runs on EVERY connection open: the main
@@ -1778,6 +1839,120 @@ function migrateSlow(d: Database.Database): void {
   // skill/workflow-skill routine (unchanged behavior).
   if (hasTable(d, 'skills')) {
     addColumn(d, 'skills', 'pipeline_def_id', 'TEXT')
+  }
+
+  // ── Continuous Agents W0 (SCHEMA_VERSION 16, D-122..D-127) ──────────────────
+  // The sessions/conversations/domains column wave. The three NEW v16 tables
+  // (domains, agent_sessions, agent_messages) live ONLY in the unconditional DDL
+  // block above (brand-new tables -> CREATE-only; the sub_agent_defs /
+  // pipeline_ledger v15 convention) — this section is the guarded COLUMN
+  // evolution, plus the one-shot runs.kind backfill and the engineering-domain
+  // seed/stamps below. Every FK these columns imply (k_threads.profile_id ->
+  // agent_profiles, runs.session_id -> agent_sessions, *.domain_id -> domains) is
+  // CODE-enforced, NOT declared: SQLite's ADD COLUMN cannot carry REFERENCES
+  // alongside a non-NULL default, and the loose-ref posture matches
+  // pipeline_runs.owner_profile_id (deleting a profile/domain must never
+  // invalidate history). hasTable guards keep migrate() safe against minimal
+  // old-schema fixtures predating each table.
+  if (hasTable(d, 'k_threads')) {
+    // Every conversation now belongs to a durable agent (D-123). Pre-v16 threads
+    // were ALL K front-door conversations — exactly what the DEFAULT backfills.
+    // last_read_at is the operator's per-thread read cursor (unread badges).
+    addColumn(d, 'k_threads', 'profile_id', "TEXT NOT NULL DEFAULT 'k-secretary'")
+    addColumn(d, 'k_threads', 'last_read_at', 'INTEGER')
+  }
+  if (hasTable(d, 'runs')) {
+    // session_id: the owning agent_sessions row for a session-attached run
+    // (D-122). kind: the chat-turn | job | pipeline-stage bookkeeping
+    // discriminator (D-127) — 'job' is correct for every historical one-shot
+    // dispatch; the flag-guarded backfill below re-stamps the two kinds that are
+    // derivable from existing bookkeeping.
+    addColumn(d, 'runs', 'session_id', 'TEXT')
+    addColumn(d, 'runs', 'kind', "TEXT NOT NULL DEFAULT 'job'")
+  }
+  if (hasTable(d, 'agent_profiles')) {
+    // domain_id: which domain the profile works in (D-125). identity_overlay: the
+    // L1.5 per-profile identity prompt layer (D-126); NULL = no overlay.
+    addColumn(d, 'agent_profiles', 'domain_id', 'TEXT')
+    addColumn(d, 'agent_profiles', 'identity_overlay', 'TEXT')
+  }
+  if (hasTable(d, 'workflow_definitions')) {
+    // workflow_definitions IS the pipeline-def store (v14 put `spec` here);
+    // domain_id attributes a definition to a domain for supervision (D-125).
+    addColumn(d, 'workflow_definitions', 'domain_id', 'TEXT')
+  }
+  // pipeline_runs.domain_id: the run-attribution column the domain supervisor
+  // groups by (D-125) — AND the v16 SENTINEL (a column the LAST migration in this
+  // scan creates; see SCHEMA_SENTINEL). MUST remain the last v16 ALTER.
+  if (hasTable(d, 'pipeline_runs')) {
+    addColumn(d, 'pipeline_runs', 'domain_id', 'TEXT')
+  }
+
+  // One-shot runs.kind backfill (D-127) — flag-guarded (the MEM_BACKFILL idiom:
+  // app_config is created unconditionally earlier in this scan). The two kinds
+  // derivable from existing bookkeeping are stamped exactly ONCE, so a later full
+  // re-scan (a poisoned-stamp heal) can never clobber an operator's or Lane A's
+  // post-v16 re-classification: K front-door chat turns are the runs a
+  // k-secretary 'user-message' agent_runs row points at; pipeline-stage runs are
+  // the ones the v14 executor stamped pipeline_stage_id on. Everything else keeps
+  // the 'job' default. Per-source hasTable/hasColumn guards keep the sub-steps
+  // safe against minimal fixtures predating agent_runs / pipeline_stage_id.
+  const RUNS_KIND_FLAG = 'mig_runs_kind_backfill'
+  const runsKindDone = d.prepare(`SELECT 1 FROM app_config WHERE key = ?`).get(RUNS_KIND_FLAG)
+  if (!runsKindDone && hasTable(d, 'runs') && hasColumn(d, 'runs', 'kind')) {
+    if (
+      hasTable(d, 'agent_runs') &&
+      hasColumn(d, 'agent_runs', 'profile_id') &&
+      hasColumn(d, 'agent_runs', 'trigger') &&
+      hasColumn(d, 'agent_runs', 'run_id')
+    ) {
+      d.exec(`
+        UPDATE runs SET kind = 'chat-turn' WHERE id IN (
+          SELECT run_id FROM agent_runs
+          WHERE profile_id = 'k-secretary' AND trigger = 'user-message' AND run_id IS NOT NULL
+        )
+      `)
+    }
+    if (hasColumn(d, 'runs', 'pipeline_stage_id')) {
+      d.exec(`UPDATE runs SET kind = 'pipeline-stage' WHERE pipeline_stage_id IS NOT NULL`)
+    }
+    d.prepare(`INSERT INTO app_config (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(RUNS_KIND_FLAG)
+  }
+
+  // Seeds (D-125): the engineering domain + its member stamps. INSERT OR IGNORE +
+  // `WHERE domain_id IS NULL` keep every re-scan a no-op against operator edits
+  // of the ROW VALUES (a re-scan re-covers only a stamp cleared back to NULL —
+  // the documented default-membership semantic; mirrors the notification_rules
+  // OR-IGNORE seed posture, deliberately NOT flag-guarded). Targets are EXACTLY
+  // the seeded ids: the five discipline leads (profiles.ts SEED_PROFILES) and the
+  // eight standard pipeline definitions (pipeline-seeds.ts PIPELINE_SEEDS) —
+  // operator-created rows (uuid ids) never match. NB: on a FRESH install the two
+  // stamps no-op here (the profile/def rows are seeded LATER, at bootstrap) and a
+  // healthy DB runs no further full scan until the NEXT version bump — so freshly
+  // installed leads/defs stay domain_id NULL until Lane C ships bootstrap-side
+  // stamping (tracked in the program ledger). The W0 contract stamps UPGRADED
+  // DBs, where the rows pre-exist. hasTable/hasColumn guards: fixtures predating
+  // the carrier tables.
+  if (hasTable(d, 'domains')) {
+    d.prepare(`
+      INSERT OR IGNORE INTO domains (id, name, description, manager_profile_id, created_at)
+      VALUES ('engineering', 'Engineering', NULL, 'chief', ?)
+    `).run(Date.now())
+  }
+  if (hasTable(d, 'agent_profiles') && hasColumn(d, 'agent_profiles', 'domain_id')) {
+    d.exec(`
+      UPDATE agent_profiles SET domain_id = 'engineering'
+      WHERE domain_id IS NULL AND id IN
+        ('lead-frontend','lead-backend','lead-systems','lead-security','lead-network')
+    `)
+  }
+  if (hasTable(d, 'workflow_definitions') && hasColumn(d, 'workflow_definitions', 'domain_id')) {
+    d.exec(`
+      UPDATE workflow_definitions SET domain_id = 'engineering'
+      WHERE domain_id IS NULL AND id IN
+        ('code-wave','investigate','refactor','implementation-cycle',
+         'deep-research','bug-triage','security-audit','quick-task')
+    `)
   }
 }
 
@@ -3581,6 +3756,19 @@ const clearThreadArchivedOnActivity = db.prepare(
 const deleteThread = db.prepare(`DELETE FROM k_threads WHERE id = ?`)
 const threadByActiveRun = db.prepare(`SELECT * FROM k_threads WHERE active_run_id = ?`)
 
+// ── Continuous Agents W0 (SCHEMA_VERSION 16, D-123) — conversations-for-all.
+// The SAME shape as listThreads (snippet + last_turn_at subselects, updated_at
+// DESC) scoped to one owning profile: the per-agent conversation list.
+const listByProfile = db.prepare(`
+  SELECT th.*,
+    (SELECT t.text FROM k_thread_turns t WHERE t.thread_id = th.id ORDER BY t.created_at DESC LIMIT 1) AS snippet,
+    (SELECT t.created_at FROM k_thread_turns t WHERE t.thread_id = th.id ORDER BY t.created_at DESC LIMIT 1) AS last_turn_at
+  FROM k_threads th WHERE th.profile_id = ? ORDER BY th.updated_at DESC`)
+// Stamp the operator's read cursor (unread = turns newer than last_read_at).
+// Deliberately does NOT bump updated_at — READING a thread must not reorder the
+// conversation list the way real activity does.
+const setLastReadAt = db.prepare(`UPDATE k_threads SET last_read_at = ? WHERE id = ?`)
+
 export const kThreadsDb = {
   insertThread,
   getThread,
@@ -3602,4 +3790,116 @@ export const kThreadsDb = {
   clearThreadArchivedOnActivity,
   deleteThread,
   threadByActiveRun,
+  // Continuous Agents W0 (SCHEMA_VERSION 16): per-profile conversations
+  listByProfile,
+  setLastReadAt,
+}
+
+// ─── Domains (Continuous Agents W0, SCHEMA_VERSION 16, D-125) ────────────────
+// The domain registry rows the manager/supervision layer (Lane C) reads. Plain
+// snake_case rows out (no mapper here — domains.ts owns the canonical shape,
+// mirroring how rowToNamedWorkflow lives beside workflowDefsDb). `update` takes
+// the full mutable set — callers pass current values for fields they aren't
+// changing (the updateSkillContent convention). created_at/id are immutable.
+
+const insertDomain = db.prepare(`
+  INSERT INTO domains (id, name, description, manager_profile_id, created_at)
+  VALUES (@id, @name, @description, @managerProfileId, @createdAt)
+`)
+const getDomain = db.prepare(`SELECT * FROM domains WHERE id = ?`)
+const listDomains = db.prepare(`SELECT * FROM domains ORDER BY created_at ASC, id ASC`)
+const updateDomain = db.prepare(`
+  UPDATE domains SET name = @name, description = @description, manager_profile_id = @managerProfileId
+  WHERE id = @id
+`)
+
+export const domainsDb = { get: getDomain, list: listDomains, create: insertDomain, update: updateDomain }
+
+// ─── Agent sessions (Continuous Agents W0, SCHEMA_VERSION 16, D-122) ─────────
+// The hybrid warm/resumable session records agent-sessions.ts (Lane A) drives.
+// UNIQUE(profile_id, thread_id) makes upsert the ONLY insert path: the first call
+// creates the row; a later call for the same (profile, thread) REFRESHES the
+// mutable fields while keeping the original id + created_at — session identity is
+// the PAIR, not the row id. Timestamps are caller-passed (the kThreadsDb
+// convention) — no hidden Date.now() in the store.
+
+const upsertSessionRow = db.prepare(`
+  INSERT INTO agent_sessions (id, profile_id, thread_id, cli_session_id, home_dir, state, context_tokens, last_activity_at, created_at, updated_at)
+  VALUES (@id, @profileId, @threadId, @cliSessionId, @homeDir, @state, @contextTokens, @lastActivityAt, @createdAt, @updatedAt)
+  ON CONFLICT(profile_id, thread_id) DO UPDATE SET
+    cli_session_id   = excluded.cli_session_id,
+    home_dir         = excluded.home_dir,
+    state            = excluded.state,
+    context_tokens   = excluded.context_tokens,
+    last_activity_at = excluded.last_activity_at,
+    updated_at       = excluded.updated_at
+`)
+const getSessionByProfileThread = db.prepare(`SELECT * FROM agent_sessions WHERE profile_id = ? AND thread_id = ?`)
+const getSession = db.prepare(`SELECT * FROM agent_sessions WHERE id = ?`)
+// state + updated_at: the promote/demote transitions (live -> resumable -> stale).
+const setSessionState = db.prepare(`UPDATE agent_sessions SET state = ?, updated_at = ? WHERE id = ?`)
+// Plain overwrite (last-wins): a re-seeded session gets a NEW CLI session id —
+// unlike k_threads.cli_session_id there is no write-once contract here.
+const setSessionCliSessionId = db.prepare(`UPDATE agent_sessions SET cli_session_id = ?, updated_at = ? WHERE id = ?`)
+// Ordered on updated_at (NOT NULL) rather than last_activity_at (nullable) so a
+// never-touched session still sorts deterministically.
+const listSessionsByState = db.prepare(`SELECT * FROM agent_sessions WHERE state = ? ORDER BY updated_at DESC`)
+const touchSessionRow = db.prepare(`UPDATE agent_sessions SET last_activity_at = ?, updated_at = ? WHERE id = ?`)
+
+type SessionUpsertParams = {
+  id: string; profileId: string; threadId: string; cliSessionId: string | null
+  homeDir: string; state: string; contextTokens: number | null; lastActivityAt: number | null
+  createdAt: number; updatedAt: number
+}
+/** Insert-or-refresh on UNIQUE(profile_id, thread_id); returns the current row
+ *  (the pre-existing id/created_at on the refresh path). */
+function upsertSession(p: SessionUpsertParams): Record<string, unknown> {
+  upsertSessionRow.run(p)
+  return getSessionByProfileThread.get(p.profileId, p.threadId) as Record<string, unknown>
+}
+/** Bump both activity timestamps to `ts` (a delivered message / observed turn). */
+function touchSession(id: string, ts: number): void {
+  touchSessionRow.run(ts, ts, id)
+}
+
+export const agentSessionsDb = {
+  getByProfileThread: getSessionByProfileThread,
+  get: getSession,
+  upsert: upsertSession,
+  setState: setSessionState,
+  setCliSessionId: setSessionCliSessionId,
+  touch: touchSession,
+  listByState: listSessionsByState,
+}
+
+// ─── Agent mailbox (Continuous Agents W0, SCHEMA_VERSION 16, D-124) ──────────
+// Queue rows only — DELIVERY policy (state-routed, urgent-first) is the relay's
+// (message-relay.ts, Lane B), which is why the store deliberately has no priority
+// ordering: listQueuedForProfile is plain created_at ASC (id ASC tiebreak, the
+// listTurns convention). A new message is by definition queued — status and
+// delivered_at take their DDL defaults on insert.
+
+const insertMessage = db.prepare(`
+  INSERT INTO agent_messages (id, to_profile_id, to_thread_id, from_kind, from_profile_id, body, priority, provenance_run_id, created_at)
+  VALUES (@id, @toProfileId, @toThreadId, @fromKind, @fromProfileId, @body, @priority, @provenanceRunId, @createdAt)
+`)
+const listQueuedForProfile = db.prepare(`
+  SELECT * FROM agent_messages WHERE to_profile_id = ? AND status = 'queued'
+  ORDER BY created_at ASC, id ASC
+`)
+// delivered_at is stamped on DELIVERY only — a failed message keeps it NULL.
+const markMessageDelivered = db.prepare(`UPDATE agent_messages SET status = 'delivered', delivered_at = ? WHERE id = ?`)
+const markMessageFailed = db.prepare(`UPDATE agent_messages SET status = 'failed' WHERE id = ?`)
+const countQueuedRow = db.prepare(`SELECT COUNT(*) AS n FROM agent_messages WHERE to_profile_id = ? AND status = 'queued'`)
+/** How many messages are still queued for a profile (the unread-badge count). */
+function countQueued(profileId: string): number {
+  return Number((countQueuedRow.get(profileId) as { n: number }).n)
+}
+
+export const agentMessagesDb = {
+  insert: insertMessage,
+  listQueuedForProfile,
+  markDelivered: markMessageDelivered,
+  markFailed: markMessageFailed,
+  countQueued,
 }
