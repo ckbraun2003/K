@@ -2,7 +2,7 @@
 title: Workflows & Memory
 icon: "⟲"
 status: active
-updated: 2026-07-13
+updated: 2026-07-16
 ---
 
 > **Status — BUILT (Phase 5, finalized P5.7).** The single hardcoded delegation loop
@@ -33,12 +33,32 @@ delegation loop in its own worktree, producing one reviewable PR (decision D-012
 > retry-in-place (the self-heal retry brain + the `runs.pipeline_stage_id` ownership guard that prevents
 > double-fire), conditional forward routing (`markSkips` + skip-aware finalize), and reboot reconcile —
 > all built the lead-relay way (DB ledger + CAS claim). K (or the operator) delegates via
-> `delegate_pipeline` / `POST /api/pipelines/:id/run`, and the Agents→Pipelines tab renders the live DAG.
-> The legacy `NamedWorkflow`/`buildDelegationPrompt` path stays for backward-compat — a legacy row lazily
-> compiles via `namedWorkflowToPipeline`. Seeded reference pipelines: `code-wave` (implementer → parallel
-> share-tree reviews → merge-join controller → gate → verify), `investigate`, `refactor`. See §10 D-119
-> and the §09 roadmap. **Deferred:** repair-LOOP back-edges, `commit`/`ci` deterministic actions, hook
-> `inject` propagation, run-internal operator hooks (Phase 1.5), the injection intelligence (Phase 3).
+> `delegate_pipeline` / `POST /api/pipelines/:id/run`, and the Agents → Automations tab (D-120, §08)
+> renders the live DAG. Seeded reference pipelines: `code-wave` (implementer → parallel share-tree
+> reviews → merge-join controller → gate → verify), `investigate`, `refactor`. See §10 D-119 and the
+> §09 roadmap.
+>
+> **SUPERSEDED AGAIN — executable pipelines now REPLACE the legacy named-workflow templates
+> outright (D-120, Orchestration Program Phase 2, 2026-07-16).** The D-119-era "stays for
+> backward-compat, lazily compiles" posture is gone: at **boot**, every existing `NamedWorkflow`
+> template AND every `type:'workflow'` skill is **converted to a `PipelineSpec` pipeline def**
+> (idempotent — an already-converted row is skipped — and fail-safe — a conversion error degrades
+> that one row rather than blocking boot). The **legacy `WorkflowsView` UI is retired**; its former
+> address (`#/workflows`, `#/workflow-detail/:id`) redirects into **Agents → Automations → Library**
+> (§08). `PipelineSpec` (not `NamedWorkflow`/`buildDelegationPrompt`) is now **the** definition —
+> the `workflow_definitions` table and its `spec` column persist, but the row is read/run as a
+> pipeline everywhere, including the **6 newly-seeded standard pipelines** (Implementation Cycle,
+> Deep Research, Bug Triage & Fix, Refactor, Security Audit, Quick Task) that ship alongside the
+> Phase-1 reference three. Phase 2 also added a per-worker registry (§08 Sub Agents) so an `agent`
+> stage names a real, editable actor instead of a hardcoded subagent string, and **bounded loops**
+> (`when:'loop'` + `maxIterations` ≤10) to the engine itself. **Deferred (documented, D-120):**
+> operator-worker EXECUTION (Phase 2.5 — the registry is editable but an operator-authored worker
+> isn't yet mountable as a live stage actor); the autonomous multi-pipeline supervision loop (a
+> later phase, consuming the progress ledger this wave added); event triggers for pipelines; loop
+> re-fork semantics (a loop re-entry re-forks from the loop head's pre-loop base, not the prior
+> iteration's result tree — cross-stage tree-carry is a Phase-3/injection concern). Carried forward
+> from D-119: repair-LOOP back-edges, `commit`/`ci` deterministic actions, hook `inject`
+> propagation, run-internal operator hooks (Phase 1.5), the injection intelligence (Phase 3).
 
 Phase 5 generalizes that single loop into **named workflow definitions** a lead selects per goal. A
 definition is a small declarative record — its role sequence, the prompt scaffold, and a scope flag —

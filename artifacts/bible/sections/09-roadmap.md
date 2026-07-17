@@ -457,12 +457,28 @@ wave; a full §12 rewrite is deferred); a pre-existing latent `/^routes\s*/` esc
 
 **Deferred within Phase 1 (documented):** repair-LOOP back-edges (forward routing + retry-in-place instead); `commit`/`ci` deterministic actions (agents open their own PRs); hook `inject` cross-stage propagation + agent-hook structured `HookResult`.
 
+## Orchestration Program — Phase 2: Pipeline Library, IA & Orchestration Visibility (D-120)
+
+*Made the Phase-1 engine usable, built 2026-07-16 on `feat/orchestration-p2` (schema v14→v15). Method: a W0 shared-contract foundation → three parallel reviewed worktree lanes (engine / registry+schedules / UI+integration) → serial integration → two opus SEAMS reviews (both approved).*
+
+- [x] **Agents IA restructure.** Top tabs **Org / Catalog / Automations** (`AgentsPage`); Catalog's 4 sub-tabs **Skills / MCP / Hooks / Sub Agents**; Automations unifies **Library / Runs / Schedules** into one pipeline surface — replaces D-101's Org·Skills·Pipelines split; legacy `#/agents/skills/*` and `#/agents/pipelines/*` deep links redirect in.
+- [x] **Editable sub-agent worker registry.** K-native workers (`agent-config/agents/*.md`, forkable, read-only until forked) + full-CRUD operator workers (`sub_agent_defs` table, `/api/sub-agents`); a pipeline `agent` stage names its worker via `subagentType`.
+- [x] **Bounded loops.** `when:'loop'` edges + `maxIterations` (≤10) in the engine, with a corrected finalize that never yields a false-COMPLETED mid-loop.
+- [x] **Standard pipeline library.** 6 seeded, executable pipelines — Implementation Cycle, Deep Research, Bug Triage & Fix, Refactor, Security Audit, Quick Task — composing sequential/parallel/loop/gate patterns with K-native workers as stage actors.
+- [x] **Legacy migration.** `NamedWorkflow` templates + `type:'workflow'` skills convert to `PipelineSpec` defs at boot (idempotent, fail-safe); the legacy `WorkflowsView` UI retired.
+- [x] **Progress ledger + orchestrator multi-pipeline view.** `pipeline_ledger` (per-run append-only) + a `pipeline_update` WS ledger cursor; pipeline runs group by owning orchestrator via `pipeline_runs.owner_profile_id`, stamped from the delegating orchestrator (incl. retries).
+- [x] **Pipeline cron schedules.** A scheduled `skills` routine can target a pipeline via `skills.pipeline_def_id` — manual + cron, surfaced on Automations → Schedules.
+- [x] **Input-sweep + header polish.** Raw `<input>`/`<textarea>`/`<select>` swept to the `ui/Field.tsx` primitives; the page-header tab icon removed from `TopBar`'s title (title/breadcrumb only now).
+- [x] **Schema v14→v15.**
+
+**Deferred (documented):** **operator-worker EXECUTION** (Phase 2.5 — registry/editing/K-native execution all work, but an operator-authored worker isn't yet mounted as a live stage actor: the create-time materializer, DB row → confined `data/agents/<id>/` file, is unbuilt, and the operator mount is nested while Claude Code discovers subagents flat — this is the code-execution entrypoint and gets its own design + security pass); the **autonomous multi-pipeline supervision loop** (a later phase; this wave built the ledger + hook seams it will consume); **event triggers** for pipelines (manual + cron shipped, event deferred); **loop re-fork semantics** (a loop re-entry re-forks from the loop head's pre-loop base, not the prior iteration's result tree — deliberate; cross-stage tree-carry is a Phase-3/injection concern).
+
 **Later phases of the Orchestration Program:**
 - [ ] **Phase 1.5 — Run-internal operator hooks.** Generalize the config-dir hook mounting (PreToolUse/PreSkill), confined operator scripts, gitnexus-as-registry-row, trust card. *(Operator-deferred from Phase 1; pairs with Phase 3.)*
-- [ ] **Phase 2 — Intent & auto-delegation.** K decomposes/scopes and AUTO-SELECTS a pipeline from a vague request (be-less-precise).
+- [ ] **Phase 2.5 — Operator-worker execution.** The create-time materializer (DB row → confined `data/agents/<id>/` file) + a flat-discovery-compatible mount, so an operator-authored sub-agent worker actually runs as a live pipeline stage actor, not just a registry row. *(Deferred from Phase 2, above.)*
 - [ ] **Phase 3 — Context/memory injection intelligence.** The ContextAssembler + memory-retrieval loop that fills the hook-`inject` + injection seam (subsumes the old "memory layer B" item below).
 - [ ] **Phase 4 — Sandboxes.** Docker `StageExecutor`; ephemeral + persistent sandboxes; Playwright / native-desktop verification stages.
-- [ ] **Phase 5 — Token-efficiency & scale.** Skill promotion, caching/dedup, cheap-model routing for mechanical stages, high-concurrency scheduling.
+- [ ] **Phase 5 — Token-efficiency & scale.** Skill promotion, caching/dedup, cheap-model routing for mechanical stages, high-concurrency scheduling; **+ intent & auto-delegation** (moved here from the old Phase-2 slot — K decomposes/scopes and auto-selects a pipeline from a vague request, be-less-precise).
 
 ## Phase 6 — Intelligence & Scale *(optional)*
 
