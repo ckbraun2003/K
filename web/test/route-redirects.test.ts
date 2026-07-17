@@ -21,12 +21,12 @@ it('KNOWN_VIEWS is the final 14-member IA set', () => {
 it('hub folds', () => {
   expect(resolve('#/org')).toEqual({ view: 'agents', param: 'org', subParam: 'roster' })
   expect(resolve('#/org/tree')).toEqual({ view: 'agents', param: 'org', subParam: 'tree' })
-  expect(resolve('#/skills')).toEqual({ view: 'agents', param: 'skills', subParam: undefined })
-  expect(resolve('#/skills/mcp')).toEqual({ view: 'agents', param: 'skills', subParam: 'mcp' })
+  expect(resolve('#/skills')).toEqual({ view: 'agents', param: 'catalog', subParam: undefined })
+  expect(resolve('#/skills/mcp')).toEqual({ view: 'agents', param: 'catalog', subParam: 'mcp' })
   expect(resolve('#/inbox')).toEqual({ view: 'personal', param: 'inbox' })
   expect(resolve('#/lessons')).toEqual({ view: 'personal', param: 'inbox' })
-  expect(resolve('#/runs/workflows')).toEqual({ view: 'agents', param: 'pipelines', subParam: undefined })
-  expect(resolve('#/runs/workflows/def-1')).toEqual({ view: 'agents', param: 'pipelines', subParam: 'def-1' })
+  expect(resolve('#/runs/workflows')).toEqual({ view: 'agents', param: 'automations', subParam: undefined })
+  expect(resolve('#/runs/workflows/def-1')).toEqual({ view: 'agents', param: 'automations', subParam: 'def-1' })
   expect(resolve('#/runs/run-123')).toEqual({ view: 'runs', param: 'run-123' })
 })
 
@@ -37,14 +37,14 @@ it('pre-P4 legacy hashes land in the new hubs (one hop)', () => {
   expect(resolve('#/metrics')).toEqual({ view: 'insights', param: 'charts' })
   expect(resolve('#/routing')).toEqual({ view: 'insights', param: 'routing' })
   expect(resolve('#/evals')).toEqual({ view: 'insights', param: 'evals' })
-  expect(resolve('#/workflows')).toEqual({ view: 'agents', param: 'pipelines', subParam: undefined })
-  expect(resolve('#/workflow-detail/def-9')).toEqual({ view: 'agents', param: 'pipelines', subParam: 'def-9' })
+  expect(resolve('#/workflows')).toEqual({ view: 'agents', param: 'automations', subParam: undefined })
+  expect(resolve('#/workflow-detail/def-9')).toEqual({ view: 'agents', param: 'automations', subParam: 'def-9' })
   expect(resolve('#/memory')).toEqual({ view: 'personal', param: 'inbox' })
   expect(resolve('#/terminal')).toEqual({ view: 'settings' })
 })
 
 it('surviving views resolve unchanged', () => {
-  for (const keep of ['#/home', '#/personal/chats', '#/agents/pipelines', '#/projects', '#/insights/charts',
+  for (const keep of ['#/home', '#/personal/chats', '#/agents/automations', '#/projects', '#/insights/charts',
     '#/timeline', '#/docs/project-bible', '#/skill-creator', '#/settings', '#/orchestrator/frontend',
     '#/project/p1/runs', '#/verify/p1']) {
     const r = resolve(keep)
