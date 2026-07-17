@@ -25,6 +25,8 @@ import { SystemRequirementsSection } from './SettingsDoctor'
 import { AutonomousOrgSection } from './SettingsAutonomy'
 // P4 E-30 — the embedded diagnostics shell (the #/terminal redirect lands here).
 import TerminalPage from './TerminalPage'
+// Task 8 fix — sidebar nav as scroll-to buttons (never anchors; the app is hash-routed).
+import SettingsNav from './SettingsNav'
 import { GlassPanel } from '../ui/GlassPanel'
 import { SectionHeader } from '../ui/SectionHeader'
 import { StatusPill } from '../ui/StatusPill'
@@ -465,17 +467,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[10rem_1fr]">
-        <nav aria-label="Settings sections" className="sticky top-4 hidden self-start lg:flex lg:flex-col lg:gap-0.5">
-          {SETTINGS_NAV.map(item => (
-            <a
-              key={item.id}
-              href={`#${item.id}`}
-              className="rounded-control px-2 py-1 text-caption text-muted transition-colors hover:text-text"
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
+        <SettingsNav items={SETTINGS_NAV} />
 
         <div className="min-w-0">
           {/* Status group reads glass (first-viewport, low blur budget: Sidebar + TopBar
