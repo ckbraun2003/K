@@ -61,6 +61,11 @@ export interface InstantiateOptions {
    *  executor/engine change). A stage with an explicit model keeps it; a non-agent stage is
    *  unaffected. Absent → each stage's own model governs — byte-identical to today. */
   model?: string | null
+  /** orch-p2 INT fix I-1: the delegating orchestrator's AgentProfile id, so
+   *  `pipeline_runs.owner_profile_id` can group this run under its owner (OrchestratorPipelinesPanel,
+   *  design §6.2). Only pipeline-dispatch-relay resolves + passes this (the delegating K/Chief/lead
+   *  run's `agent_runs.profile_id`); the operator's direct route leaves it undefined → NULL. */
+  ownerProfileId?: string | null
 }
 
 /** Apply a pipeline-wide model override onto an agent / hook-agent stage that pins no model of
@@ -95,6 +100,7 @@ export function instantiatePipeline(spec: PipelineSpec, opts: InstantiateOptions
     baseCommit,
     createdAt: now,
     updatedAt: now,
+    ownerProfileId: opts.ownerProfileId ?? null,
   })
 
   for (const stage of spec.stages) {

@@ -5,7 +5,8 @@ import { SectionHeader } from '../ui/SectionHeader'
 import { EmptyState } from '../ui/EmptyState'
 
 export interface OwnerPipelineGroup {
-  /** null = the "Unassigned" bucket (no dispatch path stamps owner_profile_id yet). */
+  /** null = the "Unassigned" bucket (a delegate_pipeline dispatch whose delegating run had no
+   *  resolvable owner, or the operator's direct POST /api/pipelines/:id/run — never stamped). */
   profileId: string | null
   label: string
   runs: PipelineRun[]
@@ -15,12 +16,12 @@ export interface OwnerPipelineGroup {
  * Groups pipeline runs by their owning orchestrator (orch-p2 C.3, design §6.2 —
  * "the Chief manages multiple running pipelines"). Only orchestrators that
  * actually own at least one run produce a group — an idle lead contributes
- * nothing. Runs whose `ownerProfileId` is null (no dispatch path stamps the
- * column yet — see pipeline-engine.ts `PipelineRunRow`) bucket under
- * "Unassigned" rather than vanishing, so the panel stays honest about the
- * current state of the ownership wiring. A run owned by a profile id absent
- * from `leads` (stale/unknown) still surfaces, labeled by its raw id, rather
- * than being silently dropped.
+ * nothing. Runs whose `ownerProfileId` is null (the operator's direct route, or a
+ * delegated dispatch with no resolvable delegating profile — see
+ * pipeline-dispatch-relay.ts `resolveDispatchOwnerProfileId`) bucket under
+ * "Unassigned" rather than vanishing, so the panel stays honest. A run owned by a
+ * profile id absent from `leads` (stale/unknown) still surfaces, labeled by its
+ * raw id, rather than being silently dropped.
  */
 export function groupPipelineRunsByOwner(runs: PipelineRun[], leads: AgentProfile[]): OwnerPipelineGroup[] {
   const labelOf = new Map(leads.map(l => [l.id, l.name]))

@@ -180,7 +180,7 @@ describe('handleStageFailure — supervised retry on the fallback model', () => 
   it('d) re-dispatches with the fallback model + stamps retry_of + pipeline_stage_id on the new run', async () => {
     const now = Date.now()
     const plr = trackPipeline(randomUUID())
-    pipelineDb.insertPipelineRun.run({ id: plr, definitionId: null, projectId: null, title: 'sup retry', cwd: repo, baseCommit, createdAt: now, updatedAt: now })
+    pipelineDb.insertPipelineRun.run({ id: plr, definitionId: null, projectId: null, title: 'sup retry', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null })
     const stageId = randomUUID()
     // spec carries only the retry policy — the stub executor ignores the rest.
     pipelineDb.insertStage.run({ id: stageId, pipelineRunId: plr, stageKey: 'agent1', kind: 'agent', profileId: null, spec: JSON.stringify({ retry: { maxAttempts: 2 } }), baseCommit: null, repairStageKey: null, createdAt: now, updatedAt: now })

@@ -2850,10 +2850,13 @@ export const leadDispatchDb = { insertLeadDispatch, listPendingLeadDispatches, g
 // drain can never double-dispatch — mirrors leadDispatchDb.claimLeadDispatch. The
 // engine mutates STATUS rows only; the frozen definition lives in pipeline_stages.spec.
 
-// pipeline_runs — one execution of a pipeline.
+// pipeline_runs — one execution of a pipeline. owner_profile_id (orch-p2 INT fix I-1) is the
+// delegating orchestrator's AgentProfile id when instantiatePipeline is reached via
+// delegate_pipeline → pipeline-dispatch-relay; the operator's direct POST /api/pipelines/:id/run
+// binds it NULL (honestly ungrouped — no delegating profile exists).
 const insertPipelineRun = db.prepare(`
-  INSERT INTO pipeline_runs (id, definition_id, project_id, title, cwd, base_commit, status, created_at, updated_at, completed_at)
-  VALUES (@id, @definitionId, @projectId, @title, @cwd, @baseCommit, 'running', @createdAt, @updatedAt, NULL)
+  INSERT INTO pipeline_runs (id, definition_id, project_id, title, cwd, base_commit, status, created_at, updated_at, completed_at, owner_profile_id)
+  VALUES (@id, @definitionId, @projectId, @title, @cwd, @baseCommit, 'running', @createdAt, @updatedAt, NULL, @ownerProfileId)
 `)
 const getPipelineRun = db.prepare(`SELECT * FROM pipeline_runs WHERE id = ?`)
 const listRunningPipelines = db.prepare(`SELECT * FROM pipeline_runs WHERE status = 'running' ORDER BY created_at ASC`)

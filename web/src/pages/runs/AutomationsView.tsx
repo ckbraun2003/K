@@ -15,11 +15,10 @@ type AutomationsSeg = 'library' | 'runs' | 'schedules'
 
 /**
  * The Schedules pane (orch-p2 C.4, design §9) — routines that target a pipeline
- * definition (`pipelineDefId` set). `core/src/routes/routines.ts`'s projection
- * doesn't populate `pipelineDefId` yet (Lane B / Task B.3 — the underlying
- * `skills.pipeline_def_id` column already exists, migrated at W0). Until that
- * lands, every routine has `pipelineDefId` undefined and this pane renders an
- * honest empty state rather than a fake/misleading list.
+ * definition (`pipelineDefId` set). `core/src/routes/routines.ts` (routines.ts:25)
+ * populates `pipelineDefId` from `skills.pipeline_def_id`, so this pane lists every
+ * schedule-triggered routine pinned to a pipeline; a routine with no pipeline target
+ * is filtered out, and an empty result renders an honest empty state.
  */
 function SchedulesPane() {
   const { data: routines, isLoading, isError, refetch } = useQuery<RoutineView[]>({
@@ -77,8 +76,8 @@ function SchedulesPane() {
  * `navigate('agents','pipelines',<defId>)` link (route.ts's `workflow-detail` /
  * `workflows` redirects, the definitions list's Open button) keeps working.
  *
- * `WorkflowsView` (the legacy named-workflow editor) is intentionally NOT
- * referenced from here — left on disk, unused, pending an INT-phase cleanup pass.
+ * `WorkflowsView` (the legacy named-workflow editor) has been DELETED — this
+ * surface fully replaces it; no reference to it remains.
  */
 export default function AutomationsView({ defId }: { defId?: string }) {
   const [seg, setSeg] = useState<AutomationsSeg>('library')

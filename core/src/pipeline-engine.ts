@@ -47,8 +47,10 @@ export interface PipelineRunRow {
   created_at: number
   updated_at: number
   completed_at: number | null
-  // orch-p2 C.3: nullable orchestrator-ownership back-ref (db.ts:1762 migration);
-  // no dispatch path stamps it yet — surfaced null-safe through to the wire.
+  // orch-p2 C.3: nullable orchestrator-ownership back-ref (db.ts:1762 migration). Stamped by
+  // pipeline-dispatch-relay.ts (INT fix I-1) from the delegating run's agent_runs.profile_id when
+  // instantiated via delegate_pipeline; the operator's direct POST /api/pipelines/:id/run leaves
+  // it NULL (honestly ungrouped).
   owner_profile_id: string | null
 }
 

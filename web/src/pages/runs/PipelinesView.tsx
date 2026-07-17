@@ -15,7 +15,6 @@ import PipelineStageCard from '../../components/PipelineStageCard'
 import PipelineGateDialog from '../../components/PipelineGateDialog'
 import PipelineDefInspector from '../../components/PipelineDefInspector'
 import PipelineLedgerPanel from '../../components/PipelineLedgerPanel'
-import Toast from '../../components/Toast'
 import { StatusPill } from '../../ui/StatusPill'
 import { SectionHeader } from '../../ui/SectionHeader'
 import { Button } from '../../ui/Button'
@@ -436,39 +435,6 @@ export function PipelineRunsPane({
           </div>
         )}
       </div>
-    </div>
-  )
-}
-
-/**
- * The executable-pipelines surface (D-119 C3) — kept as a back-compat composition of
- * `PipelineLibraryPane` + `PipelineRunsPane` (orch-p2 C.4 split these out for
- * `AutomationsView`, which is now the primary consumer via AgentsPage). Live updates
- * arrive through the app-wide `pipeline_update` invalidator (makePipelineInvalidator),
- * so the DAG + cards refresh without a manual reload.
- */
-export default function PipelinesView(): JSX.Element {
-  const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
-  const [toastRunId, setToastRunId] = useState<string | null>(null)
-
-  return (
-    <div className="h-full overflow-y-auto p-5 space-y-6">
-      <PipelineLibraryPane
-        onDispatched={runId => {
-          setSelectedRunId(runId)
-          setToastRunId(runId)
-        }}
-      />
-      <PipelineRunsPane selectedRunId={selectedRunId} onSelectRun={setSelectedRunId} />
-
-      <Toast
-        open={toastRunId !== null}
-        testid="pipeline-run-toast"
-        kind="success"
-        message="Pipeline dispatched"
-        resetKey={toastRunId ?? undefined}
-        onDismiss={() => setToastRunId(null)}
-      />
     </div>
   )
 }
