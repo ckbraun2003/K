@@ -21,16 +21,24 @@ beforeAll(() => {
   }
 })
 
-const { mockList, mockCreate, mockUpdate, mockDelete } = vi.hoisted(() => ({
+const { mockList, mockCreate, mockUpdate, mockDelete, mockCatalogSkills, mockCatalogMcp, mockModelsAvailable } = vi.hoisted(() => ({
   mockList: vi.fn(),
   mockCreate: vi.fn(),
   mockUpdate: vi.fn(),
   mockDelete: vi.fn(),
+  mockCatalogSkills: vi.fn(),
+  mockCatalogMcp: vi.fn(),
+  mockModelsAvailable: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
   api: {
     subAgents: { list: mockList, create: mockCreate, update: mockUpdate, delete: mockDelete },
+    // SubAgentEditor now uses the catalog-backed CapabilityPicker for skills/mcp
+    // and the unified models aggregate for its Model Select (C.5) — the editor
+    // mounts inside this tab's fork/edit flow, so these need real resolutions.
+    capabilities: { skills: mockCatalogSkills, mcp: mockCatalogMcp },
+    models: { available: mockModelsAvailable },
   },
 }))
 
@@ -61,6 +69,9 @@ beforeEach(() => {
   mockList.mockResolvedValue([K_AGENT, OP_AGENT])
   mockCreate.mockResolvedValue({ ...K_AGENT, id: 'op-2', source: 'operator', name: 'builder-copy' })
   mockUpdate.mockResolvedValue(OP_AGENT)
+  mockCatalogSkills.mockResolvedValue({ skills: [], scannedAt: null, warnings: [] })
+  mockCatalogMcp.mockResolvedValue({ servers: [], scannedAt: null, warnings: [] })
+  mockModelsAvailable.mockResolvedValue({ models: [], localDegraded: false })
 })
 afterEach(() => cleanup())
 

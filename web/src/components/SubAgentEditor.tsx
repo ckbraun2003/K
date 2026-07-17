@@ -1,9 +1,12 @@
 import { useState } from 'react'
-import { KNOWN_MODELS } from '@k/shared'
+import { useQuery } from '@tanstack/react-query'
+import type { AvailableModelsResponse } from '@k/shared'
+import { api } from '../lib/api'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Input, Textarea, Select, Checkbox } from '../ui/Field'
 import { Tag } from '../ui/Tag'
+import CapabilityPicker from './CapabilityPicker'
 
 /**
  * The sub-agent worker-bee editor (Task B.5) — used for BOTH an operator's full edit of an
@@ -104,6 +107,13 @@ export default function SubAgentEditor({
   const [prompt, setPrompt] = useState(initial.prompt)
   const [enabled, setEnabled] = useState(initial.enabled)
 
+  // Unified Claude+local model aggregate (usability-access C.5) — replaces the
+  // static KNOWN_MODELS-only option list, same as the orchestrator page (C.4).
+  const { data: modelsResp } = useQuery<AvailableModelsResponse>({
+    queryKey: ['models-available'],
+    queryFn: api.models.available,
+  })
+
   const nameValid = name.trim() !== ''
   const roleValid = role.trim() !== ''
   const promptValid = prompt.trim() !== ''
@@ -160,8 +170,10 @@ export default function SubAgentEditor({
             className="w-full text-sm"
           >
             <option value="">(runtime default)</option>
-            {KNOWN_MODELS.map(m => (
-              <option key={m.id} value={m.id}>{m.label}</option>
+            {(modelsResp?.models ?? []).map(m => (
+              <option key={m.id} value={m.id}>
+                {m.label}{m.kind === 'local' ? ' (local)' : ''}
+              </option>
             ))}
           </Select>
         </div>
@@ -173,19 +185,24 @@ export default function SubAgentEditor({
           placeholder="add tool by name"
           testidPrefix="sub-agent-editor-tools"
         />
-        <ChipListField
-          label="Skills"
-          values={skills}
+        {/* Skills / MCP — catalog-backed mount editors (C.5), same component the
+            orchestrator detail page uses (C3): mounted rows carry provenance +
+            token cost, and the add box only offers real catalog entries. */}
+        <CapabilityPicker
+          kind="skills"
+          profile={{ skills, mcpServers }}
           onChange={setSkills}
-          placeholder="add skill by name"
+          busy={!!busy}
           testidPrefix="sub-agent-editor-skills"
+          title="Skills"
         />
-        <ChipListField
-          label="MCP servers"
-          values={mcpServers}
+        <CapabilityPicker
+          kind="mcp"
+          profile={{ skills, mcpServers }}
           onChange={setMcpServers}
-          placeholder="add MCP server by name"
+          busy={!!busy}
           testidPrefix="sub-agent-editor-mcp"
+          title="MCP servers"
         />
 
         <div>
