@@ -23,6 +23,7 @@ import { skillCreatorRoutes } from './routes/skill-creator.js'
 import { chiefRoutes } from './routes/chief.js'
 import { orchestratorsRoutes } from './routes/orchestrators.js'
 import { profilesRoutes } from './routes/profiles.js'
+import { domainsRoutes } from './routes/domains.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { pipelinesRoutes } from './routes/pipelines.js'
 import { subAgentsRoutes } from './routes/sub-agents.js'
@@ -54,6 +55,7 @@ import { sweepCheckpointRefs, sweepPipelineRefs } from './checkpoints.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { syncHostDiscovery } from './host-discovery.js'
 import { seedProfiles } from './profiles.js'
+import { stampSeededDomainMemberships } from './domains.js'
 import { seedWorkflowDefinitions } from './workflow-defs.js'
 import { seedPipelineSpecs } from './pipeline-seeds.js'
 import { migrateLegacyDefs } from './pipeline-migrate-legacy.js'
@@ -202,6 +204,7 @@ export async function buildApp() {
   await app.register(chiefRoutes)
   await app.register(orchestratorsRoutes)
   await app.register(profilesRoutes)
+  await app.register(domainsRoutes)
   await app.register(workflowsRoutes)
   await app.register(pipelinesRoutes)
   await app.register(subAgentsRoutes)
@@ -534,6 +537,10 @@ async function start() {
   seedProfiles()      // ensure the durable agent-org profiles (K, Chief, orchestrator + leads) exist
   seedWorkflowDefinitions() // ensure the built-in named workflow templates (code-wave, investigate, refactor) exist
   seedPipelineSpecs() // evolve those templates into executable pipeline specs (workflow_definitions.spec); preserves operator edits
+  // C.1 (D-125): bootstrap-side domain stamping — on a FRESH install migrate()'s v16
+  // seed stamps no-oped (profile/def rows didn't exist yet); this closes the gap with
+  // the SAME guarded statements (WHERE domain_id IS NULL AND id IN seeded-ids).
+  stampSeededDomainMemberships()
   // orch-p2 A.4: convert legacy NamedWorkflows + workflow-skills into persisted pipeline defs and
   // re-home their routines (design §4, convert + retire). One-time (app_config marker + per-row
   // guards); guarded so a bad legacy row logs and continues rather than aborting boot.

@@ -3030,8 +3030,8 @@ export const leadDispatchDb = { insertLeadDispatch, listPendingLeadDispatches, g
 // delegate_pipeline → pipeline-dispatch-relay; the operator's direct POST /api/pipelines/:id/run
 // binds it NULL (honestly ungrouped — no delegating profile exists).
 const insertPipelineRun = db.prepare(`
-  INSERT INTO pipeline_runs (id, definition_id, project_id, title, cwd, base_commit, status, created_at, updated_at, completed_at, owner_profile_id)
-  VALUES (@id, @definitionId, @projectId, @title, @cwd, @baseCommit, 'running', @createdAt, @updatedAt, NULL, @ownerProfileId)
+  INSERT INTO pipeline_runs (id, definition_id, project_id, title, cwd, base_commit, status, created_at, updated_at, completed_at, owner_profile_id, domain_id)
+  VALUES (@id, @definitionId, @projectId, @title, @cwd, @baseCommit, 'running', @createdAt, @updatedAt, NULL, @ownerProfileId, @domainId)
 `)
 const getPipelineRun = db.prepare(`SELECT * FROM pipeline_runs WHERE id = ?`)
 const listRunningPipelines = db.prepare(`SELECT * FROM pipeline_runs WHERE status = 'running' ORDER BY created_at ASC`)

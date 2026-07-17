@@ -72,7 +72,7 @@ function seedPipeline(
   createdPipelineRunIds.push(plr)
   const now = Date.now()
   pipelineDb.insertPipelineRun.run({
-    id: plr, definitionId: null, projectId: null, title: 't', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null,
+    id: plr, definitionId: null, projectId: null, title: 't', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null, domainId: null,
   })
   if (status !== 'running') pipelineDb.updatePipelineStatus.run({ id: plr, status, updatedAt: now, completedAt: now })
   const ids: Record<string, string> = {}
