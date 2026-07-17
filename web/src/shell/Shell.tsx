@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
-import Ambient from './Ambient'
+import Background from './Background'
 import GlassFilterDefs from '../components/GlassFilterDefs'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
@@ -84,7 +84,7 @@ export default function Shell() {
       className="grid h-screen grid-rows-[auto_1fr_auto] bg-bg"
       style={{ gridTemplateColumns: `${navCollapsed ? 60 : 220}px 1fr` }}
     >
-      <Ambient />
+      <Background />
       <GlassFilterDefs />
       <Sidebar active={route.view} collapsed={navCollapsed} onToggleCollapse={toggleNav} />
       <TopBar view={route.view} param={route.param} connected={connected} />

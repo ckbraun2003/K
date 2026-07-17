@@ -120,6 +120,17 @@ body { font-variant-numeric: tabular-nums; }
 .ambient-blob-4 { width: 40rem; height: 36rem; right: 6%; bottom: -10%;
   background: radial-gradient(closest-side, var(--lg-blob-4), transparent 70%);
   animation: lg-drift-4 66s ease-in-out infinite alternate; }
+
+/* `aurora` background variant (usability-access B.4) — a static gradient wash
+   built from the same LG2 blob tokens as `.ambient-blob`, so it stays on the
+   sanctioned palette without a JS animation loop. */
+.lg-aurora {
+  background:
+    radial-gradient(60% 50% at 20% 20%, var(--lg-blob-1), transparent 70%),
+    radial-gradient(55% 45% at 80% 10%, var(--lg-blob-2), transparent 70%),
+    radial-gradient(50% 60% at 50% 90%, var(--lg-blob-3), transparent 70%),
+    var(--bg-deep);
+}
 @keyframes lg-drift-1 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(9%, 6%, 0) scale(1.12); } }
 @keyframes lg-drift-2 { from { transform: translate3d(0, 0, 0) scale(1.08); } to { transform: translate3d(-7%, 9%, 0) scale(0.94); } }
 @keyframes lg-drift-3 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(11%, -7%, 0) scale(1.10); } }
