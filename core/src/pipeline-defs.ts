@@ -20,7 +20,12 @@
 import { randomUUID } from 'crypto'
 import { execFileSync } from 'child_process'
 import { PipelineSpecSchema, namedWorkflowToPipeline, type PipelineSpec, type StageDef } from '@k/shared'
-import { pipelineDb, workflowDefsDb, rowToNamedWorkflow } from './db.js'
+import { db, pipelineDb, workflowDefsDb, rowToNamedWorkflow } from './db.js'
+
+// Stamp a loop edge's maxIterations onto its row (orch-p2 A.2). The W0 pipelineDb.insertEdge
+// bundle stays frozen (it predates the loop cap), so — following the engine's local-prepared-
+// statement precedent — a bounded-loop edge's cap is written here right after the base insert.
+const stampEdgeMaxIterations = db.prepare(`UPDATE pipeline_edges SET max_iterations = @maxIterations WHERE id = @id`)
 
 /** Snapshot `cwd`'s HEAD as the pipeline's base_commit. FAIL-CLOSED: a non-git cwd (or a
  *  repo with no commits) throws, so a pipeline is never instantiated against a tree the
@@ -111,14 +116,20 @@ export function instantiatePipeline(spec: PipelineSpec, opts: InstantiateOptions
   }
 
   for (const edge of spec.edges) {
+    const edgeId = randomUUID()
     pipelineDb.insertEdge.run({
-      id: randomUUID(),
+      id: edgeId,
       pipelineRunId,
       fromStageKey: edge.from,
       toStageKey: edge.to,
       handoff: edge.handoff,
       whenCond: edge.when,
     })
+    // A bounded-loop back-edge carries its hard iteration cap (the schema guarantees
+    // maxIterations is present when when==='loop'); the engine reads it off the row.
+    if (edge.when === 'loop' && edge.maxIterations != null) {
+      stampEdgeMaxIterations.run({ id: edgeId, maxIterations: edge.maxIterations })
+    }
   }
 
   return pipelineRunId
