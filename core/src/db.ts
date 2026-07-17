@@ -3135,6 +3135,11 @@ const updateSkillEnabled = db.prepare(`UPDATE skills SET enabled = ? WHERE id = 
 
 const updateSkillSchedule = db.prepare(`UPDATE skills SET schedule = ?, eventTrigger = ? WHERE id = ?`)
 
+// Task B.3: the routine→pipeline target. NULL clears it (the routine reverts to firing as
+// a plain skill run). Loose ref (no FK, mirrors the v15 ALTER's own note) — validated at the
+// route (an unknown workflow_definitions id 400s) rather than the schema.
+const updateSkillPipelineDefId = db.prepare(`UPDATE skills SET pipeline_def_id = ? WHERE id = ?`)
+
 // Editable content fields (name/description/source). Caller passes the current
 // value for any field not being changed, mirroring updateSkillSchedule.
 const updateSkillContent = db.prepare(
@@ -3164,6 +3169,7 @@ export const skillsDb = {
   updateSkillEnabled,
   updateSkillSchedule,
   updateSkillContent,
+  updateSkillPipelineDefId,
   deleteSkill,
   insertSkillRun,
   listSkillRuns,

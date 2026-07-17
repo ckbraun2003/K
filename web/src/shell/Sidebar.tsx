@@ -30,7 +30,7 @@ export interface Destination {
 export const DESTINATIONS: Destination[] = [
   { id: 'home', icon: 'home', label: 'K', hint: 'Home — chat with K & your overview', enabled: true, section: 'primary' },
   { id: 'personal', icon: 'personal', label: 'Personal', hint: 'Your inbox, tasks, chats & memories', enabled: true, section: 'primary' },
-  { id: 'agents', icon: 'agents', label: 'Agents', hint: 'Org, skills & pipelines — the agent organization', enabled: true, section: 'primary' },
+  { id: 'agents', icon: 'agents', label: 'Agents', hint: 'Org, catalog & automations — the agent organization', enabled: true, section: 'primary' },
   { id: 'runs', icon: 'runs', label: 'Runs', hint: 'Live & past agent runs', enabled: true, section: 'primary' },
   { id: 'insights', icon: 'insights', label: 'Insights', hint: 'Overview, charts, routing & evals', enabled: true, section: 'primary' },
   { id: 'projects', icon: 'projects', label: 'Projects', hint: 'Register & manage your projects', enabled: true, section: 'primary' },

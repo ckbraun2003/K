@@ -40,7 +40,7 @@ const skill: Skill = {
 const routine: RoutineView = {
   id: skill.id, name: skill.name, enabled: true, schedule: '0 9 * * *',
   nextRunAt: Date.now() + 3 * 3600_000, lastRunAt: Date.now() - 86_400_000,
-  runs: 4, totalCostUsd: 1.2345,
+  runs: 4, totalCostUsd: 1.2345, pipelineDefId: null,
 }
 
 function renderTab() {
@@ -68,6 +68,21 @@ describe('AutomationsTab — routine row', () => {
     const cost = await screen.findByTestId('routine-cost')
     expect(cost.textContent).toContain('$1.23')
     expect(screen.getByTestId('routine-next-run').textContent).toMatch(/next run/i)
+  })
+})
+
+describe('AutomationsTab — pipeline-targeted routine badge (review fix)', () => {
+  it('shows a "→ pipeline" badge when the routine carries a pipelineDefId', async () => {
+    mockRoutinesList.mockResolvedValue([{ ...routine, pipelineDefId: 'pl-def-1' }])
+    renderTab()
+    await screen.findByTestId('routine-cost')
+    expect(screen.getByText('→ pipeline')).toBeTruthy()
+  })
+
+  it('shows no pipeline badge for a plain (non-pipeline) routine', async () => {
+    renderTab()
+    await screen.findByTestId('routine-cost')
+    expect(screen.queryByText('→ pipeline')).toBeNull()
   })
 })
 

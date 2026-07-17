@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { validate as cronValidate } from 'node-cron'
 import { CreateSkillSchema, UpdateSkillSchema } from '@k/shared'
-import { skillsDb, projectsDb } from '../db.js'
+import { skillsDb, projectsDb, workflowDefsDb } from '../db.js'
 import { listSkills, listSkillEvals, registerSkill, rowToSkill, runSkillTest, triggerSkill } from '../skills.js'
 import { sendError, sendZodError, sendBudgetCapped } from './http-errors.js'
 import { budgetGate } from '../budget-governor.js'
@@ -67,6 +67,14 @@ export async function skillsRoutes(app: FastifyInstance) {
       return sendError(reply, 400, 'schedule must be a valid cron expression')
     }
 
+    // Task B.3: a non-null pipelineDefId must reference a real pipeline definition —
+    // same "validate first" boundary as the cron check above (F-022). `null` clears the
+    // target (the routine reverts to firing as a plain skill run); `undefined` (omitted)
+    // leaves it untouched.
+    if (body.pipelineDefId != null && !workflowDefsDb.getWorkflowDefRow.get(body.pipelineDefId)) {
+      return sendError(reply, 400, `unknown pipeline definition: ${body.pipelineDefId}`)
+    }
+
     const row = skillsDb.getSkill.get(req.params.id)
     if (!row) return sendError(reply, 404, 'not found')
 
@@ -82,6 +90,9 @@ export async function skillsRoutes(app: FastifyInstance) {
 
     if (body.enabled !== undefined) {
       skillsDb.updateSkillEnabled.run(body.enabled ? 1 : 0, req.params.id)
+    }
+    if (body.pipelineDefId !== undefined) {
+      skillsDb.updateSkillPipelineDefId.run(body.pipelineDefId, req.params.id)
     }
     if (body.schedule !== undefined || body.eventTrigger !== undefined) {
       const current = rowToSkill(row as Record<string, unknown>)

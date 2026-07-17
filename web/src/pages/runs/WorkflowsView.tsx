@@ -291,7 +291,7 @@ function DefinitionsSection() {
         <Button
           variant="glass"
           size="sm"
-          onClick={() => navigate('agents', 'pipelines', selected.id)}
+          onClick={() => navigate('agents', 'automations', selected.id)}
           data-testid="workflow-def-open"
           className="mt-4"
         >

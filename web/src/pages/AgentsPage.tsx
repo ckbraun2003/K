@@ -3,29 +3,32 @@ import Tabs from '../components/Tabs'
 import SegControl from '../components/SegControl'
 import { navigate } from '../lib/route'
 import OrgPage from './OrgPage'
-import SkillsPage from './SkillsPage'
+import CatalogPage from './CatalogPage'
 import WorkflowsView from './runs/WorkflowsView'
 import PipelinesView from './runs/PipelinesView'
 
 /**
- * Agents hub (UI Simplification Task 16, fills the Task 10 stub) — mirrors
- * PersonalPage's shape. Merges Org (roster/tree/graph) + Skills
- * (catalog/MCP/hooks/automations) + Automations (named workflow definitions,
- * folded off Runs; visible label only — the route param stays `pipelines`
- * so `workflows→agents/pipelines` redirects keep working) under one tabbed
- * surface (Impressive Wave Task 10 Step 1: naming audit, Automations wins).
+ * Agents hub — mirrors PersonalPage's shape. Three top tabs (orchestration-p2
+ * Task B.4 IA redesign, design spec §2): Org (roster/tree/graph) / Catalog
+ * (reusable building blocks — Skills/MCP/Hooks/Sub Agents, formerly the
+ * "Skills" tab) / Automations (the unified pipeline surface — formerly
+ * "Pipelines"/"Skills · Automations"; Lane C's Task C.4 replaces this tab's
+ * body with the Library/Runs/Schedules AutomationsView — this tab keeps
+ * mounting the pre-existing Pipelines/Workflows surface verbatim in the
+ * interim so no deep link breaks before that lands).
  */
-const TAB_IDS = ['org', 'skills', 'pipelines'] as const
+const TAB_IDS = ['org', 'catalog', 'automations'] as const
 type AgentsTab = (typeof TAB_IDS)[number]
 
 /**
- * The Pipelines tab (D-119 C3): a SegControl fronts the NEW executable-pipelines
- * surface (PipelinesView — run entrance + live DAG) alongside the legacy Automations
- * definitions surface (WorkflowsView). A deep-linked definition id (`sub`) opens the
- * legacy editor directly, preserving every `navigate('agents','pipelines',<defId>)`
- * link (the definitions list's Open button, the workflow-detail redirects).
+ * The Automations tab (D-119 C3, pending Lane C's Task C.4 replacement): a
+ * SegControl fronts the executable-pipelines surface (PipelinesView — run
+ * entrance + live DAG) alongside the legacy Automations definitions surface
+ * (WorkflowsView). A deep-linked definition id (`sub`) opens the legacy editor
+ * directly, preserving every `navigate('agents','automations',<defId>)` link
+ * (the definitions list's Open button, the workflow-detail redirects).
  */
-function PipelinesTab({ defId }: { defId?: string }) {
+function AutomationsPane({ defId }: { defId?: string }) {
   const [seg, setSeg] = useState<'pipelines' | 'automations'>('pipelines')
   // A definition deep-link is always the legacy single-template editor.
   if (defId) return <WorkflowsView defId={defId} />
@@ -54,16 +57,16 @@ export default function AgentsPage({ tab, sub }: { tab?: string; sub?: string })
       <Tabs
         items={[
           { value: 'org', label: 'Org' },
-          { value: 'skills', label: 'Skills' },
-          { value: 'pipelines', label: 'Automations' },
+          { value: 'catalog', label: 'Catalog' },
+          { value: 'automations', label: 'Automations' },
         ]}
         value={active}
         onChange={v => navigate('agents', v)}
         ariaLabel="Agents"
       />
       {active === 'org' && <OrgPage seg={sub} />}
-      {active === 'skills' && <SkillsPage tab={sub} />}
-      {active === 'pipelines' && <PipelinesTab defId={sub} />}
+      {active === 'catalog' && <CatalogPage tab={sub} />}
+      {active === 'automations' && <AutomationsPane defId={sub} />}
     </div>
   )
 }
