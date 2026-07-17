@@ -24,9 +24,9 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { type Status, SystemPromptBodySchema, isKnownModel } from '@k/shared'
+import { type Status, SystemPromptBodySchema, isKnownModel, BACKGROUND_VARIANTS, BackgroundVariantSchema } from '@k/shared'
 import { isOllamaReachable } from '../router.js'
-import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel } from '../config-store.js'
+import { ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel, backgroundVariant, setBackgroundVariant } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 import { credentialPosture, type CredentialPosture } from '../agent-config.js'
 import { probeWhisper } from '../transcription.js'
@@ -246,6 +246,19 @@ export async function settingsRoutes(app: FastifyInstance) {
   // GET /api/status — provider availability + auth posture (no secrets).
   app.get('/api/status', async (_req, reply) => {
     return reply.send(buildStatus(await cachedProbes(), liveStatusEnv()))
+  })
+
+  // GET /api/settings/background — the operator's background preference + the
+  // full variant list (so the client never hardcodes the options).
+  app.get('/api/settings/background', async (_req, reply) =>
+    reply.send({ variant: backgroundVariant(), options: BACKGROUND_VARIANTS }))
+
+  // PUT /api/settings/background — set the preference. 400 on an unknown variant.
+  app.put('/api/settings/background', async (req, reply) => {
+    const parsed = z.object({ variant: BackgroundVariantSchema }).safeParse(req.body)
+    if (!parsed.success) return sendError(reply, 400, 'invalid background variant')
+    setBackgroundVariant(parsed.data.variant)
+    return reply.send({ variant: parsed.data.variant })
   })
 
   // GET /api/system-prompt — the human-editable region of the prompt file only.

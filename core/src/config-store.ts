@@ -13,6 +13,7 @@
 import {
   HomeLayoutSchema, type HomeLayout,
   AutonomySettingsSchema, DEFAULT_AUTONOMY_SETTINGS, type AutonomySettings, type AutonomyPatchBody,
+  BackgroundVariantSchema, DEFAULT_BACKGROUND, type BackgroundVariant,
 } from '@k/shared'
 import { configDb } from './db.js'
 
@@ -191,6 +192,23 @@ export function setAutonomySettings(patch: AutonomyPatchBody): AutonomySettings 
   const next = AutonomySettingsSchema.parse({ ...autonomySettings(), ...patch })
   configDb.set(AUTONOMY_KEY, JSON.stringify(next))
   return next
+}
+
+// ── Background preference (usability-access B.3) ────────────────────────────────
+
+const BG_KEY = 'ui.background'
+
+/** Read the operator's background preference. Absent or corrupt → DEFAULT_BACKGROUND. */
+export function backgroundVariant(): BackgroundVariant {
+  const raw = configDb.get(BG_KEY)
+  const parsed = raw ? BackgroundVariantSchema.safeParse(raw) : null
+  return parsed?.success ? parsed.data : DEFAULT_BACKGROUND
+}
+
+/** Persist the background preference. Callers MUST validate `v` at the route
+ *  boundary (PUT /api/settings/background) — this store write does not gate it. */
+export function setBackgroundVariant(v: BackgroundVariant): void {
+  configDb.set(BG_KEY, v)
 }
 
 // ── Test seam ────────────────────────────────────────────────────────────────
