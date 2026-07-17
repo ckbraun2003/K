@@ -29,7 +29,6 @@ import { onHelpOpen, shouldAutoOpenHelp } from '../lib/help-bus'
 import { stageTransition } from '../lib/motion'
 import { CHORDS } from '../lib/chords'
 import { useShellKeys } from '../lib/use-shell-keys'
-import { useGlassPointer } from '../lib/use-glass-pointer'
 import useLiveInvalidators from './useLiveInvalidators'
 
 export default function Shell() {
@@ -68,7 +67,6 @@ export default function Shell() {
     onToggleLegend: () => setLegendOpen(o => !o),
     onCloseLegend: () => setLegendOpen(false),
   })
-  useGlassPointer()
 
   // Sidebar's Help entry opens the guide via the bus (FE-6); Shell owns the
   // dialog's open state so it can also auto-open it on first run, below.
