@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import Background from './Background'
-import GlassFilterDefs from '../components/GlassFilterDefs'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import MessageDock from './MessageDock'
@@ -85,7 +84,6 @@ export default function Shell() {
       style={{ gridTemplateColumns: `${navCollapsed ? 60 : 220}px 1fr` }}
     >
       <Background />
-      <GlassFilterDefs />
       <Sidebar active={route.view} collapsed={navCollapsed} onToggleCollapse={toggleNav} />
       <TopBar view={route.view} param={route.param} connected={connected} />
 

@@ -32,11 +32,11 @@
   /* glass tiers, shadow ramp, motion tokens — task 4 (bible §6). The tier
      border keeps its -tier- name from the migration era, when a legacy
      --glass-border (removed in task 22) still occupied the plain name. */
-  --glass-chrome-bg: rgba(42, 26, 71, 0.48);
-  --glass-panel-bg: rgba(42, 26, 71, 0.64);
-  --glass-overlay-bg: rgba(51, 32, 92, 0.76);
-  --glass-tier-border: rgba(179, 166, 205, 0.14);
-  --glass-sheen: rgba(255, 255, 255, 0.07);
+  --glass-chrome-bg: rgba(24, 24, 34, 0.42);
+  --glass-panel-bg: rgba(28, 28, 38, 0.42);
+  --glass-overlay-bg: rgba(30, 30, 42, 0.58);
+  --glass-tier-border: rgba(255, 255, 255, 0.10);
+  --glass-sheen: rgba(255, 255, 255, 0.06);
   --shadow-1: 0 2px 8px rgba(10, 4, 24, 0.35);
   --shadow-2: 0 6px 24px rgba(10, 4, 24, 0.45);
   --shadow-3: 0 16px 48px rgba(10, 4, 24, 0.60);
@@ -51,11 +51,8 @@
   --lg-blob-2: rgba(255, 143, 192, 0.13);
   --lg-blob-3: rgba(56, 189, 248, 0.11);
   --lg-blob-4: rgba(99, 102, 241, 0.10);
-  --lg-edge: rgba(244, 240, 255, 0.30);
-  --lg-sheen: rgba(244, 240, 255, 0.10);
-  /* mirrored as a literal in web/src/components/GlassFilterDefs.tsx — CSS
-     custom properties cannot reach SVG filter-primitive attributes */
-  --lg-refract-scale: 14;
+  --lg-edge: rgba(255, 255, 255, 0.12);
+  --lg-sheen: rgba(255, 255, 255, 0.08);
   /* code-viewer syntax tokens (DiffViewer v2 theme — exactly the ELEVEN
      prism-class tokens the FE lane's Task 12 consumes; refractor/Prism classes
      map to these in the .code-viewer block below; no library CSS is ever
@@ -182,15 +179,15 @@ body { font-variant-numeric: tabular-nums; }
     background:
       linear-gradient(var(--glass-chrome-bg), var(--glass-chrome-bg)) padding-box,
       linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
-    -webkit-backdrop-filter: blur(24px) saturate(1.4);
-    backdrop-filter: blur(24px) saturate(1.4);
+    -webkit-backdrop-filter: blur(24px) saturate(1.6);
+    backdrop-filter: blur(24px) saturate(1.6);
   }
   .glass-panel {
     background:
       linear-gradient(var(--glass-panel-bg), var(--glass-panel-bg)) padding-box,
       linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
-    -webkit-backdrop-filter: blur(16px) saturate(1.2);
-    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(22px) saturate(1.6);
+    backdrop-filter: blur(22px) saturate(1.6);
     border-radius: var(--radius-lg);
     box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-2);
   }
@@ -198,8 +195,8 @@ body { font-variant-numeric: tabular-nums; }
     background:
       linear-gradient(var(--glass-overlay-bg), var(--glass-overlay-bg)) padding-box,
       linear-gradient(135deg, var(--lg-edge), var(--glass-tier-border) 35%, transparent 80%) border-box;
-    -webkit-backdrop-filter: blur(28px) saturate(1.4);
-    backdrop-filter: blur(28px) saturate(1.4);
+    -webkit-backdrop-filter: blur(28px) saturate(1.6);
+    backdrop-filter: blur(28px) saturate(1.6);
     border-radius: var(--radius-lg);
     box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-3);
   }
@@ -212,36 +209,6 @@ body { font-variant-numeric: tabular-nums; }
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .glass-chrome { background: var(--surface); }
   .glass-panel, .glass-overlay { background: var(--raised); }
-}
-/* ── LG2 refraction (impressive-wave W0.4) — Chromium-first, strictly additive.
-   The refract layer is a ::after of the SAME tier element (never a second tier
-   inside another tier's blur); z-index -1 + isolation keep the host's own text
-   out of the refracted backdrop; the mask confines distortion to the outer
-   ring so backdrops behind text-bearing centers stay calm. Inside @layer
-   components so positioning utilities on call sites (fixed/absolute/z-*)
-   still win over the position fallback. */
-@layer components {
-  @supports ((backdrop-filter: url(#lg-refract)) or (-webkit-backdrop-filter: url(#lg-refract))) {
-    .glass-chrome, .glass-overlay { position: relative; isolation: isolate; }
-    .glass-chrome::after, .glass-overlay::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      z-index: -1;
-      border-radius: inherit;
-      pointer-events: none;
-      -webkit-mask-image: radial-gradient(130% 130% at 50% 50%, transparent 58%, #000 96%);
-      mask-image: radial-gradient(130% 130% at 50% 50%, transparent 58%, #000 96%);
-    }
-    .glass-chrome::after {
-      -webkit-backdrop-filter: url(#lg-refract) blur(24px) saturate(1.4);
-      backdrop-filter: url(#lg-refract) blur(24px) saturate(1.4);
-    }
-    .glass-overlay::after {
-      -webkit-backdrop-filter: url(#lg-refract) blur(28px) saturate(1.4);
-      backdrop-filter: url(#lg-refract) blur(28px) saturate(1.4);
-    }
-  }
 }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; } }
