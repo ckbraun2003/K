@@ -10,7 +10,10 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-const { mockBackgroundGet } = vi.hoisted(() => ({ mockBackgroundGet: vi.fn() }))
+const { mockBackgroundGet, mockReducedMotion } = vi.hoisted(() => ({
+  mockBackgroundGet: vi.fn(),
+  mockReducedMotion: vi.fn(() => false),
+}))
 
 vi.mock('../src/lib/api', () => ({
   api: {
@@ -22,6 +25,12 @@ vi.mock('../src/lib/api', () => ({
     },
   },
 }))
+// Control the reduced-motion branch of the galaxy canvas from tests.
+vi.mock('../src/lib/motion', () => ({ prefersReducedMotion: mockReducedMotion }))
+
+// ResizeObserver.disconnect routed through a shared spy so the unmount-cleanup
+// test can assert the observer is actually disconnected.
+const roDisconnect = vi.fn()
 
 import Background from '../src/shell/Background'
 
@@ -30,10 +39,8 @@ const OPTIONS = ['galaxy', 'aurora', 'blobs', 'solid'] as const
 beforeAll(() => {
   // jsdom has neither a real 2D canvas context nor ResizeObserver — the
   // galaxy variant's rAF loop needs both stubbed to mount without throwing.
-  if (!globalThis.ResizeObserver) {
-    // @ts-expect-error minimal stub
-    globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
-  }
+  // @ts-expect-error minimal stub — disconnect routed through the shared spy
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() { roDisconnect() } }
   const noopCtx = {
     clearRect: () => {},
     fillRect: () => {},
@@ -58,6 +65,8 @@ function renderBg() {
 
 beforeEach(() => {
   mockBackgroundGet.mockReset()
+  mockReducedMotion.mockReturnValue(false)
+  roDisconnect.mockClear()
 })
 afterEach(() => cleanup())
 
@@ -71,12 +80,14 @@ describe('Background', () => {
     expect(screen.getByTestId('app-background').querySelector('canvas')).not.toBeNull()
   })
 
-  it('blobs: renders the four .ambient-blob layers', async () => {
+  it('blobs: uniform app-background contract + the four .ambient-blob layers', async () => {
     mockBackgroundGet.mockResolvedValue({ variant: 'blobs', options: OPTIONS })
     const { container } = renderBg()
     await waitFor(() => {
       expect(container.querySelectorAll('.ambient-blob').length).toBe(4)
     })
+    // all four variants share one contract — blobs wraps <Ambient/> in the shell
+    expect(screen.getByTestId('app-background').getAttribute('data-variant')).toBe('blobs')
   })
 
   it('aurora: renders app-background with data-variant=aurora, no canvas', async () => {
@@ -102,5 +113,32 @@ describe('Background', () => {
     renderBg()
     const root = screen.getByTestId('app-background')
     expect(root.querySelector('canvas')).toBeNull()
+  })
+
+  it('galaxy under reduced-motion: draws statically, never schedules the rAF loop', async () => {
+    mockReducedMotion.mockReturnValue(true)
+    const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame')
+    mockBackgroundGet.mockResolvedValue({ variant: 'galaxy', options: OPTIONS })
+    const { unmount } = renderBg()
+    await waitFor(() => {
+      expect(screen.getByTestId('app-background').querySelector('canvas')).not.toBeNull()
+    })
+    unmount()
+    // reduced ⇒ `raf` was never set ⇒ cleanup has no animation frame to cancel.
+    expect(cancelSpy).not.toHaveBeenCalled()
+    cancelSpy.mockRestore()
+  })
+
+  it('galaxy: cancels the rAF loop + disconnects ResizeObserver on unmount', async () => {
+    const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame')
+    mockBackgroundGet.mockResolvedValue({ variant: 'galaxy', options: OPTIONS })
+    const { unmount } = renderBg()
+    await waitFor(() => {
+      expect(screen.getByTestId('app-background').querySelector('canvas')).not.toBeNull()
+    })
+    unmount()
+    expect(cancelSpy).toHaveBeenCalled()
+    expect(roDisconnect).toHaveBeenCalled()
+    cancelSpy.mockRestore()
   })
 })

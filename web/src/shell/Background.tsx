@@ -9,10 +9,14 @@
  *  - `aurora` — a CSS gradient wash, no JS animation loop.
  *  - `blobs`  — the pre-existing LG2 `<Ambient/>` (kept intact: LoginScreen
  *    renders it independently pre-auth, and ambient.test.tsx locks its exact
- *    4-blob/aria-hidden contract). Returned as-is rather than re-wrapped, so
- *    there is never a second nested `.ambient` layer double-painting the
- *    background — its own root carries `data-testid="ambient"`, not
- *    `app-background`.
+ *    4-blob/aria-hidden contract). Wrapped in a passthrough shell that carries
+ *    NO `.ambient` class, so there is never a second `.ambient` layer double-
+ *    painting the background (Ambient is `position:fixed` and escapes the
+ *    wrapper visually) — yet all four variants expose ONE uniform contract:
+ *    `data-testid="app-background"` + `data-variant`.
+ *
+ * The backdrop is purely decorative → `aria-hidden` on every variant's root
+ * (matching Ambient's own root), so screen readers skip the canvas/blobs.
  *  - `solid`  — nothing beyond the shared `.ambient` wrapper, which already
  *    paints `--bg-deep` + a faint noise wash.
  *
@@ -81,10 +85,18 @@ export default function Background() {
   // the real preference resolves.
   const variant: BackgroundVariant | undefined = data?.variant
 
-  if (variant === 'blobs') return <Ambient />
+  // `blobs` reuses the intact <Ambient/> (position:fixed) inside a passthrough
+  // shell with no `.ambient` class → uniform testid contract, no double-paint.
+  if (variant === 'blobs') {
+    return (
+      <div data-testid="app-background" data-variant="blobs" aria-hidden>
+        <Ambient />
+      </div>
+    )
+  }
 
   return (
-    <div data-testid="app-background" data-variant={variant ?? 'solid'} className="ambient">
+    <div data-testid="app-background" data-variant={variant ?? 'solid'} className="ambient" aria-hidden>
       {variant === 'galaxy' && <GalaxyCanvas />}
       {variant === 'aurora' && <div className="lg-aurora h-full w-full" />}
     </div>
