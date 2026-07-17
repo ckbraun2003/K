@@ -480,6 +480,19 @@ wave; a full §12 rewrite is deferred); a pre-existing latent `/^routes\s*/` esc
 - [ ] **Phase 4 — Sandboxes.** Docker `StageExecutor`; ephemeral + persistent sandboxes; Playwright / native-desktop verification stages.
 - [ ] **Phase 5 — Token-efficiency & scale.** Skill promotion, caching/dedup, cheap-model routing for mechanical stages, high-concurrency scheduling; **+ intent & auto-delegation** (moved here from the old Phase-2 slot — K decomposes/scopes and auto-selects a pipeline from a vague request, be-less-precise).
 
+## Usability & Access (Phase 2.6) (D-121)
+
+*A usability + access-control wave on top of the merged orchestration engine, built 2026-07-17 on `feat/usability-access-p2-6` — with NO schema-version bump (the background preference rides `app_config`; the Access matrix reads existing tables; the model list is a query-time aggregate). Method: a W0 shared-schema foundation → three lanes (serial on one branch, each spec+quality reviewed) → integration → two opus SEAMS reviews (correctness + security).*
+
+- [x] **Pipeline graph → React Flow.** `PipelineGraph.tsx` rewritten on `@xyflow/react` v12 + `@dagrejs/dagre` (a pure sync `layoutPipeline`, `rankdir:'LR'`) as an INTERACTIVE READ-ONLY VIEWER (pan/zoom/minimap/controls, ephemeral drag — not persisted), preserving the exact `PipelineRunView` contract + live `['pipeline-run', runId]` cache; keyboard-activable stage nodes; pass-edge animation frozen under `prefers-reduced-motion`.
+- [x] **Galaxy background system.** One route-agnostic `<Background variant>` at Shell z-0 (so glass has a backdrop to refract): `galaxy` canvas starfield default (static single draw under reduced-motion; rAF + resize cleaned up on unmount/variant-change), plus `aurora`/`blobs`/`solid`; an app-wide preference (`GET/PUT /api/settings/background`, Zod-enum-guarded) + a Settings → Appearance picker. Home chat rail + transcript glassed (blur budget 5); the pointer-tracking `useGlassPointer` sheen replaced by a static `.glass-interactive:hover` sheen + brightness lift.
+- [x] **Per-agent default models (Claude + local).** A unified available-models aggregate (`resolveAvailableModels` = Claude `KNOWN_MODELS` ∪ installed Ollama, degrading to Claude-only when Ollama is down — never a 500) at `GET /api/models/available`; per-agent model validation relaxed from `isKnownModel` to that available set (orchestrators / org-default / sub-agents); editable default-model `<Select>` on the orchestrator page + the sub-agent editor (which also swaps its skills/MCP fields for catalog-backed `CapabilityPicker`s).
+- [x] **Unified Access console.** A 4th Agents-hub tab (`AccessPage`) — a who-has-what matrix (orchestrator leads + operator workers × model / tools / skills / MCP) with expandable inline catalog-backed editing (patching through the same validated endpoints; K-native workers read-only) + a prominent **Auto-index** (capability rescan) button. The server stays the authorization boundary; the console is convenience only.
+- [x] **D-121 — sub-agent worker ceiling validation.** Worker grants are now ceiling-validated at the orchestrator tier on POST + PATCH (merge-then-validate the full grant set; persist exactly what was validated; a read-only K-native worker returns the canonical 403), closing the prior gap where operator workers had NO grant validation. Security SEAMS verdict: **SOUND** (two-step-smuggle + over-ceiling defeated on create/patch/clone).
+- [x] **No schema-version bump.**
+
+**Deferred (documented):** **Phase 2.5 operator-worker execution** (materializer) and the **autonomous multi-pipeline supervision loop** remain open (carried from Phase 2, below); a **live Playwright UI pass**; **intent → auto-pipeline-selection** from a vague request (~Phase 5).
+
 ## Phase 6 — Intelligence & Scale *(optional)*
 
 - [ ] EventBus → NATS/Redis Streams + worker processes

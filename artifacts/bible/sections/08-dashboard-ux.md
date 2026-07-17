@@ -257,7 +257,8 @@ Catalog-side workflow-skills registry into **one surface, three panes**:
   `PipelineSpec`/`NamedWorkflow` defs; a definition's stage sequence, cross-project flag, and the
   **"Run this workflow"**-style pipeline launcher (`RunPipelineDialog`) all live here — the direct
   successor of the old standalone Pipelines tab.
-- **Runs** — pipeline execution history and the **live DAG** (`PipelineGraph`, per-stage cards, gate
+- **Runs** — pipeline execution history and the **live DAG** (`PipelineGraph` — a React Flow
+  pan/zoom/minimap canvas since D-121, per-stage cards, gate
   dialog), plus the **progress ledger** panel (`PipelineLedgerPanel`, D-120) and an **orchestrator
   multi-pipeline view** — runs grouped by owning orchestrator via `pipeline_runs.owner_profile_id`.
 - **Schedules** — cron-triggered skills AND **pipeline schedules** in one list. **Routines were made
@@ -594,13 +595,51 @@ motion/capability-guarded. All new tokens live in `index.css` `:root` under the 
   wash on `border-box` — and an `inset 0 1px 0 var(--lg-edge)` box-shadow highlight. This supersedes
   the old `--glass-sheen` highlight everywhere; **`--glass-sheen` is now vestigial** (still defined in
   `:root`, referenced by no active rule).
-- **Pointer sheen (W0.6, opt-in `.glass-interactive`).** `lib/use-glass-pointer.ts` mounts **one**
-  window-level, rAF-throttled `pointermove` listener in `Shell` that writes `--lg-mx`/`--lg-my`
-  (viewport px) onto `<html>`; `.glass-interactive::before` paints a 10%-alpha `--lg-sheen` radial
-  highlight at those coords via `background-attachment: fixed`, so one variable pair serves every
-  card. Disabled under `prefersReducedMotion()` and `pointer: coarse` (touch) — the hook no-ops and
-  the sheen never appears. (The `ui-demo` mirror carries a static `.glass-interactive` sheen only —
-  the offline demo has no pointer hook; see §11.)
+- **Pointer sheen (W0.6, opt-in `.glass-interactive`).** *Superseded by D-121 (Phase 2.6) — see below.*
+  Originally: `lib/use-glass-pointer.ts` mounted **one** window-level, rAF-throttled `pointermove`
+  listener in `Shell` writing `--lg-mx`/`--lg-my` (viewport px) onto `<html>`, and
+  `.glass-interactive::before` painted a 10%-alpha `--lg-sheen` radial highlight at those coords via
+  `background-attachment: fixed`. Phase 2.6 replaced the cursor-tracking effect with a static hover
+  (below); the hook + `--lg-mx`/`--lg-my` are gone, and `--lg-sheen` is retained (reused by the
+  static gradient).
+
+### Usability & Access (Phase 2.6) — page backgrounds · static hover · React Flow canvas · Access console (D-121)
+
+- **Page background system (`shell/Background.tsx`).** The single always-on `<Ambient/>` is replaced by
+  one route-agnostic `<Background variant>` mounted at Shell **z-0**, so every glass surface refracts a
+  real backdrop. Four variants, chosen by an app-wide operator preference (`app_config` key
+  `ui.background`, default **`galaxy`**, served by `GET/PUT /api/settings/background`, Zod-enum-guarded):
+  `galaxy` = a lightweight `<canvas>` starfield (`lib/starfield.ts`, rAF drift + twinkle) that draws a
+  **single static frame under `prefers-reduced-motion`** and never starts the loop; `aurora` = a static
+  `.lg-aurora` gradient wash on the LG2 blob tokens; `blobs` = the retained `<Ambient/>` (LoginScreen
+  still renders it pre-auth); `solid` = the bare `--bg-deep` layer. All four expose one uniform
+  `data-testid="app-background"` + `data-variant` contract and are `aria-hidden` (decorative); rAF +
+  `ResizeObserver` are torn down on unmount and on variant change. A **Settings → Appearance** picker
+  writes the preference and invalidates the `['background']` query.
+- **Static glass hover (replaces W0.6 pointer sheen).** `.glass-interactive::before` now paints a
+  static `linear-gradient(135deg, var(--lg-sheen), transparent 60%)` that fades in on `:hover` (plus a
+  `filter: brightness(1.04)` lift) — no cursor tracking, no window listener. `--lg-sheen` is retained;
+  `--lg-mx`/`--lg-my` and `lib/use-glass-pointer.ts` are removed.
+- **Home chat glass.** The Home → Chat rail + transcript move `surface-solid` → `glass-panel`
+  (`data-testid` `chat-thread-rail` / `chat-transcript`); the composer input container stays solid (the
+  no-nested-`backdrop-filter` rule). This brings the Chat view to **5** blurred regions (3 chrome bars +
+  rail + transcript) — within the ≤6 budget (distinct from Home → Overview's accepted 8-region
+  exception above).
+- **Pipeline graph → React Flow (`components/PipelineGraph.tsx`).** The hand-laid columnar SVG DAG is
+  rewritten on `@xyflow/react` v12 + `@dagrejs/dagre` (a pure sync `layoutPipeline` in
+  `lib/pipeline-layout.ts`, `rankdir:'LR'`) as an **interactive read-only viewer**: pan / zoom / minimap
+  / controls and ephemeral drag-to-reposition (NOT persisted — the definition stays canonical). It
+  consumes the same `PipelineRunView` and live `['pipeline-run', runId]` cache (no new WS plumbing), so
+  status still updates live; custom `PipelineStageNode`s are keyboard-activable (`role=button`,
+  Enter/Space → select), and pass-edge marching-ants animation is frozen under `prefers-reduced-motion`.
+- **Unified Access console (`pages/AccessPage.tsx`, the 4th Agents-hub tab).** A who-has-what matrix —
+  orchestrator leads + operator sub-agent workers × model / tools / skills / MCP — with expandable
+  inline editing (the editable default-model `<Select>` + catalog-backed `CapabilityPicker`s, patched
+  through the same validated `api.orchestrators.update` / `api.subAgents.update` endpoints; K-native
+  workers render read-only) and a prominent **Auto-index** (capability rescan) button. Sub-agent workers
+  now also have a real **default-model Select** on their editor and are **ceiling-validated** at the
+  orchestrator tier on create/update (D-121 — the server, not the console, is the authorization
+  boundary). Available models are the unified Claude ∪ installed-Ollama list (`GET /api/models/available`).
 
 **Shadow ramp:** `--shadow-1` `0 2px 8px rgba(10,4,24,.35)` · `--shadow-2` `0 6px 24px
 rgba(10,4,24,.45)` · `--shadow-3` `0 16px 48px rgba(10,4,24,.60)` — chrome/panel/overlay use
