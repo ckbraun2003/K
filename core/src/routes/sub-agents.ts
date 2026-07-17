@@ -161,31 +161,43 @@ export async function subAgentsRoutes(app: FastifyInstance) {
       if (!avail.has(p.model)) return sendError(reply, 400, 'unknown model')
     }
 
-    // D-121: fetch the CURRENT worker and merge the patch's grant arrays over it
-    // FIRST, then validate the MERGED result — never just the patch's own delta.
-    // A patch that leaves allowedTools/mcpServers/skills untouched must be judged
-    // against the worker's existing (already-valid) arrays, not an empty one; a
-    // patch that DOES touch a field is judged against the full merged set. This
-    // runs before the mutating updateSubAgent call so a rejected patch never
-    // reaches the registry (K-native 403 / not-found 404 still classified below —
-    // a K-native id IS found here, so its already-in-ceiling grants pass this
-    // check and the read-only rejection surfaces from updateSubAgent as today).
+    // D-121: the orchestrator-tier ceiling gate applies only to EDITABLE operator
+    // workers — the plan keeps "K-native workers (403) unaffected" by it. A
+    // K-native worker is read-only, so validating its grants would return a
+    // misleading 400 ("exceeds ceiling") for an over-ceiling payload instead of
+    // the canonical 403 "read-only"; skip the check for K-native ids and let
+    // updateSubAgent surface the 403 (mapSubAgentError). For an operator worker,
+    // fetch the CURRENT row and merge the patch's grant arrays over it FIRST, then
+    // validate the MERGED result — never just the patch's own delta. A patch that
+    // leaves allowedTools/mcpServers/skills untouched is judged against the
+    // worker's existing (already-valid) arrays; a patch that DOES touch a field is
+    // judged against the full merged set (a two-step smuggle can't slip an
+    // over-ceiling grant past a field the patch never names).
     const current = listSubAgents().find(a => a.id === req.params.id)
     if (!current) return sendError(reply, 404, 'not found')
-    const mergedGrants = {
-      allowedTools: p.allowedTools ?? current.allowedTools,
-      mcpServers: p.mcpServers ?? current.mcpServers,
-      skills: p.skills ?? current.skills,
-    }
-    try {
-      assertEffectiveGrants(WORKER_CEILING_TIER, mergedGrants)
-    } catch (e) {
-      if (e instanceof GrantError) return sendError(reply, 400, e.message)
-      throw e
+
+    let writePatch: typeof p = p
+    if (current.source !== 'k') {
+      const mergedGrants = {
+        allowedTools: p.allowedTools ?? current.allowedTools,
+        mcpServers: p.mcpServers ?? current.mcpServers,
+        skills: p.skills ?? current.skills,
+      }
+      try {
+        assertEffectiveGrants(WORKER_CEILING_TIER, mergedGrants)
+      } catch (e) {
+        if (e instanceof GrantError) return sendError(reply, 400, e.message)
+        throw e
+      }
+      // Persist EXACTLY the validated arrays rather than relying on updateSubAgent
+      // to independently re-derive a byte-identical merge (D-121 defense in depth:
+      // the written grants are the ones the ceiling check just approved).
+      writePatch = { ...p, ...mergedGrants }
     }
 
+    // A K-native id reaches updateSubAgent, which throws "read-only" → 403.
     try {
-      return reply.send(updateSubAgent(req.params.id, p))
+      return reply.send(updateSubAgent(req.params.id, writePatch))
     } catch (e) {
       return mapSubAgentError(reply, req, e)
     }

@@ -123,4 +123,13 @@ describe('PATCH /api/sub-agents/:id — ceiling validation (D-121, merge-then-va
     })
     expect(res.statusCode).toBe(403)
   })
+
+  it('403s on a K-native id even with an ABOVE-ceiling payload — read-only wins over the ceiling 400 (plan: K-native unaffected by D-121)', async () => {
+    const res = await app.inject({
+      method: 'PATCH', url: '/api/sub-agents/k:implementer', headers: AUTH,
+      payload: { allowedTools: ['mcp__nonexistent'] },
+    })
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error).toMatch(/read-only/)
+  })
 })
