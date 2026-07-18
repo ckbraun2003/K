@@ -62,6 +62,11 @@ export interface StartAgentRunOptions {
    *  stable agentSessionPaths base) to generalize the same mechanics to any profile;
    *  absent → the K-secretary path in startRun, byte-identical. */
   persistentSession?: { key: string; sessionId: string; resume: boolean; homeDir?: string }
+  /** Continuous Agents A.2 (D-122): per-run awaiting_input idle override, threaded
+   *  verbatim to startRun (agent-sessions.ts passes SESSION_IDLE_MS so session idle
+   *  demotion is tunable independently of the HITL default). Absent → the
+   *  supervisor's INTERACTIVE_IDLE_MS, byte-identical. */
+  idleMs?: number
   /** H8 (opt-in): start the run's worktree from the source repo's uncommitted
    *  tracked+staged changes instead of clean HEAD. Threaded verbatim to startRun;
    *  default false/absent → byte-identical clean-HEAD behavior. */
@@ -153,6 +158,7 @@ export async function startAgentRun(
       cwd: opts.cwd,
       profile,
       interactive: opts.interactive,
+      idleMs: opts.idleMs,
       persistentSession: opts.persistentSession,
       carryWorkingTree: opts.carryWorkingTree,
       baseCommit: opts.baseCommit,

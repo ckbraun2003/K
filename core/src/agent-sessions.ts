@@ -1,12 +1,13 @@
 /**
  * Agent sessions — the FROZEN session-engine interface + the Lane A HYBRID
- * RUNTIME (Continuous Agents A.1, D-122).
+ * RUNTIME (Continuous Agents A.1 + A.2, D-122).
  *
  * THE CONTRACT IS FROZEN: Lanes A/B/C build against these exact exported
  * signatures (getOrCreateConversation / ensureSession / sendToSession /
  * demoteSession / liveSessionCount / MAX_LIVE_SESSIONS and the MessageFrom /
  * SendResult shapes). A.1 replaced the W0 interim adapter's INTERNALS with the
- * hybrid live/stdin runtime; the signatures did not change.
+ * hybrid live/stdin runtime; A.2 added the demotion lifecycle + per-session
+ * send serialization; the signatures did not change.
  *
  * THE HYBRID RUNTIME (A.1): each conversation is a k_threads row (the durable
  * source of truth); each (profile, thread) pair has ONE agent_sessions row whose
@@ -29,13 +30,34 @@
  *  - INIT (r.cliSessionId observed) → persist cli_session_id NOW, not only on
  *    'done' — a mid-turn death after INIT no longer loses the CLI session.
  *  - awaiting_input → state 'live', context_tokens refresh, drain pending.
- *  - terminal → detach + state rules: 'done' → 'resumable' (with the
- *    belt-and-suspenders establish stamp below); non-done WITH INIT observed →
- *    'resumable' (a real CLI session exists — its id was persisted at INIT, so a
- *    mid-turn death keeps its context); non-done establish WITHOUT INIT →
- *    'stale' (id stays NULL — nothing ever came up); non-done resume WITHOUT
- *    INIT → 'resumable' (A.1 retry posture). A.2 upgrades these to the full rule
- *    set (resume-rejected → 'stale' + id clear, undo taint, forcedState).
+ *  - terminal → detach + the FULL A.2 state rules, in precedence order:
+ *    (1) undo taint (undoneRuns — A.4's undoSessionRun already forced 'stale' +
+ *    cleared the id; the finalize must not resurrect either); (2) forcedState
+ *    (demoteSession('error')) → 'stale'; (3) 'done' → 'resumable' (with the
+ *    belt-and-suspenders establish stamp below); (4) non-done RESUME without
+ *    INIT → resume-rejected: the recorded CLI session is dead — cli_session_id
+ *    CLEARED + 'stale' so the next send reseeds (replaces A.1's retry-forever
+ *    posture); (5) non-done WITH INIT observed → 'resumable' (a real CLI session
+ *    exists — its id was persisted at INIT, so a mid-turn death keeps its
+ *    context); (6) non-done establish WITHOUT INIT → 'stale' (id stays NULL —
+ *    nothing ever came up). Bodies still pending at a NON-KILLED terminal are
+ *    re-dispatched in a fresh spawn (never silently eat a message — the A.1
+ *    pending strand is closed); a KILLED run's pending bodies are dropped, but
+ *    their durable turns survive for the next manual send's seed replay — an
+ *    operator kill is final.
+ *
+ * THE DEMOTION LIFECYCLE (A.2): a session leaves 'live' four ways —
+ *  - 'idle': the supervisor's per-run idle timer (idleMs = SESSION_IDLE_MS,
+ *    threaded through the spawn) fires endSession itself; demoteSession('idle')
+ *    is the explicit-caller twin (same graceful close).
+ *  - 'boot': sweepLiveSessionsOnBoot (index.ts) reconciles rows a dead process
+ *    stranded 'live' — attachments are in-process, so after a crash nothing
+ *    real backs them.
+ *  - 'lru': spawning past maxLive() demotes the least-recently-updated live
+ *    session first (demoteLruBeyondCap at the top of spawnSessionRun).
+ *  - 'error': forcedState taint — 'stale' immediately AND at the terminal.
+ * Graceful demotes flip the row 'resumable' IMMEDIATELY (the UI must not show
+ * 'live' while the CLI winds down); the run's later 'done' terminal confirms.
  * NB: on 'done' with NO INIT observed (the mocked-supervisor test path — a real
  * establish always INITs), an establishing attachment still stamps its own
  * sessionId — the D-062 persist-on-success posture kept as a backstop; the INIT
@@ -45,14 +67,16 @@
  * handles awaiting_input boundaries repeatedly, so each parked turn's assistant
  * text folds onto the durable thread as it lands.
  *
- * CONCURRENT-SEND POSTURE (A.1, documented): two sends racing BEFORE the first
- * attachment registers can still double-establish (the W0 exposure, inherited
- * from askK) — both spawn, the second attachment replaces the first in the map,
- * and the two runs briefly coexist until their terminals. Teardown is
- * IDENTITY-GUARDED (finalize only deletes the map entry it owns), so the
- * loser's terminal can never evict the surviving attachment. A.2's per-session
- * send lock closes the entry race itself. Once an attachment exists, concurrent
- * sends converge on the one live run by construction.
+ * CONCURRENT-SEND POSTURE (A.2, real): every delivery runs under a PER-SESSION
+ * send lock (withSessionSendLock — a promise chain per session id), so two
+ * sends racing before the first attachment registers now SERIALIZE: the first
+ * spawns, the second observes the attachment and rides stdin into the same run
+ * — the W0/A.1 double-establish exposure is closed. The lock covers the attach
+ * decision + dispatch (fast), never a whole turn. Teardown stays
+ * IDENTITY-GUARDED (finalize only deletes the map entry it owns) as
+ * defense-in-depth: the terminal re-dispatch spawns a successor attachment
+ * asynchronously, and the guard makes any finalize/attach interleaving safe by
+ * construction rather than by lock-ordering argument.
  *
  * SDK-free like k-thread.ts: no transport import, unit-testable directly against
  * the DB + EventBus (supervisor.sendInput is the one process-touching import,
@@ -63,7 +87,7 @@ import type { KThread, AgentSession, AgentRunTrigger } from '@k/shared'
 import { db, kThreadsDb, agentSessionsDb, runsDb } from './db.js'
 import { startAgentRun } from './agent-runs.js'
 import { agentSessionPaths, assertSafeSegment } from './agent-config.js'
-import { sendInput } from './supervisor.js'
+import { sendInput, endSession } from './supervisor.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
 import { eventBus } from './events.js'
 import {
@@ -100,9 +124,28 @@ export function parseMaxLiveSessions(raw: string | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 3
 }
 
-/** How many sessions may hold a live process at once (A.2's LRU bound enforces
- *  it; frozen here so all lanes read ONE knob). */
+/** How many sessions may hold a live process at once (demoteLruBeyondCap
+ *  enforces it at spawn time; frozen here so all lanes read ONE knob). */
 export const MAX_LIVE_SESSIONS: number = parseMaxLiveSessions(process.env.K_MAX_LIVE_SESSIONS)
+
+/** Parse K_SESSION_IDLE_MS: a positive integer of milliseconds, else the default
+ *  10 minutes. Pure + exported (the parseMaxLiveSessions pattern) so the env
+ *  guard is unit-lockable without re-importing the module. */
+export function parseSessionIdleMs(raw: string | undefined): number {
+  const n = Math.floor(Number(raw))
+  return Number.isFinite(n) && n > 0 ? n : 10 * 60_000
+}
+
+/** How long a live session may sit parked at awaiting_input before the
+ *  supervisor gracefully ends it (threaded to the spawn as the per-run `idleMs`
+ *  override, so the session knob is independent of INTERACTIVE_IDLE_MS). */
+export const SESSION_IDLE_MS: number = parseSessionIdleMs(process.env.K_SESSION_IDLE_MS)
+
+/** Test-only override for the live cap (K_MAX_LIVE_SESSIONS is baked into the
+ *  frozen MAX_LIVE_SESSIONS const at import time, so tests need a runtime seam).
+ *  null → the frozen export. Set via __sessionTestHooks.setMaxLive. */
+let maxLiveOverride: number | null = null
+const maxLive = (): number => maxLiveOverride ?? MAX_LIVE_SESSIONS
 
 /** How many recent turns fold into an establishing seed (mirrors k-thread.ts's
  *  SEED_TURN_WINDOW so a reseed stays equally bounded). */
@@ -213,29 +256,41 @@ export function ensureSession(profileId: string, threadId: string): AgentSession
 
 // ── live attachments (the hybrid runtime's module state) ─────────────────────
 
+/** A queued mid-turn body + its durable turn id, kept together so a terminal
+ *  re-dispatch can RE-POINT the turn at the successor run that actually answers
+ *  it (and exclude it from the reseed window by id, not position). */
+type PendingBody = { body: string; turnId: string }
+
 /** A live run attached to a session: the in-process record binding the session
  *  to ITS interactive run, torn down at the run's terminal. */
 type Attachment = {
   runId: string
   /** Durably-recorded bodies awaiting the next turn boundary (mid-turn sends). */
-  pending: string[]
+  pending: PendingBody[]
   /** The run emitted its stream-json INIT line (cli_session_id observed). */
   initSeen: boolean
   /** This attachment was spawned with `--resume`. */
   resume: boolean
   /** The CLI session id the spawn established/resumed. */
   cliSessionId: string
-  /** demoteSession('error') override for the terminal finalize (A.2). */
+  /** demoteSession('error') override: the terminal finalize lands here instead
+   *  of the status-derived state (the taint outlives the graceful endSession). */
   forcedState?: 'stale'
   unsub: () => void
 }
 
 /** sessionId → live run attachment. In-process only: a session another process
  *  (or a previous boot) spawned is simply not attached here — sends to it take
- *  the cold spawn path (A.2's boot sweep reconciles the stranded 'live' rows). */
+ *  the cold spawn path (sweepLiveSessionsOnBoot reconciles the stranded 'live'
+ *  rows a dead process left behind). */
 const attachments = new Map<string, Attachment>()
 /** runId → sessionId reverse lookup (undo taint without a DB roundtrip — A.4). */
 const runToSession = new Map<string, string>()
+/** Undo taint: run ids undoSessionRun (A.4) scrubbed while live. The terminal
+ *  finalize consumes the marker and does NOTHING — undo already forced 'stale' +
+ *  cleared cli_session_id, and a later terminal must not resurrect 'resumable'.
+ *  Declared in A.2 (the finalize rule ships now); populated by A.4. */
+const undoneRuns = new Set<string>()
 
 // Local statements (the frozen-db-bundle precedent — see insertProfileConversation).
 const setSessionContextTokens = db.prepare(
@@ -259,26 +314,53 @@ function updateSessionContextTokens(sessionId: string, runId: string): void {
  * Render the establishing seed for a fresh/reset session: the last
  * {@link SESSION_SEED_TURN_WINDOW} durable turns as NEUTRAL `You:` / `Agent:`
  * lines, then one `You: <body>` line per current body. The caller persists the
- * current user turn(s) BEFORE this runs, so the trailing `bodies.length` turns
- * are sliced OFF the history window and appear exactly once as the trailing
- * lines — the k-thread.ts::renderSeed shape, minus K_SEED_INSTRUCTION: that
- * instruction is K-routing-specific (secretary store/route steering) and must
- * not leak into an arbitrary profile's seed. Takes a body ARRAY because A.2's
- * pending re-dispatch reseeds a batch of queued bodies in one spawn.
+ * current user turn(s) BEFORE this runs; those turns are excluded from the
+ * history window BY ID — not by trailing position, because on the terminal
+ * re-dispatch path a captured assistant fragment can land AFTER the queued
+ * bodies, and positional math would drop it and double the body instead
+ * (spec-review S2). The k-thread.ts::renderSeed shape, minus
+ * K_SEED_INSTRUCTION: that instruction is K-routing-specific (secretary
+ * store/route steering) and must not leak into an arbitrary profile's seed.
+ * Takes a body ARRAY because A.2's pending re-dispatch reseeds a batch of
+ * queued bodies in one spawn.
  */
-function renderSessionSeed(threadId: string, bodies: string[]): string {
-  const turns = listKThreadTurns(threadId)
-  const recent = turns.slice(-(SESSION_SEED_TURN_WINDOW + bodies.length), turns.length - bodies.length)
+function renderSessionSeed(threadId: string, bodies: string[], excludeTurnIds: string[]): string {
+  const exclude = new Set(excludeTurnIds)
+  const turns = listKThreadTurns(threadId).filter(t => !exclude.has(t.id))
+  const recent = turns.slice(-SESSION_SEED_TURN_WINDOW)
   const lines = recent.map(t => `${t.role === 'user' ? 'You' : 'Agent'}: ${t.text}`)
   for (const b of bodies) lines.push(`You: ${b}`)
   return lines.join('\n')
 }
 
+// ── per-session send serialization (A.2) ─────────────────────────────────────
+
+/** sessionId → the tail of its send chain. Entries are never removed: the map
+ *  is bounded by the number of sessions this process ever touched (small), and
+ *  removal would race a concurrent enqueue reading a just-deleted tail. */
+const sendChains = new Map<string, Promise<unknown>>()
+
+/**
+ * Serialize `fn` behind every prior send for the session. The chain advances on
+ * settle-either-way (`then(fn, fn)`): one failed dispatch must not wedge the
+ * session forever. The RETURNED promise is the un-swallowed `fn` result so the
+ * caller still observes its own rejection; the STORED tail swallows both arms —
+ * it exists only for ordering, and an unhandled-rejection warning on the shared
+ * tail would fire once per queued successor.
+ */
+function withSessionSendLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = sendChains.get(sessionId) ?? Promise.resolve()
+  const next = prev.then(fn, fn)
+  sendChains.set(sessionId, next.then(() => undefined, () => undefined))
+  return next
+}
+
 /**
  * Send one message into a session — the hybrid live path (see the module
- * header for the full delivery contract). Validates the id, then delivers.
- * A.2 wraps the delivery in the per-session send lock; in A.1 the call is
- * direct (the W0 double-establish exposure stands until then, documented).
+ * header for the full delivery contract). Validates the id EAGERLY (an unknown
+ * id must throw now, not after unrelated queued sends settle), then delivers
+ * under the per-session send lock; deliverToSession re-reads the row so the
+ * locked delivery always acts on a fresh view.
  */
 export async function sendToSession(
   sessionId: string,
@@ -286,7 +368,7 @@ export async function sendToSession(
   opts?: { from?: MessageFrom; model?: string },
 ): Promise<SendResult> {
   if (!agentSessionsDb.get.get(sessionId)) throw new AgentSessionNotFoundError(sessionId)
-  return deliverToSession(sessionId, body, opts ?? {})
+  return withSessionSendLock(sessionId, () => deliverToSession(sessionId, body, opts ?? {}))
 }
 
 /**
@@ -316,7 +398,7 @@ async function deliverToSession(
     // parked-turn delivery (sendInput true) or as a queued body drained at the
     // next awaiting_input boundary (sendInput false: the run is mid-turn).
     kThreadsDb.patchTurnRunId.run(att.runId, turn.id)
-    if (!sendInput(att.runId, body)) att.pending.push(body)
+    if (!sendInput(att.runId, body)) att.pending.push({ body, turnId: turn.id })
     agentSessionsDb.touch(sessionId, Date.now())
     return { mode: 'stdin', runId: att.runId }
   }
@@ -341,15 +423,22 @@ async function spawnSessionRun(
   bodies: string[],
   opts: { from: MessageFrom; model?: string; turnIds: string[] },
 ): Promise<string> {
+  // LRU cap FIRST: free a live slot synchronously before this spawn can park
+  // into one (the demote is an endSession + immediate state flip, so the cap
+  // holds even though the demoted run's terminal lands later).
+  demoteLruBeyondCap()
   const resume = session.cliSessionId != null
   const cliSessionId = session.cliSessionId ?? randomUUID()
-  const seed = resume ? bodies.join('\n\n') : renderSessionSeed(session.threadId, bodies)
+  const seed = resume ? bodies.join('\n\n') : renderSessionSeed(session.threadId, bodies, opts.turnIds)
   const trigger: AgentRunTrigger = opts.from.kind === 'profile' ? 'delegation' : 'user-message'
   const { runId } = await startAgentRun(session.profileId, {
     trigger,
     thread: seed,
     model: opts.model,
     interactive: true, // the D-014 park machinery IS the live path
+    // A.2: the session idle knob rides the per-run override — a parked session
+    // run demotes on SESSION_IDLE_MS, not the HITL INTERACTIVE_IDLE_MS.
+    idleMs: SESSION_IDLE_MS,
     // A.3: sessionId stamp — startAgentRun does not accept a `sessionId` opt yet;
     // A.3 adds it (threaded to startRun → runs.session_id) alongside runs.kind.
     persistentSession: { key: session.threadId, sessionId: cliSessionId, resume, homeDir: session.homeDir },
@@ -424,73 +513,176 @@ function attachSessionRun(
 
 /** Drain queued mid-turn bodies into the (now parked) run as ONE combined turn.
  *  A refused drain (the park was consumed concurrently) re-queues for the next
- *  boundary — a body is never dropped WHILE THE ATTACHMENT LIVES. Bodies still
- *  queued when the run reaches terminal are stranded in A.1 (documented at
- *  finalizeSessionTerminal; A.2's terminal re-dispatch closes it). */
+ *  boundary — a body is never dropped while the attachment lives, and bodies
+ *  still queued at the run's terminal are RE-DISPATCHED in a fresh spawn by
+ *  finalizeSessionTerminal (operator kills excepted) — the A.1 pending strand
+ *  is closed. */
 function drainPending(att: Attachment): void {
   if (att.pending.length === 0) return
-  const combined = att.pending.splice(0).join('\n\n')
-  if (!sendInput(att.runId, combined)) att.pending.push(combined)
+  const entries = att.pending.splice(0)
+  if (!sendInput(att.runId, entries.map(e => e.body).join('\n\n'))) att.pending.push(...entries)
 }
 
 /**
- * Terminal state rules — the A.1 subset (A.2 replaces this with the full set:
- * resume-rejected → 'stale' + id clear, undo taint, forcedState):
- *  - 'done' → 'resumable'; an ESTABLISH that never INITed additionally stamps
- *    its own sessionId (belt-and-suspenders D-062 — the INIT stamp is primary,
- *    and a resume never overwrites the id it resumed).
- *  - non-done WITH INIT observed → 'resumable': a REAL CLI session exists — its
- *    id was persisted at the INIT event, so a mid-turn death (error/kill) keeps
- *    the context and the next send resumes it. Covers establish AND resume —
- *    exactly the continuity the INIT-time persist exists for.
- *  - non-done ESTABLISH without INIT → 'stale' (cli_session_id still NULL): no
- *    CLI session ever came up — the next send reseeds cleanly.
- *  - non-done RESUME without INIT → 'resumable' in A.1 (W0 parity: the resume
- *    retries); A.2's resume-rejected rule turns EXACTLY this case into 'stale'
- *    + id clear.
- * context_tokens refreshes on every terminal (the run's last observed size).
- * PENDING STRAND (A.1, documented): bodies still queued at terminal are NOT
- * re-sent — their durable turns survive and fold into a later ESTABLISH's seed
- * replay, but a RESUME will not carry them. A.2's terminal re-dispatch closes
- * this.
+ * Terminal state rules — the FULL A.2 set, in precedence order (module header):
+ *  1. undo taint (undoneRuns, populated by A.4's undoSessionRun): consume the
+ *     marker and write NOTHING — undo already forced 'stale' + cleared the id,
+ *     and the run's turns are gone, so any state write here would resurrect a
+ *     conversation the operator scrubbed.
+ *  2. forcedState (demoteSession('error')): land there, skipping the establish
+ *     stamp with it — an errored session must not record a session id 'done'
+ *     would otherwise stamp.
+ *  3. 'done' → 'resumable'; an ESTABLISH that never INITed additionally stamps
+ *     its own sessionId (belt-and-suspenders D-062 — the INIT stamp is primary,
+ *     and a resume never overwrites the id it resumed).
+ *  4. non-done RESUME without INIT → resume-rejected: the recorded CLI session
+ *     is dead (the CLI never came up on `--resume`), so retrying it forever —
+ *     A.1's posture — could never recover. Clear cli_session_id + 'stale': the
+ *     next send re-establishes from the durable transcript (W0 checklist item).
+ *  5. non-done WITH INIT observed → 'resumable': a REAL CLI session exists —
+ *     its id was persisted at the INIT event, so a mid-turn death (error/kill)
+ *     keeps the context and the next send resumes it.
+ *  6. non-done ESTABLISH without INIT → 'stale' (cli_session_id still NULL):
+ *     no CLI session ever came up — the next send reseeds cleanly.
+ * context_tokens refreshes on every non-tainted terminal (last observed size).
+ *
+ * PENDING RE-DISPATCH (closes the A.1 documented strand): bodies still queued
+ * at the terminal are re-delivered in ONE deliver-shaped lock job — their
+ * durable turns already exist (deliverToSession appends before queueing) and
+ * their ids ride along, so whichever run ends up answering (a fresh spawn, or a
+ * successor attachment a racing send cold-spawned first) gets the turns
+ * RE-POINTED to it and the establish seed excludes them by id. Exceptions:
+ * status 'killed' (an operator kill is final — the turns survive for the next
+ * MANUAL send's seed) and the taint/forced arms above (undo scrubbed the turns;
+ * 'error' demotion is a deliberate teardown). A failure is LOGGED, never
+ * swallowed silently — the message is durably on the thread either way.
  */
 function finalizeSessionTerminal(sessionId: string, att: Attachment, status: string): void {
   const now = Date.now()
+  if (undoneRuns.delete(att.runId)) return
+  if (att.forcedState) {
+    agentSessionsDb.setState.run(att.forcedState, now, sessionId)
+    return
+  }
   updateSessionContextTokens(sessionId, att.runId)
   if (status === 'done') {
     if (!att.initSeen && !att.resume) {
       agentSessionsDb.setCliSessionId.run(att.cliSessionId, now, sessionId)
     }
     agentSessionsDb.setState.run('resumable', now, sessionId)
-    agentSessionsDb.touch(sessionId, now)
+  } else if (att.resume && !att.initSeen) {
+    // Resume-rejected (rule 4): reseed on the next send.
+    agentSessionsDb.setCliSessionId.run(null, now, sessionId)
+    agentSessionsDb.setState.run('stale', now, sessionId)
   } else if (att.initSeen) {
     agentSessionsDb.setState.run('resumable', now, sessionId)
-  } else if (!att.resume) {
-    agentSessionsDb.setState.run('stale', now, sessionId)
   } else {
-    agentSessionsDb.setState.run('resumable', now, sessionId)
+    agentSessionsDb.setState.run('stale', now, sessionId)
+  }
+  agentSessionsDb.touch(sessionId, now)
+  if (att.pending.length > 0 && status !== 'killed') {
+    const entries = att.pending.splice(0)
+    // Deliver-shaped re-dispatch (quality m2 / spec S1): the row AND the
+    // attachment map are re-read INSIDE the locked job — so it sees the decided
+    // establish/resume posture (e.g. a cleared id after resume-rejected), and a
+    // user send that won the lock first and cold-spawned a successor is RIDDEN
+    // via stdin/pending instead of double-spawned over. Recovered turns are
+    // re-pointed at whichever run actually answers them (quality m1).
+    void withSessionSendLock(sessionId, async () => {
+      const row = agentSessionsDb.get.get(sessionId) as Row | undefined
+      if (!row) return
+      const successor = attachments.get(sessionId)
+      if (successor) {
+        for (const e of entries) kThreadsDb.patchTurnRunId.run(successor.runId, e.turnId)
+        if (!sendInput(successor.runId, entries.map(e => e.body).join('\n\n'))) {
+          successor.pending.push(...entries)
+        }
+        return
+      }
+      await spawnSessionRun(rowToAgentSession(row), entries.map(e => e.body), {
+        from: { kind: 'user' },
+        turnIds: entries.map(e => e.turnId),
+      })
+    }).catch(e => console.warn('[agent-sessions] pending re-dispatch failed:', e))
   }
 }
 
 // ── demotion + counters ───────────────────────────────────────────────────────
 
 /**
- * Demote a session — still the W0-pure state transition in A.1 (A.2 adds the
- * real live-process demotion: graceful stdin close, boot sweep, LRU eviction).
- * 'error' → 'stale' from any state; 'idle'/'boot'/'lru' → 'resumable' only when
- * currently 'live' (a no-op otherwise). Writes go through the agentSessionsDb
- * helpers so updated_at always advances. An unknown id is a silent no-op:
- * demotion is idempotent housekeeping called from sweeps/timers.
+ * Demote a session — the REAL A.2 lifecycle work (frozen signature).
+ *  - 'error': taint the live attachment (forcedState — the terminal finalize
+ *    must confirm 'stale', or a clean 'done' would resurrect 'resumable'),
+ *    gracefully end its run, clear cli_session_id (stale = reseed; resume keys
+ *    solely off the id), and mark 'stale' NOW — from any state, attached or
+ *    not (the W0 posture: 'error' is always an honest downgrade).
+ *  - 'idle'/'boot'/'lru': graceful demote — endSession the attached run (stdin
+ *    close → the run finishes its turn and lands 'done'; the finalize confirms)
+ *    and flip 'resumable' IMMEDIATELY, so the row never shows 'live' while the
+ *    CLI winds down and an LRU caller can count the freed slot synchronously.
+ *    A session neither 'live' nor attached is a no-op (W0 parity — demotion is
+ *    idempotent housekeeping called from sweeps/timers).
+ * An unknown id is a silent no-op. Writes go through the agentSessionsDb
+ * helpers so updated_at always advances.
  */
 export function demoteSession(sessionId: string, reason: 'idle' | 'boot' | 'lru' | 'error'): void {
   const row = agentSessionsDb.get.get(sessionId) as Row | undefined
   if (!row) return
   const now = Date.now()
+  const att = attachments.get(sessionId)
   if (reason === 'error') {
+    if (att) {
+      att.forcedState = 'stale'
+      endSession(att.runId)
+    }
+    // 'stale' must MEAN reseed: spawnSessionRun keys resume solely off
+    // cli_session_id, so a retained id would silently resume the errored CLI
+    // session on the next send (quality m3, deviation-flagged).
+    agentSessionsDb.setCliSessionId.run(null, now, sessionId)
     agentSessionsDb.setState.run('stale', now, sessionId)
     return
   }
-  if (String(row.state) === 'live') agentSessionsDb.setState.run('resumable', now, sessionId)
+  if (String(row.state) !== 'live' && !att) return
+  if (att) endSession(att.runId) // graceful stdin close → 'done' → finalize confirms
+  agentSessionsDb.setState.run('resumable', now, sessionId)
+}
+
+/**
+ * Enforce the live cap BEFORE a spawn takes a slot: demote live sessions from
+ * the least-recently-updated end until (live + the incoming one) fits under
+ * maxLive(). listByState('live') is updated_at DESC — the tail is the LRU end.
+ * The demote flips state synchronously, so one pass suffices; over-cap states
+ * (a lowered env knob across boots) shed the whole excess, not just one row.
+ */
+function demoteLruBeyondCap(): void {
+  const live = agentSessionsDb.listByState.all('live') as Row[]
+  const excess = live.length - (maxLive() - 1)
+  if (excess <= 0) return
+  for (const row of live.slice(live.length - excess)) demoteSession(String(row.id), 'lru')
+}
+
+/**
+ * Boot reconcile: rows stranded 'live' by a dead process (attachments are
+ * in-process, so after a crash/restart nothing real backs a 'live' row — the
+ * CLI children died with the supervisor). Flip them 'resumable' in one UPDATE;
+ * their cli_session_id survives, so the next send resumes normally. Returns the
+ * count for the boot log. Takes the db handle for test injection only (the
+ * default is the process singleton).
+ */
+export function sweepLiveSessionsOnBoot(d: import('better-sqlite3').Database = db): number {
+  return d
+    .prepare(`UPDATE agent_sessions SET state = 'resumable', updated_at = ? WHERE state = 'live'`)
+    .run(Date.now()).changes
+}
+
+/** Test-only seams (the supervisor __testHooks precedent — keep usage confined
+ *  to core/test/*): the live-cap override (MAX_LIVE_SESSIONS is a frozen const
+ *  baked at import time) and attachment introspection without exporting the map. */
+export const __sessionTestHooks = {
+  /** Override maxLive() (null restores the frozen MAX_LIVE_SESSIONS). */
+  setMaxLive(n: number | null) { maxLiveOverride = n },
+  /** The run id currently attached to a session, if any. */
+  attachedRunId(sessionId: string): string | undefined { return attachments.get(sessionId)?.runId },
 }
 
 /** How many sessions currently hold state 'live'. A full-row list is fine at

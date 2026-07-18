@@ -325,7 +325,12 @@ describe('sendToSession — frozen contract (cold-path resumable sends)', () => 
     expect(ps.sessionId).not.toBe(sid1)
   })
 
-  it("a NON-done terminal on a RESUME send keeps the existing cli_session_id + state 'resumable'", async () => {
+  it("a NON-done terminal on a RESUME send without INIT is resume-rejected: cli_session_id CLEARED + state 'stale' (A.2)", async () => {
+    // A.2 replaced the W0/A.1 retry posture asserted here before: a resume that
+    // dies without ever emitting INIT proves the recorded CLI session is dead —
+    // retrying it forever could never recover, so the id is cleared and the
+    // next send re-establishes. (INIT-seen deaths keep 'resumable' — the live
+    // suite locks that continuity arm.)
     const { s } = setup()
     const r1 = await sendToSession(s.id, 'establish me')
     const sid = lastPersistentSession().sessionId
@@ -337,8 +342,14 @@ describe('sendToSession — frozen contract (cold-path resumable sends)', () => 
     eventBus.emitRunUpdate(terminal(r2.runId, 'killed'))
 
     const row = sessionRow(s.id)!
-    expect(row.cli_session_id).toBe(sid) // resume retries stay possible
-    expect(row.state).toBe('resumable')
+    expect(row.cli_session_id).toBeNull() // the dead CLI session is forgotten
+    expect(row.state).toBe('stale')
+
+    // The next send is a fresh ESTABLISH — new id, transcript reseed.
+    await sendToSession(s.id, 'start over')
+    const ps = lastPersistentSession()
+    expect(ps.resume).toBe(false)
+    expect(ps.sessionId).not.toBe(sid)
   })
 
   it("a COLD send (no live attachment) spawns — mode 'spawned' — and a model override threads through", async () => {
@@ -366,7 +377,9 @@ describe('sendToSession — frozen contract (cold-path resumable sends)', () => 
 
 // ── demoteSession ─────────────────────────────────────────────────────────────
 
-describe('demoteSession — interim pure state transitions', () => {
+// The attachment-backed demotion arms (endSession, forcedState, LRU) are owned
+// by agent-sessions-demote.test.ts; these lock the UNATTACHED state transitions.
+describe('demoteSession — unattached state transitions (W0 parity)', () => {
   function freshSession() {
     const t = getOrCreateConversation('chief')
     return ensureSession('chief', t.id)

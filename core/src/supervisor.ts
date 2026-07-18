@@ -144,6 +144,12 @@ export type StartRunOptions = {
   /** Keep stdin open for multi-turn HITL (claude only). Default false → today's
    *  one-shot fire-and-forget run. */
   interactive?: boolean
+  /** Continuous Agents A.2 (D-122): per-run override for the awaiting_input idle
+   *  timeout — how long an interactive run may sit parked before the supervisor
+   *  gracefully ends the session (agent-sessions passes SESSION_IDLE_MS so the
+   *  session knob is independent of the HITL knob). Absent → INTERACTIVE_IDLE_MS,
+   *  byte-identical for every existing caller. */
+  idleMs?: number
   /** The agent profile whose tier drives config synthesis (charter, allowlist, MCP,
    *  skills). Defaults to DEFAULT_PROFILE (orchestrator) so every existing caller is
    *  unchanged; startAgentRun passes the resolved profile so a run gets ITS tier's
@@ -335,7 +341,7 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   // stable run dir + session id/resume through. planGate scaffolds the spawn prompt to
   // demand a PlanDoc and arms the clean-exit park inside runAgent.
   const session = ps ? { runDir: kPaths!.runDir, sessionId: ps.sessionId, resume: ps.resume } : undefined
-  void runAgent(run, planGate ? buildPlanScaffold(prompt) : prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE, session, planGate, false, opts.subagent)
+  void runAgent(run, planGate ? buildPlanScaffold(prompt) : prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE, session, planGate, false, opts.subagent, opts.idleMs)
 
   return run
 }
@@ -765,6 +771,9 @@ async function runAgent(
   // Undefined for a plan RESUME (its persisted config dir already carries the original mount) and
   // every non-pipeline run.
   subagent?: SubAgentDef | null,
+  // Continuous Agents A.2: per-run awaiting_input idle override (StartRunOptions.idleMs).
+  // Undefined for every non-session caller → INTERACTIVE_IDLE_MS, byte-identical.
+  idleMs?: number,
 ) {
   emitStatusEvent(run.id, 'running', nextSeq(run.id), Date.now())
   eventBus.emitRunUpdate({ ...run, status: 'running' })
@@ -1005,7 +1014,7 @@ async function runAgent(
               emitStatusEvent(run.id, 'awaiting_input', nextSeq(run.id), Date.now())
               eventBus.emitRunUpdate({ ...run, status: 'awaiting_input', tokensIn, tokensOut, costUsd })
               clearIdleTimer(run.id)
-              idleTimers.set(run.id, setTimeout(() => { endSession(run.id) }, INTERACTIVE_IDLE_MS))
+              idleTimers.set(run.id, setTimeout(() => { endSession(run.id) }, idleMs ?? INTERACTIVE_IDLE_MS))
             }
           }
         })
@@ -1105,6 +1114,15 @@ function loadRun(runId: string): Run | null {
 export function sendInput(runId: string, text: string): boolean {
   const proc = activeProcesses.get(runId)
   if (!proc || !proc.interactive || !proc.stdin) return false
+
+  // A gracefully-ENDING session (endSession closed stdin) still has its row
+  // parked at awaiting_input until the CLI exits — and Node surfaces a
+  // write-after-end ASYNCHRONOUSLY (ERR_STREAM_WRITE_AFTER_END, absorbed by the
+  // transport's stream wait), so the sync catch below would never see it: an
+  // unguarded send would claim the turn and report true while the text reached
+  // nobody. Refuse instead — the session layer queues the body and its terminal
+  // re-dispatch delivers it in a fresh spawn (A.2 quality M1).
+  if (endingRuns.has(runId)) return false
 
   // Atomically claim the parked turn: only the caller whose UPDATE actually flips
   // awaiting_input → running may proceed. A second/concurrent caller sees

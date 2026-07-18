@@ -112,6 +112,23 @@ describe('sendInput — interactive HITL failure modes', () => {
   it('returns false for an unknown run id (no row, no proc)', () => {
     expect(sendInput(uuid(), 'answer')).toBe(false)
   })
+
+  it('3b. ending-while-awaiting: a send after endSession is REFUSED — no silent write-after-end (A.2 demote window)', () => {
+    const id = seedRun('awaiting_input')
+    const fake = fakeProc()
+    __testHooks.initSeq(id)
+    __testHooks.setActiveProc(id, fake.proc)
+    // Graceful close (idle timer / session demote / operator end): stdin is
+    // end()'d but the row stays awaiting_input until the CLI exits. A write in
+    // that window fails ASYNCHRONOUSLY (ERR_STREAM_WRITE_AFTER_END) — the sync
+    // catch never sees it, so an unguarded send would report true while the
+    // text reached nobody. sendInput must refuse so the session layer queues
+    // the body for its terminal re-dispatch.
+    expect(endSession(id)).toBe(true)
+    expect(fake.ended).toBe(true)
+    expect(sendInput(id, 'late body')).toBe(false)
+    expect(fake.writes).toHaveLength(0) // nothing was written to the dead stdin
+  })
 })
 
 describe('idle-timeout — a parked run ends its session', () => {
