@@ -65,6 +65,7 @@ import { seedUiDemo } from './ui-artifact.js'
 import { scanHarnessArtifacts, scanProjectArtifacts, startArtifactScanOnRunTerminal } from './artifact-scan.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
+import { startDomainSupervisor } from './domain-supervisor.js'
 import { startProposalCollectors } from './proposal-collectors.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
 import { startBudgetBroadcast } from './budget-governor.js'
@@ -116,6 +117,9 @@ const TERMINAL_TOKEN = process.env.TERMINAL_TOKEN ?? 'dev-terminal-token'
 let stopGraphAutoReindex: (() => void) | undefined
 // Same, for the Chief autonomous wake (cron tick + run-completion subscription).
 let stopChiefWake: (() => void) | undefined
+// Same, for the C.4 always-on domain supervisor (run/pipeline/gate events + heartbeat cron
+// → governed mailbox briefings). NOT gated by Autonomous Org; DOMAIN_SUPERVISOR=0 opts out.
+let stopDomainSupervisor: (() => void) | undefined
 // Same, for the deterministic zero-token proposal collectors (15m cron; E-14).
 let stopProposalCollectors: (() => void) | undefined
 // Same, for the MAIN-process lead-dispatch relay (drains the child-recorded intent queue).
@@ -373,6 +377,7 @@ export async function buildApp() {
     stopRunVerify?.()
     stopNotifications?.()
     stopChiefWake?.()
+    stopDomainSupervisor?.()
     stopProposalCollectors?.()
     stopLeadDispatchRelay?.()
     stopBudgetBroadcast?.()
@@ -577,6 +582,11 @@ async function start() {
   // persisted autonomySettings().enabled (default OFF, opt-in via Settings ->
   // Autonomous Org) — the CHIEF_WAKE env is deprecated and no longer defaults this on.
   stopChiefWake = startChiefWake()
+  // C.4 always-on domain supervisor: run/pipeline/gate terminals + a heartbeat cron ride the
+  // per-domain governor (debounce + rolling-hour cap) into mailbox briefings for each domain's
+  // manager. Deliberately NOT gated by autonomySettings().enabled (always-on per D-125);
+  // DOMAIN_SUPERVISOR=0 is the dev/test opt-out, domain_wake_max_per_hour=0 the runtime off.
+  stopDomainSupervisor = startDomainSupervisor()
   // Deterministic, zero-token proposal candidates (ci_failed/verify_finding/open_issue/
   // stale_bible) on a 15m cron — gated by autonomySettings().enabled && .proposals
   // (default OFF). PROPOSAL_COLLECTORS=0 kill switch.
