@@ -30,7 +30,10 @@ function PipelineStageNode({ id, data, selected }: NodeProps & { data: PipelineS
   // Keyboard parity with the graph's mouse onNodeClick: a real stage tile is a
   // focusable button that selects on Enter/Space. RF wrapper focus is suppressed
   // (focusable:false at the graph) so this is the single tab stop per node.
-  const interactive = !isDone
+  // Only interactive when a select handler is wired (the live run graph). The
+  // read-only definition PREVIEW passes none → non-interactive, so preview nodes
+  // aren't focusable buttons that do nothing.
+  const interactive = !isDone && typeof onSelect === 'function'
   const onKeyDown = interactive
     ? (e: ReactKeyboardEvent) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -62,11 +65,13 @@ function PipelineStageNode({ id, data, selected }: NodeProps & { data: PipelineS
             )}
           </div>
           <div className={cn('mt-1 truncate text-label font-medium', meta.text)}>{stage.status}</div>
-          {(stage.costUsd != null || stage.attempt != null) && (
+          {/* attempt is non-nullable; a stage not yet attempted (0) — a fresh pending
+              stage or a definition-preview node — shows no attempt line, only structure. */}
+          {(stage.costUsd != null || stage.attempt > 0) && (
             <div className="mt-0.5 truncate text-micro text-muted">
               {stage.costUsd != null && <span>${stage.costUsd.toFixed(2)}</span>}
-              {stage.costUsd != null && stage.attempt != null && stage.maxAttempts != null && <span> · </span>}
-              {stage.attempt != null && stage.maxAttempts != null && (
+              {stage.costUsd != null && stage.attempt > 0 && <span> · </span>}
+              {stage.attempt > 0 && (
                 <span>
                   attempt {stage.attempt}/{stage.maxAttempts}
                 </span>

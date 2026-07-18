@@ -3,7 +3,6 @@ import { setSessionToken, clearSessionToken } from '../lib/auth'
 import { api } from '../lib/api'
 import { Input } from '../ui/Field'
 import { Button } from '../ui/Button'
-import Ambient from './Ambient'
 
 /**
  * Remote-access login. Shown when a REST/WS call reports 401/4401 (no valid
@@ -55,10 +54,11 @@ export default function LoginScreen({
     // `color: var(--text)` was doing the real work via inheritance). Corrected to
     // the real token; the rendered color is unchanged.
     <div className="grid h-screen place-items-center bg-bg text-text">
-      {/* W0.3: the color washes live in Ambient's blob children now — a bare
-          `.ambient` div renders only the flat --bg-deep + noise base wash
-          (review finding: the login screen lost its color entirely). */}
-      <Ambient />
+      {/* Pre-auth backdrop — a static gradient wash (no JS, no operator
+          preference to read yet since the wallpaper API is itself
+          Bearer-gated). Reuses the same LG2 blob tokens as the in-app
+          `gradient` wallpaper's aurora preset (index.css). */}
+      <div className="ambient bg-gradient-aurora" data-testid="login-backdrop" aria-hidden />
       <form
         onSubmit={submit}
         className="glass-panel relative z-10 w-[min(92vw,380px)] p-6"

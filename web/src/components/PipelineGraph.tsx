@@ -120,6 +120,10 @@ function PipelineGraphInner({
         nodesDraggable
         panOnScroll
         onNodeClick={handleNodeClick}
+        // K is a dark app — React Flow's built-in dark palette themes the
+        // MiniMap/Controls/Background dots to match, instead of the library
+        // default white MiniMap that read as a broken box on the glass surface.
+        colorMode="dark"
       >
         <MiniMap />
         <Controls />

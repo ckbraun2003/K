@@ -1,14 +1,24 @@
 import { it, expect } from 'vitest'
 import {
-  BackgroundVariantSchema, BACKGROUND_VARIANTS, DEFAULT_BACKGROUND,
+  GRADIENT_PRESETS, BACKGROUND_KINDS, BackgroundSettingsSchema, DEFAULT_BACKGROUND_SETTINGS,
+  BackgroundImageUploadSchema,
   AvailableModelSchema, AvailableModelsResponseSchema, WORKER_CEILING_TIER,
 } from '../src/types'
 
-it('background variant enum + default', () => {
-  expect(BACKGROUND_VARIANTS).toEqual(['galaxy', 'aurora', 'blobs', 'solid'])
-  expect(DEFAULT_BACKGROUND).toBe('galaxy')
-  expect(BackgroundVariantSchema.parse('galaxy')).toBe('galaxy')
-  expect(BackgroundVariantSchema.safeParse('nope').success).toBe(false)
+it('background settings model: kinds/presets + default + schema validation', () => {
+  expect(BACKGROUND_KINDS).toEqual(['solid', 'gradient', 'image'])
+  expect(GRADIENT_PRESETS).toEqual(['aurora', 'dusk', 'ocean', 'ember'])
+  expect(DEFAULT_BACKGROUND_SETTINGS).toEqual({ kind: 'solid', preset: null, imageVersion: null })
+  expect(BackgroundSettingsSchema.parse({ kind: 'gradient', preset: 'aurora', imageVersion: null })).toEqual({
+    kind: 'gradient', preset: 'aurora', imageVersion: null,
+  })
+  expect(BackgroundSettingsSchema.safeParse({ kind: 'nope', preset: null, imageVersion: null }).success).toBe(false)
+})
+
+it('background image upload schema: accepts png/jpeg/webp data URLs, rejects others', () => {
+  expect(BackgroundImageUploadSchema.safeParse({ dataUrl: 'data:image/png;base64,QQ==' }).success).toBe(true)
+  expect(BackgroundImageUploadSchema.safeParse({ dataUrl: 'data:image/gif;base64,QQ==' }).success).toBe(false)
+  expect(BackgroundImageUploadSchema.safeParse({ dataUrl: 'not-a-data-url' }).success).toBe(false)
 })
 
 it('available-model schema', () => {

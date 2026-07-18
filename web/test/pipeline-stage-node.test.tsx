@@ -36,3 +36,22 @@ it('the done sink is not a button (non-interactive)', () => {
   render(<ReactFlowProvider><PipelineStageNode id="__done__" data={{ isDone: true }} /></ReactFlowProvider> as any)
   expect(screen.queryByRole('button')).toBeNull()
 })
+
+it('hides the attempt line for a not-yet-attempted stage (attempt 0 — e.g. a definition preview)', () => {
+  render(
+    <ReactFlowProvider>
+      <PipelineStageNode id="s" data={{ stage: stage({ kind: 'agent', status: 'pending', attempt: 0, costUsd: null }), isDone: false }} />
+    </ReactFlowProvider> as any,
+  )
+  expect(screen.getByText('pending')).toBeTruthy()
+  expect(screen.queryByText(/attempt/i)).toBeNull()
+})
+
+it('a stage tile with no onSelect is non-interactive (read-only preview node)', () => {
+  render(
+    <ReactFlowProvider>
+      <PipelineStageNode id="s" data={{ stage: stage({ kind: 'agent', status: 'running' }), isDone: false }} />
+    </ReactFlowProvider> as any,
+  )
+  expect(screen.queryByRole('button')).toBeNull()
+})

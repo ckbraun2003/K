@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { PipelineSpec, StageDef } from '@k/shared'
 import { api } from '../lib/api'
@@ -8,6 +8,8 @@ import { Textarea } from '../ui/Field'
 import { SectionHeader } from '../ui/SectionHeader'
 import { ErrorState } from '../ui/ErrorState'
 import { SkeletonTile } from '../ui/Skeleton'
+import PipelineGraph from './PipelineGraph'
+import { previewViewFromSpec } from '../lib/pipeline-preview'
 
 /** The actor a given stage runs as — a sub-agent worker if named, else the bare role. */
 function actorOf(stage: StageDef): string {
@@ -89,6 +91,10 @@ export default function PipelineDefInspector({ defId }: { defId: string }) {
     queryKey: ['pipeline-def-spec', defId],
     queryFn: () => api.pipelines.get(defId),
   })
+  // Memoize the synthesized preview view (before the loading/error guards so the
+  // hook is unconditional) → PipelineGraph's internal layout memo holds across
+  // re-renders (e.g. the Clone-to-edit toggle) instead of recomputing dagre.
+  const previewView = useMemo(() => (spec ? previewViewFromSpec(spec) : null), [spec])
 
   if (isLoading) return <SkeletonTile tier="solid" />
   if (isError || !spec) {
@@ -131,6 +137,11 @@ export default function PipelineDefInspector({ defId }: { defId: string }) {
           className="mono h-48 w-full text-micro"
         />
       )}
+
+      <div className="surface-solid rounded-panel h-[20rem] p-3">
+        {/* previewView is non-null past the `!spec` guard above. */}
+        <PipelineGraph view={previewView!} />
+      </div>
 
       <div>
         <SectionHeader label="Stages" count={spec.stages.length} as="h3" />

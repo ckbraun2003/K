@@ -63,14 +63,13 @@ describe('LoginScreen', () => {
     expect(container.textContent).not.toContain('data/')
   })
 
-  it('mounts the living Ambient layer, not a bare .ambient div (W0.3 review fix)', () => {
-    // Post-W0.3 the color washes live in Ambient's .ambient-blob children — a
-    // bare `.ambient` div renders only the flat base wash. Assert the real
-    // component is mounted by checking for its four blobs.
+  it('renders the static gradient backdrop (wallpaper UI — Ambient retired)', () => {
     const { container } = render(<LoginScreen onAuthed={vi.fn()} />)
-    const ambient = container.querySelector('.ambient')!
-    expect(ambient).toBeTruthy()
-    expect(ambient.getAttribute('aria-hidden')).toBe('true')
-    expect(ambient.querySelectorAll('.ambient-blob').length).toBe(4)
+    const backdrop = screen.getByTestId('login-backdrop')
+    expect(backdrop).toBeTruthy()
+    expect(backdrop.getAttribute('aria-hidden')).toBe('true')
+    expect(backdrop.className).toContain('bg-gradient-aurora')
+    // No canvas/animation loop left in the pre-auth screen.
+    expect(container.querySelector('canvas')).toBeNull()
   })
 })
