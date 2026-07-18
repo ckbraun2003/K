@@ -1,23 +1,53 @@
 /**
- * Settings → Appearance (usability-access B.5) — the operator's saved
- * background preference. Mirrors ClaudeModelSection (SettingsModels.tsx):
- * GlassPanel + SectionHeader + useQuery/useMutation over
- * api.settings.background, invalidating `['background']` on save so
+ * Settings → Appearance (usability-access P2.6 wallpaper UI) — the operator's
+ * saved wallpaper (GET/PUT /api/settings/background + PUT .../image). Mirrors
+ * ClaudeModelSection (SettingsModels.tsx): GlassPanel + SectionHeader +
+ * useQuery/useMutation, invalidating `['background']` on every change so
  * <Background/> (mounted at Shell z-0) picks up the change immediately.
+ *
+ * The `image` kind's option is disabled until an image has been uploaded at
+ * least once (`imageVersion != null`) — the backend 400s a bare kind:'image'
+ * switch when no wallpaper file exists on disk (routes/settings.ts), so a
+ * disabled option is simpler and fully avoids that error path rather than
+ * surfacing it. The upload control itself is always available regardless of
+ * the currently selected kind — uploading switches the wallpaper to `image`
+ * server-side.
  */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { BackgroundVariant } from '@k/shared'
+import { useRef, useState, type ChangeEvent } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { BackgroundKind, GradientPreset } from '@k/shared'
 import { api } from '../lib/api'
+import { useBackgroundImageUrl } from '../lib/useBackgroundImageUrl'
 import { GlassPanel } from '../ui/GlassPanel'
 import { SectionHeader } from '../ui/SectionHeader'
 import { Select } from '../ui/Field'
+import { Button } from '../ui/Button'
 import { SkeletonRow } from '../ui/Skeleton'
+import { cn } from '../lib/cn'
 
-const VARIANT_LABELS: Record<BackgroundVariant, string> = {
-  galaxy: 'Galaxy',
-  aurora: 'Aurora',
-  blobs: 'Blobs',
+const KIND_LABELS: Record<BackgroundKind, string> = {
   solid: 'Solid',
+  gradient: 'Gradient',
+  image: 'Image',
+}
+const PRESET_LABELS: Record<GradientPreset, string> = {
+  aurora: 'Aurora',
+  dusk: 'Dusk',
+  ocean: 'Ocean',
+  ember: 'Ember',
+}
+const KIND_ORDER: BackgroundKind[] = ['solid', 'gradient', 'image']
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result)
+      else reject(new Error('Could not read that file.'))
+    }
+    reader.onerror = () => reject(new Error('Could not read that file.'))
+    reader.readAsDataURL(file)
+  })
 }
 
 export function BackgroundSection() {
@@ -26,44 +56,143 @@ export function BackgroundSection() {
     queryKey: ['background'],
     queryFn: () => api.settings.background.get(),
   })
-  const save = useMutation({
-    mutationFn: (variant: BackgroundVariant) => api.settings.background.set(variant),
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
+
+  const setMutation = useMutation({
+    mutationFn: (patch: { kind: BackgroundKind; preset: GradientPreset | null }) =>
+      api.settings.background.set(patch),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['background'] })
+    },
+  })
+  const uploadMutation = useMutation({
+    mutationFn: (dataUrl: string) => api.settings.background.uploadImage(dataUrl),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['background'] })
     },
   })
 
+  const settings = data?.settings
+  const presets = data?.presets ?? []
+  const hasImage = settings?.imageVersion != null
+  const previewUrl = useBackgroundImageUrl('image', settings?.imageVersion ?? null)
+  const saving = setMutation.isPending || uploadMutation.isPending
+
+  function onKindChange(kind: BackgroundKind) {
+    setMutation.mutate({
+      kind,
+      preset: kind === 'gradient' ? (settings?.preset ?? presets[0] ?? 'aurora') : null,
+    })
+  }
+
+  function onPresetChange(preset: GradientPreset) {
+    setMutation.mutate({ kind: 'gradient', preset })
+  }
+
+  async function onFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file later
+    if (!file) return
+    setFileError(null)
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      uploadMutation.mutate(dataUrl)
+    } catch (err) {
+      setFileError(err instanceof Error ? err.message : 'Could not read that file.')
+    }
+  }
+
+  const mutationError = setMutation.error ?? uploadMutation.error
+  const errorMessage =
+    fileError ?? (mutationError instanceof Error ? mutationError.message : mutationError ? 'Save failed.' : null)
+
   return (
     <GlassPanel data-testid="appearance-section" className="p-4">
       <SectionHeader label="Appearance" as="h2" />
       <p className="mt-1 text-caption text-muted">
-        The ambient backdrop behind every page.
+        The wallpaper behind every page.
       </p>
       {isLoading ? (
         <SkeletonRow />
-      ) : error || !data ? (
-        <p className="mt-2 text-caption text-red">Failed to load the background preference.</p>
+      ) : error || !settings ? (
+        <p className="mt-2 text-caption text-red">Failed to load the wallpaper preference.</p>
       ) : (
-        <div className="mt-2 flex items-center gap-3">
-          <Select
-            aria-label="Background"
-            data-testid="background-select"
-            value={data.variant}
-            disabled={save.isPending}
-            onChange={e => save.mutate(e.target.value as BackgroundVariant)}
-            className="text-label"
-          >
-            {data.options.map(v => (
-              <option key={v} value={v}>{VARIANT_LABELS[v]}</option>
-            ))}
-          </Select>
-          {save.isPending && <span className="text-caption text-muted">saving…</span>}
+        <div className="mt-2 flex items-start gap-4">
+          <div
+            data-testid="background-preview"
+            className={cn(
+              'h-16 w-28 shrink-0 rounded-control border border-border bg-cover bg-center',
+              settings.kind === 'gradient' && `bg-gradient-${settings.preset ?? presets[0] ?? 'aurora'}`,
+            )}
+            style={
+              settings.kind === 'solid'
+                ? { background: 'var(--bg-deep)' }
+                : settings.kind === 'image' && previewUrl
+                  ? { backgroundImage: `url(${previewUrl})` }
+                  : settings.kind === 'image'
+                    ? { background: 'var(--bg-deep)' }
+                    : undefined
+            }
+          />
+
+          <div className="flex-1 space-y-2">
+            <div className="flex items-center gap-3">
+              <Select
+                aria-label="Wallpaper kind"
+                data-testid="background-kind-select"
+                value={settings.kind}
+                disabled={saving}
+                onChange={e => onKindChange(e.target.value as BackgroundKind)}
+                className="text-label"
+              >
+                {KIND_ORDER.map(k => (
+                  <option key={k} value={k} disabled={k === 'image' && !hasImage}>
+                    {KIND_LABELS[k]}
+                  </option>
+                ))}
+              </Select>
+              {settings.kind === 'gradient' && (
+                <Select
+                  aria-label="Gradient preset"
+                  data-testid="background-preset-select"
+                  value={settings.preset ?? presets[0] ?? 'aurora'}
+                  disabled={saving}
+                  onChange={e => onPresetChange(e.target.value as GradientPreset)}
+                  className="text-label"
+                >
+                  {presets.map(p => (
+                    <option key={p} value={p}>{PRESET_LABELS[p]}</option>
+                  ))}
+                </Select>
+              )}
+              {saving && <span className="text-caption text-muted">saving…</span>}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button
+                variant="glass"
+                size="sm"
+                type="button"
+                disabled={saving}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {hasImage ? 'Replace image…' : 'Upload image…'}
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                data-testid="background-image-input"
+                className="sr-only"
+                onChange={onFileChange}
+              />
+            </div>
+          </div>
         </div>
       )}
-      {save.error && (
-        <p className="mt-2 text-caption text-red">
-          {save.error instanceof Error ? save.error.message : 'Save failed.'}
-        </p>
+      {errorMessage && (
+        <p className="mt-2 text-caption text-red">{errorMessage}</p>
       )}
     </GlassPanel>
   )

@@ -89,49 +89,53 @@ body { font-variant-numeric: tabular-nums; }
 
 /* ── flare layer ──────────────────────────────────────────────────────────── */
 
-/* ── LG2 living ambient (impressive-wave W0.3) — base wash + four hue-drifting
-   blobs (markup: shell/Ambient.tsx). GPU-composited transforms only
-   (translate3d/scale); 60–120s cycles; frozen under prefers-reduced-motion.
-   The three static radial washes of the D-107 ambient are superseded by the
-   blobs (same hue family, now moving). */
+/* Wallpaper full-bleed positioning shell (usability-access P2.6 wallpaper UI)
+   — the shared root class for every wallpaper kind rendered by
+   shell/Background.tsx (solid/gradient/image). Purely structural: the living
+   blobs + noise wash that used to paint here (impressive-wave W0.3) are
+   retired with Ambient/starfield — each kind now paints its own background
+   (inline style for solid/image, a .bg-gradient-* class for gradient). */
 .ambient {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 0;
   overflow: hidden;
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
-    var(--bg-deep);
 }
-.ambient-blob { position: absolute; border-radius: 9999px; will-change: transform; }
-.ambient-blob-1 { width: 56rem; height: 46rem; left: -8%; top: -14%;
-  background: radial-gradient(closest-side, var(--lg-blob-1), transparent 70%);
-  animation: lg-drift-1 96s ease-in-out infinite alternate; }
-.ambient-blob-2 { width: 50rem; height: 42rem; right: -14%; top: 2%;
-  background: radial-gradient(closest-side, var(--lg-blob-2), transparent 70%);
-  animation: lg-drift-2 78s ease-in-out infinite alternate; }
-.ambient-blob-3 { width: 52rem; height: 40rem; left: 16%; bottom: -18%;
-  background: radial-gradient(closest-side, var(--lg-blob-3), transparent 70%);
-  animation: lg-drift-3 114s ease-in-out infinite alternate; }
-.ambient-blob-4 { width: 40rem; height: 36rem; right: 6%; bottom: -10%;
-  background: radial-gradient(closest-side, var(--lg-blob-4), transparent 70%);
-  animation: lg-drift-4 66s ease-in-out infinite alternate; }
 
-/* `aurora` background variant (usability-access B.4) — a static gradient wash
-   built from the same LG2 blob tokens as `.ambient-blob`, so it stays on the
-   sanctioned palette without a JS animation loop. */
-.lg-aurora {
+/* Wallpaper gradient presets (usability-access P2.6 wallpaper UI) — static
+   CSS gradients recombining the same LG2 blob tokens used to paint the
+   living-ambient blobs, so the palette stays sanctioned without any JS
+   animation loop. `.bg-gradient-aurora` is an alias for `.lg-aurora` (still
+   used standalone by LoginScreen's pre-auth backdrop). */
+.lg-aurora, .bg-gradient-aurora {
   background:
     radial-gradient(60% 50% at 20% 20%, var(--lg-blob-1), transparent 70%),
     radial-gradient(55% 45% at 80% 10%, var(--lg-blob-2), transparent 70%),
     radial-gradient(50% 60% at 50% 90%, var(--lg-blob-3), transparent 70%),
     var(--bg-deep);
 }
-@keyframes lg-drift-1 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(9%, 6%, 0) scale(1.12); } }
-@keyframes lg-drift-2 { from { transform: translate3d(0, 0, 0) scale(1.08); } to { transform: translate3d(-7%, 9%, 0) scale(0.94); } }
-@keyframes lg-drift-3 { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(11%, -7%, 0) scale(1.10); } }
-@keyframes lg-drift-4 { from { transform: translate3d(0, 0, 0) scale(0.95); } to { transform: translate3d(-9%, -5%, 0) scale(1.08); } }
+.bg-gradient-dusk {
+  background:
+    radial-gradient(65% 55% at 75% 15%, var(--lg-blob-2), transparent 70%),
+    radial-gradient(55% 50% at 15% 75%, var(--lg-blob-4), transparent 70%),
+    radial-gradient(45% 40% at 50% 50%, var(--lg-blob-1), transparent 75%),
+    var(--bg-deep);
+}
+.bg-gradient-ocean {
+  background:
+    radial-gradient(60% 55% at 25% 80%, var(--lg-blob-3), transparent 70%),
+    radial-gradient(50% 45% at 80% 20%, var(--lg-blob-4), transparent 70%),
+    radial-gradient(55% 50% at 60% 60%, var(--lg-blob-3), transparent 75%),
+    var(--bg-deep);
+}
+.bg-gradient-ember {
+  background:
+    radial-gradient(60% 50% at 30% 20%, var(--lg-blob-2), transparent 70%),
+    radial-gradient(55% 55% at 85% 75%, var(--lg-blob-1), transparent 70%),
+    radial-gradient(45% 40% at 50% 50%, var(--lg-blob-2), transparent 75%),
+    var(--bg-deep);
+}
 
 /* Live-element glow: only things that are genuinely live may pulse */
 .glow-live {
@@ -297,7 +301,7 @@ body { font-variant-numeric: tabular-nums; }
 :focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; border-radius: 4px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ambient, .ambient-blob, .glow-live { animation: none; }
+  .glow-live { animation: none; }
   /* React Flow marks `animated` (pass) edges with a marching-ants dash animation
      on the SVG path — freeze it too (usability-access P2.6 Lane A). */
   .react-flow__edge.animated path { animation: none !important; }

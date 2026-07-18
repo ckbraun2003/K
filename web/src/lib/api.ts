@@ -98,7 +98,11 @@ const BASE = '/api'
 /** Notified on a 401/4401 so the app can show the login screen (remote access). */
 export { onUnauthorized } from './auth-events'
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
+// Shared fetch + auth + error handling. req() (JSON) and imageBlob() (raw
+// Blob — an authenticated image fetch can't go through req(), which always
+// tries res.json()) both wrap this rather than duplicating the auth-header
+// attachment + 401/error handling.
+async function fetchAuthed(path: string, init?: RequestInit): Promise<Response> {
   // Attach the harness token. In dev the Vite proxy also injects one, but the
   // explicit header lets the same code authenticate against core directly
   // (remote / production) where no proxy exists. When there's no token to add
@@ -119,6 +123,11 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     const detail = await res.json().then(b => (b as { error?: string }).error, () => undefined)
     throw new Error(detail ?? `${res.status} ${res.statusText}`)
   }
+  return res
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetchAuthed(path, init)
   // Some endpoints answer with 204 No Content (e.g. DELETE /api/skills/:id) or an
   // otherwise empty body. Calling res.json() on an empty body throws "Unexpected
   // end of JSON input", which would land a successful mutation in onError. Detect
@@ -751,10 +760,14 @@ export const api = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ dataUrl }),
         }),
-      // v is BackgroundSettings.imageVersion — cache-busts the <img>/CSS url() so
-      // a re-upload is reflected immediately instead of serving a stale browser
-      // cache hit for the same fixed image URL.
-      imageUrl: (version: number) => `${BASE}/settings/background/image?v=${version}`,
+      // Every /api/* route is Bearer-gated, so a raw CSS url()/<img src> can't
+      // attach the auth header — the wallpaper image must be fetched here
+      // (same auth as req()) and turned into an object URL by the caller.
+      // `version` is BackgroundSettings.imageVersion — cache-busts so a
+      // re-upload is reflected immediately instead of serving a stale hit for
+      // the same image identity.
+      imageBlob: (version: number) =>
+        fetchAuthed(`/settings/background/image?v=${version}`).then(res => res.blob()),
     },
   },
   // Voice — push-to-talk transcription. The browser holds NO transcription key:
