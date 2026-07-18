@@ -10,11 +10,12 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import type { Run } from '@k/shared'
-import { db, agentRunsDb } from '../src/db.js'
+import { db, agentRunsDb, pipelineDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { startRun, __testHooks } from '../src/supervisor.js'
 import { createProfile, getProfile } from '../src/profiles.js'
 import { mgmtTools } from '../src/mcp/mgmt.js'
+import { maybeFinalizePipeline } from '../src/pipeline-engine.js'
 
 // startRun mocked to avoid spawning a real agent, but it MUST insert a real runs
 // row (the K thread + agent_runs rows FK → runs(id)). sendInput / __testHooks stay
@@ -44,6 +45,7 @@ const {
   renderSeed,
   DEFAULT_K_THREAD_ID,
   continueLeadOutcomeToK,
+  continuePipelineOutcomeToK,
   resolveKDelegationThread,
   summarizeChiefLeadContinuation,
 } = await import('../src/k-thread.js')
@@ -60,16 +62,30 @@ function lastPersistentSession(): { key: string; sessionId: string; resume: bool
   return (call[1] as { persistentSession?: { key: string; sessionId: string; resume: boolean } }).persistentSession
 }
 
+/** All queued/delivered agent_messages rows, oldest-first (B.4: report-backs are messages). */
+function queuedMessages(): Array<Record<string, unknown>> {
+  return db.prepare(`SELECT * FROM agent_messages ORDER BY created_at ASC, id ASC`).all() as Array<
+    Record<string, unknown>
+  >
+}
+
 function resetKState() {
   db.prepare('DELETE FROM k_thread_turns').run()
   db.prepare('DELETE FROM k_threads').run()
-  db.prepare(`DELETE FROM agent_runs WHERE profile_id IN ('k-secretary', 'chief')`).run()
+  // B.4: report-backs now land in the mailbox — clear it like the thread tables above
+  // (this file already blanket-cleans its k_* tables; agent_messages joins that set).
+  db.prepare('DELETE FROM agent_messages').run()
+  db.prepare(`DELETE FROM agent_runs WHERE profile_id IN ('k-secretary', 'chief', 'ca-b-lead-prof')`).run()
   // mgmt reports the delegation report-back tests file against the mock chief run —
   // clear them before the runs (run_id → runs(id) ON DELETE SET NULL, but tidy anyway).
   db.prepare(`DELETE FROM mgmt_reports WHERE run_id LIKE 'mock-k-%'`).run()
   // events.run_id is NOT NULL REFERENCES runs(id) (no ON DELETE) — clear the mock
   // runs' events before deleting the runs, or the delete hits a FK constraint.
   db.prepare(`DELETE FROM events WHERE run_id LIKE 'mock-k-%'`).run()
+  // The pipeline-continuation fixtures (B.4 case 4): dispatches first (loose refs),
+  // then the pipeline runs (stages cascade), then the mock runs below.
+  db.prepare(`DELETE FROM pipeline_dispatches WHERE pipeline_id = 'ca-b4-def'`).run()
+  db.prepare(`DELETE FROM pipeline_runs WHERE id LIKE 'mock-k-pipe-%'`).run()
   db.prepare(`DELETE FROM runs WHERE id LIKE 'mock-k-%'`).run()
 }
 
@@ -79,6 +95,7 @@ function resetKState() {
 // pollute that. Clean up only what we created (serial run — no cross-file race).
 let createdKSecretary = false
 let createdChief = false
+let createdLeadProf = false
 
 beforeAll(() => {
   if (!getProfile('k-secretary')) {
@@ -88,6 +105,12 @@ beforeAll(() => {
   if (!getProfile('chief')) {
     createProfile({ id: 'chief', name: 'Chief', tier: 'chief' })
     createdChief = true
+  }
+  // B.4 case 3: a lead profile the continuation resolves as the REPORTING sender via
+  // the lead run's agent_runs row (agent_runs.profile_id FK → agent_profiles).
+  if (!getProfile('ca-b-lead-prof')) {
+    createProfile({ id: 'ca-b-lead-prof', name: 'CA-B Lead', tier: 'orchestrator' })
+    createdLeadProf = true
   }
 })
 
@@ -99,6 +122,7 @@ afterAll(() => {
   resetKState()
   if (createdKSecretary) db.prepare(`DELETE FROM agent_profiles WHERE id = 'k-secretary'`).run()
   if (createdChief) db.prepare(`DELETE FROM agent_profiles WHERE id = 'chief'`).run()
+  if (createdLeadProf) db.prepare(`DELETE FROM agent_profiles WHERE id = 'ca-b-lead-prof'`).run()
 })
 
 // ── routeForMessage (pure preview) ────────────────────────────────────────────
@@ -416,20 +440,35 @@ describe('askK — delegation to the Chief', () => {
     expect(String(rows[0].goal)).toContain('update the react component styling')
   })
 
-  it("reports the Chief's mgmt report back onto K's thread when the delegated run terminates", async () => {
+  it("QUEUES the Chief's report as an agent message on terminal — no direct k turn (B.4)", async () => {
     const result = await askK('implement the new feature')
     const runId = result.runId
 
     // The Chief files a status report up the chain (the mgmt `report` tool), then its
-    // run reaches terminal — the report-back seam folds the report onto K's thread.
+    // run reaches terminal — the report-back is now a MESSAGE from the Chief to K's
+    // delegating thread (the relay delivers it; no bespoke appendTurn).
     fileChiefReport(runId, 'PR #42 opened; CI green')
+    const turnsBefore = listKThreadTurns(DEFAULT_K_THREAD_ID).length
     eventBus.emitRunUpdate({ id: runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
 
-    const kTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'k')
-    const reportBack = kTurns.find(t => t.text.includes('PR #42 opened'))
-    expect(reportBack).toBeTruthy()
-    expect(reportBack!.text).toContain('completed')
-    expect(reportBack!.runId).toBe(runId)
+    // ONE queued agent_messages row, addressed to K's originating thread, from the Chief.
+    const msgs = queuedMessages()
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].to_profile_id).toBe('k-secretary')
+    expect(msgs[0].to_thread_id).toBe(DEFAULT_K_THREAD_ID)
+    expect(msgs[0].from_kind).toBe('profile')
+    expect(msgs[0].from_profile_id).toBe('chief')
+    expect(msgs[0].provenance_run_id).toBe(runId)
+    expect(msgs[0].status).toBe('queued')
+    expect(String(msgs[0].body)).toContain('Chief (delegation completed)')
+    expect(String(msgs[0].body)).toContain('PR #42 opened')
+
+    // NO new 'k' turn was appended by the report-back itself — only the pre-existing
+    // "Routing to …" ack (an acknowledgment of the operator's own ask) remains.
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(turnsBefore)
+    const kTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'k' && t.runId === runId)
+    expect(kTurns).toHaveLength(1)
+    expect(kTurns[0].text).toContain('Routing to')
 
     // The delegated chief activation is finalized 'completed' by startAgentRun's own
     // lifecycle tracking on the same terminal event.
@@ -437,23 +476,24 @@ describe('askK — delegation to the Chief', () => {
     expect(chiefRow.status).toBe('completed')
   })
 
-  it('caps an oversize mgmt-report body on the report-back turn (~2000 chars + ellipsis)', async () => {
+  it('caps an oversize mgmt-report body on the queued message (~2000 chars + ellipsis)', async () => {
     const result = await askK('implement the giant feature')
     const runId = result.runId
 
-    // A verbose Chief report (zod allows up to 20k) must not dump onto K's thread
+    // A verbose Chief report (zod allows up to 20k) must not dump into the mailbox
     // uncapped — the report-back path shares the 2000-char REPORT_BACK_TEXT_CAP.
     fileChiefReport(runId, 'r'.repeat(2_500))
     eventBus.emitRunUpdate({ id: runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
 
-    const reportBack = listKThreadTurns(DEFAULT_K_THREAD_ID)
-      .filter(t => t.role === 'k')
-      .find(t => t.text.includes('reported:'))
-    expect(reportBack).toBeTruthy()
-    expect(reportBack!.text.endsWith('…')).toBe(true)
+    const msgs = queuedMessages()
+    expect(msgs).toHaveLength(1)
+    const body = String(msgs[0].body)
+    expect(body.endsWith('…')).toBe(true)
     // prefix + capped body + ellipsis — never the raw 2500-char body.
     const prefix = 'Chief (delegation completed) reported: '
-    expect(reportBack!.text.length).toBe(prefix.length + 2_000 + 1)
+    expect(body.length).toBe(prefix.length + 2_000 + 1)
+    // And it landed as a message, not a thread turn.
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID).some(t => t.text.includes('reported:'))).toBe(false)
   })
 
   it('caps the assistant-text fallback (bounded event scan + ~2000-char cap)', async () => {
@@ -468,13 +508,13 @@ describe('askK — delegation to the Chief', () => {
     for (let i = 1; i <= 60; i++) ins.run(uuid(), runId, i, Date.now(), 'a'.repeat(100))
     eventBus.emitRunUpdate({ id: runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
 
-    const reportBack = listKThreadTurns(DEFAULT_K_THREAD_ID)
-      .filter(t => t.role === 'k')
-      .find(t => t.text.includes('Chief (delegation completed):'))
-    expect(reportBack).toBeTruthy()
-    expect(reportBack!.text.endsWith('…')).toBe(true)
+    const msgs = queuedMessages()
+    expect(msgs).toHaveLength(1)
+    const body = String(msgs[0].body)
+    expect(body.startsWith('Chief (delegation completed):')).toBe(true)
+    expect(body.endsWith('…')).toBe(true)
     const prefix = 'Chief (delegation completed): '
-    expect(reportBack!.text.length).toBe(prefix.length + 2_000 + 1)
+    expect(body.length).toBe(prefix.length + 2_000 + 1)
   })
 
   it('falls back to a bare status line when the Chief filed no report', async () => {
@@ -484,10 +524,45 @@ describe('askK — delegation to the Chief', () => {
     // No mgmt report, no assistant events — terminal with an error status.
     eventBus.emitRunUpdate({ id: runId, status: 'error', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
 
-    const kTurns = listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.role === 'k')
-    const reportBack = kTurns.find(t => t.text.includes('no report was filed'))
-    expect(reportBack).toBeTruthy()
-    expect(reportBack!.text).toContain('error')
+    const msgs = queuedMessages()
+    expect(msgs).toHaveLength(1)
+    expect(String(msgs[0].body)).toContain('no report was filed')
+    expect(String(msgs[0].body)).toContain('error')
+    expect(msgs[0].provenance_run_id).toBe(runId)
+  })
+
+  it('SWALLOWS a queueMessage throw in the finalize (deleted thread) — warn, no crash, no message', async () => {
+    const result = await askK('implement the doomed feature')
+    const runId = result.runId
+
+    // Delete the delegating thread row BEFORE the terminal fires. FK enforcement is
+    // toggled off for the delete so the run's turns survive: under the cascade the
+    // undo gate (kReplySuppressed) would swallow first and queueMessage would never
+    // run — the failure under test is queueMessage's own unknown-thread throw.
+    db.pragma('foreign_keys = OFF')
+    try {
+      db.prepare('DELETE FROM k_threads WHERE id = ?').run(DEFAULT_K_THREAD_ID)
+    } finally {
+      // finally so a throwing DELETE (e.g. SQLITE_BUSY) can never leave FK
+      // enforcement off for the rest of the singleFork worker's test files.
+      db.pragma('foreign_keys = ON')
+    }
+    fileChiefReport(runId, 'report into the void')
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      // A lifecycle subscriber must never crash the event bus: the finalize swallows
+      // the AgentMailError with a warn instead of letting it propagate.
+      expect(() =>
+        eventBus.emitRunUpdate({ id: runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run),
+      ).not.toThrow()
+      expect(
+        warn.mock.calls.map(c => String(c[0])).some(m => m.includes('failed to queue')),
+      ).toBe(true)
+    } finally {
+      warn.mockRestore()
+    }
+    expect(queuedMessages()).toHaveLength(0)
   })
 
   it('a dispatch throw propagates and leaves the chief activation failed, no ack turn', async () => {
@@ -689,11 +764,13 @@ describe('undoK — an undone ask is not replayed (F-060)', () => {
     expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(0)
 
     // The Chief run files a report then terminates AFTER the undo — its subscriber is still
-    // live. Without the gate this appended an orphaned report-back turn.
+    // live. Without the gate this queued an orphaned report-back message (B.4: the terminal
+    // must queue NOTHING once undoK removed the ask).
     fileChiefReport(runId, 'PR opened after undo')
     eventBus.emitRunUpdate({ id: runId, status: 'done', tokensIn: 0, tokensOut: 0, costUsd: 0 } as Run)
 
     expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(0)
+    expect(queuedMessages()).toHaveLength(0)
   })
 })
 
@@ -721,7 +798,24 @@ const done = (id: string, status: Run['status'] = 'done'): Run =>
   ({ id, status, tokensIn: 0, tokensOut: 0, costUsd: 0 }) as Run
 
 describe('continueLeadOutcomeToK — the lead outcome completes the up-chain to K', () => {
-  it('appends the lead outcome onto the delegating K thread on the LEAD terminal (once)', async () => {
+  /** Seed the lead run's agent_runs activation row so the finalize can resolve the
+   *  REPORTING profile (B.4: the message is FROM the lead that ran the work). */
+  function seedLeadActivation(leadRunId: string, profileId: string): void {
+    agentRunsDb.insertAgentRun.run({
+      id: uuid(),
+      profileId,
+      runId: leadRunId,
+      trigger: 'delegation',
+      goal: 'b4 lead activation',
+      projectId: null,
+      workflowId: null,
+      status: 'running',
+      createdAt: Date.now(),
+      completedAt: null,
+    })
+  }
+
+  it('QUEUES the lead outcome as a message FROM the lead profile on the LEAD terminal (once)', async () => {
     // A real K→Chief delegation links the Chief run to the K thread (the derivable edge).
     const { runId: chiefRunId } = await askK('implement the payment flow')
     expect(resolveKDelegationThread(chiefRunId)).toBe(DEFAULT_K_THREAD_ID)
@@ -729,23 +823,47 @@ describe('continueLeadOutcomeToK — the lead outcome completes the up-chain to 
     // The lead the Chief dispatched finishes AFTER the Chief's own turn could have ended.
     const leadRunId = `mock-k-run-lead-${uuid().slice(0, 8)}`
     seedLeadRun(leadRunId, 'Opened PR #7; CI green.')
+    seedLeadActivation(leadRunId, 'ca-b-lead-prof')
+
+    const turnsBefore = listKThreadTurns(DEFAULT_K_THREAD_ID).length
+    continueLeadOutcomeToK(chiefRunId, leadRunId, 'lead-backend')
+    eventBus.emitRunUpdate(done(leadRunId))
+
+    // ONE queued message from the LEAD's own profile (resolved via its activation row).
+    const msgs = queuedMessages()
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].to_profile_id).toBe('k-secretary')
+    expect(msgs[0].to_thread_id).toBe(DEFAULT_K_THREAD_ID)
+    expect(msgs[0].from_kind).toBe('profile')
+    expect(msgs[0].from_profile_id).toBe('ca-b-lead-prof')
+    expect(msgs[0].provenance_run_id).toBe(leadRunId)
+    expect(String(msgs[0].body)).toContain('Chief (via lead-backend)')
+    expect(String(msgs[0].body)).toContain('completed')
+    expect(String(msgs[0].body)).toContain('Opened PR #7')
+
+    // NO 'k' turn was appended directly — the relay's wake path lands the durable turn.
+    expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(turnsBefore)
+
+    // Fires ONCE: a duplicate terminal doesn't double-queue (run-lifecycle latch).
+    eventBus.emitRunUpdate(done(leadRunId))
+    expect(queuedMessages()).toHaveLength(1)
+  })
+
+  it('falls back to from=chief (the reporting chain\'s owner) when the lead run has NO activation row', async () => {
+    const { runId: chiefRunId } = await askK('implement the checkout flow')
+
+    const leadRunId = `mock-k-run-lead3-${uuid().slice(0, 8)}`
+    seedLeadRun(leadRunId, 'Shipped the checkout flow.')
+    // Deliberately NO agent_runs row for this lead run.
 
     continueLeadOutcomeToK(chiefRunId, leadRunId, 'lead-backend')
     eventBus.emitRunUpdate(done(leadRunId))
 
-    const cont = listKThreadTurns(DEFAULT_K_THREAD_ID)
-      .filter(t => t.role === 'k')
-      .find(t => t.text.includes('Opened PR #7'))
-    expect(cont).toBeTruthy()
-    expect(cont!.text).toContain('Chief (via lead-backend)')
-    expect(cont!.text).toContain('completed')
-    expect(cont!.runId).toBe(leadRunId) // linked to the lead run — part of the traceable chain
-
-    // Fires ONCE: a duplicate terminal doesn't double-append (run-lifecycle latch).
-    eventBus.emitRunUpdate(done(leadRunId))
-    expect(
-      listKThreadTurns(DEFAULT_K_THREAD_ID).filter(t => t.text.includes('Opened PR #7')),
-    ).toHaveLength(1)
+    const msgs = queuedMessages()
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].from_profile_id).toBe('chief')
+    expect(msgs[0].provenance_run_id).toBe(leadRunId)
+    expect(String(msgs[0].body)).toContain('Shipped the checkout flow.')
   })
 
   it('is a no-op when the Chief woke AUTONOMOUSLY (no K delegation linked)', () => {
@@ -763,7 +881,8 @@ describe('continueLeadOutcomeToK — the lead outcome completes the up-chain to 
     continueLeadOutcomeToK(autoChiefRun, leadRunId, 'lead-backend')
     eventBus.emitRunUpdate(done(leadRunId))
 
-    // No continuation turn landed — the outcome stays in the Chief's mgmt store only.
+    // NOTHING queued (and no turn) — the outcome stays in the Chief's mgmt store only.
+    expect(queuedMessages()).toHaveLength(0)
     expect(
       listKThreadTurns(DEFAULT_K_THREAD_ID).some(t =>
         t.text.includes('Lead ran on an autonomous Chief wake'),
@@ -786,5 +905,135 @@ describe('continueLeadOutcomeToK — the lead outcome completes the up-chain to 
     const s = summarizeChiefLeadContinuation(runId, 'lead-frontend', 'error')
     expect(s).toContain('Chief (via lead-frontend) error') // non-'done' status surfaces verbatim
     expect(s).toContain('Shipped the component.')
+  })
+})
+
+// ── pipeline→K continuation — a delegated pipeline's terminal queues a message (B.4) ──
+
+describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a message', () => {
+  /** Seed a pipeline run with ONE passed stage (so maybeFinalizePipeline completes it),
+   *  optionally linked to a delegating K run via a pipeline_dispatches intent row. */
+  function seedTerminalPipeline(opts: { owner?: string | null; kRunId?: string | null; title?: string }): string {
+    const pid = `mock-k-pipe-${uuid().slice(0, 8)}`
+    const now = Date.now()
+    pipelineDb.insertPipelineRun.run({
+      id: pid,
+      definitionId: 'ca-b4-def',
+      projectId: null,
+      title: opts.title ?? 'B4 pipeline',
+      cwd: '.',
+      baseCommit: 'deadbeef',
+      createdAt: now,
+      updatedAt: now,
+      ownerProfileId: opts.owner ?? null,
+    })
+    const stageId = uuid()
+    pipelineDb.insertStage.run({
+      id: stageId,
+      pipelineRunId: pid,
+      stageKey: 's1',
+      kind: 'agent',
+      profileId: null,
+      spec: '{}',
+      baseCommit: null,
+      repairStageKey: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    pipelineDb.markStagePassed.run({
+      id: stageId, resultCommit: null, exitCode: 0, costUsd: null, updatedAt: now, completedAt: now,
+    })
+    if (opts.kRunId != null) {
+      const did = `mock-k-pd-${uuid().slice(0, 8)}`
+      pipelineDb.insertPipelineDispatch.run({
+        id: did, pipelineId: 'ca-b4-def', kRunId: opts.kRunId, goal: 'b4', projectId: null, model: null, createdAt: now,
+      })
+      pipelineDb.claimPipelineDispatch.run({ id: did, dispatchedAt: now })
+      pipelineDb.setPipelineDispatchRun.run({ id: did, pipelineRunId: pid })
+    }
+    return pid
+  }
+
+  /** A bare delegating K run: a runs row + a linking user turn, NO agent_runs row. */
+  function seedBareDelegatingKRun(): string {
+    ensureDefaultKThread()
+    const kRunId = `mock-k-run-bare-${uuid().slice(0, 8)}`
+    db.prepare(
+      `INSERT INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'k', '.', 'done', ?)`,
+    ).run(kRunId, Date.now())
+    db.prepare(
+      `INSERT INTO k_thread_turns (id, thread_id, role, text, run_id, created_at) VALUES (?, ?, 'user', 'delegate a pipeline', ?, ?)`,
+    ).run(uuid(), DEFAULT_K_THREAD_ID, kRunId, Date.now())
+    return kRunId
+  }
+
+  it('queues ONE message from the pipeline OWNER profile (provenance NULL) on terminal', async () => {
+    // A real K→Chief delegation links the delegating run to the K thread.
+    const { runId: kRunId } = await askK('fix the failing pipeline suite')
+    const stop = continuePipelineOutcomeToK()
+    try {
+      const turnsBefore = listKThreadTurns(DEFAULT_K_THREAD_ID).length
+      const pid = seedTerminalPipeline({ owner: 'ca-b-lead-prof', kRunId })
+      maybeFinalizePipeline(pid)
+
+      const msgs = queuedMessages()
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].to_profile_id).toBe('k-secretary')
+      expect(msgs[0].to_thread_id).toBe(DEFAULT_K_THREAD_ID)
+      expect(msgs[0].from_kind).toBe('profile')
+      expect(msgs[0].from_profile_id).toBe('ca-b-lead-prof') // pipeline_runs.owner_profile_id
+      expect(msgs[0].provenance_run_id).toBeNull() // no single run owns a multi-run pipeline
+      expect(String(msgs[0].body)).toBe('Pipeline "B4 pipeline" completed.')
+
+      // NO 'k' turn was appended directly.
+      expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(turnsBefore)
+    } finally {
+      stop()
+    }
+  })
+
+  it('owner NULL → falls back to the delegating K run\'s profile', async () => {
+    // askK's escalating delegation gives the k_run an agent_runs row (profile 'chief').
+    const { runId: kRunId } = await askK('fix the failing pipeline suite again')
+    const stop = continuePipelineOutcomeToK()
+    try {
+      const pid = seedTerminalPipeline({ owner: null, kRunId })
+      maybeFinalizePipeline(pid)
+
+      const msgs = queuedMessages()
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].from_profile_id).toBe('chief')
+      expect(msgs[0].provenance_run_id).toBeNull()
+    } finally {
+      stop()
+    }
+  })
+
+  it('owner NULL + no activation row on the delegating run → falls back to k-secretary', () => {
+    const kRunId = seedBareDelegatingKRun()
+    const stop = continuePipelineOutcomeToK()
+    try {
+      const pid = seedTerminalPipeline({ owner: null, kRunId })
+      maybeFinalizePipeline(pid)
+
+      const msgs = queuedMessages()
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].from_profile_id).toBe('k-secretary')
+    } finally {
+      stop()
+    }
+  })
+
+  it('a NON-delegated pipeline terminal queues NOTHING', () => {
+    ensureDefaultKThread()
+    const stop = continuePipelineOutcomeToK()
+    try {
+      const pid = seedTerminalPipeline({ owner: 'ca-b-lead-prof', kRunId: null })
+      maybeFinalizePipeline(pid)
+      expect(queuedMessages()).toHaveLength(0)
+      expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(0)
+    } finally {
+      stop()
+    }
   })
 })

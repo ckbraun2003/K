@@ -17,8 +17,9 @@ import { randomUUID } from 'crypto'
 import { v4 as uuid } from 'uuid'
 import type { KThread, KThreadTurn, KAskResult, KRoute, KForceRoute } from '@k/shared'
 import { routeForMessage, routeForTarget } from '@k/shared'
-import { kThreadsDb, runsDb, eventsDb, mgmtDb, pipelineDb, db } from './db.js'
+import { kThreadsDb, runsDb, eventsDb, mgmtDb, pipelineDb, agentRunsDb, db } from './db.js'
 import { eventBus } from './events.js'
+import { queueMessage } from './agent-mail.js'
 import { startAgentRun } from './agent-runs.js'
 import { BudgetCapError } from './budget-governor.js'
 import { kill } from './supervisor.js'
@@ -160,8 +161,9 @@ export function appendTurn(
   const now = Date.now()
   kThreadsDb.insertTurn.run({ id, threadId, role, text, runId, createdAt: now })
   // Visibility invariant (see resolveAskThread): a thread receiving new activity must be visible
-  // in the non-archived list. captureAnswers / reportDelegationBack / continueLeadOutcomeToK all
-  // append here WITHOUT going through resolveAskThread's un-archive, so centralize it at this choke
+  // in the non-archived list. captureAnswers and the message relay's delivery append (B.4 —
+  // report-backs now arrive via message-relay.ts, which appends the delivered turn here) both
+  // land WITHOUT going through resolveAskThread's un-archive, so centralize it at this choke
   // point — a thread archived mid-run/delegation resurfaces when K's reply lands, instead of the
   // reply landing hidden. Guarded (archived_at IS NOT NULL) so a normal non-archived append is
   // untouched. (resolveAskThread's own explicit un-archive stays, now idempotent with this.)
@@ -210,9 +212,10 @@ const undoneRuns = new Set<string>()
  * exists on any thread, a `k` reply for it would be orphaned regardless — so suppress it.
  * A NORMAL captureAnswers / reportDelegationBack run always has a live `user` turn linked
  * to its run_id (askK/delegateToChief patch it on before dispatch), so this only trips for
- * a removed (undone) ask. Deliberately NOT applied to continueLeadOutcomeToK, whose `k`
- * turn links to the LEAD run (which never has a user turn) and which is already gated by
- * resolveKDelegationThread — undo deletes the Chief user turn, breaking that link.
+ * a removed (undone) ask. Deliberately NOT applied to continueLeadOutcomeToK, whose queued
+ * message carries the LEAD run as provenance (a lead run never has a user turn) and which
+ * is already gated by resolveKDelegationThread — undo deletes the Chief user turn,
+ * breaking that link.
  */
 function kReplySuppressed(runId: string): boolean {
   if (undoneRuns.has(runId)) return true
@@ -320,9 +323,9 @@ export function buildDelegationGoal(message: string, route: KRoute): string {
   )
 }
 
-/** Max length of BOTH report-back bodies on K's thread — the Chief's mgmt-report
- *  text AND the assistant-text fallback — so a verbose Chief run can't dump a huge
- *  transcript (the mgmt `report` zod max is 20k; both hops share this 2000 cap). */
+/** Max length of BOTH report-back message bodies queued to K's thread — the Chief's
+ *  mgmt-report text AND the assistant-text fallback — so a verbose Chief run can't dump
+ *  a huge transcript (the mgmt `report` zod max is 20k; both hops share this 2000 cap). */
 const REPORT_BACK_TEXT_CAP = 2_000
 
 /** How many of the run's earliest `assistant` events the fallback scans (seq ASC) —
@@ -359,7 +362,7 @@ function finalAssistantText(runId: string): string {
 }
 
 /**
- * Summarize a delegated Chief run's outcome for the report-back turn. Prefers the
+ * Summarize a delegated Chief run's outcome for the report-back message. Prefers the
  * Chief's latest mgmt `report` (the status written UP the chain), falling back to the
  * run's own assistant text, then to a bare status line — so the operator always sees
  * *something* land where they asked, even if the Chief filed no formal report.
@@ -383,21 +386,38 @@ export function summarizeDelegatedOutcome(childRunId: string, status: string): s
 }
 
 /**
- * Report a delegated Chief run's outcome back UP onto K's thread. Rides the shared
- * run-lifecycle seam (trackSupervisedRun) exactly like startAgentRun's own tracking:
- * on the child run's terminal — once, race-backstopped — it appends a `k` turn
- * summarizing the outcome, linked to the child run so the report-back is itself part
- * of the traceable delegation chain. It does NOT touch the thread's active_run_id
- * (that belongs to K's own warm session, a separate concern from a delegated run).
+ * Report a delegated Chief run's outcome back UP to K. Rides the shared run-lifecycle
+ * seam (trackSupervisedRun) exactly like startAgentRun's own tracking: on the child
+ * run's terminal — once, race-backstopped — it QUEUES an agent message from the Chief
+ * to K's originating thread (B.4, D-124); the message relay delivers it and the wake
+ * path lands the durable turn — no bespoke appendTurn here. It does NOT touch the
+ * thread's active_run_id (that belongs to K's own warm session, a separate concern
+ * from a delegated run).
  */
 export function reportDelegationBack(threadId: string, childRunId: string): void {
   trackSupervisedRun(childRunId, {
     onStarted: () => { /* runId already known — nothing to patch */ },
     finalize: status => {
       // Same undo gate as captureAnswers (F-060): if the operator undid this delegation
-      // (kill + turn-delete), the Chief run's terminal must not append an orphaned report.
+      // (kill + turn-delete), the Chief run's terminal must not resurrect a report.
       if (kReplySuppressed(childRunId)) return
-      appendTurn(threadId, 'k', summarizeDelegatedOutcome(childRunId, status), childRunId)
+      // B.4 (D-124): the report-back is a MESSAGE from the Chief to K's originating
+      // thread — the relay delivers it (wake path lands the durable turn), no bespoke
+      // append. queueMessage can throw (e.g. the thread was deleted mid-run): swallow
+      // with a warn — a lifecycle subscriber must never crash the event bus. The body
+      // is summarized OUTSIDE the try so the warn label stays triage-accurate.
+      const body = summarizeDelegatedOutcome(childRunId, status)
+      try {
+        queueMessage({
+          toProfileId: 'k-secretary',
+          toThreadId: threadId,
+          from: { kind: 'profile', profileId: 'chief' },
+          body,
+          provenanceRunId: childRunId,
+        })
+      } catch (e) {
+        console.warn(`[k-thread] delegation report-back for ${childRunId} failed to queue:`, e)
+      }
     },
   })
 }
@@ -448,22 +468,40 @@ export function summarizeChiefLeadContinuation(leadRunId: string, lead: string, 
 }
 
 /**
- * Continue a dispatched lead's outcome UP onto K's thread (the final hop of the up-chain).
- * Rides the shared run-lifecycle seam on the LEAD run: on the lead's terminal — once,
- * race-backstopped — IF the parent Chief run was itself a K delegation (a k_thread_turn links
- * it to a thread), it appends a `k` turn summarizing the lead's outcome, linked to the lead
- * run so the continuation is part of the traceable chain. If the Chief woke autonomously (no
- * linked thread) it is a no-op — the lead outcome stays in the Chief's mgmt store only.
- * Deliberately independent of reportLeadOutcomeToChief (each rides its own once-latched
- * subscriber on the same lead terminal), mirroring reportDelegationBack's shape.
+ * Continue a dispatched lead's outcome UP to K (the final hop of the up-chain). Rides
+ * the shared run-lifecycle seam on the LEAD run: on the lead's terminal — once,
+ * race-backstopped — IF the parent Chief run was itself a K delegation (a k_thread_turn
+ * links it to a thread), it QUEUES an agent message summarizing the lead's outcome (B.4)
+ * from the REPORTING profile — the lead that ran the work — with the lead run as
+ * provenance; the relay delivers it. If the Chief woke autonomously (no linked thread)
+ * it is a no-op — the lead outcome stays in the Chief's mgmt store only. Deliberately
+ * independent of reportLeadOutcomeToChief (each rides its own once-latched subscriber
+ * on the same lead terminal), mirroring reportDelegationBack's shape.
  */
 export function continueLeadOutcomeToK(chiefRunId: string, leadRunId: string, lead: string): void {
   trackSupervisedRun(leadRunId, {
     onStarted: () => { /* runId already known — nothing to patch */ },
     finalize: status => {
       const threadId = resolveKDelegationThread(chiefRunId)
-      if (threadId == null) return // Chief woke autonomously — nothing to continue up to K.
-      appendTurn(threadId, 'k', summarizeChiefLeadContinuation(leadRunId, lead, status), leadRunId)
+      if (threadId == null) return // Chief woke autonomously — nothing to continue up.
+      // B.4: the continuation is a MESSAGE from the REPORTING profile — the lead that
+      // ran the work (resolved from its activation), falling back to 'chief' (the
+      // chain's owner) when the lead run has no agent_runs row.
+      const prof = agentRunsDb.getAgentRunProfileByRunId.get(leadRunId) as
+        | { profile_id?: string }
+        | undefined
+      const body = summarizeChiefLeadContinuation(leadRunId, lead, status)
+      try {
+        queueMessage({
+          toProfileId: 'k-secretary',
+          toThreadId: threadId,
+          from: { kind: 'profile', profileId: prof?.profile_id != null ? String(prof.profile_id) : 'chief' },
+          body,
+          provenanceRunId: leadRunId,
+        })
+      } catch (e) {
+        console.warn(`[k-thread] lead continuation for ${leadRunId} failed to queue:`, e)
+      }
     },
   })
 }
@@ -497,9 +535,10 @@ export function summarizePipelineOutcome(pipelineRunId: string, status: 'complet
  * Register the pipeline→K continuation as a GLOBAL engine terminal listener (wired once at boot).
  * On EACH pipeline terminal: if the pipeline was linked to a delegation intent with a k_run_id AND
  * that K/Chief run was itself a K-thread delegation (a k_thread_turn links it — the SAME derivation
- * continueLeadOutcomeToK uses), append a concise `k` outcome turn onto the delegating thread. A
- * pipeline that was NOT a K delegation, or whose owner woke autonomously, is a no-op. Returns the
- * unregister fn (mirrors startLeadDispatchRelay's stop-fn shape) so boot can tear it down.
+ * continueLeadOutcomeToK uses), QUEUE a concise outcome message (B.4) from the pipeline's owning
+ * orchestrator profile onto the delegating thread; the relay delivers it. A pipeline that was NOT
+ * a K delegation, or whose owner woke autonomously, is a no-op. Returns the unregister fn (mirrors
+ * startLeadDispatchRelay's stop-fn shape) so boot can tear it down.
  */
 export function continuePipelineOutcomeToK(): () => void {
   return onPipelineTerminal((pipelineRunId, status) => {
@@ -507,8 +546,33 @@ export function continuePipelineOutcomeToK(): () => void {
     if (!row?.k_run_id) return // not a K/Chief-delegated pipeline — nothing to continue up.
     const threadId = resolveKDelegationThread(String(row.k_run_id))
     if (threadId == null) return // the owning K/Chief run was not a K-thread delegation.
-    // No single run owns a multi-run pipeline's outcome, so the turn links to no run (null).
-    appendTurn(threadId, 'k', summarizePipelineOutcome(pipelineRunId, status), null)
+    // B.4: a MESSAGE from the pipeline's owning orchestrator profile (the closest
+    // "reporting profile" a multi-run pipeline has), falling back to the delegating
+    // run's profile, then K itself. provenance NULL — no single run owns the outcome.
+    const pr = pipelineDb.getPipelineRun.get(pipelineRunId) as
+      | { owner_profile_id?: string | null }
+      | undefined
+    const kProf = agentRunsDb.getAgentRunProfileByRunId.get(String(row.k_run_id)) as
+      | { profile_id?: string }
+      | undefined
+    const fromProfileId =
+      pr?.owner_profile_id != null
+        ? String(pr.owner_profile_id)
+        : kProf?.profile_id != null
+          ? String(kProf.profile_id)
+          : 'k-secretary'
+    const body = summarizePipelineOutcome(pipelineRunId, status)
+    try {
+      queueMessage({
+        toProfileId: 'k-secretary',
+        toThreadId: threadId,
+        from: { kind: 'profile', profileId: fromProfileId },
+        body,
+        provenanceRunId: null,
+      })
+    } catch (e) {
+      console.warn(`[k-thread] pipeline continuation for ${pipelineRunId} failed to queue:`, e)
+    }
   })
 }
 
