@@ -913,6 +913,10 @@ db.exec(`
     delivered_at      INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_agent_messages_queue ON agent_messages(to_profile_id, status);
+  -- Thread-scoped twin (B.5): the conversations list's per-thread queued-count
+  -- subquery filters on (to_thread_id, status) — without this it full-scans
+  -- agent_messages once per thread row as delivered history accumulates.
+  CREATE INDEX IF NOT EXISTS idx_agent_messages_thread ON agent_messages(to_thread_id, status);
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────

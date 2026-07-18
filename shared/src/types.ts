@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SessionStateSchema, MessagePrioritySchema } from './sessions.js'
 
 // ─── E-11 unified status taxonomy (P0) ───────────────────────────────────────
 // THREE ORTHOGONAL AXES replacing per-surface ad-hoc status vocabularies:
@@ -2502,6 +2503,39 @@ export const KThreadPatchBodySchema = z.object({
   title: z.string().min(1).max(120).optional(),
   archived: z.boolean().optional(),
 }).strict().refine(b => b.title !== undefined || b.archived !== undefined, { message: 'empty patch' })
+
+// ─── Conversations surface (Continuous Agents B.5, D-123) ────────────────────
+
+/** One conversation row for the Messages surface: a thread + its owning profile,
+ *  live session state, and unread math (turns newer than last_read_at + queued
+ *  mailbox messages). */
+export const ConversationSummarySchema = KThreadSummarySchema.extend({
+  profileId: z.string(),
+  profileName: z.string().nullable(),
+  sessionState: SessionStateSchema.nullable(),
+  contextTokens: z.number().nullable(),
+  unread: z.number(),
+})
+export type ConversationSummary = z.infer<typeof ConversationSummarySchema>
+
+/** Body for POST /api/conversations/:threadId/read — advance the read cursor.
+ *  `at` defaults to now; the route CLAMPS it monotonic (never backwards) and never
+ *  beyond now (a poisoned future cursor would hide all unread forever). */
+export const ConversationReadBodySchema = z
+  .object({ at: z.number().int().positive().optional() })
+  .strict()
+export type ConversationReadBody = z.infer<typeof ConversationReadBodySchema>
+
+/** Body for POST /api/agents/:profileId/message — the operator → agent mailbox path.
+ *  (K threads keep /api/k/ask as the interactive path; this is the mailbox door.) */
+export const AgentMessageSendBodySchema = z
+  .object({
+    body: z.string().min(1).max(20_000),
+    priority: MessagePrioritySchema.optional(),
+    threadId: z.string().optional(),
+  })
+  .strict()
+export type AgentMessageSendBody = z.infer<typeof AgentMessageSendBodySchema>
 
 /** Result of POST /api/k/ask. `warm` = true when the message continued a live
  *  interactive run; false when a fresh run was started (seeded from the thread).

@@ -35,6 +35,7 @@ import { memoryRoutes } from './routes/memory.js'
 import { memoriesRoutes } from './routes/memories.js'
 import { homeLayoutRoutes } from './routes/home-layout.js'
 import { kRoutes } from './routes/k.js'
+import { conversationsRoutes } from './routes/conversations.js'
 import { reviewRoutes } from './routes/review.js'
 import { verifyRoutes } from './routes/verify.js'
 import { rewindRoutes } from './routes/rewind.js'
@@ -217,6 +218,7 @@ export async function buildApp() {
   await app.register(memoriesRoutes)
   await app.register(homeLayoutRoutes)
   await app.register(kRoutes)
+  await app.register(conversationsRoutes)
   await app.register(reviewRoutes)
   await app.register(verifyRoutes)
   await app.register(rewindRoutes)
