@@ -22,6 +22,11 @@ export function useBackgroundImageUrl(kind: BackgroundKind, imageVersion: number
       setUrl(null)
       return
     }
+    // A re-upload changes `imageVersion` → this effect re-runs, and the prior
+    // run's cleanup has already revoked its objectUrl. Clear the stale reference
+    // now so nothing renders a revoked blob during the new fetch window; callers
+    // fall back to their solid/gradient look for the one round-trip (M3).
+    setUrl(null)
     let cancelled = false
     let objectUrl: string | null = null
     api.settings.background

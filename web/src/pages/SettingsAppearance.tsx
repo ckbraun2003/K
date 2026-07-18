@@ -76,7 +76,10 @@ export function BackgroundSection() {
   const settings = data?.settings
   const presets = data?.presets ?? []
   const hasImage = settings?.imageVersion != null
-  const previewUrl = useBackgroundImageUrl('image', settings?.imageVersion ?? null)
+  // Pass the CURRENT kind (not a literal 'image'): the swatch only reads
+  // previewUrl when kind==='image', so fetching the blob under solid/gradient
+  // was a wasted authenticated round-trip on every Appearance mount (M2).
+  const previewUrl = useBackgroundImageUrl(settings?.kind ?? 'solid', settings?.imageVersion ?? null)
   const saving = setMutation.isPending || uploadMutation.isPending
 
   function onKindChange(kind: BackgroundKind) {
