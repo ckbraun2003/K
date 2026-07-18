@@ -2014,10 +2014,19 @@ repairPipelineEdgesWhenCond(db)
 
 // ─── Run helpers ─────────────────────────────────────────────────────────────
 
-const insertRun = db.prepare(`
-  INSERT INTO runs (id, prompt, cwd, worktree, status, provider, model, tokens_in, tokens_out, cost_usd, project_id, created_at)
-  VALUES (@id, @prompt, @cwd, @worktree, @status, @provider, @model, @tokensIn, @tokensOut, @costUsd, @projectId, @createdAt)
+// A.3 (D-127): kind + session_id ride the run insert. Exposed as a `{ run }`
+// wrapper (not the bare Statement): better-sqlite3 requires EVERY named param
+// bound, and the many pre-A.3 insert sites (tests, seed scripts) don't pass the
+// two new fields — the wrapper mirrors the columns' own defaults (kind 'job',
+// session_id NULL) so every existing caller stays byte-compatible.
+const insertRunStmt = db.prepare(`
+  INSERT INTO runs (id, prompt, cwd, worktree, status, provider, model, tokens_in, tokens_out, cost_usd, project_id, kind, session_id, created_at)
+  VALUES (@id, @prompt, @cwd, @worktree, @status, @provider, @model, @tokensIn, @tokensOut, @costUsd, @projectId, @kind, @sessionId, @createdAt)
 `)
+const insertRun = {
+  run: (params: Record<string, unknown>): import('better-sqlite3').RunResult =>
+    insertRunStmt.run({ kind: 'job', sessionId: null, ...params }),
+}
 
 const updateRunStatus = db.prepare(`
   UPDATE runs SET status = @status, tokens_in = @tokensIn, tokens_out = @tokensOut,
@@ -2025,11 +2034,6 @@ const updateRunStatus = db.prepare(`
 `)
 
 const getRun = db.prepare(`SELECT * FROM runs WHERE id = ?`)
-// Two cached statements: one unfiltered, one with status WHERE — selected at call time
-const listRunsAll           = db.prepare(`SELECT * FROM runs ORDER BY created_at DESC LIMIT ?`)
-const listRunsStatus        = db.prepare(`SELECT * FROM runs WHERE status = ? ORDER BY created_at DESC LIMIT ?`)
-const listRunsProject       = db.prepare(`SELECT * FROM runs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`)
-const listRunsProjectStatus = db.prepare(`SELECT * FROM runs WHERE project_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?`)
 const clearRunWorktree = db.prepare(`UPDATE runs SET worktree = NULL WHERE id = ?`)
 
 // Stamp the CLI session id parsed from the run's stream-json init line (P0 —
@@ -2042,18 +2046,32 @@ const setRunCliSessionId = db.prepare(`UPDATE runs SET cli_session_id = ? WHERE 
 // dismiss all funnel here). reviewed_at IS NULL guard = idempotent + stamp-once.
 const markRunReviewed = db.prepare(`UPDATE runs SET reviewed_at = ? WHERE id = ? AND reviewed_at IS NULL`)
 
-/** Filtered run list. Uses pre-compiled statements — never interpolates values into SQL. */
-function listRunsFiltered({ status, limit, projectId }: { status?: RunStatus; limit: number; projectId?: string }): Array<Record<string, unknown>> {
-  if (projectId !== undefined && status !== undefined) {
-    return listRunsProjectStatus.all(projectId, status, limit) as Array<Record<string, unknown>>
+// A.3 (D-127): the ?kind filter made the old fixed-statement matrix combinatorial
+// (status × project × N kinds), so the WHERE is built dynamically instead. The
+// "never interpolate values into SQL" rule still holds: every fragment is a fixed
+// column compare with `?` placeholders and values are ALWAYS bound. The SQL-shape
+// set is bounded ONLY because kinds are DEDUPED below (IN sizes 1..3 → ≤ 16 shapes
+// ever): the wire schema validates VALUES but not multiplicity, so without the
+// dedupe `?kind=job,job,…` would mint one permanently-cached statement per length
+// (review MAJOR-1). Caching per shape keeps the prepared-statement win of the
+// replaced listRunsAll/Status/Project/ProjectStatus.
+const listRunsStmtCache = new Map<string, import('better-sqlite3').Statement>()
+
+/** Filtered run list. Dynamic WHERE over validated filters — values always bound via placeholders. */
+function listRunsFiltered({ status, limit, projectId, kinds }: { status?: RunStatus; limit: number; projectId?: string; kinds?: string[] }): Array<Record<string, unknown>> {
+  const where: string[] = []
+  const params: unknown[] = []
+  if (projectId !== undefined) { where.push('project_id = ?'); params.push(projectId) }
+  if (status !== undefined) { where.push('status = ?'); params.push(status) }
+  if (kinds && kinds.length > 0) {
+    const ks = [...new Set(kinds)] // bound the shape space — see the cache comment
+    where.push(`kind IN (${ks.map(() => '?').join(', ')})`)
+    params.push(...ks)
   }
-  if (projectId !== undefined) {
-    return listRunsProject.all(projectId, limit) as Array<Record<string, unknown>>
-  }
-  if (status !== undefined) {
-    return listRunsStatus.all(status, limit) as Array<Record<string, unknown>>
-  }
-  return listRunsAll.all(limit) as Array<Record<string, unknown>>
+  const sql = `SELECT * FROM runs${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT ?`
+  let stmt = listRunsStmtCache.get(sql)
+  if (!stmt) { stmt = db.prepare(sql); listRunsStmtCache.set(sql, stmt) }
+  return stmt.all(...params, limit) as Array<Record<string, unknown>>
 }
 
 export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, clearRunWorktree, setRunCliSessionId, markRunReviewed }

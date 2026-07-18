@@ -27,11 +27,14 @@ vi.mock('../src/supervisor.js', async () => {
   const { db } = await vi.importActual<typeof import('../src/db.js')>('../src/db.js')
   return {
     ...actual,
-    startRun: vi.fn(async () => {
+    startRun: vi.fn(async (_prompt: string, opts?: { kind?: string; sessionId?: string }) => {
       const id = `mock-ca-live-${uuid().slice(0, 8)}`
+      // A.3 (D-127): mirror the real insertRun's kind/session_id stamp from the
+      // received opts, so the suite can assert the runs-row bookkeeping the spawn
+      // threads through startAgentRun → startRun without launching a process.
       db.prepare(
-        `INSERT OR IGNORE INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'ca', '.', 'queued', ?)`,
-      ).run(id, Date.now())
+        `INSERT OR IGNORE INTO runs (id, prompt, cwd, status, kind, session_id, created_at) VALUES (?, 'ca', '.', 'queued', ?, ?, ?)`,
+      ).run(id, opts?.kind ?? 'job', opts?.sessionId ?? null, Date.now())
       return { id }
     }),
     sendInput: vi.fn(() => true),
@@ -119,9 +122,13 @@ describe('sendToSession — hybrid live path (A.1)', () => {
     const ps = lastPersistentSession()
     expect(ps).toMatchObject({ key: t.id, resume: false, homeDir: s.homeDir })
     expect(ps.sessionId).toMatch(/[0-9a-f-]{36}/)
-    // TODO(A.3): assert the `sessionId` opt (the runs.session_id stamp) once
-    // startAgentRun accepts it — today the opt does not exist, so threading it
-    // would be an excess property, not a no-op passthrough.
+    // A.3 (D-127): the spawn stamps the OWNING agent_sessions row — the sessionId
+    // opt threads startAgentRun → startRun verbatim, and lands on runs.session_id
+    // (with kind 'chat-turn' inferred from persistentSession along the way).
+    expect(opts.sessionId).toBe(s.id)
+    const runRow = db.prepare('SELECT kind, session_id FROM runs WHERE id = ?').get(r.runId) as Row
+    expect(runRow.session_id).toBe(s.id)
+    expect(runRow.kind).toBe('chat-turn')
 
     const userTurns = listKThreadTurns(t.id).filter(x => x.role === 'user')
     expect(userTurns).toHaveLength(1)

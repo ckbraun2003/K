@@ -439,8 +439,10 @@ async function spawnSessionRun(
     // A.2: the session idle knob rides the per-run override — a parked session
     // run demotes on SESSION_IDLE_MS, not the HITL INTERACTIVE_IDLE_MS.
     idleMs: SESSION_IDLE_MS,
-    // A.3: sessionId stamp — startAgentRun does not accept a `sessionId` opt yet;
-    // A.3 adds it (threaded to startRun → runs.session_id) alongside runs.kind.
+    // A.3 (D-127): stamp the OWNING agent_sessions row onto the run
+    // (startAgentRun → startRun → runs.session_id); the run's kind resolves to
+    // 'chat-turn' from persistentSession along the same path.
+    sessionId: session.id,
     persistentSession: { key: session.threadId, sessionId: cliSessionId, resume, homeDir: session.homeDir },
   })
   kThreadsDb.updateThreadActiveRun.run(runId, Date.now(), session.threadId)

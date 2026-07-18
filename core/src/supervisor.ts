@@ -165,6 +165,14 @@ export type StartRunOptions = {
    *  stable home (agent-config.ts::agentSessionPaths base) — the run dir + cwd derive
    *  from IT instead of kSecretaryConfigPaths(key). Absent → the K path, byte-identical. */
   persistentSession?: { key: string; sessionId: string; resume: boolean; homeDir?: string }
+  /** Continuous Agents A.3 (D-127) bookkeeping: what kind of work this run is
+   *  (runs.kind). Absent → inferred: a persistentSession dispatch is a
+   *  'chat-turn' (conversation traffic), anything else a 'job'. An explicit
+   *  kind always wins (pipeline-executor passes 'pipeline-stage'). */
+  kind?: 'chat-turn' | 'job' | 'pipeline-stage'
+  /** Continuous Agents A.3 (D-127) bookkeeping: the owning agent_sessions row
+   *  for a session-attached run — stamped onto runs.session_id (NULL absent). */
+  sessionId?: string
   /** H8 (OPT-IN): after adding the run's detached worktree, replay the SOURCE repo's
    *  UNCOMMITTED tracked+staged changes into it so the agent starts from the operator's
    *  dirty state (see applyWorkingTreeInto for the exact semantics — untracked/ignored
@@ -242,6 +250,11 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
       ? { runDir: path.join(ps.homeDir, 'agent'), cwd: path.join(ps.homeDir, 'cwd') }
       : kSecretaryConfigPaths(ps.key)
     : undefined
+  // A.3 (D-127): resolve the run's kind — an explicit opt wins; otherwise a
+  // persistent-session dispatch is conversation traffic ('chat-turn'), anything
+  // else a 'job'. Stamped on the row + carried on the Run so consumers key on it
+  // structurally (chief-wake exclusion, /api/runs filters, budget exemption).
+  const kind = opts.kind ?? (ps ? 'chat-turn' : 'job')
   const cwd = kPaths?.cwd ?? opts.cwd ?? REPO_ROOT
   const worktreePath = path.join(WORKTREES_DIR, runId)
   const now = Date.now()
@@ -263,6 +276,8 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
     tokensOut: 0,
     costUsd: 0,
     projectId,
+    kind,
+    sessionId: opts.sessionId,
     createdAt: now,
   }
 
@@ -279,6 +294,8 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
     tokensOut: run.tokensOut,
     costUsd: run.costUsd,
     projectId: run.projectId ?? null,
+    kind,
+    sessionId: opts.sessionId ?? null,
     createdAt: run.createdAt,
   })
 
@@ -1100,6 +1117,10 @@ function loadRun(runId: string): Run | null {
     costUsd: Number(r.cost_usd ?? 0),
     projectId: (r.project_id as string | null) ?? undefined,
     cliSessionId: (r.cli_session_id as string | null) ?? undefined,
+    // A.3 (D-127): kind is NOT NULL (v16 default+backfill) but map defensively;
+    // session_id NULL → absent, matching the wire shape.
+    kind: ((r.kind as string | null) ?? undefined) as Run['kind'],
+    sessionId: (r.session_id as string | null) ?? undefined,
     createdAt: Number(r.created_at),
     endedAt: r.ended_at != null ? Number(r.ended_at) : undefined,
   }

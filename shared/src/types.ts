@@ -1,4 +1,8 @@
 import { z } from 'zod'
+// RunKindSchema lives with the Continuous Agents session contracts (sessions.ts,
+// re-exported from this package index below) — imported here so the canonical Run
+// carries its D-127 kind without duplicating the enum.
+import { RunKindSchema } from './sessions.js'
 
 // ─── E-11 unified status taxonomy (P0) ───────────────────────────────────────
 // THREE ORTHOGONAL AXES replacing per-surface ad-hoc status vocabularies:
@@ -62,6 +66,14 @@ export const RunSchema = z.object({
   // (P0 Lane B — E-22 follow-up groundwork). Absent until the init line is
   // seen; always absent for ollama runs.
   cliSessionId: z.string().optional(),
+  // Continuous Agents A.3 (D-127): what kind of work this run is — 'chat-turn'
+  // (conversation traffic: a K ask / agent-session turn), 'job' (the default
+  // dispatch), or 'pipeline-stage'. Optional on the wire: thin emitters and
+  // pre-A.3 payloads may omit it (readers treat absent as 'job').
+  kind: RunKindSchema.optional(),
+  // Continuous Agents A.3 (D-127): the owning agent_sessions row for a
+  // session-attached run (runs.session_id). Absent for non-session runs.
+  sessionId: z.string().optional(),
   // Canonical E-11 triple DERIVED from `status` at the emit boundary
   // (core events.ts::emitRunUpdate attaches it to every run_update). Optional:
   // REST payloads may omit it — clients re-derive via canonicalizeRunStatus.
@@ -1392,6 +1404,13 @@ export const RunsQuerySchema = z.object({
   status: RunStatusSchema.optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   projectId: z.string().uuid().optional(),
+  // A.3 (D-127): ?kind=job,pipeline-stage — a comma-joined RunKind list. The
+  // preprocess splits the raw query string; the enum array rejects any unknown
+  // kind → 400. Absent → no kind filter (byte-compatible with the pre-A.3 list).
+  kind: z.preprocess(
+    v => (typeof v === 'string' && v.length > 0 ? v.split(',') : v),
+    z.array(RunKindSchema).min(1),
+  ).optional(),
 })
 export type RunsQuery = z.infer<typeof RunsQuerySchema>
 

@@ -87,7 +87,7 @@ export async function runsRoutes(app: FastifyInstance) {
     }
   })
 
-  // GET /api/runs — list recent runs; optional ?status=, ?limit=, ?projectId= query params
+  // GET /api/runs — list recent runs; optional ?status=, ?limit=, ?projectId=, ?kind= query params
   app.get('/api/runs', async (req, reply) => {
     const parsed = RunsQuerySchema.safeParse(req.query)
     if (!parsed.success) {
@@ -97,7 +97,14 @@ export async function runsRoutes(app: FastifyInstance) {
     if (parsed.data.projectId && !projectsDb.getProject.get(parsed.data.projectId)) {
       return sendError(reply, 400, 'unknown projectId')
     }
-    const rows = runsDb.listRunsFiltered(parsed.data)
+    const rows = runsDb.listRunsFiltered({
+      status: parsed.data.status,
+      limit: parsed.data.limit,
+      projectId: parsed.data.projectId,
+      // A.3 (D-127): ?kind=a,b — a validated RunKind[] (RunsQuerySchema splits the
+      // comma list); absent → no kind filter (byte-compatible).
+      kinds: parsed.data.kind,
+    })
     return reply.send(rows.map(dbRowToRun))
   })
 
@@ -236,6 +243,11 @@ function dbRowToRun(r: Record<string, unknown>) {
     tokensIn: r.tokens_in, tokensOut: r.tokens_out, costUsd: r.cost_usd,
     projectId: r.project_id ?? undefined,
     cliSessionId: r.cli_session_id ?? undefined,
+    // A.3 (D-127): runs.kind (NOT NULL, v16) + the owning agent_sessions row
+    // (NULL → absent, matching the optional-not-nullable wire shape — the kind
+    // coalesce is defensive symmetry with loadRun for hand-edited rows).
+    kind: (r.kind as string | null) ?? undefined,
+    sessionId: r.session_id ?? undefined,
     createdAt: r.created_at, endedAt: r.ended_at,
   }
 }

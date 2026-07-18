@@ -79,6 +79,12 @@ export async function onRunTerminalForHeal(run: Run, now = Date.now()): Promise<
   // even after a retry overwrote the stage's run_id (which is why the guard keys on the per-run
   // back-ref, not pipeline_stages.run_id).
   if (row.pipeline_stage_id) return 'skipped'
+  // A.3 (D-127): a chat turn is conversation traffic, not batch work — retrying
+  // it here would re-run the seed headless as a kind='job' one-shot (losing its
+  // session identity, duplicating a conversation answer, resurfacing it in the
+  // default RunsPage). The session engine owns turn recovery (resume/reseed at
+  // the next send; pending re-dispatch at the terminal).
+  if ((row as { kind?: string }).kind === 'chat-turn') return 'skipped'
   if (!owner?.profile_id && !row.retry_of) return 'skipped'
 
   const { cls, fallbackModel: fb, retryable } = classifyRunFailure({ id: run.id, status: run.status, model: row.model })

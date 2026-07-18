@@ -328,6 +328,22 @@ describe('onChiefWakeRunUpdate (event path) + startChiefWake', () => {
     expect(chiefWakesGoalIncludes(kRunId)).toHaveLength(0)
   })
 
+  it("e1c) D-127: a terminal kind='chat-turn' run NEVER wakes — even with an org-relevant owner; its kind='job' twin does", async () => {
+    // Chat-turn twin: an owner shape that PASSES the relevance arms (lead profile,
+    // trigger 'delegation') — the structural kind exclusion must fire FIRST, so a
+    // conversation turn from ANY agent session can't wake the org.
+    const chatRunId = seedLeadTerminal()
+    onChiefWakeRunUpdate({ ...terminalRun(chatRunId), kind: 'chat-turn' })
+    await flush()
+    expect(chiefWakesGoalIncludes(chatRunId)).toHaveLength(0)
+
+    // The kind='job' twin (same org-relevant owner shape) still wakes.
+    const jobRunId = seedLeadTerminal()
+    onChiefWakeRunUpdate({ ...terminalRun(jobRunId), kind: 'job' })
+    await flush()
+    expect(chiefWakesGoalIncludes(jobRunId)).toHaveLength(1)
+  })
+
   it('e2) self-wake guard: a CHIEF run finishing does NOT wake the Chief', async () => {
     // A completed chief agent_run whose run finishing must NOT re-wake the chief
     // (else wake→run→complete→wake loops). Status 'completed' so guard B would PASS —

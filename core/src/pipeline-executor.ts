@@ -210,6 +210,9 @@ export class WorktreeStageExecutor implements StageExecutor {
       model: (ctx.modelOverride ?? model) ?? undefined,
       baseCommit: ctx.baseCommit ?? undefined,
       planGate,
+      // A.3 (D-127): stage dispatches are 'pipeline-stage' runs — explicit, never
+      // the 'job' inference (keeps them countable/filterable as pipeline work).
+      kind: 'pipeline-stage',
       // A.5: the resolved worker-bee def to mount into the run's config dir (absent for a
       // hook-agent or a stage with no subagentType).
       subagent: subagent ?? undefined,

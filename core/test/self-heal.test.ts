@@ -108,6 +108,20 @@ describe('self-heal', () => {
     }
   })
 
+  it("skips a failed chat-turn — the session engine owns turn recovery, never a headless 'job' re-run (A.3, D-127)", async () => {
+    // A session turn: owner-bearing (dispatched via startAgentRun) AND kind='chat-turn',
+    // with a retryable failure class and retry headroom — everything the retry arm
+    // wants EXCEPT the kind. Pre-A.3-fix this re-ran the seed as a kind='job' one-shot.
+    db.prepare(`INSERT INTO runs (id, prompt, cwd, worktree, status, model, retry_count, kind, created_at) VALUES ('r6','p','.','.','error','claude-sonnet-4-6',0,'chat-turn',?)`).run(Date.now())
+    db.prepare(`INSERT INTO agent_runs (id, profile_id, run_id, trigger, goal, status, created_at) VALUES ('ar-r6','lead-backend','r6','delegation','g','failed',?)`).run(Date.now())
+    db.prepare(`INSERT INTO events (id, run_id, seq, type, ts, text) VALUES (?, ?, 1, 'error', ?, ?)`).run('e-r6', 'r6', Date.now(), 'ECONNRESET')
+
+    expect(await onRunTerminalForHeal({ id: 'r6', status: 'error' } as any)).toBe('skipped')
+    expect(startRunMock).not.toHaveBeenCalled()
+    // Not parked either — no Inbox noise for conversation traffic.
+    expect((db.prepare(`SELECT COUNT(*) n FROM work_items WHERE source_key = 'self_heal:r6'`).get() as any).n).toBe(0)
+  })
+
   it('re-heals a failed retry (a descended run has no agent_runs owner but is still eligible)', async () => {
     // The retry's own run row must exist so setRunRetry can stamp its lineage.
     startRunMock.mockImplementation(async () => {
