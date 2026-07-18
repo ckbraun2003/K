@@ -19,10 +19,12 @@ import { join, relative } from 'node:path'
  *     the auto-grow textarea that carries Field's exported SKIN internally). A
  *     raw element inside either is the implementation, not a bypass of it.
  *
- *  2. `type="radio"` and `type="range"` inputs — `ui/Field.tsx` has no Radio or
- *     Range primitive (the task scope was Input/Textarea/Select/Checkbox only:
- *     KnowledgeGraphTab's dispatch-action picker and RunTimeline's/
- *     SettingsAutonomy's replay/budget sliders stay raw, deliberately).
+ *  2. `type="radio"`, `type="range"`, and `type="file"` inputs — `ui/Field.tsx`
+ *     has no Radio/Range/File primitive. Radio (KnowledgeGraphTab's dispatch-action
+ *     picker) and range (RunTimeline's/SettingsAutonomy's replay/budget sliders)
+ *     stay raw. A native file input can't be skinned, so SettingsAppearance's
+ *     wallpaper upload uses an `sr-only` `<input type="file">` driven by a styled
+ *     Button — the design-system-conformant file-upload pattern, not a bypass.
  *
  *  3. A tag mention inside a `//` line comment (e.g. TerminalPage.tsx documents
  *     xterm's own internal `.xterm-helper-textarea` DOM node in prose) is not a
@@ -68,7 +70,7 @@ describe('input-primitives guard — raw form elements route through ui/Field.ts
 
         if (m[1] === 'input') {
           const tag = tagSlice(src, idx)
-          if (/type=["']radio["']/.test(tag) || /type=["']range["']/.test(tag)) continue
+          if (/type=["'](radio|range|file)["']/.test(tag)) continue
         }
 
         const snippet = line.trim().slice(0, 100)
