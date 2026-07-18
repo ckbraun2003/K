@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { PipelineSpec, StageDef } from '@k/shared'
 import { api } from '../lib/api'
@@ -91,6 +91,10 @@ export default function PipelineDefInspector({ defId }: { defId: string }) {
     queryKey: ['pipeline-def-spec', defId],
     queryFn: () => api.pipelines.get(defId),
   })
+  // Memoize the synthesized preview view (before the loading/error guards so the
+  // hook is unconditional) → PipelineGraph's internal layout memo holds across
+  // re-renders (e.g. the Clone-to-edit toggle) instead of recomputing dagre.
+  const previewView = useMemo(() => (spec ? previewViewFromSpec(spec) : null), [spec])
 
   if (isLoading) return <SkeletonTile tier="solid" />
   if (isError || !spec) {
@@ -135,7 +139,8 @@ export default function PipelineDefInspector({ defId }: { defId: string }) {
       )}
 
       <div className="surface-solid rounded-panel h-[20rem] p-3">
-        <PipelineGraph view={previewViewFromSpec(spec)} />
+        {/* previewView is non-null past the `!spec` guard above. */}
+        <PipelineGraph view={previewView!} />
       </div>
 
       <div>

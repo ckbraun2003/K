@@ -5,7 +5,7 @@
  * navigates away from Settings to a 404 — this guards against that regression.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import SettingsNav from '../src/pages/SettingsNav'
@@ -28,10 +28,12 @@ function renderNav() {
   )
 }
 
+let lastObserver: MockIntersectionObserver | null = null
 class MockIntersectionObserver {
   callback: IntersectionObserverCallback
   constructor(callback: IntersectionObserverCallback) {
     this.callback = callback
+    lastObserver = this
   }
   observe() {}
   unobserve() {}
@@ -69,5 +71,21 @@ describe('SettingsNav', () => {
 
     expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled()
     expect(window.location.hash).toBe(hashBefore)
+  })
+
+  it('highlights the top-most intersecting section (aria-current) as it scrolls into the active band', () => {
+    renderNav()
+    // Initial: first item is active.
+    expect(screen.getByRole('button', { name: 'A' }).getAttribute('aria-current')).toBe('true')
+
+    // Fire the observer with section B intersecting → B becomes active, A clears.
+    act(() => {
+      lastObserver!.callback(
+        [{ isIntersecting: true, target: document.getElementById('b')!, boundingClientRect: { top: 10 } } as unknown as IntersectionObserverEntry],
+        lastObserver as unknown as IntersectionObserver,
+      )
+    })
+    expect(screen.getByRole('button', { name: 'B' }).getAttribute('aria-current')).toBe('true')
+    expect(screen.getByRole('button', { name: 'A' }).getAttribute('aria-current')).toBeNull()
   })
 })

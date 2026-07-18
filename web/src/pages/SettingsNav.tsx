@@ -33,6 +33,8 @@ export default function SettingsNav({ items }: { items: Array<{ id: string; labe
 
     for (const el of elements) observer.observe(el)
     return () => observer.disconnect()
+    // Observe once on mount. `items` is a module constant (SETTINGS_NAV) whose
+    // identity/content never changes, so re-subscribing on it is unnecessary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
