@@ -1456,6 +1456,10 @@ export const AgentProfileSchema = z.object({
   allowedTools: z.array(z.string()), // claude --allowedTools allowlist (tier-gated)
   mcpServers: z.array(z.string()), // tier-scoped MCP servers this profile mounts
   skills: z.array(z.string()), // skill dir names this profile mounts
+  /** L1.5 per-profile identity overlay (D-126): appended verbatim between the L1
+   *  role template and L2 at synthesis when non-empty. null/'' = no overlay
+   *  ('' is the operator's "silence the seed" affordance — NULL re-seeds). */
+  identityOverlay: z.string().nullable().optional(),
   // E-02 tier default: dispatches resolved through this profile are plan-gated
   // unless the dispatch body says otherwise. Optional — absent = false.
   planGate: z.boolean().optional(),

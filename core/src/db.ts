@@ -3524,8 +3524,8 @@ export const configDb = {
 // eval_systems convention. `name` is UNIQUE so the seed is idempotent by name.
 
 const insertProfile = db.prepare(`
-  INSERT INTO agent_profiles (id, name, tier, charter, default_model, allowed_tools, mcp_servers, skills, created_at)
-  VALUES (@id, @name, @tier, @charter, @defaultModel, @allowedTools, @mcpServers, @skills, @createdAt)
+  INSERT INTO agent_profiles (id, name, tier, charter, default_model, allowed_tools, mcp_servers, skills, identity_overlay, created_at)
+  VALUES (@id, @name, @tier, @charter, @defaultModel, @allowedTools, @mcpServers, @skills, @identityOverlay, @createdAt)
 `)
 const getProfileRow = db.prepare(`SELECT * FROM agent_profiles WHERE id = ?`)
 const getProfileByNameRow = db.prepare(`SELECT * FROM agent_profiles WHERE name = ?`)
@@ -3533,7 +3533,8 @@ const listProfileRows = db.prepare(`SELECT * FROM agent_profiles ORDER BY create
 const updateProfileRow = db.prepare(`
   UPDATE agent_profiles
   SET name = @name, tier = @tier, charter = @charter, default_model = @defaultModel,
-      allowed_tools = @allowedTools, mcp_servers = @mcpServers, skills = @skills
+      allowed_tools = @allowedTools, mcp_servers = @mcpServers, skills = @skills,
+      identity_overlay = @identityOverlay
   WHERE id = @id
 `)
 
@@ -3575,6 +3576,9 @@ export function rowToAgentProfile(r: Record<string, unknown>): AgentProfile {
     allowedTools: parseStrArr(r.allowed_tools),
     mcpServers: parseStrArr(r.mcp_servers),
     skills: parseStrArr(r.skills),
+    // L1.5 identity overlay (D-126): nullable TEXT, no storage sentinel — '' is a
+    // meaningful value (the operator's "silence the seed" affordance, ≠ NULL).
+    identityOverlay: r.identity_overlay == null ? null : String(r.identity_overlay),
     planGate: r.plan_gate === 1 ? true : undefined,
   }
 }
