@@ -36,17 +36,19 @@
   --glass-panel-bg: rgba(28, 28, 38, 0.42);
   --glass-overlay-bg: rgba(30, 30, 42, 0.58);
   --glass-tier-border: rgba(255, 255, 255, 0.10);
-  --glass-sheen: rgba(255, 255, 255, 0.06);
+  --glass-sheen: rgba(255, 255, 255, 0.07);
   --shadow-1: 0 2px 8px rgba(10, 4, 24, 0.35);
   --shadow-2: 0 6px 24px rgba(10, 4, 24, 0.45);
   --shadow-3: 0 16px 48px rgba(10, 4, 24, 0.60);
   --dur-1: 120ms; --dur-2: 180ms; --dur-3: 240ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
-  /* ── LG2 (impressive-wave W0.2) ── living-ambient blobs, specular edge,
-     pointer sheen, refraction scale. Hues derived from the D-011 family:
-     chart-5 violet / accent blush / accent-hover sky / indigo (chart-8-adjacent)
-     at low alpha. Tier fills dropped one step (.55/.72/.82 → .48/.64/.76) —
-     AA-verified vs the brightest blob (see plan W0.2: all ≥4.5:1). */
+  /* ── LG2 hue-family tokens (impressive-wave W0.2, retuned in ui-refinement) ──
+     the living-ambient animation, pointer sheen, and SVG refraction that
+     originally consumed these are gone; the tokens live on to paint the static
+     wallpaper gradient presets (.bg-gradient-*, below), the specular edge
+     (--lg-edge), and the static hover sheen (--lg-sheen, .glass-interactive).
+     Hues derived from the D-011 family: chart-5 violet / accent blush /
+     accent-hover sky / indigo (chart-8-adjacent) at low alpha. */
   --lg-blob-1: rgba(168, 85, 247, 0.16);
   --lg-blob-2: rgba(255, 143, 192, 0.13);
   --lg-blob-3: rgba(56, 189, 248, 0.11);
@@ -224,14 +226,11 @@ body { font-variant-numeric: tabular-nums; }
    (works identically on touch/keyboard focus-visible via :hover parity in modern
    browsers). Reuses the --lg-sheen token so the LG2 token contract (tokens.test.ts)
    stays intact. A standalone ::before (its own background, independent of the
-   tier's own `background` shorthand) — composes with the W0.5 double-background
-   tier fill/edge without touching it, and with W0.4's z-index:-1 refract ::after:
-   refract paints in the stacking context's negative-z step (behind all normal
-   content), this ::before has no z-index (auto) so it paints in the
-   positioned/auto step AFTER normal content — i.e. the sheen highlights on top,
-   the refraction distorts the backdrop behind, exactly the desired relative
-   order. No edits to .glass-chrome/.glass-panel/.glass-overlay's own `background`
-   or `::after` rules. */
+   tier's own `background` shorthand) composes with the W0.5 double-background
+   tier fill/edge without touching it. The ::before has no z-index (auto), so it
+   paints in the positioned/auto step AFTER normal content — the sheen highlights
+   sit on top. No edits to .glass-chrome/.glass-panel/.glass-overlay's own
+   `background` rules. */
 @layer components {
   .glass-interactive { position: relative; transition: filter var(--dur-2) var(--ease); }
   .glass-interactive::before {
