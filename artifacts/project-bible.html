@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-16 17:11</span><br>
+      compiled <span class="mono">2026-07-18 01:55</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -253,7 +253,11 @@ redesign.</li>
 output still lands as a durable artifact, run record, or PR; the chat directs work, it never
 replaces the audit trail.</li>
 </ul>
-<div class="live-empty">— no run data yet —</div>
+<div class="live-stats">
+      <div class="stat"><span class="stat-label">TOTAL RUNS</span><span class="stat-value">90</span></div>
+      <div class="stat"><span class="stat-label">TOKENS</span><span class="stat-value">3.7M</span></div>
+      <div class="stat"><span class="stat-label">COST</span><span class="stat-value">$6.40</span></div>
+    </div>
 
     </section>
 
@@ -1125,7 +1129,7 @@ only (§04).</p>
         <span class="section-icon">⟲</span>
         <h1>Workflows &amp; Memory</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-16</span>
       </header>
       <blockquote>
 <p><strong>Status — BUILT (Phase 5, finalized P5.7).</strong> The single hardcoded delegation loop
@@ -1154,12 +1158,31 @@ checkpoint chain (sweep-immune <code>refs/k-pipelines/…</code>), declarative +
 retry-in-place (the self-heal retry brain + the <code>runs.pipeline_stage_id</code> ownership guard that prevents
 double-fire), conditional forward routing (<code>markSkips</code> + skip-aware finalize), and reboot reconcile —
 all built the lead-relay way (DB ledger + CAS claim). K (or the operator) delegates via
-<code>delegate_pipeline</code> / <code>POST /api/pipelines/:id/run</code>, and the Agents→Pipelines tab renders the live DAG.
-The legacy <code>NamedWorkflow</code>/<code>buildDelegationPrompt</code> path stays for backward-compat — a legacy row lazily
-compiles via <code>namedWorkflowToPipeline</code>. Seeded reference pipelines: <code>code-wave</code> (implementer → parallel
-share-tree reviews → merge-join controller → gate → verify), <code>investigate</code>, <code>refactor</code>. See §10 D-119
-and the §09 roadmap. <strong>Deferred:</strong> repair-LOOP back-edges, <code>commit</code>/<code>ci</code> deterministic actions, hook
-<code>inject</code> propagation, run-internal operator hooks (Phase 1.5), the injection intelligence (Phase 3).</p>
+<code>delegate_pipeline</code> / <code>POST /api/pipelines/:id/run</code>, and the Agents → Automations tab (D-120, §08)
+renders the live DAG. Seeded reference pipelines: <code>code-wave</code> (implementer → parallel share-tree
+reviews → merge-join controller → gate → verify), <code>investigate</code>, <code>refactor</code>. See §10 D-119 and the
+§09 roadmap.</p>
+<p><strong>SUPERSEDED AGAIN — executable pipelines now REPLACE the legacy named-workflow templates
+outright (D-120, Orchestration Program Phase 2, 2026-07-16).</strong> The D-119-era "stays for
+backward-compat, lazily compiles" posture is gone: at <strong>boot</strong>, every existing <code>NamedWorkflow</code>
+template AND every <code>type:'workflow'</code> skill is <strong>converted to a <code>PipelineSpec</code> pipeline def</strong>
+(idempotent — an already-converted row is skipped — and fail-safe — a conversion error degrades
+that one row rather than blocking boot). The <strong>legacy <code>WorkflowsView</code> UI is retired</strong>; its former
+address (<code>#/workflows</code>, <code>#/workflow-detail/:id</code>) redirects into <strong>Agents → Automations → Library</strong>
+(§08). <code>PipelineSpec</code> (not <code>NamedWorkflow</code>/<code>buildDelegationPrompt</code>) is now <strong>the</strong> definition —
+the <code>workflow_definitions</code> table and its <code>spec</code> column persist, but the row is read/run as a
+pipeline everywhere, including the <strong>6 newly-seeded standard pipelines</strong> (Implementation Cycle,
+Deep Research, Bug Triage &amp; Fix, Refactor, Security Audit, Quick Task) that ship alongside the
+Phase-1 reference three. Phase 2 also added a per-worker registry (§08 Sub Agents) so an <code>agent</code>
+stage names a real, editable actor instead of a hardcoded subagent string, and <strong>bounded loops</strong>
+(<code>when:'loop'</code> + <code>maxIterations</code> ≤10) to the engine itself. <strong>Deferred (documented, D-120):</strong>
+operator-worker EXECUTION (Phase 2.5 — the registry is editable but an operator-authored worker
+isn't yet mountable as a live stage actor); the autonomous multi-pipeline supervision loop (a
+later phase, consuming the progress ledger this wave added); event triggers for pipelines; loop
+re-fork semantics (a loop re-entry re-forks from the loop head's pre-loop base, not the prior
+iteration's result tree — cross-stage tree-carry is a Phase-3/injection concern). Carried forward
+from D-119: repair-LOOP back-edges, <code>commit</code>/<code>ci</code> deterministic actions, hook <code>inject</code>
+propagation, run-internal operator hooks (Phase 1.5), the injection intelligence (Phase 3).</p>
 </blockquote>
 <p>Phase 5 generalizes that single loop into <strong>named workflow definitions</strong> a lead selects per goal. A
 definition is a small declarative record — its role sequence, the prompt scaffold, and a scope flag —
@@ -1562,7 +1585,9 @@ Artifacts tab's <strong>"Refresh from disk"</strong> button. Serving posture is 
 </ul>
 <h2>Lifecycle</h2>
 <p><code>registered → onboarded (invariants satisfied) → active (runs/PRs flowing) → idle (no activity N days) → archived (hidden from home, data retained)</code></p>
-<div class="live-empty">— no registered project data yet —</div>
+<table><thead><tr><th>project</th><th>health</th><th>last verified</th></tr></thead><tbody><tr><td>jarvis-core</td>
+        <td><span class="dot dot-amber"></span><span class="mono">—</span></td>
+        <td>never</td></tr></tbody></table>
 
     </section>
 
@@ -1920,7 +1945,39 @@ gate, a machine-derived lesson still needs operator approval before it joins a p
 nothing self-modifies its brain. <strong>Scope (honest, D-113):</strong> implemented off <strong><code>verify_results</code>
 only</strong>; <strong><code>eval_results</code> is DEFERRED</strong> (it has no free-text failure-reason column to signature on) as
 a documented extension point.</p>
-<div class="live-empty">— no run data yet —</div>
+<table><thead><tr><th>run</th><th>prompt</th><th>status</th><th>cost</th><th>started</th></tr></thead><tbody><tr>
+      <td>2af732d7</td>
+      <td>why hasnt the chief completed the goal?</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.033</td>
+      <td>2026-07-17 03:15</td>
+    </tr><tr>
+      <td>cbde60c8</td>
+      <td>what does that even mean</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.008</td>
+      <td>2026-07-17 03:10</td>
+    </tr><tr>
+      <td>8da947d2</td>
+      <td>Delegated from K (the secretary) on the operator's behalf: "dele…</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.222</td>
+      <td>2026-07-17 03:06</td>
+    </tr><tr>
+      <td>05c8a866</td>
+      <td>ask me a question</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.009</td>
+      <td>2026-07-17 03:05</td>
+    </tr><tr>
+      <td>daf00346</td>
+      <td>You: Hello, this is chat one
+You: whomp
+(You are K, the secretar…</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.072</td>
+      <td>2026-07-17 03:02</td>
+    </tr></tbody></table>
 
     </section>
 
@@ -1929,7 +1986,7 @@ a documented extension point.</p>
         <span class="section-icon">▣</span>
         <h1>Dashboard — Command Deck</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-16</span>
       </header>
       <p>The dashboard is the <strong>window into the agent organization</strong> (§03) — held to product quality, not
 internal-tool quality. <strong>UI Simplification (D-101..D-106)</strong> re-frames it a second time: P4's
@@ -2004,13 +2061,13 @@ never a redirect key).</p>
 <td>♛ <strong>Agents</strong></td>
 <td><code>#/agents</code></td>
 <td>Org · Skills · Workflows</td>
-<td>the agent organization — <strong>Org</strong> (Roster/Tree/Graph), <strong>Skills</strong> (catalog), <strong>Pipelines</strong> (named workflow defs) — 3 tabs</td>
+<td>the agent organization — <strong>Org</strong> (Roster/Tree/Graph), <strong>Catalog</strong> (Skills/MCP/Hooks/Sub Agents), <strong>Automations</strong> (Library/Runs/Schedules — the unified pipeline surface) — 3 tabs <em>(D-120 restructured the tab names/shape; superseded D-101's Org·Skills·Pipelines split — see below)</em></td>
 </tr>
 <tr>
 <td>▶ <strong>Runs</strong></td>
 <td><code>#/runs</code></td>
 <td>—</td>
-<td>live + past runs with the rich console, now a plain master-detail (no Workflows sub-tab — Pipelines owns that now)</td>
+<td>live + past runs with the rich console, now a plain master-detail (no Workflows sub-tab — Agents → Automations → Runs owns pipeline-run visibility now)</td>
 </tr>
 <tr>
 <td>∿ <strong>Insights</strong></td>
@@ -2205,8 +2262,12 @@ silent either. <code>memory_save</code> and the resulting "your current memories
 wired into <strong>K's secretary charter only</strong> (<code>agent-config/tiers/secretary.charter.md</code>) — Chief and
 the leads neither call the tool nor carry the injection, keeping "knows the operator" a property of
 the one agent that actually talks to them.</p>
-<h2>Agents hub (D-101, 3 tabs)</h2>
-<p><code>AgentsPage</code> merges Org + Skills + the former standalone Workflows page under one <code>Tabs</code> surface:</p>
+<h2>Agents hub (D-101 folded the surfaces in; D-120 restructured the tab shape)</h2>
+<p><code>AgentsPage</code> merges Org + the capability catalog + the pipeline surface under one <code>Tabs</code> surface.
+<strong>The Orchestration Program Phase 2 IA restructure (D-120) renamed and reshaped the original D-101
+<code>Org · Skills · Pipelines</code> split into three top tabs — <code>Org</code> / <code>Catalog</code> / <code>Automations</code></strong>
+(<code>web/src/pages/AgentsPage.tsx</code> <code>TAB_IDS</code>); legacy <code>#/agents/skills/*</code> and <code>#/agents/pipelines/*</code>
+deep links redirect straight into the new tabs (Retirements &amp; redirects, below):</p>
 <table>
 <thead>
 <tr>
@@ -2219,12 +2280,12 @@ the one agent that actually talks to them.</p>
 <td>the roster of leads behind a <strong>Roster / Tree / Graph</strong> <code>SegControl</code> (<code>OrgPage</code>) — unchanged from P4's "one org surface" (D-096): Roster is slim cards, Tree is the whole-org DelegationTree, Graph is the fleet 3D graph. Carries a <strong>read-only autonomy status chip</strong> (Autonomy OFF/ON) deep-linking to Settings → Autonomous Org — no duplicated controls (P5 Autonomy, D-107)</td>
 </tr>
 <tr>
-<td><strong>Skills</strong></td>
-<td>the capability catalog — unchanged 4 routed sub-tabs: Catalog · MCP · Hooks · Automations (below)</td>
+<td><strong>Catalog</strong></td>
+<td>the reusable building blocks — formerly the standalone "Skills" tab, now 4 routed sub-tabs: <strong>Skills</strong> (the capability catalog itself, default — below) · <strong>MCP</strong> · <strong>Hooks</strong> · <strong>Sub Agents</strong> (NEW, D-120 — the editable worker registry, below)</td>
 </tr>
 <tr>
-<td><strong>Pipelines</strong></td>
-<td>named workflow <strong>definitions</strong> — the former standalone Workflows page, folded in here rather than under Runs (its P4 home); a definition's role sequence, prompt scaffold, cross-project flag, and the "Run this workflow" launcher</td>
+<td><strong>Automations</strong></td>
+<td>the unified pipeline surface (<code>AutomationsView</code>) — formerly the standalone "Pipelines" tab plus the Catalog-side workflow-skills registry, now 3 sub-tabs: <strong>Library</strong> (pipeline definitions, incl. the 6 seeded standard pipelines, below) · <strong>Runs</strong> (pipeline execution history + the live DAG) · <strong>Schedules</strong> (cron-triggered skills AND pipeline schedules — merges the old triggers/schedules/eval-history registry, below)</td>
 </tr>
 </tbody></table>
 <h3>Orchestrator detail (drill-in, <code>#/orchestrator/:id</code>)</h3>
@@ -2236,22 +2297,51 @@ recent-cost line</strong> sourced from <code>GET /api/metrics/recent-actuals</co
 stored run costs, never price × token estimation — alongside the existing recent-health line and
 <code>effectiveModel</code> chip. The <strong>per-lead authority override panel</strong> still reads "inherits the org
 default unless overridden"; the org-default itself is edited only in Settings.</p>
-<h3>Skills — the capability catalog (unchanged)</h3>
-<p>Still <strong>one destination, four routed tabs</strong> — Catalog (source badge, model-compat badge, est-token
-chip, enable toggle, SKILL.md preview) · MCP (tier-template + discovered-host servers behind the
-TrustDialog) · Hooks (read-only host-hook visibility) · Automations (triggers, schedules, eval
-history) — headed by the <code>CapabilityStatRow</code> totals strip. Content is unchanged from the
-host-integration program (D-069..D-071); only its address moved from a standalone rail entry to
-Agents → Skills.</p>
-<p><strong>Routines are first-class on the Automations tab (P5 Autonomy, E-16, D-110).</strong> No new table and no
-new rail slot — the existing node-cron Automations registry (over the <code>skills</code> table) gains: an
-<strong>NL→cron helper</strong> (RULES-ONLY, no model — an unmappable phrase returns <code>400</code> at the route boundary,
-never a guess), a <strong>next-run</strong> display, and a <strong>measured cost per routine</strong> (summed from its run
-history via a JOIN to <code>runs.cost_usd</code> — measured actuals, never estimated). A routine <em>is</em> a
-schedule-triggered skill, so it needs derived next-run + measured cost, not a new entity.</p>
+<h3>Catalog — the capability catalog + worker registry (D-069..D-071, D-120)</h3>
+<p><code>CatalogPage</code> (<code>Agents → Catalog</code>) is <strong>one destination, four routed sub-tabs</strong> — <strong>Skills</strong>
+(source badge, model-compat badge, est-token chip, enable toggle, SKILL.md preview; the <em>default</em>
+sub-tab and the direct successor of the old standalone "Catalog" sub-tab) · <strong>MCP</strong> (tier-template +
+discovered-host servers behind the TrustDialog) · <strong>Hooks</strong> (read-only host-hook visibility) ·
+<strong>Sub Agents</strong> (NEW, D-120 — below) — headed by the <code>CapabilityStatRow</code> totals strip. Skills/MCP/Hooks
+content is unchanged from the host-integration program; only its address moved, first from a
+standalone rail entry to <code>Agents → Skills</code> (D-101), then to <code>Agents → Catalog</code> (D-120). The old
+4th "Automations" sub-tab (triggers/schedules/eval history) is <strong>retired from Catalog</strong> — its data
+and affordances now live on <code>Agents → Automations → Schedules</code> (below); legacy
+<code>#/agents/skills/automations</code> redirects there.</p>
+<p><strong>Sub Agents — the editable worker registry (NEW, D-120).</strong> Every profile an orchestrator's pipeline
+stage can dispatch to, catalog-style: <strong>K-native rows</strong> (<code>source:'k'</code>, parsed live from
+<code>agent-config/agents/*.md</code>) are <strong>read-only</strong> here — a <strong>Fork to edit</strong> action clones one into a new
+<strong>operator row</strong> rather than mutating the shipped file — while <strong>operator rows</strong>
+(<code>source:'operator'</code>, the <code>sub_agent_defs</code> table) carry full CRUD (edit/delete/enable) through
+<code>GET/POST/PATCH/DELETE /api/sub-agents</code>. A pipeline <code>agent</code> stage names its actor via <code>subagentType</code>,
+resolved against this registry at dispatch time. <strong>Honest limitation (Phase 2.5, tracked):</strong>
+creating or editing an operator worker here does not yet make it <em>runnable</em> as a live pipeline stage
+— the registry row exists and is fully editable, but the create-time materializer that mounts it as
+a confined, dispatchable worker file is a later phase (§09 roadmap).</p>
+<h2>Automations — the unified pipeline surface (D-120)</h2>
+<p><code>AutomationsView</code> (<code>Agents → Automations</code>) folds the former standalone "Pipelines" tab and the old
+Catalog-side workflow-skills registry into <strong>one surface, three panes</strong>:</p>
+<ul>
+<li><strong>Library</strong> — pipeline <strong>definitions</strong>, including the <strong>6 seeded standard pipelines</strong> (Implementation
+Cycle, Deep Research, Bug Triage &amp; Fix, Refactor, Security Audit, Quick Task) plus any custom
+<code>PipelineSpec</code>/<code>NamedWorkflow</code> defs; a definition's stage sequence, cross-project flag, and the
+<strong>"Run this workflow"</strong>-style pipeline launcher (<code>RunPipelineDialog</code>) all live here — the direct
+successor of the old standalone Pipelines tab.</li>
+<li><strong>Runs</strong> — pipeline execution history and the <strong>live DAG</strong> (<code>PipelineGraph</code> — a React Flow
+pan/zoom/minimap canvas since D-121, per-stage cards, gate
+dialog), plus the <strong>progress ledger</strong> panel (<code>PipelineLedgerPanel</code>, D-120) and an <strong>orchestrator
+multi-pipeline view</strong> — runs grouped by owning orchestrator via <code>pipeline_runs.owner_profile_id</code>.</li>
+<li><strong>Schedules</strong> — cron-triggered skills AND <strong>pipeline schedules</strong> in one list. <strong>Routines were made
+first-class here in P5 Autonomy (E-16, D-110)</strong>: an <strong>NL→cron helper</strong> (RULES-ONLY, no model — an
+unmappable phrase returns <code>400</code> at the route boundary, never a guess), a <strong>next-run</strong> display, and a
+<strong>measured cost per routine</strong> (summed from its run history via a JOIN to <code>runs.cost_usd</code> — measured
+actuals, never estimated). <strong>D-120 extends the same routine with an optional pipeline target</strong>
+(<code>skills.pipeline_def_id</code> → <code>RoutineView.pipelineDefId</code>) — a routine can now trigger a pipeline
+manually or on its cron schedule, not just a skill.</li>
+</ul>
 <h2>Runs (rail entry, now a plain master-detail)</h2>
-<p><strong>Runs no longer carries a Workflows sub-tab</strong> — that content moved to Agents → Pipelines (above),
-so <code>RunsPage</code> is now exactly a <code>RunList</code> + <code>RunConsole</code> split with nothing else. Runs render as
+<p><strong>Runs no longer carries a Workflows sub-tab</strong> — that content moved to Agents → Automations → Library/Runs
+(above), so <code>RunsPage</code> is now exactly a <code>RunList</code> + <code>RunConsole</code> split with nothing else. Runs render as
 <strong>structured, collapsed-by-default</strong> items — commands (<code>$ …</code> with output on expand), file ops (Write
 preview, Edit/MultiEdit diff hunks), and delegated sub-agents (type + label, full prompt + result on
 expand). A <strong>Console / Timeline / Changes</strong> <code>SegControl</code> toggles the console between the dense event
@@ -2336,10 +2426,13 @@ out-of-bounds/overlap/duplicate ids). <code>GET/PUT /api/settings/home-layout</c
 <code>setHomeLayout()</code> — <code>400</code> on a <code>safeParse</code> failure, never a silent partial write.</li>
 </ul>
 <p>All three are additive to schema v10 (P4) — no destructive migration, no <code>WsMessage</code> shape change.</p>
-<h2>Retirements &amp; redirects (D-106)</h2>
-<p>Every view string this restructure removed from <code>KNOWN_VIEWS</code> keeps a <code>VIEW_REDIRECTS</code> entry
+<h2>Retirements &amp; redirects (D-106; extended by D-120)</h2>
+<p>Every view string either restructure removed from <code>KNOWN_VIEWS</code> keeps a <code>VIEW_REDIRECTS</code> entry
 (<code>web/src/lib/route.ts</code>) so a bookmarked or shared legacy hash still resolves — applied via
-<code>history.replaceState</code> (never a push), so Back never bounces through a dead intermediate hash:</p>
+<code>history.replaceState</code> (never a push), so Back never bounces through a dead intermediate hash. <strong>D-120
+added the <code>agents/skills/*</code> → <code>agents/catalog/*</code> and <code>agents/pipelines/*</code> → <code>agents/automations/*</code>
+entries below</strong> (operating on Agents' own sub-param, mirroring the pre-existing <code>runs</code> entry, so an
+already-canonical <code>#/agents/&lt;catalog|automations|org&gt;/*</code> hash passes through unchanged):</p>
 <table>
 <thead>
 <tr>
@@ -2373,11 +2466,11 @@ out-of-bounds/overlap/duplicate ids). <code>GET/PUT /api/settings/home-layout</c
 </tr>
 <tr>
 <td><code>#/workflows[/:id]</code></td>
-<td>Agents → Pipelines[/:id]</td>
+<td>Agents → Automations[/:id]</td>
 </tr>
 <tr>
 <td><code>#/workflow-detail/:id</code></td>
-<td>Agents → Pipelines/:id</td>
+<td>Agents → Automations/:id</td>
 </tr>
 <tr>
 <td><code>#/memory</code> , <code>#/lessons</code></td>
@@ -2393,7 +2486,15 @@ out-of-bounds/overlap/duplicate ids). <code>GET/PUT /api/settings/home-layout</c
 </tr>
 <tr>
 <td><code>#/skills[/:tab]</code> (P4-era)</td>
-<td>Agents → Skills[/:tab]</td>
+<td>Agents → Catalog[/:tab] <em>(D-120; a bare <code>#/skills/automations</code> — the retired workflow-skills registry sub-tab — redirects to the top-level Automations tab instead of a nonexistent Catalog sub-tab)</em></td>
+</tr>
+<tr>
+<td><code>#/agents/skills[/:tab]</code> (D-101-era)</td>
+<td>Agents → Catalog[/:tab] <em>(D-120)</em></td>
+</tr>
+<tr>
+<td><code>#/agents/pipelines[/:id]</code> (D-101-era)</td>
+<td>Agents → Automations[/:id] <em>(D-120)</em></td>
 </tr>
 <tr>
 <td><code>#/inbox</code> (P4-era)</td>
@@ -2401,7 +2502,7 @@ out-of-bounds/overlap/duplicate ids). <code>GET/PUT /api/settings/home-layout</c
 </tr>
 <tr>
 <td><code>#/runs/workflows[/:id]</code></td>
-<td>Agents → Pipelines[/:id] — plain <code>#/runs/:runId</code> is unaffected (identity redirect, <code>resolveRoute</code> never re-navigates a real run id)</td>
+<td>Agents → Automations[/:id] — plain <code>#/runs/:runId</code> is unaffected (identity redirect, <code>resolveRoute</code> never re-navigates a real run id)</td>
 </tr>
 </tbody></table>
 <p>An unrouted hash that matches none of the above (and isn't a canonical view) is still a 404
@@ -2496,7 +2597,9 @@ day totals and trends in Insights, health on Org's thin line / project Overview.
 events invalidate the Agents/Org queries too, throttled leading+trailing at 250 ms
 (<code>lib/live-invalidate.ts</code>).</li>
 <li><strong>Breadcrumbs.</strong> <code>TopBar</code> renders real breadcrumbs for the param-routed detail views —
-<em>Agents › Org › &lt;name&gt;</em>, <em>Agents › Pipelines › &lt;name&gt;</em>, <em>Projects › &lt;name&gt;</em>.</li>
+<em>Agents › Org › &lt;name&gt;</em>, <em>Agents › Automations › &lt;name&gt;</em>, <em>Projects › &lt;name&gt;</em>. <strong>D-120 dropped
+the leading tab icon from <code>TopBar</code>'s title</strong> (<code>topbar-title</code> is title/breadcrumb text only now — the
+<code>Icon</code>/<code>IconName</code> lookup it used was deleted, not merely hidden).</li>
 <li><strong>Focus + a11y.</strong> The Message Dock overlay carries <code>role="dialog"</code>/<code>aria-modal</code>/label and a focus
 trap (<code>lib/useFocusTrap.ts</code>) that returns focus to the FAB on Escape; ConfirmDialog and the evals
 RunDialog get the same trap. Accent fills always use dark <code>--bg</code> text via the <code>--on-accent</code> token.</li>
@@ -2549,22 +2652,22 @@ not a single hero/non-hero switch:</p>
 </thead>
 <tbody><tr>
 <td><code>.glass-chrome</code></td>
-<td><code>--glass-chrome-bg</code> rgba(42,26,71,.48)</td>
-<td><code>blur(24px) saturate(1.4)</code></td>
+<td><code>--glass-chrome-bg</code> rgba(24,24,34,.42)</td>
+<td><code>blur(24px) saturate(1.6)</code></td>
 <td>(caller's)</td>
 <td>persistent shell chrome — Sidebar, TopBar, the Message Dock bar</td>
 </tr>
 <tr>
 <td><code>.glass-panel</code></td>
-<td><code>--glass-panel-bg</code> rgba(42,26,71,.64)</td>
-<td><code>blur(16px) saturate(1.2)</code></td>
+<td><code>--glass-panel-bg</code> rgba(28,28,38,.42)</td>
+<td><code>blur(22px) saturate(1.6)</code></td>
 <td>18px</td>
 <td>in-flow cards/panels — widget cells, KPI tiles, summary cards</td>
 </tr>
 <tr>
 <td><code>.glass-overlay</code></td>
-<td><code>--glass-overlay-bg</code> rgba(51,32,92,.76)</td>
-<td><code>blur(28px) saturate(1.4)</code></td>
+<td><code>--glass-overlay-bg</code> rgba(30,30,42,.58)</td>
+<td><code>blur(28px) saturate(1.6)</code></td>
 <td>18px</td>
 <td>floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay</td>
 </tr>
@@ -2576,7 +2679,7 @@ not a single hero/non-hero switch:</p>
 <td>dense repeated rows — fleet/roster grids, list rows</td>
 </tr>
 </tbody></table>
-<p>The tier fills dropped one step from the D-114 launch values (<code>.55/.72/.82</code> → <code>.48/.64/.76</code>) as part of <strong>Liquid Glass 2.0 (D-115, below)</strong>: the brighter living-ambient layer pushed an AA/WCAG contrast re-check, which forced the lighter fills to hold ≥4.5:1 body-text contrast against the brightest blob — an accessibility result, not an aesthetic tweak.</p>
+<p>The tier fills have been re-graded twice. <strong>Liquid Glass 2.0 (D-115, below)</strong> first dropped them one step from the D-114 launch values (<code>.55/.72/.82</code> → <code>.48/.64/.76</code>) so body text held ≥4.5:1 AA/WCAG contrast against the brighter living-ambient layer. <strong>UI Refinement (D-128, 2026-07-17)</strong> then retuned the whole glass system from the D-011 purple family to a <strong>neutral modern frosting</strong> — the values in the table above (dark-neutral <code>.42/.42/.58</code>) over higher blur/saturate (22–28px / 1.6), with D-115's living-ambient <em>animation</em> and SVG <em>refraction</em> removed and the static wallpaper (below) supplying the backdrop. Only token <strong>values</strong> moved; the token <strong>names</strong> stayed stable, so <code>tokens.test.ts</code> and every consumer are untouched.</p>
 <p>Each blurred tier carries an <code>@supports not (backdrop-filter: blur(1px))</code> opaque fallback
 (<code>.glass-chrome</code>→<code>--surface</code>, <code>.glass-panel</code>/<code>.glass-overlay</code>→<code>--raised</code>) so a browser without
 backdrop-filter support never renders transparent text-on-text.</p>
@@ -2592,11 +2695,10 @@ viewport budget</strong>, checked by a per-wave visual pass at 1440×900 and a f
 manual review discipline, not an automated test — that pushes a view over budget (an 11-tile KPI
 row, a large fleet/roster grid) onto <code>tier="solid"</code> instead; <strong>(4)</strong> dense data still defaults to
 opaque, unchanged from D-013/D-024.</p>
-<p><strong>Blur-budget accounting under LG2.</strong> The W0.4 refraction layer (D-115, below) is a <code>::after</code>
-pseudo-element <strong>of the same tier host</strong>, not a second nested glass surface — so a tier and its own
-<code>::after</code> count as <strong>one</strong> blurred region against the ≤6 budget, not two. The no-nested-backdrop-
-filter rule (2) is likewise unchanged: the refract <code>::after</code> is a child of its host's box but is not
-a nested glass <em>element</em>, so it doesn't trip the nesting ban.</p>
+<p><strong>Blur-budget accounting.</strong> Each glass tier is exactly <strong>one</strong> blurred region. (D-115's Liquid
+Glass 2.0 added a refraction <code>::after</code> to <code>.glass-chrome</code>/<code>.glass-overlay</code> that counted as part of
+its host's single region, not a second; <strong>D-128 removed the refraction layer entirely</strong>, so today
+every tier is a single, un-nested <code>backdrop-filter</code> with no <code>::after</code> blur left to account for.)</p>
 <p><strong>Accepted exception — Home → Overview (the default landing).</strong> The final whole-app sweep
 (1440×900) found every reskinned route at ≤6 blurred regions <em>except</em> Home's Overview, which
 lands at <strong>8</strong>: the three always-present chrome bars (Sidebar, TopBar, Message-Dock bar, all
@@ -2612,6 +2714,16 @@ measured-perf justification.</p>
 <h3>Liquid Glass 2.0 — living ambient · refraction · specular edges · pointer sheen (D-115)</h3>
 <p>A second glass pass layers four effects onto the tier system above, each token-driven and
 motion/capability-guarded. All new tokens live in <code>index.css</code> <code>:root</code> under the <code>LG2 (W0.2)</code> block.</p>
+<blockquote>
+<p><strong>Partly superseded by D-128 (UI Refinement, 2026-07-17).</strong> The living-ambient blob <strong>animation</strong>
+(W0.3) and the SVG <strong>refraction</strong> (W0.4) described below were REMOVED; the <code>--lg-blob-*</code> tokens
+survive to paint the static wallpaper gradient presets (see the background system below), and the
+<strong>specular edges (W0.5) are retained</strong> (all three tiers still carry the <code>border-box</code> <code>--lg-edge</code>
+wash + <code>inset</code> highlight). The pointer sheen (W0.6) had already been replaced by D-121's static
+hover. The glass palette was retuned from the D-011 purple family to neutral modern-frosted (the
+tier table above holds the current values). The four bullets below document the LG2-era mechanics
+for the record.</p>
+</blockquote>
 <ul>
 <li><strong>Living ambient (W0.3, <code>shell/Ambient.tsx</code>).</strong> The old three static radial washes are replaced by
 <strong>four hue-drifting blobs</strong> (<code>.ambient-blob-1..4</code>, one decorative <code>.ambient</code> layer, still the
@@ -2635,13 +2747,60 @@ background</strong> — the fill on <code>padding-box</code> plus a <code>135deg
 wash on <code>border-box</code> — and an <code>inset 0 1px 0 var(--lg-edge)</code> box-shadow highlight. This supersedes
 the old <code>--glass-sheen</code> highlight everywhere; <strong><code>--glass-sheen</code> is now vestigial</strong> (still defined in
 <code>:root</code>, referenced by no active rule).</li>
-<li><strong>Pointer sheen (W0.6, opt-in <code>.glass-interactive</code>).</strong> <code>lib/use-glass-pointer.ts</code> mounts <strong>one</strong>
-window-level, rAF-throttled <code>pointermove</code> listener in <code>Shell</code> that writes <code>--lg-mx</code>/<code>--lg-my</code>
-(viewport px) onto <code>&lt;html&gt;</code>; <code>.glass-interactive::before</code> paints a 10%-alpha <code>--lg-sheen</code> radial
-highlight at those coords via <code>background-attachment: fixed</code>, so one variable pair serves every
-card. Disabled under <code>prefersReducedMotion()</code> and <code>pointer: coarse</code> (touch) — the hook no-ops and
-the sheen never appears. (The <code>ui-demo</code> mirror carries a static <code>.glass-interactive</code> sheen only —
-the offline demo has no pointer hook; see §11.)</li>
+<li><strong>Pointer sheen (W0.6, opt-in <code>.glass-interactive</code>).</strong> <em>Superseded by D-121 (Phase 2.6) — see below.</em>
+Originally: <code>lib/use-glass-pointer.ts</code> mounted <strong>one</strong> window-level, rAF-throttled <code>pointermove</code>
+listener in <code>Shell</code> writing <code>--lg-mx</code>/<code>--lg-my</code> (viewport px) onto <code>&lt;html&gt;</code>, and
+<code>.glass-interactive::before</code> painted a 10%-alpha <code>--lg-sheen</code> radial highlight at those coords via
+<code>background-attachment: fixed</code>. Phase 2.6 replaced the cursor-tracking effect with a static hover
+(below); the hook + <code>--lg-mx</code>/<code>--lg-my</code> are gone, and <code>--lg-sheen</code> is retained (reused by the
+static gradient).</li>
+</ul>
+<h3>Usability &amp; Access (Phase 2.6) — page backgrounds · static hover · React Flow canvas · Access console (D-121)</h3>
+<ul>
+<li><strong>Page background → user-settable wallpaper (<code>shell/Background.tsx</code>, D-128).</strong> <em>Supersedes the
+D-121 galaxy/starfield variant system.</em> One route-agnostic <code>&lt;Background&gt;</code> mounted at Shell <strong>z-0</strong>
+paints the operator's saved wallpaper — a <strong>solid</strong> <code>--bg-deep</code>, one of four <strong>static CSS gradient
+presets</strong> (<code>aurora/dusk/ocean/ember</code>, recombining the retained <code>--lg-blob-*</code> tokens), or an
+<strong>uploaded image</strong>. Settings are JSON in <code>app_config</code> key <code>ui.background</code> (<code>BackgroundSettings {kind, preset, imageVersion}</code>, <code>GET/PUT /api/settings/background</code>; legacy <code>galaxy/blobs/aurora</code>
+values migrate in-read); the image is a file at <code>&lt;DATA_DIR&gt;/wallpapers/wallpaper.&lt;ext&gt;</code> (<code>PUT/GET /api/settings/background/image</code>, validated <code>png|jpeg|webp</code> ≤8 MB, fixed basename, route-scoped
+<code>bodyLimit</code>). Because every <code>/api/*</code> route is Bearer-gated a raw <code>&lt;img&gt;</code>/CSS <code>url()</code> can't attach
+the header, so the image loads via an <strong>authenticated Blob fetch → <code>URL.createObjectURL</code></strong>
+(<code>lib/useBackgroundImageUrl.ts</code>, revoked on change/unmount) — no token in any URL, no route
+auth-exemption. <strong>No canvas, no <code>requestAnimationFrame</code>:</strong> the animated galaxy starfield
+(<code>lib/starfield.ts</code>) and the <code>&lt;Ambient/&gt;</code> blob layer are RETIRED. The root keeps the uniform
+<code>data-testid="app-background"</code> + <code>data-variant</code> contract and is <code>aria-hidden</code> (decorative). A
+<strong>Settings → Appearance</strong> picker (solid/gradient/image select + FileReader→dataURL upload + live
+preview) writes the preference and invalidates the <code>['background']</code> query.</li>
+<li><strong>Static glass hover (replaces W0.6 pointer sheen).</strong> <code>.glass-interactive::before</code> now paints a
+static <code>linear-gradient(135deg, var(--lg-sheen), transparent 60%)</code> that fades in on <code>:hover</code> (plus a
+<code>filter: brightness(1.04)</code> lift) — no cursor tracking, no window listener. <code>--lg-sheen</code> is retained;
+<code>--lg-mx</code>/<code>--lg-my</code> and <code>lib/use-glass-pointer.ts</code> are removed.</li>
+<li><strong>Home chat glass.</strong> The Home → Chat rail + transcript move <code>surface-solid</code> → <code>glass-panel</code>
+(<code>data-testid</code> <code>chat-thread-rail</code> / <code>chat-transcript</code>); the composer input container stays solid (the
+no-nested-<code>backdrop-filter</code> rule). This brings the Chat view to <strong>5</strong> blurred regions (3 chrome bars +
+rail + transcript) — within the ≤6 budget (distinct from Home → Overview's accepted 8-region
+exception above).</li>
+<li><strong>Pipeline graph → React Flow (<code>components/PipelineGraph.tsx</code>).</strong> The hand-laid columnar SVG DAG is
+rewritten on <code>@xyflow/react</code> v12 + <code>@dagrejs/dagre</code> (a pure sync <code>layoutPipeline</code> in
+<code>lib/pipeline-layout.ts</code>, <code>rankdir:'LR'</code>) as an <strong>interactive read-only viewer</strong>: pan / zoom / minimap
+/ controls and ephemeral drag-to-reposition (NOT persisted — the definition stays canonical). It
+consumes the same <code>PipelineRunView</code> and live <code>['pipeline-run', runId]</code> cache (no new WS plumbing), so
+status still updates live; custom <code>PipelineStageNode</code>s are keyboard-activable (<code>role=button</code>,
+Enter/Space → select), and pass-edge marching-ants animation is frozen under <code>prefers-reduced-motion</code>.
+<strong>D-128</strong> additions: the same graph now also renders inside the pipeline <strong>definition</strong> inspector
+(<code>PipelineDefInspector</code>, via <code>lib/pipeline-preview.ts</code> <code>previewViewFromSpec</code> — synthesized <code>pending</code>
+stages, attempt line hidden at <code>attempt:0</code>), so analyzing a definition shows a DAG, not just text;
+and the library-default white React Flow MiniMap/Controls are themed to the dark app via
+<code>colorMode="dark"</code>.</li>
+<li><strong>Unified Access console (<code>pages/AccessPage.tsx</code>, the 4th Agents-hub tab).</strong> A who-has-what matrix —
+orchestrator leads + sub-agent workers (K-native read-only + operator editable) × model / tools /
+skills / MCP — with expandable
+inline editing (the editable default-model <code>&lt;Select&gt;</code> + catalog-backed <code>CapabilityPicker</code>s, patched
+through the same validated <code>api.orchestrators.update</code> / <code>api.subAgents.update</code> endpoints; K-native
+workers render read-only) and a prominent <strong>Auto-index</strong> (capability rescan) button. Sub-agent workers
+now also have a real <strong>default-model Select</strong> on their editor and are <strong>ceiling-validated</strong> at the
+orchestrator tier on create/update (D-121 — the server, not the console, is the authorization
+boundary). Available models are the unified Claude ∪ installed-Ollama list (<code>GET /api/models/available</code>).</li>
 </ul>
 <p><strong>Shadow ramp:</strong> <code>--shadow-1</code> <code>0 2px 8px rgba(10,4,24,.35)</code> · <code>--shadow-2</code> <code>0 6px 24px rgba(10,4,24,.45)</code> · <code>--shadow-3</code> <code>0 16px 48px rgba(10,4,24,.60)</code> — chrome/panel/overlay use
 1/2/3 respectively (deeper tier, deeper shadow).</p>
@@ -2894,7 +3053,19 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
     </div><div class="phase-row">
       <span class="phase-name">Orchestration Program — Phase 1: Executable Pipeline Engine (D-119)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
-      <span class="phase-pct mono">3/8</span>
+      <span class="phase-pct mono">3/3</span>
+    </div><div class="phase-row">
+      <span class="phase-name">Orchestration Program — Phase 2: Pipeline Library, IA &amp; Orchestration Visibility (D-120)</span>
+      <span class="phase-bar"><span class="phase-fill"></span></span>
+      <span class="phase-pct mono">9/14</span>
+    </div><div class="phase-row">
+      <span class="phase-name">Usability &amp; Access (Phase 2.6) (D-121)</span>
+      <span class="phase-bar"><span class="phase-fill"></span></span>
+      <span class="phase-pct mono">6/6</span>
+    </div><div class="phase-row">
+      <span class="phase-name">UI Refinement (D-128)</span>
+      <span class="phase-bar"><span class="phase-fill"></span></span>
+      <span class="phase-pct mono">6/6</span>
     </div><div class="phase-row">
       <span class="phase-name">Phase 6 — Intelligence &amp; Scale (optional)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
@@ -3354,14 +3525,50 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
 <li><input checked disabled type="checkbox" /> <strong>Reference pipelines + hook stages.</strong> Seeded <code>code-wave</code>/<code>investigate</code>/<code>refactor</code>; the <code>hook</code> stage kind's script <code>HookResult</code> contract (<code>continue</code>/<code>gate</code>/<code>transform</code>).</li>
 </ul>
 <p><strong>Deferred within Phase 1 (documented):</strong> repair-LOOP back-edges (forward routing + retry-in-place instead); <code>commit</code>/<code>ci</code> deterministic actions (agents open their own PRs); hook <code>inject</code> cross-stage propagation + agent-hook structured <code>HookResult</code>.</p>
+<h2>Orchestration Program — Phase 2: Pipeline Library, IA &amp; Orchestration Visibility (D-120)</h2>
+<p><em>Made the Phase-1 engine usable, built 2026-07-16 on <code>feat/orchestration-p2</code> (schema v14→v15). Method: a W0 shared-contract foundation → three parallel reviewed worktree lanes (engine / registry+schedules / UI+integration) → serial integration → two opus SEAMS reviews (both approved).</em></p>
+<ul>
+<li><input checked disabled type="checkbox" /> <strong>Agents IA restructure.</strong> Top tabs <strong>Org / Catalog / Automations</strong> (<code>AgentsPage</code>); Catalog's 4 sub-tabs <strong>Skills / MCP / Hooks / Sub Agents</strong>; Automations unifies <strong>Library / Runs / Schedules</strong> into one pipeline surface — replaces D-101's Org·Skills·Pipelines split; legacy <code>#/agents/skills/*</code> and <code>#/agents/pipelines/*</code> deep links redirect in.</li>
+<li><input checked disabled type="checkbox" /> <strong>Editable sub-agent worker registry.</strong> K-native workers (<code>agent-config/agents/*.md</code>, forkable, read-only until forked) + full-CRUD operator workers (<code>sub_agent_defs</code> table, <code>/api/sub-agents</code>); a pipeline <code>agent</code> stage names its worker via <code>subagentType</code>.</li>
+<li><input checked disabled type="checkbox" /> <strong>Bounded loops.</strong> <code>when:'loop'</code> edges + <code>maxIterations</code> (≤10) in the engine, with a corrected finalize that never yields a false-COMPLETED mid-loop.</li>
+<li><input checked disabled type="checkbox" /> <strong>Standard pipeline library.</strong> 6 seeded, executable pipelines — Implementation Cycle, Deep Research, Bug Triage &amp; Fix, Refactor, Security Audit, Quick Task — composing sequential/parallel/loop/gate patterns with K-native workers as stage actors.</li>
+<li><input checked disabled type="checkbox" /> <strong>Legacy migration.</strong> <code>NamedWorkflow</code> templates + <code>type:'workflow'</code> skills convert to <code>PipelineSpec</code> defs at boot (idempotent, fail-safe); the legacy <code>WorkflowsView</code> UI retired.</li>
+<li><input checked disabled type="checkbox" /> <strong>Progress ledger + orchestrator multi-pipeline view.</strong> <code>pipeline_ledger</code> (per-run append-only) + a <code>pipeline_update</code> WS ledger cursor; pipeline runs group by owning orchestrator via <code>pipeline_runs.owner_profile_id</code>, stamped from the delegating orchestrator (incl. retries).</li>
+<li><input checked disabled type="checkbox" /> <strong>Pipeline cron schedules.</strong> A scheduled <code>skills</code> routine can target a pipeline via <code>skills.pipeline_def_id</code> — manual + cron, surfaced on Automations → Schedules.</li>
+<li><input checked disabled type="checkbox" /> <strong>Input-sweep + header polish.</strong> Raw <code>&lt;input&gt;</code>/<code>&lt;textarea&gt;</code>/<code>&lt;select&gt;</code> swept to the <code>ui/Field.tsx</code> primitives; the page-header tab icon removed from <code>TopBar</code>'s title (title/breadcrumb only now).</li>
+<li><input checked disabled type="checkbox" /> <strong>Schema v14→v15.</strong></li>
+</ul>
+<p><strong>Deferred (documented):</strong> <strong>operator-worker EXECUTION</strong> (Phase 2.5 — registry/editing/K-native execution all work, but an operator-authored worker isn't yet mounted as a live stage actor: the create-time materializer, DB row → confined <code>data/agents/&lt;id&gt;/</code> file, is unbuilt, and the operator mount is nested while Claude Code discovers subagents flat — this is the code-execution entrypoint and gets its own design + security pass); the <strong>autonomous multi-pipeline supervision loop</strong> (a later phase; this wave built the ledger + hook seams it will consume); <strong>event triggers</strong> for pipelines (manual + cron shipped, event deferred); <strong>loop re-fork semantics</strong> (a loop re-entry re-forks from the loop head's pre-loop base, not the prior iteration's result tree — deliberate; cross-stage tree-carry is a Phase-3/injection concern).</p>
 <p><strong>Later phases of the Orchestration Program:</strong></p>
 <ul>
 <li><input disabled type="checkbox" /> <strong>Phase 1.5 — Run-internal operator hooks.</strong> Generalize the config-dir hook mounting (PreToolUse/PreSkill), confined operator scripts, gitnexus-as-registry-row, trust card. <em>(Operator-deferred from Phase 1; pairs with Phase 3.)</em></li>
-<li><input disabled type="checkbox" /> <strong>Phase 2 — Intent &amp; auto-delegation.</strong> K decomposes/scopes and AUTO-SELECTS a pipeline from a vague request (be-less-precise).</li>
+<li><input disabled type="checkbox" /> <strong>Phase 2.5 — Operator-worker execution.</strong> The create-time materializer (DB row → confined <code>data/agents/&lt;id&gt;/</code> file) + a flat-discovery-compatible mount, so an operator-authored sub-agent worker actually runs as a live pipeline stage actor, not just a registry row. <em>(Deferred from Phase 2, above.)</em></li>
 <li><input disabled type="checkbox" /> <strong>Phase 3 — Context/memory injection intelligence.</strong> The ContextAssembler + memory-retrieval loop that fills the hook-<code>inject</code> + injection seam (subsumes the old "memory layer B" item below).</li>
 <li><input disabled type="checkbox" /> <strong>Phase 4 — Sandboxes.</strong> Docker <code>StageExecutor</code>; ephemeral + persistent sandboxes; Playwright / native-desktop verification stages.</li>
-<li><input disabled type="checkbox" /> <strong>Phase 5 — Token-efficiency &amp; scale.</strong> Skill promotion, caching/dedup, cheap-model routing for mechanical stages, high-concurrency scheduling.</li>
+<li><input disabled type="checkbox" /> <strong>Phase 5 — Token-efficiency &amp; scale.</strong> Skill promotion, caching/dedup, cheap-model routing for mechanical stages, high-concurrency scheduling; <strong>+ intent &amp; auto-delegation</strong> (moved here from the old Phase-2 slot — K decomposes/scopes and auto-selects a pipeline from a vague request, be-less-precise).</li>
 </ul>
+<h2>Usability &amp; Access (Phase 2.6) (D-121)</h2>
+<p><em>A usability + access-control wave on top of the merged orchestration engine, built 2026-07-17 on <code>feat/usability-access-p2-6</code> — with NO schema-version bump (the background preference rides <code>app_config</code>; the Access matrix reads existing tables; the model list is a query-time aggregate). Method: a W0 shared-schema foundation → three lanes (serial on one branch, each spec+quality reviewed) → integration → two opus SEAMS reviews (correctness + security).</em></p>
+<ul>
+<li><input checked disabled type="checkbox" /> <strong>Pipeline graph → React Flow.</strong> <code>PipelineGraph.tsx</code> rewritten on <code>@xyflow/react</code> v12 + <code>@dagrejs/dagre</code> (a pure sync <code>layoutPipeline</code>, <code>rankdir:'LR'</code>) as an INTERACTIVE READ-ONLY VIEWER (pan/zoom/minimap/controls, ephemeral drag — not persisted), preserving the exact <code>PipelineRunView</code> contract + live <code>['pipeline-run', runId]</code> cache; keyboard-activable stage nodes; pass-edge animation frozen under <code>prefers-reduced-motion</code>.</li>
+<li><input checked disabled type="checkbox" /> <strong>Galaxy background system.</strong> <em>(→ superseded by D-128 UI Refinement below — the animated galaxy/ambient variants gave way to a static user-settable wallpaper.)</em> One route-agnostic <code>&lt;Background variant&gt;</code> at Shell z-0 (so glass has a backdrop to refract): <code>galaxy</code> canvas starfield default (static single draw under reduced-motion; rAF + resize cleaned up on unmount/variant-change), plus <code>aurora</code>/<code>blobs</code>/<code>solid</code>; an app-wide preference (<code>GET/PUT /api/settings/background</code>, Zod-enum-guarded) + a Settings → Appearance picker. Home chat rail + transcript glassed (blur budget 5); the pointer-tracking <code>useGlassPointer</code> sheen replaced by a static <code>.glass-interactive:hover</code> sheen + brightness lift.</li>
+<li><input checked disabled type="checkbox" /> <strong>Per-agent default models (Claude + local).</strong> A unified available-models aggregate (<code>resolveAvailableModels</code> = Claude <code>KNOWN_MODELS</code> ∪ installed Ollama, degrading to Claude-only when Ollama is down — never a 500) at <code>GET /api/models/available</code>; per-agent model validation relaxed from <code>isKnownModel</code> to that available set (orchestrators / org-default / sub-agents); editable default-model <code>&lt;Select&gt;</code> on the orchestrator page + the sub-agent editor (which also swaps its skills/MCP fields for catalog-backed <code>CapabilityPicker</code>s).</li>
+<li><input checked disabled type="checkbox" /> <strong>Unified Access console.</strong> A 4th Agents-hub tab (<code>AccessPage</code>) — a who-has-what matrix (orchestrator leads + sub-agent workers — K-native read-only + operator editable — × model / tools / skills / MCP) with expandable inline catalog-backed editing (patching through the same validated endpoints) + a prominent <strong>Auto-index</strong> (capability rescan) button. The server stays the authorization boundary; the console is convenience only.</li>
+<li><input checked disabled type="checkbox" /> <strong>D-121 — sub-agent worker ceiling validation.</strong> Worker grants are now ceiling-validated at the orchestrator tier on POST + PATCH (merge-then-validate the full grant set; persist exactly what was validated; a read-only K-native worker returns the canonical 403), closing the prior gap where operator workers had NO grant validation. Security SEAMS verdict: <strong>SOUND</strong> (two-step-smuggle + over-ceiling defeated on create/patch/clone).</li>
+<li><input checked disabled type="checkbox" /> <strong>No schema-version bump.</strong></li>
+</ul>
+<p><strong>Deferred (documented):</strong> <strong>Phase 2.5 operator-worker execution</strong> (materializer) and the <strong>autonomous multi-pipeline supervision loop</strong> remain open (carried from Phase 2, below); a <strong>live Playwright UI pass</strong>; <strong>intent → auto-pipeline-selection</strong> from a vague request (~Phase 5).</p>
+<h2>UI Refinement (D-128)</h2>
+<p><em>A four-lane refinement on <code>feat/ui-refinement</code>, built 2026-07-17 in response to four concrete operator corrections to the P2.6 wave — with NO schema-version bump (the wallpaper rides <code>app_config</code> key <code>ui.background</code> as JSON + a file on disk). Method: parallel implementer lanes → integration → an opus whole-implementation review (APPROVE-WITH-FOLLOWUPS) → a live Playwright visual smoke (4/4).</em></p>
+<ul>
+<li><input checked disabled type="checkbox" /> <strong>Pipeline graph in the definition inspector.</strong> <code>PipelineDefInspector</code> now renders the <code>PipelineGraph</code> DAG above the stage/edge lists via <code>lib/pipeline-preview.ts</code> <code>previewViewFromSpec(spec)</code> (synthesized <code>pending</code> stages; the "attempt N/M" line hides at <code>attempt:0</code>), so analyzing a <em>definition</em> shows a graph — previously the React Flow DAG rendered only for a <em>run</em>.</li>
+<li><input checked disabled type="checkbox" /> <strong>User-settable wallpaper (replaces the animated background system).</strong> <code>BackgroundSettings {kind: solid|gradient|image, preset, imageVersion}</code>: a solid <code>--bg-deep</code>, one of four static CSS gradient presets (<code>aurora/dusk/ocean/ember</code>, recombining the retained <code>--lg-blob-*</code> tokens), or an uploaded image. The image loads via an authenticated Blob fetch → <code>URL.createObjectURL</code> (every <code>/api/*</code> route is Bearer-gated — no token in any URL, no route auth-exemption); <code>PUT /api/settings/background/image</code> validates <code>png|jpeg|webp</code> ≤8 MB, fixed basename, route-scoped <code>bodyLimit</code>. The galaxy starfield (<code>lib/starfield.ts</code>) + <code>&lt;Ambient/&gt;</code> are RETIRED (no canvas, no rAF). Settings → Appearance is a solid/gradient/image picker with a FileReader→dataURL upload + live preview.</li>
+<li><input checked disabled type="checkbox" /> <strong>Modern-frosted glass.</strong> The D-114/D-115 purple liquid-glass tokens retuned to neutral low-alpha frosting (dark-neutral <code>.42/.42/.58</code> fills, blur/saturate up to 22–28px / 1.6); the D-115 SVG refraction (<code>GlassFilterDefs.tsx</code>, <code>#lg-refract</code>, <code>--lg-refract-scale</code>) and living-ambient blob animation removed (specular edges retained; <code>--lg-blob-*</code> tokens repurposed for the gradient presets). Token <strong>values</strong> only — names stable, <code>tokens.test.ts</code> untouched.</li>
+<li><input checked disabled type="checkbox" /> <strong>Settings sidebar scroll-nav.</strong> <code>SettingsNav.tsx</code> replaces <code>&lt;a href="#id"&gt;</code> anchors (which hijacked the hash router → 404) with <code>&lt;button onClick={scrollIntoView}&gt;</code> + an IntersectionObserver active-section highlight — never writes <code>location.hash</code>.</li>
+<li><input checked disabled type="checkbox" /> <strong>Review follow-ups fixed.</strong> M2 (Appearance preview's wasted blob fetch under solid/gradient) + M3 (revoked-object-URL flash on re-upload); the library-default white React Flow MiniMap/Controls themed via <code>colorMode="dark"</code> (fixes the run view too).</li>
+<li><input checked disabled type="checkbox" /> <strong>No schema-version bump.</strong></li>
+</ul>
+<p><strong>Deferred (documented):</strong> the self-contained <strong><code>ui-artifact.ts</code> demo generator</strong> still describes the removed refraction/ambient/galaxy system (its own tests pass — it's a showcase, not the shipped UI) — tracked as a follow-up, not the spec-of-record.</p>
 <h2>Phase 6 — Intelligence &amp; Scale <em>(optional)</em></h2>
 <ul>
 <li><input disabled type="checkbox" /> EventBus → NATS/Redis Streams + worker processes</li>
@@ -3377,7 +3584,7 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-14</span>
+        <span class="section-updated mono">updated 2026-07-16</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -4342,6 +4549,30 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
 <td><strong>A <code>PipelineSpec</code> (stored in the new <code>workflow_definitions.spec</code>, Zod in <code>@k/shared</code>) is an executable DAG: stages of kind <code>agent</code> (a supervised <code>startAgentRun</code>), <code>deterministic</code> (zero-token <code>command</code>/<code>verify</code> script), <code>gate</code> (human checkpoint), or <code>hook</code> (a script returning a <code>HookResult</code>); edges carry a per-edge <code>handoff</code> (<code>share-tree</code> = fork at the upstream <code>result_commit</code> incl. fan-out, <code>branch</code> = fork at the pipeline base, <code>merge</code> = 3-way fan-in) and a <code>when</code> condition (<code>always</code>/<code>pass</code>/<code>fail</code>/<code>repair</code>). A main-process <code>PipelineEngine</code> + <code>pipeline-scheduler</code> drives it exactly like the lead-dispatch relay — a DB ledger (<code>pipeline_runs</code>/<code>pipeline_stages</code>/<code>pipeline_edges</code>) + a <code>draining</code> latch + per-stage CAS claim (<code>pending→dispatched</code>) on an unref'd interval; readiness is an AND-join over <code>always</code>/<code>pass</code> predecessors plus <code>fail</code>-activation, <code>markSkips</code> dead-branches unreachable stages to <code>skipped</code>, and a skip-aware <code>maybeFinalizePipeline</code> completes/fails on quiesce. Stage-to-stage state hands off through the existing checkpoint chain: each stage forks a worktree at a computed base commit and its output is its terminal checkpoint SHA, written to a sweep-immune <code>refs/k-pipelines/&lt;pipelineRunId&gt;/&lt;stageKey&gt;</code> (a new <code>sweepPipelineRefs</code> reaps them by <code>pipeline_runs</code> existence). Failure retries IN PLACE via the retry brain factored out of self-heal (<code>classifyRunFailure</code>+<code>stampRetryLineage</code>), bounded by <code>StageDef.retry.maxAttempts</code>, at the SAME base commit on a fallback model — and a mandatory ownership guard (<code>runs.pipeline_stage_id</code>, the v14 sentinel, stamped on every dispatch incl. retries) makes the global self-heal SKIP pipeline runs so they never double-fire. Gates park at <code>awaiting_gate</code> (reusing the plan-gate park), resolve via a single-resolver CAS (<code>resolveGate</code>, 409 on a lost race), and can be inserted dynamically (<code>insertGate</code> + <code>repointEdgesTo</code>); <code>rewindPipelineToStage</code> resets a stage + its downstream closure for an operator re-run. Execution is behind a <code>StageExecutor</code> seam (worktree/process now; Docker later). K (or the operator) delegates via <code>delegate_pipeline</code> (a kstore tool → <code>pipeline_dispatches</code> queue → <code>pipeline-dispatch-relay</code> → <code>startPipelineRun</code>), and a single <code>onPipelineTerminal</code> callback reports the outcome back onto the K thread; <code>POST /api/pipelines/:id/run</code> is the same seam without K. <code>GET/POST /api/pipelines/*</code> (8 endpoints, budget-gated <code>/run</code>) + a <code>pipeline_update</code> WS delta drive an upgraded Agents→Pipelines UI (a hand-laid live DAG, per-stage cards, gate dialog, launcher). Schema v13→v14 (5 tables + the sentinel + <code>spec</code>). Three seeded reference pipelines (<code>code-wave</code> = implementer → parallel share-tree reviews → merge-join controller → gate → verify; <code>investigate</code>; <code>refactor</code>).</strong></td>
 <td>Turns the prose-delegation-in-ONE-run NamedWorkflow (D-012/D-047) into real staged, per-stage-visible/retryable/gated pipelines — the substrate every later orchestration pillar builds on — while REUSING the proven relay, checkpoint-chain, self-heal, budget-governor, and plan-gate machinery rather than inventing parallel mechanisms (the whole engine is the lead-relay shape applied to a DAG). Handoff rides checkpoints (no long-lived pipeline worktree), so a mid-pipeline reboot is fully reconcilable; the <code>runs.pipeline_stage_id</code> back-ref (not <code>pipeline_stages.run_id</code>, which a retry overwrites) is what keeps the failed original recognized as engine-owned. Forward routing + retry-in-place covers the reference loop without the bug-prone automatic repair-LOOP.</td>
 <td>A brand-new <code>workflow_stages</code> concept (the executable form EVOLVES <code>workflow_definitions</code> with a <code>spec</code> column — legacy rows lazily compile via <code>namedWorkflowToPipeline</code>); a long-lived pipeline-owned worktree (checkpoint handoff is reboot-safe and reuses existing plumbing); keying the self-heal guard on <code>pipeline_stages.run_id</code> (a retry overwrites it → the failed original double-fires); silent fan-in conflict auto-resolution (surfaced as a stage failure). <strong>Deferred (documented):</strong> repair-LOOP back-edges (re-running an already-passed upstream stage — forward routing + retry instead); <code>commit</code>/<code>ci</code> deterministic actions (agents open their own PRs); hook <code>inject</code> cross-stage propagation + agent-hook structured <code>HookResult</code> (Phase-3 injection); run-internal operator hooks (PreToolUse/PreSkill generalization — a Phase-1.5 fast-follow, operator-chosen); the full ContextAssembler injection intelligence (Phase 3); auto-pipeline-selection from a vague request (Phase 2); the Docker <code>StageExecutor</code> backend (Phase 4).</td>
+</tr>
+<tr>
+<td>D-120</td>
+<td>2026-07-16</td>
+<td>Orchestration Program Phase 2 — Pipeline Library, IA &amp; Orchestration Visibility</td>
+<td><strong>Made the Phase-1 engine usable across eight fronts, built on <code>feat/orchestration-p2</code> (schema v14→v15) via a W0 shared-contract foundation → three parallel reviewed worktree lanes (Lane A engine, Lane B registry/schedules, Lane C UI/integration) → serial integration → two opus SEAMS reviews (both approved). (1) Agents IA restructured to top tabs <strong>Org / Catalog / Automations</strong> (<code>AgentsPage</code> <code>TAB_IDS</code>); Catalog holds 4 sub-tabs <strong>Skills / MCP / Hooks / Sub Agents</strong> (<code>CatalogPage</code>); Automations unifies <strong>Library / Runs / Schedules</strong> into one pipeline surface (<code>AutomationsView</code>), replacing D-101's Org·Skills·Pipelines 3-tab split — legacy <code>#/agents/skills/*</code> and <code>#/agents/pipelines/*</code> deep links redirect in (<code>route.ts</code> <code>VIEW_REDIRECTS</code>). (2) An <strong>editable sub-agent worker registry</strong> (<code>sub_agent_defs</code> table + <code>SubAgentDef</code>): K-native workers parsed live from <code>agent-config/agents/*.md</code> (<code>source:'k'</code>, read-only, "Fork to edit" clones into an operator row) alongside full-CRUD <strong>operator workers</strong> (<code>GET/POST/PATCH/DELETE /api/sub-agents</code>, <code>SubAgentsTab</code>/<code>SubAgentEditor</code>); a pipeline <code>agent</code> stage now names its worker via <code>subagentType</code>. (3) <strong>Bounded loops</strong> — <code>when:'loop'</code> edges + <code>StageDef.maxIterations</code> (≤10, Zod-capped, rejected on the done sink) with a corrected <code>maybeFinalizePipeline</code> that accounts for in-flight loop iterations so a pipeline never reports a false <code>COMPLETED</code> mid-loop. (4) A <strong>standard pipeline library</strong> — 6 seeded, executable defs (Implementation Cycle, Deep Research, Bug Triage &amp; Fix, Refactor, Security Audit, Quick Task) composing sequential/parallel/loop/gate patterns with K-native workers as stage actors. (5) <strong>Legacy migration</strong> — <code>NamedWorkflow</code> templates and <code>type:'workflow'</code> skills convert to <code>PipelineSpec</code> defs at BOOT (idempotent, fail-safe — a conversion error degrades that one row, never blocks boot), and the legacy <code>WorkflowsView</code> UI is RETIRED. (6) A <strong>progress ledger</strong> (<code>pipeline_ledger</code>, per-run append-only, instrumented at every engine transition) surfaced via <code>PipelineLedgerPanel</code> + a <code>pipeline_update</code> WS <code>ledgerSeq</code> cursor, and an <strong>orchestrator multi-pipeline view</strong> grouping runs by owning orchestrator via <code>pipeline_runs.owner_profile_id</code> (stamped from the delegating orchestrator at dispatch, incl. retries). (7) <strong>Pipeline cron schedules</strong> — <code>skills.pipeline_def_id</code> lets a scheduled routine target a pipeline (manual + cron; <code>routines.ts</code> resolves it onto <code>RoutineView.pipelineDefId</code>), surfaced on Automations → Schedules. (8) UI polish — a full input-sweep of raw <code>&lt;input&gt;</code>/<code>&lt;textarea&gt;</code>/<code>&lt;select&gt;</code> to the <code>ui/Field.tsx</code> primitives across the touched surfaces, and the page-header <strong>tab icon removed</strong> from <code>TopBar</code>'s title (title/breadcrumb only now). Schema v14→v15 (ledger + sub-agents + loop/owner columns; the <code>SCHEMA_SENTINEL</code> moved to <code>skills.pipeline_def_id</code>, a <code>migrateSlow()</code>-added column, after review caught it originally targeting the unconditional-DDL <code>pipeline_ledger</code> table).</strong></td>
+<td>The Phase-1 engine (D-119) was real but unreachable — no worker roster to point a stage at beyond hardcoded subagent names, no seeded pipelines to run day one, the legacy Workflows UI still the only visible entry point, and no cross-run visibility into what an orchestrator's pipelines were doing. Phase 2 closes exactly that usability gap: a registry gives stages a nameable, editable actor; a seeded library gives the operator something to run immediately; boot-time legacy migration retires the dead-end UI without breaking existing <code>NamedWorkflow</code> rows; the ledger + <code>owner_profile_id</code> view make a multi-pipeline orchestrator's work legible before the autonomous supervision loop (a later phase) needs to reason over it. Three parallel lanes map to the natural seams of the work with a cross-lane contract frozen at W0 (shared Zod schemas + the sentinel-column fix landed before any lane branched); two opus SEAMS reviews (both approved) is the heavier bar the program's size earned.</td>
+<td><strong>Operator-worker EXECUTION now</strong> (the create-time materializer + a flat-vs-nested subagent-discovery fix is its own design+security pass — deferred to <strong>Phase 2.5</strong>, documented rather than half-wired); an <strong>autonomous multi-pipeline supervision loop</strong> now (the ledger + hook seams this wave built are what it will consume — premature without them, a later phase); <strong>event triggers</strong> for pipelines (manual+cron cover the shipped library; an event-trigger seam is a later increment); <strong>loop re-entry re-forking from the prior iteration's result tree</strong> (cross-stage tree-carry is a Phase-3/injection-intelligence concern — re-forking from the loop head's PRE-loop base is the simpler, correct-for-now semantics — deliberate); <strong>intent-driven auto-pipeline-selection from a vague request</strong> (re-homed to <strong>~Phase 5</strong> — it held the "Phase 2" label in the roadmap's later-phases list before this wave claimed Phase 2 for real shipped scope).</td>
+</tr>
+<tr>
+<td>D-128</td>
+<td>2026-07-17</td>
+<td>UI Refinement — modern-frosted glass, user-settable wallpaper (supersedes the animated backgrounds), pipeline graph in the definition inspector, scroll-nav Settings sidebar</td>
+<td>**A four-lane refinement on <code>feat/ui-refinement</code> (parallel implementer lanes → integration → opus whole-impl review [APPROVE-WITH-FOLLOWUPS] → live Playwright visual smoke), NO SCHEMA-VERSION BUMP (background settings ride <code>app_config</code> key <code>ui.background</code> as JSON; the wallpaper image is a file at <code>&lt;DATA_DIR&gt;/wallpapers/wallpaper.&lt;ext&gt;</code>; legacy <code>galaxy/blobs/aurora</code> values migrate in-read). <strong>(A) Pipeline graph in the definition inspector</strong> — <code>PipelineDefInspector</code> now renders the <code>PipelineGraph</code> DAG above the stage/edge lists via <code>lib/pipeline-preview.ts</code> <code>previewViewFromSpec(spec)</code> (synthesizes <code>pending</code> stages from a <code>PipelineSpec</code>; <code>attempt:0</code> → <code>PipelineStageNode</code> hides the attempt line, which is also correct for real pending stages), so analyzing a <em>definition</em> shows a graph, not just text (previously the React Flow graph rendered only for a <em>run</em>). <strong>(B) User-settable wallpaper replaces the animated background system</strong> — the D-121 <code>&lt;Background variant&gt;</code> enum (galaxy starfield / aurora / blobs / solid), <code>lib/starfield.ts</code>, and the retired <code>&lt;Ambient/&gt;</code> give way to `BackgroundSettings {kind: solid</td>
+<td>gradient</td>
+<td>image, preset, imageVersion}<code> (</code>@k/shared<code>): a solid </code>--bg-deep<code>, one of four static CSS gradient presets (</code>aurora/dusk/ocean/ember<code>, recombining the retained LG2 blob tokens), or an uploaded image. Because every </code>/api/*<code>route is Bearer-gated a raw</code><img /><code>/CSS </code>url()<code>can't attach the header, so the image is fetched as an authenticated Blob →</code>URL.createObjectURL<code> object URL (</code>lib/useBackgroundImageUrl.ts<code>, revoked on change/unmount); </code>PUT /api/settings/background/image<code>validates</code>image/png</td>
+</tr>
+<tr>
+<td>D-121</td>
+<td>2026-07-17</td>
+<td>Usability &amp; Access (Phase 2.6) — React Flow pipeline canvas, galaxy background system, per-agent default models, unified Access console + worker ceiling validation (D-121)</td>
+<td><strong>A usability + access-control wave on <code>feat/usability-access-p2-6</code>, built W0 shared-contract foundation → three lanes (serial on one branch, per-lane spec+quality reviewed) → integration → two opus SEAMS (correctness + security), with NO SCHEMA-VERSION BUMP (the background preference rides <code>app_config</code> key <code>ui.background</code>; the Access matrix reads existing tables; the model list is a query-time aggregate). <strong>Lane A</strong> rewrites <code>PipelineGraph.tsx</code> onto <code>@xyflow/react</code> v12 + <code>@dagrejs/dagre</code> (a pure, sync <code>layoutPipeline</code> in <code>lib/pipeline-layout.ts</code> — <code>rankdir:'LR'</code>, drops <code>from:null</code> entry edges, keeps loop back-edges retargeted, maps <code>to:'done'</code>→a <code>'__done__'</code> sink) as an INTERACTIVE READ-ONLY VIEWER (pan/zoom/minimap/controls, ephemeral drag-reposition — not persisted), preserving the exact <code>PipelineRunView</code> data contract and live <code>['pipeline-run', runId]</code> query cache (no new WS plumbing); custom <code>PipelineStageNode</code> (status dot, gate pill, cost/attempt) is a keyboard-activable <code>role=button</code> (Enter/Space → <code>onSelect</code>, single tab-stop via <code>focusable:false</code>), and pass-edge marching-ants animation is frozen under <code>prefers-reduced-motion</code>. <strong>Lane B</strong> replaces the single always-on <code>&lt;Ambient/&gt;</code> with one route-agnostic <code>&lt;Background variant&gt;</code> at Shell z-0 (so glass has something to refract): <code>galaxy</code> (default) is a lightweight <code>&lt;canvas&gt;</code> starfield (<code>lib/starfield.ts</code>, rAF loop; a single static draw under <code>prefersReducedMotion()</code>; rAF + ResizeObserver cleaned up on unmount and variant change), plus <code>aurora</code> (CSS gradient wash), <code>blobs</code> (the retained <code>&lt;Ambient/&gt;</code>), <code>solid</code>; the variant is an app-wide preference (<code>GET/PUT /api/settings/background</code>, Zod-enum-guarded) with a Settings→Appearance picker; all four variants share one <code>data-testid="app-background"</code>+<code>data-variant</code> contract and are <code>aria-hidden</code>. The home chat rail + transcript are glassed (<code>glass-panel</code>, blur budget = 5, composer left solid), and the pointer-tracking <code>useGlassPointer</code> sheen (the <code>--lg-mx</code>/<code>--lg-my</code> radial) is DELETED in favor of a static <code>.glass-interactive:hover</code> sheen + <code>brightness(1.04)</code> lift (the <code>--lg-sheen</code> token is retained/reused). <strong>Lane C</strong> adds a unified available-models aggregate (<code>core/src/models.ts</code> <code>resolveAvailableModels</code> = Claude <code>KNOWN_MODELS</code> ∪ installed Ollama via <code>listInstalled()</code>, degrading to Claude-only + <code>localDegraded:true</code> when Ollama is unreachable — never a 500) at <code>GET /api/models/available</code>; relaxes per-agent model validation from <code>isKnownModel</code> to membership in that available set across <code>orchestrators</code>/<code>org-default</code>/<code>sub-agents</code> routes (<code>''</code>→<code>null</code> clear-override preserved, ids validated against a set and never shell-interpolated); makes the orchestrator page's previously-read-only model an editable default-model <code>&lt;Select&gt;</code> and re-sources the sub-agent editor's existing model Select from <code>KNOWN_MODELS</code> to the unified available-models list (the editor also swaps its skills/MCP chip fields for catalog-backed <code>CapabilityPicker</code>s); and adds a 4th Agents-hub tab <strong>Access</strong> (<code>AccessPage.tsx</code>) — a who-has-what matrix (orchestrator leads + sub-agent workers — K-native read-only + operator editable — × model/tools/skills/MCP) with expandable inline catalog-backed editing (patching through the same validated <code>api.orchestrators.update</code>/<code>api.subAgents.update</code> endpoints; K-native workers read-only) and a prominent <strong>Auto-index</strong> (capability rescan) button. The load-bearing security piece — <strong>the D-121 ceiling gate</strong> — closes the prior gap where sub-agent worker grants had NO validation: <code>POST</code>/<code>PATCH /api/sub-agents</code> now validate the resolved <code>{allowedTools,mcpServers,skills}</code> with <code>assertEffectiveGrants(WORKER_CEILING_TIER='orchestrator', …)</code> (<code>GrantError</code>→400), PATCH merging the patch arrays over the CURRENT row and validating the FULL merged set (a two-step smuggle can't slip a grant past an untouched field) then persisting EXACTLY those validated arrays; a K-native (read-only) worker is skipped by the gate and returns the canonical 403, not a misleading ceiling-400.</strong></td>
+<td>Six real usability gaps + one security gap, addressed without a schema bump because none needs new persisted state. The hand-laid SVG pipeline diagram couldn't pan/zoom/minimap a large DAG; React Flow as a read-only VIEWER (not a persistence-backed structural editor) gives n8n-style navigation while keeping the definition the source of truth and the live-status cache untouched. Backgrounds are a single Shell-z0 layer (not per-page) so every glass surface refracts the same backdrop and there is one lifecycle to manage; a lightweight canvas starfield frozen under reduced-motion avoids a WebGL dependency and honors the motion budget. Merging Claude + installed-Ollama into one available-models list (degrading gracefully) lets any agent/worker take a local model as its default without a 500 when Ollama is down. The Access console makes the already-existing per-agent allow-lists + authority ceiling + rescan legible in one who-has-what surface — but the SERVER remains the authorization boundary (the console only calls validated endpoints). Most critically, sub-agent workers ran INSIDE an orchestrator's authority yet had NO grant validation — an operator could author a worker whose tools/skills/MCP exceeded the orchestrator ceiling; validating at the orchestrator tier (merge-then-validate, persist-what-you-validated) fail-closes that hole, and the two opus SEAMS (security verdict: SOUND — two-step-smuggle and over-ceiling defeated on create/patch/clone) is the bar the access-control surface earned.</td>
+<td>React Flow as a full persistence-backed structural editor (out of scope — drag is ephemeral; the definition, not a saved layout, is canonical); a SCHEMA_VERSION bump for the background preference (unnecessary — <code>app_config</code> already stores UI prefs like home layout); per-page background components (n lifecycles, and glass on a page with no backdrop looks broken — one Shell-z0 layer instead); a WebGL/AFRAME galaxy (heavier + the prior react-force-graph blank-canvas gotcha class — a 2D canvas frozen under reduced-motion suffices); restricting model defaults to Claude <code>KNOWN_MODELS</code> only (the whole point is to also use installed local models); leaving sub-agent worker grants UNVALIDATED (the status quo — a real privilege-escalation gap the D-121 gate closes); returning a ceiling-400 for a read-only K-native worker patch (misleads a client into "fix your payload and retry" when the target can never be edited — the canonical 403 is correct).</td>
 </tr>
 </tbody></table>
 
