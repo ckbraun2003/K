@@ -27,9 +27,13 @@ import {
   type WorkItem,
   type Lesson,
   type WorkflowStep,
+  type AgentMessage,
 } from '@k/shared'
 import { workItemsDb, agentMemoryDb, workflowStepsDb, workflowRunsDb, runsDb, agentRunsDb, pipelineDb, workflowDefsDb } from '../db.js'
 import { getProject, getProjectByName } from '../projects.js'
+import { getProfile, getProfileByName } from '../profiles.js'
+import { queueMessage, mayMessage, AgentMailError } from '../agent-mail.js'
+import { getOrCreateConversation } from '../agent-sessions.js'
 
 /** Per-call context the server/CLI injects. `runId` is the managed run (K_RUN_ID). */
 export interface KStoreContext {
@@ -374,6 +378,62 @@ function delegatePipeline(args: unknown, ctx: KStoreContext): {
   return { dispatchId, pipelineId: def.id, projectId, status: 'pending' }
 }
 
+// ── agent mailbox (Continuous Agents B.3, D-124) ─────────────────────────────
+
+const MessageAgentInput = {
+  to: z.string().min(1).max(200),
+  body: z.string().min(1).max(20_000),
+  priority: z.enum(['normal', 'urgent']).optional(),
+}
+/** Queue ONE message to another durable agent's conversation. The sender is resolved
+ *  from the calling run (K_RUN_ID → agent_runs.profile_id) — an agent never names its
+ *  own identity. mayMessage gates the pair (tier matrix); the target conversation is
+ *  resolved at queue time so unread counts and relay grouping are exact. Delivery is
+ *  the MAIN-process relay's job (message-relay.ts) — this tool only RECORDS, exactly
+ *  like dispatch_lead/delegate_pipeline. */
+function messageAgent(args: unknown, ctx: KStoreContext): {
+  id: string
+  to: string
+  priority: AgentMessage['priority']
+  status: AgentMessage['status']
+} {
+  const a = z.object(MessageAgentInput).parse(args ?? {})
+  const owner = resolveOwnerRunId(ctx)
+  if (!owner) throw new KStoreError('message_agent requires a managed run context (no run id).')
+  const prof = agentRunsDb.getAgentRunProfileByRunId.get(owner) as { profile_id?: string } | undefined
+  if (!prof?.profile_id) {
+    throw new KStoreError('this run has no owning agent profile — only agent-org runs can send messages.')
+  }
+  const target = getProfile(a.to) ?? getProfileByName(a.to)
+  if (!target) throw new KStoreError(`unknown agent profile "${a.to}".`)
+  const from = { kind: 'profile', profileId: String(prof.profile_id) } as const
+  if (!mayMessage(from, target.id)) {
+    throw new KStoreError(
+      `profile "${prof.profile_id}" may not message "${target.id}" (tier gate: K → anyone; ` +
+        'manager → its domain + K; orchestrator → its running stages + its manager).',
+    )
+  }
+  const thread = getOrCreateConversation(target.id)
+  // The mail layer's caller errors (e.g. whitespace-only body — zod min(1) does not
+  // trim) must surface TYPED, not as the generic "internal error" the glue logs for
+  // unknown throws. Rewrap; genuine internal faults still propagate untouched.
+  let msg: AgentMessage
+  try {
+    msg = queueMessage({
+      toProfileId: target.id,
+      toThreadId: thread.id,
+      from,
+      body: a.body,
+      priority: a.priority,
+      provenanceRunId: owner,
+    })
+  } catch (e) {
+    if (e instanceof AgentMailError) throw new KStoreError(e.message)
+    throw e
+  }
+  return { id: msg.id, to: target.id, priority: msg.priority, status: msg.status }
+}
+
 // ── registry ────────────────────────────────────────────────────────────────
 
 export interface KStoreTool {
@@ -441,5 +501,12 @@ export const kStoreTools: KStoreTool[] = [
       "Delegate a multi-agent PIPELINE (a built-in workflow like 'code-wave', 'investigate', or 'refactor') to run autonomously. pipelineId is the pipeline's id or name; goal is what it should accomplish; project (optional) scopes it to a registered project's repo (else K's own); model (optional) runs every stage on a chosen model. Records the intent — the pipeline runs in the background and reports its outcome back here. Returns { dispatchId, pipelineId, projectId, status:'pending' }.",
     inputShape: DelegatePipelineInput,
     handler: delegatePipeline,
+  },
+  {
+    name: 'message_agent',
+    description:
+      "Send a message to another durable agent's conversation (the priority mailbox). `to` is the agent profile id or name; `priority` 'urgent' interrupts/steers, 'normal' (default) delivers at the next turn boundary. Tier-gated: K reaches anyone; a manager reaches its domain's agents + K; an orchestrator reaches its running stages + its manager. Returns { id, to, priority, status:'queued' } — the relay delivers it in the background.",
+    inputShape: MessageAgentInput,
+    handler: messageAgent,
   },
 ]
