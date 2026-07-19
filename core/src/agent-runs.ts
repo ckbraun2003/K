@@ -128,10 +128,12 @@ export async function startAgentRun(
   // E-17 budget governor: refuse a NEW autonomous/org dispatch when the org OR the
   // scoped project is at its measured cap. INTERACTIVE dispatches and CHAT TURNS are
   // EXEMPT — chat turns are the operator's conversation channel, and the operator must
-  // always be able to reach K (or any conversable agent) to raise the cap. An
-  // operator→Chief delegation (trigger 'delegation') IS a paid org dispatch and IS gated;
-  // its caller (k-thread.ts::delegateToChief) catches BudgetCapError → explanatory K turn
-  // → 429. Thrown BEFORE the tracking-row insert, so a capped dispatch leaves no row.
+  // always be able to reach K (or any conversable agent) to raise the cap. A NON-chat
+  // 'delegation' dispatch (e.g. the Chief dispatching a lead) IS a paid org dispatch and
+  // IS gated. (A.4/D-126: the old operator→Chief caller, k-thread.ts::delegateToChief, is
+  // RETIRED — K asks are chat turns and a forced route queues a free mailbox row, so no
+  // live askK path catches BudgetCapError anymore; routes/k.ts's 429 mapping survives as
+  // a dead-belt.) Thrown BEFORE the tracking-row insert, so a capped dispatch leaves no row.
   // P5 SEAMS minor (BE.7), reworded by A.3 (D-127): the exemption keys on the run's
   // KIND — structurally derived from persistentSession unless explicitly passed —
   // never the caller-supplied trigger string, which is trust-free and no longer

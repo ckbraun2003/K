@@ -14,7 +14,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { routeForMessage } from '@k/shared'
+import { routeForMessage, routeForTarget } from '@k/shared'
 
 const { mockAsk, mockUndo, mockNavigate } = vi.hoisted(() => ({
   mockAsk: vi.fn(),
@@ -221,5 +221,56 @@ describe('useAskK', () => {
     expect(result.current.pendingUndo).toBeNull()
     expect(mockUndo).not.toHaveBeenCalled()
     await waitFor(() => expect(result.current.error).toBe('boom'))
+  })
+
+  // ── A.4 (D-126): a FORCED route queues a mailbox message — runId null ──────
+
+  it('a FORCED send raises NO undo window and never navigates — the queued shape (runId null) has nothing to undo', async () => {
+    mockAsk.mockImplementationOnce(async () => ({
+      kThreadId: 'kt', agentRunId: null, runId: null, messageId: 'm1',
+      route: routeForTarget('chief'), warm: false,
+    }))
+    const { result } = renderAskK() // default navigateOnSend:true — the null runId must still not navigate
+
+    let ok: boolean | undefined
+    await act(async () => { ok = await result.current.send(MSG, { forceRoute: 'chief' }) })
+
+    expect(ok).toBe(true) // the message WAS queued — the caller clears its composer
+    expect(mockAsk).toHaveBeenCalledWith(MSG, { forceRoute: 'chief' })
+    expect(result.current.pendingUndo).toBeNull()
+    expect(mockNavigate).not.toHaveBeenCalled()
+    expect(result.current.error).toBeNull()
+  })
+
+  it('no optimistic window exists even WHILE a forced send is in flight (nothing dispatched to undo)', async () => {
+    let resolveAsk!: (v: unknown) => void
+    mockAsk.mockImplementationOnce(() => new Promise(r => { resolveAsk = r }))
+    const { result } = renderAskK({ navigateOnSend: false })
+
+    let sendPromise!: Promise<boolean>
+    act(() => { sendPromise = result.current.send(MSG, { forceRoute: 'frontend' }) })
+
+    // In flight: no affordance at all — a forced route will queue, not dispatch.
+    expect(result.current.pendingUndo).toBeNull()
+
+    await act(async () => {
+      resolveAsk({ kThreadId: 'kt', agentRunId: null, runId: null, messageId: 'm2', route: routeForTarget('frontend'), warm: false })
+      await sendPromise
+    })
+    expect(result.current.pendingUndo).toBeNull()
+    expect(mockUndo).not.toHaveBeenCalled()
+  })
+
+  it('an UNFORCED send that resolves runId:null clears the optimistic window (defensive — no dangling affordance)', async () => {
+    mockAsk.mockImplementationOnce(async () => ({
+      kThreadId: 'kt', agentRunId: null, runId: null, messageId: 'm3',
+      route: routeForMessage(MSG), warm: false,
+    }))
+    const { result } = renderAskK({ navigateOnSend: false })
+
+    await act(async () => { await result.current.send(MSG) })
+
+    expect(result.current.pendingUndo).toBeNull()
+    expect(mockNavigate).not.toHaveBeenCalled()
   })
 })

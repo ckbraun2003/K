@@ -43,7 +43,7 @@ vi.mock('../src/supervisor.js', async () => {
   }
 })
 
-const { getOrCreateConversation, ensureSession, sendToSession, liveSessionCount } =
+const { getOrCreateConversation, ensureSession, sendToSession, liveSessionCount, undoSessionRun } =
   await import('../src/agent-sessions.js')
 const { listKThreadTurns } = await import('../src/k-thread.js')
 const { kThreadsDb } = await import('../src/db.js')
@@ -294,5 +294,51 @@ describe('sendToSession — hybrid live path (A.1)', () => {
     const seed = String(vi.mocked(startRun).mock.calls.at(-1)![0])
     expect(seed).toContain('You: ping')
     expect(seed).not.toContain('[from chief]')
+  })
+})
+
+// ── undoSessionRun (A.4) — the undo taint on the session engine ───────────────
+
+describe('undoSessionRun (A.4)', () => {
+  it('LIVE attachment: taints FIRST — stale + cleared id now, and a later terminal cannot resurrect resumable', async () => {
+    const { s } = setup()
+    const r1 = await sendToSession(s.id, 'hello')
+    update(r1.runId, 'running', { cliSessionId: 'cli-undo-live' })
+    update(r1.runId, 'awaiting_input')
+    expect(sessionRow(s.id)!.state).toBe('live')
+    expect(sessionRow(s.id)!.cli_session_id).toBe('cli-undo-live')
+
+    undoSessionRun(r1.runId)
+
+    // Scrubbed immediately: the CLI context carries the undone message.
+    expect(sessionRow(s.id)!.state).toBe('stale')
+    expect(sessionRow(s.id)!.cli_session_id).toBeNull()
+
+    // The killed run's LATE terminal consumes the taint and writes NOTHING.
+    update(r1.runId, 'done')
+    expect(sessionRow(s.id)!.state).toBe('stale')
+    expect(sessionRow(s.id)!.cli_session_id).toBeNull()
+
+    // Detached + stale → the next send re-ESTABLISHES from the durable turns.
+    const r2 = await sendToSession(s.id, 'again')
+    expect(r2.mode).toBe('spawned')
+    expect(lastPersistentSession().resume).toBe(false)
+  })
+
+  it('DETACHED run: resolves the session via runs.session_id (A.3 stamp) and still scrubs', async () => {
+    const { s } = setup()
+    const r1 = await sendToSession(s.id, 'hello')
+    update(r1.runId, 'done') // establish stamp → resumable + id set, attachment gone
+    expect(sessionRow(s.id)!.state).toBe('resumable')
+    expect(sessionRow(s.id)!.cli_session_id).not.toBeNull()
+
+    undoSessionRun(r1.runId)
+
+    expect(sessionRow(s.id)!.state).toBe('stale')
+    expect(sessionRow(s.id)!.cli_session_id).toBeNull()
+  })
+
+  it('an unknown / non-session run id is a silent no-op', () => {
+    expect(() => undoSessionRun('no-such-run')).not.toThrow()
   })
 })

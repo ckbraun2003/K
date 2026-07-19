@@ -231,8 +231,10 @@ describe('drainLeadDispatches: record → drain', () => {
 
 describe('drainLeadDispatches: Chief→K report continuation', () => {
   it('continues the lead outcome UP onto K\'s thread when the Chief run was a K delegation', async () => {
-    // Link the Chief run to a K thread exactly as delegateToChief does (a k_thread_turn
-    // whose run_id = the Chief run) — the derivable K→Chief edge, no new table.
+    // Link the Chief run to a K thread exactly as the retired delegateToChief did (a
+    // k_thread_turn whose run_id = the Chief run) — the derivable K→Chief edge, no new
+    // table. (A.4 removed the K→Chief auto-hop; Lane B's mailbox relay re-wires this
+    // continuation, so the seeded linkage shape stays the contract under test.)
     const now = Date.now()
     db.prepare(
       `INSERT INTO k_threads (id, title, status, active_run_id, created_at, updated_at) VALUES (?, NULL, 'active', NULL, ?, ?)`,

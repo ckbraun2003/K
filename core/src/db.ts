@@ -3629,8 +3629,9 @@ const getAgentRunProfileByRunId = db.prepare(
 )
 // Count a profile's activations for a given trigger — the whole-org tree (loop-b2) reads
 // the chief profile's 'delegation' activations as the K→Chief delegation-edge count (every
-// such chief run is one K hand-up: delegateToChief is the only path that activates the Chief
-// with trigger='delegation'; autonomous wakes use schedule/event). 'failed' rows are
+// such chief run is one delegation hand-up: historically k-thread.ts::delegateToChief —
+// RETIRED in A.4/D-126, forced routes queue mailbox rows now — and, going forward, a
+// profile-send into a chief session; autonomous wakes use schedule/event). 'failed' rows are
 // EXCLUDED — note that status covers BOTH a dispatch that never spawned AND a delegation
 // whose run activated but ended error/killed/interrupted (deriveAgentRunStatus maps every
 // non-done terminal to 'failed') — so this deliberately counts SUCCESSFUL hand-ups
@@ -3747,10 +3748,11 @@ const hasUserTurnForRun = db.prepare(
   `SELECT 1 FROM k_thread_turns WHERE run_id = ? AND role = 'user' LIMIT 1`,
 )
 // Resolve the K thread that DELEGATED a given run (loop-b2 Chief→K continuation). The
-// K→Chief link is derivable with NO new table: delegateToChief patches the Chief run id
-// onto the operator's user turn (and its ack turn), so a k_thread_turns row whose run_id =
-// the Chief run id identifies the delegating thread. A Chief run that woke AUTONOMOUSLY
-// (chief-wake) never touches k_thread_turns → this returns no row → no K continuation.
+// K→Chief link is derivable with NO new table: the delegating ask's user turn carries the
+// run id (askK's session spawn — and, historically, the retired delegateToChief — patches
+// it on), so a k_thread_turns row whose run_id = the run id identifies the delegating
+// thread. A Chief run that woke AUTONOMOUSLY (chief-wake) never touches k_thread_turns →
+// this returns no row → no K continuation.
 const getThreadIdByTurnRunId = db.prepare(
   `SELECT thread_id FROM k_thread_turns WHERE run_id = ? ORDER BY created_at ASC, id ASC LIMIT 1`,
 )

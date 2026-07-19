@@ -2522,15 +2522,21 @@ export const KThreadPatchBodySchema = z.object({
   archived: z.boolean().optional(),
 }).strict().refine(b => b.title !== undefined || b.archived !== undefined, { message: 'empty patch' })
 
-/** Result of POST /api/k/ask. `warm` = true when the message continued a live
- *  interactive run; false when a fresh run was started (seeded from the thread).
- *  `agentRunId` is the agent_runs tracking id (null on the warm path). */
+/** Result of POST /api/k/ask — two shapes since A.4 (D-126):
+ *  - SESSION DISPATCH: `runId` is the session-engine run the ask rode (`warm` =
+ *    true when it was delivered into an already-live parked run over stdin, false
+ *    when a run was spawned); `agentRunId` is that run's agent_runs tracking id.
+ *  - FORCED ROUTE: the ask was QUEUED as a mailbox message to the forced target
+ *    (`messageId` — the agent_messages row; Lane B's relay delivers it). Nothing
+ *    was dispatched, so `runId`/`agentRunId` are null and there is no undo
+ *    affordance. `route` is the display preview in both shapes. */
 export const KAskResultSchema = z.object({
   kThreadId: z.string(),
   agentRunId: z.string().nullable(),
-  runId: z.string(),
+  runId: z.string().nullable(),
   route: KRouteSchema,
   warm: z.boolean(),
+  messageId: z.string().optional(),
 })
 export type KAskResult = z.infer<typeof KAskResultSchema>
 

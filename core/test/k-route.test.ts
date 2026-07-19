@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import type { FastifyInstance } from 'fastify'
+import { KAskResultSchema } from '@k/shared'
 import { db } from '../src/db.js'
 import { createProfile, getProfile } from '../src/profiles.js'
 
@@ -39,9 +40,13 @@ let createdKSecretary = false
 let createdChief = false
 
 function resetKState() {
+  db.prepare('DELETE FROM agent_sessions').run()
   db.prepare('DELETE FROM k_thread_turns').run()
   db.prepare('DELETE FROM k_threads').run()
   db.prepare(`DELETE FROM agent_runs WHERE profile_id IN ('k-secretary', 'chief')`).run()
+  // A.4: a forced route queues an agent_messages row — clear the user-originated
+  // ones this file created (the same blanket convention as the thread tables).
+  db.prepare(`DELETE FROM agent_messages WHERE from_kind = 'user'`).run()
   // events.run_id is NOT NULL REFERENCES runs(id) (no ON DELETE) — clear the mock
   // runs' events before deleting the runs, or the delete hits a FK constraint.
   db.prepare(`DELETE FROM events WHERE run_id LIKE 'mock-k-%'`).run()
@@ -86,7 +91,7 @@ describe('POST /api/k/ask — validation + dispatch', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('valid message → 201 with route preview, runId, warm=false', async () => {
+  it('valid message → 201 with route preview, runId, warm=false (KAskResultSchema parses the dispatch shape)', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/k/ask', headers: AUTH,
       payload: { message: 'what is on my calendar' },
@@ -101,6 +106,8 @@ describe('POST /api/k/ask — validation + dispatch', () => {
     expect(body.route.target).toBe('logistics')
     expect(typeof body.runId).toBe('string')
     expect(body.warm).toBe(false)
+    // The shared result schema accepts the session-dispatch shape (runId set).
+    expect(KAskResultSchema.safeParse(body).success).toBe(true)
     // The turn lands in the resolved thread (resolveAskThread's default-thread
     // fallback, no explicit threadId) and reads back via the canonical GET.
     const thread = await app.inject({ method: 'GET', url: `/api/k/threads/${body.kThreadId}`, headers: AUTH })
@@ -126,15 +133,29 @@ describe('POST /api/k/ask — validation + dispatch', () => {
     expect((res.json() as { error: string }).error).toBe('unknown model')
   })
 
-  it('forceRoute:chief → 201 with route.target chief (delegation even for a logistics message)', async () => {
+  it('forceRoute:chief → 201 QUEUED shape: runId null + messageId, an agent_messages row, no dispatch (A.4, D-126)', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/k/ask', headers: AUTH,
       payload: { message: 'what is on my calendar', forceRoute: 'chief' },
     })
     expect(res.statusCode).toBe(201)
-    const body = res.json() as { route: { target: string; escalates: boolean } }
+    const body = res.json() as {
+      route: { target: string; escalates: boolean }
+      runId: string | null
+      agentRunId: string | null
+      messageId?: string
+    }
     expect(body.route.target).toBe('chief')
     expect(body.route.escalates).toBe(true)
+    // A forced route queues a mailbox message instead of dispatching a run.
+    expect(body.runId).toBeNull()
+    expect(body.agentRunId).toBeNull()
+    expect(typeof body.messageId).toBe('string')
+    // The shared result schema accepts the queued shape too (both shapes parse).
+    expect(KAskResultSchema.safeParse(body).success).toBe(true)
+    const row = db.prepare('SELECT to_profile_id, status FROM agent_messages WHERE id = ?')
+      .get(body.messageId!) as { to_profile_id: string; status: string } | undefined
+    expect(row).toMatchObject({ to_profile_id: 'chief', status: 'queued' })
   })
 })
 

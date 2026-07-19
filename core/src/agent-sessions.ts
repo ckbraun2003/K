@@ -81,6 +81,12 @@
  * SDK-free like k-thread.ts: no transport import, unit-testable directly against
  * the DB + EventBus (supervisor.sendInput is the one process-touching import,
  * mocked in tests).
+ *
+ * IMPORT NOTE (A.4): k-thread ↔ agent-sessions is a deliberate, benign ESM cycle
+ * — askK rides ensureSession/sendToSession/undoSessionRun here; we ride
+ * appendTurn/captureAnswers/listKThreadTurns there. Every cross-reference is
+ * call-time and both module bodies stay inert at load (the documented
+ * agent-config ↔ run-assets precedent).
  */
 import { randomUUID } from 'crypto'
 import type { KThread, AgentSession, AgentRunTrigger } from '@k/shared'
@@ -286,10 +292,12 @@ type Attachment = {
 const attachments = new Map<string, Attachment>()
 /** runId → sessionId reverse lookup (undo taint without a DB roundtrip — A.4). */
 const runToSession = new Map<string, string>()
-/** Undo taint: run ids undoSessionRun (A.4) scrubbed while live. The terminal
- *  finalize consumes the marker and does NOTHING — undo already forced 'stale' +
- *  cleared cli_session_id, and a later terminal must not resurrect 'resumable'.
- *  Declared in A.2 (the finalize rule ships now); populated by A.4. */
+/** Undo taint: run ids undoSessionRun (A.4) scrubbed. The terminal finalize
+ *  consumes the marker and does NOTHING — undo already forced 'stale' + cleared
+ *  cli_session_id, and a later terminal must not resurrect 'resumable'. Bounded
+ *  by undo frequency (a rare, explicit operator action); an id whose run already
+ *  finalized before the undo is never consumed — accepted, same as k-thread's
+ *  undoneRuns idiom. */
 const undoneRuns = new Set<string>()
 
 // Local statements (the frozen-db-bundle precedent — see insertProfileConversation).
@@ -399,7 +407,13 @@ async function deliverToSession(
     // next awaiting_input boundary (sendInput false: the run is mid-turn).
     kThreadsDb.patchTurnRunId.run(att.runId, turn.id)
     if (!sendInput(att.runId, body)) att.pending.push({ body, turnId: turn.id })
-    agentSessionsDb.touch(sessionId, Date.now())
+    const now = Date.now()
+    // Bump thread recency too (spawn does this via updateThreadActiveRun): the
+    // thread list orders on k_threads.updated_at and the no-threadId ask default
+    // resolves the most-recent thread — a warm stdin send must count as activity
+    // or an actively-warm thread gets out-ordered by any colder write.
+    kThreadsDb.updateThreadActiveRun.run(att.runId, now, session.threadId)
+    agentSessionsDb.touch(sessionId, now)
     return { mode: 'stdin', runId: att.runId }
   }
 
@@ -675,6 +689,45 @@ export function sweepLiveSessionsOnBoot(d: import('better-sqlite3').Database = d
   return d
     .prepare(`UPDATE agent_sessions SET state = 'resumable', updated_at = ? WHERE state = 'live'`)
     .run(Date.now()).changes
+}
+
+/**
+ * Scrub a session run the operator UNDID (k-thread.ts::undoK — A.4). Taint FIRST:
+ * the terminal finalize consumes the marker and writes NOTHING, so a late
+ * terminal from the killed run can never resurrect 'resumable'. Then resolve the
+ * owning session — the in-process reverse map for a live attachment, else the
+ * A.3 runs.session_id stamp (a fast run can finish and detach INSIDE the undo
+ * window) — clear cli_session_id (the CLI context carries the undone message)
+ * and force 'stale', so the next send re-establishes from the already-cleaned
+ * durable turns. No session resolves (not a session run) → taint-only no-op.
+ *
+ * A still-installed attachment is torn down HERE, not left for the kill's
+ * terminal finalize: the kill lands ASYNC (SIGTERM → 3s SIGKILL escalation), so
+ * leaving the attachment installed opens a multi-second window where (a) a
+ * follow-up send rides stdin into the DYING run and is silently swallowed —
+ * undo-then-retype is the canonical undo flow — and (b) a late awaiting_input
+ * from the dying CLI re-marks the scrubbed row 'live' with no finalize left to
+ * correct it (the taint arm writes nothing). Teardown mirrors finalize exactly
+ * (unsub + identity-guarded map deletes), so the next send cold-spawns a fresh
+ * establish; the taint stays as the belt for a finalize already in flight. Any
+ * pending bodies die with the attachment — their durable turns are exactly what
+ * undoK is deleting.
+ */
+export function undoSessionRun(runId: string): void {
+  undoneRuns.add(runId) // finalize taint FIRST — before the kill can produce a terminal
+  const sessionId =
+    runToSession.get(runId) ??
+    ((runsDb.getRun.get(runId) as { session_id?: string | null } | undefined)?.session_id ?? undefined)
+  if (!sessionId) return
+  const att = attachments.get(sessionId)
+  if (att && att.runId === runId) {
+    att.unsub()
+    attachments.delete(sessionId)
+  }
+  runToSession.delete(runId)
+  const now = Date.now()
+  agentSessionsDb.setCliSessionId.run(null, now, sessionId)
+  agentSessionsDb.setState.run('stale', now, sessionId)
 }
 
 /** Test-only seams (the supervisor __testHooks precedent — keep usage confined

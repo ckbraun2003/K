@@ -1,11 +1,13 @@
 /**
  * chief-dispatch.ts — the Chief→lead DISPATCH seam (loop-a, P5.4).
  *
- * This is the downward mirror of k-thread.ts's K→Chief hop (delegateToChief +
- * reportDelegationBack + summarizeDelegatedOutcome + concatAssistantText). Where K
- * hands an ask UP to the Chief, the Chief hands an objective DOWN to an orchestrator
- * lead — seeding the lead's run prompt from a NamedWorkflow scaffold and wiring the
- * lead's terminal outcome back UP into the Chief's mgmt store.
+ * This is the downward mirror of k-thread.ts's K→Chief report-back seams
+ * (reportDelegationBack + summarizeDelegatedOutcome + concatAssistantText; the old
+ * delegateToChief hop itself was retired in A.4/D-126 — forced routes queue mailbox
+ * messages now). Where K once handed an ask UP to the Chief, the Chief hands an
+ * objective DOWN to an orchestrator lead — seeding the lead's run prompt from a
+ * NamedWorkflow scaffold and wiring the lead's terminal outcome back UP into the
+ * Chief's mgmt store.
  *
  * Like chief-wake.ts and mgmt.ts this module is SDK-free and unit-testable directly
  * against the DB + the run-lifecycle seam: it imports NO MCP/transport and NO
