@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, beforeEach, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { db, configDb } from '../src/db.js'
+import { db, configDb, agentMessagesDb } from '../src/db.js'
 import { seedProfiles } from '../src/profiles.js'
 import { stampSeededDomainMemberships } from '../src/domains.js'
 import {
@@ -73,6 +73,23 @@ describe('governor (C.4)', () => {
       .toEqual({ briefed: false, reason: 'debounced' })
     expect(briefDomain('engineering', { kind: 'gate', urgent: true }, T + 2000))
       .toEqual({ briefed: false, reason: 'debounced' }) // urgent does NOT bypass (bounded spend)
+    expect(briefingsFor('chief')).toHaveLength(1)
+  })
+
+  it('a FAILED briefing write does not consume the debounce window (retry lands immediately)', () => {
+    // Whole-lane quality review q3: suppression must follow a SUCCESS, never a
+    // failure — a transient insert error with nothing written may not silence the
+    // domain for minIntervalMs. Monkeypatch the insert statement (restored in
+    // finally) to force the catch path.
+    const realRun = agentMessagesDb.insert.run
+    try {
+      ;(agentMessagesDb.insert as { run: unknown }).run = () => { throw new Error('transient insert failure') }
+      expect(briefDomain('engineering', { kind: 'run-terminal' }, T))
+        .toEqual({ briefed: false, reason: 'failed' })
+    } finally {
+      ;(agentMessagesDb.insert as { run: unknown }).run = realRun
+    }
+    expect(briefDomain('engineering', { kind: 'run-terminal' }, T + 1).briefed).toBe(true)
     expect(briefingsFor('chief')).toHaveLength(1)
   })
 

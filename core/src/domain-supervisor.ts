@@ -191,6 +191,11 @@ export function briefDomain(
     return { briefed: true, messageId: id }
   } catch (e) {
     console.error('[domain-supervisor] briefing failed:', e)
+    // Suppression must follow a SUCCESS, never a failure: nothing was written, so
+    // the in-memory debounce stamp (set optimistically above) may not silence the
+    // domain for minIntervalMs. Safe to clear unconditionally — every DELIVERED
+    // briefing is covered by the DB-side MAX(created_at) component of `last`.
+    lastBriefedAt.delete(domainId)
     return { briefed: false, reason: 'failed' }
   }
 }
