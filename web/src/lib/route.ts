@@ -10,6 +10,8 @@ export const KNOWN_VIEWS = new Set([
   'orchestrator', 'project', 'verify', 'docs', 'skill-creator', 'settings', 'timeline',
   // impressive-wave FE-5: #/pr-review/<projectId>/<prNumber> — full-screen PR Changes
   'pr-review',
+  // Continuous Agents B.6: #/messages/<threadId> — the unified conversations surface
+  'messages',
 ])
 
 export function isKnownView(view: string): boolean {
@@ -45,6 +47,8 @@ export const VIEW_REDIRECTS: Record<string, ViewRedirect> = {
     : { view: 'agents', param: 'catalog', subParam: r.param }),
   inbox: () => ({ view: 'personal', param: 'inbox' }),
   lessons: () => ({ view: 'personal', param: 'inbox' }),
+  // Continuous Agents B.6 — Personal→Chats folds into the Messages surface.
+  personal: (r) => (r.param === 'chats' ? { view: 'messages' } : r),
   // Runs keeps its view; only its folded 'workflows' sub-view moved
   runs: (r) => (r.param === 'workflows' ? { view: 'agents', param: 'automations', subParam: r.subParam } : r),
   // orchestration-p2 Task B.4 — Agents' own top tabs were renamed

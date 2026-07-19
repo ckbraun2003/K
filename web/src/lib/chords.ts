@@ -17,6 +17,7 @@ export interface Chord {
 // hidden from the rail but still deep-linkable via `g d`.
 export const CHORDS: Chord[] = [
   { key: 'h', view: 'home', label: 'Home' },
+  { key: 'm', view: 'messages', label: 'Messages' },
   { key: 'u', view: 'personal', label: 'Personal' },
   { key: 'a', view: 'agents', label: 'Agents' },
   { key: 'r', view: 'runs', label: 'Runs' },
