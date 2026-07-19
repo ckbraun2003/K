@@ -133,8 +133,10 @@ export function domainForProfile(profileId: string): Domain | null {
   return domainManagedBy(profileId)
 }
 
-/** The domain a profile MANAGES (strict manager linkage only — no domain_id read).
- *  C.5's manager-scope checks use this so a member profile can never pass as a manager. */
+/** The FIRST domain a profile MANAGES (strict manager linkage only — no domain_id
+ *  read; oldest-first LIMIT 1). domainForProfile's manager fallback uses this.
+ *  C.5's manager-scope checks (mgmt.ts) scan ALL managed domains instead, so a
+ *  multi-domain manager is not locked to its oldest domain. */
 export function domainManagedBy(profileId: string): Domain | null {
   const row = domainByManagerRow.get(profileId) as Record<string, unknown> | undefined
   return row ? rowToDomain(row) : null
