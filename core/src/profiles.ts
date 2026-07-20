@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'crypto'
 import type { AgentProfile } from '@k/shared'
-import { agentProfilesDb, rowToAgentProfile } from './db.js'
+import { agentProfilesDb, configDb, db, rowToAgentProfile } from './db.js'
 import { resolveAuthority, assertEffectiveGrants, assertCodingToolsGating } from './authority.js'
 
 export type { AgentProfile } from '@k/shared'
@@ -220,5 +220,53 @@ export function seedProfiles(): string[] {
     created.push(seed.name)
   }
   if (created.length) console.log(`[profiles] seeded durable agent profiles: ${created.join(', ')}`)
+  // A.5 (D-126): one-shot upgrade of an EXISTING k-secretary row to the
+  // primary-agent grant set (+ the identity-overlay seed). Fail-safe: a reconcile
+  // failure must not abort boot — log and continue; the flag stays unset so the
+  // next boot retries.
+  try {
+    reconcileKPrimaryAuthority()
+  } catch (e) {
+    console.warn('[profiles] K primary-authority reconcile failed (will retry next boot):', e)
+  }
   return created
+}
+
+// ─── A.5: K primary-agent authority reconcile (D-126, one-shot) ──────────────
+
+/** app_config flag for the one-shot K primary-authority reconcile. Set AFTER a
+ *  successful reconcile, so an operator NARROWING made later is never re-widened. */
+const K_PRIMARY_RECONCILE_FLAG = 'mig_k_primary_authority_v1'
+
+/** The write-once k-secretary identity-overlay seed (L1.5, D-126). Applied
+ *  only while the column is NULL — the operator's later edits win forever. */
+export const K_IDENTITY_OVERLAY_SEED =
+  'You are K — the operator\'s primary agent: a top-tier engineering agent and the expert on this ' +
+  'harness (pipelines, runs, budgets, skills, artifacts). You read and analyze anything; you never ' +
+  'mutate directly — real work is delegated to pipelines and orchestrators and supervised to completion.'
+
+/** One-shot: widen an existing (pre-lane) k-secretary row to the primary-agent
+ *  grant set — Read/Grep/Glob + the gitnexus mount — and seed the identity
+ *  overlay. Fresh DBs get the new grants from the assets at createProfile time,
+ *  so for them only the overlay seed does work. `updateProfile` re-runs
+ *  assertEffectiveGrants against the NEW assets (this change ships with the
+ *  widened allowlists/secretary.json, so the union is within the tier ceiling). */
+function reconcileKPrimaryAuthority(): void {
+  if (configDb.get(K_PRIMARY_RECONCILE_FLAG) != null) return
+  // One transaction: grants + overlay + flag land (or roll back) together, so a
+  // mid-apply failure can never leave the row widened with the flag unset — a
+  // retry after an operator narrowing must not re-widen it.
+  db.transaction(() => {
+    const k = getProfile('k-secretary')
+    if (k) {
+      const tools = new Set(k.allowedTools)
+      for (const t of ['Read', 'Grep', 'Glob', 'mcp__gitnexus']) tools.add(t)
+      const servers = new Set(k.mcpServers)
+      servers.add('gitnexus')
+      updateProfile('k-secretary', { allowedTools: [...tools], mcpServers: [...servers] })
+      // Write-once (only-if-NULL): never clobbers an operator-edited overlay.
+      agentProfilesDb.setProfileIdentityOverlay.run(K_IDENTITY_OVERLAY_SEED, 'k-secretary')
+    }
+    configDb.set(K_PRIMARY_RECONCILE_FLAG, String(Date.now()))
+  })()
 }

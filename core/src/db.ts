@@ -3558,6 +3558,12 @@ const updateProfileRow = db.prepare(`
 // P2 E-02: tier default — dispatches resolved through this profile plan-gate by default.
 const setProfilePlanGate = db.prepare(`UPDATE agent_profiles SET plan_gate = ? WHERE id = ?`)
 
+// ca-a A.5 (D-126): write-once identity-overlay seed — fills the column only while
+// it is NULL, so an operator's later edit is never overwritten by a re-seed.
+const setProfileIdentityOverlay = db.prepare(
+  `UPDATE agent_profiles SET identity_overlay = ? WHERE id = ? AND identity_overlay IS NULL`,
+)
+
 export const agentProfilesDb = {
   insertProfile,
   getProfileRow,
@@ -3565,6 +3571,7 @@ export const agentProfilesDb = {
   listProfileRows,
   updateProfileRow,
   setProfilePlanGate,
+  setProfileIdentityOverlay,
 }
 
 /** Map an agent_profiles DB row → the canonical AgentProfile shape (@k/shared).
