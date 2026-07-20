@@ -23,6 +23,8 @@ vi.mock('../src/lib/api', () => ({
       create: vi.fn(),
       remove: vi.fn(),
     },
+    // ChatView marks the open conversation read (INT.2 read-cursor fix).
+    conversations: { read: vi.fn(async () => ({ ok: true })) },
     // The Overview tab now renders the widget grid (Task 12) — it reads this
     // via useHomeLayout. `layout: null` degrades to DEFAULT_LAYOUT, same as
     // a fresh install that never saved a custom grid (spec 8.3).

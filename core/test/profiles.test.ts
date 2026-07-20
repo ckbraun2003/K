@@ -53,11 +53,12 @@ describe('createProfile / getProfile — round-trip', () => {
     expect(got).toEqual(p)
   })
 
-  it('a secretary profile carries NO coding tools and mounts kstore + logistics', () => {
+  it('a secretary profile carries NO coding tools and mounts kstore + logistics + gitnexus', () => {
     const p = createProfile({ id: 'p50-sec', name: 'p50-sec', tier: 'secretary' })
     expect(p.allowedTools).not.toContain('Bash')
     expect(p.allowedTools).not.toContain('Task')
-    expect(p.mcpServers).toEqual(['kstore', 'logistics'])
+    // ca-a A.5 (D-126): the primary agent mounts gitnexus (read-only by allowlist).
+    expect(p.mcpServers.sort()).toEqual(['gitnexus', 'kstore', 'logistics'])
   })
 
   it('getProfile returns null for an unknown id', () => {
@@ -130,8 +131,8 @@ describe('seedProfiles — idempotent durable roster', () => {
 
   it("seam self-check: K's seeded mcp_servers match mcp/secretary.json", () => {
     // K is secretary tier — the synthesizer would mount exactly mcp/secretary.json
-    // (kstore + logistics); the seeded row must carry the same grant.
-    expect(getProfileByName('K')!.mcpServers).toEqual(['kstore', 'logistics'])
+    // (kstore + logistics + gitnexus, ca-a A.5); the seeded row must carry the same grant.
+    expect(getProfileByName('K')!.mcpServers.sort()).toEqual(['gitnexus', 'kstore', 'logistics'])
     // and a lead (orchestrator) carries gitnexus + kstore like mcp/orchestrator.json
     expect(getProfileByName('Backend')!.mcpServers.sort()).toEqual(['gitnexus', 'kstore'])
   })

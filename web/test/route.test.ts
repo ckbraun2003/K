@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseHash, isKnownView } from '../src/lib/route'
+import { parseHash, isKnownView, resolveRoute } from '../src/lib/route'
 
 describe('parseHash', () => {
   it('parses a plain view hash', () => {
@@ -30,5 +30,12 @@ describe('parseHash', () => {
   it('an unknown view is still unknown (NotFound), query or not', () => {
     expect(isKnownView(parseHash('#/nonsense').view)).toBe(false)
     expect(isKnownView(parseHash('#/nonsense?x=1').view)).toBe(false)
+  })
+
+  it("messages is a known view; #/personal/chats redirects to #/messages; other personal tabs pass through", () => {
+    expect(isKnownView('messages')).toBe(true)
+    expect(resolveRoute({ view: 'personal', param: 'chats' })).toEqual({ view: 'messages' })
+    expect(resolveRoute({ view: 'personal', param: 'inbox' })).toEqual({ view: 'personal', param: 'inbox' })
+    expect(resolveRoute({ view: 'messages', param: 'kt-chief' })).toEqual({ view: 'messages', param: 'kt-chief' })
   })
 })

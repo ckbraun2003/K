@@ -30,9 +30,10 @@
  *    wake the Chief again, or a wake→run→complete→wake loop forms.
  *  • Org-relevance filter (`onChiefWakeRunUpdate`, event path only): a terminal run
  *    wakes the Chief ONLY if its agent_runs row is orchestrator-tier (a lead) or was
- *    triggered by a delegation. Plain runs (no agent_runs row: evals, skills, manual
- *    runs) and K-chat terminals ('k-secretary' / 'user-message') never wake — the
- *    Chief reacts to ORG events, not to every run in the system.
+ *    triggered by a delegation. Chat-turn runs (run.kind, D-127) are structurally
+ *    excluded first — conversation traffic (K asks, agent-session turns) is never an
+ *    org event — and plain runs (no agent_runs row: evals, skills, manual runs) fail
+ *    both relevance arms. The Chief reacts to ORG events, not to every run.
  *  • Rate breaker (`wakeChief`, event trigger only): at most `chief_wake_max_per_hour`
  *    (app_config, default 6) event wakes per rolling hour — {reason:'rate-capped'},
  *    NO ledger row. A chief-dispatched lead's terminal legitimately re-wakes the Chief
@@ -227,6 +228,11 @@ export function onChiefWakeRunUpdate(run: Run): void {
   if (!chiefWakeEnabled()) return
   if (!isTerminalRunStatus(run.status)) return
 
+  // D-127: chat turns are conversation traffic, never org events — structurally
+  // excluded by KIND before any owner-row inspection. This generalizes the old
+  // K-chat special case (K asks and agent-session turns are chat-turn runs).
+  if (run.kind === 'chat-turn') return
+
   // Kill switch — read lazily per event so the operator can flip it at runtime.
   if ((configDb.get('chief_wake_events_enabled') ?? '1') === '0') return
 
@@ -240,7 +246,8 @@ export function onChiefWakeRunUpdate(run: Run): void {
   // not wake the Chief again, or a wake→run→complete→wake loop forms.
   if (owner.profile_id === 'chief') return
   // Org-relevant = a delegation-triggered run OR a lead (orchestrator-tier profile).
-  // K-chat terminals ('k-secretary' / 'user-message') fail both arms and never wake.
+  // Chat-turn terminals never reach these arms — the D-127 kind exclusion above
+  // fires first; legacy kind-less K-chat rows still fail both arms here.
   const orgRelevant =
     owner.trigger === 'delegation' || getProfile(owner.profile_id)?.tier === 'orchestrator'
   if (!orgRelevant) return

@@ -2,8 +2,9 @@
  * native-tools.ts — the K-implemented claude-compatible tool set for Ollama
  * agent runs (Lane B, wave B1).
  *
- * Locks the D-072 security posture: fail-closed tier gating (secretary → Read
- * only), worktree path confinement (K_OLLAMA_FS_SCOPE=any widens), Bash
+ * Locks the D-072 security posture: fail-closed tier gating (secretary → the
+ * Read/Glob/Grep read set, never a write tool — ca-a A.5 roster), worktree
+ * path confinement (K_OLLAMA_FS_SCOPE=any widens), Bash
  * timeout/output-cap/secret-stripped env, Edit's exact-match discipline, and
  * read_skill's enumerated-paths-only lookup.
  */
@@ -23,7 +24,16 @@ import {
 } from '../src/ollama-agent/native-tools.js'
 import type { ResolvedSkill } from '../src/run-assets.js'
 
-const SECRETARY_ALLOWLIST = ['Read', 'WebFetch', 'WebSearch', 'mcp__kstore', 'mcp__logistics']
+// ca-a A.5 (D-126) + SEAMS#2 (f): the primary-agent roster — Grep/Glob + the
+// gitnexus READ tools joined (per-tool; rename/group_sync/cypher excluded).
+const SECRETARY_ALLOWLIST = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch',
+  'mcp__gitnexus__query', 'mcp__gitnexus__context', 'mcp__gitnexus__impact',
+  'mcp__gitnexus__api_impact', 'mcp__gitnexus__detect_changes',
+  'mcp__gitnexus__route_map', 'mcp__gitnexus__tool_map', 'mcp__gitnexus__shape_check',
+  'mcp__gitnexus__group_query', 'mcp__gitnexus__group_list',
+  'mcp__gitnexus__group_contracts', 'mcp__gitnexus__group_status',
+  'mcp__gitnexus__list_repos',
+  'mcp__kstore', 'mcp__logistics']
 const ORCH_ALLOWLIST = ['Bash', 'PowerShell', 'Read', 'Write', 'Edit', 'NotebookEdit', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore']
 
 let worktree: string
@@ -67,9 +77,12 @@ function skillFixture(name: string, body: string, nested?: Record<string, string
 // ─── gating ───────────────────────────────────────────────────────────────────
 
 describe('tier gating (fail-closed)', () => {
-  it('secretary allowlist yields Read only', () => {
+  it('secretary allowlist yields the Read/Glob/Grep read set — never a write tool', () => {
     const tools = toolsFor(SECRETARY_ALLOWLIST)
-    expect(tools.map(t => t.name)).toEqual(['Read'])
+    expect(tools.map(t => t.name)).toEqual(['Read', 'Glob', 'Grep'])
+    for (const denied of ['Write', 'Edit', 'Bash', 'Task']) {
+      expect(tools.map(t => t.name)).not.toContain(denied)
+    }
   })
 
   it('orchestrator allowlist yields the six native tools — never Task', () => {

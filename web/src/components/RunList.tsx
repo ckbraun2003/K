@@ -4,10 +4,11 @@ import { motion } from 'framer-motion'
 import type { Run, WsMessage } from '@k/shared'
 import { api } from '../lib/api'
 import { onWsMessage } from '../lib/ws'
-import { RUNS_LIST_KEY, RUNS_LIST_LIMIT, runsListQueryFn, isActiveRun, isParkedRun } from '../lib/runs-query'
+import { RUNS_LIST_KEY, RUNS_LIST_LIMIT, isActiveRun, isParkedRun } from '../lib/runs-query'
 import { cleanRunPrompt } from '../lib/prompt'
 import { runDuration } from '../lib/format-metrics'
 import ConfirmDialog from './ConfirmDialog'
+import { Checkbox } from '../ui/Field'
 import { Tag } from '../ui/Tag'
 import { StatusPill } from '../ui/StatusPill'
 import { IconButton } from '../ui/Button'
@@ -42,40 +43,58 @@ function formatTokens(n: number): string {
   return `${n} tok`
 }
 
+// A.3 (D-127): RunList's list is now KIND-scoped (chat turns hidden by default via
+// the server-side filter), so it owns a scoped query key — per the runs-query.ts
+// rule, a FILTERED list must never share the default RUNS_LIST_KEY cache entry.
+const runListKey = (showChatTurns: boolean) => ['runs', { limit: RUNS_LIST_LIMIT, showChatTurns }] as const
+
 export default function RunList({ selectedId, onSelect }: Props) {
   const qc = useQueryClient()
   const [filter, setFilter] = useState<FilterKey>('all')
+  // A.3 (D-127): chat-turn runs are conversation traffic (the Messages surface),
+  // hidden from the runs list by default via the server-side kind filter.
+  const [showChatTurns, setShowChatTurns] = useState(false)
   // Run pending kill-confirmation (null = no dialog).
   const [pendingKill, setPendingKill] = useState<Run | null>(null)
   const [killing, setKilling] = useState(false)
 
-  // The shared default-list cache (RunList + ActiveRunsWidget + Sidebar),
-  // live-patched by run_update. Key + fn come from runs-query.ts so the
-  // consumers can't drift — a *filtered* or non-default-limit list must use its
-  // own scoped queryKey, never this one.
+  // RunList's KIND-scoped list (chat turns excluded unless toggled). The key
+  // carries the toggle so each scope caches separately; the shared default-list
+  // entry (RUNS_LIST_KEY: ActiveRunsWidget + Sidebar) stays untouched per the
+  // runs-query.ts scoping rule.
   const { data: runs = [], isLoading } = useQuery<Run[]>({
-    queryKey: RUNS_LIST_KEY,
-    queryFn: runsListQueryFn,
+    queryKey: runListKey(showChatTurns),
+    queryFn: () => api.runs.list({ limit: RUNS_LIST_LIMIT, kind: showChatTurns ? undefined : ['job', 'pipeline-stage'] }),
     refetchInterval: 5_000,
   })
 
-  // Live updates via WebSocket — the setQueryData key must be EXACTLY the shared
-  // scoped key (a bare ['runs'] prefix would write a different cache entry and the
-  // live patch would silently stop reaching the list).
+  // Live updates via WebSocket. Two exact-key writes (a bare ['runs'] prefix would
+  // create a third cache entry and reach nobody):
+  //  - the SHARED default-list entry, unchanged, so its consumers (Sidebar badge,
+  //    ActiveRunsWidget) stay live exactly as before;
+  //  - THIS list's kind-scoped entry — where a chat-turn update must not INSERT
+  //    while the toggle is off (the server excludes them; an already-listed row
+  //    still patches). The Shell-level ['runs'] prefix invalidation re-fetches
+  //    both on every run_update regardless, so a skipped insert can't go stale.
   useEffect(() => {
     return onWsMessage((msg: WsMessage) => {
       if (msg.type === 'run_update') {
-        qc.setQueryData<Run[]>(RUNS_LIST_KEY, old => {
+        const patch = (old?: Run[]): Run[] | undefined => {
           if (!old) return [msg.run]
           const idx = old.findIndex(r => r.id === msg.run.id)
           if (idx === -1) return [msg.run, ...old]
           const next = [...old]
           next[idx] = msg.run
           return next
+        }
+        qc.setQueryData<Run[]>(RUNS_LIST_KEY, patch)
+        qc.setQueryData<Run[]>(runListKey(showChatTurns), old => {
+          if (!showChatTurns && msg.run.kind === 'chat-turn' && !old?.some(r => r.id === msg.run.id)) return old
+          return patch(old)
         })
       }
     })
-  }, [qc])
+  }, [qc, showChatTurns])
 
   const filteredRuns = runs.filter(r => matchesFilter(r, filter))
 
@@ -120,6 +139,15 @@ export default function RunList({ selectedId, onSelect }: Props) {
               </button>
             )
           })}
+          {/* A.3 (D-127): opt chat-turn (conversation) runs back into the list. */}
+          <label className="ml-auto flex items-center gap-1 text-label text-muted cursor-pointer">
+            <Checkbox
+              checked={showChatTurns}
+              onChange={e => setShowChatTurns(e.target.checked)}
+              data-testid="run-show-chat-turns"
+            />
+            Show chat turns
+          </label>
         </div>
       </div>
 

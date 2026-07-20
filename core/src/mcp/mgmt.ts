@@ -27,9 +27,11 @@
 import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
 import type { Assignment, MgmtReport } from '@k/shared'
-import { db, mgmtDb, runsDb, leadDispatchDb } from '../db.js'
+import { db, mgmtDb, runsDb, leadDispatchDb, agentRunsDb, agentMessagesDb, pipelineDb } from '../db.js'
 import { getProfile } from '../profiles.js'
 import { isTerminalRunStatus } from '../run-lifecycle.js'
+import { resolveGate } from '../pipeline-engine.js'
+import { listAllDomains, domainForProfile } from '../domains.js'
 import {
   resolveLeadProfileId,
   resolveLeadWorkflow,
@@ -216,6 +218,30 @@ function report(args: unknown, ctx: MgmtContext): MgmtReport {
     body: a.body,
     createdAt: now,
   })
+  // C.5 (D-124/D-125): a report ALSO lands in K's conversation as a mailbox message
+  // (from the reporting profile). Best-effort additive: legacy no-run-context calls
+  // keep filing the durable report row only. Lane B's B.4 report-back reroute
+  // reconciles the dual-write at INT.
+  const reporter = owner
+    ? (agentRunsDb.getAgentRunProfileByRunId.get(owner) as { profile_id?: string } | undefined)?.profile_id
+    : undefined
+  // The k-secretary skip keeps the mailbox invariant LOCAL to the write: K must
+  // never author a to==from row (unreachable via tier mounts today — mgmt is
+  // chief-tier-only — but the invariant should not rest on mount topology alone).
+  if (reporter && reporter !== 'k-secretary') {
+    try {
+      agentMessagesDb.insert.run({
+        id: uuid(), toProfileId: 'k-secretary', toThreadId: null, fromKind: 'profile',
+        fromProfileId: reporter, body: a.body, priority: 'normal',
+        provenanceRunId: owner, createdAt: now,
+      })
+    } catch (err) {
+      // Best-effort BY CONTRACT: the durable report row already landed; failing the
+      // whole call here would make the chief refile and duplicate reports. stderr is
+      // safe in the stdio child (stdout is the MCP transport).
+      console.error('[mgmt] report->K mailbox write failed:', err)
+    }
+  }
   return rowToReport(mgmtDb.getReport.get(id) as Row)
 }
 
@@ -334,6 +360,112 @@ function reportList(args: unknown): MgmtReport[] {
   return rows.map(rowToReport)
 }
 
+// ── Manager supervision tools (C.5, D-125) ────────────────────────────────────
+// Callers are managers by construction (mgmt mounts on the chief tier only), but
+// every handler still re-derives the calling profile from K_RUN_ID → agent_runs
+// and re-checks the manager-scope matrix — never trust the mount alone.
+// Scope matrix INLINED here (Lane B owns the shared mayMessage; reconcile at INT):
+//   manager → member profiles of ANY domain it manages, + K (multi-domain managers
+//   act across all of their domains). Self-steering is FORBIDDEN — a
+//   self-addressed manager message is the domain supervisor's briefing
+//   discriminator (domain-supervisor.ts governor cap) and must stay unforgeable.
+// Mailbox rows insert with to_thread_id NULL: the store runs in the ephemeral
+// stdio CHILD (import-light house posture — no agent-sessions/supervisor import);
+// Lane B's main-process relay resolves conversation pairing at delivery (their
+// W0.3 checklist item).
+
+// Domain-attribution read for resolve_gate's scope check (module-scope like the
+// db.ts-bundled statements; local because pipeline_runs.domain_id is a C-lane read).
+const pipelineRunDomainRow = db.prepare(`SELECT domain_id FROM pipeline_runs WHERE id = ?`)
+
+function resolveCaller(ctx: MgmtContext): { runId: string; profileId: string } {
+  const owner = resolveOwnerRunId(ctx)
+  const row = owner
+    ? (agentRunsDb.getAgentRunProfileByRunId.get(owner) as { profile_id?: string } | undefined)
+    : undefined
+  if (!owner || !row?.profile_id) throw new MgmtError('calling profile unresolved — this tool requires a run context.')
+  return { runId: owner, profileId: row.profile_id }
+}
+
+/** Every domain id the profile MANAGES (strict domains.manager_profile_id linkage —
+ *  no agent_profiles.domain_id read, so a member can never pass as a manager).
+ *  A multi-domain manager acts across ALL its domains — domainManagedBy's oldest-
+ *  first LIMIT 1 would silently lock the second domain's gates/members out. */
+function requireManagedDomainIds(profileId: string): Set<string> {
+  const ids = new Set(
+    listAllDomains().filter(d => d.managerProfileId === profileId).map(d => d.id),
+  )
+  if (ids.size === 0) throw new MgmtError('you do not manage a domain.')
+  return ids
+}
+
+const ResolveGateInput = {
+  gateId: z.string().min(1).max(100),
+  decision: z.enum(['approve', 'reject']),
+  note: z.string().max(2000).optional(),
+}
+function resolveGateTool(args: unknown, ctx: MgmtContext): { ok: true; gateId: string; decision: string } {
+  const a = z.object(ResolveGateInput).parse(args ?? {})
+  const caller = resolveCaller(ctx)
+  const managed = requireManagedDomainIds(caller.profileId)
+  const stage = pipelineDb.getStage.get(a.gateId) as
+    | { id: string; pipeline_run_id: string; status: string } | undefined
+  if (!stage) throw new MgmtError(`gate "${a.gateId}" not found.`)
+  const pr = pipelineRunDomainRow.get(stage.pipeline_run_id) as { domain_id: string | null } | undefined
+  if (!pr || pr.domain_id == null || !managed.has(pr.domain_id)) {
+    throw new MgmtError('gate is outside your domain.')
+  }
+  // Advisory pre-check for an accurate message; the CAS below is the sole authority.
+  if (stage.status !== 'awaiting_gate') {
+    throw new MgmtError(
+      stage.status === 'passed' || stage.status === 'failed'
+        ? 'gate already resolved.'
+        : 'gate is not awaiting resolution.',
+    )
+  }
+  // Reuse the SINGLE gate CAS (pipeline-engine.resolveGate — the operator route's
+  // exact contract); `by` = the manager profile id (audit trail).
+  const won = resolveGate(a.gateId, a.decision, caller.profileId, a.note)
+  if (!won) throw new MgmtError('gate already resolved.')
+  // No WS broadcast from the stdio child (no server here) — the UI converges via
+  // its normal pipeline polling/reconcile.
+  return { ok: true, gateId: a.gateId, decision: a.decision }
+}
+
+const SteerInput = {
+  toProfileId: z.string().min(1).max(100).optional(),
+  runId: z.string().min(1).max(100).optional(),
+  body: z.string().min(1).max(20_000),
+  priority: z.enum(['normal', 'urgent']).optional(),
+}
+function steer(args: unknown, ctx: MgmtContext): { ok: true; messageId: string; to: string; priority: string } {
+  const a = z.object(SteerInput).parse(args ?? {})
+  if ((a.toProfileId == null) === (a.runId == null)) {
+    throw new MgmtError('provide exactly one of toProfileId or runId.')
+  }
+  const caller = resolveCaller(ctx)
+  const managed = requireManagedDomainIds(caller.profileId)
+  let target = a.toProfileId as string
+  if (a.runId != null) {
+    const owner = agentRunsDb.getAgentRunProfileByRunId.get(a.runId) as
+      | { profile_id?: string } | undefined
+    if (!owner?.profile_id) throw new MgmtError(`run "${a.runId}" has no owning profile.`)
+    target = owner.profile_id
+  }
+  if (!getProfile(target)) throw new MgmtError(`unknown profile "${target}".`)
+  if (target === caller.profileId) throw new MgmtError('you cannot steer yourself.')
+  const targetDomain = domainForProfile(target)
+  const allowed = target === 'k-secretary' || (targetDomain != null && managed.has(targetDomain.id))
+  if (!allowed) throw new MgmtError(`"${target}" is outside your domain.`)
+  const id = uuid()
+  agentMessagesDb.insert.run({
+    id, toProfileId: target, toThreadId: null, fromKind: 'profile', fromProfileId: caller.profileId,
+    body: a.body, priority: a.priority ?? 'normal',
+    provenanceRunId: caller.runId, createdAt: Date.now(),
+  })
+  return { ok: true, messageId: id, to: target, priority: a.priority ?? 'normal' }
+}
+
 // ── registry ────────────────────────────────────────────────────────────────
 
 export interface MgmtTool {
@@ -403,5 +535,19 @@ export const mgmtTools: MgmtTool[] = [
       'List recent status reports across Chief activations (newest first), including reports filed back by dispatched leads. Readable across activations.',
     inputShape: ReportListInput,
     handler: reportList,
+  },
+  {
+    name: 'resolve_gate',
+    description:
+      'Resolve a parked pipeline gate in YOUR domain by gateId (from a briefing): approve passes the stage, reject fails it. Single-resolver CAS — a clean error means someone already resolved it.',
+    inputShape: ResolveGateInput,
+    handler: resolveGateTool,
+  },
+  {
+    name: 'steer',
+    description:
+      'Send a steering message to an agent in your domain (by profile id, or by runId of a running dispatch) or to K. priority "urgent" requests delivery at the earliest safe point. The message is queued in the mailbox; delivery is state-routed.',
+    inputShape: SteerInput,
+    handler: steer,
   },
 ]

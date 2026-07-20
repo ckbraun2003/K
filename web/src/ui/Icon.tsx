@@ -3,6 +3,7 @@ import {
   BookOpen, PenLine, ListOrdered, Check, X, TriangleAlert, Trash2, Monitor,
   FileText, RefreshCw, ChevronRight, ChevronDown, ArrowRight, ArrowLeft, Plus,
   Search, Mic, Send, Zap, Square, Pencil, ExternalLink, Bell, Copy, GitPullRequest,
+  MessagesSquare, Archive, ArchiveRestore,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '../lib/cn'
@@ -16,6 +17,7 @@ export const ICONS = {
   arrowRight: ArrowRight, arrowLeft: ArrowLeft, plus: Plus, search: Search,
   mic: Mic, send: Send, bolt: Zap, stop: Square, edit: Pencil,
   external: ExternalLink, bell: Bell, copy: Copy, pr: GitPullRequest,
+  messages: MessagesSquare, archive: Archive, unarchive: ArchiveRestore,
 } satisfies Record<string, LucideIcon>
 
 export type IconName = keyof typeof ICONS

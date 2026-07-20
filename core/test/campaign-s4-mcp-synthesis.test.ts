@@ -6,8 +6,8 @@
  * K_DATA_DIR / K_RUN_ID injected. The existing agent-config test pins the
  * orchestrator kstore rewrite shape; these tests pin the SYNTHESIS angles it
  * does not:
- *   - the per-tier server SET (secretary mounts kstore + logistics — no gitnexus;
- *     chief + orchestrator mount gitnexus + kstore),
+ *   - the per-tier server SET (secretary mounts gitnexus + kstore + logistics —
+ *     ca-a A.5; chief + orchestrator mount gitnexus + kstore),
  *   - the kstore K_DATA_DIR follows the dataDir resolution chain, including the
  *     process.env.K_DATA_DIR fallback when opts.dataDir is omitted,
  *   - re-synthesizing the SAME runId is idempotent (mcp.json byte-identical).
@@ -73,10 +73,12 @@ afterAll(() => {
 })
 
 describe('S4 mcp synthesis: per-tier server set', () => {
-  it('S4-005: secretary mounts kstore + logistics (no gitnexus)', () => {
+  it('S4-005 (ca-a A.5): secretary mounts gitnexus + kstore + logistics', () => {
     const { cfg } = synthAs('secretary')
     const servers = Object.keys(readMcp(cfg).mcpServers).sort()
-    expect(servers).toEqual(['kstore', 'logistics'])
+    expect(servers).toEqual(['gitnexus', 'kstore', 'logistics'])
+    // gitnexus passes through as the portable npx stdio server, untouched.
+    expect(readMcp(cfg).mcpServers.gitnexus.command).toBe('npx')
   })
 
   it('S4-005: orchestrator mounts BOTH gitnexus + kstore', () => {
@@ -123,6 +125,12 @@ describe('S4 mcp synthesis: kstore binding + dataDir resolution', () => {
       expect(k.command, `${tier} command`).toBe(process.execPath)
       expect(k.env?.K_DATA_DIR, `${tier} K_DATA_DIR`).toBe(dataDir)
       expect(k.env?.K_RUN_ID, `${tier} K_RUN_ID`).toBe(runId)
+      // INT.8 smoke-3 fix: under dev (.ts — what this suite runs as), every
+      // run-scoped child carries TSX_TSCONFIG_PATH → core/tsconfig.json so its
+      // tsx resolves @k/shared via `paths` from ANY cwd (the child's cwd is the
+      // agent's, and a VALUE import of @k/shared — mgmt → pipeline-engine since
+      // C.5 — otherwise resolves the unbuilt dist and kills the server).
+      expect(k.env?.TSX_TSCONFIG_PATH, `${tier} TSX_TSCONFIG_PATH`).toMatch(/core[\\/]tsconfig\.json$/)
       // no leftover placeholders anywhere in the resolved server config
       const blob = JSON.stringify(readMcp(cfg).mcpServers)
       expect(blob).not.toContain('__KSTORE__')

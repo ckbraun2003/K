@@ -21,6 +21,8 @@ vi.mock('../src/lib/api', () => ({
       create: vi.fn(),
       remove: vi.fn(),
     },
+    // ChatView marks the open conversation read (INT.2 read-cursor fix).
+    conversations: { read: vi.fn(async () => ({ ok: true })) },
   },
 }))
 

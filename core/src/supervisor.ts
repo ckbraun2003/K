@@ -144,6 +144,12 @@ export type StartRunOptions = {
   /** Keep stdin open for multi-turn HITL (claude only). Default false → today's
    *  one-shot fire-and-forget run. */
   interactive?: boolean
+  /** Continuous Agents A.2 (D-122): per-run override for the awaiting_input idle
+   *  timeout — how long an interactive run may sit parked before the supervisor
+   *  gracefully ends the session (agent-sessions passes SESSION_IDLE_MS so the
+   *  session knob is independent of the HITL knob). Absent → INTERACTIVE_IDLE_MS,
+   *  byte-identical for every existing caller. */
+  idleMs?: number
   /** The agent profile whose tier drives config synthesis (charter, allowlist, MCP,
    *  skills). Defaults to DEFAULT_PROFILE (orchestrator) so every existing caller is
    *  unchanged; startAgentRun passes the resolved profile so a run gets ITS tier's
@@ -154,8 +160,19 @@ export type StartRunOptions = {
    *  per-run config. `key` is the K thread id (keys the stable dir/cwd); `sessionId` is
    *  the CLI session id; `resume` false → establish it (`--session-id`), true → continue
    *  it (`--resume`). Absent for every regular dispatch run → fresh worktree, fresh
-   *  synthesized config, no session flags — byte-for-byte the prior behavior. */
-  persistentSession?: { key: string; sessionId: string; resume: boolean }
+   *  synthesized config, no session flags — byte-for-byte the prior behavior.
+   *  Continuous Agents W0.3 (D-122): `homeDir`, when set, is a generalized session's
+   *  stable home (agent-config.ts::agentSessionPaths base) — the run dir + cwd derive
+   *  from IT instead of kSecretaryConfigPaths(key). Absent → the K path, byte-identical. */
+  persistentSession?: { key: string; sessionId: string; resume: boolean; homeDir?: string }
+  /** Continuous Agents A.3 (D-127) bookkeeping: what kind of work this run is
+   *  (runs.kind). Absent → inferred: a persistentSession dispatch is a
+   *  'chat-turn' (conversation traffic), anything else a 'job'. An explicit
+   *  kind always wins (pipeline-executor passes 'pipeline-stage'). */
+  kind?: 'chat-turn' | 'job' | 'pipeline-stage'
+  /** Continuous Agents A.3 (D-127) bookkeeping: the owning agent_sessions row
+   *  for a session-attached run — stamped onto runs.session_id (NULL absent). */
+  sessionId?: string
   /** H8 (OPT-IN): after adding the run's detached worktree, replay the SOURCE repo's
    *  UNCOMMITTED tracked+staged changes into it so the agent starts from the operator's
    *  dirty state (see applyWorkingTreeInto for the exact semantics — untracked/ignored
@@ -224,7 +241,20 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   // keyed by cwd, persist for `--resume`) — never a fresh worktree. Absent for regular
   // runs → the caller's cwd (or the repo root), unchanged.
   const ps = opts.persistentSession
-  const kPaths = ps ? kSecretaryConfigPaths(ps.key) : undefined
+  // Continuous Agents W0.3 (D-122): a generalized agent session supplies its own stable
+  // home (`homeDir`, the agentSessionPaths base) — derive the run dir + cwd from it with
+  // the SAME `agent/` + `cwd/` layout agentSessionPaths returns (keep in lockstep).
+  // homeDir absent → the K-secretary path, byte-identical (kSecretaryConfigPaths).
+  const kPaths = ps
+    ? ps.homeDir
+      ? { runDir: path.join(ps.homeDir, 'agent'), cwd: path.join(ps.homeDir, 'cwd') }
+      : kSecretaryConfigPaths(ps.key)
+    : undefined
+  // A.3 (D-127): resolve the run's kind — an explicit opt wins; otherwise a
+  // persistent-session dispatch is conversation traffic ('chat-turn'), anything
+  // else a 'job'. Stamped on the row + carried on the Run so consumers key on it
+  // structurally (chief-wake exclusion, /api/runs filters, budget exemption).
+  const kind = opts.kind ?? (ps ? 'chat-turn' : 'job')
   const cwd = kPaths?.cwd ?? opts.cwd ?? REPO_ROOT
   const worktreePath = path.join(WORKTREES_DIR, runId)
   const now = Date.now()
@@ -246,6 +276,8 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
     tokensOut: 0,
     costUsd: 0,
     projectId,
+    kind,
+    sessionId: opts.sessionId,
     createdAt: now,
   }
 
@@ -262,6 +294,8 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
     tokensOut: run.tokensOut,
     costUsd: run.costUsd,
     projectId: run.projectId ?? null,
+    kind,
+    sessionId: opts.sessionId ?? null,
     createdAt: run.createdAt,
   })
 
@@ -324,7 +358,7 @@ export async function startRun(prompt: string, opts: StartRunOptions = {}): Prom
   // stable run dir + session id/resume through. planGate scaffolds the spawn prompt to
   // demand a PlanDoc and arms the clean-exit park inside runAgent.
   const session = ps ? { runDir: kPaths!.runDir, sessionId: ps.sessionId, resume: ps.resume } : undefined
-  void runAgent(run, planGate ? buildPlanScaffold(prompt) : prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE, session, planGate, false, opts.subagent)
+  void runAgent(run, planGate ? buildPlanScaffold(prompt) : prompt, effectiveCwd, inWorktree, interactive, opts.profile ?? DEFAULT_PROFILE, session, planGate, false, opts.subagent, opts.idleMs)
 
   return run
 }
@@ -754,6 +788,9 @@ async function runAgent(
   // Undefined for a plan RESUME (its persisted config dir already carries the original mount) and
   // every non-pipeline run.
   subagent?: SubAgentDef | null,
+  // Continuous Agents A.2: per-run awaiting_input idle override (StartRunOptions.idleMs).
+  // Undefined for every non-session caller → INTERACTIVE_IDLE_MS, byte-identical.
+  idleMs?: number,
 ) {
   emitStatusEvent(run.id, 'running', nextSeq(run.id), Date.now())
   eventBus.emitRunUpdate({ ...run, status: 'running' })
@@ -994,7 +1031,7 @@ async function runAgent(
               emitStatusEvent(run.id, 'awaiting_input', nextSeq(run.id), Date.now())
               eventBus.emitRunUpdate({ ...run, status: 'awaiting_input', tokensIn, tokensOut, costUsd })
               clearIdleTimer(run.id)
-              idleTimers.set(run.id, setTimeout(() => { endSession(run.id) }, INTERACTIVE_IDLE_MS))
+              idleTimers.set(run.id, setTimeout(() => { endSession(run.id) }, idleMs ?? INTERACTIVE_IDLE_MS))
             }
           }
         })
@@ -1080,6 +1117,10 @@ function loadRun(runId: string): Run | null {
     costUsd: Number(r.cost_usd ?? 0),
     projectId: (r.project_id as string | null) ?? undefined,
     cliSessionId: (r.cli_session_id as string | null) ?? undefined,
+    // A.3 (D-127): kind is NOT NULL (v16 default+backfill) but map defensively;
+    // session_id NULL → absent, matching the wire shape.
+    kind: ((r.kind as string | null) ?? undefined) as Run['kind'],
+    sessionId: (r.session_id as string | null) ?? undefined,
     createdAt: Number(r.created_at),
     endedAt: r.ended_at != null ? Number(r.ended_at) : undefined,
   }
@@ -1094,6 +1135,15 @@ function loadRun(runId: string): Run | null {
 export function sendInput(runId: string, text: string): boolean {
   const proc = activeProcesses.get(runId)
   if (!proc || !proc.interactive || !proc.stdin) return false
+
+  // A gracefully-ENDING session (endSession closed stdin) still has its row
+  // parked at awaiting_input until the CLI exits — and Node surfaces a
+  // write-after-end ASYNCHRONOUSLY (ERR_STREAM_WRITE_AFTER_END, absorbed by the
+  // transport's stream wait), so the sync catch below would never see it: an
+  // unguarded send would claim the turn and report true while the text reached
+  // nobody. Refuse instead — the session layer queues the body and its terminal
+  // re-dispatch delivers it in a fresh spawn (A.2 quality M1).
+  if (endingRuns.has(runId)) return false
 
   // Atomically claim the parked turn: only the caller whose UPDATE actually flips
   // awaiting_input → running may proceed. A second/concurrent caller sees
@@ -1114,6 +1164,43 @@ export function sendInput(runId: string, text: string): boolean {
   eventBus.emitEvent({ id: uuid(), runId, seq: nextSeq(runId), type: 'user', ts: Date.now(), text })
   emitStatusEvent(runId, 'running', nextSeq(runId), Date.now())
   if (run) eventBus.emitRunUpdate({ ...run, status: 'running' })
+  return true
+}
+
+/**
+ * INT.4 (D-124 urgent steering): ask a MID-TURN interactive run to stop early by
+ * writing the Agent-SDK control-protocol interrupt onto its stream-json stdin:
+ * `{type:'control_request', request_id, request:{subtype:'interrupt'}}`. A CLI
+ * that honors it aborts the in-flight turn and emits its result — i.e. the run
+ * reaches the awaiting_input BOUNDARY early, and the ordinary boundary machinery
+ * (message relay 'stdin-now' cell) delivers the urgent message on the next tick.
+ * A CLI that does NOT honor it answers with an error control_response (ignored —
+ * we subscribe to nothing) and the turn ends at its natural boundary instead:
+ * DEGRADATION IS BUILT IN — the caller never depends on the interrupt landing,
+ * it only ever accelerates the boundary. No turn is claimed and no event/status
+ * is emitted here: an interrupt is a nudge, not a turn.
+ *
+ * Returns true when the control line was written to a live interactive stdin.
+ * Refuses (false) for: no live process / non-interactive / no stdin, a
+ * gracefully-ENDING session (write-after-end surfaces async — the sendInput
+ * guard's rationale), and a PARKED run (awaiting_input has no turn in flight —
+ * the boundary is already here; interrupting it would be meaningless).
+ * Kill-switch: K_URGENT_INTERRUPT=0 disables (boundary-only posture).
+ */
+export function sendInterrupt(runId: string): boolean {
+  if (process.env.K_URGENT_INTERRUPT === '0') return false
+  const proc = activeProcesses.get(runId)
+  if (!proc || !proc.interactive || !proc.stdin) return false
+  if (endingRuns.has(runId)) return false
+  const status = (runsDb.getRun.get(runId) as { status?: string } | undefined)?.status
+  if (status !== 'running') return false // mid-turn only — parked/terminal runs have no turn to interrupt
+  try {
+    proc.stdin.write(
+      JSON.stringify({ type: 'control_request', request_id: `int-${uuid()}`, request: { subtype: 'interrupt' } }) + '\n',
+    )
+  } catch {
+    return false // EPIPE — the proc-exit path finalizes the run
+  }
   return true
 }
 

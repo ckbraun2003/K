@@ -59,10 +59,10 @@ describe('P2 contracts (W0 freeze)', () => {
     }).success).toBe(true)
   })
 
-  it('notification contracts: 5 frozen P2 event keys + memory_saved (v11), rule channels, WS member', () => {
+  it('notification contracts: 5 frozen P2 event keys + memory_saved (v11) + message_failed (ca-b B.2), rule channels, WS member', () => {
     expect(NotificationEventKeySchema.options).toEqual([
       'run_awaiting_input', 'run_awaiting_plan', 'run_review_ready', 'run_failed', 'verify_fail',
-      'memory_saved',
+      'memory_saved', 'message_failed',
     ])
     const n = {
       id: RUN_ID, eventKey: 'run_awaiting_plan', title: 'Plan ready for review',

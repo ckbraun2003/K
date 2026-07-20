@@ -11,7 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ChiefOrgLead, AgentProfile, RecentActuals } from '@k/shared'
 import type { MemoryLesson } from '../src/lib/memory'
 
-const { mockGet, mockLessons, mockNavigate, mockRecentActuals, mockApprove, mockReject, mockModelsAvailable } = vi.hoisted(() => ({
+const { mockGet, mockLessons, mockNavigate, mockRecentActuals, mockApprove, mockReject, mockModelsAvailable, mockForAgent, mockThreadsGet } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockLessons: vi.fn(),
   mockNavigate: vi.fn(),
@@ -19,6 +19,8 @@ const { mockGet, mockLessons, mockNavigate, mockRecentActuals, mockApprove, mock
   mockApprove: vi.fn(),
   mockReject: vi.fn(),
   mockModelsAvailable: vi.fn(),
+  mockForAgent: vi.fn(),
+  mockThreadsGet: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
@@ -32,6 +34,11 @@ vi.mock('../src/lib/api', () => ({
     // pre-existing tests don't exercise that Select, so an empty resolved
     // list is enough to keep them from hitting an unmocked-call crash.
     models: { available: mockModelsAvailable },
+    // Continuous Agents B.6 — the Conversation panel's get-or-create fetch, plus
+    // the embedded ConversationView's transcript read.
+    conversations: { forAgent: mockForAgent, message: vi.fn() },
+    threads: { get: mockThreadsGet },
+    k: { ask: vi.fn() },
   },
 }))
 vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
@@ -71,12 +78,23 @@ function renderPage(id?: string) {
 beforeEach(() => {
   mockGet.mockReset(); mockLessons.mockReset(); mockNavigate.mockClear()
   mockRecentActuals.mockReset(); mockApprove.mockReset(); mockReject.mockReset()
-  mockModelsAvailable.mockReset()
+  mockModelsAvailable.mockReset(); mockForAgent.mockReset(); mockThreadsGet.mockReset()
   mockLessons.mockResolvedValue([])
   mockRecentActuals.mockResolvedValue(NO_ACTUALS)
   mockApprove.mockResolvedValue({})
   mockReject.mockResolvedValue({})
   mockModelsAvailable.mockResolvedValue({ models: [], localDegraded: false })
+  mockForAgent.mockResolvedValue({
+    conversation: {
+      id: 'kt-lead-web', title: null, status: 'idle', activeRunId: null, archivedAt: null,
+      createdAt: 1, updatedAt: 1, snippet: null, lastTurnAt: null,
+      profileId: 'lead-web', profileName: 'Web Lead', sessionState: null, contextTokens: null, unread: 0,
+    },
+  })
+  mockThreadsGet.mockResolvedValue({
+    thread: { id: 'kt-lead-web', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+    turns: [],
+  })
 })
 afterEach(() => cleanup())
 
@@ -195,6 +213,34 @@ describe('OrchestratorDetailPage — Memory tab status SegControl', () => {
     fireEvent.click(screen.getByTestId('seg-memory'))
     const empty = await screen.findByTestId('orchestrator-memory-empty')
     expect(empty.textContent).toContain('pending')
+  })
+})
+
+// ── Continuous Agents B.6 — Conversation panel ──────────────────────────────
+
+describe('OrchestratorDetailPage — Conversation panel (B.6)', () => {
+  it('renders the agent\'s durable conversation via the shared ConversationView', async () => {
+    mockGet.mockResolvedValue(detail)
+    renderPage('lead-web')
+    await screen.findByRole('heading', { level: 1, name: 'Web Lead' })
+
+    await screen.findByTestId('orchestrator-conversation')
+    await waitFor(() => expect(mockForAgent).toHaveBeenCalledWith('lead-web'))
+    expect(await screen.findByTestId('conversation-view')).toBeTruthy()
+    expect(mockThreadsGet).toHaveBeenCalledWith('kt-lead-web')
+    // The composer targets the MAILBOX for a non-K profile.
+    expect(screen.getByTestId('conversation-composer-input')).toBeTruthy()
+  })
+
+  it('a failed conversation fetch shows an inline error — never silently hidden', async () => {
+    mockGet.mockResolvedValue(detail)
+    mockForAgent.mockRejectedValue(new Error('conversations route down'))
+    renderPage('lead-web')
+    await screen.findByRole('heading', { level: 1, name: 'Web Lead' })
+
+    const err = await screen.findByTestId('orchestrator-conversation-error')
+    expect(err.textContent).toContain('Failed to load')
+    expect(screen.queryByTestId('conversation-view')).toBeNull()
   })
 })
 

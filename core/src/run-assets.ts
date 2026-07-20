@@ -411,6 +411,15 @@ export function resolveRunAssets(profile: AgentProfile, opts: ResolveRunAssetsOp
   const l0 = fs.readFileSync(path.join(assetsDir, 'base-operating-prompt.md'), 'utf8')
   const l1 = fs.readFileSync(path.join(assetsDir, 'tiers', `${charter}.charter.md`), 'utf8')
   let systemPrompt = `${l0}\n\n---\n\n${l1}`
+  // L1.5 — per-profile identity overlay (D-126): appended VERBATIM when non-empty,
+  // same joiner as L0/L1. Whitespace-only counts as empty so a stray newline saved
+  // from a textarea can never change synthesis output (byte-locked:
+  // identity-overlay.test.ts). Overlay content is operator-authored profile
+  // config — the same trust class as charter assets. Write paths today are code
+  // and seeds only; the bearer-authed, length-capped routes land with C.3.
+  if (profile.identityOverlay != null && profile.identityOverlay.trim() !== '') {
+    systemPrompt = `${systemPrompt}\n\n---\n\n${profile.identityOverlay}`
+  }
   // Secretary-only L2 addendum: the operator's durable memories (saved via the
   // logistics `memory_save` tool), most-recently-updated first. Bounded at 4000
   // chars so an unbounded memory store can never blow out the prompt budget.
@@ -465,13 +474,22 @@ export function resolveRunAssets(profile: AgentProfile, opts: ResolveRunAssetsOp
       if (!fs.existsSync(serverPath)) {
         throw new Error(`run-assets: ${name} server module not found at ${serverPath}`)
       }
+      const env: Record<string, string> = { ...(srv.env ?? {}), K_DATA_DIR: dataDir, K_RUN_ID: opts.runId }
+      if (ext === '.ts') {
+        // PARITY with the synthesizer's INT.8 smoke-3 fix (agent-config.ts): the
+        // stdio child's cwd is the agent's, so its tsx needs core's tsconfig
+        // `paths` pinned explicitly or a VALUE import of @k/shared resolves the
+        // unbuilt dist and kills the server. The shim must report exactly what
+        // the synthesizer writes (run-assets-shim parity lock).
+        env.TSX_TSCONFIG_PATH = path.join(__dirname, '..', 'tsconfig.json')
+      }
       return {
         name,
         sourceKind: 'k' as const,
         config: {
           command: process.execPath,
           args: ext === '.ts' ? ['--import', resolveTsxLoader(), serverPath] : [serverPath],
-          env: { ...(srv.env ?? {}), K_DATA_DIR: dataDir, K_RUN_ID: opts.runId },
+          env,
         },
         estTokens: null,
       }

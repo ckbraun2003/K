@@ -2,7 +2,7 @@
 title: Workflows & Memory
 icon: "⟲"
 status: active
-updated: 2026-07-16
+updated: 2026-07-20
 ---
 
 > **Status — BUILT (Phase 5, finalized P5.7).** The single hardcoded delegation loop
@@ -12,8 +12,10 @@ updated: 2026-07-16
 > (gated, held pending) into the `agent_memory` table — now **profile-linked** (D-053) —
 > `tasks/lessons.md` is a **home-development-only** tracker, never written by a managed run. Work
 > items are the **unified, `scope`-discriminated `work_items` store, fully collapsed**
-> (D-045 → D-048 → D-053 → D-058: `project_tasks` is dropped). **Still planned:** memory layers B/C
-> (retrieval/weighting) and scope **promotion** along a row.
+> (D-045 → D-048 → D-053 → D-058: `project_tasks` is dropped). **The Continuous Agents wave
+> (D-123/D-124) adds the conversation + mailbox subsystem below**: every durable agent has a
+> conversation, and messages, steering, and report-backs flow through `agent_messages`. **Still
+> planned:** memory layers B/C (retrieval/weighting) and scope **promotion** along a row.
 
 A lead does work by **running a workflow** and gets smarter over time through **memory**. Both are
 configuration, not new engines — the substrate is the supervisor/EventBus already in place.
@@ -142,6 +144,57 @@ role runs **every wave, no exceptions**; a separate whole-implementation review 
 it goes, the orchestrator marks each ticket, loop phase, review, and the CI gate through the kstore
 status-write tools so the run is visible as a live checklist (§13).
 
+## Conversations & the mailbox — messages, steering, report-backs (Continuous Agents, D-123/D-124)
+
+**Every durable agent is conversable.** `k_threads` carries a `profile_id` (default `k-secretary`),
+so a thread is a conversation for ANY profile over the same threads/turns machinery — K keeps
+multi-thread; every other durable agent (managers, orchestrator leads) gets exactly ONE auto-created
+conversation (`getOrCreateConversation(profileId)`). Conversations execute over the session layer
+(§02) and surface on the Messages page (§08).
+
+**The mailbox is a DB queue, delivered by state.** `agent_messages` rows (to-profile + optional
+to-thread, from `user | profile`, body, priority `normal | urgent`, `provenance_run_id`) are drained
+by the main-process relay (§02) and delivered by the target session's state:
+
+- **live + parked** → written to stdin NOW (real-time steering — same run, same context);
+- **live mid-turn** → held for the next turn boundary. An **urgent** message additionally fires ONE
+  control-protocol **interrupt nudge** (`sendInterrupt`, per-run cooldown) asking the CLI to end its
+  turn early — the nudge only *accelerates* the boundary, it never delivers by itself, so an
+  interrupt-less CLI degrades **structurally** to boundary delivery rather than through a fallback
+  branch;
+- **idle** → the session is woken with all of that conversation's queued messages batched into one
+  turn.
+
+A delivery failure marks the row `failed` and raises a notification — never silent (§13).
+
+**Provenance is relay-owned and forge-resistant.** Every delivered message is embedded as a
+provenance-tagged transcript block (`[message from <sender> · <priority>] …`); the relay **escapes
+lookalike tags inside bodies** before embedding (the UI unescapes for display), so a message body
+cannot forge another sender's block. The mailbox row itself keeps the body verbatim.
+
+**`message_agent` — the tier-gated send tool.** Mounted at every tier, gated by a pure matrix:
+**K → anyone; a manager → its domains' members + K; an orchestrator → its manager + the actors of
+its running stages; self-send denied** (the wake-loop guard — and what keeps the supervisor's
+self-addressed briefings unforgeable, since only the internal queue path may mint them; §13). The
+sender is resolved from the calling run, never from the payload.
+
+**Report-backs are messages now.** Chief delegation outcomes, lead continuations, and pipeline
+terminals all queue through the mailbox to K's originating conversation — as does a manager's mgmt
+`report`, which **dual-writes** a message to K in real time; the terminal report-back is
+**de-duplicated** against that dual-write, so a reported outcome is never quoted at K twice. The
+outcome still lands *where you asked* — it is just a message from that agent, not a bespoke
+turn-append.
+
+**Cost honesty.** A message, report-back, or briefing delivered to an **idle** agent is a REAL
+dispatch — a wake run, stamped `kind='chat-turn'` (D-127). The exemption splits by ORIGIN: the
+**operator's own** conversation turns are never budget-blocked (the operator must always reach
+their agents to raise a cap), but a **profile-originated** wake — an agent message, briefing, or
+report-back causing the dispatch — **rides the org budget gate** like any autonomous spend, plus a
+rolling-hour relay circuit-breaker as a loop damper. A capped agent delivery **holds** (rows stay
+queued, one notification; delivery resumes when the cap lifts — never `failed`). Supervision
+briefing *creation* is additionally governed by the wake governor + per-domain caps (§13).
+Free-looking report-backs are not free; they are metered.
+
 ## Skills — capability catalog vs automation registry (BUILT — host-integration program)
 
 The skills a run can mount and the skills the operator automates are **one store with two
@@ -206,6 +259,14 @@ that recorded the hop), appends the lead's outcome one more hop UP onto the dura
 (via <lead>) completed: …"). It is idempotent (the run-lifecycle once-latch) and a **no-op when the
 Chief woke autonomously** (no linked thread). So the operator's thread reflects the lead's REAL
 outcome, not just the Chief's mid-turn status — completing the up-chain the down-chain (§03) opened.
+
+> **MECHANISM SUPERSEDED — D-124 (Continuous Agents).** Both report-back hops above (and the
+> pipeline-terminal report) now flow through the **mailbox**: the outcome is queued as an
+> `agent_messages` row from the reporting profile to K's originating conversation and delivered by
+> the relay (a wake when K is idle — a real, governed dispatch). The *where-you-asked* guarantee and
+> the traceability links are unchanged; only the transport moved off bespoke turn-appends. Note also
+> that the D-046-era **automatic** K→Chief hand-up these reports answered is itself retired (D-126,
+> §03) — K delegates via pipelines and messages now. See *Conversations & the mailbox* above.
 
 | Layer | What | Status |
 |-------|------|--------|

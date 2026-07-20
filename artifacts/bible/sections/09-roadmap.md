@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-07-16
+updated: 2026-07-20
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -505,6 +505,49 @@ wave; a full §12 rewrite is deferred); a pre-existing latent `/^routes\s*/` esc
 - [x] **No schema-version bump.**
 
 **Deferred (documented):** the self-contained **`ui-artifact.ts` demo generator** still describes the removed refraction/ambient/galaxy system (its own tests pass — it's a showcase, not the shipped UI) — tracked as a follow-up, not the spec-of-record.
+
+## Continuous Agents — sessions, conversations, mailbox, domains, supervision *(✓ 2026-07-20 — `feat/continuous-agents`, schema v15→v16)*
+
+> K becomes a genuinely continuous agent and the org becomes conversable: hybrid warm/resumable
+> **sessions** for every durable agent, ONE conversation per agent + a unified **Messages** surface,
+> a priority **mailbox** with steering, first-class **domains** with always-on manager supervision,
+> and K re-chartered as the primary engineering agent with read authority. Method: W0 shared
+> contracts → three parallel worktree lanes (A sessions+K · B mailbox+UI · C domains+supervision) →
+> integration + the interrupt spike → SEAMS reviews → docs → operator-gated live smokes. Decisions
+> **D-122..D-127**.
+
+- [x] **Session layer (D-122).** `agent_sessions` (live/resumable/stale) composing the D-014
+  interactive park (warm path) with the D-062 `--resume` (cold path); `K_MAX_LIVE_SESSIONS` LRU cap,
+  idle demotion, boot sweep; stable `<dataDir>/sessions/…` home dirs (§02).
+- [x] **Conversations for all + the Messages surface (D-123).** `k_threads.profile_id`; K
+  multi-thread, every other durable agent exactly one conversation; the unified Messages rail entry
+  (unread cursors, session chip + ctx meter, per-segment batch bubbles, Personal→Chats fold-in) over
+  a shared `ConversationView` (§08).
+- [x] **Mailbox + steering (D-124).** `agent_messages` + the main-process relay (deliver-by-state:
+  stdin now / boundary / wake; urgent = ONE interrupt nudge that only accelerates the boundary);
+  tier-gated `message_agent`; relay-owned, escape-hardened provenance; report-backs + mgmt `report`
+  land as messages in K's conversation, terminal reports de-duped against the dual-write (§04).
+- [x] **Domains + always-on supervision (D-125).** `domains` registry + dynamic chief-tier managers
+  (`POST /api/domains` with a manager block); launched work inherits `domain_id`; the domain
+  supervisor briefs managers on events + heartbeat, governed per-manager (min-interval, rolling-hour
+  cap, active-work-only) — core, NOT gated by the Autonomous Org master (§03, §13).
+- [x] **K primary-agent identity (D-126).** Read authority (Read/Grep/Glob + read-only GitNexus),
+  L0 → L1 role templates → L1.5 identity overlays → L2 layering, the keyword router demoted to a
+  Dock preview, the mandatory K→Chief routing hop retired (§03).
+- [x] **`runs.kind` bookkeeping (D-127).** `chat-turn | job | pipeline-stage` + `session_id`; the
+  Runs UI defaults to jobs + stages with a chat-turns toggle; budget posture (operator turns
+  exempt, agent-caused wakes gated) + wake-relevance checks read `kind`/origin (§13).
+- [x] **Schema v15→v16.**
+
+**Deferred (documented):** **steerable pipeline stages** (`steerable:true` interactive-capable stage
+dispatch — the mailbox reaches stage *actors'* conversations today, not a running stage process);
+**provenance-run rendering + queued/failed-row transcript rendering** (needs a turns→messages join
+API and a queued-message read endpoint — the surface stays honest meanwhile via queued counts,
+post-send queued-notes, and non-silent failure notifications); **turn-level delivery state** (a
+failed WAKE leaves the pre-dispatch durable turn looking delivered — the failure itself is
+non-silent and the content re-enters the next establish's seed, but per-turn delivery honesty is a
+designed follow-on); carried from the orchestration program: the **Phase 2.5 operator-worker
+materializer**, pipeline **event triggers**, and **intent → auto-pipeline-selection** (~Phase 5).
 
 ## Phase 6 — Intelligence & Scale *(optional)*
 

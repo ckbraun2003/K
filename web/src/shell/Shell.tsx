@@ -5,6 +5,7 @@ import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import MessageDock from './MessageDock'
 import HomePage from '../pages/HomePage'
+import MessagesPage from '../pages/MessagesPage'
 import PersonalPage from '../pages/PersonalPage'
 import AgentsPage from '../pages/AgentsPage'
 import RunsPage from '../pages/RunsPage'
@@ -98,6 +99,7 @@ export default function Shell() {
             exit="exit"
           >
             {route.view === 'home' && <HomePage />}
+            {route.view === 'messages' && <MessagesPage conversationId={route.param} />}
             {route.view === 'personal' && <PersonalPage tab={route.param} />}
             {route.view === 'agents' && <AgentsPage tab={route.param} sub={route.subParam} />}
             {route.view === 'runs' && <RunsPage runId={route.param} />}

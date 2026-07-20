@@ -28,9 +28,9 @@ describe('poisoned schema stamp self-heal', () => {
         caseId TEXT NOT NULL, model TEXT NOT NULL, variant TEXT NOT NULL, detPass INTEGER,
         detScore REAL, formatScore REAL, judgeOverall REAL, judgeVerdict TEXT, refusalCorrect INTEGER,
         costUsd REAL, ms INTEGER, numTurns INTEGER, error TEXT, raw TEXT, createdAt INTEGER NOT NULL);
-      -- The v15 SCHEMA_SENTINEL (skills.pipeline_def_id) lives on skills, so this fixture
+      -- The v15 sentinel-era column (skills.pipeline_def_id) lives on skills, so this fixture
       -- MUST carry skills for migrateSlow's guarded v15 ALTER (hasTable(skills)) to create
-      -- the sentinel column. Full D-069 catalog shape (matches the fresh-install DDL) so
+      -- that column. Full D-069 catalog shape (matches the fresh-install DDL) so
       -- migrate()'s unrelated skills-rebuild step is a guaranteed no-op against it.
       CREATE TABLE skills (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
@@ -40,6 +40,16 @@ describe('poisoned schema stamp self-heal', () => {
         source_kind TEXT NOT NULL DEFAULT 'k', origin_path TEXT, project_id TEXT, plugin_id TEXT,
         plugin_version TEXT, content_hash TEXT, est_tokens INTEGER, est_tokens_meta INTEGER,
         status TEXT NOT NULL DEFAULT 'ok', last_scanned_at INTEGER, qualified_key TEXT NOT NULL UNIQUE);
+      -- The v16 SCHEMA_SENTINEL (pipeline_runs.domain_id) lives on pipeline_runs, so this
+      -- fixture MUST likewise carry pipeline_runs (pre-v16 shape) for migrateSlow's guarded
+      -- v16 ALTER (hasTable(pipeline_runs)) to create the sentinel column — the same
+      -- fixture maintenance the v15 sentinel required for skills above. Extend this on
+      -- every sentinel move to a new carrier table.
+      CREATE TABLE pipeline_runs (id TEXT PRIMARY KEY, definition_id TEXT,
+        project_id TEXT REFERENCES projects(id), title TEXT NOT NULL, cwd TEXT NOT NULL,
+        base_commit TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'running',
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, completed_at INTEGER,
+        owner_profile_id TEXT);
     `)
     return d
   }

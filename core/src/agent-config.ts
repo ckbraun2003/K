@@ -70,7 +70,7 @@ export interface SynthesizedConfig {
   disallowedTools: string[]         // → claude --disallowedTools (UNIVERSE minus the run's grant — the hard ceiling)
   mcpConfigPath: string             // → claude --mcp-config (+ --strict-mcp-config)
   settingsPath: string              // → claude --settings
-  appendSystemPromptFile: string    // → claude --append-system-prompt-file (L0 + L1)
+  appendSystemPromptFile: string    // → claude --append-system-prompt-file (L0 + L1 [+ L1.5 overlay + secretary L2])
   authEnv: Record<string, string>   // → merged into the spawn env (may be empty)
   usedHostCredentialFallback: boolean
   cleanup: () => void               // removes the run's config dir
@@ -524,6 +524,19 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     // could load a malicious node_modules/tsx planted in the agent's project.
     srv.args = ext === '.ts' ? ['--import', resolveTsxLoader(), serverPath] : [serverPath]
     srv.env = { ...(srv.env ?? {}), K_DATA_DIR: dataDir, K_RUN_ID: opts.runId }
+    if (ext === '.ts') {
+      // INT.8 smoke-3 finding: the stdio child's cwd is the AGENT's cwd (a
+      // session home / worktree), not core/ — so tsx never discovers core's
+      // tsconfig `paths` and resolves a VALUE import of @k/shared to the
+      // dist build, which dev checkouts don't have. Harmless historically
+      // (the children's @k/shared imports were type-only, erased), it became
+      // fatal when C.5's mgmt → pipeline-engine import pulled real schemas in:
+      // the mgmt child died at import and the chief lost its mgmt tools. Pin
+      // the child's tsx to core's tsconfig so it resolves exactly like the
+      // parent dev process. Built (.js) runs resolve dist per package.json
+      // and never take this branch.
+      srv.env.TSX_TSCONFIG_PATH = path.join(__dirname, '..', 'tsconfig.json')
+    }
   }
   // Discovered servers append AFTER the run-scoped rewrite loop, so a host server
   // that happens to share a run-scoped NAME (mountable only when the K server
@@ -616,6 +629,29 @@ export function kSecretaryConfigPaths(key: string, dataDir?: string): { runDir: 
   assertSafeSegment(key, 'k-secretary thread key')
   const base = path.join(dataDir ?? process.env.K_DATA_DIR ?? DEFAULT_DATA_DIR, 'k-secretary', key)
   return { runDir: path.join(base, 'agent'), cwd: path.join(base, 'cwd') }
+}
+
+/**
+ * Resolve the STABLE per-(profile, thread) session home an agent session reuses across
+ * sends — Continuous Agents W0.3 (D-122), the generalization of kSecretaryConfigPaths
+ * (above, untouched) to ANY profile. `base` is what agent_sessions.home_dir persists and
+ * what sendToSession threads to the supervisor as `persistentSession.homeDir`; the
+ * supervisor derives the same `agent/` (config run dir) + `cwd/` (stable working dir the
+ * CLI keys its session files under, so `--resume` finds them) layout from it — keep the
+ * two in lockstep. Like the K namespace, `sessions/` lives deliberately OUTSIDE
+ * `agent-runs/` so the boot orphan-sweep (pruneOrphanAgentRuns), which reaps every
+ * `agent-runs/<id>` not held by a live run, never deletes persistent session state.
+ * Both segments are interpolated into fs paths, so both are segment-checked.
+ */
+export function agentSessionPaths(
+  profileId: string,
+  threadId: string,
+  dataDir?: string,
+): { base: string; runDir: string; cwd: string } {
+  assertSafeSegment(profileId, 'session profile id')
+  assertSafeSegment(threadId, 'session thread id')
+  const base = path.join(dataDir ?? process.env.K_DATA_DIR ?? DEFAULT_DATA_DIR, 'sessions', profileId, threadId)
+  return { base, runDir: path.join(base, 'agent'), cwd: path.join(base, 'cwd') }
 }
 
 /**

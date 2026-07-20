@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'crypto'
 import type { AgentProfile } from '@k/shared'
-import { agentProfilesDb, rowToAgentProfile } from './db.js'
+import { agentProfilesDb, configDb, db, rowToAgentProfile } from './db.js'
 import { resolveAuthority, assertEffectiveGrants, assertCodingToolsGating } from './authority.js'
 
 export type { AgentProfile } from '@k/shared'
@@ -88,6 +88,8 @@ export interface CreateProfileInput {
   charter?: CharterName
   /** Explicit model override; omitted/null = use the runtime Claude default at dispatch. */
   defaultModel?: string | null
+  /** L1.5 identity overlay (D-126); omitted/null = no overlay. */
+  identityOverlay?: string | null
   // allowedTools/mcpServers/skills default to the tier's resolved authority when
   // omitted — the normal path. Provide them only to record an explicit override.
   allowedTools?: string[]
@@ -130,6 +132,9 @@ export function createProfile(input: CreateProfileInput): AgentProfile {
     allowedTools: JSON.stringify(allowedTools),
     mcpServers: JSON.stringify(mcpServers),
     skills: JSON.stringify(skills),
+    // NULL = no overlay (the column is nullable — no '' sentinel here; '' is a
+    // meaningful "silence the seed" value, see rowToAgentProfile).
+    identityOverlay: input.identityOverlay ?? null,
     createdAt: Date.now(),
   })
   return rowToAgentProfile(agentProfilesDb.getProfileRow.get(id) as Record<string, unknown>)
@@ -159,6 +164,9 @@ export function updateProfile(id: string, patch: UpdateProfileInput): AgentProfi
     // Distinguish "absent" (keep current) from an explicit null (CLEAR the override
     // back to the runtime Claude default) — `??` would conflate the two.
     defaultModel: patch.defaultModel !== undefined ? patch.defaultModel : current.defaultModel,
+    // Same absent-vs-null convention: an explicit null CLEARS the overlay (back to
+    // NULL, i.e. re-seedable); absent keeps the current value.
+    identityOverlay: patch.identityOverlay !== undefined ? patch.identityOverlay : current.identityOverlay,
     allowedTools: patch.allowedTools ?? (auth ? auth.allowedTools : current.allowedTools),
     mcpServers: patch.mcpServers ?? (auth ? auth.mcpServers : current.mcpServers),
     skills: patch.skills ?? (auth ? auth.skills : current.skills),
@@ -183,6 +191,7 @@ export function updateProfile(id: string, patch: UpdateProfileInput): AgentProfi
     allowedTools: JSON.stringify(merged.allowedTools),
     mcpServers: JSON.stringify(merged.mcpServers),
     skills: JSON.stringify(merged.skills),
+    identityOverlay: merged.identityOverlay ?? null,
   })
   return getProfile(id)
 }
@@ -204,6 +213,59 @@ const SEED_PROFILES: ReadonlyArray<{ id: string; name: string; tier: AgentTier }
   { id: 'lead-network', name: 'Network', tier: 'orchestrator' },
 ]
 
+/** L1.5 seed overlays (C.2, D-126). NULL-only stamping (the domain-stamp
+ *  default-membership posture): an operator edit — including blanking to '' —
+ *  survives every re-seed; only NULL (never customized / cleared for re-seed)
+ *  is covered. */
+const SEED_IDENTITY_OVERLAYS: ReadonlyArray<{ id: string; overlay: string }> = [
+  { id: 'chief', overlay: [
+    '## Identity: Chief — Engineering Manager',
+    '',
+    "You are the **Chief**, the Engineering domain's manager and the operator's",
+    'right hand. Your domain is the engineering org: the five discipline leads',
+    '(Frontend, Backend, Systems, Security, Network) and the engineering pipeline',
+    'library. You are woken by a schedule, an org event (a lead report, a dispatch',
+    'completing, a domain briefing), or the user via K.',
+  ].join('\n') },
+  { id: 'lead-frontend', overlay: [
+    '## Identity: Frontend lead',
+    '',
+    'You own web UI work: components, pages, styling and design-system compliance',
+    '(tokens only), accessibility, and the web test suites.',
+  ].join('\n') },
+  { id: 'lead-backend', overlay: [
+    '## Identity: Backend lead',
+    '',
+    'You own server-side work: APIs and routes, business logic, data models and',
+    'migrations, and the core service test suites.',
+  ].join('\n') },
+  { id: 'lead-systems', overlay: [
+    '## Identity: Systems lead',
+    '',
+    'You own infrastructure and tooling: build and CI pipelines, packaging,',
+    'performance, and cross-cutting developer experience.',
+  ].join('\n') },
+  { id: 'lead-security', overlay: [
+    '## Identity: Security lead',
+    '',
+    'You own the security posture: authn/authz, secrets handling, injection and',
+    'traversal surfaces, dependency risk, and security review of changes.',
+  ].join('\n') },
+  { id: 'lead-network', overlay: [
+    '## Identity: Network lead',
+    '',
+    'You own connectivity: protocols, remote integrations, service-to-service',
+    'communication, and network-facing reliability.',
+  ].join('\n') },
+]
+
+// NULL-only overlay stamp — module-local prepared statement (the domains.ts
+// local-statement precedent). `identity_overlay IS NULL` is the whole guard:
+// a customized OR ''-silenced row never matches.
+const stampSeedOverlay = db.prepare(
+  `UPDATE agent_profiles SET identity_overlay = ? WHERE id = ? AND identity_overlay IS NULL`,
+)
+
 /** Idempotently seed the durable profiles. Existing rows (matched by name) are left
  *  untouched so operator edits survive restarts. Returns the names newly inserted.
  *  Called at bootstrap (index.ts), mirroring seedBuiltinSkills / seedEvalSystems. */
@@ -220,5 +282,129 @@ export function seedProfiles(): string[] {
     created.push(seed.name)
   }
   if (created.length) console.log(`[profiles] seeded durable agent profiles: ${created.join(', ')}`)
+  // L1.5 seed overlays (C.2, D-126): stamp NULL rows only — operator edits
+  // (including '' = silenced) survive every re-seed. (chief + the five leads;
+  // k-secretary's overlay is seeded by the A.5 reconcile below.)
+  for (const seed of SEED_IDENTITY_OVERLAYS) stampSeedOverlay.run(seed.overlay, seed.id)
+  // A.5 (D-126): one-shot upgrade of an EXISTING k-secretary row to the
+  // primary-agent grant set (+ the identity-overlay seed). Fail-safe: a reconcile
+  // failure must not abort boot — log and continue; the flag stays unset so the
+  // next boot retries.
+  try {
+    reconcileKPrimaryAuthority()
+  } catch (e) {
+    console.warn('[profiles] K primary-authority reconcile failed (will retry next boot):', e)
+  }
+  // SEAMS#2 (f): one-shot swap of the blanket mcp__gitnexus token for the
+  // per-tool read set on the DELEGATING tiers' existing rows (same fail-safe
+  // posture — retried next boot until it lands).
+  try {
+    reconcileGitnexusPerToolGrants()
+  } catch (e) {
+    console.warn('[profiles] gitnexus per-tool grant reconcile failed (will retry next boot):', e)
+  }
   return created
+}
+
+/** app_config flag for the one-shot gitnexus per-tool grant swap (SEAMS#2 f). */
+const GITNEXUS_PER_TOOL_FLAG = 'mig_gitnexus_per_tool_v1'
+
+/**
+ * One-shot (SEAMS#2 f): existing secretary/chief-tier rows minted before the
+ * per-tool narrowing carry the blanket `mcp__gitnexus` token — which no longer
+ * sits inside the narrowed tier ceilings, so those rows would fail every grant
+ * re-assertion. Swap the exact token for GITNEXUS_READ_TOOL_GRANTS on every such
+ * row (dynamic managers included — any chief-tier profile). Operator-narrowing-
+ * preserving: a row WITHOUT the blanket token is untouched (an operator who
+ * already removed gitnexus stays narrowed), and the flag lands with the swaps in
+ * one transaction so a later operator narrowing is never re-widened by a retry.
+ * Orchestrator-tier rows keep the server-level grant (coding tier — see
+ * GITNEXUS_READ_TOOL_GRANTS' rationale).
+ */
+function reconcileGitnexusPerToolGrants(): void {
+  if (configDb.get(GITNEXUS_PER_TOOL_FLAG) != null) return
+  db.transaction(() => {
+    for (const p of listProfiles()) {
+      if (p.tier !== 'secretary' && p.tier !== 'chief') continue
+      if (!p.allowedTools.includes('mcp__gitnexus')) continue
+      const tools = p.allowedTools.filter(t => t !== 'mcp__gitnexus')
+      for (const t of GITNEXUS_READ_TOOL_GRANTS) if (!tools.includes(t)) tools.push(t)
+      updateProfile(p.id, { allowedTools: tools })
+    }
+    configDb.set(GITNEXUS_PER_TOOL_FLAG, String(Date.now()))
+  })()
+}
+
+// ─── A.5: K primary-agent authority reconcile (D-126, one-shot) ──────────────
+
+/** app_config flag for the one-shot K primary-authority reconcile. Set AFTER a
+ *  successful reconcile, so an operator NARROWING made later is never re-widened. */
+const K_PRIMARY_RECONCILE_FLAG = 'mig_k_primary_authority_v1'
+
+/**
+ * SEAMS#2 (f): the gitnexus READ/ANALYSIS per-tool grant set for the DELEGATING
+ * tiers (secretary + chief). A server-level `mcp__gitnexus` grant admits the
+ * write-capable tools too (`rename` non-dry-run edits source across files;
+ * `group_sync` mutates contract groups; `cypher` can carry graph-write clauses)
+ * — on tiers whose whole design is "mutations happen only in delegated runs
+ * under Trust Core", that made read-only gitnexus a charter-prose convention
+ * instead of a grant boundary (spec decision 3 violation; K is the
+ * highest-injection-exposure profile). Enforced at the grant layer now: these
+ * per-tool tokens narrow under the ceiling (authority.ts::toolWithinCeiling) and
+ * satisfy the mount requirement (assertMcpGrants accepts per-tool tokens). The
+ * ORCHESTRATOR tier keeps the server-level grant deliberately: it is the coding
+ * tier — its runs edit source anyway, under run-level Trust Core checkpoints.
+ */
+export const GITNEXUS_READ_TOOL_GRANTS: readonly string[] = [
+  'mcp__gitnexus__query',
+  'mcp__gitnexus__context',
+  'mcp__gitnexus__impact',
+  'mcp__gitnexus__api_impact',
+  'mcp__gitnexus__detect_changes',
+  'mcp__gitnexus__route_map',
+  'mcp__gitnexus__tool_map',
+  'mcp__gitnexus__shape_check',
+  'mcp__gitnexus__group_query',
+  'mcp__gitnexus__group_list',
+  'mcp__gitnexus__group_contracts',
+  'mcp__gitnexus__group_status',
+  'mcp__gitnexus__list_repos',
+]
+
+/** The write-once k-secretary identity-overlay seed (L1.5, D-126). Applied
+ *  only while the column is NULL — the operator's later edits win forever. */
+export const K_IDENTITY_OVERLAY_SEED =
+  'You are K — the operator\'s primary agent: a top-tier engineering agent and the expert on this ' +
+  'harness (pipelines, runs, budgets, skills, artifacts). You read and analyze anything; you never ' +
+  'mutate directly — real work is delegated to pipelines and orchestrators and supervised to completion.'
+
+/** One-shot: widen an existing (pre-lane) k-secretary row to the primary-agent
+ *  grant set — Read/Grep/Glob + the gitnexus mount — and seed the identity
+ *  overlay. Fresh DBs get the new grants from the assets at createProfile time,
+ *  so for them only the overlay seed does work. `updateProfile` re-runs
+ *  assertEffectiveGrants against the NEW assets (this change ships with the
+ *  widened allowlists/secretary.json, so the union is within the tier ceiling). */
+function reconcileKPrimaryAuthority(): void {
+  if (configDb.get(K_PRIMARY_RECONCILE_FLAG) != null) return
+  // One transaction: grants + overlay + flag land (or roll back) together, so a
+  // mid-apply failure can never leave the row widened with the flag unset — a
+  // retry after an operator narrowing must not re-widen it.
+  db.transaction(() => {
+    const k = getProfile('k-secretary')
+    if (k) {
+      const tools = new Set(k.allowedTools)
+      // Belt (SEAMS#2 f): a row carrying the pre-narrowing BLANKET token would
+      // make the widened union exceed the per-tool ceiling and wedge this
+      // reconcile in a warn-every-boot loop — swap it here regardless of the
+      // separate one-shot's flag state.
+      tools.delete('mcp__gitnexus')
+      for (const t of ['Read', 'Grep', 'Glob', ...GITNEXUS_READ_TOOL_GRANTS]) tools.add(t)
+      const servers = new Set(k.mcpServers)
+      servers.add('gitnexus')
+      updateProfile('k-secretary', { allowedTools: [...tools], mcpServers: [...servers] })
+      // Write-once (only-if-NULL): never clobbers an operator-edited overlay.
+      agentProfilesDb.setProfileIdentityOverlay.run(K_IDENTITY_OVERLAY_SEED, 'k-secretary')
+    }
+    configDb.set(K_PRIMARY_RECONCILE_FLAG, String(Date.now()))
+  })()
 }

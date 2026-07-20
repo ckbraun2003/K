@@ -117,6 +117,7 @@ afterAll(() => {
   // FK-safe order: k_thread_turns → k_threads (the Chief→K continuation fixtures) →
   // events → mgmt_reports → lead_dispatches → mgmt_assignments → agent_runs (SET NULL) →
   // runs. Only our rows; shared durable seeds are left intact.
+  db.prepare(`DELETE FROM agent_messages WHERE to_thread_id = ?`).run(K_THREAD)
   db.prepare(`DELETE FROM k_thread_turns WHERE thread_id = ?`).run(K_THREAD)
   db.prepare(`DELETE FROM k_threads WHERE id = ?`).run(K_THREAD)
   db.prepare(`DELETE FROM events WHERE run_id LIKE 'mock-relay-run-%'`).run()
@@ -231,8 +232,10 @@ describe('drainLeadDispatches: record → drain', () => {
 
 describe('drainLeadDispatches: Chief→K report continuation', () => {
   it('continues the lead outcome UP onto K\'s thread when the Chief run was a K delegation', async () => {
-    // Link the Chief run to a K thread exactly as delegateToChief does (a k_thread_turn
-    // whose run_id = the Chief run) — the derivable K→Chief edge, no new table.
+    // Link the Chief run to a K thread exactly as the retired delegateToChief did (a
+    // k_thread_turn whose run_id = the Chief run) — the derivable K→Chief edge, no new
+    // table. (A.4 removed the K→Chief auto-hop; Lane B's mailbox relay re-wires this
+    // continuation, so the seeded linkage shape stays the contract under test.)
     const now = Date.now()
     db.prepare(
       `INSERT INTO k_threads (id, title, status, active_run_id, created_at, updated_at) VALUES (?, NULL, 'active', NULL, ?, ?)`,
@@ -251,15 +254,24 @@ describe('drainLeadDispatches: Chief→K report continuation', () => {
     await flush()
 
     // The lead→Chief mgmt report still fires (unchanged), AND the outcome continues one
-    // more hop up onto K's thread — a 'k' turn framed as "Chief (via <lead>) …".
+    // more hop up as a QUEUED agent message (B.4) — from the LEAD's own profile (the
+    // drain's startAgentRun gave the lead run an agent_runs row), to K's thread; the
+    // relay delivers it, so NO 'k' turn is appended directly.
+    const msgs = db
+      .prepare(`SELECT * FROM agent_messages WHERE to_thread_id = ? ORDER BY created_at ASC, id ASC`)
+      .all(K_THREAD) as Array<Record<string, unknown>>
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].to_profile_id).toBe('k-secretary')
+    expect(msgs[0].from_kind).toBe('profile')
+    expect(msgs[0].from_profile_id).toBe('lead-frontend') // the reporting lead, via its activation
+    expect(msgs[0].provenance_run_id).toBe(runId) // the lead run
+    expect(String(msgs[0].body)).toContain('opened PR #99')
+    expect(String(msgs[0].body)).toContain('Chief (via Frontend)')
+    expect(String(msgs[0].body)).toContain('completed')
     const kTurns = db
       .prepare(`SELECT * FROM k_thread_turns WHERE thread_id = ? AND role = 'k'`)
       .all(K_THREAD) as Array<Record<string, unknown>>
-    const cont = kTurns.find(t => String(t.text).includes('opened PR #99'))
-    expect(cont).toBeTruthy()
-    expect(String(cont!.text)).toContain('Chief (via Frontend)')
-    expect(String(cont!.text)).toContain('completed')
-    expect(cont!.run_id).toBe(runId) // linked to the lead run
+    expect(kTurns).toHaveLength(0)
   })
 })
 

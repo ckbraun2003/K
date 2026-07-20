@@ -2,6 +2,13 @@
 // migration + the SCHEMA_SENTINEL newest-column contract. A poison missing ONLY the
 // newest version's columns must not evade the sentinel — which is why the fixture is
 // v14-COMPLETE.
+//
+// NB (v16 bump, Continuous Agents W0): the CURRENT-version enforcement — the exact
+// SCHEMA_VERSION / SCHEMA_SENTINEL pins and the previous-generation (v15-complete)
+// poison fixture — moved to schema-v16.test.ts, per the SCHEMA_SENTINEL comment's
+// "extend that fixture on every future bump". This file keeps the v15-generation
+// structures and the v14-vintage poison, which now proves the guarded scan heals a
+// stamp-poisoned DB from TWO generations back.
 import { describe, it, expect } from 'vitest'
 import Database from 'better-sqlite3'
 import { db, migrate, SCHEMA_VERSION, SCHEMA_SENTINEL } from '../src/db.js'
@@ -18,9 +25,10 @@ function hasTable(d: Database.Database, t: string): boolean {
  *  the pipeline_runs/pipeline_stages/pipeline_edges shapes) so a sentinel still pointing
  *  at a v14 column would be evaded by this shape. skills carries the full D-069 catalog
  *  shape (matching the fresh-install DDL exactly — NOT the old `name … UNIQUE` shape) so
- *  migrate()'s unrelated skills-rebuild step is a guaranteed no-op against it. Extend this
- *  fixture with the previous generation's columns at EVERY future SCHEMA_VERSION bump —
- *  that maintenance step IS the newest-column enforcement. */
+ *  migrate()'s unrelated skills-rebuild step is a guaranteed no-op against it. The
+ *  extend-on-every-bump maintenance duty now lives with the CURRENT generation's fixture
+ *  (schema-v16.test.ts v15CompleteDb) — this one stays frozen at v14 as the
+ *  two-generations-back heal proof. */
 function v14CompleteDb(): Database.Database {
   const d = new Database(':memory:')
   d.exec(`
@@ -76,12 +84,13 @@ function v14CompleteDb(): Database.Database {
 }
 
 describe('schema v15', () => {
-  it('is version 15 and the sentinel is a v15 migrateSlow-added column', () => {
-    expect(SCHEMA_VERSION).toBe(15)
-    // The sentinel MUST be a column migrateSlow() ADDs (guarded ALTER on an existing
-    // table), never a column on an unconditional-DDL table — see the SCHEMA_SENTINEL
-    // note in db.ts. skills.pipeline_def_id is the last v15 ALTER.
-    expect(SCHEMA_SENTINEL).toEqual({ table: 'skills', column: 'pipeline_def_id' })
+  it('the schema has moved past v15 and the sentinel no longer names the v15 column', () => {
+    // The EXACT current-version pin lives in schema-v16.test.ts; this guards the
+    // handoff itself — a v16+ bump that forgot to move the sentinel off the v15
+    // column would let a v15-complete poison (stamped current, missing only the
+    // newest columns) evade the heal.
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(16)
+    expect(SCHEMA_SENTINEL).not.toEqual({ table: 'skills', column: 'pipeline_def_id' })
   })
 
   it('adds the two v15 tables and the four v15 columns on the live test DB', () => {
@@ -102,28 +111,31 @@ describe('schema v15', () => {
     expect(cols(live, 'skills')).toContain('pipeline_def_id')
   })
 
-  it('NEWEST-COLUMN sentinel: a v14-complete DB stamped 15 (missing only v15 additions) self-heals', () => {
+  it('NEWEST-COLUMN sentinel: a v14-complete DB stamped CURRENT (missing v15+ additions) self-heals', () => {
     const d = v14CompleteDb()
     // Guard the guard: this fixture MUST already hold the OLD (v14) sentinel column — if
     // SCHEMA_SENTINEL still named runs.pipeline_stage_id, this poison would evade it.
     expect(cols(d, 'runs')).toContain('pipeline_stage_id')
-    // The sentinel's carrier table (`skills`) IS present in the poison — exactly as the
-    // real app's unconditional db.exec DDL guarantees before migrate() runs — but its
-    // v15 column is absent. That carrier-present / column-absent shape is the real-world
-    // poison a sentinel on an unconditional-DDL table (e.g. pipeline_ledger.seq) could
-    // NOT catch: its carrier is created before migrate() so it's never absent.
+    // The CURRENT sentinel's carrier table IS present in the poison — exactly as the
+    // real app's unconditional db.exec DDL guarantees before migrate() runs — but the
+    // sentinel column is absent. That carrier-present / column-absent shape is the
+    // real-world poison a sentinel on an unconditional-DDL table (e.g.
+    // pipeline_ledger.seq) could NOT catch: its carrier is created before migrate()
+    // so it's never absent.
     expect(hasTable(d, SCHEMA_SENTINEL.table)).toBe(true)
     expect(cols(d, SCHEMA_SENTINEL.table)).not.toContain(SCHEMA_SENTINEL.column)
     expect(cols(d, 'pipeline_stages')).not.toContain('iteration')
     expect(cols(d, 'pipeline_edges')).not.toContain('max_iterations')
     expect(cols(d, 'pipeline_runs')).not.toContain('owner_profile_id')
     expect(cols(d, 'skills')).not.toContain('pipeline_def_id')
-    d.pragma(`user_version = ${SCHEMA_VERSION}`) // the poison
+    d.pragma(`user_version = ${SCHEMA_VERSION}`) // the poison (two generations stale)
     migrate(d)
     expect(cols(d, 'pipeline_stages')).toContain('iteration')
     expect(cols(d, 'pipeline_edges')).toContain('max_iterations')
     expect(cols(d, 'pipeline_runs')).toContain('owner_profile_id')
     expect(cols(d, 'skills')).toContain('pipeline_def_id')
+    // …and the scan carried the shape all the way to the CURRENT generation (v16).
+    expect(cols(d, SCHEMA_SENTINEL.table)).toContain(SCHEMA_SENTINEL.column)
     expect(d.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
     d.close()
   })

@@ -1,4 +1,9 @@
 import { z } from 'zod'
+// RunKindSchema lives with the Continuous Agents session contracts (sessions.ts,
+// re-exported from this package index below) — imported here so the canonical Run
+// carries its D-127 kind without duplicating the enum. SessionState/MessagePriority
+// back the Conversations surface schemas (B.5).
+import { RunKindSchema, SessionStateSchema, MessagePrioritySchema } from './sessions.js'
 
 // ─── E-11 unified status taxonomy (P0) ───────────────────────────────────────
 // THREE ORTHOGONAL AXES replacing per-surface ad-hoc status vocabularies:
@@ -62,6 +67,14 @@ export const RunSchema = z.object({
   // (P0 Lane B — E-22 follow-up groundwork). Absent until the init line is
   // seen; always absent for ollama runs.
   cliSessionId: z.string().optional(),
+  // Continuous Agents A.3 (D-127): what kind of work this run is — 'chat-turn'
+  // (conversation traffic: a K ask / agent-session turn), 'job' (the default
+  // dispatch), or 'pipeline-stage'. Optional on the wire: thin emitters and
+  // pre-A.3 payloads may omit it (readers treat absent as 'job').
+  kind: RunKindSchema.optional(),
+  // Continuous Agents A.3 (D-127): the owning agent_sessions row for a
+  // session-attached run (runs.session_id). Absent for non-session runs.
+  sessionId: z.string().optional(),
   // Canonical E-11 triple DERIVED from `status` at the emit boundary
   // (core events.ts::emitRunUpdate attaches it to every run_update). Optional:
   // REST payloads may omit it — clients re-derive via canonicalizeRunStatus.
@@ -607,7 +620,7 @@ export type UpdateRunPlanBody = z.infer<typeof UpdateRunPlanBodySchema>
 // E-19 — the notify engine's event keys.
 export const NotificationEventKeySchema = z.enum([
   'run_awaiting_input', 'run_awaiting_plan', 'run_review_ready', 'run_failed', 'verify_fail',
-  'memory_saved',
+  'memory_saved', 'message_failed',
 ])
 export type NotificationEventKey = z.infer<typeof NotificationEventKeySchema>
 
@@ -1418,6 +1431,13 @@ export const RunsQuerySchema = z.object({
   status: RunStatusSchema.optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   projectId: z.string().uuid().optional(),
+  // A.3 (D-127): ?kind=job,pipeline-stage — a comma-joined RunKind list. The
+  // preprocess splits the raw query string; the enum array rejects any unknown
+  // kind → 400. Absent → no kind filter (byte-compatible with the pre-A.3 list).
+  kind: z.preprocess(
+    v => (typeof v === 'string' && v.length > 0 ? v.split(',') : v),
+    z.array(RunKindSchema).min(1),
+  ).optional(),
 })
 export type RunsQuery = z.infer<typeof RunsQuerySchema>
 
@@ -1482,6 +1502,10 @@ export const AgentProfileSchema = z.object({
   allowedTools: z.array(z.string()), // claude --allowedTools allowlist (tier-gated)
   mcpServers: z.array(z.string()), // tier-scoped MCP servers this profile mounts
   skills: z.array(z.string()), // skill dir names this profile mounts
+  /** L1.5 per-profile identity overlay (D-126): appended verbatim between the L1
+   *  role template and L2 at synthesis when non-empty. null/'' = no overlay
+   *  ('' is the operator's "silence the seed" affordance — NULL re-seeds). */
+  identityOverlay: z.string().nullable().optional(),
   // E-02 tier default: dispatches resolved through this profile are plan-gated
   // unless the dispatch body says otherwise. Optional — absent = false.
   planGate: z.boolean().optional(),
@@ -2529,15 +2553,54 @@ export const KThreadPatchBodySchema = z.object({
   archived: z.boolean().optional(),
 }).strict().refine(b => b.title !== undefined || b.archived !== undefined, { message: 'empty patch' })
 
-/** Result of POST /api/k/ask. `warm` = true when the message continued a live
- *  interactive run; false when a fresh run was started (seeded from the thread).
- *  `agentRunId` is the agent_runs tracking id (null on the warm path). */
+// ─── Conversations surface (Continuous Agents B.5, D-123) ────────────────────
+
+/** One conversation row for the Messages surface: a thread + its owning profile,
+ *  live session state, and unread math (turns newer than last_read_at + queued
+ *  mailbox messages). */
+export const ConversationSummarySchema = KThreadSummarySchema.extend({
+  profileId: z.string(),
+  profileName: z.string().nullable(),
+  sessionState: SessionStateSchema.nullable(),
+  contextTokens: z.number().nullable(),
+  unread: z.number(),
+})
+export type ConversationSummary = z.infer<typeof ConversationSummarySchema>
+
+/** Body for POST /api/conversations/:threadId/read — advance the read cursor.
+ *  `at` defaults to now; the route CLAMPS it monotonic (never backwards) and never
+ *  beyond now (a poisoned future cursor would hide all unread forever). */
+export const ConversationReadBodySchema = z
+  .object({ at: z.number().int().positive().optional() })
+  .strict()
+export type ConversationReadBody = z.infer<typeof ConversationReadBodySchema>
+
+/** Body for POST /api/agents/:profileId/message — the operator → agent mailbox path.
+ *  (K threads keep /api/k/ask as the interactive path; this is the mailbox door.) */
+export const AgentMessageSendBodySchema = z
+  .object({
+    body: z.string().min(1).max(20_000),
+    priority: MessagePrioritySchema.optional(),
+    threadId: z.string().optional(),
+  })
+  .strict()
+export type AgentMessageSendBody = z.infer<typeof AgentMessageSendBodySchema>
+
+/** Result of POST /api/k/ask — two shapes since A.4 (D-126):
+ *  - SESSION DISPATCH: `runId` is the session-engine run the ask rode (`warm` =
+ *    true when it was delivered into an already-live parked run over stdin, false
+ *    when a run was spawned); `agentRunId` is that run's agent_runs tracking id.
+ *  - FORCED ROUTE: the ask was QUEUED as a mailbox message to the forced target
+ *    (`messageId` — the agent_messages row; Lane B's relay delivers it). Nothing
+ *    was dispatched, so `runId`/`agentRunId` are null and there is no undo
+ *    affordance. `route` is the display preview in both shapes. */
 export const KAskResultSchema = z.object({
   kThreadId: z.string(),
   agentRunId: z.string().nullable(),
-  runId: z.string(),
+  runId: z.string().nullable(),
   route: KRouteSchema,
   warm: z.boolean(),
+  messageId: z.string().optional(),
 })
 export type KAskResult = z.infer<typeof KAskResultSchema>
 
@@ -2651,3 +2714,6 @@ export function canonicalizePipelineStageStatus(s: PipelineStageStatus): Canonic
     case 'skipped':       return { state: 'stopped', attention: 'none',          health: 'ok' }
   }
 }
+
+// ─── Continuous Agents (W0.2) — session/message/domain contracts + role map ──
+export * from './sessions.js'

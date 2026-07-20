@@ -211,7 +211,14 @@ describe('ChiefPage — inspector actions', () => {
 })
 
 describe('ChiefPage — hand Chief work', () => {
-  it('sends through the shared front door with a FORCED chief route, no navigation', async () => {
+  it('sends through the shared front door with a FORCED chief route — queued (runId null), no toast, no navigation (A.4)', async () => {
+    // A.4 (D-126): a forced route QUEUES a real mailbox message instead of
+    // dispatching a Chief run — the ask resolves the queued shape (runId null +
+    // messageId), so no undo toast / View-run link raises and we never navigate.
+    mockAsk.mockImplementation(async () => ({
+      kThreadId: 'kt', agentRunId: null, runId: null, messageId: 'm1',
+      route: { target: 'chief', label: 'Chief', escalates: true }, warm: false,
+    }))
     renderPage()
     const composer = await screen.findByTestId('chief-hand-composer')
     const input = composer.querySelector('input') as HTMLInputElement
@@ -224,12 +231,10 @@ describe('ChiefPage — hand Chief work', () => {
     await waitFor(() => expect(mockAsk).toHaveBeenCalledTimes(1))
     expect(mockAsk).toHaveBeenCalledWith('rebalance the leads', { forceRoute: 'chief' })
 
-    // The undo toast raises in place (navigateOnSend:false) with a View-run link.
-    await screen.findByTestId('chief-hand-toast')
+    // A successful (queued) send clears the composer…
+    await waitFor(() => expect(input.value).toBe(''))
+    // …and raises NO undo toast (nothing dispatched, nothing to undo or view).
+    expect(screen.queryByTestId('chief-hand-toast')).toBeNull()
     expect(mockNavigate).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByTestId('chief-hand-view-run'))
-    expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-chief-1')
-    // A successful send clears the composer.
-    expect(input.value).toBe('')
   })
 })

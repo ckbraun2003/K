@@ -350,4 +350,34 @@ describe('MessageDock', () => {
     fireEvent.click(undo)
     await waitFor(() => expect(mockUndo).toHaveBeenCalledWith('run-123'))
   })
+
+  it('a FORCED send queues a mailbox message — NO undo toast is raised (A.4, D-126)', async () => {
+    // A forced route returns the QUEUED shape: runId null + messageId. Nothing was
+    // dispatched, so there is no undo affordance — the ack surfaces as a thread turn
+    // via the invalidated thread reads, not a toast.
+    mockAsk.mockImplementation(async (_message: string, opts?: { threadId?: string }) => ({
+      kThreadId: opts?.threadId ?? 'kt', agentRunId: null, runId: null, messageId: 'm1',
+      route: { target: 'chief', label: 'Chief', escalates: true }, warm: false,
+    }))
+    mockThreadsList.mockResolvedValue({ threads: [thread({ id: 'kt-5', title: 'Existing' })] })
+    renderDock('bar')
+    act(() => { selectThread('kt-5') })
+    await screen.findByText('→ Existing')
+
+    fireEvent.click(screen.getByTestId('dock-expander'))
+    fireEvent.change(await screen.findByTestId('dock-force-route'), { target: { value: 'chief' } })
+    const input = screen.getByTestId('dock-input') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'queue this for chief' } })
+    fireEvent.click(screen.getByTestId('dock-send'))
+
+    await waitFor(() => expect(mockAsk).toHaveBeenCalledWith(
+      'queue this for chief',
+      expect.objectContaining({ forceRoute: 'chief', threadId: 'kt-5' }),
+    ))
+    // The send succeeded (composer cleared) …
+    await waitFor(() => expect(input.value).toBe(''))
+    // … and no undo affordance exists.
+    expect(screen.queryByTestId('dock-undo-toast')).toBeNull()
+    expect(screen.queryByTestId('dock-error')).toBeNull()
+  })
 })

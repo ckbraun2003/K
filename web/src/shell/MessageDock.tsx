@@ -507,6 +507,10 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
 
   // Rendered unconditionally (outside both the bar footer and the open-gated
   // overlay) so a send's undo window survives the float overlay closing.
+  // A.4 (D-126) nullable-runId guard: a FORCED send resolves `runId: null` (a
+  // queued mailbox message, nothing dispatched) — useAskK raises no pendingUndo
+  // window for it, so this toast simply never opens; the queued ack surfaces via
+  // the refetched thread turns instead (no new UI surface).
   const undoToast = (
     <Toast
       open={ask.pendingUndo !== null}

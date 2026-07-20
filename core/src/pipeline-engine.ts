@@ -136,6 +136,28 @@ function emitPipelineTerminal(pipelineRunId: string, status: 'completed' | 'fail
   }
 }
 
+type GateParkedListener = (pipelineRunId: string, stageId: string) => void
+const gateParkedListeners = new Set<GateParkedListener>()
+
+/** Subscribe to gate parks (a gate stage entering 'awaiting_gate'). Additive Lane C
+ *  seam (deviation #2) — the domain supervisor's event-driven gate briefings.
+ *  Returns an unsubscribe fn. Listener errors are swallowed (bus posture). */
+export function onGateParked(listener: GateParkedListener): () => void {
+  gateParkedListeners.add(listener)
+  return () => gateParkedListeners.delete(listener)
+}
+
+/** Fan a gate park out to every registered listener — mirrors emitPipelineTerminal. */
+function emitGateParked(pipelineRunId: string, stageId: string): void {
+  for (const listener of gateParkedListeners) {
+    try {
+      listener(pipelineRunId, stageId)
+    } catch (err) {
+      console.warn(`[pipeline-engine] gate-parked listener threw for ${pipelineRunId}:`, err)
+    }
+  }
+}
+
 /** A stage's frozen retry policy (StageDef.retry). A malformed / absent spec → the schema
  *  defaults (maxAttempts 1 = no retry), so a bad spec fails CLOSED rather than retry-storming. */
 function parseRetryPolicy(spec: string): RetryPolicy {
@@ -245,6 +267,7 @@ async function recordDispatchResult(
         stageKey: stage.stage_key, kind: 'gate', actor: stageActor(stage),
         goal: `${stage.stage_key} awaiting approval`, detail: { event: 'park' },
       })
+      emitGateParked(run.id, stage.id)
       break
     }
   }

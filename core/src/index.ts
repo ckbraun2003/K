@@ -23,6 +23,7 @@ import { skillCreatorRoutes } from './routes/skill-creator.js'
 import { chiefRoutes } from './routes/chief.js'
 import { orchestratorsRoutes } from './routes/orchestrators.js'
 import { profilesRoutes } from './routes/profiles.js'
+import { domainsRoutes } from './routes/domains.js'
 import { workflowsRoutes } from './routes/workflows.js'
 import { pipelinesRoutes } from './routes/pipelines.js'
 import { subAgentsRoutes } from './routes/sub-agents.js'
@@ -35,6 +36,7 @@ import { memoryRoutes } from './routes/memory.js'
 import { memoriesRoutes } from './routes/memories.js'
 import { homeLayoutRoutes } from './routes/home-layout.js'
 import { kRoutes } from './routes/k.js'
+import { conversationsRoutes } from './routes/conversations.js'
 import { reviewRoutes } from './routes/review.js'
 import { verifyRoutes } from './routes/verify.js'
 import { rewindRoutes } from './routes/rewind.js'
@@ -54,6 +56,7 @@ import { sweepCheckpointRefs, sweepPipelineRefs } from './checkpoints.js'
 import { startEventListener, startScheduler, seedBuiltinSkills } from './skills.js'
 import { syncHostDiscovery } from './host-discovery.js'
 import { seedProfiles } from './profiles.js'
+import { stampSeededDomainMemberships } from './domains.js'
 import { seedWorkflowDefinitions } from './workflow-defs.js'
 import { seedPipelineSpecs } from './pipeline-seeds.js'
 import { migrateLegacyDefs } from './pipeline-migrate-legacy.js'
@@ -63,14 +66,17 @@ import { seedUiDemo } from './ui-artifact.js'
 import { scanHarnessArtifacts, scanProjectArtifacts, startArtifactScanOnRunTerminal } from './artifact-scan.js'
 import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
+import { startDomainSupervisor } from './domain-supervisor.js'
 import { startProposalCollectors } from './proposal-collectors.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
+import { startMessageRelay } from './message-relay.js'
 import { startBudgetBroadcast } from './budget-governor.js'
 import { startBacklogRelay } from './backlog-relay.js'
 import { startPipelineScheduler } from './pipeline-scheduler.js'
 import { startPipelineDispatchRelay } from './pipeline-dispatch-relay.js'
 import { startPipelineUpdateBroadcast } from './pipeline-views.js'
 import { reconcilePipelines } from './pipeline-engine.js'
+import { sweepLiveSessionsOnBoot } from './agent-sessions.js'
 import { continuePipelineOutcomeToK } from './k-thread.js'
 import { startSelfHeal } from './self-heal.js'
 import { startLessonProposals } from './lesson-proposals.js'
@@ -114,10 +120,15 @@ const TERMINAL_TOKEN = process.env.TERMINAL_TOKEN ?? 'dev-terminal-token'
 let stopGraphAutoReindex: (() => void) | undefined
 // Same, for the Chief autonomous wake (cron tick + run-completion subscription).
 let stopChiefWake: (() => void) | undefined
+// Same, for the C.4 always-on domain supervisor (run/pipeline/gate events + heartbeat cron
+// → governed mailbox briefings). NOT gated by Autonomous Org; DOMAIN_SUPERVISOR=0 opts out.
+let stopDomainSupervisor: (() => void) | undefined
 // Same, for the deterministic zero-token proposal collectors (15m cron; E-14).
 let stopProposalCollectors: (() => void) | undefined
 // Same, for the MAIN-process lead-dispatch relay (drains the child-recorded intent queue).
 let stopLeadDispatchRelay: (() => void) | undefined
+// Same, for the B.2 agent-message relay (drains the DB-backed mailbox by target-session state; MESSAGE_RELAY=0).
+let stopMessageRelay: (() => void) | undefined
 // Same, for the E-17 budget-status broadcaster (WS budget_update once per run terminal).
 let stopBudgetBroadcast: (() => void) | undefined
 // Same, for the E-15 backlog auto-pull relay (drains open org work_items; opt-in, default OFF).
@@ -202,6 +213,7 @@ export async function buildApp() {
   await app.register(chiefRoutes)
   await app.register(orchestratorsRoutes)
   await app.register(profilesRoutes)
+  await app.register(domainsRoutes)
   await app.register(workflowsRoutes)
   await app.register(pipelinesRoutes)
   await app.register(subAgentsRoutes)
@@ -214,6 +226,7 @@ export async function buildApp() {
   await app.register(memoriesRoutes)
   await app.register(homeLayoutRoutes)
   await app.register(kRoutes)
+  await app.register(conversationsRoutes)
   await app.register(reviewRoutes)
   await app.register(verifyRoutes)
   await app.register(rewindRoutes)
@@ -370,8 +383,10 @@ export async function buildApp() {
     stopRunVerify?.()
     stopNotifications?.()
     stopChiefWake?.()
+    stopDomainSupervisor?.()
     stopProposalCollectors?.()
     stopLeadDispatchRelay?.()
+    stopMessageRelay?.()
     stopBudgetBroadcast?.()
     stopBacklogRelay?.()
     stopPipelineScheduler?.()
@@ -487,6 +502,14 @@ async function start() {
   // finalize. Kept in index.ts (not reconcileOnBoot) to avoid a supervisor→engine import cycle,
   // exactly as the checkpoint-ref sweep below lives here rather than in reconcileOnBoot.
   try { reconcilePipelines() } catch (e) { console.warn('[pipeline] reconcilePipelines failed (continuing):', e) }
+  // Continuous Agents A.2 (D-122): demote sessions stranded 'live' by a prior
+  // crash — attachments are in-process, so nothing real backs them after a
+  // restart. Kept in index.ts (not reconcileOnBoot) to avoid a supervisor→
+  // agent-sessions import cycle, exactly like reconcilePipelines above.
+  try {
+    const s = sweepLiveSessionsOnBoot()
+    if (s > 0) console.log(`[agent-sessions] boot sweep: demoted ${s} live session(s) to resumable`)
+  } catch (e) { console.warn('[agent-sessions] boot sweep failed (continuing):', e) }
   const sweepRoots = [REPO_ROOT, ...listProjects().map(p => p.localPath)]
   // P1: prune checkpoint refs for runs whose rows were deleted (best-effort, async;
   // roots = the harness repo + every registered project).
@@ -534,6 +557,10 @@ async function start() {
   seedProfiles()      // ensure the durable agent-org profiles (K, Chief, orchestrator + leads) exist
   seedWorkflowDefinitions() // ensure the built-in named workflow templates (code-wave, investigate, refactor) exist
   seedPipelineSpecs() // evolve those templates into executable pipeline specs (workflow_definitions.spec); preserves operator edits
+  // C.1 (D-125): bootstrap-side domain stamping — on a FRESH install migrate()'s v16
+  // seed stamps no-oped (profile/def rows didn't exist yet); this closes the gap with
+  // the SAME guarded statements (WHERE domain_id IS NULL AND id IN seeded-ids).
+  stampSeededDomainMemberships()
   // orch-p2 A.4: convert legacy NamedWorkflows + workflow-skills into persisted pipeline defs and
   // re-home their routines (design §4, convert + retire). One-time (app_config marker + per-row
   // guards); guarded so a bad legacy row logs and continues rather than aborting boot.
@@ -570,6 +597,11 @@ async function start() {
   // persisted autonomySettings().enabled (default OFF, opt-in via Settings ->
   // Autonomous Org) — the CHIEF_WAKE env is deprecated and no longer defaults this on.
   stopChiefWake = startChiefWake()
+  // C.4 always-on domain supervisor: run/pipeline/gate terminals + a heartbeat cron ride the
+  // per-domain governor (debounce + rolling-hour cap) into mailbox briefings for each domain's
+  // manager. Deliberately NOT gated by autonomySettings().enabled (always-on per D-125);
+  // DOMAIN_SUPERVISOR=0 is the dev/test opt-out, domain_wake_max_per_hour=0 the runtime off.
+  stopDomainSupervisor = startDomainSupervisor()
   // Deterministic, zero-token proposal candidates (ci_failed/verify_finding/open_issue/
   // stale_bible) on a 15m cron — gated by autonomySettings().enabled && .proposals
   // (default OFF). PROPOSAL_COLLECTORS=0 kill switch.
@@ -577,6 +609,9 @@ async function start() {
   // Drain the DB-backed lead-dispatch intent queue in this long-lived process (so a lead
   // run + its report-back outlive the ephemeral mgmt-server child). Default ON; LEAD_DISPATCH_RELAY=0.
   stopLeadDispatchRelay = startLeadDispatchRelay()
+  // B.2 message relay: drain the agent mailbox in this long-lived process — live+parked targets
+  // get stdin injection, idle targets get a batched wake. Default ON; MESSAGE_RELAY=0 opts out.
+  stopMessageRelay = startMessageRelay()
   // E-17 budget governor: broadcast measured budget status on the WS once per run terminal
   // (the single site runs.cost_usd is finalized), so cost surfaces update without polling.
   stopBudgetBroadcast = startBudgetBroadcast()

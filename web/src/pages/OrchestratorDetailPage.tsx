@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AgentProfile, ChiefOrgLead, LessonStatus, RecentActuals, AvailableModelsResponse } from '@k/shared'
 import { api, type OrchestratorPatch } from '../lib/api'
@@ -8,6 +8,7 @@ import { relativeTime } from '../lib/verify'
 import { runStatusMeta } from '../lib/status'
 import { cn } from '../lib/cn'
 import DelegationTree from '../components/DelegationTree'
+import ConversationView from '../components/ConversationView'
 import CapabilityPicker from '../components/CapabilityPicker'
 import SegControl from '../components/SegControl'
 import { LessonCard } from '../components/LessonCard'
@@ -16,7 +17,7 @@ import { Icon } from '../ui/Icon'
 import { Button } from '../ui/Button'
 import { Spinner } from '../ui/Spinner'
 import { EmptyState } from '../ui/EmptyState'
-import { Input, Select } from '../ui/Field'
+import { Input, Select, Textarea } from '../ui/Field'
 
 /**
  * Orchestrator detail (P5.3a) — a single discipline lead's authority editor (left,
@@ -75,12 +76,21 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
   const [tab, setTab] = useState<Tab>('charter')
   const [toolInput, setToolInput] = useState('')
   const [memoryStatus, setMemoryStatus] = useState<LessonStatus>('pending')
+  // L1.5 identity-overlay draft (C.3, D-126) — local state + explicit save (the
+  // toolInput idiom, not save-on-change: the overlay is free text).
+  const [overlayDraft, setOverlayDraft] = useState('')
 
   const { data: detail, isLoading, isError } = useQuery<ChiefOrgLead>({
     queryKey: ['orchestrator', id],
     queryFn: () => api.orchestrators.get(id!),
     enabled: !!id,
   })
+
+  // Re-sync the draft when the lead (or its server-side overlay) changes — a save's
+  // invalidation round-trips the new value back into the draft.
+  useEffect(() => {
+    setOverlayDraft(detail?.profile.identityOverlay ?? '')
+  }, [detail?.profile.id, detail?.profile.identityOverlay])
 
   // This lead's lessons at the selected status (memory tab). Its own batched query,
   // deferred until the Memory tab is actually opened (a distinct data source, not used
@@ -119,6 +129,16 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
     queryKey: ['models-available'],
     queryFn: api.models.available,
     enabled: !!id,
+  })
+
+  // This lead's single durable conversation (Continuous Agents B.6) — get-or-created
+  // server-side. Skipped until the profile detail is loaded. A failed fetch renders
+  // an inline error in the panel — silently hiding it is indistinguishable from the
+  // feature not existing (same argument as recentActuals above).
+  const { data: agentConv, isError: agentConvFailed } = useQuery({
+    queryKey: ['agent-conversation', id],
+    queryFn: () => api.conversations.forAgent(id!),
+    enabled: !!id && !!detail,
   })
 
   const mutation = useMutation({
@@ -258,6 +278,22 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                 </span>{' '}
                 and shared across all orchestrator-tier leads. Editing a per-lead charter is deferred.
               </p>
+              {/* L1.5 identity overlay editor (C.3, D-126) — the per-lead layer between
+                  the shared role charter and L2, PATCHed through the same grant-guarded
+                  orchestrators mutation. */}
+              <div className="mt-4 flex flex-col gap-2">
+                <div className="text-sm font-medium text-text">Identity overlay (L1.5)</div>
+                <div className="text-xs text-muted">
+                  Appended verbatim after the role charter at dispatch. Empty = role charter only.
+                </div>
+                <Textarea data-testid="identity-overlay-input" value={overlayDraft}
+                  onChange={e => setOverlayDraft(e.target.value)} />
+                <div>
+                  <Button size="sm" data-testid="identity-overlay-save"
+                    disabled={mutation.isPending || overlayDraft === (profile.identityOverlay ?? '')}
+                    onClick={() => patch({ identityOverlay: overlayDraft })}>Save overlay</Button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -461,6 +497,35 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
           <DelegationTree root={leadNode(detail)} />
         </section>
       </div>
+
+      {/* Conversation (Continuous Agents B.6) — this lead's durable conversation,
+          rendered with the shared transcript + composer (sends go through the
+          mailbox: POST /api/agents/:id/message). */}
+      {(agentConv?.conversation || agentConvFailed) && (
+        <section
+          data-testid="orchestrator-conversation"
+          className="mt-6 rounded-panel border border-border bg-surface p-4"
+        >
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+            Conversation
+          </h2>
+          {agentConvFailed ? (
+            <div data-testid="orchestrator-conversation-error" className="text-caption text-muted">
+              Failed to load this agent's conversation.
+            </div>
+          ) : (
+            <div className="flex h-96 min-h-0 flex-col">
+              <ConversationView
+                threadId={agentConv!.conversation.id}
+                profileId={agentConv!.conversation.profileId}
+                agentName={profile.name}
+                sessionState={agentConv!.conversation.sessionState}
+                contextTokens={agentConv!.conversation.contextTokens}
+              />
+            </div>
+          )}
+        </section>
+      )}
     </div>
   )
 }

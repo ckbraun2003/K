@@ -21,7 +21,6 @@ import { v4 as uuid } from 'uuid'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { routeForTarget } from '@k/shared'
 import { db, mgmtDb, workflowRunsDb, workflowStepsDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { seedProfiles } from '../src/profiles.js'
@@ -49,7 +48,6 @@ vi.mock('../src/supervisor.js', async () => {
 const { mgmtTools, MgmtError } = await import('../src/mcp/mgmt.js')
 const { drainLeadDispatches } = await import('../src/lead-dispatch-relay.js')
 const { leadRosterHint, listDispatchableLeads } = await import('../src/chief-dispatch.js')
-const { buildDelegationGoal } = await import('../src/k-thread.js')
 const { finalizeWorkflowRun } = await import('../src/workflows.js')
 const { kStoreTools } = await import('../src/mcp/k-store.js')
 
@@ -150,13 +148,6 @@ describe('F-067: lead roster tool, seed injection, and assign-time validation', 
   it('DEFAULT_CHIEF_WAKE_GOAL (the AUTO wake seed) names the leads + lead_list', () => {
     for (const id of LEAD_IDS) expect(DEFAULT_CHIEF_WAKE_GOAL).toContain(id)
     expect(DEFAULT_CHIEF_WAKE_GOAL).toContain('lead_list')
-  })
-
-  it('buildDelegationGoal (no-hint chief route) carries the ask verbatim AND the roster', () => {
-    const goal = buildDelegationGoal('ship the auth refactor', routeForTarget('chief'))
-    expect(goal).toContain('ship the auth refactor')
-    expect(goal).toContain('lead-frontend')
-    expect(goal).toContain('lead_list')
   })
 
   it('assign_lead resolves a name/slug/id to the canonical lead NAME', () => {

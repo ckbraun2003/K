@@ -59,12 +59,28 @@ afterAll(() => {
   }
 })
 
+// SEAMS#2 (f): the delegating tiers grant gitnexus PER-TOOL — the read/analysis
+// set, EXCLUDING the write-capable rename/group_sync and graph-write cypher.
+// Asset order (allowlists/{secretary,chief}.json).
+const GITNEXUS_READ = [
+  'mcp__gitnexus__query', 'mcp__gitnexus__context', 'mcp__gitnexus__impact',
+  'mcp__gitnexus__api_impact', 'mcp__gitnexus__detect_changes',
+  'mcp__gitnexus__route_map', 'mcp__gitnexus__tool_map', 'mcp__gitnexus__shape_check',
+  'mcp__gitnexus__group_query', 'mcp__gitnexus__group_list',
+  'mcp__gitnexus__group_contracts', 'mcp__gitnexus__group_status',
+  'mcp__gitnexus__list_repos',
+]
+
 // The exact allowedTools each tier MUST yield (order included — the synthesizer
 // returns the asset array verbatim). These are the authority boundary in code.
 const EXACT: Record<CharterName, string[]> = {
+  // The coding tier keeps the SERVER-level grant deliberately: its runs edit
+  // source anyway, under run-level Trust Core checkpoints.
   orchestrator: ['Bash', 'PowerShell', 'Read', 'Write', 'Edit', 'NotebookEdit', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore'],
-  chief: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore', 'mcp__mgmt'],
-  secretary: ['Read', 'WebFetch', 'WebSearch', 'mcp__kstore', 'mcp__logistics'],
+  chief: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', ...GITNEXUS_READ, 'mcp__kstore', 'mcp__mgmt'],
+  // ca-a A.5 (D-126): K is the primary agent — Grep/Glob + gitnexus read tools
+  // join the secretary roster (read/analyze widened; mutation boundary unchanged).
+  secretary: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', ...GITNEXUS_READ, 'mcp__kstore', 'mcp__logistics'],
 }
 
 describe('S4 allowlist synthesis: exact per-tier roster', () => {
@@ -81,10 +97,10 @@ describe('S4 allowlist synthesis: exact per-tier roster', () => {
     }
   })
 
-  it('S4-003: secretary yields the leanest set (Read+research+kstore+logistics) — NO coding tools, NO Grep/Glob, NO gitnexus', () => {
+  it('S4-003: secretary yields the primary-agent read set (Read/Grep/Glob+research+gitnexus+kstore+logistics) — NO mutation tools', () => {
     const cfg = synthAs('secretary')
     expect(cfg.allowedTools).toEqual(EXACT.secretary)
-    for (const denied of ['Bash', 'Write', 'Edit', 'Task', 'Grep', 'Glob', 'mcp__gitnexus']) {
+    for (const denied of ['Bash', 'Write', 'Edit', 'Task', 'Agent']) {
       expect(cfg.allowedTools).not.toContain(denied)
     }
   })
@@ -105,17 +121,24 @@ describe('S4 allowlist synthesis: no drift + non-allowlisted mcp denied', () => 
     for (const tier of ['orchestrator', 'chief', 'secretary'] as CharterName[]) {
       const cfg = synthAs(tier)
       // Only the real K servers are ever granted; any other mcp__* is denied.
-      // secretary → kstore + logistics; orchestrator → gitnexus + kstore;
-      // chief → gitnexus + kstore + mgmt (P5.2a).
+      // secretary → gitnexus READ TOOLS + kstore + logistics (A.5 + SEAMS#2 f);
+      // chief → gitnexus READ TOOLS + kstore + mgmt; orchestrator → server-level
+      // gitnexus + kstore (coding tier). The write-capable gitnexus tools are
+      // NEVER granted on the delegating tiers.
       const mcpGrants = cfg.allowedTools.filter(t => t.startsWith('mcp__')).sort()
       const allowed =
         tier === 'secretary'
-          ? ['mcp__kstore', 'mcp__logistics']
+          ? [...GITNEXUS_READ, 'mcp__kstore', 'mcp__logistics'].sort()
           : tier === 'chief'
-            ? ['mcp__gitnexus', 'mcp__kstore', 'mcp__mgmt']
+            ? [...GITNEXUS_READ, 'mcp__kstore', 'mcp__mgmt'].sort()
             : ['mcp__gitnexus', 'mcp__kstore']
       expect(mcpGrants, `${tier} mcp grants`).toEqual(allowed)
       expect(cfg.allowedTools, `${tier} must not grant mcp__foo`).not.toContain('mcp__foo')
+      if (tier !== 'orchestrator') {
+        for (const w of ['mcp__gitnexus', 'mcp__gitnexus__rename', 'mcp__gitnexus__group_sync', 'mcp__gitnexus__cypher']) {
+          expect(cfg.allowedTools, `${tier} must not grant ${w}`).not.toContain(w)
+        }
+      }
     }
   })
 })

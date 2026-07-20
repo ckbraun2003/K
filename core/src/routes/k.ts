@@ -40,8 +40,11 @@ type Row = Record<string, unknown>
 /**
  * The "talk to K" front door (P5.1c, D-023) + multi-thread K (UI Simplification) +
  * the durable work-items surface (A1) + the K-home glance reads (C2):
- *   POST  /api/k/ask            — activate K on a message (warm or fresh); accepts an
- *                                  optional threadId (404 unknown); returns KAskResult
+ *   POST  /api/k/ask            — activate K on a message (A.4: rides the session engine —
+ *                                  warm stdin or an interactive spawn; a FORCED route
+ *                                  QUEUES a mailbox message instead: runId null +
+ *                                  messageId); accepts an optional threadId (404
+ *                                  unknown); returns KAskResult (both shapes)
  *   GET   /api/k/threads        — list threads (?archived=1 includes archived), newest first
  *   GET   /api/k/threads/:id    — a thread + its turns, oldest-first (404 unknown)
  *   POST  /api/k/threads        — create an empty thread (title backfilled on first ask)
@@ -79,9 +82,9 @@ export async function kRoutes(app: FastifyInstance) {
       return reply.status(201).send(result)
     } catch (e) {
       if (e instanceof KThreadNotFoundError) return sendError(reply, 404, 'thread not found')
-      // E-17: a capped operator→Chief delegation is a transient, operator-resolvable state,
-      // not a server fault — map it to a clean 429 (the explanatory K turn is already
-      // persisted on the thread for the chat view), never an opaque 500.
+      // E-17 → A.4 DEAD-BELT: chat turns are budget-exempt by KIND and a forced route is
+      // a free mailbox write, so askK no longer throws BudgetCapError on any live path.
+      // The 429 mapping is kept as defense-in-depth should a future askK path gate again.
       if (e instanceof BudgetCapError) {
         return reply.status(429).send({ error: e.message, scope: e.scope, capUsd: e.capUsd, spentUsd: e.spentUsd })
       }

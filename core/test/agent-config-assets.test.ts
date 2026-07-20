@@ -167,7 +167,8 @@ describe('tier charters are as-built (no stale PLANNED banners; chief carries th
   })
 
   it('chief.charter.md keeps the stable L1 marker heading', () => {
-    expect(charter('chief')).toContain('# Chief Charter')
+    // C.2 (D-125/D-126): the chief tier asset is the MANAGER role template.
+    expect(charter('chief')).toContain('# Manager Charter')
   })
 
   // Conductor pin (L-fix review MINOR): names alone are not the procedure. Pin the

@@ -57,8 +57,38 @@ export interface StartAgentRunOptions {
   model?: string
   /** W7a (K-secretary front door ONLY): make the run a RESUMABLE one-shot against a
    *  STABLE, persisted per-thread config dir + cwd (not a fresh worktree + ephemeral
-   *  config). Threaded verbatim to startRun. Absent for every other activation. */
-  persistentSession?: { key: string; sessionId: string; resume: boolean }
+   *  config). Threaded verbatim to startRun. Absent for every other activation.
+   *  Continuous Agents W0.3 (D-122): agent-sessions.ts passes `homeDir` (the session's
+   *  stable agentSessionPaths base) to generalize the same mechanics to any profile;
+   *  absent → the K-secretary path in startRun, byte-identical. */
+  persistentSession?: { key: string; sessionId: string; resume: boolean; homeDir?: string }
+  /** Continuous Agents A.2 (D-122): per-run awaiting_input idle override, threaded
+   *  verbatim to startRun (agent-sessions.ts passes SESSION_IDLE_MS so session idle
+   *  demotion is tunable independently of the HITL default). Absent → the
+   *  supervisor's INTERACTIVE_IDLE_MS, byte-identical. */
+  idleMs?: number
+  /** Continuous Agents A.3 (D-127): the run's kind (runs.kind bookkeeping),
+   *  threaded verbatim to startRun. Absent → inferred here (and identically in
+   *  startRun): persistentSession → 'chat-turn', else 'job'. pipeline-executor
+   *  passes 'pipeline-stage' explicitly. Also keys the budget/plan-gate
+   *  exemptions below — chat turns are never gated. CAUTION: do NOT combine an
+   *  explicit non-chat kind with persistentSession — that combo RE-ARMS both
+   *  gates for a session-mechanics run, and a plan-gated profile would then
+   *  compose planGate:true into startRun's one-shot-only throw. No production
+   *  caller does (session spawns are always interactive:true); documented as a
+   *  latent foot-gun (A.3 quality m5). */
+  kind?: 'chat-turn' | 'job' | 'pipeline-stage'
+  /** Continuous Agents A.3 (D-127): the owning agent_sessions row id, threaded
+   *  verbatim to startRun → runs.session_id. Absent for non-session runs. */
+  sessionId?: string
+  /** SEAMS#2 (b): true when this session dispatch was CAUSED BY AN AGENT — a
+   *  relay-delivered profile message (briefing, report-back, agent→agent send)
+   *  waking the target. Profile-originated chat-turns ARE budget-gated: the
+   *  operator's own conversation stays exempt (they must always reach K to raise
+   *  the cap), but autonomous agent↔agent conversation is paid org spend and the
+   *  org cap must bound it (spec: "supervision briefings ARE budget-gated").
+   *  Absent/false → the pre-existing operator-exempt behavior, byte-identical. */
+  profileOriginated?: boolean
   /** H8 (opt-in): start the run's worktree from the source repo's uncommitted
    *  tracked+staged changes instead of clean HEAD. Threaded verbatim to startRun;
    *  default false/absent → byte-identical clean-HEAD behavior. */
@@ -104,16 +134,27 @@ export async function startAgentRun(
   if (!prompt) throw new Error('startAgentRun requires a goal or thread')
 
   // E-17 budget governor: refuse a NEW autonomous/org dispatch when the org OR the
-  // scoped project is at its measured cap. INTERACTIVE / persistent-session K-secretary
-  // turns are EXEMPT — the operator must always be able to reach K to raise the cap. An
-  // operator→Chief delegation (trigger 'delegation') IS a paid org dispatch and IS gated;
-  // its caller (k-thread.ts::delegateToChief) catches BudgetCapError → explanatory K turn
-  // → 429. Thrown BEFORE the tracking-row insert, so a capped dispatch leaves no row.
-  // P5 SEAMS minor (BE.7): the exemption is STRUCTURAL only — interactive /
-  // persistentSession. The trigger string is caller-supplied trust and no longer
-  // exempts by itself (the one 'user-message' site, k-thread.ts, always passes
-  // persistentSession, so behavior is unchanged for legitimate callers).
-  const gated = !opts.interactive && !opts.persistentSession
+  // scoped project is at its measured cap. INTERACTIVE dispatches and CHAT TURNS are
+  // EXEMPT — chat turns are the operator's conversation channel, and the operator must
+  // always be able to reach K (or any conversable agent) to raise the cap. A NON-chat
+  // 'delegation' dispatch (e.g. the Chief dispatching a lead) IS a paid org dispatch and
+  // IS gated. (A.4/D-126: the old operator→Chief caller, k-thread.ts::delegateToChief, is
+  // RETIRED — K asks are chat turns and a forced route queues a free mailbox row, so no
+  // live askK path catches BudgetCapError anymore; routes/k.ts's 429 mapping survives as
+  // a dead-belt.) Thrown BEFORE the tracking-row insert, so a capped dispatch leaves no row.
+  // P5 SEAMS minor (BE.7), reworded by A.3 (D-127): the exemption keys on the run's
+  // KIND — structurally derived from persistentSession unless explicitly passed —
+  // never the caller-supplied trigger string, which is trust-free and no longer
+  // exempts by itself (the one 'user-message' site, k-thread.ts / agent-sessions.ts,
+  // always dispatches a chat turn, so behavior is unchanged for legitimate callers).
+  const kind = opts.kind ?? (opts.persistentSession ? 'chat-turn' : 'job')
+  // SEAMS#2 (b): a chat-turn is exempt only as the OPERATOR's conversation
+  // channel. A PROFILE-ORIGINATED session wake (relay delivery of an agent
+  // message / briefing / report-back) is autonomous paid spend and rides the
+  // budget gate like any org dispatch — otherwise agent↔agent conversation
+  // would be unmetered and the org cap toothless over it. Non-chat kinds keep
+  // the pre-existing rule (gated unless interactive).
+  const gated = kind === 'chat-turn' ? opts.profileOriginated === true : !opts.interactive
   if (gated) {
     const g = budgetGate({ projectId: opts.projectId })
     if (!g.allowed) throw new BudgetCapError(g.scope, g.capUsd, g.spentUsd)
@@ -150,17 +191,24 @@ export async function startAgentRun(
       cwd: opts.cwd,
       profile,
       interactive: opts.interactive,
+      idleMs: opts.idleMs,
       persistentSession: opts.persistentSession,
       carryWorkingTree: opts.carryWorkingTree,
       baseCommit: opts.baseCommit,
+      // A.3 (D-127): runs.kind + runs.session_id bookkeeping (kind resolved above,
+      // alongside the budget gate it also keys).
+      kind,
+      sessionId: opts.sessionId,
       // E-02 (D-084): tier default — a plan_gate profile plan-gates its org dispatches,
-      // but NEVER an interactive or persistent-session dispatch (those compose to the
-      // startRun one-shot throw). Mirrors the routes/runs.ts interactive exemption.
+      // but NEVER an interactive dispatch or a chat turn (a session/K conversation
+      // composes to the startRun one-shot throw). Mirrors the routes/runs.ts
+      // interactive exemption. A.3 (D-127): the exemption keys on the run's KIND
+      // (derived from persistentSession above), matching the budget gate.
       // D-119 (A3, A4 NIT-fix): a per-stage opts.planGate is a true OR with the profile
       // default — EITHER arming the plan park. (The prior `??` let opts.planGate:false
       // SUPPRESS a plan_gate profile's gate — a latent footgun the A3 review flagged.) The
-      // interactive/persistent exemption is preserved.
-      planGate: ((opts.planGate === true) || (profile.planGate === true)) && !opts.interactive && !opts.persistentSession ? true : undefined,
+      // interactive/chat-turn exemption is preserved.
+      planGate: ((opts.planGate === true) || (profile.planGate === true)) && !opts.interactive && kind !== 'chat-turn' ? true : undefined,
       // A.5: thread the resolved worker-bee def to synthesizeConfigDir (via startRun).
       subagent: opts.subagent,
     })

@@ -2,7 +2,7 @@
  * Tests for server-side run filters: listRunsFiltered + RunsQuerySchema validation.
  * DB is isolated to os.tmpdir() via vitest.config.ts K_DATA_DIR env.
  */
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import { runsDb, db } from '../src/db.js'
 import { RunsQuerySchema } from '@k/shared'
@@ -115,5 +115,85 @@ describe('RunsQuerySchema validation', () => {
     const r = RunsQuerySchema.safeParse({ limit: '1' })
     expect(r.success).toBe(true)
     if (r.success) expect(r.data.limit).toBe(1)
+  })
+})
+
+// ─── A.3 (D-127): the runs.kind filter ───────────────────────────────────────
+
+describe('listRunsFiltered — kinds filter (A.3, D-127)', () => {
+  const KP = `rqkind-${Date.now()}`
+  const kindRuns = [
+    { ...makeRun('done', 10), prompt: `${KP} job`, kind: 'job' },
+    { ...makeRun('done', 11), prompt: `${KP} chat`, kind: 'chat-turn' },
+    { ...makeRun('running', 12), prompt: `${KP} stage`, kind: 'pipeline-stage' },
+  ]
+  const mine = (rows: Array<Record<string, unknown>>) =>
+    rows.filter(r => String(r.prompt).startsWith(KP))
+
+  beforeAll(() => { for (const r of kindRuns) runsDb.insertRun.run(r) })
+  afterAll(() => {
+    for (const r of kindRuns) db.prepare('DELETE FROM runs WHERE id = ?').run(r.id)
+  })
+
+  it('(e) a single kind returns only matching rows', () => {
+    const ours = mine(runsDb.listRunsFiltered({ kinds: ['job'], limit: 100 }))
+    expect(ours).toHaveLength(1)
+    expect(ours[0].kind).toBe('job')
+  })
+
+  it('(e) multiple kinds compose as an IN list', () => {
+    const ours = mine(runsDb.listRunsFiltered({ kinds: ['job', 'pipeline-stage'], limit: 100 }))
+    expect(ours).toHaveLength(2)
+    expect(ours.map(r => r.kind).sort()).toEqual(['job', 'pipeline-stage'])
+  })
+
+  it('(e) kinds + status compose', () => {
+    const ours = mine(runsDb.listRunsFiltered({ kinds: ['chat-turn'], status: 'done', limit: 100 }))
+    expect(ours).toHaveLength(1)
+    expect(ours[0].kind).toBe('chat-turn')
+    expect(ours[0].status).toBe('done')
+  })
+
+  it('(e) no kinds → every kind (byte-compatible with the pre-A.3 list)', () => {
+    const ours = mine(runsDb.listRunsFiltered({ limit: 100 }))
+    expect(ours).toHaveLength(3)
+  })
+
+  it('(e) duplicate kinds are deduped — bounded statement shapes, identical results (review MAJOR-1)', () => {
+    // The wire schema validates VALUES, not multiplicity — the dedupe in
+    // listRunsFiltered is what bounds the per-shape statement cache (IN sizes
+    // 1..3). Behavioral lock: duplicates return exactly the single-kind result.
+    const ours = mine(runsDb.listRunsFiltered({ kinds: ['job', 'job', 'job'], limit: 100 }))
+    expect(ours).toHaveLength(1)
+    expect(ours[0].kind).toBe('job')
+  })
+})
+
+describe('RunsQuerySchema — kind param (A.3, D-127)', () => {
+  it("(f) kind=job parses to ['job']", () => {
+    const r = RunsQuerySchema.safeParse({ kind: 'job' })
+    expect(r.success).toBe(true)
+    if (r.success) expect(r.data.kind).toEqual(['job'])
+  })
+
+  it('(f) kind=job,pipeline-stage splits on the comma', () => {
+    const r = RunsQuerySchema.safeParse({ kind: 'job,pipeline-stage' })
+    expect(r.success).toBe(true)
+    if (r.success) expect(r.data.kind).toEqual(['job', 'pipeline-stage'])
+  })
+
+  it('(f) rejects an unknown kind', () => {
+    expect(RunsQuerySchema.safeParse({ kind: 'nope' }).success).toBe(false)
+    expect(RunsQuerySchema.safeParse({ kind: 'job,nope' }).success).toBe(false)
+  })
+
+  it('(f) rejects an empty kind=', () => {
+    expect(RunsQuerySchema.safeParse({ kind: '' }).success).toBe(false)
+  })
+
+  it('(f) kind omitted → absent (no default filter)', () => {
+    const r = RunsQuerySchema.safeParse({})
+    expect(r.success).toBe(true)
+    if (r.success) expect(r.data.kind).toBeUndefined()
   })
 })

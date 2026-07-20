@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry, BackgroundSettings, GradientPreset, BackgroundKind, AvailableModelsResponse } from '@k/shared'
+import type { Domain, Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry, BackgroundSettings, GradientPreset, BackgroundKind, AvailableModelsResponse, ConversationSummary, AgentMessage } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -15,12 +15,17 @@ import type { MemoryLesson } from './memory'
 export type { SkillRun } from './skill-runs'
 
 /** The per-lead authority patch (PATCH /api/orchestrators/:id). Deliberately narrowed
- *  to the fields the detail editor mutates — skills/tools/mcp/model; tier & charter are
- *  NOT patchable here (a tier move could drop a lead from its own roster). Mirrors the
- *  backend zod schema so the two can't drift. Exported so the page imports one shape. */
+ *  to the fields the detail editor mutates — skills/tools/mcp/model + the L1.5
+ *  identity overlay (C.3, D-126); tier & charter are NOT patchable here (a tier move
+ *  could drop a lead from its own roster). Mirrors the backend zod schema so the two
+ *  can't drift. Exported so the page imports one shape. */
 export type OrchestratorPatch = Partial<
-  Pick<AgentProfile, 'skills' | 'allowedTools' | 'mcpServers' | 'defaultModel'>
+  Pick<AgentProfile, 'skills' | 'allowedTools' | 'mcpServers' | 'defaultModel' | 'identityOverlay'>
 >
+
+/** One domain registry row + its manager's display name (GET /api/domains wire shape —
+ *  mirrors core routes/domains.ts::DomainView, C.1/C.3, D-125). */
+export type DomainView = Domain & { managerName: string | null }
 
 /** The named-workflow patch (PATCH /api/workflows/:id). Mirrors the backend zod schema —
  *  the fields the WorkflowDetail editor mutates (name/scaffold/cross-project). `roles` are
@@ -143,11 +148,14 @@ const JSON_H = { 'Content-Type': 'application/json' }
 
 export const api = {
   runs: {
-    list: (opts?: { status?: RunStatus; limit?: number; projectId?: string }) => {
+    list: (opts?: { status?: RunStatus; limit?: number; projectId?: string; kind?: string[] }) => {
       const params = new URLSearchParams()
       if (opts?.status !== undefined) params.set('status', opts.status)
       if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
       if (opts?.projectId !== undefined) params.set('projectId', opts.projectId)
+      // A.3 (D-127): server-side run-kind filter — comma-joined; RunsQuerySchema
+      // splits it back. Absent/empty → no filter (every kind).
+      if (opts?.kind !== undefined && opts.kind.length > 0) params.set('kind', opts.kind.join(','))
       const qs = params.size > 0 ? `?${params.toString()}` : ''
       return req<Run[]>(`/runs${qs}`)
     },
@@ -524,11 +532,26 @@ export const api = {
         body: JSON.stringify(patch),
       }),
   },
-  // Durable agent profiles (read-only) — GET /api/profiles returns every seeded profile
+  // Durable agent profiles — GET /api/profiles returns every seeded profile
   // (K, Chief, the org-default, and the five discipline leads). The Memory filter sources
   // its lead-roster options from this so every lead appears even with zero lessons (F-081).
+  // `patchOverlay` is the ONE write this surface carries (C.3, D-126): the overlay-only
+  // PATCH — any other key answers 400 server-side (.strict single-key schema).
   profiles: {
     list: () => req<AgentProfile[]>('/profiles'),
+    get: (id: string) => req<AgentProfile>(`/profiles/${encodeURIComponent(id)}`),
+    patchOverlay: (id: string, identityOverlay: string | null) =>
+      req<AgentProfile>(`/profiles/${encodeURIComponent(id)}`, { method: 'PATCH', headers: JSON_H, body: JSON.stringify({ identityOverlay }) }),
+  },
+  // Domain registry (C.1/C.3, D-125) — list/create/update over /api/domains. `create`
+  // may carry the optional dynamic-manager block (a tier-'chief' profile created
+  // atomically with the domain); name conflicts answer 409 (req throws the message).
+  domains: {
+    list: () => req<DomainView[]>('/domains'),
+    create: (body: { name: string; description?: string | null; manager?: { name: string; identityOverlay?: string | null } }) =>
+      req<DomainView>('/domains', { method: 'POST', headers: JSON_H, body: JSON.stringify(body) }),
+    update: (id: string, body: { name?: string; description?: string | null; managerProfileId?: string | null }) =>
+      req<DomainView>(`/domains/${encodeURIComponent(id)}`, { method: 'PATCH', headers: JSON_H, body: JSON.stringify(body) }),
   },
   // Named workflow definitions (P5.3b) — the operator-editable workflow templates
   // (list · one-detail · edit). `update` is a read-merge-write patch server-side.
@@ -853,6 +876,28 @@ export const api = {
         body: JSON.stringify(patch),
       }),
     remove: (id: string) => req<undefined>(`/k/threads/${id}`, { method: 'DELETE' }),
+  },
+  // Conversations surface (Continuous Agents B.6) — the Messages page + agent-detail
+  // embeds. `list` joins session state + unread; `read` advances the clamped cursor;
+  // `forAgent` get-or-creates an agent's single conversation (embed entry point);
+  // `message` queues an operator → agent mailbox message (the relay delivers it).
+  conversations: {
+    list: (includeArchived = false) =>
+      req<{ conversations: ConversationSummary[] }>(`/conversations${includeArchived ? '?archived=1' : ''}`),
+    read: (threadId: string) =>
+      req<{ ok: true; lastReadAt: number | null }>(`/conversations/${threadId}/read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+    forAgent: (profileId: string) =>
+      req<{ conversation: ConversationSummary }>(`/agents/${profileId}/conversation`),
+    message: (profileId: string, body: { body: string; priority?: 'normal' | 'urgent'; threadId?: string }) =>
+      req<{ message: AgentMessage; threadId: string }>(`/agents/${profileId}/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
   },
   // The operator's own durable memory store (UI Simplification Task 7) — distinct
   // from `memory` above (agent-memory lessons, layer A, gated by accept/reject): a
