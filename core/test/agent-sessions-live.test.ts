@@ -73,6 +73,14 @@ const update = (id: string, status: Run['status'], extra: Partial<Run> = {}): vo
   eventBus.emitRunUpdate({ id, status, tokensIn: 0, tokensOut: 0, costUsd: 0, ...extra } as Run)
 
 function resetState() {
+  // Listener hygiene (A.6 revisit of the A.1 deferral): emit a terminal for every
+  // mock run this suite ever inserted BEFORE wiping tables — finalize is
+  // once-latched, so already-detached runs no-op while a test's dangling
+  // attachment unsubscribes from the eventBus instead of accumulating (inert but
+  // untidy: unique ids meant they could never misfire).
+  for (const r of db.prepare(`SELECT id FROM runs WHERE id LIKE 'mock-ca-%'`).all() as Array<{ id: string }>) {
+    update(r.id, 'killed')
+  }
   db.prepare('DELETE FROM agent_sessions').run()
   db.prepare('DELETE FROM k_thread_turns').run()
   db.prepare('DELETE FROM k_threads').run()
