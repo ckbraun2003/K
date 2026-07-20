@@ -215,7 +215,7 @@ describe('bounded loops (A.2)', () => {
     // passed, the loop edge must NOT make `head` ready.
     const now = Date.now()
     const pid = randomUUID()
-    pipelineDb.insertPipelineRun.run({ id: pid, definitionId: null, projectId: null, title: 't', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null })
+    pipelineDb.insertPipelineRun.run({ id: pid, definitionId: null, projectId: null, title: 't', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null, domainId: null })
     const ins = (key: string) => {
       const id = randomUUID()
       pipelineDb.insertStage.run({ id, pipelineRunId: pid, stageKey: key, kind: 'deterministic', profileId: null, spec: '{}', baseCommit: null, repairStageKey: null, createdAt: now, updatedAt: now })

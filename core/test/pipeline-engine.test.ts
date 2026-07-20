@@ -201,14 +201,14 @@ describe('reconcilePipelines', () => {
     const now = Date.now()
     // Crafted pipeline #1: a claimed-but-never-wired ('dispatched', run_id NULL) stage.
     const plr1 = randomUUID()
-    pipelineDb.insertPipelineRun.run({ id: plr1, definitionId: null, projectId: null, title: 'recon', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null })
+    pipelineDb.insertPipelineRun.run({ id: plr1, definitionId: null, projectId: null, title: 'recon', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null, domainId: null })
     const s1 = randomUUID()
     pipelineDb.insertStage.run({ id: s1, pipelineRunId: plr1, stageKey: 's1', kind: 'deterministic', profileId: null, spec: '{}', baseCommit: null, repairStageKey: null, createdAt: now, updatedAt: now })
     pipelineDb.claimStage.run({ id: s1, updatedAt: now, startedAt: now }) // pending→dispatched, run_id stays NULL
 
     // Crafted pipeline #2: a 'running' stage whose linked run is terminal 'done' → derive passed.
     const plr2 = randomUUID()
-    pipelineDb.insertPipelineRun.run({ id: plr2, definitionId: null, projectId: null, title: 'recon2', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null })
+    pipelineDb.insertPipelineRun.run({ id: plr2, definitionId: null, projectId: null, title: 'recon2', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null, domainId: null })
     const runId = randomUUID()
     runsDb.insertRun.run({ id: runId, prompt: 'p', cwd: repo, worktree: null, status: 'done', provider: 'claude', model: 'm', tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: null, createdAt: now })
     const s2 = randomUUID()
@@ -230,7 +230,7 @@ describe('dispatchStage — supervised ownership stamp', () => {
   it('e) stamps runs.pipeline_stage_id and wires the stage run for a supervised stage', async () => {
     const now = Date.now()
     const plr = randomUUID()
-    pipelineDb.insertPipelineRun.run({ id: plr, definitionId: null, projectId: null, title: 'sup', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null })
+    pipelineDb.insertPipelineRun.run({ id: plr, definitionId: null, projectId: null, title: 'sup', cwd: repo, baseCommit, createdAt: now, updatedAt: now, ownerProfileId: null, domainId: null })
     const stageId = randomUUID()
     pipelineDb.insertStage.run({ id: stageId, pipelineRunId: plr, stageKey: 'agent1', kind: 'agent', profileId: null, spec: '{}', baseCommit: null, repairStageKey: null, createdAt: now, updatedAt: now })
     const runId = randomUUID()

@@ -3053,8 +3053,8 @@ export const leadDispatchDb = { insertLeadDispatch, listPendingLeadDispatches, g
 // delegate_pipeline → pipeline-dispatch-relay; the operator's direct POST /api/pipelines/:id/run
 // binds it NULL (honestly ungrouped — no delegating profile exists).
 const insertPipelineRun = db.prepare(`
-  INSERT INTO pipeline_runs (id, definition_id, project_id, title, cwd, base_commit, status, created_at, updated_at, completed_at, owner_profile_id)
-  VALUES (@id, @definitionId, @projectId, @title, @cwd, @baseCommit, 'running', @createdAt, @updatedAt, NULL, @ownerProfileId)
+  INSERT INTO pipeline_runs (id, definition_id, project_id, title, cwd, base_commit, status, created_at, updated_at, completed_at, owner_profile_id, domain_id)
+  VALUES (@id, @definitionId, @projectId, @title, @cwd, @baseCommit, 'running', @createdAt, @updatedAt, NULL, @ownerProfileId, @domainId)
 `)
 const getPipelineRun = db.prepare(`SELECT * FROM pipeline_runs WHERE id = ?`)
 const listRunningPipelines = db.prepare(`SELECT * FROM pipeline_runs WHERE status = 'running' ORDER BY created_at ASC`)
@@ -3547,8 +3547,8 @@ export const configDb = {
 // eval_systems convention. `name` is UNIQUE so the seed is idempotent by name.
 
 const insertProfile = db.prepare(`
-  INSERT INTO agent_profiles (id, name, tier, charter, default_model, allowed_tools, mcp_servers, skills, created_at)
-  VALUES (@id, @name, @tier, @charter, @defaultModel, @allowedTools, @mcpServers, @skills, @createdAt)
+  INSERT INTO agent_profiles (id, name, tier, charter, default_model, allowed_tools, mcp_servers, skills, identity_overlay, created_at)
+  VALUES (@id, @name, @tier, @charter, @defaultModel, @allowedTools, @mcpServers, @skills, @identityOverlay, @createdAt)
 `)
 const getProfileRow = db.prepare(`SELECT * FROM agent_profiles WHERE id = ?`)
 const getProfileByNameRow = db.prepare(`SELECT * FROM agent_profiles WHERE name = ?`)
@@ -3556,7 +3556,8 @@ const listProfileRows = db.prepare(`SELECT * FROM agent_profiles ORDER BY create
 const updateProfileRow = db.prepare(`
   UPDATE agent_profiles
   SET name = @name, tier = @tier, charter = @charter, default_model = @defaultModel,
-      allowed_tools = @allowedTools, mcp_servers = @mcpServers, skills = @skills
+      allowed_tools = @allowedTools, mcp_servers = @mcpServers, skills = @skills,
+      identity_overlay = @identityOverlay
   WHERE id = @id
 `)
 
@@ -3605,6 +3606,9 @@ export function rowToAgentProfile(r: Record<string, unknown>): AgentProfile {
     allowedTools: parseStrArr(r.allowed_tools),
     mcpServers: parseStrArr(r.mcp_servers),
     skills: parseStrArr(r.skills),
+    // L1.5 identity overlay (D-126): nullable TEXT, no storage sentinel — '' is a
+    // meaningful value (the operator's "silence the seed" affordance, ≠ NULL).
+    identityOverlay: r.identity_overlay == null ? null : String(r.identity_overlay),
     planGate: r.plan_gate === 1 ? true : undefined,
   }
 }

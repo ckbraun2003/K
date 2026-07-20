@@ -39,6 +39,9 @@ const OrchestratorPatchSchema = z
     allowedTools: z.array(z.string()).optional(),
     mcpServers: z.array(z.string()).optional(),
     defaultModel: z.string().nullable().optional(), // null = clear to runtime default
+    // C.3 (D-126): the L1.5 identity overlay — updateProfile passes it through
+    // (absent keeps, null clears, string replaces; '' silences the seed).
+    identityOverlay: z.string().max(20_000).nullable().optional(),
   })
   .strict()
 

@@ -21,6 +21,7 @@ import { randomUUID } from 'crypto'
 import { execFileSync } from 'child_process'
 import { PipelineSpecSchema, namedWorkflowToPipeline, type PipelineSpec, type StageDef } from '@k/shared'
 import { db, pipelineDb, workflowDefsDb, rowToNamedWorkflow } from './db.js'
+import { domainIdForPipelineLaunch } from './domains.js'
 
 // Stamp a loop edge's maxIterations onto its row (orch-p2 A.2). The W0 pipelineDb.insertEdge
 // bundle stays frozen (it predates the loop cap), so — following the engine's local-prepared-
@@ -66,6 +67,9 @@ export interface InstantiateOptions {
    *  design §6.2). Only pipeline-dispatch-relay resolves + passes this (the delegating K/Chief/lead
    *  run's `agent_runs.profile_id`); the operator's direct route leaves it undefined → NULL. */
   ownerProfileId?: string | null
+  /** C.1 (D-125): explicit domain attribution override for `pipeline_runs.domain_id`;
+   *  omitted → resolved def → owner via domainIdForPipelineLaunch. */
+  domainId?: string | null
 }
 
 /** Apply a pipeline-wide model override onto an agent / hook-agent stage that pins no model of
@@ -91,6 +95,13 @@ export function instantiatePipeline(spec: PipelineSpec, opts: InstantiateOptions
   const pipelineRunId = randomUUID()
   const now = Date.now()
 
+  // C.1 (D-125): launch-time domain attribution, stamped physically on the run row —
+  // the definition's domain wins, else the owning profile's (derived, incl. manager
+  // fallback), else NULL. An explicit opts.domainId (even null) overrides resolution.
+  const domainId = opts.domainId !== undefined
+    ? opts.domainId
+    : domainIdForPipelineLaunch(opts.definitionId ?? null, opts.ownerProfileId ?? null)
+
   pipelineDb.insertPipelineRun.run({
     id: pipelineRunId,
     definitionId: opts.definitionId ?? null,
@@ -101,6 +112,7 @@ export function instantiatePipeline(spec: PipelineSpec, opts: InstantiateOptions
     createdAt: now,
     updatedAt: now,
     ownerProfileId: opts.ownerProfileId ?? null,
+    domainId,
   })
 
   for (const stage of spec.stages) {

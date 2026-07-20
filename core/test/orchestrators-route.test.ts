@@ -342,6 +342,26 @@ describe('PATCH /api/orchestrators/:id', () => {
     expect((stillListed.json() as OrchestratorRosterPayload).leads.map(l => l.profile.id)).toContain('lead-frontend')
   })
 
+  it('PATCH identityOverlay round-trips (C.3) — 200 + persisted, then restored to NULL + reseeded', async () => {
+    try {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/orchestrators/lead-frontend',
+        headers: AUTH,
+        payload: { identityOverlay: 'lead overlay' },
+      })
+      expect(res.statusCode).toBe(200)
+      expect((res.json() as AgentProfile).identityOverlay).toBe('lead overlay')
+      expect(getProfile('lead-frontend')!.identityOverlay).toBe('lead overlay')
+    } finally {
+      // Restore the seed posture for later suites: NULL-only stamping means clearing
+      // to NULL then reseeding re-applies the seed overlay (C.2 convention). In
+      // finally so a failed assertion can never strand the test overlay.
+      db.prepare(`UPDATE agent_profiles SET identity_overlay = NULL WHERE id = 'lead-frontend'`).run()
+      seedProfiles()
+    }
+  })
+
   it('SEAM: an ungranted MCP mount is rejected 400 and the profile is UNCHANGED', async () => {
     const before = getProfile('lead-frontend')!.mcpServers
     const res = await app.inject({

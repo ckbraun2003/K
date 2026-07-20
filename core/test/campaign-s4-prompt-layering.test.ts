@@ -51,7 +51,8 @@ const L0_MARKER = 'You are an agent run by'
 // A distinguishing L1 marker per tier (from agent-config/tiers/<tier>.charter.md).
 const L1_MARKER: Record<CharterName, string> = {
   orchestrator: '# Orchestrator Charter',
-  chief: '# Chief Charter',
+  // C.2 (D-125/D-126): the chief-tier asset is the MANAGER role template now.
+  chief: '# Manager Charter',
   secretary: '# Secretary Charter (K)',
 }
 

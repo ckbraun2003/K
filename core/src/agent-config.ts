@@ -70,7 +70,7 @@ export interface SynthesizedConfig {
   disallowedTools: string[]         // → claude --disallowedTools (UNIVERSE minus the run's grant — the hard ceiling)
   mcpConfigPath: string             // → claude --mcp-config (+ --strict-mcp-config)
   settingsPath: string              // → claude --settings
-  appendSystemPromptFile: string    // → claude --append-system-prompt-file (L0 + L1)
+  appendSystemPromptFile: string    // → claude --append-system-prompt-file (L0 + L1 [+ L1.5 overlay + secretary L2])
   authEnv: Record<string, string>   // → merged into the spawn env (may be empty)
   usedHostCredentialFallback: boolean
   cleanup: () => void               // removes the run's config dir

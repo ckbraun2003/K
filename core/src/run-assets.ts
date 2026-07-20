@@ -411,6 +411,15 @@ export function resolveRunAssets(profile: AgentProfile, opts: ResolveRunAssetsOp
   const l0 = fs.readFileSync(path.join(assetsDir, 'base-operating-prompt.md'), 'utf8')
   const l1 = fs.readFileSync(path.join(assetsDir, 'tiers', `${charter}.charter.md`), 'utf8')
   let systemPrompt = `${l0}\n\n---\n\n${l1}`
+  // L1.5 — per-profile identity overlay (D-126): appended VERBATIM when non-empty,
+  // same joiner as L0/L1. Whitespace-only counts as empty so a stray newline saved
+  // from a textarea can never change synthesis output (byte-locked:
+  // identity-overlay.test.ts). Overlay content is operator-authored profile
+  // config — the same trust class as charter assets. Write paths today are code
+  // and seeds only; the bearer-authed, length-capped routes land with C.3.
+  if (profile.identityOverlay != null && profile.identityOverlay.trim() !== '') {
+    systemPrompt = `${systemPrompt}\n\n---\n\n${profile.identityOverlay}`
+  }
   // Secretary-only L2 addendum: the operator's durable memories (saved via the
   // logistics `memory_save` tool), most-recently-updated first. Bounded at 4000
   // chars so an unbounded memory store can never blow out the prompt budget.

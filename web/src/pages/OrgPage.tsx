@@ -6,9 +6,11 @@ import { navigate } from '../lib/route'
 import RosterView from './org/RosterView'
 import TreeView from './org/TreeView'
 import GraphView from './org/GraphView'
+import DomainsView from './org/DomainsView'
 
-type OrgSeg = 'roster' | 'tree' | 'graph'
-const isSeg = (s: string | undefined): s is OrgSeg => s === 'roster' || s === 'tree' || s === 'graph'
+type OrgSeg = 'roster' | 'tree' | 'graph' | 'domains'
+const isSeg = (s: string | undefined): s is OrgSeg =>
+  s === 'roster' || s === 'tree' || s === 'graph' || s === 'domains'
 
 // P5-B: a READ-ONLY status chip — the control itself lives in Settings → Autonomous
 // Org (single source of truth, no duplicated toggle here).
@@ -42,7 +44,7 @@ export default function OrgPage({ seg }: { seg?: string }) {
         <div className="ml-auto">
           <SegControl<OrgSeg>
             ariaLabel="Org view"
-            options={[{ label: 'Roster', value: 'roster' }, { label: 'Tree', value: 'tree' }, { label: 'Graph', value: 'graph' }]}
+            options={[{ label: 'Roster', value: 'roster' }, { label: 'Tree', value: 'tree' }, { label: 'Graph', value: 'graph' }, { label: 'Domains', value: 'domains' }]}
             value={active}
             onChange={(s) => navigate('agents', 'org', s)}
           />
@@ -52,6 +54,7 @@ export default function OrgPage({ seg }: { seg?: string }) {
         {active === 'roster' && <RosterView />}
         {active === 'tree' && <TreeView />}
         {active === 'graph' && <GraphView />}
+        {active === 'domains' && <DomainsView />}
       </div>
     </div>
   )

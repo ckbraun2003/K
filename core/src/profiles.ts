@@ -88,6 +88,8 @@ export interface CreateProfileInput {
   charter?: CharterName
   /** Explicit model override; omitted/null = use the runtime Claude default at dispatch. */
   defaultModel?: string | null
+  /** L1.5 identity overlay (D-126); omitted/null = no overlay. */
+  identityOverlay?: string | null
   // allowedTools/mcpServers/skills default to the tier's resolved authority when
   // omitted — the normal path. Provide them only to record an explicit override.
   allowedTools?: string[]
@@ -130,6 +132,9 @@ export function createProfile(input: CreateProfileInput): AgentProfile {
     allowedTools: JSON.stringify(allowedTools),
     mcpServers: JSON.stringify(mcpServers),
     skills: JSON.stringify(skills),
+    // NULL = no overlay (the column is nullable — no '' sentinel here; '' is a
+    // meaningful "silence the seed" value, see rowToAgentProfile).
+    identityOverlay: input.identityOverlay ?? null,
     createdAt: Date.now(),
   })
   return rowToAgentProfile(agentProfilesDb.getProfileRow.get(id) as Record<string, unknown>)
@@ -159,6 +164,9 @@ export function updateProfile(id: string, patch: UpdateProfileInput): AgentProfi
     // Distinguish "absent" (keep current) from an explicit null (CLEAR the override
     // back to the runtime Claude default) — `??` would conflate the two.
     defaultModel: patch.defaultModel !== undefined ? patch.defaultModel : current.defaultModel,
+    // Same absent-vs-null convention: an explicit null CLEARS the overlay (back to
+    // NULL, i.e. re-seedable); absent keeps the current value.
+    identityOverlay: patch.identityOverlay !== undefined ? patch.identityOverlay : current.identityOverlay,
     allowedTools: patch.allowedTools ?? (auth ? auth.allowedTools : current.allowedTools),
     mcpServers: patch.mcpServers ?? (auth ? auth.mcpServers : current.mcpServers),
     skills: patch.skills ?? (auth ? auth.skills : current.skills),
@@ -183,6 +191,7 @@ export function updateProfile(id: string, patch: UpdateProfileInput): AgentProfi
     allowedTools: JSON.stringify(merged.allowedTools),
     mcpServers: JSON.stringify(merged.mcpServers),
     skills: JSON.stringify(merged.skills),
+    identityOverlay: merged.identityOverlay ?? null,
   })
   return getProfile(id)
 }
@@ -204,6 +213,59 @@ const SEED_PROFILES: ReadonlyArray<{ id: string; name: string; tier: AgentTier }
   { id: 'lead-network', name: 'Network', tier: 'orchestrator' },
 ]
 
+/** L1.5 seed overlays (C.2, D-126). NULL-only stamping (the domain-stamp
+ *  default-membership posture): an operator edit — including blanking to '' —
+ *  survives every re-seed; only NULL (never customized / cleared for re-seed)
+ *  is covered. */
+const SEED_IDENTITY_OVERLAYS: ReadonlyArray<{ id: string; overlay: string }> = [
+  { id: 'chief', overlay: [
+    '## Identity: Chief — Engineering Manager',
+    '',
+    "You are the **Chief**, the Engineering domain's manager and the operator's",
+    'right hand. Your domain is the engineering org: the five discipline leads',
+    '(Frontend, Backend, Systems, Security, Network) and the engineering pipeline',
+    'library. You are woken by a schedule, an org event (a lead report, a dispatch',
+    'completing, a domain briefing), or the user via K.',
+  ].join('\n') },
+  { id: 'lead-frontend', overlay: [
+    '## Identity: Frontend lead',
+    '',
+    'You own web UI work: components, pages, styling and design-system compliance',
+    '(tokens only), accessibility, and the web test suites.',
+  ].join('\n') },
+  { id: 'lead-backend', overlay: [
+    '## Identity: Backend lead',
+    '',
+    'You own server-side work: APIs and routes, business logic, data models and',
+    'migrations, and the core service test suites.',
+  ].join('\n') },
+  { id: 'lead-systems', overlay: [
+    '## Identity: Systems lead',
+    '',
+    'You own infrastructure and tooling: build and CI pipelines, packaging,',
+    'performance, and cross-cutting developer experience.',
+  ].join('\n') },
+  { id: 'lead-security', overlay: [
+    '## Identity: Security lead',
+    '',
+    'You own the security posture: authn/authz, secrets handling, injection and',
+    'traversal surfaces, dependency risk, and security review of changes.',
+  ].join('\n') },
+  { id: 'lead-network', overlay: [
+    '## Identity: Network lead',
+    '',
+    'You own connectivity: protocols, remote integrations, service-to-service',
+    'communication, and network-facing reliability.',
+  ].join('\n') },
+]
+
+// NULL-only overlay stamp — module-local prepared statement (the domains.ts
+// local-statement precedent). `identity_overlay IS NULL` is the whole guard:
+// a customized OR ''-silenced row never matches.
+const stampSeedOverlay = db.prepare(
+  `UPDATE agent_profiles SET identity_overlay = ? WHERE id = ? AND identity_overlay IS NULL`,
+)
+
 /** Idempotently seed the durable profiles. Existing rows (matched by name) are left
  *  untouched so operator edits survive restarts. Returns the names newly inserted.
  *  Called at bootstrap (index.ts), mirroring seedBuiltinSkills / seedEvalSystems. */
@@ -220,6 +282,10 @@ export function seedProfiles(): string[] {
     created.push(seed.name)
   }
   if (created.length) console.log(`[profiles] seeded durable agent profiles: ${created.join(', ')}`)
+  // L1.5 seed overlays (C.2, D-126): stamp NULL rows only — operator edits
+  // (including '' = silenced) survive every re-seed. (chief + the five leads;
+  // k-secretary's overlay is seeded by the A.5 reconcile below.)
+  for (const seed of SEED_IDENTITY_OVERLAYS) stampSeedOverlay.run(seed.overlay, seed.id)
   // A.5 (D-126): one-shot upgrade of an EXISTING k-secretary row to the
   // primary-agent grant set (+ the identity-overlay seed). Fail-safe: a reconcile
   // failure must not abort boot — log and continue; the flag stays unset so the

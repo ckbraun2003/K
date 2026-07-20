@@ -109,3 +109,28 @@ describe('OrchestratorDetailPage — editable default-model Select (C.4)', () =>
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith('lead-web', { defaultModel: null }))
   })
 })
+
+describe('OrchestratorDetailPage — identity overlay editor (C.3, D-126)', () => {
+  it('renders the profile overlay value in the charter-tab textarea', async () => {
+    mockGet.mockResolvedValue(detail({ profile: profile({ identityOverlay: 'seed overlay' }) }))
+    renderPage('lead-web')
+    await screen.findByRole('heading', { level: 1, name: 'Web Lead' })
+    const input = await screen.findByTestId('identity-overlay-input')
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe('seed overlay'))
+    // Unedited draft === stored value → save disabled (nothing to change).
+    expect((screen.getByTestId('identity-overlay-save') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('save fires api.orchestrators.update(id, { identityOverlay })', async () => {
+    mockGet.mockResolvedValue(detail({ profile: profile({ identityOverlay: 'seed overlay' }) }))
+    mockUpdate.mockResolvedValue({ ...profile(), identityOverlay: 'new overlay' })
+    renderPage('lead-web')
+    await screen.findByRole('heading', { level: 1, name: 'Web Lead' })
+    const input = await screen.findByTestId('identity-overlay-input')
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe('seed overlay'))
+
+    fireEvent.change(input, { target: { value: 'new overlay' } })
+    fireEvent.click(screen.getByTestId('identity-overlay-save'))
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith('lead-web', { identityOverlay: 'new overlay' }))
+  })
+})
