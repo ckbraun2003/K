@@ -912,6 +912,11 @@ db.exec(`
     created_at        INTEGER NOT NULL,
     delivered_at      INTEGER
   );
+  CREATE INDEX IF NOT EXISTS idx_agent_messages_queue ON agent_messages(to_profile_id, status);
+  -- Thread-scoped twin (B.5): the conversations list's per-thread queued-count
+  -- subquery filters on (to_thread_id, status) — without this it full-scans
+  -- agent_messages once per thread row as delivered history accumulates.
+  CREATE INDEX IF NOT EXISTS idx_agent_messages_thread ON agent_messages(to_thread_id, status);
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -3739,7 +3744,12 @@ const insertTurn = db.prepare(`
 `)
 const getTurn = db.prepare(`SELECT * FROM k_thread_turns WHERE id = ?`)
 const patchTurnRunId = db.prepare(`UPDATE k_thread_turns SET run_id = ? WHERE id = ?`)
-const listTurns = db.prepare(`SELECT * FROM k_thread_turns WHERE thread_id = ? ORDER BY created_at ASC, id ASC`)
+// rowid tiebreak = INSERTION order for same-ms appends (house pattern, cf. the
+// `created_at DESC, rowid DESC` readers above). A random-uuid `id` tiebreak made
+// same-millisecond ordering a coin flip — renderSeed/renderSessionSeed slice the
+// LAST turn off this list assuming it is the just-appended current one, and an
+// adverse uuid draw sliced off a HISTORY turn instead (B.7 full-suite catch).
+const listTurns = db.prepare(`SELECT * FROM k_thread_turns WHERE thread_id = ? ORDER BY created_at ASC, rowid ASC`)
 // F-060 undo: remove every turn a killed/undone run appended (the dangling `user` ask
 // with no reply, plus any partial `k` turn), so an undone message is never replayed
 // into a later seed. And clear a thread stranded pointing at that just-killed run.

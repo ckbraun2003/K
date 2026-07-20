@@ -2,12 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { KThreadSummary } from '@k/shared'
 import { api } from '../../lib/api'
-import { navigate } from '../../lib/route'
 import { useSelectedThread, selectThread, getSelectedThread } from '../../lib/thread-select'
 import { prefillDock } from '../../lib/dock-bus'
 import { relativeTime } from '../../lib/verify'
-import { groupFeedByDay } from '../../lib/feed-query'
 import { useAskPending } from '../../lib/ask-pending'
+import ConversationView from '../../components/ConversationView'
 import { SectionHeader } from '../../ui/SectionHeader'
 import { EmptyState } from '../../ui/EmptyState'
 import { SkeletonRow } from '../../ui/Skeleton'
@@ -67,7 +66,6 @@ export default function ChatView() {
   // with archivedAt != null). Drives the honest "archived" chip on the transcript surface —
   // cleared the moment the selection returns to the list, goes null, or is demoted.
   const [archivedSelection, setArchivedSelection] = useState<string | null>(null)
-  const tailRef = useRef<HTMLDivElement>(null)
 
   const { data: threadsData, isError: threadsFailed, isSuccess: threadsLoaded, isPending: threadsPending } = useQuery({
     queryKey: ['k-threads'],
@@ -129,28 +127,16 @@ export default function ChatView() {
     })
   }, [threadsLoaded, selected, threads, qc])
 
-  const { data: threadDetail } = useQuery({
-    queryKey: ['k-thread', effectiveId],
-    queryFn: () => api.threads.get(effectiveId as string),
-    enabled: effectiveId !== null,
-  })
-  const turns = threadDetail?.turns ?? []
   // True only once the probe has proven the current selection archived-but-live — the surface
   // then shows an honest "archived" chip (a send restores it: askK un-archives on activity).
   const isArchivedSurface = effectiveId !== null && archivedSelection === effectiveId
-  // Impressive Wave FE Task 9: local-calendar-day separators, reusing the Recent
-  // Activity widget's grouping helper (turns are already chronologically ordered,
-  // so same-day items stay contiguous regardless of direction).
-  const dayGroups = groupFeedByDay(turns.map(t => ({ ...t, ts: t.createdAt })))
   // "K is thinking..." renders on THIS transcript only while an in-flight ask
   // targets it (ask-pending.ts) — never a fabricated status for another thread.
+  // The transcript itself (turns fetch, day groups, auto-scroll) now lives in the
+  // shared ConversationView (Continuous Agents B.6), which reads the SAME
+  // ['k-thread', id] key this view used, so useAskK's invalidations still land.
   const pendingThread = useAskPending()
   const isPendingHere = effectiveId !== null && pendingThread === effectiveId
-
-  // Auto-scroll the latest turn into view on every new turn (send or refetch).
-  useEffect(() => {
-    tailRef.current?.scrollIntoView({ block: 'end' })
-  }, [turns.length])
 
   const rename = useMutation({
     mutationFn: (vars: { id: string; title: string }) => api.threads.update(vars.id, { title: vars.title }),
@@ -280,7 +266,9 @@ export default function ChatView() {
       </div>
 
       {/* Transcript */}
-      <div data-testid="chat-transcript" className="glass-panel rounded-panel flex-1 overflow-y-auto p-4">
+      {/* No overflow here — the embedded ConversationView owns transcript scrolling
+          (a second scroll container would nest scrollbars; quality minor 7). */}
+      <div data-testid="chat-transcript" className="glass-panel rounded-panel flex min-h-0 flex-1 flex-col p-4">
         {effectiveId === null ? (
           <div data-testid="chat-empty" className="flex h-full flex-col items-center justify-center gap-4">
             <EmptyState
@@ -317,7 +305,7 @@ export default function ChatView() {
             )}
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div className="flex min-h-0 flex-1 flex-col gap-2.5">
             {isArchivedSurface && (
               <div className="flex items-center gap-1.5">
                 <span
@@ -329,48 +317,15 @@ export default function ChatView() {
                 <span className="text-micro text-muted">Sending restores this chat.</span>
               </div>
             )}
-            {dayGroups.map(group => (
-              <div key={group.key} className="space-y-2.5">
-                <div data-testid="chat-day-separator" className="micro-label text-center text-muted">
-                  {group.label}
-                </div>
-                {group.items.map(t => (
-                  <div
-                    key={t.id}
-                    data-testid={t.role === 'user' ? 'chat-turn-user' : 'chat-turn-k'}
-                    className={`flex flex-col gap-0.5 ${t.role === 'user' ? 'items-end' : 'items-start'}`}
-                  >
-                    <span className="flex items-baseline gap-1.5 text-caption font-semibold uppercase tracking-wide text-muted">
-                      {t.role === 'user' ? 'You' : 'K'}
-                      <span className="mono text-micro font-normal normal-case text-muted">
-                        {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </span>
-                    <div
-                      className={`max-w-[85%] whitespace-pre-wrap rounded-control px-3 py-2 text-body ${
-                        t.role === 'user'
-                          ? 'bg-accent/15 text-text'
-                          : 'border border-border bg-raised text-text'
-                      }`}
-                    >
-                      {t.text}
-                    </div>
-                    {t.runId && (
-                      <button type="button" data-testid="chat-run-chip" onClick={() => navigate('runs', t.runId!)}>
-                        <Tag tint="sky">→ view run</Tag>
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ))}
+            {/* Shared transcript (Continuous Agents B.6) — composer OFF: the
+                MessageDock bar owns Home's composer (Task 10). */}
+            <ConversationView threadId={effectiveId} profileId="k-secretary" agentName="K" showComposer={false} />
             {isPendingHere && (
               <div data-testid="chat-typing" className="flex items-center gap-1.5 text-caption text-muted">
                 <span className="glow-live inline-block h-1.5 w-1.5 rounded-pill bg-accent" aria-hidden />
                 K is thinking…
               </div>
             )}
-            <div ref={tailRef} />
           </div>
         )}
       </div>

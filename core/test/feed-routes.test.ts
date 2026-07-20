@@ -18,6 +18,14 @@ const runningRun = randomUUID(), parkRun = randomUUID(), doneRun = randomUUID(),
 const planRun = randomUUID()
 const notifId = randomUUID()
 
+// MODERN base for all fixture timestamps (ca-b B.7 full-suite catch): the feed is
+// ts-DESC with a default limit of 100, so the original ancient literals (900..6000,
+// i.e. 1970) got starved out of the window once ≥100 modern items from EARLIER suite
+// files accumulated in the shared full-run DB. Seeding at now-minus-offsets keeps the
+// exact relative order while guaranteeing this file's rows sort at the top of the
+// feed it reads immediately after seeding.
+const T0 = Date.now() - 10_000
+
 beforeAll(async () => {
   const { buildApp } = await import('../src/index.js')
   app = await buildApp(); await app.ready()
@@ -25,21 +33,21 @@ beforeAll(async () => {
     githubRemote: null, workspaceManaged: 0, bibleDir: 'artifacts/bible', createdAt: Date.now() })
   const base = { cwd: 'C:\\nowhere\\feed', worktree: null, provider: 'claude', model: 'm',
     tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: pid }
-  runsDb.insertRun.run({ ...base, id: runningRun, prompt: 'live run', status: 'running', createdAt: 5000 })
-  runsDb.insertRun.run({ ...base, id: parkRun, prompt: 'awaiting input', status: 'awaiting_input', createdAt: 4000 })
-  runsDb.insertRun.run({ ...base, id: doneRun, prompt: 'finished work', status: 'done', createdAt: 1000 })
-  db.prepare(`UPDATE runs SET ended_at = 3000 WHERE id = ?`).run(doneRun)
-  runsDb.insertRun.run({ ...base, id: failRun, prompt: 'broke', status: 'error', createdAt: 900 })
-  db.prepare(`UPDATE runs SET ended_at = 2000 WHERE id = ?`).run(failRun)
-  runsDb.insertRun.run({ ...base, id: planRun, prompt: 'awaiting plan', status: 'awaiting_plan', createdAt: 4500 })
+  runsDb.insertRun.run({ ...base, id: runningRun, prompt: 'live run', status: 'running', createdAt: T0 + 5000 })
+  runsDb.insertRun.run({ ...base, id: parkRun, prompt: 'awaiting input', status: 'awaiting_input', createdAt: T0 + 4000 })
+  runsDb.insertRun.run({ ...base, id: doneRun, prompt: 'finished work', status: 'done', createdAt: T0 + 1000 })
+  db.prepare(`UPDATE runs SET ended_at = ? WHERE id = ?`).run(T0 + 3000, doneRun)
+  runsDb.insertRun.run({ ...base, id: failRun, prompt: 'broke', status: 'error', createdAt: T0 + 900 })
+  db.prepare(`UPDATE runs SET ended_at = ? WHERE id = ?`).run(T0 + 2000, failRun)
+  runsDb.insertRun.run({ ...base, id: planRun, prompt: 'awaiting plan', status: 'awaiting_plan', createdAt: T0 + 4500 })
   verifyResultsDb.upsertVerifyResult.run({ runId: doneRun, status: 'pass', reason: null,
-    commands: '[]', scope: null, startedAt: 1, completedAt: 3500 })
+    commands: '[]', scope: null, startedAt: T0 + 1, completedAt: T0 + 3500 })
   verifyResultsDb.upsertVerifyResult.run({ runId: failRun, status: 'fail', reason: 'boom',
-    commands: '[]', scope: null, startedAt: 1, completedAt: 1950 })
+    commands: '[]', scope: null, startedAt: T0 + 1, completedAt: T0 + 1950 })
   notificationsDb.insertNotification.run({ id: notifId, eventKey: 'run_review_ready', title: 'Ready for review',
-    body: null, runId: doneRun, projectId: pid, createdAt: 3600, readAt: null })
+    body: null, runId: doneRun, projectId: pid, createdAt: T0 + 3600, readAt: null })
   db.prepare(`INSERT INTO github_cache (project_id, kind, payload, fetched_at) VALUES (?, 'pr', ?, ?)`)
-    .run(pid, JSON.stringify([{ number: 7, title: 'Add hello.js', state: 'OPEN', url: 'https://x', checks: 'none' }]), 6000)
+    .run(pid, JSON.stringify([{ number: 7, title: 'Add hello.js', state: 'OPEN', url: 'https://x', checks: 'none' }]), T0 + 6000)
 })
 afterAll(async () => {
   for (const id of [runningRun, parkRun, doneRun, failRun, planRun]) {

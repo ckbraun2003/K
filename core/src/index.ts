@@ -35,6 +35,7 @@ import { memoryRoutes } from './routes/memory.js'
 import { memoriesRoutes } from './routes/memories.js'
 import { homeLayoutRoutes } from './routes/home-layout.js'
 import { kRoutes } from './routes/k.js'
+import { conversationsRoutes } from './routes/conversations.js'
 import { reviewRoutes } from './routes/review.js'
 import { verifyRoutes } from './routes/verify.js'
 import { rewindRoutes } from './routes/rewind.js'
@@ -65,6 +66,7 @@ import { registerGraphAutoReindex } from './graph.js'
 import { startChiefWake } from './chief-wake.js'
 import { startProposalCollectors } from './proposal-collectors.js'
 import { startLeadDispatchRelay } from './lead-dispatch-relay.js'
+import { startMessageRelay } from './message-relay.js'
 import { startBudgetBroadcast } from './budget-governor.js'
 import { startBacklogRelay } from './backlog-relay.js'
 import { startPipelineScheduler } from './pipeline-scheduler.js'
@@ -119,6 +121,8 @@ let stopChiefWake: (() => void) | undefined
 let stopProposalCollectors: (() => void) | undefined
 // Same, for the MAIN-process lead-dispatch relay (drains the child-recorded intent queue).
 let stopLeadDispatchRelay: (() => void) | undefined
+// Same, for the B.2 agent-message relay (drains the DB-backed mailbox by target-session state; MESSAGE_RELAY=0).
+let stopMessageRelay: (() => void) | undefined
 // Same, for the E-17 budget-status broadcaster (WS budget_update once per run terminal).
 let stopBudgetBroadcast: (() => void) | undefined
 // Same, for the E-15 backlog auto-pull relay (drains open org work_items; opt-in, default OFF).
@@ -215,6 +219,7 @@ export async function buildApp() {
   await app.register(memoriesRoutes)
   await app.register(homeLayoutRoutes)
   await app.register(kRoutes)
+  await app.register(conversationsRoutes)
   await app.register(reviewRoutes)
   await app.register(verifyRoutes)
   await app.register(rewindRoutes)
@@ -373,6 +378,7 @@ export async function buildApp() {
     stopChiefWake?.()
     stopProposalCollectors?.()
     stopLeadDispatchRelay?.()
+    stopMessageRelay?.()
     stopBudgetBroadcast?.()
     stopBacklogRelay?.()
     stopPipelineScheduler?.()
@@ -586,6 +592,9 @@ async function start() {
   // Drain the DB-backed lead-dispatch intent queue in this long-lived process (so a lead
   // run + its report-back outlive the ephemeral mgmt-server child). Default ON; LEAD_DISPATCH_RELAY=0.
   stopLeadDispatchRelay = startLeadDispatchRelay()
+  // B.2 message relay: drain the agent mailbox in this long-lived process — live+parked targets
+  // get stdin injection, idle targets get a batched wake. Default ON; MESSAGE_RELAY=0 opts out.
+  stopMessageRelay = startMessageRelay()
   // E-17 budget governor: broadcast measured budget status on the WS once per run terminal
   // (the single site runs.cost_usd is finalized), so cost surfaces update without polling.
   stopBudgetBroadcast = startBudgetBroadcast()

@@ -1,15 +1,16 @@
 /**
- * home-fills.test.tsx (Impressive Wave FE Task 9) — five lightweight probes
- * for the NEW per-page fills this task wired into MessageDock/OverviewView/
- * WidgetShell/ChatView/ChatsTab. Full behavioral coverage for each surface
- * already lives in its own dedicated test file (message-dock.test.tsx,
- * overview-view.test.tsx, chat-view.test.tsx, chats-tab.test.tsx) — these
- * probes only prove the Task 9 surface area itself: dock-target dedup, the
- * empty-layout Customize CTA, WidgetShell's human widget name, ChatView's day
- * separators/timestamps/typing indicator, and ChatsTab's >5-thread search.
+ * home-fills.test.tsx (Impressive Wave FE Task 9) — lightweight probes for the
+ * per-page fills this task wired into MessageDock/OverviewView/WidgetShell/
+ * ChatView. Full behavioral coverage for each surface already lives in its own
+ * dedicated test file (message-dock.test.tsx, overview-view.test.tsx,
+ * chat-view.test.tsx) — these probes only prove the Task 9 surface area itself:
+ * dock-target dedup, the empty-layout Customize CTA, WidgetShell's human widget
+ * name, and ChatView's day separators/timestamps/typing indicator. The former
+ * probe 5 (ChatsTab's >5-thread search) moved with the surface to
+ * messages-page.test.tsx (Continuous Agents B.6 fold-in).
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
 import type { KThreadSummary, KThreadTurn, HomeLayout } from '@k/shared'
@@ -74,7 +75,6 @@ import MessageDock from '../src/shell/MessageDock'
 import OverviewView from '../src/pages/home/OverviewView'
 import WidgetShell from '../src/pages/home/WidgetShell'
 import ChatView from '../src/pages/home/ChatView'
-import ChatsTab from '../src/pages/personal/ChatsTab'
 import { selectThread } from '../src/lib/thread-select'
 
 // jsdom has no scrollIntoView — ChatView's transcript tail-sentinel needs it stubbed
@@ -160,27 +160,13 @@ describe('home-fills (Task 9 probes)', () => {
     selectThread('kt-1')
     qcRender(<ChatView />)
 
-    await waitFor(() => expect(screen.getAllByTestId('chat-day-separator').length).toBe(2))
-    expect(screen.getByTestId('chat-turn-user').textContent).toMatch(/\d{1,2}:\d{2}/)
+    await waitFor(() => expect(screen.getAllByTestId('conversation-day-separator').length).toBe(2))
+    expect(screen.getByTestId('conversation-turn-user').textContent).toMatch(/\d{1,2}:\d{2}/)
     expect(screen.queryByTestId('chat-typing')).toBeNull()
 
     cleanup()
     mockUseAskPending.mockReturnValue('kt-1')
     qcRender(<ChatView />)
     await waitFor(() => expect(screen.getByTestId('chat-typing')).toBeTruthy())
-  })
-
-  it('5. ChatsTab: 6 threads render a search input that filters the list by title', async () => {
-    const many = Array.from({ length: 6 }, (_, i) => thread({ id: `kt-${i}`, title: `Chat number ${i}` }))
-    mockThreadsList.mockResolvedValue({ threads: many })
-    qcRender(<ChatsTab />)
-
-    const search = await screen.findByTestId('chats-search')
-    await waitFor(() => expect(screen.getByTestId('chats-row-kt-0')).toBeTruthy())
-    expect(screen.getByTestId('chats-row-kt-5')).toBeTruthy()
-
-    fireEvent.change(search, { target: { value: 'number 3' } })
-    await waitFor(() => expect(screen.queryByTestId('chats-row-kt-0')).toBeNull())
-    expect(screen.getByTestId('chats-row-kt-3')).toBeTruthy()
   })
 })

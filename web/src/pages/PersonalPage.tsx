@@ -4,17 +4,17 @@ import { INBOX_KEY, inboxQueryFn } from '../lib/inbox-query'
 import { navigate } from '../lib/route'
 import InboxTab from './personal/InboxTab'
 import TasksTab from './personal/TasksTab'
-import ChatsTab from './personal/ChatsTab'
 import MemoriesTab from './personal/MemoriesTab'
 
 /**
  * Personal hub (UI Simplification Task 14, filled out by Task 15) — replaces
  * the Task 10 stub. Absorbs Inbox (moved intact from InboxPage.tsx) + Tasks
  * (KHome's work-items/notes/schedule cards ported for full management) +
- * Chats (thread management surface, Task 15) + Memories (operator-memory UI,
- * Task 15) under one tabbed surface.
+ * Memories (operator-memory UI, Task 15) under one tabbed surface. The former
+ * Chats tab folded into the Messages surface (Continuous Agents B.6) — its
+ * legacy hash #/personal/chats redirects there (route.ts VIEW_REDIRECTS).
  */
-const TAB_IDS = ['inbox', 'tasks', 'chats', 'memories'] as const
+const TAB_IDS = ['inbox', 'tasks', 'memories'] as const
 type PersonalTab = (typeof TAB_IDS)[number]
 
 export default function PersonalPage({ tab }: { tab?: string }) {
@@ -25,7 +25,6 @@ export default function PersonalPage({ tab }: { tab?: string }) {
   const items: TabItem<PersonalTab>[] = [
     { value: 'inbox', label: 'Inbox', count: inbox?.total || undefined },
     { value: 'tasks', label: 'Tasks' },
-    { value: 'chats', label: 'Chats' },
     { value: 'memories', label: 'Memories' },
   ]
   return (
@@ -33,7 +32,6 @@ export default function PersonalPage({ tab }: { tab?: string }) {
       <Tabs items={items} value={active} onChange={v => navigate('personal', v)} ariaLabel="Personal" />
       {active === 'inbox' && <InboxTab />}
       {active === 'tasks' && <TasksTab />}
-      {active === 'chats' && <ChatsTab />}
       {active === 'memories' && <MemoriesTab />}
     </div>
   )

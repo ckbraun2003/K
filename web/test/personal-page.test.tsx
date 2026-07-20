@@ -1,13 +1,15 @@
 /**
- * PersonalPage — UI Simplification Task 14. The 4-tab hub shell (Inbox/Tasks/Chats/
- * Memories). Gate assertions:
- *   - the tab bar renders all 4 tabs
+ * PersonalPage — UI Simplification Task 14. The 3-tab hub shell (Inbox/Tasks/
+ * Memories; the former Chats tab folded into the Messages surface — Continuous
+ * Agents B.6, redirect covered in route.test.ts/route-redirects.test.ts).
+ * Gate assertions:
+ *   - the tab bar renders all 3 tabs (and no Chats tab)
  *   - the `tab` prop selects the matching tab (an unknown value falls back to inbox)
  *   - clicking a tab navigates to personal/<tab>
  *   - the inbox tab's TabItem.count mirrors the shared INBOX_KEY query's total
  *   - the default tab (no `tab` prop) is inbox, and it renders the real InboxTab
  * api + route.navigate are mocked (vi.hoisted, mirroring khome.test.tsx). Every
- * sub-tab's api surface is mocked so any of the 4 tabs can mount without crashing,
+ * sub-tab's api surface is mocked so any of the 3 tabs can mount without crashing,
  * regardless of which one is active in a given test.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
@@ -82,12 +84,12 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('PersonalPage', () => {
-  it('renders all 4 tabs', async () => {
+  it('renders all 3 tabs — Chats folded into Messages (B.6)', async () => {
     renderPage()
     await screen.findByTestId('tab-inbox')
     expect(screen.getByTestId('tab-tasks')).toBeTruthy()
-    expect(screen.getByTestId('tab-chats')).toBeTruthy()
     expect(screen.getByTestId('tab-memories')).toBeTruthy()
+    expect(screen.queryByTestId('tab-chats')).toBeNull()
   })
 
   it('defaults to the inbox tab and renders the real InboxTab', async () => {
@@ -112,8 +114,8 @@ describe('PersonalPage', () => {
 
   it('clicking a tab navigates to personal/<tab>', async () => {
     renderPage()
-    fireEvent.click(await screen.findByTestId('tab-chats'))
-    expect(mockNavigate).toHaveBeenCalledWith('personal', 'chats')
+    fireEvent.click(await screen.findByTestId('tab-tasks'))
+    expect(mockNavigate).toHaveBeenCalledWith('personal', 'tasks')
 
     fireEvent.click(await screen.findByTestId('tab-memories'))
     expect(mockNavigate).toHaveBeenCalledWith('personal', 'memories')

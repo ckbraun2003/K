@@ -6,6 +6,7 @@ describe('keyboard chords', () => {
   it('pins the Task 10 remap — one chord per primary/hidden-but-chorded view', () => {
     expect(CHORDS).toEqual([
       { key: 'h', view: 'home', label: 'Home' },
+      { key: 'm', view: 'messages', label: 'Messages' },
       { key: 'u', view: 'personal', label: 'Personal' },
       { key: 'a', view: 'agents', label: 'Agents' },
       { key: 'r', view: 'runs', label: 'Runs' },
@@ -24,6 +25,10 @@ describe('keyboard chords', () => {
   it('CHORD_MAP matches CHORDS', () => {
     for (const c of CHORDS) expect(CHORD_MAP[c.key]).toBe(c.view)
     expect(Object.keys(CHORD_MAP).length).toBe(CHORDS.length)
+  })
+
+  it("Continuous Agents B.6 — 'm' chords to the Messages surface", () => {
+    expect(CHORD_MAP['m']).toBe('messages')
   })
 
   it('does not collide with single-key palette/legend handlers', () => {

@@ -7,10 +7,10 @@ import { parseHash, resolveRoute, KNOWN_VIEWS, VIEW_REDIRECTS } from '../src/lib
 
 const resolve = (hash: string) => resolveRoute(parseHash(hash))
 
-it('KNOWN_VIEWS is the final 14-member IA set', () => {
+it('KNOWN_VIEWS is the final 15-member IA set (B.6 adds messages)', () => {
   expect([...KNOWN_VIEWS].sort()).toEqual([
-    'agents', 'docs', 'home', 'insights', 'orchestrator', 'personal', 'pr-review', 'project',
-    'projects', 'runs', 'settings', 'skill-creator', 'timeline', 'verify',
+    'agents', 'docs', 'home', 'insights', 'messages', 'orchestrator', 'personal', 'pr-review',
+    'project', 'projects', 'runs', 'settings', 'skill-creator', 'timeline', 'verify',
   ])
   for (const gone of ['org', 'skills', 'inbox', 'lessons', 'chief', 'orchestrators', 'graph',
     'metrics', 'routing', 'evals', 'workflows', 'workflow-detail', 'memory', 'terminal']) {
@@ -28,6 +28,9 @@ it('hub folds', () => {
   expect(resolve('#/runs/workflows')).toEqual({ view: 'agents', param: 'automations', subParam: undefined })
   expect(resolve('#/runs/workflows/def-1')).toEqual({ view: 'agents', param: 'automations', subParam: 'def-1' })
   expect(resolve('#/runs/run-123')).toEqual({ view: 'runs', param: 'run-123' })
+  // Continuous Agents B.6 — Personal→Chats folds into the Messages surface.
+  expect(resolve('#/personal/chats')).toEqual({ view: 'messages' })
+  expect(resolve('#/personal/inbox')).toEqual({ view: 'personal', param: 'inbox', subParam: undefined })
 })
 
 it('pre-P4 legacy hashes land in the new hubs (one hop)', () => {
@@ -44,7 +47,7 @@ it('pre-P4 legacy hashes land in the new hubs (one hop)', () => {
 })
 
 it('surviving views resolve unchanged', () => {
-  for (const keep of ['#/home', '#/personal/chats', '#/agents/automations', '#/projects', '#/insights/charts',
+  for (const keep of ['#/home', '#/personal/inbox', '#/messages/kt-1', '#/agents/automations', '#/projects', '#/insights/charts',
     '#/timeline', '#/docs/project-bible', '#/skill-creator', '#/settings', '#/orchestrator/frontend',
     '#/project/p1/runs', '#/verify/p1']) {
     const r = resolve(keep)

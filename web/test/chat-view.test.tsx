@@ -111,7 +111,7 @@ describe('ChatView', () => {
     await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-2')).toBeTruthy())
     const rows = screen.getAllByTestId(/^chat-thread-row-/)
     expect(rows.map(r => r.getAttribute('data-testid'))).toEqual(['chat-thread-row-kt-2', 'chat-thread-row-kt-1'])
-    await waitFor(() => expect(screen.getByTestId('chat-turn-user').textContent).toContain('yo'))
+    await waitFor(() => expect(screen.getByTestId('conversation-turn-user').textContent).toContain('yo'))
   })
 
   it('clicking a thread row selects it (thread-select store) and swaps the transcript', async () => {
@@ -124,12 +124,12 @@ describe('ChatView', () => {
     }))
     selectThread('kt-1')
     renderChat()
-    await waitFor(() => expect(screen.getByTestId('chat-turn-k').textContent).toContain('reply in kt-1'))
+    await waitFor(() => expect(screen.getByTestId('conversation-turn-agent').textContent).toContain('reply in kt-1'))
 
     fireEvent.click(screen.getByText('Second chat'))
 
     await waitFor(() => expect(getSelectedThread()).toBe('kt-2'))
-    await waitFor(() => expect(screen.getByTestId('chat-turn-k').textContent).toContain('reply in kt-2'))
+    await waitFor(() => expect(screen.getByTestId('conversation-turn-agent').textContent).toContain('reply in kt-2'))
   })
 
   it('rename: pencil -> inline input -> Enter calls api.threads.update(id, {title})', async () => {
@@ -175,7 +175,7 @@ describe('ChatView', () => {
     selectThread('kt-1')
     renderChat()
 
-    const chip = await screen.findByTestId('chat-run-chip')
+    const chip = await screen.findByTestId('conversation-run-chip')
     fireEvent.click(chip)
     expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-9')
   })
@@ -222,7 +222,7 @@ describe('ChatView', () => {
     await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-new')).toBeTruthy())
     expect(getSelectedThread()).toBe('kt-new')
     expect(mockThreadsGet).toHaveBeenCalledWith('kt-new')
-    await waitFor(() => expect(screen.getByTestId('chat-turn-user').textContent).toContain('first message'))
+    await waitFor(() => expect(screen.getByTestId('conversation-turn-user').textContent).toContain('first message'))
     expect(mockThreadsList).toHaveBeenCalledTimes(2) // exactly one probe — no refetch loop
   })
 
@@ -264,7 +264,7 @@ describe('ChatView', () => {
     // One probe refetch confirms kt-arch is absent from the default list; the by-id read then
     // proves it EXISTS (archived) — so the selection is KEPT (not demoted to kt-1)…
     await waitFor(() => expect(mockThreadsList).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(screen.getByTestId('chat-turn-user').textContent).toContain('archived message'))
+    await waitFor(() => expect(screen.getByTestId('conversation-turn-user').textContent).toContain('archived message'))
     expect(getSelectedThread()).toBe('kt-arch')
     // …and the chat surface is honest that the thread is archived.
     expect(screen.getByTestId('chat-archived-indicator')).toBeTruthy()

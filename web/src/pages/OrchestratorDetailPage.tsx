@@ -8,6 +8,7 @@ import { relativeTime } from '../lib/verify'
 import { runStatusMeta } from '../lib/status'
 import { cn } from '../lib/cn'
 import DelegationTree from '../components/DelegationTree'
+import ConversationView from '../components/ConversationView'
 import CapabilityPicker from '../components/CapabilityPicker'
 import SegControl from '../components/SegControl'
 import { LessonCard } from '../components/LessonCard'
@@ -119,6 +120,16 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
     queryKey: ['models-available'],
     queryFn: api.models.available,
     enabled: !!id,
+  })
+
+  // This lead's single durable conversation (Continuous Agents B.6) — get-or-created
+  // server-side. Skipped until the profile detail is loaded. A failed fetch renders
+  // an inline error in the panel — silently hiding it is indistinguishable from the
+  // feature not existing (same argument as recentActuals above).
+  const { data: agentConv, isError: agentConvFailed } = useQuery({
+    queryKey: ['agent-conversation', id],
+    queryFn: () => api.conversations.forAgent(id!),
+    enabled: !!id && !!detail,
   })
 
   const mutation = useMutation({
@@ -461,6 +472,35 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
           <DelegationTree root={leadNode(detail)} />
         </section>
       </div>
+
+      {/* Conversation (Continuous Agents B.6) — this lead's durable conversation,
+          rendered with the shared transcript + composer (sends go through the
+          mailbox: POST /api/agents/:id/message). */}
+      {(agentConv?.conversation || agentConvFailed) && (
+        <section
+          data-testid="orchestrator-conversation"
+          className="mt-6 rounded-panel border border-border bg-surface p-4"
+        >
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+            Conversation
+          </h2>
+          {agentConvFailed ? (
+            <div data-testid="orchestrator-conversation-error" className="text-caption text-muted">
+              Failed to load this agent's conversation.
+            </div>
+          ) : (
+            <div className="flex h-96 min-h-0 flex-col">
+              <ConversationView
+                threadId={agentConv!.conversation.id}
+                profileId={agentConv!.conversation.profileId}
+                agentName={profile.name}
+                sessionState={agentConv!.conversation.sessionState}
+                contextTokens={agentConv!.conversation.contextTokens}
+              />
+            </div>
+          )}
+        </section>
+      )}
     </div>
   )
 }
