@@ -125,6 +125,12 @@ describe('S4 mcp synthesis: kstore binding + dataDir resolution', () => {
       expect(k.command, `${tier} command`).toBe(process.execPath)
       expect(k.env?.K_DATA_DIR, `${tier} K_DATA_DIR`).toBe(dataDir)
       expect(k.env?.K_RUN_ID, `${tier} K_RUN_ID`).toBe(runId)
+      // INT.8 smoke-3 fix: under dev (.ts — what this suite runs as), every
+      // run-scoped child carries TSX_TSCONFIG_PATH → core/tsconfig.json so its
+      // tsx resolves @k/shared via `paths` from ANY cwd (the child's cwd is the
+      // agent's, and a VALUE import of @k/shared — mgmt → pipeline-engine since
+      // C.5 — otherwise resolves the unbuilt dist and kills the server).
+      expect(k.env?.TSX_TSCONFIG_PATH, `${tier} TSX_TSCONFIG_PATH`).toMatch(/core[\\/]tsconfig\.json$/)
       // no leftover placeholders anywhere in the resolved server config
       const blob = JSON.stringify(readMcp(cfg).mcpServers)
       expect(blob).not.toContain('__KSTORE__')

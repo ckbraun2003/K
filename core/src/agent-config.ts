@@ -524,6 +524,19 @@ export function synthesizeConfigDir(profile: AgentProfile, opts: SynthesizeOpts)
     // could load a malicious node_modules/tsx planted in the agent's project.
     srv.args = ext === '.ts' ? ['--import', resolveTsxLoader(), serverPath] : [serverPath]
     srv.env = { ...(srv.env ?? {}), K_DATA_DIR: dataDir, K_RUN_ID: opts.runId }
+    if (ext === '.ts') {
+      // INT.8 smoke-3 finding: the stdio child's cwd is the AGENT's cwd (a
+      // session home / worktree), not core/ — so tsx never discovers core's
+      // tsconfig `paths` and resolves a VALUE import of @k/shared to the
+      // dist build, which dev checkouts don't have. Harmless historically
+      // (the children's @k/shared imports were type-only, erased), it became
+      // fatal when C.5's mgmt → pipeline-engine import pulled real schemas in:
+      // the mgmt child died at import and the chief lost its mgmt tools. Pin
+      // the child's tsx to core's tsconfig so it resolves exactly like the
+      // parent dev process. Built (.js) runs resolve dist per package.json
+      // and never take this branch.
+      srv.env.TSX_TSCONFIG_PATH = path.join(__dirname, '..', 'tsconfig.json')
+    }
   }
   // Discovered servers append AFTER the run-scoped rewrite loop, so a host server
   // that happens to share a run-scoped NAME (mountable only when the K server
