@@ -30,7 +30,7 @@ import { v4 as uuid } from 'uuid'
 import type { Run } from '@k/shared'
 import { db, agentSessionsDb, agentRunsDb, configDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
-import { startRun, sendInput, endSession, kill } from '../src/supervisor.js'
+import { startRun, sendInput, endSession, kill, reconcileStaleRuns, reconcileStaleKThreads } from '../src/supervisor.js'
 import { createProfile, getProfile } from '../src/profiles.js'
 
 vi.mock('../src/supervisor.js', async () => {
@@ -54,7 +54,7 @@ vi.mock('../src/supervisor.js', async () => {
   }
 })
 
-const { getOrCreateConversation, ensureSession, sendToSession, demoteSession } =
+const { getOrCreateConversation, ensureSession, sendToSession, demoteSession, sweepLiveSessionsOnBoot } =
   await import('../src/agent-sessions.js')
 const {
   askK,
@@ -376,6 +376,11 @@ describe('INT.3 scenario 4 — gate park briefs the manager; the manager resolve
 })
 
 // ── scenario 5 — report-back lands in K's conversation via the relay ─────────
+// NB (SEAMS#1 m3): this seeds NO agent_runs activation row for the delegated run,
+// so the mgmt-report C.5 dual-write is (deliberately) skipped and the INT.2
+// de-dup branch is NOT traversed here — the terminal report-back quotes the
+// report (the degradation path). The de-dup itself is unit-locked in
+// k-thread.test.ts ("DE-DUPS the C.5 dual-write…").
 
 describe("INT.3 scenario 5 — delegated report-back reaches K's DEFAULT thread through the relay", () => {
   it("the chief run's terminal queues the report-back to k-secretary; the drain wakes K and lands the tagged durable turn", async () => {
@@ -420,5 +425,50 @@ describe("INT.3 scenario 5 — delegated report-back reaches K's DEFAULT thread 
     expect(reportTurn!.text).toContain('Chief (delegation completed) reported: PR #42 opened; CI green')
     // The delivered turn is linked to the wake run that consumed it.
     expect(reportTurn!.runId).toBe(kWakes[0].run_id)
+  })
+})
+
+// ── scenario 6 — crash recovery: relay hold → boot reconciles → delivery ─────
+// SEAMS#1's most-valuable-missing-test: the never-permanently-strand-a-message
+// guarantee rests on the CHAIN relay-in-flight-hold → boot reconciles → next
+// drain, across the Lane B / pre-existing-boot-code boundary. Each link is
+// unit-tested; this locks the chain.
+
+describe('INT.3 scenario 6 — a crash-stranded active run cannot permanently strand the mailbox (SEAMS#1)', () => {
+  it('drain HOLDS on the stranded non-terminal run; the boot chain clears it; the NEXT drain delivers', async () => {
+    const t = getOrCreateConversation(AGENT)
+    ensureSession(AGENT, t.id)
+    // A crash left a NON-terminal run behind: row 'running', thread pointing at
+    // it, NO live process (activeProcesses died with the old supervisor).
+    const stranded = `mock-int3-${uuid().slice(0, 8)}`
+    db.prepare(
+      `INSERT INTO runs (id, prompt, cwd, status, created_at) VALUES (?, 'int3', '.', 'running', ?)`,
+    ).run(stranded, Date.now())
+    db.prepare(`UPDATE k_threads SET active_run_id = ? WHERE id = ?`).run(stranded, t.id)
+
+    const m = queueMessage({
+      toProfileId: AGENT, toThreadId: t.id,
+      from: { kind: 'profile', profileId: 'k-secretary' }, body: 'stranded?',
+    })
+    // The W0 in-flight guard HOLDS (non-terminal active run): no delivery, no
+    // false 'failed' — the row waits.
+    expect(await drainAgentMessages()).toBe(0)
+    expect(msgRow(m.id).status).toBe('queued')
+    expect(vi.mocked(startRun)).not.toHaveBeenCalled()
+
+    // The boot chain, in index.ts start() order — all REAL functions (the mock
+    // spreads ...actual): stuck runs → 'interrupted'; stale thread pointers
+    // cleared; stranded-'live' session rows swept.
+    reconcileStaleRuns()
+    reconcileStaleKThreads()
+    sweepLiveSessionsOnBoot()
+    expect((db.prepare(`SELECT status FROM runs WHERE id = ?`).get(stranded) as Row).status).toBe('interrupted')
+
+    // The hold is gone — the next tick wakes and delivers.
+    expect(await drainAgentMessages()).toBe(1)
+    expect(msgRow(m.id).status).toBe('delivered')
+    expect(vi.mocked(startRun)).toHaveBeenCalledTimes(1)
+    const turns = listKThreadTurns(t.id).filter(x => x.role === 'user')
+    expect(turns.some(x => x.text.includes('[message from k-secretary · normal] stranded?'))).toBe(true)
   })
 })

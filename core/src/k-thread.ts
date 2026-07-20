@@ -399,9 +399,13 @@ export function summarizeDelegatedOutcome(childRunId: string, status: string): s
  * path lands the durable turn — no bespoke appendTurn here. It does NOT touch the
  * thread's active_run_id (that belongs to K's own warm session, a separate concern
  * from a delegated run).
- * A.4×B.4 NOTE: the in-context askK auto-delegation path is retired (D-126), so the
- * live callers are the delegation surfaces that still dispatch Chief runs against a
- * K thread (delegate/mgmt paths); when none fire, this stays a consumed-by-tests seam.
+ * A.4×B.4 / SEAMS#1-m2 NOTE — PRODUCTION-ORPHANED: the in-context askK
+ * auto-delegation path is retired (D-126) and grep confirms NO non-test caller
+ * remains. K's real outcome channels are continuePipelineOutcomeToK
+ * (delegate_pipeline) and the C.5 mgmt-`report` dual-write. This seam is KEPT,
+ * fully wired and test-locked, as the report-back for any future surface that
+ * dispatches a bare Chief/agent run against a K thread — do not assume it fires
+ * today, and delete it instead of re-wiring around it if that surface never comes.
  */
 export function reportDelegationBack(threadId: string, childRunId: string): void {
   trackSupervisedRun(childRunId, {

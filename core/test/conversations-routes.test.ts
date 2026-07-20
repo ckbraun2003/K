@@ -90,6 +90,13 @@ describe('GET /api/conversations', () => {
     const conv2 = (res2.json().conversations as Array<Record<string, unknown>>).find(c => c.id === t.id)!
     expect(conv2.unread).toBe(3) // unchanged — the delivered own-message is silent
 
+    // …a MULTI-own-message batch (2+ operator sends in one relay tick, one wake
+    // turn) is STILL entirely the operator's own — silent too (SEAMS#1 m1)…
+    appendTurn(t.id, 'user', '[message from user · normal] first own\n\n[message from user · urgent] second own', null)
+    const res2b = await app.inject({ method: 'GET', url: '/api/conversations', headers: AUTH })
+    const conv2b = (res2b.json().conversations as Array<Record<string, unknown>>).find(c => c.id === t.id)!
+    expect(conv2b.unread).toBe(3)
+
     // …but a MIXED batch turn (operator block + an agent block) still counts: it
     // carries agent content the operator has not read.
     appendTurn(t.id, 'user', '[message from user · normal] mine\n\n[message from chief · normal] real report', null)
