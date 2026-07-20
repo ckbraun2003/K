@@ -6,8 +6,8 @@
  * K_DATA_DIR / K_RUN_ID injected. The existing agent-config test pins the
  * orchestrator kstore rewrite shape; these tests pin the SYNTHESIS angles it
  * does not:
- *   - the per-tier server SET (secretary mounts kstore + logistics — no gitnexus;
- *     chief + orchestrator mount gitnexus + kstore),
+ *   - the per-tier server SET (secretary mounts gitnexus + kstore + logistics —
+ *     ca-a A.5; chief + orchestrator mount gitnexus + kstore),
  *   - the kstore K_DATA_DIR follows the dataDir resolution chain, including the
  *     process.env.K_DATA_DIR fallback when opts.dataDir is omitted,
  *   - re-synthesizing the SAME runId is idempotent (mcp.json byte-identical).
@@ -73,10 +73,12 @@ afterAll(() => {
 })
 
 describe('S4 mcp synthesis: per-tier server set', () => {
-  it('S4-005: secretary mounts kstore + logistics (no gitnexus)', () => {
+  it('S4-005 (ca-a A.5): secretary mounts gitnexus + kstore + logistics', () => {
     const { cfg } = synthAs('secretary')
     const servers = Object.keys(readMcp(cfg).mcpServers).sort()
-    expect(servers).toEqual(['kstore', 'logistics'])
+    expect(servers).toEqual(['gitnexus', 'kstore', 'logistics'])
+    // gitnexus passes through as the portable npx stdio server, untouched.
+    expect(readMcp(cfg).mcpServers.gitnexus.command).toBe('npx')
   })
 
   it('S4-005: orchestrator mounts BOTH gitnexus + kstore', () => {

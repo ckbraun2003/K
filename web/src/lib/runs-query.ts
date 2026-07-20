@@ -10,9 +10,12 @@ import { api } from './api'
  *
  * Rules:
  *  - a FILTERED or non-default-limit list must use its own scoped key, never this one
+ *    (A.3/D-127: RunList's kind-scoped list does exactly that — see runListKey in
+ *    RunList.tsx)
  *  - invalidations keep using the ['runs'] PREFIX (react-query prefix matching), so
- *    they hit this key and any future scoped siblings alike
- *  - live WS patches (RunList's setQueryData) must write to EXACTLY this key.
+ *    they hit this key and any scoped siblings alike
+ *  - live WS patches (RunList's setQueryData) must write to EXACTLY this key (RunList
+ *    additionally patches its own kind-scoped sibling with the same exactness).
  */
 export const RUNS_LIST_LIMIT = 100
 

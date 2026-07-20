@@ -1,13 +1,21 @@
 /**
- * K front-door runtime (D-023) — persistent identity (the durable thread is the
- * SOURCE OF TRUTH), cheap execution. Each K ask is a RESUMABLE ONE-SHOT run (W7a,
- * design A): the FIRST ask establishes a stable CLI session (`--session-id`) seeded
- * from the thread; every LATER ask CONTINUES it (`--resume`) sending ONLY the new
- * message — so continuity comes from a cheap cache-read of the session, not a held
- * warm process or a replayed 12-turn transcript. A one-shot ANSWERS AND EXITS: it
- * never parks at awaiting_input holding a process/worktree (fixes F-054 cost/park
- * and H10 self-terminate), and K needs no code worktree. The `renderSeed` transcript
- * replay survives ONLY as the fallback for a truly-fresh/reset session (no session id).
+ * K front-door runtime (D-023 → D-126, Continuous Agents A.4) — persistent
+ * identity (the durable thread is the SOURCE OF TRUTH); execution rides the
+ * SESSION ENGINE (agent-sessions.ts). askK resolves the thread and hands the
+ * message to K's (k-secretary, thread) session: a live parked run receives it
+ * over stdin (`warm: true`), else an interactive session run is spawned — the
+ * establish/resume decision keys off the session row's cli_session_id, exactly
+ * like every other conversable agent. K DECIDES IN CONTEXT now: the deterministic
+ * router survives only as a display PREVIEW, and a FORCED route is an explicit
+ * operator message QUEUED to the target agent's mailbox (agent_messages; Lane B's
+ * relay delivers it). `renderSeed` survives as the documented stale-path fallback
+ * seed for a truly-fresh/reset session.
+ *
+ * IMPORT NOTE (A.4): k-thread ↔ agent-sessions is a deliberate, benign ESM cycle
+ * — askK rides ensureSession/sendToSession/undoSessionRun there; agent-sessions
+ * rides appendTurn/captureAnswers/listKThreadTurns here. Every cross-reference is
+ * call-time and both module bodies stay inert at load (the documented
+ * agent-config ↔ run-assets precedent).
  *
  * SDK-free, like mcp/logistics.ts: no Fastify/transport import, so it is unit-
  * testable directly against the DB + EventBus. The route layer (routes/k.ts) is a
@@ -15,16 +23,14 @@
  */
 import { randomUUID } from 'crypto'
 import { v4 as uuid } from 'uuid'
-import type { KThread, KThreadTurn, KAskResult, KRoute, KForceRoute } from '@k/shared'
+import type { KThread, KThreadTurn, KAskResult, KForceRoute } from '@k/shared'
 import { routeForMessage, routeForTarget } from '@k/shared'
-import { kThreadsDb, runsDb, eventsDb, mgmtDb, pipelineDb, db } from './db.js'
+import { kThreadsDb, runsDb, eventsDb, mgmtDb, pipelineDb, db, agentMessagesDb } from './db.js'
 import { eventBus } from './events.js'
-import { startAgentRun } from './agent-runs.js'
-import { BudgetCapError } from './budget-governor.js'
 import { kill } from './supervisor.js'
-import { leadRosterHint } from './chief-dispatch.js'
 import { isTerminalRunStatus, trackSupervisedRun } from './run-lifecycle.js'
 import { onPipelineTerminal } from './pipeline-engine.js'
+import { ensureSession, sendToSession, undoSessionRun } from './agent-sessions.js'
 
 /** The singleton default K thread — the one front-door conversation for now. */
 export const DEFAULT_K_THREAD_ID = 'k-default'
@@ -176,11 +182,13 @@ export function appendTurn(
  * durable turns as `You:` / `K:` lines, then the current `You: <message>` line, then
  * a short routing instruction. Bounded so the reseed prompt stays small.
  *
- * askK persists the current user turn (line 194) BEFORE calling this, so the newest
- * turn is already the last row `listKThreadTurns` returns. We slice it OFF the history
- * window (`…, -1`) so the current message appears exactly ONCE — as the explicit
- * trailing line — instead of being doubled (history tail + trailing line). This keeps
- * the "durable before dispatch" guarantee while giving the agent a single crisp ask.
+ * CALLER CONTRACT (load-bearing for Lane B's stale-path fallback wiring): the caller
+ * must have ALREADY persisted the current user turn as the newest durable row (the
+ * retired askK did this inline; the session engine's sendToSession does it today).
+ * We slice that newest turn OFF the history window (`…, -1`) so the current message
+ * appears exactly ONCE — as the explicit trailing line — instead of being doubled
+ * (history tail + trailing line). This keeps the "durable before dispatch" guarantee
+ * while giving the agent a single crisp ask.
  */
 export function renderSeed(threadId: string, message: string): string {
   const recent = listKThreadTurns(threadId).slice(-(SEED_TURN_WINDOW + 1), -1)
@@ -209,10 +217,11 @@ const undoneRuns = new Set<string>()
  * (self-cleaning, survives a missed gate): if the run's own `user` ask turn no longer
  * exists on any thread, a `k` reply for it would be orphaned regardless — so suppress it.
  * A NORMAL captureAnswers / reportDelegationBack run always has a live `user` turn linked
- * to its run_id (askK/delegateToChief patch it on before dispatch), so this only trips for
- * a removed (undone) ask. Deliberately NOT applied to continueLeadOutcomeToK, whose `k`
- * turn links to the LEAD run (which never has a user turn) and which is already gated by
- * resolveKDelegationThread — undo deletes the Chief user turn, breaking that link.
+ * to its run_id (the session engine's spawn/stdin path patches it on before dispatch), so
+ * this only trips for a removed (undone) ask. Deliberately NOT applied to
+ * continueLeadOutcomeToK, whose `k` turn links to the LEAD run (which never has a user
+ * turn) and which is already gated by resolveKDelegationThread — undo deletes the
+ * delegating user turn, breaking that link.
  */
 function kReplySuppressed(runId: string): boolean {
   if (undoneRuns.has(runId)) return true
@@ -296,29 +305,7 @@ export function captureAnswers(threadId: string, runId: string, sessionIdToPersi
   }
 }
 
-// ── delegation (K → Chief, D-046) ─────────────────────────────────────────────
-
-/**
- * Build the Chief's delegation seed from the operator's ask + the deterministic
- * route. When the route named a discipline lead (frontend/backend/…), pass that hint
- * through so the Chief can `assign_lead` the right lead; a bare `chief` route leaves
- * the lead choice to the Chief. Pure + exported so a test can assert the seed carries
- * the ask verbatim.
- */
-export function buildDelegationGoal(message: string, route: KRoute): string {
-  // F-067: a bare `chief` route names no discipline, so inject the full lead roster — the
-  // Chief always knows the valid lead identifiers to assign_lead against (never an invented
-  // "engineering"). A named-lead route already points at a discipline, so it keeps its hint.
-  const hint =
-    route.target === 'chief'
-      ? ` ${leadRosterHint()}`
-      : ` The operator's request points at the ${route.target} discipline` +
-        ` (route preview: ${route.label}); assign the appropriate lead if it fits.`
-  return (
-    `Delegated from K (the secretary) on the operator's behalf: "${message}".${hint}` +
-    ' Break it down, assign the right lead, and file a concise status report up the chain.'
-  )
-}
+// ── report-back seams (Lane B.4 reroutes the callers through the mailbox) ─────
 
 /** Max length of BOTH report-back bodies on K's thread — the Chief's mgmt-report
  *  text AND the assistant-text fallback — so a verbose Chief run can't dump a huge
@@ -389,6 +376,8 @@ export function summarizeDelegatedOutcome(childRunId: string, status: string): s
  * summarizing the outcome, linked to the child run so the report-back is itself part
  * of the traceable delegation chain. It does NOT touch the thread's active_run_id
  * (that belongs to K's own warm session, a separate concern from a delegated run).
+ * A.4 NOTE: temporarily CALLER-LESS — the in-context askK delegation path is retired
+ * (D-126); Lane B.4 reroutes the report-backs through the mailbox and consumes this.
  */
 export function reportDelegationBack(threadId: string, childRunId: string): void {
   trackSupervisedRun(childRunId, {
@@ -414,10 +403,11 @@ export function reportDelegationBack(threadId: string, childRunId: string): void
 
 /**
  * Resolve the K thread that DELEGATED a given Chief run, or null. The K→Chief link is
- * derivable with NO new table: delegateToChief patches the Chief run id onto the operator's
- * user turn (and the ack turn), so a k_thread_turns row whose run_id = chiefRunId identifies
- * the delegating thread. Null ⇒ the Chief run was NOT a K delegation (it woke autonomously
- * via chief-wake, which never touches k_thread_turns) — so there is nothing to continue up.
+ * derivable with NO new table: the delegating ask's user turn carries the run id
+ * (askK's session spawn — and, historically, the retired delegateToChief — patches it
+ * on), so a k_thread_turns row whose run_id = chiefRunId identifies the delegating
+ * thread. Null ⇒ the Chief run was NOT a K delegation (it woke autonomously via
+ * chief-wake, which never touches k_thread_turns) — so there is nothing to continue up.
  */
 export function resolveKDelegationThread(chiefRunId: string): string | null {
   const row = kThreadsDb.getThreadIdByTurnRunId.get(chiefRunId) as Row | undefined
@@ -512,133 +502,97 @@ export function continuePipelineOutcomeToK(): () => void {
   })
 }
 
-/**
- * Hand an engineering-routed ask UP to the Chief (D-046). K does NOT run it itself:
- * it activates `startAgentRun('chief', { trigger:'delegation', goal })`, records an
- * acknowledgment turn linked to the Chief run (which — with the child's
- * `agent_runs.trigger='delegation'` — makes the K→Chief parent→child link derivable
- * from the existing `k_thread_turns.run_id` FK, no new table), and wires the
- * report-back so the Chief's outcome lands on this thread when its run terminates. A
- * dispatch throw propagates (startAgentRun already rolled its tracking row back to
- * 'failed'); the durable user turn stays, mirroring the cold path.
- */
-async function delegateToChief(
-  thread: KThread,
-  message: string,
-  route: KRoute,
-  userTurn: KThreadTurn,
-  model?: string,
-): Promise<KAskResult> {
-  const goal = buildDelegationGoal(message, route)
-  // Deliberate: an operator-initiated delegation dispatches the Chief DIRECTLY, NOT via
-  // chief-wake's wakeChief — so it is intentionally NOT subject to the autonomous-wake
-  // debounce (Guard A) or the one-at-a-time already-running guard (Guard B). Those guards
-  // exist to keep the AUTONOMOUS loop bounded; silently dropping or debouncing an explicit
-  // human ask would be worse. mgmt rows are per-run_id scoped, so a concurrent chief run
-  // can't corrupt another's store; the self-wake guard still stops this run's terminal from
-  // re-waking the Chief (its agent_runs.profile_id === 'chief').
-  // E-17: an operator→Chief delegation IS a paid org dispatch, so startAgentRun gates it
-  // (trigger 'delegation' is not exempt). A raw BudgetCapError would otherwise escape askK
-  // as an opaque 500 while the operator's durable user turn sits with no run — so append an
-  // explanatory K turn (visible in the chat) and RE-THROW; the K ask route maps it to a
-  // clean 429. Any other dispatch failure propagates unchanged (startAgentRun already rolled
-  // its own tracking row back to 'failed'; the durable user turn stays, per the cold path).
-  let agentRunId: string, runId: string
-  try {
-    ;({ agentRunId, runId } = await startAgentRun('chief', { trigger: 'delegation', goal, model }))
-  } catch (e) {
-    if (e instanceof BudgetCapError) {
-      appendTurn(
-        thread.id, 'k',
-        `Budget capped — the org has reached its measured daily cap ($${e.capUsd}). ` +
-          'Raise it in Settings → Autonomous Org to dispatch.',
-        null,
-      )
-    }
-    throw e
-  }
-  // Link the ask to the Chief run (the durable parent→child delegation record) and
-  // acknowledge the hand-up on the thread so the operator sees the route was taken.
-  kThreadsDb.patchTurnRunId.run(runId, userTurn.id)
-  appendTurn(thread.id, 'k', `Routing to ${route.label}: "${message}"`, runId)
-  // Report the Chief's terminal outcome back up onto this thread.
-  reportDelegationBack(thread.id, runId)
-  return { kThreadId: thread.id, agentRunId, runId, route, warm: false }
-}
-
 // ── the front door ───────────────────────────────────────────────────────────
 
+/** FORCED-route target → the profile whose MAILBOX receives the message (D-126).
+ *  Total over KForceRoute by construction: the Chief + the five discipline leads.
+ *  Exported so a test can pin the totality against KForceRouteSchema. */
+export const FORCE_ROUTE_PROFILE: Record<KForceRoute, string> = {
+  chief: 'chief',
+  frontend: 'lead-frontend',
+  backend: 'lead-backend',
+  systems: 'lead-systems',
+  security: 'lead-security',
+  network: 'lead-network',
+}
+
+/** The agent_runs tracking id for a session-engine run (KAskResult.agentRunId).
+ *  Local prepared statement (the frozen-db-bundle precedent); newest row wins if
+ *  a run id were ever re-tracked. */
+const getAgentRunIdByRunId = db.prepare(
+  `SELECT id FROM agent_runs WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`,
+)
+
 /**
- * Activate K for one message (D-023). Records the user's ask as a durable turn (the
- * source of truth), then routes it: an engineering-routed ask is DELEGATED up to the
- * Chief (D-046, `startAgentRun('chief', {trigger:'delegation'})` + report-back);
- * otherwise K handles it itself as a RESUMABLE ONE-SHOT run (W7a, design A) — the
- * FIRST ask establishes a stable CLI session (`--session-id`) seeded from the thread,
- * every LATER ask RESUMES it (`--resume`) sending ONLY the new message. The run answers
- * and EXITS (no park, no held worktree). Returns the thread id, the run id, the
- * deterministic route PREVIEW, and `warm` (kept for API compatibility; always false —
- * continuity is now the resumed session, not a held warm process).
+ * Activate K for one message (D-023 → D-126). askK rides the SESSION ENGINE: it
+ * resolves the target thread, then hands the message to K's (k-secretary, thread)
+ * session via {@link sendToSession} — a live parked run receives it over stdin
+ * (`warm: true`, same run), else an interactive session run is spawned (the
+ * establish/resume decision keys off the session row's cli_session_id). The
+ * durable user turn is appended BY sendToSession (the thread stays the source of
+ * truth; askK must not double-append). K decides in context — the deterministic
+ * router survives only as the returned display PREVIEW (`route`), never as a
+ * delegation decision.
  *
- * Power controls (C2): `opts.forceRoute` bypasses the classifier — the route is
- * routeForTarget(forceRoute), always escalating (so a forced ask always delegates);
- * `opts.model` is an explicit per-ask model override threaded to startAgentRun. With
- * design A a model override no longer forfeits continuity: there is no live process to
- * keep, so the ask simply RESUMES the same session under the chosen model.
+ * FORCED route (D-126): `opts.forceRoute` is an explicit operator message TO that
+ * agent — it is QUEUED to the target profile's mailbox (agent_messages; Lane B's
+ * relay delivers, rows sit 'queued' until then), with a durable user turn + a `k`
+ * ack turn on the thread. Nothing is dispatched: the result carries
+ * `runId: null, agentRunId: null, messageId` (no undo affordance). A mailbox
+ * write is free, so a forced route works even while the org budget is capped
+ * (routes/k.ts's 429 mapping survives as a dead-belt only).
+ *
+ * `opts.model` is an explicit per-ask model override threaded to the session
+ * dispatch (spawn path; a warm stdin delivery continues under the live run's
+ * model).
  *
  * Multi-thread (UI Simplification): `opts.threadId` targets a specific thread via
  * {@link resolveAskThread} — an explicit unknown id throws {@link KThreadNotFoundError}
  * (the route layer 404s, BEFORE any turn is appended); omitted, it resolves to the
  * most-recent non-archived thread as before. A thread's still-untitled first ask
- * stamps its title from the message (see below) so a freshly created thread shows
- * something in a thread list without a separate rename step.
+ * stamps its title from the message so a freshly created thread shows something
+ * in a thread list without a separate rename step.
  */
 export async function askK(
   message: string,
   opts: { forceRoute?: KForceRoute; model?: string; threadId?: string } = {},
 ): Promise<KAskResult> {
   const thread = resolveAskThread(opts.threadId)
-  // A forced route wins over the classifier — routeForTarget is the SAME shared
-  // mapping the composer previews, so the forced preview and this decision agree.
+  // The route PREVIEW — routeForTarget/routeForMessage are the SAME shared
+  // mappings the composer previews, so client and server render identically.
   const route = opts.forceRoute ? routeForTarget(opts.forceRoute) : routeForMessage(message)
-
-  // The durable ask — recorded up front so it survives even if the dispatch below
-  // throws (startAgentRun rolls back only its own agent_runs row; the ask stays,
-  // which is acceptable: the thread is the source of truth for what was asked).
-  const turn = appendTurn(thread.id, 'user', message, null)
-  // Title-on-first-send: a freshly created thread (POST /api/k/threads) has no
-  // title; stamp one from the operator's first message so the thread list has
-  // something to show. Guarded on title == null, so it only ever fires once.
+  // Title-on-first-send: guarded on title == null, so it only ever fires once.
   if (thread.title == null) kThreadsDb.setThreadTitle.run(message.slice(0, 60), Date.now(), thread.id)
 
-  // Delegation path (D-046): an engineering-routed ask (Chief or a named lead) hands
-  // UP to the Chief instead of K running it. Checked BEFORE the resumable path — a
-  // hand-up is independent of K's own session — so logistics/Q&A keeps the K path below.
-  if (route.escalates) {
-    return delegateToChief(thread, message, route, turn, opts.model)
+  if (opts.forceRoute) {
+    // D-126: K decides in-context; a FORCED route is now an explicit operator
+    // message to that agent — queued to the mailbox (Lane B's relay delivers at
+    // INT; until then the row sits 'queued'). The durable user turn + ack land on
+    // the thread so the operator sees what was queued and where.
+    appendTurn(thread.id, 'user', message, null)
+    const messageId = randomUUID()
+    agentMessagesDb.insert.run({
+      id: messageId,
+      toProfileId: FORCE_ROUTE_PROFILE[opts.forceRoute],
+      toThreadId: null,
+      fromKind: 'user',
+      fromProfileId: null,
+      body: message,
+      priority: 'normal',
+      provenanceRunId: null,
+      createdAt: Date.now(),
+    })
+    appendTurn(thread.id, 'k', `Queued for ${route.label}: "${message}"`, null)
+    return { kThreadId: thread.id, agentRunId: null, runId: null, route, warm: false, messageId }
   }
 
-  // K handles it itself as a resumable one-shot. Read the thread's stable CLI session id:
-  //   NULL ⇒ a FIRST/reset session — generate one, ESTABLISH it (--session-id) and seed
-  //          with the full renderSeed transcript (the fallback replay for a fresh session);
-  //   set  ⇒ RESUME it (--resume) sending ONLY the new message. The resumed session already
-  //          holds the history, so we neither re-pay the CLI envelope nor replay the transcript.
-  const existing = (kThreadsDb.getThreadCliSessionId.get(thread.id) as { cli_session_id?: string | null } | undefined)?.cli_session_id
-  const resume = existing != null
-  const sessionId = existing ?? randomUUID()
-  const seed = resume ? message : renderSeed(thread.id, message)
-
-  const { agentRunId, runId } = await startAgentRun('k-secretary', {
-    trigger: 'user-message',
-    thread: seed,
-    model: opts.model,
-    persistentSession: { key: thread.id, sessionId, resume },
-  })
-  kThreadsDb.updateThreadActiveRun.run(runId, Date.now(), thread.id)
-  kThreadsDb.patchTurnRunId.run(runId, turn.id)
-  // Capture K's reply on terminal; on a FIRST ask, persist the session id on success so
-  // the NEXT ask resumes it (resume ⇒ already persisted, so nothing to re-stamp).
-  captureAnswers(thread.id, runId, resume ? undefined : sessionId)
-  return { kThreadId: thread.id, agentRunId, runId, route, warm: false }
+  // The session engine owns delivery (durable turn, live-stdin vs interactive
+  // spawn, establish/resume, captureAnswers wiring). Chat turns are budget- and
+  // plan-gate-exempt by KIND (A.3), so no BudgetCapError handling lives here.
+  const session = ensureSession('k-secretary', thread.id)
+  const res = await sendToSession(session.id, message, { from: { kind: 'user' }, model: opts.model })
+  const agentRunId = (getAgentRunIdByRunId.get(res.runId) as { id?: string } | undefined)?.id ?? null
+  return { kThreadId: thread.id, agentRunId, runId: res.runId, route, warm: res.mode === 'stdin' }
 }
 
 /**
@@ -663,6 +617,12 @@ const clearThreadCliSessionByThreadId = db.prepare(
  * the thread — replayed into the next fresh reseed and shown forever in the UI. This
  * deletes every k_thread_turns row linked to the run, clears a thread stranded pointing
  * at it, AND nulls the OWNING thread's stable CLI session id (`cli_session_id`).
+ *
+ * A.4 (D-126): the LIVE session taint moved to {@link undoSessionRun} — K's CLI
+ * continuity lives on the agent_sessions row now, and the run's terminal finalize
+ * consumes the taint there. The k_threads.cli_session_id clear below is the
+ * RETIRED W7a design's belt, kept as harmless double-safety (the column no longer
+ * drives dispatch). The rest of this doc describes that legacy path.
  *
  * The session-id clear closes the RESUME-ask taint (F-054/F-060): a LATER ask is dispatched
  * INTO the live CLI session via `claude -p <msg> --resume <sessionId>`, so removing only the
@@ -690,6 +650,16 @@ const clearThreadCliSessionByThreadId = db.prepare(
  */
 export function undoK(runId: string): void {
   undoneRuns.add(runId) // gate late flushes BEFORE the kill can produce them
+  // A.4: scrub the SESSION-ENGINE side BEFORE the kill so its taint + attachment
+  // teardown are in place before any terminal can land — the run is tainted (its
+  // terminal finalize writes nothing), a live attachment is detached (no follow-up
+  // send can ride stdin into the dying run), and the owning agent_sessions row is
+  // scrubbed (cli_session_id NULL + 'stale') so the next send re-establishes from
+  // the cleaned durable turns. The legacy k_threads clears below stay as harmless
+  // double-safety. NB (flagged for INT/UX review): a session run can be MULTI-TURN
+  // now — the turn-delete below removes EVERY turn linked to the run id, so undoing
+  // a long-lived live run scrubs all of its turns, not only the latest exchange.
+  undoSessionRun(runId)
   kill(runId) // best-effort: no live process (already exited) → no-op
   const now = Date.now()
   // Resolve the owning thread from the run's turns BEFORE the delete removes them; no turns

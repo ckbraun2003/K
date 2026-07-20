@@ -149,9 +149,11 @@ export async function chiefRoutes(app: FastifyInstance) {
     ).length
 
     // The K-tier edge count for the whole-org tree (user → K → Chief → …): how many times
-    // K handed work UP to the Chief. Every such hand-up is a chief activation with
-    // trigger='delegation' (delegateToChief is the only path that sets it; autonomous wakes
-    // use schedule/event), so this COUNT derives the K→Chief edge from the existing links.
+    // K handed work UP to the Chief. Every such hand-up was a chief activation with
+    // trigger='delegation' (historically set only by k-thread.ts::delegateToChief, RETIRED
+    // in A.4/D-126 — forced routes queue mailbox messages now, so this counts the legacy
+    // hand-ups until Lane B's relay-driven chief sends land; autonomous wakes use
+    // schedule/event), so this COUNT derives the K→Chief edge from the existing links.
     // 'failed' rows are excluded by the statement, which also drops delegations whose run
     // errored mid-flight — the meta reads as SUCCESSFUL hand-ups, not raw attempts (see
     // db.ts::countAgentRunsByProfileAndTrigger).

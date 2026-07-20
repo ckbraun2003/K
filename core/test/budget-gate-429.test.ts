@@ -1,12 +1,13 @@
 /**
  * E-17 budget-cap 429 REGRESSION (A2's core deliverable had no automated test).
  *
- * Proves the always-on measured budget cap turns a would-be dispatch into a clean 429
- * at BOTH gated entry points, and that clearing the cap re-opens them:
- *   - POST /api/runs           — a manual dispatch (routes/runs.ts gates before startRun);
- *   - POST /api/k/ask (chief)  — an operator→Chief delegation (k-thread.ts::delegateToChief
- *                                 → startAgentRun gates 'delegation' → BudgetCapError →
- *                                 routes/k.ts maps it to 429, never an opaque 500).
+ * Proves the always-on measured budget cap turns a would-be MANUAL dispatch into a
+ * clean 429 (POST /api/runs — routes/runs.ts gates before startRun), that clearing
+ * the cap re-opens it, AND (A.4, D-126) that a FORCED-route K ask is NOT gated at
+ * all: a forced route queues an agent_messages mailbox row — a free write, no
+ * dispatch — so it returns 201 even while the org is capped. (The old
+ * operator→Chief delegateToChief 429 path is retired; routes/k.ts's BudgetCapError
+ * → 429 mapping survives as a dead-belt.)
  *
  * supervisor.startRun is MOCKED (inserts a real runs row, spawns no agent) so the UNCAPPED
  * sanity paths return 201 without launching an agent. The org cap is set RELATIVE to the
@@ -79,10 +80,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const id of SEEDED.splice(0)) { try { db.prepare('DELETE FROM runs WHERE id = ?').run(id) } catch { /* ignore */ } }
-  try { db.prepare(`DELETE FROM agent_runs WHERE runId LIKE 'mock-bg429-run-%'`).run() } catch { /* ignore */ }
+  try { db.prepare(`DELETE FROM agent_runs WHERE run_id LIKE 'mock-bg429-run-%'`).run() } catch { /* ignore */ }
   try { db.prepare(`DELETE FROM runs WHERE id LIKE 'mock-bg429-run-%'`).run() } catch { /* ignore */ }
+  try { db.prepare('DELETE FROM agent_sessions WHERE thread_id = ?').run(kThreadId) } catch { /* ignore */ }
   try { db.prepare('DELETE FROM k_thread_turns WHERE thread_id = ?').run(kThreadId) } catch { /* ignore */ }
   try { db.prepare('DELETE FROM k_threads WHERE id = ?').run(kThreadId) } catch { /* ignore */ }
+  // A.4: the forced-route asks queued mailbox rows — remove exactly ours (by body).
+  try { db.prepare(`DELETE FROM agent_messages WHERE body = 'refactor the payment module'`).run() } catch { /* ignore */ }
   // Restore default autonomy (orgDailyBudgetUsd=null) so the cap this file set never
   // gates dispatches in later shared-DB test files.
   setAutonomySettings({ ...DEFAULT_AUTONOMY_SETTINGS })
@@ -105,18 +109,38 @@ describe('budget cap → 429 at the gated dispatch entry points', () => {
     expect(res.json().scope).toBe('org')
   })
 
-  it('POST /api/k/ask (operator→Chief delegation) → 429 when the org is capped', async () => {
+  it('POST /api/k/ask (forced route) queues even when capped — a mailbox write is free, 201 not 429 (A.4)', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/k/ask', headers: AUTH,
-      // forceRoute 'chief' escalates → delegateToChief → startAgentRun('chief',
-      // {trigger:'delegation'}) → BudgetCapError → routes/k.ts maps to 429.
+      // A.4 (D-126): forceRoute 'chief' no longer dispatches the Chief — it queues
+      // an agent_messages row for the chief profile. No dispatch → the budget gate
+      // never fires → 201 with the queued shape (runId null + messageId).
       payload: { message: 'refactor the payment module', forceRoute: 'chief', threadId: kThreadId },
     })
-    expect(res.statusCode).toBe(429)
-    expect(res.json().scope).toBe('org')
+    expect(res.statusCode).toBe(201)
+    const body = res.json() as { runId: string | null; messageId?: string }
+    expect(body.runId).toBeNull()
+    expect(typeof body.messageId).toBe('string')
+    const row = db.prepare('SELECT to_profile_id, status FROM agent_messages WHERE id = ?')
+      .get(body.messageId!) as { to_profile_id: string; status: string } | undefined
+    expect(row).toMatchObject({ to_profile_id: 'chief', status: 'queued' })
   })
 
-  it('clearing the cap re-opens the SAME requests (no longer 429)', async () => {
+  it('POST /api/k/ask (UNFORCED) dispatches even when capped — chat turns are kind-exempt end-to-end (A.3 x A.4)', async () => {
+    __resetConfigCache()
+    expect(budgetStatus().org.state).toBe('capped')
+    // The unforced ask rides the session engine → startAgentRun with a chat-turn
+    // kind (persistentSession-inferred, A.3) — structurally EXEMPT from the budget
+    // gate: the operator must always reach K, capped or not.
+    const res = await app.inject({
+      method: 'POST', url: '/api/k/ask', headers: AUTH,
+      payload: { message: 'status check while capped', threadId: kThreadId },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().runId).toMatch(/^mock-bg429-run-/)
+  })
+
+  it('clearing the cap re-opens the MANUAL dispatch (no longer 429); the forced ask stays 201', async () => {
     setAutonomySettings({ orgDailyBudgetUsd: null })
     __resetConfigCache()
     expect(budgetStatus().org.state).toBe('ok')

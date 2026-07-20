@@ -143,11 +143,14 @@ const JSON_H = { 'Content-Type': 'application/json' }
 
 export const api = {
   runs: {
-    list: (opts?: { status?: RunStatus; limit?: number; projectId?: string }) => {
+    list: (opts?: { status?: RunStatus; limit?: number; projectId?: string; kind?: string[] }) => {
       const params = new URLSearchParams()
       if (opts?.status !== undefined) params.set('status', opts.status)
       if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
       if (opts?.projectId !== undefined) params.set('projectId', opts.projectId)
+      // A.3 (D-127): server-side run-kind filter — comma-joined; RunsQuerySchema
+      // splits it back. Absent/empty → no filter (every kind).
+      if (opts?.kind !== undefined && opts.kind.length > 0) params.set('kind', opts.kind.join(','))
       const qs = params.size > 0 ? `?${params.toString()}` : ''
       return req<Run[]>(`/runs${qs}`)
     },

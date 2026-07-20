@@ -42,6 +42,12 @@ export interface PendingUndo {
  * while the ask is still in flight, it kills the run as soon as its id resolves.
  * A trimmed-empty message is a no-op. Re-entry is guarded by a synchronous ref so
  * a double click/Enter can't fire two asks.
+ *
+ * A.4 (D-126): a FORCED route (`opts.forceRoute`) queues a MAILBOX message — the
+ * ask resolves the queued shape (`runId: null` + `messageId`). Nothing was
+ * dispatched, so no undo window is raised for a forced send (and a defensive
+ * `runId: null` resolve on any path clears the window instead of patching null
+ * into it); the queued ack lands as a thread turn via the invalidations above.
  */
 export function useAskK(opts?: { navigateOnSend?: boolean }) {
   const navigateOnSend = opts?.navigateOnSend ?? true
@@ -74,10 +80,13 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
     // Anchor the undo window to the SEND action (F-066): raise the affordance NOW —
     // with the previewed route (the same shared mapping the server applies) and no
     // runId yet — so the 5s countdown starts at the click, not at the later resolve.
+    // A.4 (D-126): a FORCED route QUEUES a mailbox message (the ask resolves
+    // `runId: null`) — nothing is dispatched, so there is nothing to undo and no
+    // window is raised for it; the queued ack surfaces via the thread refetch.
     const key = (sendSeq.current += 1)
     undoBeforeResolve.current = null
     const route = opts?.forceRoute ? routeForTarget(opts.forceRoute) : routeForMessage(msg)
-    setPendingUndo({ key, runId: null, route })
+    if (!opts?.forceRoute) setPendingUndo({ key, runId: null, route })
     // Impressive Wave FE Task 9: name the in-flight ask's target thread so ChatView
     // can render a "K is thinking..." indicator on that thread's transcript. `null`
     // for callers that don't pass a threadId (org/TreeView) — a harmless no-op.
@@ -92,15 +101,25 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
       void qc.invalidateQueries({ queryKey: ['k-threads'] })
       // Undo was pressed while the ask was in flight → kill now that the id exists.
       // The window is already closed (undo nulled pendingUndo); don't re-raise or
-      // navigate to a run the operator just undid.
+      // navigate to a run the operator just undid. A `runId: null` resolve (queued
+      // mailbox message) has nothing to kill — the intent simply expires.
       if (undoBeforeResolve.current === key) {
         undoBeforeResolve.current = null
-        try { await api.k.undo(result.runId) } catch { /* best-effort */ }
-        // Re-refresh AFTER the undo: the success invalidation above raced the appended
-        // turn INTO the cache; the undo then removed it server-side, so re-invalidate to
-        // drop it from any thread surface reading these keys (M-D2).
-        void qc.invalidateQueries({ queryKey: ['k-thread'] })
-        void qc.invalidateQueries({ queryKey: ['k-threads'] })
+        if (result.runId != null) {
+          try { await api.k.undo(result.runId) } catch { /* best-effort */ }
+          // Re-refresh AFTER the undo: the success invalidation above raced the appended
+          // turn INTO the cache; the undo then removed it server-side, so re-invalidate to
+          // drop it from any thread surface reading these keys (M-D2).
+          void qc.invalidateQueries({ queryKey: ['k-thread'] })
+          void qc.invalidateQueries({ queryKey: ['k-threads'] })
+        }
+        return true
+      }
+      // A.4: a `runId: null` resolve is the QUEUED shape (forced route) — no run to
+      // undo or navigate to. Clear any optimistic window (defensive: the forced path
+      // never raised one) instead of patching a null id into it.
+      if (result.runId == null) {
+        setPendingUndo(prev => (prev && prev.key === key ? null : prev))
         return true
       }
       // Patch the resolved runId (and the authoritative server route) into the SAME

@@ -1,6 +1,10 @@
 /**
- * agent-sessions.ts — the W0.3 frozen session-engine interface + interim adapter
- * (Continuous Agents W0.3, D-122).
+ * agent-sessions.ts — the W0.3 FROZEN session-engine contract (Continuous
+ * Agents, D-122), asserted over the Lane A hybrid runtime. Locks conversation/
+ * session row lifecycle, the cold-send (spawn) path's persistentSession shape +
+ * seed rendering, terminal state rules, and the K-path supervisor selection.
+ * The LIVE-path behaviors (stdin delivery, pending queue, INIT persist, park →
+ * 'live') are owned by agent-sessions-live.test.ts.
  *
  * Two mock layers, both house patterns:
  *  - '../src/supervisor.js' startRun is mocked (the k-thread.test.ts pattern) so the
@@ -192,7 +196,7 @@ describe('ensureSession — row lifecycle', () => {
 
 // ── sendToSession ─────────────────────────────────────────────────────────────
 
-describe('sendToSession — interim adapter (resumable one-shot, generalized)', () => {
+describe('sendToSession — frozen contract (cold-path resumable sends)', () => {
   /** A fresh chief conversation + session, ready to send. */
   function setup() {
     const t = getOrCreateConversation('chief')
@@ -218,11 +222,12 @@ describe('sendToSession — interim adapter (resumable one-shot, generalized)', 
     expect(getKThread(t.id)!.activeRunId).toBe(r1.runId)
 
     // First send ESTABLISHES: resume=false, a fresh CLI session id, the session's
-    // homeDir threaded through, a one-shot (never interactive/stdin in W0).
+    // homeDir threaded through. A.1: the spawn is INTERACTIVE (the hybrid live
+    // path) — this pinned `interactive` falsy while the W0 adapter was one-shot.
     const ps1 = lastPersistentSession()
     expect(ps1).toMatchObject({ key: t.id, resume: false, homeDir: s.homeDir })
     expect(ps1.sessionId).toMatch(/[0-9a-f-]{36}/)
-    expect(lastStartRunOpts().interactive).toBeFalsy()
+    expect(lastStartRunOpts().interactive).toBe(true)
     expect(String(vi.mocked(startRun).mock.calls.at(-1)![0])).toContain('You: hello world')
 
     // A user-sent message activates the profile with trigger 'user-message'.
@@ -264,8 +269,13 @@ describe('sendToSession — interim adapter (resumable one-shot, generalized)', 
   it('the establishing seed is a NEUTRAL transcript replay — Agent:/You: lines, current body once, no K routing instruction', async () => {
     const { t, s } = setup()
     // Prior history on the conversation (a durable user ask + the agent reply).
-    appendTurn(t.id, 'user', 'earlier question', null)
-    appendTurn(t.id, 'k', 'earlier answer', null)
+    // Backdated created_at via insertTurn: listTurns orders (created_at ASC,
+    // id ASC) and ids are random uuids, so same-millisecond appendTurn history
+    // scrambles nondeterministically against the send's own turn (the live
+    // test's determinism note) — explicit timestamps pin the order.
+    const base = Date.now() - 10_000
+    kThreadsDb.insertTurn.run({ id: uuid(), threadId: t.id, role: 'user', text: 'earlier question', runId: null, createdAt: base })
+    kThreadsDb.insertTurn.run({ id: uuid(), threadId: t.id, role: 'k', text: 'earlier answer', runId: null, createdAt: base + 1_000 })
 
     await sendToSession(s.id, 'hello again')
     const seed = String(vi.mocked(startRun).mock.calls.at(-1)![0])
@@ -315,7 +325,12 @@ describe('sendToSession — interim adapter (resumable one-shot, generalized)', 
     expect(ps.sessionId).not.toBe(sid1)
   })
 
-  it("a NON-done terminal on a RESUME send keeps the existing cli_session_id + state 'resumable'", async () => {
+  it("a NON-done terminal on a RESUME send without INIT is resume-rejected: cli_session_id CLEARED + state 'stale' (A.2)", async () => {
+    // A.2 replaced the W0/A.1 retry posture asserted here before: a resume that
+    // dies without ever emitting INIT proves the recorded CLI session is dead —
+    // retrying it forever could never recover, so the id is cleared and the
+    // next send re-establishes. (INIT-seen deaths keep 'resumable' — the live
+    // suite locks that continuity arm.)
     const { s } = setup()
     const r1 = await sendToSession(s.id, 'establish me')
     const sid = lastPersistentSession().sessionId
@@ -327,11 +342,17 @@ describe('sendToSession — interim adapter (resumable one-shot, generalized)', 
     eventBus.emitRunUpdate(terminal(r2.runId, 'killed'))
 
     const row = sessionRow(s.id)!
-    expect(row.cli_session_id).toBe(sid) // resume retries stay possible
-    expect(row.state).toBe('resumable')
+    expect(row.cli_session_id).toBeNull() // the dead CLI session is forgotten
+    expect(row.state).toBe('stale')
+
+    // The next send is a fresh ESTABLISH — new id, transcript reseed.
+    await sendToSession(s.id, 'start over')
+    const ps = lastPersistentSession()
+    expect(ps.resume).toBe(false)
+    expect(ps.sessionId).not.toBe(sid)
   })
 
-  it("mode is always 'spawned' in W0 (never 'stdin'), and a model override threads through", async () => {
+  it("a COLD send (no live attachment) spawns — mode 'spawned' — and a model override threads through", async () => {
     const { s } = setup()
     const r = await sendToSession(s.id, 'pick a model', { model: 'claude-opus-4-8' })
     expect(r.mode).toBe('spawned')
@@ -356,7 +377,9 @@ describe('sendToSession — interim adapter (resumable one-shot, generalized)', 
 
 // ── demoteSession ─────────────────────────────────────────────────────────────
 
-describe('demoteSession — interim pure state transitions', () => {
+// The attachment-backed demotion arms (endSession, forcedState, LRU) are owned
+// by agent-sessions-demote.test.ts; these lock the UNATTACHED state transitions.
+describe('demoteSession — unattached state transitions (W0 parity)', () => {
   function freshSession() {
     const t = getOrCreateConversation('chief')
     return ensureSession('chief', t.id)

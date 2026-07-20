@@ -71,6 +71,7 @@ import { startPipelineScheduler } from './pipeline-scheduler.js'
 import { startPipelineDispatchRelay } from './pipeline-dispatch-relay.js'
 import { startPipelineUpdateBroadcast } from './pipeline-views.js'
 import { reconcilePipelines } from './pipeline-engine.js'
+import { sweepLiveSessionsOnBoot } from './agent-sessions.js'
 import { continuePipelineOutcomeToK } from './k-thread.js'
 import { startSelfHeal } from './self-heal.js'
 import { startLessonProposals } from './lesson-proposals.js'
@@ -487,6 +488,14 @@ async function start() {
   // finalize. Kept in index.ts (not reconcileOnBoot) to avoid a supervisor→engine import cycle,
   // exactly as the checkpoint-ref sweep below lives here rather than in reconcileOnBoot.
   try { reconcilePipelines() } catch (e) { console.warn('[pipeline] reconcilePipelines failed (continuing):', e) }
+  // Continuous Agents A.2 (D-122): demote sessions stranded 'live' by a prior
+  // crash — attachments are in-process, so nothing real backs them after a
+  // restart. Kept in index.ts (not reconcileOnBoot) to avoid a supervisor→
+  // agent-sessions import cycle, exactly like reconcilePipelines above.
+  try {
+    const s = sweepLiveSessionsOnBoot()
+    if (s > 0) console.log(`[agent-sessions] boot sweep: demoted ${s} live session(s) to resumable`)
+  } catch (e) { console.warn('[agent-sessions] boot sweep failed (continuing):', e) }
   const sweepRoots = [REPO_ROOT, ...listProjects().map(p => p.localPath)]
   // P1: prune checkpoint refs for runs whose rows were deleted (best-effort, async;
   // roots = the harness repo + every registered project).

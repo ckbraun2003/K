@@ -64,7 +64,9 @@ afterAll(() => {
 const EXACT: Record<CharterName, string[]> = {
   orchestrator: ['Bash', 'PowerShell', 'Read', 'Write', 'Edit', 'NotebookEdit', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore'],
   chief: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore', 'mcp__mgmt'],
-  secretary: ['Read', 'WebFetch', 'WebSearch', 'mcp__kstore', 'mcp__logistics'],
+  // ca-a A.5 (D-126): K is the primary agent — Grep/Glob + mcp__gitnexus join the
+  // secretary roster (read/analyze widened; the mutation boundary is unchanged).
+  secretary: ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore', 'mcp__logistics'],
 }
 
 describe('S4 allowlist synthesis: exact per-tier roster', () => {
@@ -81,10 +83,10 @@ describe('S4 allowlist synthesis: exact per-tier roster', () => {
     }
   })
 
-  it('S4-003: secretary yields the leanest set (Read+research+kstore+logistics) — NO coding tools, NO Grep/Glob, NO gitnexus', () => {
+  it('S4-003: secretary yields the primary-agent read set (Read/Grep/Glob+research+gitnexus+kstore+logistics) — NO mutation tools', () => {
     const cfg = synthAs('secretary')
     expect(cfg.allowedTools).toEqual(EXACT.secretary)
-    for (const denied of ['Bash', 'Write', 'Edit', 'Task', 'Grep', 'Glob', 'mcp__gitnexus']) {
+    for (const denied of ['Bash', 'Write', 'Edit', 'Task', 'Agent']) {
       expect(cfg.allowedTools).not.toContain(denied)
     }
   })
@@ -105,12 +107,12 @@ describe('S4 allowlist synthesis: no drift + non-allowlisted mcp denied', () => 
     for (const tier of ['orchestrator', 'chief', 'secretary'] as CharterName[]) {
       const cfg = synthAs(tier)
       // Only the real K servers are ever granted; any other mcp__* is denied.
-      // secretary → kstore + logistics; orchestrator → gitnexus + kstore;
-      // chief → gitnexus + kstore + mgmt (P5.2a).
+      // secretary → gitnexus + kstore + logistics (ca-a A.5); orchestrator →
+      // gitnexus + kstore; chief → gitnexus + kstore + mgmt (P5.2a).
       const mcpGrants = cfg.allowedTools.filter(t => t.startsWith('mcp__')).sort()
       const allowed =
         tier === 'secretary'
-          ? ['mcp__kstore', 'mcp__logistics']
+          ? ['mcp__gitnexus', 'mcp__kstore', 'mcp__logistics']
           : tier === 'chief'
             ? ['mcp__gitnexus', 'mcp__kstore', 'mcp__mgmt']
             : ['mcp__gitnexus', 'mcp__kstore']

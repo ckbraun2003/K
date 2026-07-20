@@ -39,11 +39,13 @@ describe('resolveAuthority — per-tier resolution over shipped assets', () => {
     expect(a.skills).toContain('subagent-driven-development')
   })
 
-  it('secretary grants NO coding tools and mounts kstore + logistics', () => {
+  it('secretary grants NO coding tools and mounts kstore + logistics + gitnexus (read)', () => {
     const a = resolveAuthority('secretary')
     for (const tool of CODING_TOOLS) expect(a.allowedTools).not.toContain(tool)
     expect(a.allowedTools).not.toContain('Agent') // the tool-id is `Task`, never `Agent`
-    expect(a.mcpServers).toEqual(['kstore', 'logistics'])
+    // ca-a A.5 (D-126): the primary agent gains the gitnexus mount (read-only by allowlist).
+    expect(a.mcpServers.sort()).toEqual(['gitnexus', 'kstore', 'logistics'])
+    // The skills BUNDLE stays lean — code intelligence comes from the MCP server.
     expect(a.skills).not.toContain('gitnexus')
   })
 
