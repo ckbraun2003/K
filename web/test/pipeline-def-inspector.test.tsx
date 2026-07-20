@@ -1,13 +1,15 @@
 /**
  * PipelineDefInspector (orch-p2 C.2) — a selected pipeline definition rendered
- * read-only: stage list (kind, role/actor, model, handoff, retry/gate/loop
- * policy), edges (when + maxIterations), and the pipeline-level overview
+ * read-only: a visual DAG preview (every stage 'pending', via
+ * `previewViewFromSpec` + the same `PipelineGraph` a live run uses), the full
+ * stage list (kind, role/actor, model, handoff, retry/gate/loop policy), edges
+ * (when + maxIterations), and the pipeline-level overview
  * (name/version/entry/crossProject). A "Clone to edit" toggle reveals a
  * read-only Textarea containing the spec's JSON, for copy-out authoring.
  * `api.pipelines.get` is mocked (vi.hoisted) — no live core needed.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest'
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { PipelineSpec } from '@k/shared'
 
@@ -18,6 +20,16 @@ vi.mock('../src/lib/api', () => ({
 }))
 
 import PipelineDefInspector from '../src/components/PipelineDefInspector'
+
+beforeAll(() => {
+  // @xyflow/react (PipelineGraph, now embedded in the definition inspector) needs
+  // ResizeObserver in jsdom.
+  global.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as any
+})
 
 const SPEC: PipelineSpec = {
   name: 'Bug Triage & Fix',
@@ -71,6 +83,14 @@ describe('PipelineDefInspector', () => {
     // Overview.
     expect(await screen.findByText('Bug Triage & Fix')).toBeTruthy()
     expect(screen.getByText(/entry/i).closest('div')?.textContent).toContain('reproduce')
+
+    // Visual DAG preview — same PipelineGraph a live run uses, fed a synthetic
+    // all-'pending' view via previewViewFromSpec. waitFor the node itself: React
+    // Flow can paint the container a tick before its node DOM.
+    await waitFor(() => expect(screen.getByTestId('pipeline-graph')).toBeTruthy())
+    await waitFor(() =>
+      expect(within(screen.getByTestId('pipeline-graph')).getByTestId('pipeline-node-reproduce')).toBeTruthy(),
+    )
 
     // Stage list.
     expect(screen.getByTestId('pipeline-def-stage-reproduce').textContent).toContain('debugger')

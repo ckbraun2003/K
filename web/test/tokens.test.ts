@@ -15,13 +15,11 @@ describe('tokens', () => {
   })
   it('covers every LG2 + code-viewer token frozen at W0.2 (impressive-wave contract)', () => {
     for (const t of ['--lg-blob-1', '--lg-blob-2', '--lg-blob-3', '--lg-blob-4',
-      '--lg-edge', '--lg-sheen', '--lg-refract-scale',
+      '--lg-edge', '--lg-sheen',
       '--code-keyword', '--code-type', '--code-function', '--code-string',
       '--code-comment', '--code-number', '--code-operator', '--code-punctuation',
       '--code-property', '--code-tag', '--code-attr']) {
       expect(TOKEN_FALLBACKS[t], t).toBeTruthy()
     }
-    // GlassFilterDefs.tsx duplicates this as a literal (CSS vars can't reach SVG attrs)
-    expect(TOKEN_FALLBACKS['--lg-refract-scale']).toBe('14')
   })
 })

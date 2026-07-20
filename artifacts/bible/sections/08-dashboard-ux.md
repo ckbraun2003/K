@@ -523,12 +523,12 @@ not a single hero/non-hero switch:
 
 | Class | Background | Blur | Radius | Used for |
 |-------|-----------|------|--------|----------|
-| `.glass-chrome` | `--glass-chrome-bg` rgba(42,26,71,.48) | `blur(24px) saturate(1.4)` | (caller's) | persistent shell chrome — Sidebar, TopBar, the Message Dock bar |
-| `.glass-panel` | `--glass-panel-bg` rgba(42,26,71,.64) | `blur(16px) saturate(1.2)` | 18px | in-flow cards/panels — widget cells, KPI tiles, summary cards |
-| `.glass-overlay` | `--glass-overlay-bg` rgba(51,32,92,.76) | `blur(28px) saturate(1.4)` | 18px | floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay |
+| `.glass-chrome` | `--glass-chrome-bg` rgba(24,24,34,.42) | `blur(24px) saturate(1.6)` | (caller's) | persistent shell chrome — Sidebar, TopBar, the Message Dock bar |
+| `.glass-panel` | `--glass-panel-bg` rgba(28,28,38,.42) | `blur(22px) saturate(1.6)` | 18px | in-flow cards/panels — widget cells, KPI tiles, summary cards |
+| `.glass-overlay` | `--glass-overlay-bg` rgba(30,30,42,.58) | `blur(28px) saturate(1.6)` | 18px | floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay |
 | `.surface-solid` | `--surface` (opaque) | none | 14px | dense repeated rows — fleet/roster grids, list rows |
 
-The tier fills dropped one step from the D-114 launch values (`.55/.72/.82` → `.48/.64/.76`) as part of **Liquid Glass 2.0 (D-115, below)**: the brighter living-ambient layer pushed an AA/WCAG contrast re-check, which forced the lighter fills to hold ≥4.5:1 body-text contrast against the brightest blob — an accessibility result, not an aesthetic tweak.
+The tier fills have been re-graded twice. **Liquid Glass 2.0 (D-115, below)** first dropped them one step from the D-114 launch values (`.55/.72/.82` → `.48/.64/.76`) so body text held ≥4.5:1 AA/WCAG contrast against the brighter living-ambient layer. **UI Refinement (D-128, 2026-07-17)** then retuned the whole glass system from the D-011 purple family to a **neutral modern frosting** — the values in the table above (dark-neutral `.42/.42/.58`) over higher blur/saturate (22–28px / 1.6), with D-115's living-ambient *animation* and SVG *refraction* removed and the static wallpaper (below) supplying the backdrop. Only token **values** moved; the token **names** stayed stable, so `tokens.test.ts` and every consumer are untouched.
 
 Each blurred tier carries an `@supports not (backdrop-filter: blur(1px))` opaque fallback
 (`.glass-chrome`→`--surface`, `.glass-panel`/`.glass-overlay`→`--raised`) so a browser without
@@ -547,11 +547,10 @@ manual review discipline, not an automated test — that pushes a view over budg
 row, a large fleet/roster grid) onto `tier="solid"` instead; **(4)** dense data still defaults to
 opaque, unchanged from D-013/D-024.
 
-**Blur-budget accounting under LG2.** The W0.4 refraction layer (D-115, below) is a `::after`
-pseudo-element **of the same tier host**, not a second nested glass surface — so a tier and its own
-`::after` count as **one** blurred region against the ≤6 budget, not two. The no-nested-backdrop-
-filter rule (2) is likewise unchanged: the refract `::after` is a child of its host's box but is not
-a nested glass *element*, so it doesn't trip the nesting ban.
+**Blur-budget accounting.** Each glass tier is exactly **one** blurred region. (D-115's Liquid
+Glass 2.0 added a refraction `::after` to `.glass-chrome`/`.glass-overlay` that counted as part of
+its host's single region, not a second; **D-128 removed the refraction layer entirely**, so today
+every tier is a single, un-nested `backdrop-filter` with no `::after` blur left to account for.)
 
 **Accepted exception — Home → Overview (the default landing).** The final whole-app sweep
 (1440×900) found every reskinned route at ≤6 blurred regions *except* Home's Overview, which
@@ -571,6 +570,15 @@ measured-perf justification.
 
 A second glass pass layers four effects onto the tier system above, each token-driven and
 motion/capability-guarded. All new tokens live in `index.css` `:root` under the `LG2 (W0.2)` block.
+
+> **Partly superseded by D-128 (UI Refinement, 2026-07-17).** The living-ambient blob **animation**
+> (W0.3) and the SVG **refraction** (W0.4) described below were REMOVED; the `--lg-blob-*` tokens
+> survive to paint the static wallpaper gradient presets (see the background system below), and the
+> **specular edges (W0.5) are retained** (all three tiers still carry the `border-box` `--lg-edge`
+> wash + `inset` highlight). The pointer sheen (W0.6) had already been replaced by D-121's static
+> hover. The glass palette was retuned from the D-011 purple family to neutral modern-frosted (the
+> tier table above holds the current values). The four bullets below document the LG2-era mechanics
+> for the record.
 
 - **Living ambient (W0.3, `shell/Ambient.tsx`).** The old three static radial washes are replaced by
   **four hue-drifting blobs** (`.ambient-blob-1..4`, one decorative `.ambient` layer, still the
@@ -605,17 +613,22 @@ motion/capability-guarded. All new tokens live in `index.css` `:root` under the 
 
 ### Usability & Access (Phase 2.6) — page backgrounds · static hover · React Flow canvas · Access console (D-121)
 
-- **Page background system (`shell/Background.tsx`).** The single always-on `<Ambient/>` is replaced by
-  one route-agnostic `<Background variant>` mounted at Shell **z-0**, so every glass surface refracts a
-  real backdrop. Four variants, chosen by an app-wide operator preference (`app_config` key
-  `ui.background`, default **`galaxy`**, served by `GET/PUT /api/settings/background`, Zod-enum-guarded):
-  `galaxy` = a lightweight `<canvas>` starfield (`lib/starfield.ts`, rAF drift + twinkle) that draws a
-  **single static frame under `prefers-reduced-motion`** and never starts the loop; `aurora` = a static
-  `.lg-aurora` gradient wash on the LG2 blob tokens; `blobs` = the retained `<Ambient/>` (LoginScreen
-  still renders it pre-auth); `solid` = the bare `--bg-deep` layer. All four expose one uniform
-  `data-testid="app-background"` + `data-variant` contract and are `aria-hidden` (decorative); rAF +
-  `ResizeObserver` are torn down on unmount and on variant change. A **Settings → Appearance** picker
-  writes the preference and invalidates the `['background']` query.
+- **Page background → user-settable wallpaper (`shell/Background.tsx`, D-128).** *Supersedes the
+  D-121 galaxy/starfield variant system.* One route-agnostic `<Background>` mounted at Shell **z-0**
+  paints the operator's saved wallpaper — a **solid** `--bg-deep`, one of four **static CSS gradient
+  presets** (`aurora/dusk/ocean/ember`, recombining the retained `--lg-blob-*` tokens), or an
+  **uploaded image**. Settings are JSON in `app_config` key `ui.background` (`BackgroundSettings
+  {kind, preset, imageVersion}`, `GET/PUT /api/settings/background`; legacy `galaxy/blobs/aurora`
+  values migrate in-read); the image is a file at `<DATA_DIR>/wallpapers/wallpaper.<ext>` (`PUT/GET
+  /api/settings/background/image`, validated `png|jpeg|webp` ≤8 MB, fixed basename, route-scoped
+  `bodyLimit`). Because every `/api/*` route is Bearer-gated a raw `<img>`/CSS `url()` can't attach
+  the header, so the image loads via an **authenticated Blob fetch → `URL.createObjectURL`**
+  (`lib/useBackgroundImageUrl.ts`, revoked on change/unmount) — no token in any URL, no route
+  auth-exemption. **No canvas, no `requestAnimationFrame`:** the animated galaxy starfield
+  (`lib/starfield.ts`) and the `<Ambient/>` blob layer are RETIRED. The root keeps the uniform
+  `data-testid="app-background"` + `data-variant` contract and is `aria-hidden` (decorative). A
+  **Settings → Appearance** picker (solid/gradient/image select + FileReader→dataURL upload + live
+  preview) writes the preference and invalidates the `['background']` query.
 - **Static glass hover (replaces W0.6 pointer sheen).** `.glass-interactive::before` now paints a
   static `linear-gradient(135deg, var(--lg-sheen), transparent 60%)` that fades in on `:hover` (plus a
   `filter: brightness(1.04)` lift) — no cursor tracking, no window listener. `--lg-sheen` is retained;
@@ -632,6 +645,11 @@ motion/capability-guarded. All new tokens live in `index.css` `:root` under the 
   consumes the same `PipelineRunView` and live `['pipeline-run', runId]` cache (no new WS plumbing), so
   status still updates live; custom `PipelineStageNode`s are keyboard-activable (`role=button`,
   Enter/Space → select), and pass-edge marching-ants animation is frozen under `prefers-reduced-motion`.
+  **D-128** additions: the same graph now also renders inside the pipeline **definition** inspector
+  (`PipelineDefInspector`, via `lib/pipeline-preview.ts` `previewViewFromSpec` — synthesized `pending`
+  stages, attempt line hidden at `attempt:0`), so analyzing a definition shows a DAG, not just text;
+  and the library-default white React Flow MiniMap/Controls are themed to the dark app via
+  `colorMode="dark"`.
 - **Unified Access console (`pages/AccessPage.tsx`, the 4th Agents-hub tab).** A who-has-what matrix —
   orchestrator leads + sub-agent workers (K-native read-only + operator editable) × model / tools /
   skills / MCP — with expandable

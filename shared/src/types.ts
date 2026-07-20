@@ -1338,11 +1338,37 @@ export function modelContextWindow(id: string): number | undefined {
   return KNOWN_MODELS.find(m => m.id === id)?.contextWindow
 }
 
-// ── Usability & Access (Phase 2.6) ───────────────────────────────────────────
-export const BACKGROUND_VARIANTS = ['galaxy', 'aurora', 'blobs', 'solid'] as const
-export const BackgroundVariantSchema = z.enum(BACKGROUND_VARIANTS)
-export type BackgroundVariant = z.infer<typeof BackgroundVariantSchema>
-export const DEFAULT_BACKGROUND: BackgroundVariant = 'galaxy'
+// ── Usability & Access (Phase 2.6) — wallpaper settings model ───────────────
+// Replaces the old fixed BACKGROUND_VARIANTS enum: the background is now a
+// SETTINGS object (kind + optional gradient preset + an uploaded-image
+// version counter used to cache-bust the served wallpaper image), backed by
+// the same app_config key (`ui.background`, now JSON instead of a bare
+// string). Leaf schemas declared before the composed BackgroundSettingsSchema
+// per this file's ordering convention.
+export const GRADIENT_PRESETS = ['aurora', 'dusk', 'ocean', 'ember'] as const
+export type GradientPreset = typeof GRADIENT_PRESETS[number]
+export const GradientPresetSchema = z.enum(GRADIENT_PRESETS)
+
+export const BACKGROUND_KINDS = ['solid', 'gradient', 'image'] as const
+export type BackgroundKind = typeof BACKGROUND_KINDS[number]
+export const BackgroundKindSchema = z.enum(BACKGROUND_KINDS)
+
+export const BackgroundSettingsSchema = z.object({
+  kind: BackgroundKindSchema,
+  preset: GradientPresetSchema.nullable(),
+  imageVersion: z.number().int().nonnegative().nullable(),
+})
+export type BackgroundSettings = z.infer<typeof BackgroundSettingsSchema>
+export const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = { kind: 'solid', preset: null, imageVersion: null }
+
+// PUT /api/settings/background/image body — a data: URL (browser-side
+// FileReader.readAsDataURL output). Restricted to the three formats the
+// route accepts (png/jpeg/webp); anything else fails validation at the
+// boundary before any bytes are decoded.
+export const BackgroundImageUploadSchema = z.object({
+  dataUrl: z.string().regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/),
+})
+export type BackgroundImageUpload = z.infer<typeof BackgroundImageUploadSchema>
 
 export const AvailableModelSchema = z.object({
   id: z.string(),

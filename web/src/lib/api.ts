@@ -1,4 +1,4 @@
-import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry, BackgroundVariant, AvailableModelsResponse } from '@k/shared'
+import type { Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry, BackgroundSettings, GradientPreset, BackgroundKind, AvailableModelsResponse } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -98,7 +98,11 @@ const BASE = '/api'
 /** Notified on a 401/4401 so the app can show the login screen (remote access). */
 export { onUnauthorized } from './auth-events'
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
+// Shared fetch + auth + error handling. req() (JSON) and imageBlob() (raw
+// Blob — an authenticated image fetch can't go through req(), which always
+// tries res.json()) both wrap this rather than duplicating the auth-header
+// attachment + 401/error handling.
+async function fetchAuthed(path: string, init?: RequestInit): Promise<Response> {
   // Attach the harness token. In dev the Vite proxy also injects one, but the
   // explicit header lets the same code authenticate against core directly
   // (remote / production) where no proxy exists. When there's no token to add
@@ -119,6 +123,11 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     const detail = await res.json().then(b => (b as { error?: string }).error, () => undefined)
     throw new Error(detail ?? `${res.status} ${res.statusText}`)
   }
+  return res
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetchAuthed(path, init)
   // Some endpoints answer with 204 No Content (e.g. DELETE /api/skills/:id) or an
   // otherwise empty body. Calling res.json() on an empty body throws "Unexpected
   // end of JSON input", which would land a successful mutation in onError. Detect
@@ -733,17 +742,32 @@ export const api = {
   models: {
     available: () => req<AvailableModelsResponse>('/models/available'),
   },
-  // Background preference (usability-access B.3) — the operator's chosen ambient
-  // backdrop, app_config-backed on core (ui.background), default DEFAULT_BACKGROUND.
+  // Background settings (usability-access B.3, wallpaper settings model) — the
+  // operator's chosen backdrop (solid/gradient/uploaded image), app_config-backed
+  // on core (ui.background) as a settings object rather than a fixed variant.
   settings: {
     background: {
-      get: () => req<{ variant: BackgroundVariant; options: BackgroundVariant[] }>('/settings/background'),
-      set: (variant: BackgroundVariant) =>
-        req<{ variant: BackgroundVariant }>('/settings/background', {
+      get: () => req<{ settings: BackgroundSettings; presets: GradientPreset[]; kinds: BackgroundKind[] }>('/settings/background'),
+      set: (patch: { kind: BackgroundKind; preset: GradientPreset | null }) =>
+        req<{ settings: BackgroundSettings }>('/settings/background', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ variant }),
+          body: JSON.stringify(patch),
         }),
+      uploadImage: (dataUrl: string) =>
+        req<{ settings: BackgroundSettings }>('/settings/background/image', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataUrl }),
+        }),
+      // Every /api/* route is Bearer-gated, so a raw CSS url()/<img src> can't
+      // attach the auth header — the wallpaper image must be fetched here
+      // (same auth as req()) and turned into an object URL by the caller.
+      // `version` is BackgroundSettings.imageVersion — cache-busts so a
+      // re-upload is reflected immediately instead of serving a stale hit for
+      // the same image identity.
+      imageBlob: (version: number) =>
+        fetchAuthed(`/settings/background/image?v=${version}`).then(res => res.blob()),
     },
   },
   // Voice — push-to-talk transcription. The browser holds NO transcription key:

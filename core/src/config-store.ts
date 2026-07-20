@@ -13,9 +13,11 @@
 import {
   HomeLayoutSchema, type HomeLayout,
   AutonomySettingsSchema, DEFAULT_AUTONOMY_SETTINGS, type AutonomySettings, type AutonomyPatchBody,
-  BackgroundVariantSchema, DEFAULT_BACKGROUND, type BackgroundVariant,
+  BackgroundSettingsSchema, DEFAULT_BACKGROUND_SETTINGS, type BackgroundSettings,
 } from '@k/shared'
-import { configDb } from './db.js'
+import { configDb, DATA_DIR } from './db.js'
+import fs from 'fs'
+import path from 'path'
 
 // In-memory cache keyed by app_config.key. Populated lazily on first read or
 // eagerly by set*. Never stale unless __resetConfigCache is called.
@@ -194,21 +196,50 @@ export function setAutonomySettings(patch: AutonomyPatchBody): AutonomySettings 
   return next
 }
 
-// ── Background preference (usability-access B.3) ────────────────────────────────
+// ── Background settings (usability-access B.3 → wallpaper settings model) ───────
+// Storage note: BG_KEY held a bare BackgroundVariant string pre-migration; the
+// legacy values ('galaxy'/'blobs'/'solid'/'aurora') are recognized and mapped
+// forward so an existing operator preference survives the upgrade instead of
+// silently resetting to default.
 
 const BG_KEY = 'ui.background'
 
-/** Read the operator's background preference. Absent or corrupt → DEFAULT_BACKGROUND. */
-export function backgroundVariant(): BackgroundVariant {
+/** Read the operator's background settings. Absent → DEFAULT_BACKGROUND_SETTINGS.
+ *  A legacy bare-variant string maps forward (galaxy/blobs/solid → solid,
+ *  aurora → gradient/aurora); corrupt/unparseable JSON → default. */
+export function backgroundSettings(): BackgroundSettings {
   const raw = configDb.get(BG_KEY)
-  const parsed = raw ? BackgroundVariantSchema.safeParse(raw) : null
-  return parsed?.success ? parsed.data : DEFAULT_BACKGROUND
+  if (!raw) return DEFAULT_BACKGROUND_SETTINGS
+  if (raw === 'galaxy' || raw === 'blobs' || raw === 'solid') return { kind: 'solid', preset: null, imageVersion: null }
+  if (raw === 'aurora') return { kind: 'gradient', preset: 'aurora', imageVersion: null }
+  try {
+    const parsed = BackgroundSettingsSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : DEFAULT_BACKGROUND_SETTINGS
+  } catch {
+    return DEFAULT_BACKGROUND_SETTINGS
+  }
 }
 
-/** Persist the background preference. Callers MUST validate `v` at the route
+/** Persist the background settings. Callers MUST validate `s` at the route
  *  boundary (PUT /api/settings/background) — this store write does not gate it. */
-export function setBackgroundVariant(v: BackgroundVariant): void {
-  configDb.set(BG_KEY, v)
+export function setBackgroundSettings(s: BackgroundSettings): void {
+  configDb.set(BG_KEY, JSON.stringify(s))
+}
+
+// ── Wallpaper file storage ───────────────────────────────────────────────────
+// The uploaded wallpaper image lives under DATA_DIR (the same gitignored data
+// dir the DB/auth-token/system-prompt-backups use), never inside the repo and
+// never at a user-controlled path — the route always writes/reads the FIXED
+// filename `wallpaper.<ext>` here, so no path segment is ever derived from
+// request input.
+
+const WALLPAPER_DIR = path.join(DATA_DIR, 'wallpapers')
+
+/** The directory the uploaded wallpaper image is stored in. Created on demand
+ *  (idempotent — mkdir recursive). */
+export function wallpaperDir(): string {
+  fs.mkdirSync(WALLPAPER_DIR, { recursive: true })
+  return WALLPAPER_DIR
 }
 
 // ── Test seam ────────────────────────────────────────────────────────────────
