@@ -15,7 +15,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import { runsDb } from '../src/db.js'
-import { sendInput, endSession, __testHooks } from '../src/supervisor.js'
+import { sendInput, sendInterrupt, endSession, __testHooks } from '../src/supervisor.js'
 
 const seeded: string[] = []
 
@@ -128,6 +128,65 @@ describe('sendInput — interactive HITL failure modes', () => {
     expect(fake.ended).toBe(true)
     expect(sendInput(id, 'late body')).toBe(false)
     expect(fake.writes).toHaveLength(0) // nothing was written to the dead stdin
+  })
+})
+
+describe('sendInterrupt — the INT.4 urgent-steering nudge (control-protocol interrupt)', () => {
+  it('writes the SDK control_request interrupt envelope for a MID-TURN interactive run', () => {
+    const id = seedRun('running')
+    const fake = fakeProc()
+    __testHooks.initSeq(id)
+    __testHooks.setActiveProc(id, fake.proc)
+    expect(sendInterrupt(id)).toBe(true)
+    expect(fake.writes).toHaveLength(1)
+    const line = JSON.parse(fake.writes[0]) as { type: string; request_id: string; request: { subtype: string } }
+    expect(line.type).toBe('control_request')
+    expect(line.request).toEqual({ subtype: 'interrupt' })
+    expect(line.request_id).toMatch(/^int-/)
+    expect(fake.writes[0].endsWith('\n')).toBe(true)
+  })
+
+  it('refuses a PARKED run (awaiting_input has no turn in flight — the boundary is already here)', () => {
+    const id = seedRun('awaiting_input')
+    const fake = fakeProc()
+    __testHooks.initSeq(id)
+    __testHooks.setActiveProc(id, fake.proc)
+    expect(sendInterrupt(id)).toBe(false)
+    expect(fake.writes).toHaveLength(0)
+  })
+
+  it('refuses when there is no live interactive process, and swallows an EPIPE write', () => {
+    expect(sendInterrupt(uuid())).toBe(false)
+    const id = seedRun('running')
+    const fake = fakeProc({ writeThrows: true })
+    __testHooks.initSeq(id)
+    __testHooks.setActiveProc(id, fake.proc)
+    expect(() => sendInterrupt(id)).not.toThrow()
+    expect(sendInterrupt(id)).toBe(false)
+  })
+
+  it('refuses a gracefully-ENDING session (write-after-end surfaces async — the sendInput guard rationale)', () => {
+    const id = seedRun('running')
+    const fake = fakeProc()
+    __testHooks.initSeq(id)
+    __testHooks.setActiveProc(id, fake.proc)
+    expect(endSession(id)).toBe(true)
+    expect(sendInterrupt(id)).toBe(false)
+    expect(fake.writes).toHaveLength(0)
+  })
+
+  it('K_URGENT_INTERRUPT=0 disables the nudge (boundary-only posture)', () => {
+    const id = seedRun('running')
+    const fake = fakeProc()
+    __testHooks.initSeq(id)
+    __testHooks.setActiveProc(id, fake.proc)
+    process.env.K_URGENT_INTERRUPT = '0'
+    try {
+      expect(sendInterrupt(id)).toBe(false)
+      expect(fake.writes).toHaveLength(0)
+    } finally {
+      delete process.env.K_URGENT_INTERRUPT
+    }
   })
 })
 

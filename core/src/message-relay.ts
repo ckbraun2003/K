@@ -46,11 +46,21 @@ import { db, agentMessagesDb, kThreadsDb, runsDb, notificationsDb } from './db.j
 import { eventBus } from './events.js'
 import { ensureSession, getOrCreateConversation, sendToSession } from './agent-sessions.js'
 import { resolveDelivery, rowToAgentMessage } from './agent-mail.js'
-import { sendInput } from './supervisor.js'
+import { sendInput, sendInterrupt } from './supervisor.js'
 import { appendTurn } from './k-thread.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
 
 const DEFAULT_RELAY_INTERVAL_MS = 2_000
+
+/** INT.4: how long after one interrupt nudge before the relay re-nudges the same
+ *  run (the CLI may legitimately take a while to reach its abort point). */
+const INTERRUPT_RESEND_MS = 30_000
+
+/** runId → when the relay last wrote a control_request interrupt for it. Bounded:
+ *  entries are deleted at the run's successful boundary delivery, and a run id is
+ *  never reused — residue is one timestamp per interrupted-but-never-delivered
+ *  run in this process (the sendChains boundedness posture). */
+const interruptRequestedAt = new Map<string, number>()
 
 let draining = false
 
@@ -147,10 +157,26 @@ async function deliverConversation(g: ConversationGroup): Promise<number> {
 
     if (session.state === 'live') {
       const midTurn = activeStatus !== 'awaiting_input'
+      // INT.4 — the 'interrupt' cell is WIRED: an urgent message for a mid-turn
+      // run writes one control-protocol interrupt (supervisor.sendInterrupt) so
+      // the CLI aborts its turn early. The rows STAY QUEUED either way — the
+      // (accelerated or natural) boundary parks the run and the next tick's
+      // 'stdin-now' cell delivers. Degradation is built into sendInterrupt: a CLI
+      // that ignores control_request simply reaches its natural boundary — the
+      // pre-spike fallback behavior, unchanged. One nudge per run per
+      // INTERRUPT_RESEND_MS (the abort can legitimately take a while).
+      if (midTurn && activeRunId != null &&
+          g.messages.some(m => resolveDelivery({ state: 'live', midTurn }, m) === 'interrupt')) {
+        const last = interruptRequestedAt.get(activeRunId) ?? 0
+        const now = Date.now()
+        if (now - last >= INTERRUPT_RESEND_MS && sendInterrupt(activeRunId)) {
+          interruptRequestedAt.set(activeRunId, now)
+        }
+      }
       const deliverable = g.messages.filter(
         m => resolveDelivery({ state: 'live', midTurn }, m) === 'stdin-now',
       )
-      // 'boundary' + 'interrupt' cells: leave queued this tick (INT.4 posture).
+      // 'boundary' + (post-nudge) 'interrupt' cells: leave queued this tick.
       if (deliverable.length === 0 || activeRunId == null) return 0
       const now = Date.now()
       for (const m of deliverable) {
@@ -164,6 +190,9 @@ async function deliverConversation(g: ConversationGroup): Promise<number> {
         claimed.length = 0
         return 0
       }
+      // The boundary arrived and delivered — any interrupt-nudge bookkeeping for
+      // this run is spent (map boundedness, see interruptRequestedAt).
+      interruptRequestedAt.delete(activeRunId)
       // stdin bypasses sendToSession's durable append — the relay owns it here.
       // ISOLATED (the lead-relay post-dispatch-wiring posture): once sendInput
       // returned true the text is IN the live run — a bookkeeping throw here

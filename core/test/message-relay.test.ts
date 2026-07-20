@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import { db, agentSessionsDb } from '../src/db.js'
-import { startRun, sendInput } from '../src/supervisor.js'
+import { startRun, sendInput, sendInterrupt } from '../src/supervisor.js'
 import { createProfile, getProfile } from '../src/profiles.js'
 
 vi.mock('../src/supervisor.js', async () => {
@@ -22,6 +22,7 @@ vi.mock('../src/supervisor.js', async () => {
       return { id }
     }),
     sendInput: vi.fn(() => true),
+    sendInterrupt: vi.fn(() => true),
     kill: vi.fn(() => false),
   }
 })
@@ -61,6 +62,8 @@ beforeEach(() => {
   vi.mocked(startRun).mockClear()
   vi.mocked(sendInput).mockClear()
   vi.mocked(sendInput).mockReturnValue(true)
+  vi.mocked(sendInterrupt).mockClear()
+  vi.mocked(sendInterrupt).mockReturnValue(true)
 })
 afterAll(() => {
   resetState()
@@ -259,8 +262,8 @@ describe('drainAgentMessages — live paths (Lane A forward-compat)', () => {
     expect(row.delivered_at).toBeNull()
   })
 
-  it('live + mid-turn → normal AND urgent both stay queued (boundary; interrupt executes as boundary until INT.4)', async () => {
-    const { t } = seedLive('running')
+  it('live + mid-turn → normal AND urgent both stay queued; the URGENT one nudges ONE interrupt (INT.4)', async () => {
+    const { t, runId } = seedLive('running')
     const m1 = queueMessage({ toProfileId: PROFILE, toThreadId: t.id, from: { kind: 'user' }, body: 'later' })
     const m2 = queueMessage({ toProfileId: PROFILE, toThreadId: t.id, from: { kind: 'user' }, body: 'now!', priority: 'urgent' })
 
@@ -269,6 +272,35 @@ describe('drainAgentMessages — live paths (Lane A forward-compat)', () => {
     expect(msgRow(m2.id).status).toBe('queued')
     expect(vi.mocked(sendInput)).not.toHaveBeenCalled()
     expect(vi.mocked(startRun)).not.toHaveBeenCalled()
+    // The interrupt is a NUDGE, not a delivery: one control_request for the
+    // mid-turn run; the rows ride the (accelerated) boundary on a later tick.
+    expect(vi.mocked(sendInterrupt)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(sendInterrupt)).toHaveBeenCalledWith(runId)
+
+    // Cooldown: an immediate second drain does NOT re-nudge (INTERRUPT_RESEND_MS).
+    expect(await drainAgentMessages()).toBe(0)
+    expect(vi.mocked(sendInterrupt)).toHaveBeenCalledTimes(1)
+  })
+
+  it('live + mid-turn with only NORMAL messages → no interrupt nudge (boundary cell untouched)', async () => {
+    const { t } = seedLive('running')
+    queueMessage({ toProfileId: PROFILE, toThreadId: t.id, from: { kind: 'user' }, body: 'no rush' })
+
+    expect(await drainAgentMessages()).toBe(0)
+    expect(vi.mocked(sendInterrupt)).not.toHaveBeenCalled()
+  })
+
+  it('after the (accelerated) boundary parks the run, the next drain DELIVERS the urgent message via stdin', async () => {
+    const { t, runId } = seedLive('running')
+    const m = queueMessage({ toProfileId: PROFILE, toThreadId: t.id, from: { kind: 'user' }, body: 'urgent steer', priority: 'urgent' })
+    expect(await drainAgentMessages()).toBe(0)
+    expect(vi.mocked(sendInterrupt)).toHaveBeenCalledTimes(1)
+
+    // The CLI honored (or naturally finished) — the run parks at the boundary.
+    db.prepare(`UPDATE runs SET status = 'awaiting_input' WHERE id = ?`).run(runId)
+    expect(await drainAgentMessages()).toBe(1)
+    expect(msgRow(m.id).status).toBe('delivered')
+    expect(vi.mocked(sendInput)).toHaveBeenCalledWith(runId, '[message from user · urgent] urgent steer')
   })
 })
 

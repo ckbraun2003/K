@@ -1167,6 +1167,43 @@ export function sendInput(runId: string, text: string): boolean {
   return true
 }
 
+/**
+ * INT.4 (D-124 urgent steering): ask a MID-TURN interactive run to stop early by
+ * writing the Agent-SDK control-protocol interrupt onto its stream-json stdin:
+ * `{type:'control_request', request_id, request:{subtype:'interrupt'}}`. A CLI
+ * that honors it aborts the in-flight turn and emits its result — i.e. the run
+ * reaches the awaiting_input BOUNDARY early, and the ordinary boundary machinery
+ * (message relay 'stdin-now' cell) delivers the urgent message on the next tick.
+ * A CLI that does NOT honor it answers with an error control_response (ignored —
+ * we subscribe to nothing) and the turn ends at its natural boundary instead:
+ * DEGRADATION IS BUILT IN — the caller never depends on the interrupt landing,
+ * it only ever accelerates the boundary. No turn is claimed and no event/status
+ * is emitted here: an interrupt is a nudge, not a turn.
+ *
+ * Returns true when the control line was written to a live interactive stdin.
+ * Refuses (false) for: no live process / non-interactive / no stdin, a
+ * gracefully-ENDING session (write-after-end surfaces async — the sendInput
+ * guard's rationale), and a PARKED run (awaiting_input has no turn in flight —
+ * the boundary is already here; interrupting it would be meaningless).
+ * Kill-switch: K_URGENT_INTERRUPT=0 disables (boundary-only posture).
+ */
+export function sendInterrupt(runId: string): boolean {
+  if (process.env.K_URGENT_INTERRUPT === '0') return false
+  const proc = activeProcesses.get(runId)
+  if (!proc || !proc.interactive || !proc.stdin) return false
+  if (endingRuns.has(runId)) return false
+  const status = (runsDb.getRun.get(runId) as { status?: string } | undefined)?.status
+  if (status !== 'running') return false // mid-turn only — parked/terminal runs have no turn to interrupt
+  try {
+    proc.stdin.write(
+      JSON.stringify({ type: 'control_request', request_id: `int-${uuid()}`, request: { subtype: 'interrupt' } }) + '\n',
+    )
+  } catch {
+    return false // EPIPE — the proc-exit path finalizes the run
+  }
+  return true
+}
+
 // ── E-02 Plan Gate: park / approve / discard / boot-sweep ─────────────────────
 
 /** E-02: park a plan-gated run at awaiting_plan. Pure DB + emit — the caller

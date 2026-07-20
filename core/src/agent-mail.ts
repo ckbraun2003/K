@@ -9,8 +9,9 @@
  *    supervision briefings) are pre-authorized by construction and include pairs the
  *    tier matrix does not grant (a lead reporting UP to K).
  *  - resolveDelivery: the PURE state × priority matrix the relay executes. 'interrupt'
- *    is the urgent+mid-turn cell; it is EXECUTED as boundary delivery until INT.4's
- *    spike resolves whether a live stream-json run can be interrupted.
+ *    is the urgent+mid-turn cell; the relay executes it as ONE control-protocol
+ *    interrupt nudge (supervisor.sendInterrupt, INT.4) + boundary delivery — the
+ *    nudge only ever accelerates the boundary, never replaces it.
  *  - mayMessage: the tier-gate matrix as a deterministic function of DB state
  *    (agent_profiles.tier/domain_id, domains.manager_profile_id, pipeline ownership).
  *
@@ -93,8 +94,10 @@ export interface DeliverySessionView {
  *   live + parked        → 'stdin-now'  (inject via supervisor.sendInput)
  *   live + mid-turn      → 'boundary'   (normal) | 'interrupt' (urgent)
  *   resumable/stale      → 'wake'       (spawn/resume with the queued batch)
- * 'interrupt' is EXECUTED as boundary until INT.4 resolves the interrupt spike —
- * the relay maps both cells to "leave queued until the turn ends".
+ * INT.4: the relay executes 'interrupt' as one sendInterrupt nudge (SDK
+ * control_request — the CLI aborts its turn early and parks) with the rows left
+ * queued for the boundary's 'stdin-now' cell; a CLI that ignores the nudge just
+ * delivers at its natural boundary (the documented degradation, built-in).
  */
 export function resolveDelivery(
   session: DeliverySessionView,
