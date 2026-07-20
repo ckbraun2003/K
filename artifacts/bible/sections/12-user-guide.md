@@ -2,12 +2,14 @@
 title: User Guide
 icon: "❔"
 status: active
-updated: 2026-07-13
+updated: 2026-07-20
 ---
 
-The mental model is **you direct an agent organization**: you talk to **K** (a friendly secretary),
-K handles logistics and hands engineering work to the **Chief**, and the Chief staffs it to
-**staff-engineer leads** who do the coding (§03). The org tiers, the K-home chat, and the
+The mental model is **you direct an agent organization**: you talk to **K** — a genuine engineering
+agent that **reads and analyzes code directly but never edits it** (every change happens in a
+delegated, auditable run or pipeline) — and K delegates real work to pipelines, orchestrator leads,
+or a **domain manager** (the Chief is the built-in Engineering manager) who supervises everything
+running in its domain (§03). The org tiers, the K-home chat, and the
 Direct/Observe IA **shipped with Phase 5** (§03, §08) — this guide covers the day-to-day basics
 (dispatching runs, projects, verification, the graph) and notes where the org reshapes them.
 It mirrors the README quick-start and stays consistent with §08 (Dashboard) and §11 (Operations) —
@@ -205,6 +207,51 @@ its own spend, all behind **one switch that ships OFF**. Turn it on from **Setti
 Two honest limits worth knowing: a project-scoped proposal is **one-shot per project** (once it
 exists in any state, a later recurrence won't re-appear until the row clears), and an Inbox **dismiss
 has no undo**. Both are deliberate for this first, default-OFF cut.
+
+## Messaging your agents (the Messages surface)
+
+**Messages** in the sidebar (`g m`) is every conversation in one place: your K threads first, then
+one ongoing conversation per durable agent — each manager and each lead. Open any conversation and
+type: you can message **any** agent directly, not just K. Unread counts clear as you read a
+conversation; your own sent messages never show as unread.
+
+- **Normal vs urgent.** A normal message is delivered at the agent's **next stopping point** —
+  immediately if it is idle or waiting between turns, otherwise when its current turn ends.
+  **Urgent** does the same *plus* a nudge asking the agent to wrap up its current turn early — so it
+  lands sooner where the CLI supports interrupts, and at the natural stopping point where it
+  doesn't. Urgent never kills work in flight; if a message truly can't be delivered you get a
+  notification, never silence.
+- **Where results land now.** When you delegate work — or a pipeline finishes, or a manager files a
+  report — the outcome arrives as a **message from that agent**: delegated outcomes come back to
+  the K thread where you asked, and each agent's own conversation shows what it sent and received.
+  You see who said it, not an anonymous status line.
+- **K threads are managed here.** Rename, archive, and delete moved to Messages from Personal →
+  Chats (old links redirect). Agent detail pages also embed that agent's conversation, so you can
+  talk to a lead straight from its page.
+- Each conversation shows whether the agent is **live** (a warm process, instant replies) or
+  **resumable** (it wakes on your next message — same memory, a beat slower), plus its context
+  meter. You never have to manage this; sessions warm up and wind down on their own.
+
+## Domains & managers
+
+Agents are organized into **domains**, each overseen by a **manager** (the Chief is the built-in
+Engineering manager). A manager automatically supervises everything running in its domain — you
+don't wire anything up, and it stays on even with the Autonomous Org master off (only budget and
+rate caps govern it).
+
+- **Create a domain** from Agents → Org → Domains: the create dialog takes the domain's name plus a
+  manager name and identity, and creates both in one step — a "Research" domain with its own
+  manager is a dialog, not a code change.
+- **Identity overlays.** Every agent has an editable identity block (its "who am I", layered on top
+  of its role charter). Edit a manager's from the Domains panel, a lead's from its detail page.
+  Clearing the text silences the built-in seed identity.
+- **Briefings.** A manager's conversation shows its supervision at work: when stages finish, gates
+  park, runs fail, or budgets warn, the manager wakes with a **briefing** — a message headed
+  **`[domain briefing · <domain> · <event>]`** summarizing what changed since it last looked,
+  urgent when a gate needs a decision. The manager acts through its tools — **approve or reject the
+  gate**, steer an agent, or `report` to you — and that report lands in your K conversation.
+  Briefings are rate-capped per manager and fire only while the domain has active work, so silence
+  means nothing is running, not that supervision is off.
 
 ## Troubleshooting
 

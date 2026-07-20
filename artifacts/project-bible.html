@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-18 01:55</span><br>
+      compiled <span class="mono">2026-07-20 05:08</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -253,11 +253,7 @@ redesign.</li>
 output still lands as a durable artifact, run record, or PR; the chat directs work, it never
 replaces the audit trail.</li>
 </ul>
-<div class="live-stats">
-      <div class="stat"><span class="stat-label">TOTAL RUNS</span><span class="stat-value">90</span></div>
-      <div class="stat"><span class="stat-label">TOKENS</span><span class="stat-value">3.7M</span></div>
-      <div class="stat"><span class="stat-label">COST</span><span class="stat-value">$6.40</span></div>
-    </div>
+<div class="live-empty">— no run data yet —</div>
 
     </section>
 
@@ -266,7 +262,7 @@ replaces the audit trail.</li>
         <span class="section-icon">⬡</span>
         <h1>Architecture</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-09</span>
+        <span class="section-updated mono">updated 2026-07-20</span>
       </header>
       <p><strong>Architecture A with B-seams</strong> — a single monolithic core (Architecture A) with three deliberate <strong>B-seams</strong> built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected). A planned <strong>fourth B-seam — TranscriptionProvider</strong> (voice in, Phase 5.4) follows the same swap-without-rewrite contract (D-031).</p>
 <pre><code>┌──────────────────────────────────────────────────────────────┐
@@ -572,6 +568,43 @@ run to produce a plan first is passed as a <strong><code>runAgent</code> argumen
 operator's actual request. The scaffold deliberately <strong>names no tools, servers, or skills</strong> (those
 are the authority layer's job, D-021); it only asks for a plan, keeping the gate orthogonal to what
 a tier is allowed to do.</p>
+<h2>The session layer — hybrid warm/resumable agent runtime (Continuous Agents, D-122)</h2>
+<p>The two park flavors above stopped being run-local plumbing: <strong><code>agent_sessions</code></strong> generalizes them
+into a core primitive — one row per (profile, conversation thread) carrying the CLI session id, a
+stable <strong><code>home_dir</code></strong>, and a three-state machine. Every durable agent's conversation (§03, §04)
+executes over it; chat is no longer a special-cased K path.</p>
+<ul>
+<li><strong><code>live</code></strong> — an interactive claude process is up with stdin held open, parked <code>awaiting_input</code>
+between turns (the D-014 machinery, reused). A message to a live parked session is written
+straight to stdin — same run, same context, instant reply, no new spawn.</li>
+<li><strong><code>resumable</code></strong> — no process. The next message spawns with <code>--resume &lt;cli_session_id&gt;</code> carrying
+the full context (the D-062 resumable-one-shot machinery, reused as the cold path).</li>
+<li><strong><code>stale</code></strong> — resume is impossible (the run was undone or errored); the next message visibly
+reseeds from the durable turns. At every state the durable thread is the source of truth — the
+CLI session is a cache.</li>
+</ul>
+<p><strong>Bounded warmth.</strong> Live sessions are capped (<code>K_MAX_LIVE_SESSIONS</code>, default 3) with <strong>LRU
+demotion</strong> — establishing past the cap gracefully demotes the least-recently-active session first.
+An <strong>idle timer</strong> (<code>K_SESSION_IDLE_MS</code>, default 10 min) closes stdin → the run ends <code>done</code> → the
+session demotes to <code>resumable</code>; a <strong>boot sweep</strong> demotes every <code>live</code> row (a live process cannot
+survive a restart — exactly the D-014 constraint, now handled by demotion instead of loss).
+Live-process death mid-conversation demotes to <code>resumable</code> (resume retries); a rejected resume
+drops to <code>stale</code> and the next send reseeds. The <code>cli_session_id</code> is persisted at the CLI's INIT
+event — not only on a clean <code>done</code> — so an errored turn keeps its continuity.</p>
+<p><strong>Stable home dirs.</strong> Each session executes in <code>&lt;dataDir&gt;/sessions/&lt;profileId&gt;/&lt;threadId&gt;/</code> —
+never a worktree — because <code>--resume</code> is cwd-bound (the D-074 finding): a session that changed
+directories would lose its CLI session. Conversational agents write no code, so they need no
+worktree anyway.</p>
+<p><strong>Chat turns are bookkeeping, not top-level jobs (D-127).</strong> <code>runs.kind ∈ chat-turn | job | pipeline-stage</code> plus <code>runs.session_id</code> classify every run at dispatch. Conversation turns
+(<code>chat-turn</code>) belong to their conversation, not the Runs job list, and the budget governor's
+chat-exemption + the wake governor's org-relevance filter now read <code>kind</code> instead of K-shaped
+special cases (§13).</p>
+<p><strong>The message relay is a main-process component.</strong> Mailbox delivery (§04) is drained by a relay
+wired at boot in the long-lived core process — the session engine's in-memory attachment state
+makes delivery a main-process concern by construction (the mgmt stdio child only inserts rows,
+never delivers). It ticks every 2 s; <code>MESSAGE_RELAY=0</code> disables it — an operational note with
+teeth: with the relay off, report-backs and supervision briefings strand as permanently-queued
+rows until it is re-enabled.</p>
 
     </section>
 
@@ -580,7 +613,7 @@ a tier is allowed to do.</p>
         <span class="section-icon">❖</span>
         <h1>Agent Organization</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-20</span>
       </header>
       <blockquote>
 <p><strong>Status — PARTIALLY BUILT (Phase 5).</strong> This section is the design of record for the agent
@@ -600,9 +633,14 @@ cap, and a kill switch — D-057; see <em>Autonomous wake</em> below), and since
 together with proposals, backlog auto-pull, and self-heal — is <strong>gated behind a persisted, default-OFF
 operator choice</strong> (Settings → Autonomous Org, D-107..D-109; see <em>The Autonomous Org</em> below). The K→Chief→lead delegation
 <strong>dispatch</strong> and named workflow definitions are <strong>built</strong> (D-046 → D-051, D-047), and the
-per-profile authority rows are <strong>enforced at synthesis</strong> (P5.7, D-054). <strong>Still planned:</strong> K as an
-autonomously-woken tier, wiring the real Google connectors, and memory layers B/C. Where a
-capability already existed in the harness it is called out as <strong>reused</strong>.</p>
+per-profile authority rows are <strong>enforced at synthesis</strong> (P5.7, D-054). <strong>The Continuous Agents
+wave (D-122..D-127) now ships too:</strong> every durable agent is conversable over the session layer
+(§02), a derived <strong>role</strong> (primary/manager/orchestrator) drives prompts while authority tiers stay
+the sole enforcement axis, <strong>domains</strong> with always-on manager supervision are live, and K is
+re-chartered as the primary engineering agent with read authority — the mandatory K→Chief routing
+hop is <strong>retired</strong> (D-126; see <em>Roles, domains &amp; managers</em> below). <strong>Still planned:</strong> wiring the
+real Google connectors, and memory layers B/C. Where a capability already existed in the harness
+it is called out as <strong>reused</strong>.</p>
 </blockquote>
 <p>K is re-framed from <em>an operator driving a dashboard</em> to <strong>a user directing an agent organization</strong>.
 You talk to <strong>K</strong>; K and the agents beneath it do the engineering. The dashboard becomes the window
@@ -619,14 +657,14 @@ into that organization, not the thing you operate.</p>
 </thead>
 <tbody><tr>
 <td><strong>K</strong></td>
-<td>the friendly secretary — the home and face</td>
-<td>logistics, Q&amp;A, scheduling, notes, task lists; <strong>routes</strong> every request — handles logistics itself, or dispatches engineering to the Chief (or a specific lead), showing the route before send</td>
-<td><strong>none</strong> — K never writes code</td>
+<td>the <strong>primary agent</strong> — engineering agent + harness expert, the home and face</td>
+<td>the one agent you talk to by default: answers directly (logistics, Q&amp;A, <strong>reading + analyzing code</strong> with its read tools) and <strong>decides in-context</strong> how to delegate real work — a pipeline, an orchestrator, or a manager (D-126)</td>
+<td><strong>read + analyze</strong> — Read/Grep/Glob + read-only GitNexus; <strong>never writes code</strong> — every mutation is a delegated run/pipeline</td>
 </tr>
 <tr>
 <td><strong>Chief</strong></td>
-<td>the right-hand manager</td>
-<td>runs the org continuously: woken by schedule/event/user, assigns leads to projects/goals, reports back to the user</td>
+<td>the <strong>Engineering domain manager</strong> (the first manager-role profile)</td>
+<td>oversees everything running in its domain: woken by the supervisor on stage terminals/gates/failures/budget warnings + a heartbeat, resolves gates, steers running work, staffs leads, reports to K</td>
 <td><strong>none</strong> — delegates only</td>
 </tr>
 <tr>
@@ -679,7 +717,8 @@ generalizes <code>startRun</code>: it resolves the named profile, dispatches the
 (its charter/allowlist/MCP/skills), tracks it in <code>agent_runs</code>, and rides the shared run-lifecycle
 seam — rolling the tracking row back to <code>failed</code> on a dispatch failure. The <strong>Chief autonomous wake
 loop is now built on this primitive</strong> (P5.2b, D-044 — scheduler + event → <code>startAgentRun('chief')</code>);
-K's own wake loop and the K→Chief delegation dispatch remain planned.</p>
+the K→Chief delegation dispatch was a later slice (built at D-046, its automatic routing hop
+retired at D-126).</p>
 </blockquote>
 <blockquote>
 <p><strong>Per-lead control plane surfaced (P5.3a).</strong> The five discipline leads are now readable and editable
@@ -774,7 +813,8 @@ tool in the Claude Code CLI (verified against the binary), and the allowlist mat
 string — <code>"Agent"</code> there would grant nothing, so an orchestrator could spawn no one.</p>
 </blockquote>
 <p><strong>Reused connectors — the honest as-built.</strong> K <strong>does NOT mount the Google Calendar / Gmail /
-Drive connectors</strong> — its tier mounts <strong>kstore + logistics only</strong> (<code>agent-config/mcp/secretary.json</code>),
+Drive connectors</strong> — its tier mounts <strong>kstore + logistics + GitNexus read-only (D-126)</strong>
+(<code>agent-config/mcp/secretary.json</code>),
 so K's "calendar" is the local logistics store, storage-not-execution. The Google connectors remain
 <strong>operator-side only</strong> (the developer's own tooling, outside the managed-run boundary); wiring them
 into K's tier is a planned follow-up, not a shipped capability. The Chief mounts <strong>GitNexus MCP
@@ -794,10 +834,10 @@ open PRs; nothing merges outside CI).</p>
 </thead>
 <tbody><tr>
 <td><strong>K</strong> (secretary)</td>
-<td>kstore · logistics(BUILT)</td>
-<td>— none —</td>
-<td><em>none yet</em> — Google Calendar / Gmail / Drive <strong>not wired</strong> (planned)</td>
-<td>answer + schedule + trigger Chief</td>
+<td>kstore · logistics · GitNexus(read, D-126)</td>
+<td>— none — <em>(read tools only: Read · Grep · Glob)</em></td>
+<td>GitNexus MCP (read-only); Google Calendar / Gmail / Drive <strong>not wired</strong> (planned)</td>
+<td>answer + read/analyze + delegate</td>
 </tr>
 <tr>
 <td><strong>Chief</strong> (chief)</td>
@@ -814,6 +854,51 @@ open PRs; nothing merges outside CI).</p>
 <td>run workflows; PR-only, CI gates merges</td>
 </tr>
 </tbody></table>
+<p><em>(K's read tools and its GitNexus mount are D-126 — see</em> Roles, domains &amp; managers <em>below.)</em></p>
+<h2>Roles, domains &amp; managers (Continuous Agents, D-122..D-126)</h2>
+<p>The Continuous Agents wave splits <strong>what a profile may touch</strong> from <strong>how it presents and behaves</strong>:</p>
+<ul>
+<li><strong>Authority tiers are UNCHANGED.</strong> <code>secretary | chief | orchestrator</code> remain the sole
+grant-enforcement axis — every allowlist, MCP template, tier ceiling, and fail-closed grant guard
+above keys on the tier exactly as before.</li>
+<li><strong>A derived ROLE drives prompts and UX.</strong> <code>roleForTier()</code> maps secretary → <strong>primary</strong>, chief →
+<strong>manager</strong>, orchestrator → <strong>orchestrator</strong>; the role picks the charter template and the UI
+vocabulary, never a grant. The tier charter files are rewritten as <strong>role templates</strong> — the
+manager template generalizes the old Chief charter, the orchestrator template the lead charter.</li>
+<li><strong>Prompt layering gains L1.5.</strong> A profile's system prompt is L0 base → L1 role template →
+<strong>L1.5 <code>agent_profiles.identity_overlay</code></strong> — a per-profile identity block, operator-editable in
+the UI — → L2 project context. Seeds give the Chief its "Engineering manager" identity and each
+lead its discipline; an overlay of <code>''</code> durably silences the seed while <code>NULL</code> stays reseedable,
+and a profile with no overlay synthesizes <strong>byte-identically</strong> to pre-overlay output
+(regression-locked).</li>
+</ul>
+<h3>Domains — first-class, with dynamic managers (D-125)</h3>
+<p>A <strong>domain</strong> is a registry row (<code>domains</code>: name, description, <code>manager_profile_id</code>), not a naming
+convention. Each <strong>manager</strong> profile (tier <code>chief</code> — the tier is its authority ceiling) manages
+domains; orchestrator profiles and pipeline definitions carry a <code>domain_id</code>, and launched work
+<strong>inherits it at dispatch</strong> — pipeline runs are stamped physically, agent runs attribute through
+their owning profile — so a manager's oversight auto-attaches to everything running in its domain
+regardless of who launched it. The seeded <code>engineering</code> domain is managed by the Chief and owns the
+five leads and the seeded pipeline defs.</p>
+<p>Managers are <strong>configuration, not code</strong>: <code>POST /api/domains</code> with a <code>manager</code> block creates the
+domain and its chief-tier manager profile in one call (a new "Research manager" is a dialog, not a
+deploy). Reassigning <code>manager_profile_id</code> is <strong>chief-tier-guarded</strong> — a lead or K cannot be
+appointed manager. The always-on supervision loop that briefs a manager on its domain — event-driven
+plus heartbeat, per-manager governed — is specified with the mailbox in §04 and its observability in
+§13.</p>
+<h3>K — the primary agent (D-126)</h3>
+<p>K's charter is rewritten as a <strong>top-tier engineering agent and harness expert</strong>. Its authority is
+<strong>read + analyze</strong>: <code>Read</code>/<code>Grep</code>/<code>Glob</code> plus the GitNexus MCP server mounted read-only (the chief
+precedent — and the charter explicitly forbids the server's write-capable tools: never a non-dry-run
+<code>rename</code>, never <code>group_sync</code>). No Write/Edit/Bash/Task — <strong>every mutation stays a delegated
+run/pipeline</strong>, keeping the Trust Core audit trail intact. K reads the code it is asked about and
+answers from evidence; it delegates the work it must not do itself.</p>
+<p><strong>Routing is K's own in-context decision.</strong> The keyword classifier (<code>routeForMessage</code>) is demoted to
+a <strong>Dock preview chip</strong> — it colors the composer, it decides nothing. K itself chooses per message:
+answer directly, use its read tools, <code>delegate_pipeline</code>, or <code>message_agent</code> a manager or
+orchestrator. The D-046-era mandatory K→Chief routing hop is <strong>retired</strong> (the auto-delegating branch
+is deleted); delegation outcomes, lead continuations, and pipeline terminals return to K as
+<strong>mailbox messages</strong> in its conversation (D-124, §04), not bespoke turn-appends.</p>
 <h2>Activation — persistent identity, ephemeral execution</h2>
 <p>Each tier is <strong>durable</strong> (charter + memory + conversation thread) but only ever <strong>runs</strong> as a
 bounded activation. A single primitive activates any profile into a run:</p>
@@ -846,6 +931,17 @@ cost/park leak, subsumes H10); <code>cli_session_id</code> is persisted only on 
 ephemeral config, interactive HITL park). The route surfaced when composing is a deterministic
 <code>routeForMessage</code> <strong>preview</strong> (client and server agree via <code>@k/shared</code>); K's runtime tool/hand-up
 decision is authoritative.</p>
+<blockquote>
+<p><strong>RUNTIME SUPERSEDED — the session layer (D-122, Continuous Agents).</strong> The resumable one-shot is
+no longer the whole story: <code>askK</code> now resolves the thread to an <strong><code>agent_sessions</code></strong> row and sends
+through the session engine (§02) — a <strong>live</strong> interactive process parked between turns while the
+conversation is active (instant replies, real-time steering), demoted to <strong>resumable</strong> on
+idle/boot/LRU, with D-062's <code>--resume</code> mechanics retained as the cold path and the visible reseed
+as the stale path. The durable thread stays the source of truth; the answer-and-exit posture
+survives as the idle demotion rather than a per-ask rule. Chat turns are stamped
+<code>runs.kind='chat-turn'</code> + <code>session_id</code> (D-127) and no longer appear as top-level jobs. This
+applies to EVERY durable profile's conversation, not only K's (§04).</p>
+</blockquote>
 <h3>The Autonomous Org — one persisted, default-OFF operator choice (BUILT — P5 Autonomy, D-107..D-109)</h3>
 <p>The whole autonomous stack is off until the operator turns it on. A new <strong>Settings → Autonomous Org</strong>
 section (<code>web/src/pages/SettingsAutonomy.tsx</code>) is the single front door: a master <strong>enabled</strong> toggle
@@ -919,7 +1015,17 @@ facts (kind=<code>trigger</code>, time=<code>created_at</code>, resulting run=<c
 route already reads this history (<code>chiefWakes</code>), so the surface was wired before the wakes existed;
 P5.2b just makes them exist. (K→Chief delegation dispatch was the deliberately-deferred next slice
 — now built; see below.)</p>
-<h3>K→Chief delegation + report-back (BUILT — D-046)</h3>
+<h3>K→Chief delegation + report-back (BUILT — D-046; routing hop RETIRED — D-126)</h3>
+<blockquote>
+<p><strong>ROUTING RETIRED — D-126 (Continuous Agents).</strong> The automatic hand-up this subsection describes —
+<code>askK</code> consulting the deterministic route and delegating on <code>route.escalates</code> — is <strong>no longer a
+live path</strong>: that branch is deleted, and K decides in-context (answer, read tools,
+<code>delegate_pipeline</code>, <code>message_agent</code> — see <em>Roles, domains &amp; managers</em> above). Report-backs now
+arrive as <strong>mailbox messages</strong> in K's conversation (D-124, §04) rather than bespoke turn-appends.
+The record below stands as the D-046-era as-built for the traceability links it introduced (the
+<code>trigger='delegation'</code> rows + the <code>k_thread_turns.run_id</code> FK), which remain how historical hops
+are derived.</p>
+</blockquote>
 <p>The up/down chain is now closed: an engineering request actually <strong>flows K → Chief and reports
 back</strong>. In <code>core/src/k-thread.ts::askK</code>, once the durable user turn is recorded, the deterministic
 route is consulted <strong>before</strong> the warm/cold branch: when <code>route.escalates</code> is true (the Chief, or a
@@ -936,19 +1042,21 @@ own session.</p>
 (reminders, notes, scheduling, list management) <strong>before</strong> the lead/engineering keyword rules, so
 "remind me to fix the fence" stays with K instead of auto-escalating on "fix". The trade-off is
 deliberate: a mixed-intent message <strong>under-escalates by design</strong> (a cheap re-ask) rather than
-spinning up the paid Chief machinery for a grocery note. And this classifier <strong>is</strong> the server's
-delegation decision — <code>askK</code> delegates on its <code>escalates</code> flag — not merely a preview; client and
-server agree because both call the same shared function.</p>
+spinning up the paid Chief machinery for a grocery note. <em>(The classifier-as-the-server's-decision
+clause here is superseded-by D-126: <code>askK</code> no longer delegates on the <code>escalates</code> flag — the
+classifier is a Dock <strong>preview</strong> only, and K decides in-context.)</em></p>
 </li>
-<li><p><strong>Forced route.</strong> <code>KAskBody.forceRoute</code> bypasses the classifier for an explicit target (the Chief
-or a named lead — every forceable target escalates by construction; forcing <code>logistics</code> is
-deliberately impossible). <code>routeForTarget</code> is the one shared mapping, so the composer's forced
-preview and the server's actual routing are the same computation.</p>
+<li><p><strong>Forced route.</strong> <code>KAskBody.forceRoute</code> still targets an explicit agent (the Chief or a named
+lead; forcing <code>logistics</code> is deliberately impossible) — but since D-124 a forced send is a
+<strong>mailbox send</strong>: the ask is queued as an <code>agent_messages</code> row to the forced target and delivered
+by the relay, rather than short-circuiting a delegation dispatch.</p>
 </li>
 <li><p><strong>Per-ask model override.</strong> <code>KAskBody.model</code> (validated against the known-model registry at the
 route boundary) wins over the profile override, which wins over the runtime default (D-056). With
-the resumable one-shot (D-062) an override no longer forfeits continuity — there is no live process
-to keep, so the ask simply RESUMES the same session under the chosen model.</p>
+the resumable one-shot (D-062) an override no longer forfeits continuity — a cold ask simply
+RESUMES the same session under the chosen model. <em>(On a <strong>live</strong> session — D-122 — the override
+cannot apply mid-process: it is silently ignored on the warm path and takes effect at the next
+cold establish; a documented limitation the UI does not yet surface.)</em></p>
 </li>
 <li><p><strong>Report-back up the chain.</strong> When the delegated Chief run reaches a <strong>terminal</strong> status, its
 outcome lands back on K's thread as a <code>k</code> turn — via <code>reportDelegationBack</code>, which rides the shared
@@ -1079,7 +1187,7 @@ lead→Chief mgmt report uses: in <code>lead-dispatch-relay.ts</code>, right aft
 relay also calls <code>k-thread.ts::continueLeadOutcomeToK(chiefRunId, leadRunId, lead)</code>. On the lead run's
 terminal (run-lifecycle seam, once-latched) it resolves whether the parent Chief run was itself a K
 delegation — a <code>k_thread_turns</code> row whose <code>run_id</code> = the Chief run (<code>kThreadsDb.getThreadIdByTurnRunId</code>),
-the exact K→Chief link <code>delegateToChief</code> recorded — and, if so, appends a <code>k</code> turn to that durable
+the exact K→Chief link the now-retired <code>delegateToChief</code> branch recorded (D-126) — and, if so, appends a <code>k</code> turn to that durable
 thread ("Chief (via ) completed: "), linked to the lead run so it stays traceable. It is
 a <strong>no-op when the Chief woke autonomously</strong> (no <code>k_thread_turns</code> row links it) — then the outcome stays
 in the Chief's mgmt store only. Deliberately independent of the lead→Chief report-back (each rides its
@@ -1089,34 +1197,37 @@ Chief subtree (<code>orgToDelegationTree</code>, unchanged) under two ancestor t
 → sub-agent</strong> — reusing the same generic <code>DelegationTree</code> component (arbitrary depth). The K→Chief edge
 is derived from the existing links, no new table: <code>ChiefOrgPayload.kDelegations</code>
 (<code>agentRunsDb.countAgentRunsByProfileAndTrigger('chief','delegation')</code>) is the count of K hand-ups
-(<code>delegateToChief</code> is the only path that activates the Chief with <code>trigger='delegation'</code>; autonomous
-wakes use <code>schedule</code>/<code>event</code>). The ChiefPage now renders <code>fullOrgToDelegationTree(payload)</code>, so the
-whole chain is VISIBLE on the one batched <code>GET /api/chief/org</code> read.</li>
+(in the P5 era the now-retired <code>delegateToChief</code> branch was the only path that activated the Chief
+with <code>trigger='delegation'</code> — autonomous wakes use <code>schedule</code>/<code>event</code>; since the mailbox landed, a
+profile-sent conversation wake also dispatches with the delegation trigger, so the count is an
+era-mixed derivation, not a live routing surface — D-126). The ChiefPage now renders
+<code>fullOrgToDelegationTree(payload)</code>, so the whole chain is VISIBLE on the one batched
+<code>GET /api/chief/org</code> read.</li>
 </ul>
 <p>With b2 the org loop is COMPLETE and observable end to end: K → Chief → lead → PR → report back to K,
 every tier visible in one derived tree — exit-criterion #3.</p>
 <h2>The pipeline</h2>
-<pre><code>user ──▶ K (secretary)
-          │  pure logistics (calendar, notes, tasks, Q&amp;A) → handled directly, no engineering tier
-          │  ENGINEERING work only ──▶ Chief
+<pre><code>user ──▶ K (primary agent)
+          │  answers directly: logistics, Q&amp;A, code reading/analysis (read tools, no writes)
+          │  real work ──▶ delegate_pipeline · message an orchestrator · message a manager
           ▼
-        Chief (chief)               also wakes autonomously on schedule/event
-          │  picks orchestrator(s) + workflow + project(s), assigns the goal
+        Domain manager (chief tier)        woken by the domain supervisor (events + heartbeat)
+          │  oversees everything running in its domain: resolves gates, steers, reports to K
           ▼
         Orchestrator lead (orchestrator)
-          │  runs a workflow definition (see §04) in its own worktree
+          │  runs a pipeline / workflow (see §04) in its own worktree
           ▼
         role subagents  (implementer → spec-review → quality-review)
           │
           ▼
-        results bubble back up:  lead ──▶ Chief ──▶ K ──▶ user
+        outcomes return as MESSAGES: stage/pipeline terminals + manager reports land in K's conversation
 </code></pre>
-<p>K is the only tier the user speaks to by default. <strong>The user states their intent to K; K routes it</strong> —
-to logistics it handles itself, to the <strong>Chief</strong> for engineering, or to a <strong>specific lead</strong> — and the
-chosen route is <strong>shown before dispatch</strong> (one front door, see §08). It handles everything
-non-engineering itself and escalates only real engineering work down the chain; the Chief chooses how
-to staff it; a lead does the work through a workflow; and the outcome (a PR, a report, a verified
-result) flows back up to the user through the same chain. K may also create <strong><code>work_items</code></strong> — the
+<p>K is the only tier the user speaks to by default — though every durable agent is now conversable
+(§04, §08 Messages). K answers what it can answer itself (including reading the code in question)
+and <strong>decides in-context</strong> how to delegate the rest — a pipeline, an orchestrator, or a manager
+(D-126); the route chip in the Dock is a preview, never the decision. Managers oversee everything
+running in their domain regardless of who launched it (D-125), and the outcome (a PR, a report, a
+verified result) flows back to the operator as <strong>messages</strong> in K's conversation (D-124). K may also create <strong><code>work_items</code></strong> — the
 unified, scoped task model (§04): <strong>durable <code>personal</code> items</strong> it owns for you (or org-wide <code>org</code>
 items), persisting across sessions (D-053). K does <strong>not</strong> create <code>project</code>-scoped tickets — kstore
 <strong>rejects <code>scope='project'</code></strong> at the tool boundary; project tasks are created via the projects API
@@ -1129,7 +1240,7 @@ only (§04).</p>
         <span class="section-icon">⟲</span>
         <h1>Workflows &amp; Memory</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-16</span>
+        <span class="section-updated mono">updated 2026-07-20</span>
       </header>
       <blockquote>
 <p><strong>Status — BUILT (Phase 5, finalized P5.7).</strong> The single hardcoded delegation loop
@@ -1139,8 +1250,10 @@ built as a TOOL, not a file</strong>: managed agents propose lessons through kst
 (gated, held pending) into the <code>agent_memory</code> table — now <strong>profile-linked</strong> (D-053) —
 <code>tasks/lessons.md</code> is a <strong>home-development-only</strong> tracker, never written by a managed run. Work
 items are the <strong>unified, <code>scope</code>-discriminated <code>work_items</code> store, fully collapsed</strong>
-(D-045 → D-048 → D-053 → D-058: <code>project_tasks</code> is dropped). <strong>Still planned:</strong> memory layers B/C
-(retrieval/weighting) and scope <strong>promotion</strong> along a row.</p>
+(D-045 → D-048 → D-053 → D-058: <code>project_tasks</code> is dropped). <strong>The Continuous Agents wave
+(D-123/D-124) adds the conversation + mailbox subsystem below</strong>: every durable agent has a
+conversation, and messages, steering, and report-backs flow through <code>agent_messages</code>. <strong>Still
+planned:</strong> memory layers B/C (retrieval/weighting) and scope <strong>promotion</strong> along a row.</p>
 </blockquote>
 <p>A lead does work by <strong>running a workflow</strong> and gets smarter over time through <strong>memory</strong>. Both are
 configuration, not new engines — the substrate is the supervisor/EventBus already in place.</p>
@@ -1262,6 +1375,45 @@ no separate sub-run table (reused; see §13). The worker roles are now real <str
 role runs <strong>every wave, no exceptions</strong>; a separate whole-implementation review runs before merge. As
 it goes, the orchestrator marks each ticket, loop phase, review, and the CI gate through the kstore
 status-write tools so the run is visible as a live checklist (§13).</p>
+<h2>Conversations &amp; the mailbox — messages, steering, report-backs (Continuous Agents, D-123/D-124)</h2>
+<p><strong>Every durable agent is conversable.</strong> <code>k_threads</code> carries a <code>profile_id</code> (default <code>k-secretary</code>),
+so a thread is a conversation for ANY profile over the same threads/turns machinery — K keeps
+multi-thread; every other durable agent (managers, orchestrator leads) gets exactly ONE auto-created
+conversation (<code>getOrCreateConversation(profileId)</code>). Conversations execute over the session layer
+(§02) and surface on the Messages page (§08).</p>
+<p><strong>The mailbox is a DB queue, delivered by state.</strong> <code>agent_messages</code> rows (to-profile + optional
+to-thread, from <code>user | profile</code>, body, priority <code>normal | urgent</code>, <code>provenance_run_id</code>) are drained
+by the main-process relay (§02) and delivered by the target session's state:</p>
+<ul>
+<li><strong>live + parked</strong> → written to stdin NOW (real-time steering — same run, same context);</li>
+<li><strong>live mid-turn</strong> → held for the next turn boundary. An <strong>urgent</strong> message additionally fires ONE
+control-protocol <strong>interrupt nudge</strong> (<code>sendInterrupt</code>, per-run cooldown) asking the CLI to end its
+turn early — the nudge only <em>accelerates</em> the boundary, it never delivers by itself, so an
+interrupt-less CLI degrades <strong>structurally</strong> to boundary delivery rather than through a fallback
+branch;</li>
+<li><strong>idle</strong> → the session is woken with all of that conversation's queued messages batched into one
+turn.</li>
+</ul>
+<p>A delivery failure marks the row <code>failed</code> and raises a notification — never silent (§13).</p>
+<p><strong>Provenance is relay-owned and forge-resistant.</strong> Every delivered message is embedded as a
+provenance-tagged transcript block (<code>[message from &lt;sender&gt; · &lt;priority&gt;] …</code>); the relay <strong>escapes
+lookalike tags inside bodies</strong> before embedding (the UI unescapes for display), so a message body
+cannot forge another sender's block. The mailbox row itself keeps the body verbatim.</p>
+<p><strong><code>message_agent</code> — the tier-gated send tool.</strong> Mounted at every tier, gated by a pure matrix:
+<strong>K → anyone; a manager → its domains' members + K; an orchestrator → its manager + the actors of
+its running stages; self-send denied</strong> (the wake-loop guard — and what keeps the supervisor's
+self-addressed briefings unforgeable, since only the internal queue path may mint them; §13). The
+sender is resolved from the calling run, never from the payload.</p>
+<p><strong>Report-backs are messages now.</strong> Chief delegation outcomes, lead continuations, and pipeline
+terminals all queue through the mailbox to K's originating conversation — as does a manager's mgmt
+<code>report</code>, which <strong>dual-writes</strong> a message to K in real time; the terminal report-back is
+<strong>de-duplicated</strong> against that dual-write, so a reported outcome is never quoted at K twice. The
+outcome still lands <em>where you asked</em> — it is just a message from that agent, not a bespoke
+turn-append.</p>
+<p><strong>Cost honesty.</strong> A message, report-back, or briefing delivered to an <strong>idle</strong> agent is a REAL
+dispatch — a wake run. It is stamped <code>kind='chat-turn'</code> (D-127) and therefore <strong>budget-exempt</strong> like
+any conversation turn: supervision and messaging spend ride the <strong>wake governor + per-domain caps</strong>
+(§13), not the org budget gate. Free-looking report-backs are not free; they are governed.</p>
 <h2>Skills — capability catalog vs automation registry (BUILT — host-integration program)</h2>
 <p>The skills a run can mount and the skills the operator automates are <strong>one store with two
 surfaces</strong> (D-069/D-071):</p>
@@ -1320,6 +1472,15 @@ that recorded the hop), appends the lead's outcome one more hop UP onto the dura
 (via ) completed: …"). It is idempotent (the run-lifecycle once-latch) and a <strong>no-op when the
 Chief woke autonomously</strong> (no linked thread). So the operator's thread reflects the lead's REAL
 outcome, not just the Chief's mid-turn status — completing the up-chain the down-chain (§03) opened.</p>
+<blockquote>
+<p><strong>MECHANISM SUPERSEDED — D-124 (Continuous Agents).</strong> Both report-back hops above (and the
+pipeline-terminal report) now flow through the <strong>mailbox</strong>: the outcome is queued as an
+<code>agent_messages</code> row from the reporting profile to K's originating conversation and delivered by
+the relay (a wake when K is idle — a real, governed dispatch). The <em>where-you-asked</em> guarantee and
+the traceability links are unchanged; only the transport moved off bespoke turn-appends. Note also
+that the D-046-era <strong>automatic</strong> K→Chief hand-up these reports answered is itself retired (D-126,
+§03) — K delegates via pipelines and messages now. See <em>Conversations &amp; the mailbox</em> above.</p>
+</blockquote>
 <table>
 <thead>
 <tr>
@@ -1585,9 +1746,7 @@ Artifacts tab's <strong>"Refresh from disk"</strong> button. Serving posture is 
 </ul>
 <h2>Lifecycle</h2>
 <p><code>registered → onboarded (invariants satisfied) → active (runs/PRs flowing) → idle (no activity N days) → archived (hidden from home, data retained)</code></p>
-<table><thead><tr><th>project</th><th>health</th><th>last verified</th></tr></thead><tbody><tr><td>jarvis-core</td>
-        <td><span class="dot dot-amber"></span><span class="mono">—</span></td>
-        <td>never</td></tr></tbody></table>
+<div class="live-empty">— no registered project data yet —</div>
 
     </section>
 
@@ -1945,39 +2104,7 @@ gate, a machine-derived lesson still needs operator approval before it joins a p
 nothing self-modifies its brain. <strong>Scope (honest, D-113):</strong> implemented off <strong><code>verify_results</code>
 only</strong>; <strong><code>eval_results</code> is DEFERRED</strong> (it has no free-text failure-reason column to signature on) as
 a documented extension point.</p>
-<table><thead><tr><th>run</th><th>prompt</th><th>status</th><th>cost</th><th>started</th></tr></thead><tbody><tr>
-      <td>2af732d7</td>
-      <td>why hasnt the chief completed the goal?</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.033</td>
-      <td>2026-07-17 03:15</td>
-    </tr><tr>
-      <td>cbde60c8</td>
-      <td>what does that even mean</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.008</td>
-      <td>2026-07-17 03:10</td>
-    </tr><tr>
-      <td>8da947d2</td>
-      <td>Delegated from K (the secretary) on the operator's behalf: "dele…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.222</td>
-      <td>2026-07-17 03:06</td>
-    </tr><tr>
-      <td>05c8a866</td>
-      <td>ask me a question</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.009</td>
-      <td>2026-07-17 03:05</td>
-    </tr><tr>
-      <td>daf00346</td>
-      <td>You: Hello, this is chat one
-You: whomp
-(You are K, the secretar…</td>
-      <td><span class="dot dot-green"></span>done</td>
-      <td>$0.072</td>
-      <td>2026-07-17 03:02</td>
-    </tr></tbody></table>
+<div class="live-empty">— no run data yet —</div>
 
     </section>
 
@@ -1986,13 +2113,14 @@ You: whomp
         <span class="section-icon">▣</span>
         <h1>Dashboard — Command Deck</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-16</span>
+        <span class="section-updated mono">updated 2026-07-20</span>
       </header>
       <p>The dashboard is the <strong>window into the agent organization</strong> (§03) — held to product quality, not
 internal-tool quality. <strong>UI Simplification (D-101..D-106)</strong> re-frames it a second time: P4's
 9-item flat rail (D-096) still asked the operator to pick between near-duplicate org/insight
 surfaces; this pass <strong>folds the rail to 6 primary tabs</strong> — <strong>K (Home) · Personal · Agents · Runs ·
-Insights · Projects</strong> — plus a Help/Settings footer, and replaces the ⌘K CommandBar palette +
+Insights · Projects</strong> — plus a Help/Settings footer (the Continuous Agents wave later adds a
+seventh, <strong>Messages</strong> — D-123, below), and replaces the ⌘K CommandBar palette +
 Activity strip with <strong>one Message Dock</strong> (a composer bar on Home, a floating button everywhere
 else). Every surface this section previously described <strong>still exists</strong>; what changed is which tab
 it lives under and how the operator reaches K. IA decision <strong>D-024</strong> (evolve-visual +
@@ -2014,6 +2142,7 @@ implementation history lives in §13 Observability → <em>Implementation histor
 <h2>Frame — three persistent zones</h2>
 <pre><code>┌──┬─────────────────────────────────────────────────┐
 │K │                                                 │
+│✉ │                                                 │
 │☑ │                                                 │
 │♛ │                   STAGE                         │  swappable per
 │▶ │        (home · personal · agents · runs …)      │  destination
@@ -2028,14 +2157,14 @@ implementation history lives in §13 Observability → <em>Implementation histor
 <p>The shell is now just three zones: a collapsible <strong>labeled sidebar</strong>, a <strong>swappable stage</strong>, and the
 <strong>Message Dock</strong>. The old fourth zone — the ⌘K command bar docked at the top plus a separate
 always-visible Activity strip at the bottom — is gone; both collapsed into the one Dock (below).</p>
-<h3>Sidebar IA — the 6-tab rail (D-101)</h3>
-<p><strong><code>KNOWN_VIEWS</code></strong> (<code>web/src/lib/route.ts</code>) is now 13 entries: the 6 primary destinations +
-<code>settings</code> (Help, the other footer rail entry, deep-links into <code>docs</code> and adds no view of its own),
-plus <code>orchestrator</code> / <code>project</code> / <code>verify</code> / <code>docs</code> / <code>skill-creator</code> / <code>timeline</code> (drill-ins
-reached from a hub, never rail buttons themselves). Every view string this restructure removed keeps
-a <code>VIEW_REDIRECTS</code> entry (Retirements &amp; redirects, below) — the redirect <strong>replaces</strong> the history
-entry (<code>history.replaceState</code>, no Back-trap), and <code>resolveRoute</code> is idempotent (a canonical view is
-never a redirect key).</p>
+<h3>Sidebar IA — the 6-tab rail (D-101; a 7th, Messages, added by D-123)</h3>
+<p><strong><code>KNOWN_VIEWS</code></strong> (<code>web/src/lib/route.ts</code>) is now 15 entries: the <strong>7 primary destinations</strong>
+(D-123 added <code>messages</code> to D-101's six) + <code>settings</code> (Help, the other footer rail entry, deep-links
+into <code>docs</code> and adds no view of its own), plus <code>orchestrator</code> / <code>project</code> / <code>verify</code> / <code>docs</code> /
+<code>skill-creator</code> / <code>timeline</code> / <code>pr-review</code> (drill-ins reached from a hub, never rail buttons
+themselves). Every view string this restructure removed keeps a <code>VIEW_REDIRECTS</code> entry (Retirements
+&amp; redirects, below) — the redirect <strong>replaces</strong> the history entry (<code>history.replaceState</code>, no
+Back-trap), and <code>resolveRoute</code> is idempotent (a canonical view is never a redirect key).</p>
 <table>
 <thead>
 <tr>
@@ -2052,10 +2181,16 @@ never a redirect key).</p>
 <td><strong>Chat</strong> with K (default) or <strong>Overview</strong> — a SegControl toggle, not two routes</td>
 </tr>
 <tr>
+<td>✉ <strong>Messages</strong></td>
+<td><code>#/messages</code></td>
+<td>Personal → Chats</td>
+<td><strong>every conversation in one place</strong> (D-123, below) — K's threads first, then one conversation per durable agent, with unread badges + thread management</td>
+</tr>
+<tr>
 <td>☑ <strong>Personal</strong></td>
 <td><code>#/personal</code></td>
-<td>Inbox · Tasks · Chats · Memories</td>
-<td>your needs-you queue, work items, chat-thread management, and durable memories — 4 tabs</td>
+<td>Inbox · Tasks · Memories</td>
+<td>your needs-you queue, work items, and durable memories — 3 tabs (Chats folded into Messages, D-123)</td>
 </tr>
 <tr>
 <td>♛ <strong>Agents</strong></td>
@@ -2089,16 +2224,18 @@ never a redirect key).</p>
 </tr>
 </tbody></table>
 <p>The active destination sits on a translucent-blush glass pill (<code>aria-current="page"</code>); <code>g</code> + first
-letter jumps (<code>web/src/lib/chords.ts</code>: <code>h</code>→Home, <code>u</code>→Personal, <code>a</code>→Agents, <code>r</code>→Runs, <code>n</code>→Insights,
-<code>p</code>→Projects, <code>d</code>→Docs, <code>,</code>→Settings — unchanged by this restructure); the rail collapses to
+letter jumps (<code>web/src/lib/chords.ts</code>: <code>h</code>→Home, <code>m</code>→Messages, <code>u</code>→Personal, <code>a</code>→Agents, <code>r</code>→Runs,
+<code>n</code>→Insights, <code>p</code>→Projects, <code>d</code>→Docs, <code>,</code>→Settings); the rail collapses to
 icons-only (state persisted in <code>localStorage</code>). Personal carries a needs-you count badge and Runs
 carries an active/parked-runs badge, both sharing the same query keys their pages use (zero extra
 fetches). <strong>Docs is not a top-level destination</strong> — reachable via footer Help, edit-in-place per
 section.</p>
 <blockquote>
-<p><strong>As-built.</strong> <code>web/src/shell/Sidebar.tsx</code>'s <code>DESTINATIONS</code> array is the 6 primary + 2 footer + 3
+<p><strong>As-built.</strong> <code>web/src/shell/Sidebar.tsx</code>'s <code>DESTINATIONS</code> array is the 7 primary (Messages sits
+between K and Personal) + 2 footer + 3
 hidden (<code>docs</code>, <code>skill-creator</code>, <code>timeline</code> — kept only so <code>TopBar</code> can resolve a label for a view
-reached indirectly). <code>Shell.tsx</code> routes <code>home → HomePage</code>, <code>personal → PersonalPage(tab)</code>,
+reached indirectly). <code>Shell.tsx</code> routes <code>home → HomePage</code>, <code>messages → MessagesPage(threadId)</code>,
+<code>personal → PersonalPage(tab)</code>,
 <code>agents → AgentsPage(tab, sub)</code>, <code>runs → RunsPage(runId)</code>, <code>insights → InsightsPage(tab)</code>,
 <code>projects → ProjectsPage</code>, and drops the old standalone <code>Chief</code> / <code>Orchestrators</code> / <code>Metrics</code> /
 <code>Routing</code> / <code>FleetGraph</code> / <code>Workflows</code> / <code>Evals</code> / <code>Inbox</code> / <code>Memory</code> / <code>Terminal</code> branches
@@ -2221,7 +2358,7 @@ across the top row, <code>recent_activity</code> (2×2) filling the middle-left 
 <strong>body</strong> is wrapped in its own error boundary, independent of the customize-mode <strong>chrome</strong>, so one
 throwing widget can never take the rest of the grid down and stays resizable/removable even while
 broken.</p>
-<h2>Personal hub (D-101, 4 tabs)</h2>
+<h2>Personal hub (D-101, 4 tabs → 3 after D-123)</h2>
 <p><code>PersonalPage</code> — one <code>Tabs</code> surface, mirrored by <code>AgentsPage</code>'s shape:</p>
 <table>
 <thead>
@@ -2239,14 +2376,14 @@ broken.</p>
 <td>full work-item management — a <strong>Personal/Org</strong> <code>SegControl</code> over the durable <code>work_items</code> store (ported from K-home's old "Your work" card) plus read-only <strong>Notes</strong> and <strong>Schedule</strong> cards</td>
 </tr>
 <tr>
-<td><strong>Chats</strong></td>
-<td>the full thread <strong>management</strong> surface — every thread including archived, rename/archive/unarchive/permanently-delete (delete is confirm-gated, cascades server-side, and a thread with a live run 409s inline in the dialog)</td>
-</tr>
-<tr>
 <td><strong>Memories</strong></td>
 <td>the operator's own durable <strong>user-memories</strong> store (below) — add / inline-edit / confirm-gated delete, with a <strong>"→ from chat"</strong> link back to the source thread when K saved the memory itself</td>
 </tr>
 </tbody></table>
+<p>The former <strong>Chats</strong> tab — the full thread-management surface — <strong>folded into Messages (D-123)</strong>:
+rename / archive / unarchive / confirm-gated permanent delete (a thread with a live run still 409s
+inline), the archived toggle, and search all live on the Messages page now, so no operator
+capability was lost; <code>#/personal/chats</code> redirects there.</p>
 <p>The rail badge is the shared inbox count (<code>inbox-query.ts</code>'s one <code>INBOX_KEY</code> query — the page, the
 badge, and the Inbox tab's own count all key off it, zero extra fetches).</p>
 <h3>User memories + <code>memory_save</code> (D-104)</h3>
@@ -2262,6 +2399,29 @@ silent either. <code>memory_save</code> and the resulting "your current memories
 wired into <strong>K's secretary charter only</strong> (<code>agent-config/tiers/secretary.charter.md</code>) — Chief and
 the leads neither call the tool nor carry the injection, keeping "knows the operator" a property of
 the one agent that actually talks to them.</p>
+<h2>Messages — every conversation in one place (Continuous Agents, D-123)</h2>
+<p><code>MessagesPage</code> (rail entry between K and Personal, chord <code>g m</code>, deep link <code>#/messages/&lt;threadId&gt;</code>)
+is the unified conversation surface: a grouped list — <strong>K's threads first</strong>, then <strong>one conversation
+per durable agent</strong> (managers + leads, auto-created idempotently on listing) — beside the selected
+transcript, rendered by the shared <strong><code>ConversationView</code></strong> (extracted from <code>ChatView</code>, so Home →
+Chat, agent detail pages, and Messages all render one component).</p>
+<ul>
+<li><strong>Unread badges</strong> ride a per-thread <code>last_read_at</code> cursor (advanced on open, monotonic-clamped);
+the operator's <strong>own delivered messages never badge</strong> their target conversation.</li>
+<li>Each conversation header carries a <strong>session-state chip</strong> (live/resumable) and the <strong>context
+meter</strong> — real runtime state, rendered only when the caller supplies real data (Home fabricates
+neither).</li>
+<li>A <strong>batched delivery</strong> (an idle agent woken with several queued messages) renders as
+<strong>per-segment sender bubbles</strong> — the transcript splits the batch at its provenance boundaries so
+each sender (and an urgent chip) attributes correctly, never a first-sender-wins collapse.</li>
+<li><strong>Report-backs render as messages FROM that agent</strong> — a lead's outcome is a bubble from the lead,
+a briefing a bubble from the manager, in the conversation where it landed (§04).</li>
+<li><strong>K-thread management folded in from Personal → Chats</strong> (redirect above): rename,
+archive/unarchive, confirm-gated delete, the archived toggle, and search.</li>
+<li><strong>Agent detail pages embed their conversation</strong> — an orchestrator's page shows the same
+transcript panel, so "talk to this agent" is one click from its detail view. The Dock is unchanged
+as the quick path to K (its route chip is a preview only, D-126).</li>
+</ul>
 <h2>Agents hub (D-101 folded the surfaces in; D-120 restructured the tab shape)</h2>
 <p><code>AgentsPage</code> merges Org + the capability catalog + the pipeline surface under one <code>Tabs</code> surface.
 <strong>The Orchestration Program Phase 2 IA restructure (D-120) renamed and reshaped the original D-101
@@ -2277,7 +2437,7 @@ deep links redirect straight into the new tabs (Retirements &amp; redirects, bel
 </thead>
 <tbody><tr>
 <td><strong>Org</strong> (default)</td>
-<td>the roster of leads behind a <strong>Roster / Tree / Graph</strong> <code>SegControl</code> (<code>OrgPage</code>) — unchanged from P4's "one org surface" (D-096): Roster is slim cards, Tree is the whole-org DelegationTree, Graph is the fleet 3D graph. Carries a <strong>read-only autonomy status chip</strong> (Autonomy OFF/ON) deep-linking to Settings → Autonomous Org — no duplicated controls (P5 Autonomy, D-107)</td>
+<td>the roster of leads behind a <strong>Roster / Tree / Graph / Domains</strong> <code>SegControl</code> (<code>OrgPage</code>) — Roster is slim cards, Tree is the whole-org DelegationTree, Graph is the fleet 3D graph (P4's "one org surface", D-096), and <strong>Domains</strong> is the domain registry (D-125, below). Carries a <strong>read-only autonomy status chip</strong> (Autonomy OFF/ON) deep-linking to Settings → Autonomous Org — no duplicated controls (P5 Autonomy, D-107)</td>
 </tr>
 <tr>
 <td><strong>Catalog</strong></td>
@@ -2288,6 +2448,12 @@ deep links redirect straight into the new tabs (Retirements &amp; redirects, bel
 <td>the unified pipeline surface (<code>AutomationsView</code>) — formerly the standalone "Pipelines" tab plus the Catalog-side workflow-skills registry, now 3 sub-tabs: <strong>Library</strong> (pipeline definitions, incl. the 6 seeded standard pipelines, below) · <strong>Runs</strong> (pipeline execution history + the live DAG) · <strong>Schedules</strong> (cron-triggered skills AND pipeline schedules — merges the old triggers/schedules/eval-history registry, below)</td>
 </tr>
 </tbody></table>
+<p><strong>Domains (the 4th Org segment, D-125).</strong> <code>DomainsView</code> lists the domain registry — each row with
+its manager and description plus a per-row <strong>Edit</strong> dialog (name/description; manager reassignment
+stays API-only behind the chief-tier guard) — a <strong>create-with-manager dialog</strong> (<code>POST /api/domains</code>
+with a <code>manager</code> block spins up the domain and its chief-tier manager profile in one step), and a
+<strong>manager overlay editor</strong> for the L1.5 <code>identity_overlay</code> (prefilled from the current value before
+save; clearing it silences the seed).</p>
 <h3>Orchestrator detail (drill-in, <code>#/orchestrator/:id</code>)</h3>
 <p>Reached from Org → Roster → <strong>Open</strong>, not a rail destination itself. Six tabs now: <strong>Charter · 
 Skills · Tools · MCP servers · Memory · Runs</strong> (Task 17 added <strong>Runs</strong> — the lead's recent activations,
@@ -2426,7 +2592,7 @@ out-of-bounds/overlap/duplicate ids). <code>GET/PUT /api/settings/home-layout</c
 <code>setHomeLayout()</code> — <code>400</code> on a <code>safeParse</code> failure, never a silent partial write.</li>
 </ul>
 <p>All three are additive to schema v10 (P4) — no destructive migration, no <code>WsMessage</code> shape change.</p>
-<h2>Retirements &amp; redirects (D-106; extended by D-120)</h2>
+<h2>Retirements &amp; redirects (D-106; extended by D-120, D-123)</h2>
 <p>Every view string either restructure removed from <code>KNOWN_VIEWS</code> keeps a <code>VIEW_REDIRECTS</code> entry
 (<code>web/src/lib/route.ts</code>) so a bookmarked or shared legacy hash still resolves — applied via
 <code>history.replaceState</code> (never a push), so Back never bounces through a dead intermediate hash. <strong>D-120
@@ -2499,6 +2665,10 @@ already-canonical <code>#/agents/&lt;catalog|automations|org&gt;/*</code> hash p
 <tr>
 <td><code>#/inbox</code> (P4-era)</td>
 <td>Personal → Inbox</td>
+</tr>
+<tr>
+<td><code>#/personal/chats</code></td>
+<td>Messages <em>(D-123 — the Chats tab folded into the Messages surface; other <code>#/personal/*</code> tabs pass through unchanged)</em></td>
 </tr>
 <tr>
 <td><code>#/runs/workflows[/:id]</code></td>
@@ -3003,7 +3173,7 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
         <span class="section-icon">➤</span>
         <h1>Roadmap</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-16</span>
+        <span class="section-updated mono">updated 2026-07-20</span>
       </header>
       <p>Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.</p>
 <div class="roadmap-progress"><div class="phase-row">
@@ -3066,6 +3236,10 @@ interactions on a mid laptop; degrade node count before frame rate.</p>
       <span class="phase-name">UI Refinement (D-128)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
       <span class="phase-pct mono">6/6</span>
+    </div><div class="phase-row">
+      <span class="phase-name">Continuous Agents — sessions, conversations, mailbox, domains, supervision (✓ 2026-07-20 — `feat/continuous-agents`, schema v15→v16)</span>
+      <span class="phase-bar"><span class="phase-fill"></span></span>
+      <span class="phase-pct mono">7/7</span>
     </div><div class="phase-row">
       <span class="phase-name">Phase 6 — Intelligence &amp; Scale (optional)</span>
       <span class="phase-bar"><span class="phase-fill"></span></span>
@@ -3569,6 +3743,49 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
 <li><input checked disabled type="checkbox" /> <strong>No schema-version bump.</strong></li>
 </ul>
 <p><strong>Deferred (documented):</strong> the self-contained <strong><code>ui-artifact.ts</code> demo generator</strong> still describes the removed refraction/ambient/galaxy system (its own tests pass — it's a showcase, not the shipped UI) — tracked as a follow-up, not the spec-of-record.</p>
+<h2>Continuous Agents — sessions, conversations, mailbox, domains, supervision <em>(✓ 2026-07-20 — <code>feat/continuous-agents</code>, schema v15→v16)</em></h2>
+<blockquote>
+<p>K becomes a genuinely continuous agent and the org becomes conversable: hybrid warm/resumable
+<strong>sessions</strong> for every durable agent, ONE conversation per agent + a unified <strong>Messages</strong> surface,
+a priority <strong>mailbox</strong> with steering, first-class <strong>domains</strong> with always-on manager supervision,
+and K re-chartered as the primary engineering agent with read authority. Method: W0 shared
+contracts → three parallel worktree lanes (A sessions+K · B mailbox+UI · C domains+supervision) →
+integration + the interrupt spike → SEAMS reviews → docs → operator-gated live smokes. Decisions
+<strong>D-122..D-127</strong>.</p>
+</blockquote>
+<ul>
+<li><input checked disabled type="checkbox" /> <strong>Session layer (D-122).</strong> <code>agent_sessions</code> (live/resumable/stale) composing the D-014
+interactive park (warm path) with the D-062 <code>--resume</code> (cold path); <code>K_MAX_LIVE_SESSIONS</code> LRU cap,
+idle demotion, boot sweep; stable <code>&lt;dataDir&gt;/sessions/…</code> home dirs (§02).</li>
+<li><input checked disabled type="checkbox" /> <strong>Conversations for all + the Messages surface (D-123).</strong> <code>k_threads.profile_id</code>; K
+multi-thread, every other durable agent exactly one conversation; the unified Messages rail entry
+(unread cursors, session chip + ctx meter, per-segment batch bubbles, Personal→Chats fold-in) over
+a shared <code>ConversationView</code> (§08).</li>
+<li><input checked disabled type="checkbox" /> <strong>Mailbox + steering (D-124).</strong> <code>agent_messages</code> + the main-process relay (deliver-by-state:
+stdin now / boundary / wake; urgent = ONE interrupt nudge that only accelerates the boundary);
+tier-gated <code>message_agent</code>; relay-owned, escape-hardened provenance; report-backs + mgmt <code>report</code>
+land as messages in K's conversation, terminal reports de-duped against the dual-write (§04).</li>
+<li><input checked disabled type="checkbox" /> <strong>Domains + always-on supervision (D-125).</strong> <code>domains</code> registry + dynamic chief-tier managers
+(<code>POST /api/domains</code> with a manager block); launched work inherits <code>domain_id</code>; the domain
+supervisor briefs managers on events + heartbeat, governed per-manager (min-interval, rolling-hour
+cap, active-work-only) — core, NOT gated by the Autonomous Org master (§03, §13).</li>
+<li><input checked disabled type="checkbox" /> <strong>K primary-agent identity (D-126).</strong> Read authority (Read/Grep/Glob + read-only GitNexus),
+L0 → L1 role templates → L1.5 identity overlays → L2 layering, the keyword router demoted to a
+Dock preview, the mandatory K→Chief routing hop retired (§03).</li>
+<li><input checked disabled type="checkbox" /> <strong><code>runs.kind</code> bookkeeping (D-127).</strong> <code>chat-turn | job | pipeline-stage</code> + <code>session_id</code>; the
+Runs UI defaults to jobs + stages with a chat-turns toggle; budget-exemption + wake-relevance
+checks read <code>kind</code> (§13).</li>
+<li><input checked disabled type="checkbox" /> <strong>Schema v15→v16.</strong></li>
+</ul>
+<p><strong>Deferred (documented):</strong> <strong>steerable pipeline stages</strong> (<code>steerable:true</code> interactive-capable stage
+dispatch — the mailbox reaches stage <em>actors'</em> conversations today, not a running stage process);
+<strong>provenance-run rendering + queued/failed-row transcript rendering</strong> (needs a turns→messages join
+API and a queued-message read endpoint — the surface stays honest meanwhile via queued counts,
+post-send queued-notes, and non-silent failure notifications); <strong>turn-level delivery state</strong> (a
+failed WAKE leaves the pre-dispatch durable turn looking delivered — the failure itself is
+non-silent and the content re-enters the next establish's seed, but per-turn delivery honesty is a
+designed follow-on); carried from the orchestration program: the <strong>Phase 2.5 operator-worker
+materializer</strong>, pipeline <strong>event triggers</strong>, and <strong>intent → auto-pipeline-selection</strong> (~Phase 5).</p>
 <h2>Phase 6 — Intelligence &amp; Scale <em>(optional)</em></h2>
 <ul>
 <li><input disabled type="checkbox" /> EventBus → NATS/Redis Streams + worker processes</li>
@@ -3584,7 +3801,7 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
         <span class="section-icon">⚖</span>
         <h1>Decision Log</h1>
         <span class="badge badge-green">stable</span>
-        <span class="section-updated mono">updated 2026-07-16</span>
+        <span class="section-updated mono">updated 2026-07-20</span>
       </header>
       <p>Architectural decisions with reasoning, newest last. Agents: append, never rewrite history; superseded decisions get a <code>superseded-by</code> note rather than deletion.</p>
 <table>
@@ -3961,7 +4178,7 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
 <tr>
 <td>D-046</td>
 <td>2026-07-01</td>
-<td>K→Chief delegation + report-back — close the up/down chain (realizes D-023 delegation trigger, K-side)</td>
+<td>K→Chief delegation + report-back — close the up/down chain (realizes D-023 delegation trigger, K-side) <em>(the automatic routing hop retired-by D-126; report-backs ride the mailbox since D-124 — the traceability links stand)</em></td>
 <td><strong>Wire the K→Chief delegation hop in <code>askK</code> (<code>core/src/k-thread.ts</code>).</strong> When K's deterministic route escalates (the Chief, or a named discipline lead), K <strong>delegates instead of running the message itself</strong> — <code>startAgentRun('chief', { trigger:'delegation', goal })</code>, checked BEFORE the warm/cold branch so K's pure logistics/Q&amp;A path is unchanged. The goal is the operator's ask verbatim + (for a named-lead route) the discipline hint so the Chief can <code>assign_lead</code>. <strong>Report-back rides the run-lifecycle seam</strong>: <code>reportDelegationBack</code> (<code>trackSupervisedRun</code>) appends a <code>k</code> turn to the durable K thread on the Chief run's terminal, summarizing the Chief's latest <strong>mgmt <code>report</code></strong> (read run-scoped via the new read-only <code>mgmtDb.listReportsByRun</code>), falling back to the run's assistant text, then a status line. <strong>Traceability needs no new table/column</strong>: the delegation IS the <code>agent_runs.trigger='delegation'</code> row, and the parent→child link is recorded on the EXISTING <code>k_thread_turns.run_id</code> FK (K links the user turn + an acknowledgment turn to the Chief run), so the hop is derivable both directions. Rollback-on-throw holds (a dispatch failure propagates; the durable user turn stays). Scope is the K→Chief hop + report-back ONLY — Chief→lead <code>assign_lead</code> (P5.2a) and lead→PR stay downstream</td>
 <td>This is exit-criterion #3: an engineering request must actually FLOW K→Chief and report back, not just preview a route. Everything needed already existed — <code>startAgentRun</code> with a <code>delegation</code> trigger (P5.0/D-023), the mgmt <code>report</code> tool (P5.2a), and the run-lifecycle seam (F2) — so the hop is pure wiring over proven seams, no new subsystem. Recording the link on <code>k_thread_turns.run_id</code> (already an FK to <code>runs</code>) instead of a new <code>parent_run_id</code> column keeps the schema flat and honors "derive from the event/store stream, no new table"; the child's <code>trigger='delegation'</code> marker + the turn's <code>run_id</code> make the chain derivable without one. Landing the outcome on the SAME durable thread the operator asked on — over the existing thread + event stream — means no bespoke report channel, and the self-wake guard already prevents the delegated Chief run's terminal from re-waking the Chief</td>
 <td>(a) a dedicated <code>delegations</code>/<code>parent_run_id</code> table or column (rejected — the <code>agent_runs.trigger='delegation'</code> row + <code>k_thread_turns.run_id</code> FK already make the link derivable; a new table/column would duplicate + drift); (b) K running the message itself AND delegating (rejected — double dispatch + interleaved report turns; delegate-instead is simpler and matches "K, the friendly face, does no engineering"); (c) a bespoke report-back channel (rejected — reuse the thread + EventBus + mgmt <code>report</code>, no new seam); (d) reading K's own assistant events for the outcome as the primary source (rejected — the mgmt <code>report</code> is the deliberate "status up the chain"; assistant text is only the fallback); (e) wiring the full K→Chief→lead→PR loop in one commit (rejected — exceeds one reviewable brick; the Chief→lead dispatch + lead PR stay downstream follow-ups)</td>
@@ -4049,7 +4266,7 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
 <tr>
 <td>D-057</td>
 <td>2026-07-02</td>
-<td>Chief wake governor (P5.7 B2)</td>
+<td>Chief wake governor (P5.7 B2) <em>(the classifier-as-the-server's-delegation-decision clause superseded-by D-126 — the classifier is a Dock preview only)</em></td>
 <td><strong>Event wakes are code-governed, not prompt-governed.</strong> (a) <strong>Org-relevance filter</strong>: only a terminal run owned by a lead (orchestrator-tier profile) or a <code>trigger='delegation'</code> activation wakes the Chief — plain runs, evals, skills, and K-chat terminals never do; (b) a <strong>rolling-hour rate breaker</strong> from <code>app_config</code> <strong><code>chief_wake_max_per_hour</code> (default 6)</strong> — a suppressed wake creates NO ledger row (warn once per suppression streak); (c) a <strong>kill switch <code>chief_wake_events_enabled</code></strong> ('1' default) gating the event path only, cron unaffected. Alongside, <strong>K's routing gives logistics-intent messages PRECEDENCE over embedded engineering keywords</strong> (<code>routeForMessage</code> runs the logistics rules first — "remind me to fix the fence" stays with K), with <strong>under-escalation chosen as the cheap failure</strong>; and the classifier is now documented as the server's actual delegation decision (<code>askK</code> delegates on <code>route.escalates</code>), not merely a preview</td>
 <td>Every wake is a PAID Chief activation that can itself dispatch a lead — the wake→dispatch→lead-terminal→wake cycle had no hard cost bound and any terminal run (including K chat) could trigger it; filtering to org-relevant terminals + a rolling-hour cap + an operator kill switch bounds the spend by code; on routing, a false escalation spins up the paid Chief machinery for a grocery note while under-escalation is a cheap re-ask, so the precedence trade-off goes to logistics</td>
 <td>Prompt-only wake discipline (unenforceable — the D-021 argument again); a wake ledger row per suppression (noise that dwarfs the real history); capping the cron path too (the schedule tick is the deliberate heartbeat); engineering-keyword precedence in routing (auto-escalates "remind me to fix the fence" — the expensive failure direction)</td>
@@ -4089,7 +4306,7 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
 <tr>
 <td>D-062</td>
 <td>2026-07-04</td>
-<td>K secretary lifecycle — resumable one-shot runs <em>(supersedes the D-023/D-042 warm/fresh hybrid FOR K)</em></td>
+<td>K secretary lifecycle — resumable one-shot runs <em>(supersedes the D-023/D-042 warm/fresh hybrid FOR K; the one-shot-ONLY posture superseded-by D-122 — resume stays as the session layer's cold path)</em></td>
 <td><strong>A K ask is a RESUMABLE ONE-SHOT run, not a parked interactive process.</strong> Each K thread owns a stable Claude CLI session — <code>--session-id &lt;uuid&gt;</code> on the FIRST ask (seeded with the full <code>renderSeed</code> transcript), <code>--resume &lt;id&gt;</code> on every LATER ask sending <strong>only the new message</strong> — plus a stable per-thread config dir + cwd under <code>&lt;dataDir&gt;/k-secretary/&lt;threadId&gt;/</code> (<strong>no worktree</strong> — K writes no code). A cold ask no longer re-pays the ~24k system-prompt + MCP-tool-schema envelope or replays the 12-turn transcript; continuity is a cheap cache-read of the resumed CLI session, while the durable <code>k_threads</code>/<code>k_thread_turns</code> stays the <strong>source of truth</strong>. The run ANSWERS AND EXITS (<code>done</code>) — it never parks at <code>awaiting_input</code> holding a live process + worktree (fixes F-054 cost/park; subsumes H10 self-terminate). <code>cli_session_id</code> persists ONLY on the first ask's successful <code>done</code> (<code>SCHEMA_VERSION 5→6</code>); undo (<code>undoK</code> / <code>POST /api/k/undo</code>) removes the dangling user turn so an undone ask is never replayed (guarded against a late kill-flush resurrecting it). <strong>GATED to <code>k-secretary</code>:</strong> regular dispatch runs are byte-for-byte unchanged (fresh worktree, ephemeral config, interactive HITL park). <code>askK</code>'s <code>warm</code> flag is kept for API compatibility but is now always false; the <code>awaiting_input</code> branch remains only as belt-and-suspenders for any interactive reuse</td>
 <td>The D-023/D-042 hybrid kept a warm interactive process while chatting and re-seeded a fresh run when cold — but a parked K run held a live CLI process + worktree indefinitely (the F-054 cost/leak, the H10 self-terminate), and each cold re-seed re-paid the whole prompt/tool envelope AND replayed the transcript (a cost explosion on every ask). A resumable one-shot gets continuity AND boundedness for free: the CLI's own resumed session carries context cheaply, the durable thread survives reload/reset, and the run exits instead of squatting a process. Only K's lifetime changed — regular dispatch keeps interactive parking</td>
 <td>Holding a warm interactive K process (the D-023/D-042 model — the leak/cost bug this fixes); re-seeding a fresh run per cold ask (re-pays the envelope + replays the transcript — the cost explosion); giving K a worktree (it writes no code); dropping the durable thread in favor of the CLI session (the session is a cache, not the truth — reload/reset must recover from the thread); parking at <code>awaiting_input</code> (a one-shot has a single terminal boundary — the branch stays only for interactive reuse)</td>
@@ -4457,7 +4674,7 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
 <tr>
 <td>D-108</td>
 <td>2026-07-13</td>
-<td>The master gates the whole stack; the budget governor is the always-on exception</td>
+<td>The master gates the whole stack; the budget governor is the always-on exception <em>(autonomy boundary amended-by D-125 — domain supervision is core, not master-gated; the master still gates self-generated work)</em></td>
 <td><strong><code>autonomySettings().enabled</code> (default false) gates ALL FOUR autonomous behaviors — chief auto-wake, proposal collectors (<code>&amp;&amp; proposals</code>), backlog auto-pull (<code>&amp;&amp; backlogAutoPull</code>), self-heal (<code>&amp;&amp; selfHeal</code>); each sub-toggle additionally requires <code>enabled</code>. The budget governor is the ONE exception: a safety cap that applies to manual AND autonomous dispatches even while autonomy is OFF, once a cap is set.</strong></td>
 <td>A single on/off front door the operator configures once is the honest model — a fresh DB with the master OFF does nothing autonomous. The budget cap is a <em>safety limit</em>, not an autonomous behavior, so gating it behind the master would let turning autonomy off silently disable the operator's own spend cap.</td>
 <td>Per-behavior independent enables with no master (no single front door — the exact fragmentation the directive rejected); gating the budget cap behind the master too (a safety cap that vanishes when autonomy is off is a footgun).</td>
@@ -4489,7 +4706,7 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
 <tr>
 <td>D-112</td>
 <td>2026-07-13</td>
-<td>Budget park = reactive refuse-with-reason, measured rolling-24h, zero forecasting (+ deferred operator-action routes)</td>
+<td>Budget park = reactive refuse-with-reason, measured rolling-24h, zero forecasting (+ deferred operator-action routes) <em>(the <code>delegateToChief</code> gated path retired-by D-126; the interactive-K exemption is restated as the <code>kind='chat-turn'</code> exemption — D-127)</em></td>
 <td><strong>E-17 caps on MEASURED <code>runs.cost_usd</code> over a rolling 24h window — ZERO forecasting (no price×token, no projection). Org cap (autonomy settings) + per-project caps (<code>projects.budget_daily_usd</code>). At cap a dispatch is PARKED = refused-with-reason (<code>429</code> / <code>BudgetCapError</code>), no queue — the operator raises the cap. Gated paths: <code>startAgentRun</code> (autonomous schedule/event/delegation), manual <code>POST /api/runs</code> (→429), operator→Chief <code>delegateToChief</code> (→429), and autonomous scheduled/event skill dispatch. EXEMPT: interactive/persistent K turns.</strong> <em>2026-07-14 (P5-FU-1): the park now ALSO gates the operator action routes — rewind, review-fix, deep-verify, workflow dispatch, run-skill-now — with the same 429 payload (<code>sendBudgetCapped</code>); the interactive-K exemption is unchanged and now the only one.</em></td>
 <td>Measured-only honors the program's no-price-coupling rule (the committed no-price-tables grep gate stays green); a reactive refuse-with-reason is simpler and truer than a queue or a projection; exempting interactive K keeps the operator's own conversation with their secretary unblocked. Operator-initiated action routes (rewind / review-fix / deep-verify / workflows / run-skill-now) are a <strong>tracked follow-up</strong>, documented honestly rather than claimed.</td>
 <td>Forecasting / "projected" spend (price-coupled, banned); a queue that runs the parked work later (hidden deferred spend); gating interactive K (blocks the operator talking to their own secretary).</td>
@@ -4573,6 +4790,54 @@ wave; a full §12 rewrite is deferred); a pre-existing latent <code>/^routes\s*/
 <td><strong>A usability + access-control wave on <code>feat/usability-access-p2-6</code>, built W0 shared-contract foundation → three lanes (serial on one branch, per-lane spec+quality reviewed) → integration → two opus SEAMS (correctness + security), with NO SCHEMA-VERSION BUMP (the background preference rides <code>app_config</code> key <code>ui.background</code>; the Access matrix reads existing tables; the model list is a query-time aggregate). <strong>Lane A</strong> rewrites <code>PipelineGraph.tsx</code> onto <code>@xyflow/react</code> v12 + <code>@dagrejs/dagre</code> (a pure, sync <code>layoutPipeline</code> in <code>lib/pipeline-layout.ts</code> — <code>rankdir:'LR'</code>, drops <code>from:null</code> entry edges, keeps loop back-edges retargeted, maps <code>to:'done'</code>→a <code>'__done__'</code> sink) as an INTERACTIVE READ-ONLY VIEWER (pan/zoom/minimap/controls, ephemeral drag-reposition — not persisted), preserving the exact <code>PipelineRunView</code> data contract and live <code>['pipeline-run', runId]</code> query cache (no new WS plumbing); custom <code>PipelineStageNode</code> (status dot, gate pill, cost/attempt) is a keyboard-activable <code>role=button</code> (Enter/Space → <code>onSelect</code>, single tab-stop via <code>focusable:false</code>), and pass-edge marching-ants animation is frozen under <code>prefers-reduced-motion</code>. <strong>Lane B</strong> replaces the single always-on <code>&lt;Ambient/&gt;</code> with one route-agnostic <code>&lt;Background variant&gt;</code> at Shell z-0 (so glass has something to refract): <code>galaxy</code> (default) is a lightweight <code>&lt;canvas&gt;</code> starfield (<code>lib/starfield.ts</code>, rAF loop; a single static draw under <code>prefersReducedMotion()</code>; rAF + ResizeObserver cleaned up on unmount and variant change), plus <code>aurora</code> (CSS gradient wash), <code>blobs</code> (the retained <code>&lt;Ambient/&gt;</code>), <code>solid</code>; the variant is an app-wide preference (<code>GET/PUT /api/settings/background</code>, Zod-enum-guarded) with a Settings→Appearance picker; all four variants share one <code>data-testid="app-background"</code>+<code>data-variant</code> contract and are <code>aria-hidden</code>. The home chat rail + transcript are glassed (<code>glass-panel</code>, blur budget = 5, composer left solid), and the pointer-tracking <code>useGlassPointer</code> sheen (the <code>--lg-mx</code>/<code>--lg-my</code> radial) is DELETED in favor of a static <code>.glass-interactive:hover</code> sheen + <code>brightness(1.04)</code> lift (the <code>--lg-sheen</code> token is retained/reused). <strong>Lane C</strong> adds a unified available-models aggregate (<code>core/src/models.ts</code> <code>resolveAvailableModels</code> = Claude <code>KNOWN_MODELS</code> ∪ installed Ollama via <code>listInstalled()</code>, degrading to Claude-only + <code>localDegraded:true</code> when Ollama is unreachable — never a 500) at <code>GET /api/models/available</code>; relaxes per-agent model validation from <code>isKnownModel</code> to membership in that available set across <code>orchestrators</code>/<code>org-default</code>/<code>sub-agents</code> routes (<code>''</code>→<code>null</code> clear-override preserved, ids validated against a set and never shell-interpolated); makes the orchestrator page's previously-read-only model an editable default-model <code>&lt;Select&gt;</code> and re-sources the sub-agent editor's existing model Select from <code>KNOWN_MODELS</code> to the unified available-models list (the editor also swaps its skills/MCP chip fields for catalog-backed <code>CapabilityPicker</code>s); and adds a 4th Agents-hub tab <strong>Access</strong> (<code>AccessPage.tsx</code>) — a who-has-what matrix (orchestrator leads + sub-agent workers — K-native read-only + operator editable — × model/tools/skills/MCP) with expandable inline catalog-backed editing (patching through the same validated <code>api.orchestrators.update</code>/<code>api.subAgents.update</code> endpoints; K-native workers read-only) and a prominent <strong>Auto-index</strong> (capability rescan) button. The load-bearing security piece — <strong>the D-121 ceiling gate</strong> — closes the prior gap where sub-agent worker grants had NO validation: <code>POST</code>/<code>PATCH /api/sub-agents</code> now validate the resolved <code>{allowedTools,mcpServers,skills}</code> with <code>assertEffectiveGrants(WORKER_CEILING_TIER='orchestrator', …)</code> (<code>GrantError</code>→400), PATCH merging the patch arrays over the CURRENT row and validating the FULL merged set (a two-step smuggle can't slip a grant past an untouched field) then persisting EXACTLY those validated arrays; a K-native (read-only) worker is skipped by the gate and returns the canonical 403, not a misleading ceiling-400.</strong></td>
 <td>Six real usability gaps + one security gap, addressed without a schema bump because none needs new persisted state. The hand-laid SVG pipeline diagram couldn't pan/zoom/minimap a large DAG; React Flow as a read-only VIEWER (not a persistence-backed structural editor) gives n8n-style navigation while keeping the definition the source of truth and the live-status cache untouched. Backgrounds are a single Shell-z0 layer (not per-page) so every glass surface refracts the same backdrop and there is one lifecycle to manage; a lightweight canvas starfield frozen under reduced-motion avoids a WebGL dependency and honors the motion budget. Merging Claude + installed-Ollama into one available-models list (degrading gracefully) lets any agent/worker take a local model as its default without a 500 when Ollama is down. The Access console makes the already-existing per-agent allow-lists + authority ceiling + rescan legible in one who-has-what surface — but the SERVER remains the authorization boundary (the console only calls validated endpoints). Most critically, sub-agent workers ran INSIDE an orchestrator's authority yet had NO grant validation — an operator could author a worker whose tools/skills/MCP exceeded the orchestrator ceiling; validating at the orchestrator tier (merge-then-validate, persist-what-you-validated) fail-closes that hole, and the two opus SEAMS (security verdict: SOUND — two-step-smuggle and over-ceiling defeated on create/patch/clone) is the bar the access-control surface earned.</td>
 <td>React Flow as a full persistence-backed structural editor (out of scope — drag is ephemeral; the definition, not a saved layout, is canonical); a SCHEMA_VERSION bump for the background preference (unnecessary — <code>app_config</code> already stores UI prefs like home layout); per-page background components (n lifecycles, and glass on a page with no backdrop looks broken — one Shell-z0 layer instead); a WebGL/AFRAME galaxy (heavier + the prior react-force-graph blank-canvas gotcha class — a 2D canvas frozen under reduced-motion suffices); restricting model defaults to Claude <code>KNOWN_MODELS</code> only (the whole point is to also use installed local models); leaving sub-agent worker grants UNVALIDATED (the status quo — a real privilege-escalation gap the D-121 gate closes); returning a ceiling-400 for a read-only K-native worker patch (misleads a client into "fix your payload and retry" when the target can never be edited — the canonical 403 is correct).</td>
+</tr>
+<tr>
+<td>D-122</td>
+<td>2026-07-17</td>
+<td>Session layer — hybrid warm/resumable runtime for every durable agent <em>(supersedes D-062's one-shot-ONLY posture; resume kept as the cold path)</em></td>
+<td><strong><code>agent_sessions</code> is a new core primitive: one row per (profile, conversation thread) with <code>cli_session_id</code>, a stable <code>home_dir</code> under <code>&lt;dataDir&gt;/sessions/&lt;profileId&gt;/&lt;threadId&gt;/</code> (never a worktree — <code>--resume</code> is cwd-bound, D-074), and a <code>live | resumable | stale</code> state machine. <code>live</code> = an interactive claude process parked <code>awaiting_input</code> between turns (the D-014 machinery, reused) — messages inject via stdin in real time; <code>resumable</code> = no process, the next message spawns <code>--resume &lt;cli_session_id&gt;</code> (the D-062 machinery, reused as the cold path); <code>stale</code> = resume impossible, the next message visibly reseeds from durable turns. Live sessions are capped (<code>K_MAX_LIVE_SESSIONS</code>, default 3, graceful LRU demotion); an idle timer (<code>K_SESSION_IDLE_MS</code>, default 10 min) and a boot sweep demote live→resumable; live-process death demotes to resumable, a rejected resume to stale. <code>cli_session_id</code> persists at the CLI's INIT event (not only on a clean <code>done</code>), so an errored turn keeps continuity. <code>askK</code> resolves thread → <code>ensureSession</code> → <code>sendToSession</code>; the same engine serves every durable profile's conversation.</strong></td>
+<td>The product intent — K as a persistent, Claude-Code-grade engineering agent — was under-served by answer-and-exit one-shots: no instant replies, no real-time steering, a cold-resume tax on every turn of an active conversation. The hybrid buys warmth exactly while a conversation is active and demotes to the proven cheap path the moment it isn't; every mechanism (interactive park, idle timer, <code>--resume</code>, seed replay) is reused, not invented, and durable turns remain the source of truth at every state.</td>
+<td>A single always-on process per agent (leaks, restart-fragile, unbounded cost — the D-023 rejection still holds); staying one-shot-only (cold latency + no mid-turn steering — the D-062 posture this supersedes); a bespoke chat runtime outside the supervisor (re-implements the D-014 machinery).</td>
+</tr>
+<tr>
+<td>D-123</td>
+<td>2026-07-17</td>
+<td>Conversations for every durable agent + the unified Messages surface</td>
+<td><strong><code>k_threads</code> gains <code>profile_id</code> (default <code>k-secretary</code>) and <code>last_read_at</code> — a thread is now a conversation for ANY profile over the unchanged threads/turns machinery. K keeps multi-thread; every other durable agent gets exactly ONE auto-created conversation (<code>getOrCreateConversation</code>). A new 7th rail destination, Messages (<code>#/messages</code>, chord <code>g m</code>), lists every conversation — K threads first — with unread badges (cursor-based; the operator's own delivered messages never badge), a session-state chip + context meter, per-segment sender bubbles for batched deliveries, and report-backs rendered as messages FROM that agent; transcripts render via a shared <code>ConversationView</code> extracted from <code>ChatView</code> (Home Chat, agent detail pages, and Messages are one component). Personal → Chats folds in (<code>#/personal/chats</code> redirects; thread management moves over intact).</strong></td>
+<td>The Chief and leads had NO conversations — amnesiac activations seeded from goal strings — while the entire thread/turn/transcript machinery already existed for K; one added column generalizes it to the whole org for near-zero new surface. One-conversation-per-agent keeps the mental model simple (an agent is a colleague with one ongoing chat), and a single Messages surface makes report-backs legible where they land instead of scattered across bespoke views.</td>
+<td>A new per-agent conversation table (duplicates <code>k_threads</code> wholesale); multi-thread for every agent (no use case — only the operator-facing K needs parallel topics); leaving agent transcripts embedded-only on detail pages (no unified unread/inbox view — the surface the wave exists to provide).</td>
+</tr>
+<tr>
+<td>D-124</td>
+<td>2026-07-17</td>
+<td>Mailbox + tier-gated <code>message_agent</code> + priority delivery <em>(urgent = interrupt NUDGE + boundary; the relay is main-process)</em></td>
+<td><strong><code>agent_messages</code> (to-profile + optional to-thread, from <code>user|profile</code>, body, priority <code>normal|urgent</code>, <code>provenance_run_id</code>, status <code>queued|delivered|failed</code>) is a DB queue drained by a main-process relay (2 s tick; <code>MESSAGE_RELAY=0</code> opt-out — with it off, report-backs/briefings strand as queued rows). Delivery is by target-session state: live+parked → stdin NOW; live mid-turn → next turn boundary, where an urgent row additionally fires ONE control-protocol interrupt NUDGE (<code>sendInterrupt</code>, per-run cooldown, <code>K_URGENT_INTERRUPT=0</code> kill switch) that only ACCELERATES the boundary — the nudge never delivers, so an interrupt-less CLI degrades structurally to boundary delivery; idle → wake the session with the conversation's queued messages batched. Failure → row <code>failed</code> + an un-silenceable notification, never silent. <code>message_agent</code> (kstore, every tier) is gated by a pure matrix — K → anyone; manager → its domains' members + K; orchestrator → its manager + its running stages' actors; self-send DENIED — with the sender resolved from the calling run, never the payload. Delivered messages embed as provenance-tagged transcript blocks with relay-side escaping of lookalike tags, so a body cannot forge another sender. Report-backs (chief delegation outcomes, lead continuations, pipeline terminals) and mgmt <code>report</code> all queue through the mailbox into K's conversation; the terminal report-back de-dupes against the report tool's real-time dual-write.</strong></td>
+<td>Running work could only be killed, never steered; report-backs were bespoke turn-appends invisible outside K's thread. A DB queue + state-routed delivery reuses the lead-relay shape (CAS claim, main-process drain — the session engine's in-memory attachments make delivery a main-process concern by construction); making the interrupt a nudge rather than a delivery channel means CLI interrupt support changes latency, never correctness; the tier matrix + unforgeable sender + escaping keep agent→agent speech attributable, and self-send denial is what keeps the supervisor's self-addressed briefing discriminator unforgeable (D-125).</td>
+<td>Direct in-process delivery from the mgmt stdio child (dies with the child — the D-050 lesson); urgent-as-hard-interrupt with a fallback branch (a structural boundary degrade is honest; a kill-and-replan channel is a footgun); re-checking <code>mayMessage</code> at delivery time (would block the supervisor's self-addressed briefings — the boundary gate is the correct single enforcement point); trusting a sender field in the payload (forgeable).</td>
+</tr>
+<tr>
+<td>D-125</td>
+<td>2026-07-17</td>
+<td>Domains registry + the manager role + always-on supervision <em>(amends D-108's autonomy boundary)</em></td>
+<td><strong><code>domains</code> is a first-class registry row (name, description, <code>manager_profile_id</code> — chief-tier-guarded on assignment); orchestrator profiles and pipeline defs carry <code>domain_id</code>, and launched work inherits it at dispatch, so a manager's oversight auto-attaches to everything running in its domain regardless of who launched it. <code>POST /api/domains</code> with a <code>manager</code> block creates the domain + a chief-tier manager profile in one call — dynamic managers are configuration, not code. <code>domain-supervisor.ts</code> (chief-wake-shaped, main-process, <code>DOMAIN_SUPERVISOR=0</code> opt-out) subscribes stage terminals / gate parks / failures / budget warnings + a <code>*/15</code> heartbeat that fires ONLY while the domain has active work, builds a briefing (progress-ledger delta since last wake, open gates, failures, budget state — capped) and queues it as a SELF-ADDRESSED message (to == from == manager; gate events urgent) delivered into the manager's conversation. Governed per-manager: min-interval debounce (urgent does NOT bypass it), rolling-hour cap (<code>domain_wake_max_per_hour</code>, default 6; <code>0</code> = hard off), suppressed wakes write NOTHING. The briefing discriminator is unforgeable because the supervisor's internal queue path is its sole author — <code>message_agent</code> denies self-send and mgmt <code>steer</code> denies self-steering. AMENDS D-108: supervision is CORE, always on — gated by the wake governor + caps only, NOT the Autonomous Org master, which still gates self-generated work (proposals, backlog auto-pull) unchanged.</strong></td>
+<td>Oversight that only exists when a default-OFF master is flipped is not oversight — gates parked, stages failed, and budgets burned regardless; the operator accepted paid supervision outside the autonomy switch with three guards (active-work-only wakes, the governor, caps). Domains-as-rows make attribution automatic and managers growable by dialog (a Research manager is a row + an overlay, no deploy); the manager keyed governor + self-addressed discriminator bound the spend and make forged or DoS-ing briefings structurally impossible (SEAMS-verified triangle: tool self-send denial + steer self-ban + supervisor-as-sole-writer).</td>
+<td>Gating supervision behind the Autonomous Org master (an unsupervised org whenever the switch is off — the boundary this amends); a manager tier (the chief tier already IS the manager ceiling — a new tier would fork every allowlist); urgent gate events bypassing the debounce (unbounded spend under a gate storm; the heartbeat re-surfaces open gates); ledger rows for suppressed wakes (noise dwarfing the real history — the chief-wake posture holds).</td>
+</tr>
+<tr>
+<td>D-126</td>
+<td>2026-07-17</td>
+<td>K = primary agent: engineering identity, read authority, in-context routing <em>(supersedes D-057's classifier-as-decision; retires D-046's mandatory K→Chief hop)</em></td>
+<td><strong>K's charter is rewritten as a top-tier engineering agent + harness expert on the new role layering (L0 base → L1 role template — the tier charters rewritten as primary/manager/orchestrator templates via <code>roleForTier()</code> — → L1.5 per-profile <code>identity_overlay</code>, operator-editable, <code>''</code> silences a seed / <code>NULL</code> reseeds, empty-overlay synthesis byte-identical → L2 project). K's authority becomes READ + ANALYZE: <code>Read</code>/<code>Grep</code>/<code>Glob</code> on the secretary allowlist + the gitnexus MCP server mounted read-only (chief precedent; the charter explicitly forbids the server's write-capable <code>rename</code>/<code>group_sync</code>); NO Write/Edit/Bash/Task — every mutation stays a delegated run/pipeline. The keyword router (<code>routeForMessage</code>) is DEMOTED to a Dock preview chip; the <code>route.escalates → delegateToChief</code> auto-delegation branch is DELETED — K decides in-context per message (answer, read tools, <code>delegate_pipeline</code>, <code>message_agent</code>), and <code>forceRoute</code> becomes a mailbox send. Authority tiers themselves are untouched — the role drives prompts/UX only.</strong></td>
+<td>K's differentiator is the harness, and a harness expert that cannot read the code it manages answers from hearsay; read tools + delegated writes keep the Trust Core audit trail intact while making answers evidence-based. A keyword classifier deciding delegation was the wrong brain in the loop — deterministic string-matching overruling an LLM that can actually read the request; demoting it to a preview keeps the UX affordance and returns the decision to K. The mandatory K→Chief hop made every engineering ask pay a Chief activation even when K could delegate a pipeline directly; managers now oversee (D-125) rather than gatekeep.</td>
+<td>Giving K write tools (collapses the delegate-writes audit boundary); keeping the classifier as the decision (D-057's clause — deterministic keywords overruling in-context judgment); keeping the mandatory Chief hop (a paid middleman on every ask; oversight is the manager's job now, not routing); per-tool gitnexus narrowing in this wave (the server-level grant is exact chief parity — carried to review as a program-level policy call rather than relitigated mid-lane).</td>
+</tr>
+<tr>
+<td>D-127</td>
+<td>2026-07-17</td>
+<td><code>runs.kind</code> bookkeeping — chat turns stop being top-level jobs</td>
+<td><strong><code>runs.kind ∈ chat-turn | job | pipeline-stage</code> + <code>runs.session_id</code>, stamped by trusted in-process code at dispatch (<code>persistentSession</code> → <code>chat-turn</code>; the pipeline executor → <code>pipeline-stage</code>; default <code>job</code>) with a one-shot v16 backfill of historical rows. The Runs surface defaults to <code>job</code> + <code>pipeline-stage</code> with a "show chat turns" toggle — conversation turns belong to their conversations (§08 Messages). Policy reads <code>kind</code>: the budget governor's chat-exemption and the wake governor's org-relevance filter switch from K-shaped special cases to <code>kind === 'chat-turn'</code> (a strictly stricter restatement — the gating truth-table is identical for every pre-existing caller); <code>GET /api/runs</code> gains a <code>kind</code> filter (enum-validated, deduped).</strong></td>
+<td>Chat turns as top-level runs polluted every runs surface and forced budget/wake logic onto brittle profile-id special cases; one explicit discriminator makes "is this a conversation?" a stored fact rather than an inference, so UI filters, budget exemption, and wake relevance all read the same truth. Kind is unreachable from HTTP/MCP/queue input, so the exemption cannot be smuggled onto a paid dispatch.</td>
+<td>Inferring kind from trigger strings at read time (trigger semantics drifted — the mailbox dispatches profile sends as <code>'delegation'</code>); a separate chat-runs table (forks the run lifecycle every consumer rides); exposing <code>kind</code> on dispatch APIs (an exemption-smuggling surface — trusted in-process stamping only).</td>
 </tr>
 </tbody></table>
 
@@ -5236,11 +5501,13 @@ flag for K's hybrid idle-timeout.</p>
         <span class="section-icon">❔</span>
         <h1>User Guide</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-13</span>
+        <span class="section-updated mono">updated 2026-07-20</span>
       </header>
-      <p>The mental model is <strong>you direct an agent organization</strong>: you talk to <strong>K</strong> (a friendly secretary),
-K handles logistics and hands engineering work to the <strong>Chief</strong>, and the Chief staffs it to
-<strong>staff-engineer leads</strong> who do the coding (§03). The org tiers, the K-home chat, and the
+      <p>The mental model is <strong>you direct an agent organization</strong>: you talk to <strong>K</strong> — a genuine engineering
+agent that <strong>reads and analyzes code directly but never edits it</strong> (every change happens in a
+delegated, auditable run or pipeline) — and K delegates real work to pipelines, orchestrator leads,
+or a <strong>domain manager</strong> (the Chief is the built-in Engineering manager) who supervises everything
+running in its domain (§03). The org tiers, the K-home chat, and the
 Direct/Observe IA <strong>shipped with Phase 5</strong> (§03, §08) — this guide covers the day-to-day basics
 (dispatching runs, projects, verification, the graph) and notes where the org reshapes them.
 It mirrors the README quick-start and stays consistent with §08 (Dashboard) and §11 (Operations) —
@@ -5456,6 +5723,49 @@ chart show what the autonomy is spending and how often it is self-correcting.</l
 <p>Two honest limits worth knowing: a project-scoped proposal is <strong>one-shot per project</strong> (once it
 exists in any state, a later recurrence won't re-appear until the row clears), and an Inbox <strong>dismiss
 has no undo</strong>. Both are deliberate for this first, default-OFF cut.</p>
+<h2>Messaging your agents (the Messages surface)</h2>
+<p><strong>Messages</strong> in the sidebar (<code>g m</code>) is every conversation in one place: your K threads first, then
+one ongoing conversation per durable agent — each manager and each lead. Open any conversation and
+type: you can message <strong>any</strong> agent directly, not just K. Unread counts clear as you read a
+conversation; your own sent messages never show as unread.</p>
+<ul>
+<li><strong>Normal vs urgent.</strong> A normal message is delivered at the agent's <strong>next stopping point</strong> —
+immediately if it is idle or waiting between turns, otherwise when its current turn ends.
+<strong>Urgent</strong> does the same <em>plus</em> a nudge asking the agent to wrap up its current turn early — so it
+lands sooner where the CLI supports interrupts, and at the natural stopping point where it
+doesn't. Urgent never kills work in flight; if a message truly can't be delivered you get a
+notification, never silence.</li>
+<li><strong>Where results land now.</strong> When you delegate work — or a pipeline finishes, or a manager files a
+report — the outcome arrives as a <strong>message from that agent</strong>: delegated outcomes come back to
+the K thread where you asked, and each agent's own conversation shows what it sent and received.
+You see who said it, not an anonymous status line.</li>
+<li><strong>K threads are managed here.</strong> Rename, archive, and delete moved to Messages from Personal →
+Chats (old links redirect). Agent detail pages also embed that agent's conversation, so you can
+talk to a lead straight from its page.</li>
+<li>Each conversation shows whether the agent is <strong>live</strong> (a warm process, instant replies) or
+<strong>resumable</strong> (it wakes on your next message — same memory, a beat slower), plus its context
+meter. You never have to manage this; sessions warm up and wind down on their own.</li>
+</ul>
+<h2>Domains &amp; managers</h2>
+<p>Agents are organized into <strong>domains</strong>, each overseen by a <strong>manager</strong> (the Chief is the built-in
+Engineering manager). A manager automatically supervises everything running in its domain — you
+don't wire anything up, and it stays on even with the Autonomous Org master off (only budget and
+rate caps govern it).</p>
+<ul>
+<li><strong>Create a domain</strong> from Agents → Org → Domains: the create dialog takes the domain's name plus a
+manager name and identity, and creates both in one step — a "Research" domain with its own
+manager is a dialog, not a code change.</li>
+<li><strong>Identity overlays.</strong> Every agent has an editable identity block (its "who am I", layered on top
+of its role charter). Edit a manager's from the Domains panel, a lead's from its detail page.
+Clearing the text silences the built-in seed identity.</li>
+<li><strong>Briefings.</strong> A manager's conversation shows its supervision at work: when stages finish, gates
+park, runs fail, or budgets warn, the manager wakes with a <strong>briefing</strong> — a message headed
+<strong><code>[domain briefing · &lt;domain&gt; · &lt;event&gt;]</code></strong> summarizing what changed since it last looked,
+urgent when a gate needs a decision. The manager acts through its tools — <strong>approve or reject the
+gate</strong>, steer an agent, or <code>report</code> to you — and that report lands in your K conversation.
+Briefings are rate-capped per manager and fire only while the domain has active work, so silence
+means nothing is running, not that supervision is off.</li>
+</ul>
 <h2>Troubleshooting</h2>
 <p>Most first-run hiccups (dashboard errors on first load, <code>EADDRINUSE</code> port conflicts, SQLite "database is locked", stale worktrees after a crash) are covered in the <strong>README Troubleshooting</strong> section and, in depth, in <strong>§11 Operations</strong>. Start there.</p>
 
@@ -5466,7 +5776,7 @@ has no undo</strong>. Both are deliberate for this first, default-OFF cut.</p>
         <span class="section-icon">👁</span>
         <h1>Observability</h1>
         <span class="badge badge-accent">active</span>
-        <span class="section-updated mono">updated 2026-07-14</span>
+        <span class="section-updated mono">updated 2026-07-20</span>
       </header>
       <p>Phase 4's Track D makes the harness <strong>observable</strong>: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard <em>surfaces</em> it powers. The <em>Implementation history</em> appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.</p>
 <h2>Event-data enrichment foundation (D3, D-015)</h2>
@@ -5553,8 +5863,11 @@ wraps the existing Chief subtree (<code>orgToDelegationTree</code>, unchanged) u
 (arbitrary depth) the Chief page already renders. The <strong>K→Chief edge</strong> is a pure derivation from the
 existing links, <strong>no new table</strong>: <code>ChiefOrgPayload.kDelegations</code> counts the Chief's
 <strong>successful</strong> <code>trigger='delegation'</code> activations — <code>failed</code> rows are excluded since P5.7, a
-documented undercount of raw attempts (every counted one is a K hand-up — <code>delegateToChief</code> is the
-only path that sets the trigger; autonomous wakes use <code>schedule</code>/<code>event</code>). K's node rides the chain
+documented undercount of raw attempts (in the P5 era every counted one was a K hand-up — the
+now-retired <code>delegateToChief</code> branch was the only path that set the trigger, D-126; autonomous
+wakes use <code>schedule</code>/<code>event</code>, and since the mailbox landed a profile-sent conversation wake also
+dispatches <code>trigger='delegation'</code>, so the count is an era-mixed derivation, not a live routing
+surface). K's node rides the chain
 (running while the Chief subtree is active); the user root is the operator anchor. So the full
 chain is VISIBLE end to end on the one batched <code>GET /api/chief/org</code> read (whose live-leads count
 is the server-authoritative <code>leadsActive</code> — the client no longer re-derives it).</li>
@@ -5576,6 +5889,13 @@ event, so you can trace <em>why</em> a profile's memory changed back to the run 
 its result reports back up to K, and every tier — user, K, Chief, each lead, each sub-agent — is
 visible in one derived multi-tier tree over the same enrichment foundation, pairing helpers, and
 single-wire EventBus. No new table was added at any hop; the whole chain stays a derivation.</p>
+<blockquote>
+<p><strong>Since the Continuous Agents wave (D-124/D-126):</strong> the automatic K→Chief hop that opened this
+chain is retired — K delegates via pipelines and messages, and the up-chain's report-backs flow
+through the <strong>mailbox</strong> into K's conversation (§04) rather than bespoke turn-appends. The
+derivations above remain how the P5-era chain is read; new delegation activity is observable on
+the Messages surface and the pipeline ledger instead.</p>
+</blockquote>
 <h2>Capability + local-runtime observability (BUILT — host-integration program)</h2>
 <p>The capability catalog (§04, §08) and the D-072 local runtime ride the same live wire:</p>
 <ul>
@@ -5647,9 +5967,10 @@ measured actuals, so the same no-price-tables grep gate that guards the cost len
 At a cap a dispatch is <strong>parked = refused-with-reason</strong> (<code>BudgetCapError</code> / <code>429</code>), never queued —
 the burn-down surfaces the <code>capped</code> state and a <code>budget_update</code> WS event nudges the chart; the
 operator raises the cap to proceed (D-112). Gated dispatch paths: <code>startAgentRun</code> (autonomous),
-manual <code>POST /api/runs</code>, operator→Chief <code>delegateToChief</code>, and autonomous scheduled/event skill
-dispatch; <strong>interactive/persistent K turns are exempt</strong> (the operator's own conversation is never
-budget-blocked). Because the cap is a safety limit it applies <strong>even while autonomy is OFF</strong> once
+manual <code>POST /api/runs</code>, and autonomous scheduled/event skill
+dispatch — the D-046-era operator→Chief <code>delegateToChief</code> path is retired (D-126). The exemption
+is now structural: <strong>a <code>kind='chat-turn'</code> run — any conversation turn — is exempt</strong> (D-127; the
+operator's own conversation is never budget-blocked). Because the cap is a safety limit it applies <strong>even while autonomy is OFF</strong> once
 set (§03, D-108).</li>
 <li><strong>Retry rate (measured).</strong> <code>core/src/retry-metrics.ts</code> counts self-heal retries off the
 <code>runs.retry_of</code> lineage (E-18, §07) against total runs over a day-bucketed window — the rate is real
@@ -5670,6 +5991,33 @@ of the window (BE-3a / INT.2) — it previously took a flat unweighted <code>mea
 delta, which is correctly unweighted). Two tests pin it: <code>core/test/success-rate-definition.test.ts</code>
 (core ≡ web) and <code>web/test/insights-overview.test.tsx</code> (a 1-run-100% vs 20-run-30% fixture proves the
 tile renders the terminal-weighted delta, not the naive-mean one).</p>
+<h2>Run kinds — conversations vs jobs (Continuous Agents, D-127)</h2>
+<p>Every run is stamped <code>runs.kind ∈ chat-turn | job | pipeline-stage</code> (plus <code>runs.session_id</code>) at
+dispatch. The <strong>Runs surface defaults to <code>job</code> + <code>pipeline-stage</code></strong> with a "show chat turns"
+toggle — chat turns belong to their <strong>conversations</strong> (§08 Messages), not the job list, so Runs
+reads as the org's work history rather than a transcript dump. <code>kind</code> is also the policy key: the
+<strong>budget-exemption</strong> (a <code>chat-turn</code> is a conversation turn, never budget-blocked) and the wake
+governor's <strong>org-relevance</strong> check read <code>kind</code> instead of K-shaped special cases — the gating
+truth-table is identical for every pre-existing caller, just stated structurally. <code>kind</code> is set
+exclusively by trusted in-process code; no HTTP body, MCP tool input, or queue row can smuggle it
+into a dispatch.</p>
+<h2>Supervision observability (Continuous Agents, D-125)</h2>
+<p>Domain supervision is observable in exactly one place — the <strong>manager's conversation</strong>:</p>
+<ul>
+<li><strong>Briefings are <code>agent_messages</code> rows</strong>, self-addressed (to == from == the manager — the
+discriminator only the supervisor's internal queue path can mint; <code>message_agent</code> denies
+self-send and mgmt <code>steer</code> denies self-steering, so a briefing cannot be forged through a tool).
+Gate events queue <strong>urgent</strong>, the rest normal; delivered briefings render in the manager's
+conversation like any other message, <code>[domain briefing · &lt;domain&gt; · &lt;event&gt;]</code>-headed. Gate
+resolution is <code>resolve_gate({gateId, decision})</code> with <strong><code>approve | reject</code></strong> — there is no other
+decision value.</li>
+<li><strong>A suppressed wake writes NOTHING</strong> — by design (the chief-wake posture): a debounced or
+rate-capped briefing leaves no ledger row, so the visible history is the history of what actually
+fired. <code>domain_wake_max_per_hour = 0</code> is the hard off switch.</li>
+<li><strong><code>message_failed</code> notifications are un-silenceable.</strong> A mailbox delivery failure always raises a
+notification — the event key deliberately bypasses the notification-rules gate and ships no
+operator toggle, because "never silent" is the failure contract (§04).</li>
+</ul>
 <h2>Implementation history (dashboard)</h2>
 <blockquote>
 <p>Moved here from §08 so that section stays a UI <em>spec</em>. These are the as-built milestone records

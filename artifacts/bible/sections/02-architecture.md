@@ -2,7 +2,7 @@
 title: Architecture
 icon: "⬡"
 status: stable
-updated: 2026-07-09
+updated: 2026-07-20
 ---
 
 **Architecture A with B-seams** — a single monolithic core (Architecture A) with three deliberate **B-seams** built in from day one (decision D-001): EventBus, ModelRouter, and GitHubProvider. Each B-seam is a clean interface that lets the transport, model, or GitHub layer be swapped or scaled out later without a rewrite. "B-seam" is the one canonical term — there is no separate "C-seam" (legacy code comments that said so are being corrected). A planned **fourth B-seam — TranscriptionProvider** (voice in, Phase 5.4) follows the same swap-without-rewrite contract (D-031).
@@ -307,3 +307,46 @@ run to produce a plan first is passed as a **`runAgent` argument**, never writte
 operator's actual request. The scaffold deliberately **names no tools, servers, or skills** (those
 are the authority layer's job, D-021); it only asks for a plan, keeping the gate orthogonal to what
 a tier is allowed to do.
+
+## The session layer — hybrid warm/resumable agent runtime (Continuous Agents, D-122)
+
+The two park flavors above stopped being run-local plumbing: **`agent_sessions`** generalizes them
+into a core primitive — one row per (profile, conversation thread) carrying the CLI session id, a
+stable **`home_dir`**, and a three-state machine. Every durable agent's conversation (§03, §04)
+executes over it; chat is no longer a special-cased K path.
+
+- **`live`** — an interactive claude process is up with stdin held open, parked `awaiting_input`
+  between turns (the D-014 machinery, reused). A message to a live parked session is written
+  straight to stdin — same run, same context, instant reply, no new spawn.
+- **`resumable`** — no process. The next message spawns with `--resume <cli_session_id>` carrying
+  the full context (the D-062 resumable-one-shot machinery, reused as the cold path).
+- **`stale`** — resume is impossible (the run was undone or errored); the next message visibly
+  reseeds from the durable turns. At every state the durable thread is the source of truth — the
+  CLI session is a cache.
+
+**Bounded warmth.** Live sessions are capped (`K_MAX_LIVE_SESSIONS`, default 3) with **LRU
+demotion** — establishing past the cap gracefully demotes the least-recently-active session first.
+An **idle timer** (`K_SESSION_IDLE_MS`, default 10 min) closes stdin → the run ends `done` → the
+session demotes to `resumable`; a **boot sweep** demotes every `live` row (a live process cannot
+survive a restart — exactly the D-014 constraint, now handled by demotion instead of loss).
+Live-process death mid-conversation demotes to `resumable` (resume retries); a rejected resume
+drops to `stale` and the next send reseeds. The `cli_session_id` is persisted at the CLI's INIT
+event — not only on a clean `done` — so an errored turn keeps its continuity.
+
+**Stable home dirs.** Each session executes in `<dataDir>/sessions/<profileId>/<threadId>/` —
+never a worktree — because `--resume` is cwd-bound (the D-074 finding): a session that changed
+directories would lose its CLI session. Conversational agents write no code, so they need no
+worktree anyway.
+
+**Chat turns are bookkeeping, not top-level jobs (D-127).** `runs.kind ∈ chat-turn | job |
+pipeline-stage` plus `runs.session_id` classify every run at dispatch. Conversation turns
+(`chat-turn`) belong to their conversation, not the Runs job list, and the budget governor's
+chat-exemption + the wake governor's org-relevance filter now read `kind` instead of K-shaped
+special cases (§13).
+
+**The message relay is a main-process component.** Mailbox delivery (§04) is drained by a relay
+wired at boot in the long-lived core process — the session engine's in-memory attachment state
+makes delivery a main-process concern by construction (the mgmt stdio child only inserts rows,
+never delivers). It ticks every 2 s; `MESSAGE_RELAY=0` disables it — an operational note with
+teeth: with the relay off, report-backs and supervision briefings strand as permanently-queued
+rows until it is re-enabled.

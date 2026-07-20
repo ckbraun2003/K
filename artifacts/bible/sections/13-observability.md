@@ -2,7 +2,7 @@
 title: Observability
 icon: "👁"
 status: active
-updated: 2026-07-14
+updated: 2026-07-20
 ---
 
 Phase 4's Track D makes the harness **observable**: you can see exactly what an agent did at runtime — every command, file edit, and delegated sub-agent — visualize the delegation loop both as designed and as it actually ran, and watch context pressure against the model's window. It all rests on one foundation: enriching each agent event with structured tool data at parse time, then deriving every view from that data on the client. This section tells that story end-to-end; §08 covers the dashboard *surfaces* it powers. The *Implementation history* appendix at the end records the as-built dashboard milestones (Phases G / H / 4) moved out of §08 so that section stays a spec.
@@ -102,8 +102,11 @@ observability extends from a single run's tree to the **whole org**:
     (arbitrary depth) the Chief page already renders. The **K→Chief edge** is a pure derivation from the
     existing links, **no new table**: `ChiefOrgPayload.kDelegations` counts the Chief's
     **successful** `trigger='delegation'` activations — `failed` rows are excluded since P5.7, a
-    documented undercount of raw attempts (every counted one is a K hand-up — `delegateToChief` is the
-    only path that sets the trigger; autonomous wakes use `schedule`/`event`). K's node rides the chain
+    documented undercount of raw attempts (in the P5 era every counted one was a K hand-up — the
+    now-retired `delegateToChief` branch was the only path that set the trigger, D-126; autonomous
+    wakes use `schedule`/`event`, and since the mailbox landed a profile-sent conversation wake also
+    dispatches `trigger='delegation'`, so the count is an era-mixed derivation, not a live routing
+    surface). K's node rides the chain
     (running while the Chief subtree is active); the user root is the operator anchor. So the full
     chain is VISIBLE end to end on the one batched `GET /api/chief/org` read (whose live-leads count
     is the server-authoritative `leadsActive` — the client no longer re-derives it).
@@ -123,6 +126,12 @@ With loop-b b2 the org observability chain is COMPLETE: an engineering ask flows
 its result reports back up to K, and every tier — user, K, Chief, each lead, each sub-agent — is
 visible in one derived multi-tier tree over the same enrichment foundation, pairing helpers, and
 single-wire EventBus. No new table was added at any hop; the whole chain stays a derivation.
+
+> **Since the Continuous Agents wave (D-124/D-126):** the automatic K→Chief hop that opened this
+> chain is retired — K delegates via pipelines and messages, and the up-chain's report-backs flow
+> through the **mailbox** into K's conversation (§04) rather than bespoke turn-appends. The
+> derivations above remain how the P5-era chain is read; new delegation activity is observable on
+> the Messages surface and the pipeline ledger instead.
 
 ## Capability + local-runtime observability (BUILT — host-integration program)
 
@@ -201,9 +210,10 @@ data already stored — no forecasting, no new spend**:
   At a cap a dispatch is **parked = refused-with-reason** (`BudgetCapError` / `429`), never queued —
   the burn-down surfaces the `capped` state and a `budget_update` WS event nudges the chart; the
   operator raises the cap to proceed (D-112). Gated dispatch paths: `startAgentRun` (autonomous),
-  manual `POST /api/runs`, operator→Chief `delegateToChief`, and autonomous scheduled/event skill
-  dispatch; **interactive/persistent K turns are exempt** (the operator's own conversation is never
-  budget-blocked). Because the cap is a safety limit it applies **even while autonomy is OFF** once
+  manual `POST /api/runs`, and autonomous scheduled/event skill
+  dispatch — the D-046-era operator→Chief `delegateToChief` path is retired (D-126). The exemption
+  is now structural: **a `kind='chat-turn'` run — any conversation turn — is exempt** (D-127; the
+  operator's own conversation is never budget-blocked). Because the cap is a safety limit it applies **even while autonomy is OFF** once
   set (§03, D-108).
 - **Retry rate (measured).** `core/src/retry-metrics.ts` counts self-heal retries off the
   `runs.retry_of` lineage (E-18, §07) against total runs over a day-bucketed window — the rate is real
@@ -226,6 +236,36 @@ of the window (BE-3a / INT.2) — it previously took a flat unweighted `mean()` 
 delta, which is correctly unweighted). Two tests pin it: `core/test/success-rate-definition.test.ts`
 (core ≡ web) and `web/test/insights-overview.test.tsx` (a 1-run-100% vs 20-run-30% fixture proves the
 tile renders the terminal-weighted delta, not the naive-mean one).
+
+## Run kinds — conversations vs jobs (Continuous Agents, D-127)
+
+Every run is stamped `runs.kind ∈ chat-turn | job | pipeline-stage` (plus `runs.session_id`) at
+dispatch. The **Runs surface defaults to `job` + `pipeline-stage`** with a "show chat turns"
+toggle — chat turns belong to their **conversations** (§08 Messages), not the job list, so Runs
+reads as the org's work history rather than a transcript dump. `kind` is also the policy key: the
+**budget-exemption** (a `chat-turn` is a conversation turn, never budget-blocked) and the wake
+governor's **org-relevance** check read `kind` instead of K-shaped special cases — the gating
+truth-table is identical for every pre-existing caller, just stated structurally. `kind` is set
+exclusively by trusted in-process code; no HTTP body, MCP tool input, or queue row can smuggle it
+into a dispatch.
+
+## Supervision observability (Continuous Agents, D-125)
+
+Domain supervision is observable in exactly one place — the **manager's conversation**:
+
+- **Briefings are `agent_messages` rows**, self-addressed (to == from == the manager — the
+  discriminator only the supervisor's internal queue path can mint; `message_agent` denies
+  self-send and mgmt `steer` denies self-steering, so a briefing cannot be forged through a tool).
+  Gate events queue **urgent**, the rest normal; delivered briefings render in the manager's
+  conversation like any other message, `[domain briefing · <domain> · <event>]`-headed. Gate
+  resolution is `resolve_gate({gateId, decision})` with **`approve | reject`** — there is no other
+  decision value.
+- **A suppressed wake writes NOTHING** — by design (the chief-wake posture): a debounced or
+  rate-capped briefing leaves no ledger row, so the visible history is the history of what actually
+  fired. `domain_wake_max_per_hour = 0` is the hard off switch.
+- **`message_failed` notifications are un-silenceable.** A mailbox delivery failure always raises a
+  notification — the event key deliberately bypasses the notification-rules gate and ships no
+  operator toggle, because "never silent" is the failure contract (§04).
 
 ## Implementation history (dashboard)
 

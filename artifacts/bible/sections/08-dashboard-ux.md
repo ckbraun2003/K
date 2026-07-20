@@ -2,14 +2,15 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-16
+updated: 2026-07-20
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
 internal-tool quality. **UI Simplification (D-101..D-106)** re-frames it a second time: P4's
 9-item flat rail (D-096) still asked the operator to pick between near-duplicate org/insight
 surfaces; this pass **folds the rail to 6 primary tabs** — **K (Home) · Personal · Agents · Runs ·
-Insights · Projects** — plus a Help/Settings footer, and replaces the ⌘K CommandBar palette +
+Insights · Projects** — plus a Help/Settings footer (the Continuous Agents wave later adds a
+seventh, **Messages** — D-123, below), and replaces the ⌘K CommandBar palette +
 Activity strip with **one Message Dock** (a composer bar on Home, a floating button everywhere
 else). Every surface this section previously described **still exists**; what changed is which tab
 it lives under and how the operator reaches K. IA decision **D-024** (evolve-visual +
@@ -33,6 +34,7 @@ hero-only-glass, and mono-numeral discipline carries forward unchanged.
 ```
 ┌──┬─────────────────────────────────────────────────┐
 │K │                                                 │
+│✉ │                                                 │
 │☑ │                                                 │
 │♛ │                   STAGE                         │  swappable per
 │▶ │        (home · personal · agents · runs …)      │  destination
@@ -49,20 +51,21 @@ The shell is now just three zones: a collapsible **labeled sidebar**, a **swappa
 **Message Dock**. The old fourth zone — the ⌘K command bar docked at the top plus a separate
 always-visible Activity strip at the bottom — is gone; both collapsed into the one Dock (below).
 
-### Sidebar IA — the 6-tab rail (D-101)
+### Sidebar IA — the 6-tab rail (D-101; a 7th, Messages, added by D-123)
 
-**`KNOWN_VIEWS`** (`web/src/lib/route.ts`) is now 13 entries: the 6 primary destinations +
-`settings` (Help, the other footer rail entry, deep-links into `docs` and adds no view of its own),
-plus `orchestrator` / `project` / `verify` / `docs` / `skill-creator` / `timeline` (drill-ins
-reached from a hub, never rail buttons themselves). Every view string this restructure removed keeps
-a `VIEW_REDIRECTS` entry (Retirements & redirects, below) — the redirect **replaces** the history
-entry (`history.replaceState`, no Back-trap), and `resolveRoute` is idempotent (a canonical view is
-never a redirect key).
+**`KNOWN_VIEWS`** (`web/src/lib/route.ts`) is now 15 entries: the **7 primary destinations**
+(D-123 added `messages` to D-101's six) + `settings` (Help, the other footer rail entry, deep-links
+into `docs` and adds no view of its own), plus `orchestrator` / `project` / `verify` / `docs` /
+`skill-creator` / `timeline` / `pr-review` (drill-ins reached from a hub, never rail buttons
+themselves). Every view string this restructure removed keeps a `VIEW_REDIRECTS` entry (Retirements
+& redirects, below) — the redirect **replaces** the history entry (`history.replaceState`, no
+Back-trap), and `resolveRoute` is idempotent (a canonical view is never a redirect key).
 
 | Rail | Route | Absorbs | Purpose |
 |------|-------|---------|---------|
 | ⌂ **K** *(landing)* | `#/` | K-home | **Chat** with K (default) or **Overview** — a SegControl toggle, not two routes |
-| ☑ **Personal** | `#/personal` | Inbox · Tasks · Chats · Memories | your needs-you queue, work items, chat-thread management, and durable memories — 4 tabs |
+| ✉ **Messages** | `#/messages` | Personal → Chats | **every conversation in one place** (D-123, below) — K's threads first, then one conversation per durable agent, with unread badges + thread management |
+| ☑ **Personal** | `#/personal` | Inbox · Tasks · Memories | your needs-you queue, work items, and durable memories — 3 tabs (Chats folded into Messages, D-123) |
 | ♛ **Agents** | `#/agents` | Org · Skills · Workflows | the agent organization — **Org** (Roster/Tree/Graph), **Catalog** (Skills/MCP/Hooks/Sub Agents), **Automations** (Library/Runs/Schedules — the unified pipeline surface) — 3 tabs *(D-120 restructured the tab names/shape; superseded D-101's Org·Skills·Pipelines split — see below)* |
 | ▶ **Runs** | `#/runs` | — | live + past runs with the rich console, now a plain master-detail (no Workflows sub-tab — Agents → Automations → Runs owns pipeline-run visibility now) |
 | ∿ **Insights** | `#/insights` | Metrics · Routing · Evals | **4 tabs** — Overview (deterministic deltas + anomalies) · Charts · Routing · Evals |
@@ -70,16 +73,18 @@ never a redirect key).
 | **Footer** | ❔ **Help** · ⚙ **Settings** | Terminal | Help opens the in-app multi-page guide (D-116, below) — no longer a bible deep-link; Settings hosts diagnostics terminal, CLAUDE.md editor, org-default authority/MCP panel |
 
 The active destination sits on a translucent-blush glass pill (`aria-current="page"`); `g` + first
-letter jumps (`web/src/lib/chords.ts`: `h`→Home, `u`→Personal, `a`→Agents, `r`→Runs, `n`→Insights,
-`p`→Projects, `d`→Docs, `,`→Settings — unchanged by this restructure); the rail collapses to
+letter jumps (`web/src/lib/chords.ts`: `h`→Home, `m`→Messages, `u`→Personal, `a`→Agents, `r`→Runs,
+`n`→Insights, `p`→Projects, `d`→Docs, `,`→Settings); the rail collapses to
 icons-only (state persisted in `localStorage`). Personal carries a needs-you count badge and Runs
 carries an active/parked-runs badge, both sharing the same query keys their pages use (zero extra
 fetches). **Docs is not a top-level destination** — reachable via footer Help, edit-in-place per
 section.
 
-> **As-built.** `web/src/shell/Sidebar.tsx`'s `DESTINATIONS` array is the 6 primary + 2 footer + 3
+> **As-built.** `web/src/shell/Sidebar.tsx`'s `DESTINATIONS` array is the 7 primary (Messages sits
+> between K and Personal) + 2 footer + 3
 > hidden (`docs`, `skill-creator`, `timeline` — kept only so `TopBar` can resolve a label for a view
-> reached indirectly). `Shell.tsx` routes `home → HomePage`, `personal → PersonalPage(tab)`,
+> reached indirectly). `Shell.tsx` routes `home → HomePage`, `messages → MessagesPage(threadId)`,
+> `personal → PersonalPage(tab)`,
 > `agents → AgentsPage(tab, sub)`, `runs → RunsPage(runId)`, `insights → InsightsPage(tab)`,
 > `projects → ProjectsPage`, and drops the old standalone `Chief` / `Orchestrators` / `Metrics` /
 > `Routing` / `FleetGraph` / `Workflows` / `Evals` / `Inbox` / `Memory` / `Terminal` branches
@@ -169,7 +174,7 @@ across the top row, `recent_activity` (2×2) filling the middle-left block, `cos
 throwing widget can never take the rest of the grid down and stays resizable/removable even while
 broken.
 
-## Personal hub (D-101, 4 tabs)
+## Personal hub (D-101, 4 tabs → 3 after D-123)
 
 `PersonalPage` — one `Tabs` surface, mirrored by `AgentsPage`'s shape:
 
@@ -177,8 +182,12 @@ broken.
 |-----|---------|
 | **Inbox** (default) | the needs-you queue — moved intact from the old standalone InboxPage; still the same **union over 5 sources**, read live, never a table (below) |
 | **Tasks** | full work-item management — a **Personal/Org** `SegControl` over the durable `work_items` store (ported from K-home's old "Your work" card) plus read-only **Notes** and **Schedule** cards |
-| **Chats** | the full thread **management** surface — every thread including archived, rename/archive/unarchive/permanently-delete (delete is confirm-gated, cascades server-side, and a thread with a live run 409s inline in the dialog) |
 | **Memories** | the operator's own durable **user-memories** store (below) — add / inline-edit / confirm-gated delete, with a **"→ from chat"** link back to the source thread when K saved the memory itself |
+
+The former **Chats** tab — the full thread-management surface — **folded into Messages (D-123)**:
+rename / archive / unarchive / confirm-gated permanent delete (a thread with a live run still 409s
+inline), the archived toggle, and search all live on the Messages page now, so no operator
+capability was lost; `#/personal/chats` redirects there.
 
 The rail badge is the shared inbox count (`inbox-query.ts`'s one `INBOX_KEY` query — the page, the
 badge, and the Inbox tab's own count all key off it, zero extra fetches).
@@ -198,6 +207,30 @@ wired into **K's secretary charter only** (`agent-config/tiers/secretary.charter
 the leads neither call the tool nor carry the injection, keeping "knows the operator" a property of
 the one agent that actually talks to them.
 
+## Messages — every conversation in one place (Continuous Agents, D-123)
+
+`MessagesPage` (rail entry between K and Personal, chord `g m`, deep link `#/messages/<threadId>`)
+is the unified conversation surface: a grouped list — **K's threads first**, then **one conversation
+per durable agent** (managers + leads, auto-created idempotently on listing) — beside the selected
+transcript, rendered by the shared **`ConversationView`** (extracted from `ChatView`, so Home →
+Chat, agent detail pages, and Messages all render one component).
+
+- **Unread badges** ride a per-thread `last_read_at` cursor (advanced on open, monotonic-clamped);
+  the operator's **own delivered messages never badge** their target conversation.
+- Each conversation header carries a **session-state chip** (live/resumable) and the **context
+  meter** — real runtime state, rendered only when the caller supplies real data (Home fabricates
+  neither).
+- A **batched delivery** (an idle agent woken with several queued messages) renders as
+  **per-segment sender bubbles** — the transcript splits the batch at its provenance boundaries so
+  each sender (and an urgent chip) attributes correctly, never a first-sender-wins collapse.
+- **Report-backs render as messages FROM that agent** — a lead's outcome is a bubble from the lead,
+  a briefing a bubble from the manager, in the conversation where it landed (§04).
+- **K-thread management folded in from Personal → Chats** (redirect above): rename,
+  archive/unarchive, confirm-gated delete, the archived toggle, and search.
+- **Agent detail pages embed their conversation** — an orchestrator's page shows the same
+  transcript panel, so "talk to this agent" is one click from its detail view. The Dock is unchanged
+  as the quick path to K (its route chip is a preview only, D-126).
+
 ## Agents hub (D-101 folded the surfaces in; D-120 restructured the tab shape)
 
 `AgentsPage` merges Org + the capability catalog + the pipeline surface under one `Tabs` surface.
@@ -208,9 +241,16 @@ deep links redirect straight into the new tabs (Retirements & redirects, below):
 
 | Tab | Content |
 |-----|---------|
-| **Org** (default) | the roster of leads behind a **Roster / Tree / Graph** `SegControl` (`OrgPage`) — unchanged from P4's "one org surface" (D-096): Roster is slim cards, Tree is the whole-org DelegationTree, Graph is the fleet 3D graph. Carries a **read-only autonomy status chip** (Autonomy OFF/ON) deep-linking to Settings → Autonomous Org — no duplicated controls (P5 Autonomy, D-107) |
+| **Org** (default) | the roster of leads behind a **Roster / Tree / Graph / Domains** `SegControl` (`OrgPage`) — Roster is slim cards, Tree is the whole-org DelegationTree, Graph is the fleet 3D graph (P4's "one org surface", D-096), and **Domains** is the domain registry (D-125, below). Carries a **read-only autonomy status chip** (Autonomy OFF/ON) deep-linking to Settings → Autonomous Org — no duplicated controls (P5 Autonomy, D-107) |
 | **Catalog** | the reusable building blocks — formerly the standalone "Skills" tab, now 4 routed sub-tabs: **Skills** (the capability catalog itself, default — below) · **MCP** · **Hooks** · **Sub Agents** (NEW, D-120 — the editable worker registry, below) |
 | **Automations** | the unified pipeline surface (`AutomationsView`) — formerly the standalone "Pipelines" tab plus the Catalog-side workflow-skills registry, now 3 sub-tabs: **Library** (pipeline definitions, incl. the 6 seeded standard pipelines, below) · **Runs** (pipeline execution history + the live DAG) · **Schedules** (cron-triggered skills AND pipeline schedules — merges the old triggers/schedules/eval-history registry, below) |
+
+**Domains (the 4th Org segment, D-125).** `DomainsView` lists the domain registry — each row with
+its manager and description plus a per-row **Edit** dialog (name/description; manager reassignment
+stays API-only behind the chief-tier guard) — a **create-with-manager dialog** (`POST /api/domains`
+with a `manager` block spins up the domain and its chief-tier manager profile in one step), and a
+**manager overlay editor** for the L1.5 `identity_overlay` (prefilled from the current value before
+save; clearing it silences the seed).
 
 ### Orchestrator detail (drill-in, `#/orchestrator/:id`)
 
@@ -340,7 +380,7 @@ A project opens into its workspace, unchanged in shape:
 
 All three are additive to schema v10 (P4) — no destructive migration, no `WsMessage` shape change.
 
-## Retirements & redirects (D-106; extended by D-120)
+## Retirements & redirects (D-106; extended by D-120, D-123)
 
 Every view string either restructure removed from `KNOWN_VIEWS` keeps a `VIEW_REDIRECTS` entry
 (`web/src/lib/route.ts`) so a bookmarked or shared legacy hash still resolves — applied via
@@ -366,6 +406,7 @@ already-canonical `#/agents/<catalog|automations|org>/*` hash passes through unc
 | `#/agents/skills[/:tab]` (D-101-era) | Agents → Catalog[/:tab] *(D-120)* |
 | `#/agents/pipelines[/:id]` (D-101-era) | Agents → Automations[/:id] *(D-120)* |
 | `#/inbox` (P4-era) | Personal → Inbox |
+| `#/personal/chats` | Messages *(D-123 — the Chats tab folded into the Messages surface; other `#/personal/*` tabs pass through unchanged)* |
 | `#/runs/workflows[/:id]` | Agents → Automations[/:id] — plain `#/runs/:runId` is unaffected (identity redirect, `resolveRoute` never re-navigates a real run id) |
 
 An unrouted hash that matches none of the above (and isn't a canonical view) is still a 404

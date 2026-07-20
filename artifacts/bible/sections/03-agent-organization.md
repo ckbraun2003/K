@@ -2,7 +2,7 @@
 title: Agent Organization
 icon: "❖"
 status: active
-updated: 2026-07-13
+updated: 2026-07-20
 ---
 
 > **Status — PARTIALLY BUILT (Phase 5).** This section is the design of record for the agent
@@ -22,9 +22,14 @@ updated: 2026-07-13
 > together with proposals, backlog auto-pull, and self-heal — is **gated behind a persisted, default-OFF
 > operator choice** (Settings → Autonomous Org, D-107..D-109; see *The Autonomous Org* below). The K→Chief→lead delegation
 > **dispatch** and named workflow definitions are **built** (D-046 → D-051, D-047), and the
-> per-profile authority rows are **enforced at synthesis** (P5.7, D-054). **Still planned:** K as an
-> autonomously-woken tier, wiring the real Google connectors, and memory layers B/C. Where a
-> capability already existed in the harness it is called out as **reused**.
+> per-profile authority rows are **enforced at synthesis** (P5.7, D-054). **The Continuous Agents
+> wave (D-122..D-127) now ships too:** every durable agent is conversable over the session layer
+> (§02), a derived **role** (primary/manager/orchestrator) drives prompts while authority tiers stay
+> the sole enforcement axis, **domains** with always-on manager supervision are live, and K is
+> re-chartered as the primary engineering agent with read authority — the mandatory K→Chief routing
+> hop is **retired** (D-126; see *Roles, domains & managers* below). **Still planned:** wiring the
+> real Google connectors, and memory layers B/C. Where a capability already existed in the harness
+> it is called out as **reused**.
 
 K is re-framed from *an operator driving a dashboard* to **a user directing an agent organization**.
 You talk to **K**; K and the agents beneath it do the engineering. The dashboard becomes the window
@@ -34,8 +39,8 @@ into that organization, not the thing you operate.
 
 | Tier | Who | Job | Code authority |
 |------|-----|-----|----------------|
-| **K** | the friendly secretary — the home and face | logistics, Q&A, scheduling, notes, task lists; **routes** every request — handles logistics itself, or dispatches engineering to the Chief (or a specific lead), showing the route before send | **none** — K never writes code |
-| **Chief** | the right-hand manager | runs the org continuously: woken by schedule/event/user, assigns leads to projects/goals, reports back to the user | **none** — delegates only |
+| **K** | the **primary agent** — engineering agent + harness expert, the home and face | the one agent you talk to by default: answers directly (logistics, Q&A, **reading + analyzing code** with its read tools) and **decides in-context** how to delegate real work — a pipeline, an orchestrator, or a manager (D-126) | **read + analyze** — Read/Grep/Glob + read-only GitNexus; **never writes code** — every mutation is a delegated run/pipeline |
+| **Chief** | the **Engineering domain manager** (the first manager-role profile) | oversees everything running in its domain: woken by the supervisor on stage terminals/gates/failures/budget warnings + a heartbeat, resolves gates, steers running work, staffs leads, reports to K | **none** — delegates only |
 | **Orchestrator leads** | staff-engineer specialists — Frontend · Backend · Systems · Security · Network | full coding inside their workflows; each is a charter + allowed skills/tools/MCPs + default model + memory; spawns worker agents via the `Task` tool | **full**, within charter |
 | **Worker agents** | subagent **definitions** an orchestrator spawns — implementer · spec-reviewer · quality-reviewer · security-reviewer · debugger · planner | one bounded job per spawn, then gone; each carries its own tool scope (⊆ the orchestrator allowlist) — only the implementer writes; reviewers/debugger/planner are read-only | per-definition, ⊆ the tier |
 
@@ -80,7 +85,8 @@ AgentProfile {                 // BUILT (P5.0) — @k/shared AgentProfileSchema 
 > (its charter/allowlist/MCP/skills), tracks it in `agent_runs`, and rides the shared run-lifecycle
 > seam — rolling the tracking row back to `failed` on a dispatch failure. The **Chief autonomous wake
 > loop is now built on this primitive** (P5.2b, D-044 — scheduler + event → `startAgentRun('chief')`);
-> K's own wake loop and the K→Chief delegation dispatch remain planned.
+> the K→Chief delegation dispatch was a later slice (built at D-046, its automatic routing hop
+> retired at D-126).
 
 > **Per-lead control plane surfaced (P5.3a).** The five discipline leads are now readable and editable
 > as a first-class operator surface: `routes/orchestrators.ts` exposes a slim roster
@@ -170,7 +176,8 @@ station even if a prompt asks it to:
 > string — `"Agent"` there would grant nothing, so an orchestrator could spawn no one.
 
 **Reused connectors — the honest as-built.** K **does NOT mount the Google Calendar / Gmail /
-Drive connectors** — its tier mounts **kstore + logistics only** (`agent-config/mcp/secretary.json`),
+Drive connectors** — its tier mounts **kstore + logistics + GitNexus read-only (D-126)**
+(`agent-config/mcp/secretary.json`),
 so K's "calendar" is the local logistics store, storage-not-execution. The Google connectors remain
 **operator-side only** (the developer's own tooling, outside the managed-run boundary); wiring them
 into K's tier is a planned follow-up, not a shipped capability. The Chief mounts **GitNexus MCP
@@ -181,9 +188,62 @@ open PRs; nothing merges outside CI).
 
 | Tier | MCP servers | Coding tools | Reused connectors | Default posture |
 |------|-------------|--------------|-------------------|-----------------|
-| **K** (secretary) | kstore · logistics(BUILT) | — none — | *none yet* — Google Calendar / Gmail / Drive **not wired** (planned) | answer + schedule + trigger Chief |
+| **K** (secretary) | kstore · logistics · GitNexus(read, D-126) | — none — *(read tools only: Read · Grep · Glob)* | GitNexus MCP (read-only); Google Calendar / Gmail / Drive **not wired** (planned) | answer + read/analyze + delegate |
 | **Chief** (chief) | kstore · GitNexus(read) · mgmt(BUILT) | — none — | GitNexus MCP (read-only) | assign + report; wakes on schedule/event |
 | **Leads** (orchestrator) | kstore · GitNexus (+ charter-scoped MCPs) | Bash · Write · Edit · `Task` | GitNexus MCP, project tooling | run workflows; PR-only, CI gates merges |
+
+*(K's read tools and its GitNexus mount are D-126 — see* Roles, domains & managers *below.)*
+
+## Roles, domains & managers (Continuous Agents, D-122..D-126)
+
+The Continuous Agents wave splits **what a profile may touch** from **how it presents and behaves**:
+
+- **Authority tiers are UNCHANGED.** `secretary | chief | orchestrator` remain the sole
+  grant-enforcement axis — every allowlist, MCP template, tier ceiling, and fail-closed grant guard
+  above keys on the tier exactly as before.
+- **A derived ROLE drives prompts and UX.** `roleForTier()` maps secretary → **primary**, chief →
+  **manager**, orchestrator → **orchestrator**; the role picks the charter template and the UI
+  vocabulary, never a grant. The tier charter files are rewritten as **role templates** — the
+  manager template generalizes the old Chief charter, the orchestrator template the lead charter.
+- **Prompt layering gains L1.5.** A profile's system prompt is L0 base → L1 role template →
+  **L1.5 `agent_profiles.identity_overlay`** — a per-profile identity block, operator-editable in
+  the UI — → L2 project context. Seeds give the Chief its "Engineering manager" identity and each
+  lead its discipline; an overlay of `''` durably silences the seed while `NULL` stays reseedable,
+  and a profile with no overlay synthesizes **byte-identically** to pre-overlay output
+  (regression-locked).
+
+### Domains — first-class, with dynamic managers (D-125)
+
+A **domain** is a registry row (`domains`: name, description, `manager_profile_id`), not a naming
+convention. Each **manager** profile (tier `chief` — the tier is its authority ceiling) manages
+domains; orchestrator profiles and pipeline definitions carry a `domain_id`, and launched work
+**inherits it at dispatch** — pipeline runs are stamped physically, agent runs attribute through
+their owning profile — so a manager's oversight auto-attaches to everything running in its domain
+regardless of who launched it. The seeded `engineering` domain is managed by the Chief and owns the
+five leads and the seeded pipeline defs.
+
+Managers are **configuration, not code**: `POST /api/domains` with a `manager` block creates the
+domain and its chief-tier manager profile in one call (a new "Research manager" is a dialog, not a
+deploy). Reassigning `manager_profile_id` is **chief-tier-guarded** — a lead or K cannot be
+appointed manager. The always-on supervision loop that briefs a manager on its domain — event-driven
+plus heartbeat, per-manager governed — is specified with the mailbox in §04 and its observability in
+§13.
+
+### K — the primary agent (D-126)
+
+K's charter is rewritten as a **top-tier engineering agent and harness expert**. Its authority is
+**read + analyze**: `Read`/`Grep`/`Glob` plus the GitNexus MCP server mounted read-only (the chief
+precedent — and the charter explicitly forbids the server's write-capable tools: never a non-dry-run
+`rename`, never `group_sync`). No Write/Edit/Bash/Task — **every mutation stays a delegated
+run/pipeline**, keeping the Trust Core audit trail intact. K reads the code it is asked about and
+answers from evidence; it delegates the work it must not do itself.
+
+**Routing is K's own in-context decision.** The keyword classifier (`routeForMessage`) is demoted to
+a **Dock preview chip** — it colors the composer, it decides nothing. K itself chooses per message:
+answer directly, use its read tools, `delegate_pipeline`, or `message_agent` a manager or
+orchestrator. The D-046-era mandatory K→Chief routing hop is **retired** (the auto-delegating branch
+is deleted); delegation outcomes, lead continuations, and pipeline terminals return to K as
+**mailbox messages** in its conversation (D-124, §04), not bespoke turn-appends.
 
 ## Activation — persistent identity, ephemeral execution
 
@@ -221,6 +281,16 @@ cost/park leak, subsumes H10); `cli_session_id` is persisted only on the first a
 ephemeral config, interactive HITL park). The route surfaced when composing is a deterministic
 `routeForMessage` **preview** (client and server agree via `@k/shared`); K's runtime tool/hand-up
 decision is authoritative.
+
+> **RUNTIME SUPERSEDED — the session layer (D-122, Continuous Agents).** The resumable one-shot is
+> no longer the whole story: `askK` now resolves the thread to an **`agent_sessions`** row and sends
+> through the session engine (§02) — a **live** interactive process parked between turns while the
+> conversation is active (instant replies, real-time steering), demoted to **resumable** on
+> idle/boot/LRU, with D-062's `--resume` mechanics retained as the cold path and the visible reseed
+> as the stale path. The durable thread stays the source of truth; the answer-and-exit posture
+> survives as the idle demotion rather than a per-ask rule. Chat turns are stamped
+> `runs.kind='chat-turn'` + `session_id` (D-127) and no longer appear as top-level jobs. This
+> applies to EVERY durable profile's conversation, not only K's (§04).
 
 ### The Autonomous Org — one persisted, default-OFF operator choice (BUILT — P5 Autonomy, D-107..D-109)
 
@@ -300,7 +370,16 @@ route already reads this history (`chiefWakes`), so the surface was wired before
 P5.2b just makes them exist. (K→Chief delegation dispatch was the deliberately-deferred next slice
 — now built; see below.)
 
-### K→Chief delegation + report-back (BUILT — D-046)
+### K→Chief delegation + report-back (BUILT — D-046; routing hop RETIRED — D-126)
+
+> **ROUTING RETIRED — D-126 (Continuous Agents).** The automatic hand-up this subsection describes —
+> `askK` consulting the deterministic route and delegating on `route.escalates` — is **no longer a
+> live path**: that branch is deleted, and K decides in-context (answer, read tools,
+> `delegate_pipeline`, `message_agent` — see *Roles, domains & managers* above). Report-backs now
+> arrive as **mailbox messages** in K's conversation (D-124, §04) rather than bespoke turn-appends.
+> The record below stands as the D-046-era as-built for the traceability links it introduced (the
+> `trigger='delegation'` rows + the `k_thread_turns.run_id` FK), which remain how historical hops
+> are derived.
 
 The up/down chain is now closed: an engineering request actually **flows K → Chief and reports
 back**. In `core/src/k-thread.ts::askK`, once the durable user turn is recorded, the deterministic
@@ -319,17 +398,19 @@ Three P5.7 refinements on the front door:
   (reminders, notes, scheduling, list management) **before** the lead/engineering keyword rules, so
   "remind me to fix the fence" stays with K instead of auto-escalating on "fix". The trade-off is
   deliberate: a mixed-intent message **under-escalates by design** (a cheap re-ask) rather than
-  spinning up the paid Chief machinery for a grocery note. And this classifier **is** the server's
-  delegation decision — `askK` delegates on its `escalates` flag — not merely a preview; client and
-  server agree because both call the same shared function.
-- **Forced route.** `KAskBody.forceRoute` bypasses the classifier for an explicit target (the Chief
-  or a named lead — every forceable target escalates by construction; forcing `logistics` is
-  deliberately impossible). `routeForTarget` is the one shared mapping, so the composer's forced
-  preview and the server's actual routing are the same computation.
+  spinning up the paid Chief machinery for a grocery note. *(The classifier-as-the-server's-decision
+  clause here is superseded-by D-126: `askK` no longer delegates on the `escalates` flag — the
+  classifier is a Dock **preview** only, and K decides in-context.)*
+- **Forced route.** `KAskBody.forceRoute` still targets an explicit agent (the Chief or a named
+  lead; forcing `logistics` is deliberately impossible) — but since D-124 a forced send is a
+  **mailbox send**: the ask is queued as an `agent_messages` row to the forced target and delivered
+  by the relay, rather than short-circuiting a delegation dispatch.
 - **Per-ask model override.** `KAskBody.model` (validated against the known-model registry at the
   route boundary) wins over the profile override, which wins over the runtime default (D-056). With
-  the resumable one-shot (D-062) an override no longer forfeits continuity — there is no live process
-  to keep, so the ask simply RESUMES the same session under the chosen model.
+  the resumable one-shot (D-062) an override no longer forfeits continuity — a cold ask simply
+  RESUMES the same session under the chosen model. *(On a **live** session — D-122 — the override
+  cannot apply mid-process: it is silently ignored on the warm path and takes effect at the next
+  cold establish; a documented limitation the UI does not yet surface.)*
 
 - **Report-back up the chain.** When the delegated Chief run reaches a **terminal** status, its
   outcome lands back on K's thread as a `k` turn — via `reportDelegationBack`, which rides the shared
@@ -462,7 +543,7 @@ rendered. Two gaps remained after b1, both fixed as pure wiring over existing li
   relay also calls `k-thread.ts::continueLeadOutcomeToK(chiefRunId, leadRunId, lead)`. On the lead run's
   terminal (run-lifecycle seam, once-latched) it resolves whether the parent Chief run was itself a K
   delegation — a `k_thread_turns` row whose `run_id` = the Chief run (`kThreadsDb.getThreadIdByTurnRunId`),
-  the exact K→Chief link `delegateToChief` recorded — and, if so, appends a `k` turn to that durable
+  the exact K→Chief link the now-retired `delegateToChief` branch recorded (D-126) — and, if so, appends a `k` turn to that durable
   thread ("Chief (via <lead>) completed: <outcome>"), linked to the lead run so it stays traceable. It is
   a **no-op when the Chief woke autonomously** (no `k_thread_turns` row links it) — then the outcome stays
   in the Chief's mgmt store only. Deliberately independent of the lead→Chief report-back (each rides its
@@ -472,9 +553,12 @@ rendered. Two gaps remained after b1, both fixed as pure wiring over existing li
   → sub-agent** — reusing the same generic `DelegationTree` component (arbitrary depth). The K→Chief edge
   is derived from the existing links, no new table: `ChiefOrgPayload.kDelegations`
   (`agentRunsDb.countAgentRunsByProfileAndTrigger('chief','delegation')`) is the count of K hand-ups
-  (`delegateToChief` is the only path that activates the Chief with `trigger='delegation'`; autonomous
-  wakes use `schedule`/`event`). The ChiefPage now renders `fullOrgToDelegationTree(payload)`, so the
-  whole chain is VISIBLE on the one batched `GET /api/chief/org` read.
+  (in the P5 era the now-retired `delegateToChief` branch was the only path that activated the Chief
+  with `trigger='delegation'` — autonomous wakes use `schedule`/`event`; since the mailbox landed, a
+  profile-sent conversation wake also dispatches with the delegation trigger, so the count is an
+  era-mixed derivation, not a live routing surface — D-126). The ChiefPage now renders
+  `fullOrgToDelegationTree(payload)`, so the whole chain is VISIBLE on the one batched
+  `GET /api/chief/org` read.
 
 With b2 the org loop is COMPLETE and observable end to end: K → Chief → lead → PR → report back to K,
 every tier visible in one derived tree — exit-criterion #3.
@@ -482,28 +566,28 @@ every tier visible in one derived tree — exit-criterion #3.
 ## The pipeline
 
 ```
-user ──▶ K (secretary)
-          │  pure logistics (calendar, notes, tasks, Q&A) → handled directly, no engineering tier
-          │  ENGINEERING work only ──▶ Chief
+user ──▶ K (primary agent)
+          │  answers directly: logistics, Q&A, code reading/analysis (read tools, no writes)
+          │  real work ──▶ delegate_pipeline · message an orchestrator · message a manager
           ▼
-        Chief (chief)               also wakes autonomously on schedule/event
-          │  picks orchestrator(s) + workflow + project(s), assigns the goal
+        Domain manager (chief tier)        woken by the domain supervisor (events + heartbeat)
+          │  oversees everything running in its domain: resolves gates, steers, reports to K
           ▼
         Orchestrator lead (orchestrator)
-          │  runs a workflow definition (see §04) in its own worktree
+          │  runs a pipeline / workflow (see §04) in its own worktree
           ▼
         role subagents  (implementer → spec-review → quality-review)
           │
           ▼
-        results bubble back up:  lead ──▶ Chief ──▶ K ──▶ user
+        outcomes return as MESSAGES: stage/pipeline terminals + manager reports land in K's conversation
 ```
 
-K is the only tier the user speaks to by default. **The user states their intent to K; K routes it** —
-to logistics it handles itself, to the **Chief** for engineering, or to a **specific lead** — and the
-chosen route is **shown before dispatch** (one front door, see §08). It handles everything
-non-engineering itself and escalates only real engineering work down the chain; the Chief chooses how
-to staff it; a lead does the work through a workflow; and the outcome (a PR, a report, a verified
-result) flows back up to the user through the same chain. K may also create **`work_items`** — the
+K is the only tier the user speaks to by default — though every durable agent is now conversable
+(§04, §08 Messages). K answers what it can answer itself (including reading the code in question)
+and **decides in-context** how to delegate the rest — a pipeline, an orchestrator, or a manager
+(D-126); the route chip in the Dock is a preview, never the decision. Managers oversee everything
+running in their domain regardless of who launched it (D-125), and the outcome (a PR, a report, a
+verified result) flows back to the operator as **messages** in K's conversation (D-124). K may also create **`work_items`** — the
 unified, scoped task model (§04): **durable `personal` items** it owns for you (or org-wide `org`
 items), persisting across sessions (D-053). K does **not** create `project`-scoped tickets — kstore
 **rejects `scope='project'`** at the tool boundary; project tasks are created via the projects API
