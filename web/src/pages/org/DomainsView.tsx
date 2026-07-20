@@ -10,12 +10,14 @@ import { ErrorState } from '../../ui/ErrorState'
 import { SectionHeader } from '../../ui/SectionHeader'
 
 /** Agents → Org → Domains (C.3, D-125): the domain registry panel — list, create
- *  dialog (with optional dynamic manager), manager overlay editor. */
+ *  dialog (with optional dynamic manager), manager overlay editor, and the
+ *  name/description edit dialog (INT.2 — PATCH /api/domains' UI consumer). */
 export default function DomainsView() {
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({ queryKey: ['domains'], queryFn: api.domains.list })
   const [createOpen, setCreateOpen] = useState(false)
   const [overlayFor, setOverlayFor] = useState<DomainView | null>(null)
+  const [editFor, setEditFor] = useState<DomainView | null>(null)
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-5" data-testid="domains-view">
@@ -39,6 +41,8 @@ export default function DomainsView() {
                 <span className="text-sm text-muted">
                   {d.managerName ? `Manager: ${d.managerName}` : 'No manager'}
                 </span>
+                <Button size="sm" variant="ghost" data-testid={`domain-edit-${d.id}`}
+                  onClick={() => setEditFor(d)}>Edit</Button>
                 {d.managerProfileId ? (
                   <Button size="sm" variant="ghost" data-testid={`domain-overlay-${d.id}`}
                     onClick={() => setOverlayFor(d)}>Edit overlay</Button>
@@ -54,7 +58,39 @@ export default function DomainsView() {
         <ManagerOverlayDialog domain={overlayFor} onClose={() => setOverlayFor(null)}
           onSaved={() => { setOverlayFor(null); void qc.invalidateQueries({ queryKey: ['domains'] }) }} />
       ) : null}
+      {editFor ? (
+        <EditDomainDialog domain={editFor} onClose={() => setEditFor(null)}
+          onSaved={() => { setEditFor(null); void qc.invalidateQueries({ queryKey: ['domains'] }) }} />
+      ) : null}
     </div>
+  )
+}
+
+/** Name/description editor over PATCH /api/domains/:id (INT.2 — the api.domains.update
+ *  consumer; Lane C hand-off (h)). Manager REASSIGNMENT stays API-only: the route
+ *  enforces the chief-tier guard either way, and a picker UI is not worth its weight
+ *  while managers are created with their domain. Prefilled from the row (the list is
+ *  the live server state — no second fetch needed, unlike the overlay's profile read). */
+function EditDomainDialog({ domain, onClose, onSaved }: {
+  domain: DomainView; onClose: () => void; onSaved: () => void
+}) {
+  const [name, setName] = useState(domain.name)
+  const [description, setDescription] = useState(domain.description ?? '')
+  const save = useMutation({
+    mutationFn: () => api.domains.update(domain.id, { name, description: description || null }),
+    onSuccess: onSaved,
+  })
+  return (
+    <Dialog open onOpenChange={v => { if (!v) onClose() }} title={`Edit ${domain.name}`}
+      footer={<Button data-testid="domain-edit-save" disabled={!name.trim() || save.isPending}
+        onClick={() => save.mutate()}>Save</Button>}>
+      <div className="flex flex-col gap-3">
+        <Input data-testid="domain-edit-name" value={name} onChange={e => setName(e.target.value)} />
+        <Textarea data-testid="domain-edit-description" placeholder="Description (optional)"
+          value={description} onChange={e => setDescription(e.target.value)} />
+        {save.error ? <div className="text-sm text-red" data-testid="domain-edit-error">{(save.error as Error).message}</div> : null}
+      </div>
+    </Dialog>
   )
 }
 

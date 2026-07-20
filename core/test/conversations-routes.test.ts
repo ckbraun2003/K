@@ -82,6 +82,21 @@ describe('GET /api/conversations', () => {
     const conv = (res.json().conversations as Array<Record<string, unknown>>).find(c => c.id === t.id)!
     expect(conv.unread).toBe(3) // 2 unread turns + 1 queued NON-user message
 
+    // INT.2: a DELIVERED own-message must not badge either — once the relay lands
+    // the operator's own block as a turn, the cursor-independent +1 would come
+    // back as an unread TURN. A single-block user-tagged turn is excluded…
+    appendTurn(t.id, 'user', '[message from user · normal] my own delivered send', null)
+    const res2 = await app.inject({ method: 'GET', url: '/api/conversations', headers: AUTH })
+    const conv2 = (res2.json().conversations as Array<Record<string, unknown>>).find(c => c.id === t.id)!
+    expect(conv2.unread).toBe(3) // unchanged — the delivered own-message is silent
+
+    // …but a MIXED batch turn (operator block + an agent block) still counts: it
+    // carries agent content the operator has not read.
+    appendTurn(t.id, 'user', '[message from user · normal] mine\n\n[message from chief · normal] real report', null)
+    const res3 = await app.inject({ method: 'GET', url: '/api/conversations', headers: AUTH })
+    const conv3 = (res3.json().conversations as Array<Record<string, unknown>>).find(c => c.id === t.id)!
+    expect(conv3.unread).toBe(4)
+
     // Archived threads are excluded by default, included with ?archived=1.
     db.prepare(`UPDATE k_threads SET archived_at = ? WHERE id = ?`).run(Date.now(), t.id)
     const def = await app.inject({ method: 'GET', url: '/api/conversations', headers: AUTH })

@@ -917,6 +917,11 @@ db.exec(`
   -- subquery filters on (to_thread_id, status) — without this it full-scans
   -- agent_messages once per thread row as delivered history accumulates.
   CREATE INDEX IF NOT EXISTS idx_agent_messages_thread ON agent_messages(to_thread_id, status);
+  -- Partial index for the relay's 2s tick (INT.2): listAllQueued filters status =
+  -- 'queued' with no leading column the two indexes above can serve, so every tick
+  -- full-scanned agent_messages as delivered history accumulates. The WHERE keeps
+  -- it tiny — it only ever contains the (transient) queued rows.
+  CREATE INDEX IF NOT EXISTS idx_agent_messages_queued_tick ON agent_messages(status) WHERE status = 'queued';
 `)
 
 // ── migrations ───────────────────────────────────────────────────────────────
@@ -3775,7 +3780,10 @@ const hasUserTurnForRun = db.prepare(
 // thread. A Chief run that woke AUTONOMOUSLY (chief-wake) never touches k_thread_turns →
 // this returns no row → no K continuation.
 const getThreadIdByTurnRunId = db.prepare(
-  `SELECT thread_id FROM k_thread_turns WHERE run_id = ? ORDER BY created_at ASC, id ASC LIMIT 1`,
+  // rowid tiebreak (INT.2 hygiene, B.7's listTurns convention): same-ms rows order
+  // by insertion, not uuid coin flip. Tie-identical for this reader today (a run's
+  // turns share one thread_id) — aligned so no k_thread_turns reader strays.
+  `SELECT thread_id FROM k_thread_turns WHERE run_id = ? ORDER BY created_at ASC, rowid ASC LIMIT 1`,
 )
 
 // ── UI Simplification (multi-thread K, SCHEMA_VERSION 11) — thread list/rename/

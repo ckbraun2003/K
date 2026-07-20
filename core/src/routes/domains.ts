@@ -85,8 +85,19 @@ export async function domainsRoutes(app: FastifyInstance) {
     const parsed = PatchDomainSchema.safeParse(req.body)
     if (!parsed.success) return sendZodError(reply, parsed.error)
     if (Object.keys(parsed.data).length === 0) return sendError(reply, 400, 'empty patch')
-    if (parsed.data.managerProfileId != null && !getProfile(parsed.data.managerProfileId)) {
-      return sendError(reply, 400, 'unknown manager profile')
+    if (parsed.data.managerProfileId != null) {
+      const mgr = getProfile(parsed.data.managerProfileId)
+      if (!mgr) return sendError(reply, 400, 'unknown manager profile')
+      // INT.2 (discriminator integrity, Lane C hand-off (i)): a manager MUST be a
+      // chief-tier profile. A lead (orchestrator) would receive briefings it lacks
+      // the mgmt tools to act on; k-secretary as manager would make the domain
+      // supervisor legitimately mint to==from==k-secretary rows — the exact shape
+      // the C.5 guard + B.3 self-send denial keep unforgeable — into the
+      // operator's own conversation. POST's manager block always creates tier
+      // 'chief', so PATCH is the one door this closes.
+      if (mgr.tier !== 'chief') {
+        return sendError(reply, 400, 'manager must be a chief-tier profile')
+      }
     }
     if (!getDomainById(req.params.id)) return sendError(reply, 404, 'not found')
     try {

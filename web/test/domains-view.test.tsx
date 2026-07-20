@@ -5,12 +5,12 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-const { mockList, mockCreate, mockPatchOverlay, mockProfileGet } = vi.hoisted(() => ({
-  mockList: vi.fn(), mockCreate: vi.fn(), mockPatchOverlay: vi.fn(), mockProfileGet: vi.fn(),
+const { mockList, mockCreate, mockUpdate, mockPatchOverlay, mockProfileGet } = vi.hoisted(() => ({
+  mockList: vi.fn(), mockCreate: vi.fn(), mockUpdate: vi.fn(), mockPatchOverlay: vi.fn(), mockProfileGet: vi.fn(),
 }))
 vi.mock('../src/lib/api', () => ({
   api: {
-    domains: { list: mockList, create: mockCreate, update: vi.fn() },
+    domains: { list: mockList, create: mockCreate, update: mockUpdate },
     profiles: { get: mockProfileGet, patchOverlay: mockPatchOverlay },
   },
 }))
@@ -27,6 +27,7 @@ function renderView() {
 beforeEach(() => {
   mockList.mockReset().mockResolvedValue([ENG])
   mockCreate.mockReset().mockResolvedValue({ ...ENG, id: 'research', name: 'Research' })
+  mockUpdate.mockReset().mockResolvedValue(ENG)
   mockPatchOverlay.mockReset().mockResolvedValue({})
   mockProfileGet.mockReset().mockResolvedValue({ id: 'chief', identityOverlay: '## Identity: Chief' })
 })
@@ -49,6 +50,18 @@ describe('DomainsView (C.3)', () => {
     await waitFor(() => expect(mockCreate).toHaveBeenCalledWith({
       name: 'Research', description: null,
       manager: { name: 'Research Mgr', identityOverlay: '## Identity: R' },
+    }))
+  })
+
+  it('edit dialog prefills name/description and PATCHes through api.domains.update (INT.2)', async () => {
+    renderView()
+    fireEvent.click(await screen.findByTestId('domain-edit-engineering'))
+    // Prefilled from the row (name filled, description empty for ENG's null).
+    expect((screen.getByTestId('domain-edit-name') as HTMLInputElement).value).toBe('Engineering')
+    fireEvent.change(screen.getByTestId('domain-edit-description'), { target: { value: 'ships the product' } })
+    fireEvent.click(screen.getByTestId('domain-edit-save'))
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith('engineering', {
+      name: 'Engineering', description: 'ships the product',
     }))
   })
 

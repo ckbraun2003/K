@@ -90,6 +90,13 @@ const update = (id: string, status: Run['status'], extra: Partial<Run> = {}): vo
   eventBus.emitRunUpdate({ id, status, tokensIn: 0, tokensOut: 0, costUsd: 0, ...extra } as Run)
 
 function resetState() {
+  // A.6 listener-hygiene parity (the live suite's fix, INT.2): emit a terminal for
+  // every mock run BEFORE the table wipes so dangling attachments unsubscribe and
+  // vacate the module-global maps instead of accumulating across tests (the cap
+  // census now consults attachments — a leaked one would throttle later tests).
+  for (const r of db.prepare(`SELECT id FROM runs WHERE id LIKE 'mock-ca-dem-%'`).all() as Row[]) {
+    update(String(r.id), 'killed')
+  }
   db.prepare('DELETE FROM agent_sessions').run()
   db.prepare('DELETE FROM k_thread_turns').run()
   db.prepare('DELETE FROM k_threads').run()
@@ -273,6 +280,26 @@ describe('A.2 — LRU cap', () => {
     expect(sessionRow(b.s.id)!.state).toBe('resumable')
     expect(sessionRow(a.s.id)!.state).toBe('live')
     expect(liveSessionCount()).toBeLessThanOrEqual(2)
+  })
+
+  it('the cap census counts ESTABLISHING attachments too — a not-yet-parked spawn holds a slot (INT.2, A.2-m4)', async () => {
+    __sessionTestHooks.setMaxLive(2)
+    const a = setup(PROFILE_A)
+    const b = setup(PROFILE_B)
+    const ra = await sendToSession(a.s.id, 'hi a')
+    update(ra.runId, 'awaiting_input') // A: parked → live row
+    await sendToSession(b.s.id, 'hi b') // B: ESTABLISHING — attachment, no live row yet
+    expect(__sessionTestHooks.attachedRunId(b.s.id)).toBeDefined()
+    expect(sessionRow(b.s.id)!.state).not.toBe('live')
+
+    const c = setup(PROFILE_C)
+    await sendToSession(c.s.id, 'hi c')
+
+    // A row-only census saw ONE live row (under the cap of 2) and demoted nothing
+    // — leaving THREE real processes (A parked + B establishing + C spawning). The
+    // union census (live rows ∪ attachments) sheds the only demotable one: A.
+    expect(vi.mocked(endSession)).toHaveBeenCalledWith(ra.runId)
+    expect(sessionRow(a.s.id)!.state).toBe('resumable')
   })
 })
 

@@ -138,6 +138,17 @@ export default function ChatView() {
   const pendingThread = useAskPending()
   const isPendingHere = effectiveId !== null && pendingThread === effectiveId
 
+  // INT.2 (Lane B close carry #3): Home's transcript never advanced the read
+  // cursor, so K threads accumulated PERMANENT unread badges on the Messages
+  // surface. Mark the open conversation read on selection, and again when an
+  // in-flight ask settles (its reply just landed in this open transcript).
+  // Fire-and-forget: the cursor is a server-side monotonic clamp (idempotent);
+  // a failed POST simply retries at the next transition.
+  useEffect(() => {
+    if (effectiveId === null || isPendingHere) return
+    api.conversations.read(effectiveId).catch(() => { /* next transition retries */ })
+  }, [effectiveId, isPendingHere])
+
   const rename = useMutation({
     mutationFn: (vars: { id: string; title: string }) => api.threads.update(vars.id, { title: vars.title }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['k-threads'] }),

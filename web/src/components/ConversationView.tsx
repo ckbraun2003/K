@@ -9,8 +9,20 @@ import { Tag } from '../ui/Tag'
 
 /** The relay's real provenance block (`[message from <sender> · <priority>] …`) plus
  *  the W0 interim `[from <profileId>] …` tag. One regex, exported for tests — the UI's
- *  parse contract with message-relay.ts::provenanceBlock. */
-const PROVENANCE_RE = /^\[(?:message )?from ([^\]·]+?)(?:\s·\s(normal|urgent))?\]\s?/
+ *  parse contract with message-relay.ts::provenanceBlock. The `·`-exclusion in the
+ *  sender charset is LOAD-BEARING: it makes the priority group the only way a `·`
+ *  appears, so an unknown priority word fails the whole parse and the raw tag stays
+ *  visible (never misattributed). splitProvenanceSegments' lookahead carries the
+ *  SAME charset + suffix (INT.2 unification) so no string splits as a boundary yet
+ *  renders as plain text. */
+const PROVENANCE_RE = /^\[(?:message )?from ([^\]·\n]+?)(?:\s·\s(normal|urgent))?\]\s?/
+
+/** Undo message-relay.ts::escapeProvenanceLookalikes for DISPLAY (INT.2): the relay
+ *  backslash-escapes line-leading tag lookalikes inside message bodies so they can't
+ *  forge segment senders; the transcript shows the author's original text. */
+export function unescapeProvenanceLookalikes(text: string): string {
+  return text.replace(/(^|\n)\\(\[(?:message )?from )/g, '$1$2')
+}
 
 export function parseProvenance(text: string): {
   sender: string | null
@@ -35,7 +47,10 @@ export function parseProvenance(text: string): {
  *  the real fix (flagged for INT.2); this split is still strictly more honest
  *  than first-tag-wins. */
 export function splitProvenanceSegments(text: string): string[] {
-  return text.split(/\n\n(?=\[(?:message )?from [^\]\n]*\])/)
+  // Charset + priority-suffix UNIFIED with PROVENANCE_RE (INT.2): a boundary is
+  // only a tag the parser would actually accept — an unknown-priority lookalike
+  // neither splits nor parses.
+  return text.split(/\n\n(?=\[(?:message )?from [^\]·\n]+?(?:\s·\s(?:normal|urgent))?\])/)
 }
 
 /**
@@ -182,7 +197,7 @@ export default function ConversationView({
                         mine ? 'bg-accent/15 text-text' : 'border border-border bg-raised text-text'
                       }`}
                     >
-                      {rest}
+                      {unescapeProvenanceLookalikes(rest)}
                     </div>
                     {/* A turn produced by/for a run keeps its action chip (ChatView parity). */}
                     {i === segments.length - 1 && t.runId && (

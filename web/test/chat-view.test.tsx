@@ -12,11 +12,12 @@ import { render, screen, cleanup, waitFor, fireEvent, act } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { KThreadSummary, KThreadTurn } from '@k/shared'
 
-const { mockThreadsList, mockThreadsGet, mockThreadsUpdate, mockNavigate } = vi.hoisted(() => ({
+const { mockThreadsList, mockThreadsGet, mockThreadsUpdate, mockNavigate, mockConversationsRead } = vi.hoisted(() => ({
   mockThreadsList: vi.fn(),
   mockThreadsGet: vi.fn(),
   mockThreadsUpdate: vi.fn(),
   mockNavigate: vi.fn(),
+  mockConversationsRead: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
@@ -28,6 +29,8 @@ vi.mock('../src/lib/api', () => ({
       create: vi.fn(),
       remove: vi.fn(),
     },
+    // The INT.2 read-cursor fix: ChatView marks the open conversation read.
+    conversations: { read: mockConversationsRead },
   },
 }))
 vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
@@ -83,9 +86,11 @@ beforeEach(() => {
   mockThreadsGet.mockReset()
   mockThreadsUpdate.mockReset()
   mockNavigate.mockReset()
+  mockConversationsRead.mockReset()
   mockThreadsList.mockResolvedValue({ threads: [] })
   mockThreadsGet.mockResolvedValue({ thread: thread({}), turns: [] })
   mockThreadsUpdate.mockResolvedValue(thread({}))
+  mockConversationsRead.mockResolvedValue({ ok: true, lastReadAt: Date.now() })
 })
 afterEach(() => {
   cleanup()
@@ -112,6 +117,27 @@ describe('ChatView', () => {
     const rows = screen.getAllByTestId(/^chat-thread-row-/)
     expect(rows.map(r => r.getAttribute('data-testid'))).toEqual(['chat-thread-row-kt-2', 'chat-thread-row-kt-1'])
     await waitFor(() => expect(screen.getByTestId('conversation-turn-user').textContent).toContain('yo'))
+  })
+
+  it('advances the read cursor for the open conversation (INT.2 — Messages badge must clear from Home too)', async () => {
+    const t1 = thread({ id: 'kt-1', title: 'First chat' })
+    const t2 = thread({ id: 'kt-2', title: 'Second chat' })
+    mockThreadsList.mockResolvedValue({ threads: [t1, t2] })
+    mockThreadsGet.mockImplementation(async (id: string) => ({
+      thread: id === 'kt-1' ? t1 : t2,
+      turns: [],
+    }))
+    selectThread('kt-1')
+    renderChat()
+
+    // Selection open → the cursor advances for THAT thread.
+    await waitFor(() => expect(mockConversationsRead).toHaveBeenCalledWith('kt-1'))
+    expect(mockConversationsRead).not.toHaveBeenCalledWith('kt-2')
+
+    // Switching conversations marks the newly opened one.
+    await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-2')).toBeTruthy())
+    fireEvent.click(screen.getByText('Second chat'))
+    await waitFor(() => expect(mockConversationsRead).toHaveBeenCalledWith('kt-2'))
   })
 
   it('clicking a thread row selects it (thread-select store) and swaps the transcript', async () => {

@@ -71,11 +71,28 @@ const failClaimed = db.prepare(
   `UPDATE agent_messages SET status = 'failed', delivered_at = NULL WHERE id = @id`,
 )
 
+/**
+ * Neutralize provenance-tag lookalikes INSIDE a message body (INT.2, SEAMS-carried
+ * forge vector): the UI splits batched turns at line-leading `[message from …]` /
+ * `[from …]` boundaries and attributes each segment to its tag's sender — so a body
+ * containing its own line-leading tag would FORGE a segment from an arbitrary
+ * sender. Only line-leading positions can forge (both UI regexes anchor at turn
+ * start or after a blank line), so escape exactly those with a backslash; the UI
+ * unescapes for display (ConversationView), keeping the rendered text identical.
+ * Residual (documented, accepted): a body deliberately containing the ESCAPED form
+ * `\[message from …]` renders unescaped. Exported for tests.
+ */
+export function escapeProvenanceLookalikes(body: string): string {
+  return body.replace(/(^|\n)(\[(?:message )?from )/g, '$1\\$2')
+}
+
 /** The relay's provenance tag — the REAL provenance block (supersedes W0's interim
- *  `[from x]` turn tag). Exported for tests + the UI's parse contract. */
+ *  `[from x]` turn tag). Exported for tests + the UI's parse contract. The BODY is
+ *  escaped against tag forgery (escapeProvenanceLookalikes); the mailbox row keeps
+ *  the verbatim body — escaping is a transcript-embedding concern only. */
 export function provenanceBlock(m: AgentMessage): string {
   const sender = m.fromKind === 'user' ? 'user' : (m.fromProfileId ?? 'unknown')
-  return `[message from ${sender} · ${m.priority}] ${m.body}`
+  return `[message from ${sender} · ${m.priority}] ${escapeProvenanceLookalikes(m.body)}`
 }
 
 /** One 'message_failed' notification row + WS broadcast (best-effort — the failed

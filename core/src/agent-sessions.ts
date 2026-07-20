@@ -680,9 +680,22 @@ export function demoteSession(sessionId: string, reason: 'idle' | 'boot' | 'lru'
  */
 function demoteLruBeyondCap(): void {
   const live = agentSessionsDb.listByState.all('live') as Row[]
-  const excess = live.length - (maxLive() - 1)
+  // INT.2 (A.2-m4): count ESTABLISHING attachments too — a spawned-but-not-yet-
+  // parked session holds a real process without a 'live' row (the row flips at the
+  // first awaiting_input), so N concurrent establishes could overshoot a row-only
+  // count. The union set (row ids ∪ session-backed attachment keys) is the true
+  // in-use census. The row-existence filter is self-consistency, not decoration:
+  // every REAL establishing attachment has a row (ensureSession upserts before any
+  // spawn), so a rowless key is a ghost that must not throttle the cap. Only
+  // 'live' rows are demotable — an establishing attachment self-corrects at its
+  // first park or terminal — so the shed still comes off the live tail.
+  const inUse = new Set<string>(live.map(r => String(r.id)))
+  for (const sid of attachments.keys()) {
+    if (agentSessionsDb.get.get(sid)) inUse.add(sid)
+  }
+  const excess = inUse.size - (maxLive() - 1)
   if (excess <= 0) return
-  for (const row of live.slice(live.length - excess)) demoteSession(String(row.id), 'lru')
+  for (const row of live.slice(Math.max(0, live.length - excess))) demoteSession(String(row.id), 'lru')
 }
 
 /**

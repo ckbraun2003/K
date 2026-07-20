@@ -33,6 +33,8 @@ const {
 vi.mock('../src/lib/api', () => ({
   api: {
     threads: { list: mockThreadsList, get: mockThreadsGet, update: vi.fn(), create: vi.fn(), remove: vi.fn() },
+    // ChatView marks the open conversation read (INT.2 read-cursor fix).
+    conversations: { read: vi.fn(async () => ({ ok: true })) },
     inbox: { list: mockInboxList, dismissReview: vi.fn(), dismissMcp: vi.fn() },
     memory: { approve: vi.fn(), reject: vi.fn() },
     capabilities: { trustMcp: vi.fn() },

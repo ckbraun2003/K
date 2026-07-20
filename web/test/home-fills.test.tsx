@@ -37,6 +37,8 @@ vi.mock('../src/lib/api', () => ({
       list: mockThreadsList, get: mockThreadsGet, create: mockThreadsCreate,
       update: mockThreadsUpdate, remove: mockThreadsRemove,
     },
+    // ChatView marks the open conversation read (INT.2 read-cursor fix).
+    conversations: { read: vi.fn(async () => ({ ok: true })) },
     k: { ask: mockAsk, undo: mockUndo },
     // MessageDock's @project picker + dispatch-card model picker query these
     // unconditionally (message-dock.test.tsx's same seam) — offline stubs.

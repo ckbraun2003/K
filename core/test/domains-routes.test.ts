@@ -79,6 +79,31 @@ describe('/api/domains (C.1)', () => {
       payload: JSON.stringify({}) })).statusCode).toBe(400)
   })
 
+  it('PATCH managerProfileId requires tier chief: orchestrator lead → 400, k-secretary → 400, chief → 200 (INT.2 discriminator integrity)', async () => {
+    const name = 'ops-int2-tier-' + randomUUID().slice(0, 8)
+    const created = await app.inject({ method: 'POST', url: '/api/domains', headers: JSON_H,
+      payload: JSON.stringify({ name }) })
+    expect(created.statusCode).toBe(201)
+    const id = String((created.json() as { id: string }).id)
+    createdDomains.push(id)
+
+    // A lead (orchestrator tier) would receive briefings it lacks mgmt tools to act
+    // on; K as manager would make the supervisor legitimately mint the C.5-guarded
+    // to==from==k-secretary shape into the operator's own thread. Both are 400s.
+    const lead = await app.inject({ method: 'PATCH', url: `/api/domains/${id}`, headers: JSON_H,
+      payload: JSON.stringify({ managerProfileId: 'lead-frontend' }) })
+    expect(lead.statusCode).toBe(400)
+    expect(String((lead.json() as { error: string }).error)).toMatch(/chief/i)
+    expect((await app.inject({ method: 'PATCH', url: `/api/domains/${id}`, headers: JSON_H,
+      payload: JSON.stringify({ managerProfileId: 'k-secretary' }) })).statusCode).toBe(400)
+
+    // A chief-tier profile is a legal manager; NULL (unassign) stays legal too.
+    expect((await app.inject({ method: 'PATCH', url: `/api/domains/${id}`, headers: JSON_H,
+      payload: JSON.stringify({ managerProfileId: 'chief' }) })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'PATCH', url: `/api/domains/${id}`, headers: JSON_H,
+      payload: JSON.stringify({ managerProfileId: null }) })).statusCode).toBe(200)
+  })
+
   it('PATCH rename onto an existing name → clean 409 (never a raw SQLITE 500); whitespace name → 400', async () => {
     const name = `P51 Ren ${randomUUID().slice(0, 8)}`
     const created = await app.inject({ method: 'POST', url: '/api/domains', headers: JSON_H,

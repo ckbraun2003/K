@@ -258,4 +258,13 @@ describe('agent_messages queue index', () => {
     // serve the profile-leading equality reads.
     expect(row?.sql).toMatch(/to_profile_id\s*,\s*status/)
   })
+
+  it("idx_agent_messages_queued_tick exists as a PARTIAL index (WHERE status = 'queued') — the relay tick's scan (INT.2)", () => {
+    const row = db.prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_agent_messages_queued_tick'`,
+    ).get() as { sql?: string } | undefined
+    // The WHERE clause is the point: without it the index carries the whole
+    // delivered history instead of only the transient queued rows.
+    expect(row?.sql).toMatch(/WHERE\s+status\s*=\s*'queued'/i)
+  })
 })

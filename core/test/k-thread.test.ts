@@ -606,6 +606,35 @@ describe('reportDelegationBack — delegated outcome QUEUED as an agent message 
     expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(turnsBefore)
   })
 
+  it('DE-DUPS the C.5 dual-write: an already-messaged report is not re-quoted at terminal (INT.2)', async () => {
+    const runId = seedDelegatedRun('implement the dual-written feature')
+    // The chief run's activation row — with it, the mgmt `report` tool dual-writes
+    // the report to K's mailbox at FILE time (C.5: reporter resolved via agent_runs).
+    agentRunsDb.insertAgentRun.run({
+      id: uuid(), profileId: 'chief', runId, trigger: 'delegation',
+      goal: 'int2 dedup', projectId: null, workflowId: null,
+      status: 'running', createdAt: Date.now(), completedAt: null,
+    })
+    fileChiefReport(runId, 'PR #77 opened; CI green')
+
+    // The dual-write landed the raw report as a mailbox message immediately.
+    const atFileTime = queuedMessages()
+    expect(atFileTime).toHaveLength(1)
+    expect(String(atFileTime[0].body)).toBe('PR #77 opened; CI green')
+    expect(atFileTime[0].from_profile_id).toBe('chief')
+    expect(atFileTime[0].provenance_run_id).toBe(runId)
+
+    update(runId, 'done')
+
+    // The terminal report-back queues the OUTCOME — never a second copy of the
+    // report body (the operator would read identical content twice otherwise).
+    const msgs = queuedMessages()
+    expect(msgs).toHaveLength(2)
+    const terminal = msgs.find(m => m.id !== atFileTime[0].id)!
+    expect(String(terminal.body)).toContain('completed')
+    expect(String(terminal.body)).not.toContain('PR #77 opened')
+  })
+
   it('caps an oversize mgmt-report body on the queued message (~2000 chars + ellipsis)', async () => {
     const runId = seedDelegatedRun('implement the giant feature')
 
@@ -991,6 +1020,9 @@ describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a 
       createdAt: now,
       updatedAt: now,
       ownerProfileId: opts.owner ?? null,
+      // C.1 (D-125): insertPipelineRun's named-param set gained domainId — the
+      // attribution column the domain supervisor groups by. NULL: no domain here.
+      domainId: null,
     })
     const stageId = uuid()
     pipelineDb.insertStage.run({

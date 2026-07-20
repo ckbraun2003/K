@@ -179,6 +179,10 @@ describe('seedProfiles — one-shot k-secretary grant reconcile (mig_k_primary_a
     agentProfilesDb.updateProfileRow.run({
       id: 'k-secretary', name: 'K', tier: 'secretary', charter: 'secretary', defaultModel: '',
       allowedTools: JSON.stringify(PRE_LANE_TOOLS), mcpServers: JSON.stringify(PRE_LANE_SERVERS), skills,
+      // C.2 (merged at INT): updateProfileRow's named-param set carries the L1.5
+      // overlay column. A PRE-lane row never had one — NULL is the regressed state
+      // (and lets the reconcile's overlay seed do its write-once work).
+      identityOverlay: null,
     })
     deleteFlag() // seedAll above set it — the scenario under test starts unflagged
 

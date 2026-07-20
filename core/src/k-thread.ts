@@ -337,6 +337,23 @@ function concatAssistantText(runId: string): string {
   return joined.length > REPORT_BACK_TEXT_CAP ? `${joined.slice(0, REPORT_BACK_TEXT_CAP)}…` : joined
 }
 
+/**
+ * INT.2 (B.4 ⇄ C.5 dual-write reconcile, D-124): has this run's report body ALREADY
+ * been queued to K as a mailbox message? The mgmt `report` tool (C.5) dual-writes
+ * every run-context report to K's mailbox at FILE time (provenance = the reporting
+ * run, body = the raw report). Without this check the terminal report-back (B.4)
+ * would re-quote the same report — the operator reads the identical content twice
+ * in one conversation. Any status counts: at queue time the content entered the
+ * mailbox channel; a later delivery failure is that channel's own, non-silent
+ * concern (failed row + notification). When the dual-write itself failed (its
+ * best-effort catch), no row exists and the terminal re-quote still carries the
+ * report — the degradation path keeps the content flowing.
+ */
+const reportAlreadyMessaged = db.prepare(
+  `SELECT 1 AS hit FROM agent_messages
+   WHERE provenance_run_id = ? AND from_kind = 'profile' AND body = ? LIMIT 1`,
+)
+
 /** The run's CONCLUSION — its final (last) non-empty `assistant` event text, capped. F-075:
  *  the lead-continuation report-back uses this TAIL (the lead's final message, e.g. "Opened
  *  PR #7; CI green.") instead of concatAssistantText's PREFIX scan, which loses the
@@ -356,7 +373,10 @@ function finalAssistantText(runId: string): string {
 export function summarizeDelegatedOutcome(childRunId: string, status: string): string {
   const verb = status === 'done' ? 'completed' : status
   const reports = mgmtDb.listReportsByRun.all(childRunId, 1) as Row[]
-  const reportBody = reports.length > 0 ? String(reports[0].body) : ''
+  let reportBody = reports.length > 0 ? String(reports[0].body) : ''
+  // INT.2 de-dup: the C.5 dual-write already delivered this report to K's mailbox
+  // in real time — the terminal message must add the OUTCOME, not repeat the body.
+  if (reportBody.length > 0 && reportAlreadyMessaged.get(childRunId, reportBody)) reportBody = ''
   if (reportBody.length > 0) {
     // Same cap as the fallback: the mgmt `report` zod max is 20k — never dump that
     // raw onto K's thread.
@@ -445,7 +465,10 @@ export function summarizeChiefLeadContinuation(leadRunId: string, lead: string, 
   const verb = status === 'done' ? 'completed' : status
   // Prefer the lead's explicit mgmt report over raw transcript text.
   const reports = mgmtDb.listReportsByRun.all(leadRunId, 1) as Row[]
-  const reportBody = reports.length > 0 ? String(reports[0].body) : ''
+  let reportBody = reports.length > 0 ? String(reports[0].body) : ''
+  // INT.2 de-dup (same as summarizeDelegatedOutcome): a C.5-dual-written report is
+  // already in K's mailbox — fall through to the conclusion/status line instead.
+  if (reportBody.length > 0 && reportAlreadyMessaged.get(leadRunId, reportBody)) reportBody = ''
   if (reportBody.length > 0) {
     const capped =
       reportBody.length > REPORT_BACK_TEXT_CAP ? `${reportBody.slice(0, REPORT_BACK_TEXT_CAP)}…` : reportBody

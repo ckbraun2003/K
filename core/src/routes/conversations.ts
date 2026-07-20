@@ -25,7 +25,15 @@ const CONVERSATION_SELECT = `
     s.state AS session_state, s.context_tokens AS session_context_tokens,
     (SELECT t.text FROM k_thread_turns t WHERE t.thread_id = th.id ORDER BY t.created_at DESC LIMIT 1) AS snippet,
     (SELECT t.created_at FROM k_thread_turns t WHERE t.thread_id = th.id ORDER BY t.created_at DESC LIMIT 1) AS last_turn_at,
-    (SELECT COUNT(*) FROM k_thread_turns t WHERE t.thread_id = th.id AND t.created_at > COALESCE(th.last_read_at, 0)) AS unread_turns,
+    (SELECT COUNT(*) FROM k_thread_turns t WHERE t.thread_id = th.id AND t.created_at > COALESCE(th.last_read_at, 0)
+       -- INT.2: a DELIVERED own-message must not badge (B.5 excluded queued rows
+       -- only; once the relay lands the turn it counted again). A turn that IS the
+       -- operator's own relay block — starts with the user tag, embeds no other
+       -- block head — is cursor-independent like its queued row was. Mixed batches
+       -- still count (they carry agent content). Escaped in-body lookalikes
+       -- (message-relay escaping) can't fake a block head here.
+       AND NOT (t.text LIKE '[message from user ·%'
+                AND instr(t.text, char(10) || char(10) || '[message from ') = 0)) AS unread_turns,
     (SELECT COUNT(*) FROM agent_messages m WHERE m.status = 'queued' AND m.to_thread_id = th.id AND m.from_kind <> 'user') AS queued_msgs
   FROM k_threads th
   LEFT JOIN agent_profiles p ON p.id = th.profile_id
