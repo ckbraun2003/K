@@ -292,12 +292,14 @@ type Attachment = {
 const attachments = new Map<string, Attachment>()
 /** runId → sessionId reverse lookup (undo taint without a DB roundtrip — A.4). */
 const runToSession = new Map<string, string>()
-/** Undo taint: run ids undoSessionRun (A.4) scrubbed. The terminal finalize
- *  consumes the marker and does NOTHING — undo already forced 'stale' + cleared
- *  cli_session_id, and a later terminal must not resurrect 'resumable'. Bounded
- *  by undo frequency (a rare, explicit operator action); an id whose run already
- *  finalized before the undo is never consumed — accepted, same as k-thread's
- *  undoneRuns idiom. */
+/** Undo taint: run ids undoSessionRun (A.4) scrubbed. BELT-ONLY since the A.4
+ *  teardown fix (whole-lane review): undo tears the attachment down
+ *  synchronously, so the finalize closure that would consume the marker is
+ *  normally already gone — entries usually stay unconsumed for process lifetime
+ *  (trivial: one id per rare, explicit operator undo; the k-thread undoneRuns
+ *  idiom). Kept as defense-in-depth for any residual path that still reaches
+ *  finalize with a tainted run — the consume arm writes NOTHING, so a late
+ *  terminal can never resurrect 'resumable'. */
 const undoneRuns = new Set<string>()
 
 // Local statements (the frozen-db-bundle precedent — see insertProfileConversation).
@@ -607,17 +609,23 @@ function finalizeSessionTerminal(sessionId: string, att: Attachment, status: str
     void withSessionSendLock(sessionId, async () => {
       const row = agentSessionsDb.get.get(sessionId) as Row | undefined
       if (!row) return
+      // An undo racing this job (whole-lane review): undoK deletes the run's
+      // durable turns between finalize and the lock job landing — drop entries
+      // whose turn no longer exists, never resurrect a scrubbed message in a
+      // ghost spawn.
+      const live = entries.filter(e => kThreadsDb.getTurn.get(e.turnId) != null)
+      if (live.length === 0) return
       const successor = attachments.get(sessionId)
       if (successor) {
-        for (const e of entries) kThreadsDb.patchTurnRunId.run(successor.runId, e.turnId)
-        if (!sendInput(successor.runId, entries.map(e => e.body).join('\n\n'))) {
-          successor.pending.push(...entries)
+        for (const e of live) kThreadsDb.patchTurnRunId.run(successor.runId, e.turnId)
+        if (!sendInput(successor.runId, live.map(e => e.body).join('\n\n'))) {
+          successor.pending.push(...live)
         }
         return
       }
-      await spawnSessionRun(rowToAgentSession(row), entries.map(e => e.body), {
+      await spawnSessionRun(rowToAgentSession(row), live.map(e => e.body), {
         from: { kind: 'user' },
-        turnIds: entries.map(e => e.turnId),
+        turnIds: live.map(e => e.turnId),
       })
     }).catch(e => console.warn('[agent-sessions] pending re-dispatch failed:', e))
   }
@@ -709,9 +717,11 @@ export function sweepLiveSessionsOnBoot(d: import('better-sqlite3').Database = d
  * from the dying CLI re-marks the scrubbed row 'live' with no finalize left to
  * correct it (the taint arm writes nothing). Teardown mirrors finalize exactly
  * (unsub + identity-guarded map deletes), so the next send cold-spawns a fresh
- * establish; the taint stays as the belt for a finalize already in flight. Any
- * pending bodies die with the attachment — their durable turns are exactly what
- * undoK is deleting.
+ * establish. The taint is then BELT-ONLY: with the subscription gone no finalize
+ * remains to consume it (this whole path is synchronous — there is no finalize
+ * "in flight"); it guards any residual path that still reaches finalize with
+ * this run id. Any pending bodies die with the attachment — their durable turns
+ * are exactly what undoK is deleting.
  */
 export function undoSessionRun(runId: string): void {
   undoneRuns.add(runId) // finalize taint FIRST — before the kill can produce a terminal
