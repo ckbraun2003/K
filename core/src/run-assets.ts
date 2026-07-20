@@ -474,13 +474,22 @@ export function resolveRunAssets(profile: AgentProfile, opts: ResolveRunAssetsOp
       if (!fs.existsSync(serverPath)) {
         throw new Error(`run-assets: ${name} server module not found at ${serverPath}`)
       }
+      const env: Record<string, string> = { ...(srv.env ?? {}), K_DATA_DIR: dataDir, K_RUN_ID: opts.runId }
+      if (ext === '.ts') {
+        // PARITY with the synthesizer's INT.8 smoke-3 fix (agent-config.ts): the
+        // stdio child's cwd is the agent's, so its tsx needs core's tsconfig
+        // `paths` pinned explicitly or a VALUE import of @k/shared resolves the
+        // unbuilt dist and kills the server. The shim must report exactly what
+        // the synthesizer writes (run-assets-shim parity lock).
+        env.TSX_TSCONFIG_PATH = path.join(__dirname, '..', 'tsconfig.json')
+      }
       return {
         name,
         sourceKind: 'k' as const,
         config: {
           command: process.execPath,
           args: ext === '.ts' ? ['--import', resolveTsxLoader(), serverPath] : [serverPath],
-          env: { ...(srv.env ?? {}), K_DATA_DIR: dataDir, K_RUN_ID: opts.runId },
+          env,
         },
         estTokens: null,
       }

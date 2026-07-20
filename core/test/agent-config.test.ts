@@ -134,6 +134,11 @@ describe('synthesizeConfigDir', () => {
       path.join(mcpDir, 'k-store-server.js'),
       process.execPath,
       tsxHref,
+      // INT.9-fix: the dev-only TSX_TSCONFIG_PATH env (INT.8 smoke-3 fix) points
+      // the stdio children's tsx at core's OWN tsconfig — K-owned exactly like
+      // the server module above (CI's Linux checkout surfaced it as /home/runner…;
+      // Windows' JSON-escaping had masked the same class locally).
+      path.join(mcpDir, '..', '..', 'tsconfig.json'),
     ]
     // Strip the native, forward-slash, AND JSON-escaped (C:\\Users\\…) forms of
     // each legit path — mcp.json stores absolute paths JSON-escaped.
