@@ -199,8 +199,9 @@ its own spend, all behind **one switch that ships OFF**. Turn it on from **Setti
    *safety* cap on **measured** spend over a rolling 24h window — it applies to manual and autonomous
    dispatches alike, so it protects you even when the master is off. At the cap a dispatch is refused
    with a reason (not queued); raise the cap to proceed. Your own interactive chats with K are never
-   budget-blocked. Per-project caps live on each project. There is **no forecasting** — only real,
-   measured cost.
+   budget-blocked — and agent-to-agent messages (briefings, report-backs) are the one *queued*
+   exception: at the cap they **hold in the mailbox** and deliver when the cap lifts. Per-project
+   caps live on each project. There is **no forecasting** — only real, measured cost.
 4. **Watch it on Insights → Charts** — a **budget burn-down** (measured, 24h) and a **retry-rate**
    chart show what the autonomy is spending and how often it is self-correcting.
 

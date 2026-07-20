@@ -232,11 +232,13 @@ plus heartbeat, per-manager governed — is specified with the mailbox in §04 a
 ### K — the primary agent (D-126)
 
 K's charter is rewritten as a **top-tier engineering agent and harness expert**. Its authority is
-**read + analyze**: `Read`/`Grep`/`Glob` plus the GitNexus MCP server mounted read-only (the chief
-precedent — and the charter explicitly forbids the server's write-capable tools: never a non-dry-run
-`rename`, never `group_sync`). No Write/Edit/Bash/Task — **every mutation stays a delegated
-run/pipeline**, keeping the Trust Core audit trail intact. K reads the code it is asked about and
-answers from evidence; it delegates the work it must not do itself.
+**read + analyze**: `Read`/`Grep`/`Glob` plus GitNexus granted **per-tool at the allowlist layer**
+(the 13 read/analysis tools; the write-capable `rename` and `group_sync` and the graph-write-capable
+`cypher` are **excluded from the grant** — read-only is an allowlist boundary on both delegating
+tiers, K and chief, not charter prose; the orchestrator/coding tier keeps the server-level grant
+under run-level Trust Core checkpoints). No Write/Edit/Bash/Task — **every mutation stays a
+delegated run/pipeline**, keeping the Trust Core audit trail intact. K reads the code it is asked
+about and answers from evidence; it delegates the work it must not do itself.
 
 **Routing is K's own in-context decision.** The keyword classifier (`routeForMessage`) is demoted to
 a **Dock preview chip** — it colors the composer, it decides nothing. K itself chooses per message:

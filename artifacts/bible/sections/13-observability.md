@@ -212,9 +212,11 @@ data already stored — no forecasting, no new spend**:
   operator raises the cap to proceed (D-112). Gated dispatch paths: `startAgentRun` (autonomous),
   manual `POST /api/runs`, and autonomous scheduled/event skill
   dispatch — the D-046-era operator→Chief `delegateToChief` path is retired (D-126). The exemption
-  is now structural: **a `kind='chat-turn'` run — any conversation turn — is exempt** (D-127; the
-  operator's own conversation is never budget-blocked). Because the cap is a safety limit it applies **even while autonomy is OFF** once
-  set (§03, D-108).
+  is structural AND origin-split: **an OPERATOR-originated `chat-turn` is exempt** (the operator's
+  own conversation is never budget-blocked), while a **profile-originated session wake** (an agent
+  message/briefing/report-back causing the dispatch) **is gated** — capped agent deliveries hold
+  queued at the relay until the cap lifts (D-124/D-127). Because the cap is a safety limit it
+  applies **even while autonomy is OFF** once set (§03, D-108).
 - **Retry rate (measured).** `core/src/retry-metrics.ts` counts self-heal retries off the
   `runs.retry_of` lineage (E-18, §07) against total runs over a day-bucketed window — the rate is real
   because a retry is a real row stamped `retry_of`/`retry_count`, and a `run_retried` WS event
@@ -243,11 +245,11 @@ Every run is stamped `runs.kind ∈ chat-turn | job | pipeline-stage` (plus `run
 dispatch. The **Runs surface defaults to `job` + `pipeline-stage`** with a "show chat turns"
 toggle — chat turns belong to their **conversations** (§08 Messages), not the job list, so Runs
 reads as the org's work history rather than a transcript dump. `kind` is also the policy key: the
-**budget-exemption** (a `chat-turn` is a conversation turn, never budget-blocked) and the wake
-governor's **org-relevance** check read `kind` instead of K-shaped special cases — the gating
-truth-table is identical for every pre-existing caller, just stated structurally. `kind` is set
-exclusively by trusted in-process code; no HTTP body, MCP tool input, or queue row can smuggle it
-into a dispatch.
+**budget posture** (an operator-originated `chat-turn` is exempt; a profile-originated wake is
+budget-gated) and the wake governor's **org-relevance** check read `kind` instead of K-shaped
+special cases — the gating truth-table is identical for every pre-existing caller, just stated
+structurally. `kind` is set exclusively by trusted in-process code; no HTTP body, MCP tool input,
+or queue row can smuggle it into a dispatch.
 
 ## Supervision observability (Continuous Agents, D-125)
 

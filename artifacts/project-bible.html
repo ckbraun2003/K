@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-20 05:08</span><br>
+      compiled <span class="mono">2026-07-20 05:29</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -888,11 +888,13 @@ plus heartbeat, per-manager governed — is specified with the mailbox in §04 a
 §13.</p>
 <h3>K — the primary agent (D-126)</h3>
 <p>K's charter is rewritten as a <strong>top-tier engineering agent and harness expert</strong>. Its authority is
-<strong>read + analyze</strong>: <code>Read</code>/<code>Grep</code>/<code>Glob</code> plus the GitNexus MCP server mounted read-only (the chief
-precedent — and the charter explicitly forbids the server's write-capable tools: never a non-dry-run
-<code>rename</code>, never <code>group_sync</code>). No Write/Edit/Bash/Task — <strong>every mutation stays a delegated
-run/pipeline</strong>, keeping the Trust Core audit trail intact. K reads the code it is asked about and
-answers from evidence; it delegates the work it must not do itself.</p>
+<strong>read + analyze</strong>: <code>Read</code>/<code>Grep</code>/<code>Glob</code> plus GitNexus granted <strong>per-tool at the allowlist layer</strong>
+(the 13 read/analysis tools; the write-capable <code>rename</code> and <code>group_sync</code> and the graph-write-capable
+<code>cypher</code> are <strong>excluded from the grant</strong> — read-only is an allowlist boundary on both delegating
+tiers, K and chief, not charter prose; the orchestrator/coding tier keeps the server-level grant
+under run-level Trust Core checkpoints). No Write/Edit/Bash/Task — <strong>every mutation stays a
+delegated run/pipeline</strong>, keeping the Trust Core audit trail intact. K reads the code it is asked
+about and answers from evidence; it delegates the work it must not do itself.</p>
 <p><strong>Routing is K's own in-context decision.</strong> The keyword classifier (<code>routeForMessage</code>) is demoted to
 a <strong>Dock preview chip</strong> — it colors the composer, it decides nothing. K itself chooses per message:
 answer directly, use its read tools, <code>delegate_pipeline</code>, or <code>message_agent</code> a manager or
@@ -1411,9 +1413,14 @@ terminals all queue through the mailbox to K's originating conversation — as d
 outcome still lands <em>where you asked</em> — it is just a message from that agent, not a bespoke
 turn-append.</p>
 <p><strong>Cost honesty.</strong> A message, report-back, or briefing delivered to an <strong>idle</strong> agent is a REAL
-dispatch — a wake run. It is stamped <code>kind='chat-turn'</code> (D-127) and therefore <strong>budget-exempt</strong> like
-any conversation turn: supervision and messaging spend ride the <strong>wake governor + per-domain caps</strong>
-(§13), not the org budget gate. Free-looking report-backs are not free; they are governed.</p>
+dispatch — a wake run, stamped <code>kind='chat-turn'</code> (D-127). The exemption splits by ORIGIN: the
+<strong>operator's own</strong> conversation turns are never budget-blocked (the operator must always reach
+their agents to raise a cap), but a <strong>profile-originated</strong> wake — an agent message, briefing, or
+report-back causing the dispatch — <strong>rides the org budget gate</strong> like any autonomous spend, plus a
+rolling-hour relay circuit-breaker as a loop damper. A capped agent delivery <strong>holds</strong> (rows stay
+queued, one notification; delivery resumes when the cap lifts — never <code>failed</code>). Supervision
+briefing <em>creation</em> is additionally governed by the wake governor + per-domain caps (§13).
+Free-looking report-backs are not free; they are metered.</p>
 <h2>Skills — capability catalog vs automation registry (BUILT — host-integration program)</h2>
 <p>The skills a run can mount and the skills the operator automates are <strong>one store with two
 surfaces</strong> (D-069/D-071):</p>
@@ -3773,8 +3780,8 @@ cap, active-work-only) — core, NOT gated by the Autonomous Org master (§03, �
 L0 → L1 role templates → L1.5 identity overlays → L2 layering, the keyword router demoted to a
 Dock preview, the mandatory K→Chief routing hop retired (§03).</li>
 <li><input checked disabled type="checkbox" /> <strong><code>runs.kind</code> bookkeeping (D-127).</strong> <code>chat-turn | job | pipeline-stage</code> + <code>session_id</code>; the
-Runs UI defaults to jobs + stages with a chat-turns toggle; budget-exemption + wake-relevance
-checks read <code>kind</code> (§13).</li>
+Runs UI defaults to jobs + stages with a chat-turns toggle; budget posture (operator turns
+exempt, agent-caused wakes gated) + wake-relevance checks read <code>kind</code>/origin (§13).</li>
 <li><input checked disabled type="checkbox" /> <strong>Schema v15→v16.</strong></li>
 </ul>
 <p><strong>Deferred (documented):</strong> <strong>steerable pipeline stages</strong> (<code>steerable:true</code> interactive-capable stage
@@ -4827,15 +4834,15 @@ materializer</strong>, pipeline <strong>event triggers</strong>, and <strong>int
 <td>D-126</td>
 <td>2026-07-17</td>
 <td>K = primary agent: engineering identity, read authority, in-context routing <em>(supersedes D-057's classifier-as-decision; retires D-046's mandatory K→Chief hop)</em></td>
-<td><strong>K's charter is rewritten as a top-tier engineering agent + harness expert on the new role layering (L0 base → L1 role template — the tier charters rewritten as primary/manager/orchestrator templates via <code>roleForTier()</code> — → L1.5 per-profile <code>identity_overlay</code>, operator-editable, <code>''</code> silences a seed / <code>NULL</code> reseeds, empty-overlay synthesis byte-identical → L2 project). K's authority becomes READ + ANALYZE: <code>Read</code>/<code>Grep</code>/<code>Glob</code> on the secretary allowlist + the gitnexus MCP server mounted read-only (chief precedent; the charter explicitly forbids the server's write-capable <code>rename</code>/<code>group_sync</code>); NO Write/Edit/Bash/Task — every mutation stays a delegated run/pipeline. The keyword router (<code>routeForMessage</code>) is DEMOTED to a Dock preview chip; the <code>route.escalates → delegateToChief</code> auto-delegation branch is DELETED — K decides in-context per message (answer, read tools, <code>delegate_pipeline</code>, <code>message_agent</code>), and <code>forceRoute</code> becomes a mailbox send. Authority tiers themselves are untouched — the role drives prompts/UX only.</strong></td>
+<td><strong>K's charter is rewritten as a top-tier engineering agent + harness expert on the new role layering (L0 base → L1 role template — the tier charters rewritten as primary/manager/orchestrator templates via <code>roleForTier()</code> — → L1.5 per-profile <code>identity_overlay</code>, operator-editable, <code>''</code> silences a seed / <code>NULL</code> reseeds, empty-overlay synthesis byte-identical → L2 project). K's authority becomes READ + ANALYZE: <code>Read</code>/<code>Grep</code>/<code>Glob</code> on the secretary allowlist + gitnexus granted PER-TOOL (the 13 read/analysis tools; <code>rename</code>/<code>group_sync</code>/<code>cypher</code> excluded at the GRANT layer on both delegating tiers — the SEAMS #2 (f) ruling, enforced by the tier ceiling, with a one-shot row swap for pre-narrowing DBs; the orchestrator/coding tier keeps server-level under run-level Trust Core checkpoints); NO Write/Edit/Bash/Task — every mutation stays a delegated run/pipeline. The keyword router (<code>routeForMessage</code>) is DEMOTED to a Dock preview chip; the <code>route.escalates → delegateToChief</code> auto-delegation branch is DELETED — K decides in-context per message (answer, read tools, <code>delegate_pipeline</code>, <code>message_agent</code>), and <code>forceRoute</code> becomes a mailbox send. Authority tiers themselves are untouched — the role drives prompts/UX only.</strong></td>
 <td>K's differentiator is the harness, and a harness expert that cannot read the code it manages answers from hearsay; read tools + delegated writes keep the Trust Core audit trail intact while making answers evidence-based. A keyword classifier deciding delegation was the wrong brain in the loop — deterministic string-matching overruling an LLM that can actually read the request; demoting it to a preview keeps the UX affordance and returns the decision to K. The mandatory K→Chief hop made every engineering ask pay a Chief activation even when K could delegate a pipeline directly; managers now oversee (D-125) rather than gatekeep.</td>
-<td>Giving K write tools (collapses the delegate-writes audit boundary); keeping the classifier as the decision (D-057's clause — deterministic keywords overruling in-context judgment); keeping the mandatory Chief hop (a paid middleman on every ask; oversight is the manager's job now, not routing); per-tool gitnexus narrowing in this wave (the server-level grant is exact chief parity — carried to review as a program-level policy call rather than relitigated mid-lane).</td>
+<td>Giving K write tools (collapses the delegate-writes audit boundary); keeping the classifier as the decision (D-057's clause — deterministic keywords overruling in-context judgment); keeping the mandatory Chief hop (a paid middleman on every ask; oversight is the manager's job now, not routing); a SERVER-level gitnexus grant on the delegating tiers (the A.5 interim posture — carried to SEAMS #2, which ruled for per-tool narrowing; charter prose is not a grant boundary on the highest-injection-exposure profile).</td>
 </tr>
 <tr>
 <td>D-127</td>
 <td>2026-07-17</td>
 <td><code>runs.kind</code> bookkeeping — chat turns stop being top-level jobs</td>
-<td><strong><code>runs.kind ∈ chat-turn | job | pipeline-stage</code> + <code>runs.session_id</code>, stamped by trusted in-process code at dispatch (<code>persistentSession</code> → <code>chat-turn</code>; the pipeline executor → <code>pipeline-stage</code>; default <code>job</code>) with a one-shot v16 backfill of historical rows. The Runs surface defaults to <code>job</code> + <code>pipeline-stage</code> with a "show chat turns" toggle — conversation turns belong to their conversations (§08 Messages). Policy reads <code>kind</code>: the budget governor's chat-exemption and the wake governor's org-relevance filter switch from K-shaped special cases to <code>kind === 'chat-turn'</code> (a strictly stricter restatement — the gating truth-table is identical for every pre-existing caller); <code>GET /api/runs</code> gains a <code>kind</code> filter (enum-validated, deduped).</strong></td>
+<td><strong><code>runs.kind ∈ chat-turn | job | pipeline-stage</code> + <code>runs.session_id</code>, stamped by trusted in-process code at dispatch (<code>persistentSession</code> → <code>chat-turn</code>; the pipeline executor → <code>pipeline-stage</code>; default <code>job</code>) with a one-shot v16 backfill of historical rows. The Runs surface defaults to <code>job</code> + <code>pipeline-stage</code> with a "show chat turns" toggle — conversation turns belong to their conversations (§08 Messages). Policy reads <code>kind</code>: the budget posture (an OPERATOR-originated <code>chat-turn</code> is exempt; a PROFILE-originated session wake is budget-gated + relay-breaker-damped — SEAMS #2 (b)) and the wake governor's org-relevance filter switch from K-shaped special cases to <code>kind</code>/origin (identical gating for every pre-existing caller; the one deliberate change is arming the gate on agent-caused wakes); <code>GET /api/runs</code> gains a <code>kind</code> filter (enum-validated, deduped).</strong></td>
 <td>Chat turns as top-level runs polluted every runs surface and forced budget/wake logic onto brittle profile-id special cases; one explicit discriminator makes "is this a conversation?" a stored fact rather than an inference, so UI filters, budget exemption, and wake relevance all read the same truth. Kind is unreachable from HTTP/MCP/queue input, so the exemption cannot be smuggled onto a paid dispatch.</td>
 <td>Inferring kind from trigger strings at read time (trigger semantics drifted — the mailbox dispatches profile sends as <code>'delegation'</code>); a separate chat-runs table (forks the run lifecycle every consumer rides); exposing <code>kind</code> on dispatch APIs (an exemption-smuggling surface — trusted in-process stamping only).</td>
 </tr>
@@ -5715,8 +5722,9 @@ diagnosis).</li>
 <em>safety</em> cap on <strong>measured</strong> spend over a rolling 24h window — it applies to manual and autonomous
 dispatches alike, so it protects you even when the master is off. At the cap a dispatch is refused
 with a reason (not queued); raise the cap to proceed. Your own interactive chats with K are never
-budget-blocked. Per-project caps live on each project. There is <strong>no forecasting</strong> — only real,
-measured cost.</li>
+budget-blocked — and agent-to-agent messages (briefings, report-backs) are the one <em>queued</em>
+exception: at the cap they <strong>hold in the mailbox</strong> and deliver when the cap lifts. Per-project
+caps live on each project. There is <strong>no forecasting</strong> — only real, measured cost.</li>
 <li><strong>Watch it on Insights → Charts</strong> — a <strong>budget burn-down</strong> (measured, 24h) and a <strong>retry-rate</strong>
 chart show what the autonomy is spending and how often it is self-correcting.</li>
 </ol>
@@ -5969,9 +5977,11 @@ the burn-down surfaces the <code>capped</code> state and a <code>budget_update</
 operator raises the cap to proceed (D-112). Gated dispatch paths: <code>startAgentRun</code> (autonomous),
 manual <code>POST /api/runs</code>, and autonomous scheduled/event skill
 dispatch — the D-046-era operator→Chief <code>delegateToChief</code> path is retired (D-126). The exemption
-is now structural: <strong>a <code>kind='chat-turn'</code> run — any conversation turn — is exempt</strong> (D-127; the
-operator's own conversation is never budget-blocked). Because the cap is a safety limit it applies <strong>even while autonomy is OFF</strong> once
-set (§03, D-108).</li>
+is structural AND origin-split: <strong>an OPERATOR-originated <code>chat-turn</code> is exempt</strong> (the operator's
+own conversation is never budget-blocked), while a <strong>profile-originated session wake</strong> (an agent
+message/briefing/report-back causing the dispatch) <strong>is gated</strong> — capped agent deliveries hold
+queued at the relay until the cap lifts (D-124/D-127). Because the cap is a safety limit it
+applies <strong>even while autonomy is OFF</strong> once set (§03, D-108).</li>
 <li><strong>Retry rate (measured).</strong> <code>core/src/retry-metrics.ts</code> counts self-heal retries off the
 <code>runs.retry_of</code> lineage (E-18, §07) against total runs over a day-bucketed window — the rate is real
 because a retry is a real row stamped <code>retry_of</code>/<code>retry_count</code>, and a <code>run_retried</code> WS event
@@ -5996,11 +6006,11 @@ tile renders the terminal-weighted delta, not the naive-mean one).</p>
 dispatch. The <strong>Runs surface defaults to <code>job</code> + <code>pipeline-stage</code></strong> with a "show chat turns"
 toggle — chat turns belong to their <strong>conversations</strong> (§08 Messages), not the job list, so Runs
 reads as the org's work history rather than a transcript dump. <code>kind</code> is also the policy key: the
-<strong>budget-exemption</strong> (a <code>chat-turn</code> is a conversation turn, never budget-blocked) and the wake
-governor's <strong>org-relevance</strong> check read <code>kind</code> instead of K-shaped special cases — the gating
-truth-table is identical for every pre-existing caller, just stated structurally. <code>kind</code> is set
-exclusively by trusted in-process code; no HTTP body, MCP tool input, or queue row can smuggle it
-into a dispatch.</p>
+<strong>budget posture</strong> (an operator-originated <code>chat-turn</code> is exempt; a profile-originated wake is
+budget-gated) and the wake governor's <strong>org-relevance</strong> check read <code>kind</code> instead of K-shaped
+special cases — the gating truth-table is identical for every pre-existing caller, just stated
+structurally. <code>kind</code> is set exclusively by trusted in-process code; no HTTP body, MCP tool input,
+or queue row can smuggle it into a dispatch.</p>
 <h2>Supervision observability (Continuous Agents, D-125)</h2>
 <p>Domain supervision is observable in exactly one place — the <strong>manager's conversation</strong>:</p>
 <ul>

@@ -347,7 +347,7 @@ describe('SEAMS#2 (b) — profile-originated wakes are budget-gated + breaker-da
       `INSERT INTO runs (id, prompt, cwd, status, cost_usd, created_at) VALUES (?, 'cost', '.', 'done', 1.0, ?)`,
     ).run(costId, Date.now())
 
-    // PROFILE-originated: gated → BudgetCapError → HOLD, not 'failed'.
+    // PROFILE-originated: gated → HOLD (pre-check, INT.7 M1), not 'failed'.
     const t = getOrCreateConversation(PROFILE2)
     const m = queueMessage({ toProfileId: PROFILE2, toThreadId: t.id, from: { kind: 'profile', profileId: 'k-secretary' }, body: 'agent chatter' })
     expect(await drainAgentMessages()).toBe(0)
@@ -358,6 +358,14 @@ describe('SEAMS#2 (b) — profile-originated wakes are budget-gated + breaker-da
       `SELECT * FROM notifications WHERE event_key = 'message_failed' AND title LIKE '%budget cap%'`,
     ).all() as Row[]
     expect(holds).toHaveLength(1)
+
+    // INT.7 M1: the hold must happen BEFORE the durable-turn append — a capped
+    // batch retried every 2s tick must NOT stack one duplicate turn per tick.
+    expect(listKThreadTurns(t.id)).toHaveLength(0)
+    await drainAgentMessages()
+    await drainAgentMessages()
+    expect(listKThreadTurns(t.id)).toHaveLength(0)
+    expect(msgRow(m.id).status).toBe('queued')
 
     // OPERATOR-originated: exempt — delivers under the same cap (the operator
     // must always be able to reach their agents to raise it).

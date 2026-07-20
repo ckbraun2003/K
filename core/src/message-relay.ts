@@ -52,7 +52,7 @@ import { resolveDelivery, rowToAgentMessage } from './agent-mail.js'
 import { sendInput, sendInterrupt } from './supervisor.js'
 import { appendTurn } from './k-thread.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
-import { BudgetCapError } from './budget-governor.js'
+import { BudgetCapError, budgetGate } from './budget-governor.js'
 
 const DEFAULT_RELAY_INTERVAL_MS = 2_000
 
@@ -278,9 +278,11 @@ async function deliverConversation(g: ConversationGroup): Promise<number> {
     if (activeNonTerminal) return 0
 
     // SEAMS#2 (b): a batch containing ANY profile-authored message is an
-    // AGENT-CAUSED wake — budget-gated downstream and damped here by the
-    // rolling-hour circuit-breaker. Held batches stay queued (retried each
-    // tick), with one un-spammy notification per hour.
+    // AGENT-CAUSED wake — budget-gated and damped by the rolling-hour
+    // circuit-breaker. BOTH holds are PRE-CHECKS (INT.7 M1): they fire before
+    // any claim AND before sendToSession's durable-turn append — a capped batch
+    // retried every 2s tick must hold cleanly, not stack one duplicate turn per
+    // tick. Held batches stay queued, with one un-spammy notification per hour.
     const profileSender = g.messages.find(m => m.fromKind === 'profile')
     const now = Date.now()
     if (profileSender) {
@@ -288,6 +290,12 @@ async function deliverConversation(g: ConversationGroup): Promise<number> {
       if (cap > 0 && recentProfileWakes(now) >= cap) {
         notifyHoldOnce('breaker',
           `profile-originated wakes hit the rolling-hour breaker (${cap}/h; MESSAGE_RELAY_PROFILE_WAKES_PER_HOUR tunes it). Queued messages deliver as the window rolls.`)
+        return 0
+      }
+      const gate = budgetGate({})
+      if (!gate.allowed) {
+        notifyHoldOnce('budget',
+          `org budget cap reached ($${gate.capUsd} — measured $${gate.spentUsd.toFixed(2)}) — agent-message delivery to ${g.profileId} held until the cap lifts.`)
         return 0
       }
     }
@@ -303,12 +311,12 @@ async function deliverConversation(g: ConversationGroup): Promise<number> {
         : undefined)
     } catch (err) {
       if (err instanceof BudgetCapError) {
-        // Org budget capped: NOT a failure of the messages — put the claims back
-        // and hold (queued rows retry every tick; delivery resumes when the cap
-        // lifts). NB sendToSession appends the durable turn BEFORE dispatching,
-        // so the batch's turn stays on the thread awaiting the wake — the next
-        // successful establish replays it from the seed (ledgered INT.2 #8
-        // posture; the failed-wake ghost-turn wave owns the deeper fix).
+        // RACE BELT only (INT.7 M1): the pre-check above holds capped profile
+        // batches before any claim/append; this catch covers a cap engaging in
+        // the sliver between the pre-check and the dispatch. Claims revert to
+        // queued (never 'failed'); the one already-appended turn for THIS tick
+        // is the single-strand ghost-turn class (ledgered INT.2 #8), not a
+        // per-tick accumulation — the next tick's pre-check holds cleanly.
         for (const m of claimed) revertClaim.run({ id: m.id })
         claimed.length = 0
         notifyHoldOnce('budget', `org budget cap reached — agent-message delivery to ${g.profileId} held until the cap lifts: ${err.message}`)

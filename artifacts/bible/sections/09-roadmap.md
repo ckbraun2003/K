@@ -535,8 +535,8 @@ wave; a full §12 rewrite is deferred); a pre-existing latent `/^routes\s*/` esc
   L0 → L1 role templates → L1.5 identity overlays → L2 layering, the keyword router demoted to a
   Dock preview, the mandatory K→Chief routing hop retired (§03).
 - [x] **`runs.kind` bookkeeping (D-127).** `chat-turn | job | pipeline-stage` + `session_id`; the
-  Runs UI defaults to jobs + stages with a chat-turns toggle; budget-exemption + wake-relevance
-  checks read `kind` (§13).
+  Runs UI defaults to jobs + stages with a chat-turns toggle; budget posture (operator turns
+  exempt, agent-caused wakes gated) + wake-relevance checks read `kind`/origin (§13).
 - [x] **Schema v15→v16.**
 
 **Deferred (documented):** **steerable pipeline stages** (`steerable:true` interactive-capable stage

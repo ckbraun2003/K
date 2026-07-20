@@ -186,9 +186,14 @@ outcome still lands *where you asked* — it is just a message from that agent, 
 turn-append.
 
 **Cost honesty.** A message, report-back, or briefing delivered to an **idle** agent is a REAL
-dispatch — a wake run. It is stamped `kind='chat-turn'` (D-127) and therefore **budget-exempt** like
-any conversation turn: supervision and messaging spend ride the **wake governor + per-domain caps**
-(§13), not the org budget gate. Free-looking report-backs are not free; they are governed.
+dispatch — a wake run, stamped `kind='chat-turn'` (D-127). The exemption splits by ORIGIN: the
+**operator's own** conversation turns are never budget-blocked (the operator must always reach
+their agents to raise a cap), but a **profile-originated** wake — an agent message, briefing, or
+report-back causing the dispatch — **rides the org budget gate** like any autonomous spend, plus a
+rolling-hour relay circuit-breaker as a loop damper. A capped agent delivery **holds** (rows stay
+queued, one notification; delivery resumes when the cap lifts — never `failed`). Supervision
+briefing *creation* is additionally governed by the wake governor + per-domain caps (§13).
+Free-looking report-backs are not free; they are metered.
 
 ## Skills — capability catalog vs automation registry (BUILT — host-integration program)
 
