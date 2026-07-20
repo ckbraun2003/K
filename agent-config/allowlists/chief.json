@@ -1,12 +1,24 @@
 {
-  "_note": "chief tier — the right-hand manager. Delegates only; NO code authority. Coding tools (Bash, Write, Edit, Task) are deliberately ABSENT so the tier cannot edit a file or spawn a coding subagent even if a prompt asks. Read-only intelligence + web research + the kstore working store (work-items/lessons; status-write self-gates to workflow runs) + the mgmt working store (assignments/reports — the Chief's management STORAGE). Mounting an MCP server ≠ granting it (D-034): `mcp__kstore` and `mcp__mgmt` must be granted here or the servers mounted in mcp/chief.json are denied in headless `-p`.",
+  "_note": "chief tier — the right-hand manager. Delegates only; NO code authority. Coding tools (Bash, Write, Edit, Task) are deliberately ABSENT so the tier cannot edit a file or spawn a coding subagent even if a prompt asks. Read-only intelligence + web research + the kstore working store (work-items/lessons; status-write self-gates to workflow runs) + the mgmt working store (assignments/reports — the Chief's management STORAGE). SEAMS#2 (f): gitnexus is granted PER-TOOL — the write-capable tools (rename, group_sync) and graph-write-capable cypher are EXCLUDED at the grant layer on this delegating tier (mutations happen only in delegated runs under Trust Core). Mounting an MCP server ≠ granting it (D-034): per-tool tokens satisfy the mount requirement; `mcp__kstore` and `mcp__mgmt` must be granted here or the servers mounted in mcp/chief.json are denied in headless `-p`.",
   "allowedTools": [
     "Read",
     "Grep",
     "Glob",
     "WebFetch",
     "WebSearch",
-    "mcp__gitnexus",
+    "mcp__gitnexus__query",
+    "mcp__gitnexus__context",
+    "mcp__gitnexus__impact",
+    "mcp__gitnexus__api_impact",
+    "mcp__gitnexus__detect_changes",
+    "mcp__gitnexus__route_map",
+    "mcp__gitnexus__tool_map",
+    "mcp__gitnexus__shape_check",
+    "mcp__gitnexus__group_query",
+    "mcp__gitnexus__group_list",
+    "mcp__gitnexus__group_contracts",
+    "mcp__gitnexus__group_status",
+    "mcp__gitnexus__list_repos",
     "mcp__kstore",
     "mcp__mgmt"
   ]

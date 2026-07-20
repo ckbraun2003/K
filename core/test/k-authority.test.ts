@@ -2,16 +2,16 @@
  * A.5 — K primary-agent authority (lane ca-a; D-126).
  *
  * K (secretary tier) becomes the operator's PRIMARY agent: full read/analyze
- * authority (Read/Grep/Glob + the gitnexus code-intelligence server) with no
+ * authority (Read/Grep/Glob + the gitnexus code-intelligence READ TOOLS) with no
  * mutation BUILT-INS (Bash/Write/Edit/Task stay denied — the coding-tools gating
- * boundary is untouched). NB `mcp__gitnexus` is a SERVER-level grant (chief
- * parity): gitnexus's write-capable tools (rename, group_sync) ride it — barred
- * by charter as a usage convention, not by this allowlist. Locks:
+ * boundary is untouched). SEAMS#2 (f): gitnexus is granted PER-TOOL — the
+ * write-capable rename/group_sync and graph-write cypher are EXCLUDED at the
+ * allowlist layer (read-only is a grant boundary now, not charter prose). Locks:
  *   - resolveAuthority('secretary') over the SHIPPED assets: the new grant set +
  *     the three mounted servers, still no coding tool, gating invariant holds;
  *   - the synthesized run config: allowedTools = OLD set ∪ exactly
- *     {Grep, Glob, mcp__gitnexus}; the denylist still carries every mutation
- *     tool; the written mcp.json mounts gitnexus via `npx gitnexus mcp`;
+ *     {Grep, Glob} + the gitnexus read-tool set; the denylist still carries every
+ *     mutation tool; the written mcp.json mounts gitnexus via `npx gitnexus mcp`;
  *   - the one-shot row reconcile (seedProfiles → reconcileKPrimaryAuthority):
  *     upgrades a PRE-lane k-secretary row, is flag-guarded (second run no-op),
  *     and never re-widens an operator narrowing;
@@ -39,8 +39,16 @@ const FLAG = 'mig_k_primary_authority_v1'
 /** The pre-lane (v15-era) secretary grant arrays — what an upgraded DB carries. */
 const PRE_LANE_TOOLS = ['Read', 'WebFetch', 'WebSearch', 'mcp__kstore', 'mcp__logistics']
 const PRE_LANE_SERVERS = ['kstore', 'logistics']
-/** Exactly the grants A.5 adds — nothing more. */
-const NEW_GRANTS = ['Grep', 'Glob', 'mcp__gitnexus']
+/** Exactly the grants A.5 (+SEAMS#2 f narrowing) adds — nothing more. */
+const NEW_GRANTS = [
+  'Grep', 'Glob',
+  'mcp__gitnexus__query', 'mcp__gitnexus__context', 'mcp__gitnexus__impact',
+  'mcp__gitnexus__api_impact', 'mcp__gitnexus__detect_changes',
+  'mcp__gitnexus__route_map', 'mcp__gitnexus__tool_map', 'mcp__gitnexus__shape_check',
+  'mcp__gitnexus__group_query', 'mcp__gitnexus__group_list',
+  'mcp__gitnexus__group_contracts', 'mcp__gitnexus__group_status',
+  'mcp__gitnexus__list_repos',
+]
 
 const tmpDirs: string[] = []
 
@@ -68,8 +76,15 @@ const flagValue = (): string | undefined =>
   (db.prepare(`SELECT value FROM app_config WHERE key = ?`).get(FLAG) as { value: string } | undefined)?.value
 const deleteFlag = (): void => { db.prepare(`DELETE FROM app_config WHERE key = ?`).run(FLAG) }
 
+/** SEAMS#2 (f): the per-tool swap's own one-shot flag (managed like FLAG). */
+const FLAG2 = 'mig_gitnexus_per_tool_v1'
+const flag2Value = (): string | undefined =>
+  (db.prepare(`SELECT value FROM app_config WHERE key = ?`).get(FLAG2) as { value: string } | undefined)?.value
+const deleteFlag2 = (): void => { db.prepare(`DELETE FROM app_config WHERE key = ?`).run(FLAG2) }
+
 let priorK: KRow | undefined
 let priorFlag: string | undefined
+let priorFlag2: string | undefined
 
 const ORIG_API = process.env.ANTHROPIC_API_KEY
 const ORIG_OAUTH = process.env.CLAUDE_CODE_OAUTH_TOKEN
@@ -77,6 +92,7 @@ const ORIG_OAUTH = process.env.CLAUDE_CODE_OAUTH_TOKEN
 beforeAll(() => {
   priorK = readKRow()
   priorFlag = flagValue()
+  priorFlag2 = flag2Value()
 })
 
 beforeEach(() => {
@@ -99,9 +115,11 @@ afterAll(() => {
   for (const name of createdNames) {
     try { db.prepare(`DELETE FROM agent_profiles WHERE name = ?`).run(name) } catch { /* FK guard */ }
   }
-  // Restore the reconcile flag to its pre-suite state.
+  // Restore both reconcile flags to their pre-suite state.
   deleteFlag()
   if (priorFlag !== undefined) db.prepare(`INSERT INTO app_config (key, value) VALUES (?, ?)`).run(FLAG, priorFlag)
+  deleteFlag2()
+  if (priorFlag2 !== undefined) db.prepare(`INSERT INTO app_config (key, value) VALUES (?, ?)`).run(FLAG2, priorFlag2)
   // Restore a PRE-EXISTING k-secretary row's authored fields (we mutated them).
   if (priorK && !createdNames.has('K')) {
     db.prepare(
@@ -120,9 +138,10 @@ afterAll(() => {
 // ─── 1. tier authority over the shipped assets ───────────────────────────────
 
 describe('resolveAuthority(secretary) — the primary-agent grant set', () => {
-  it('grants Read/Grep/Glob/WebFetch/WebSearch + the three mcp servers; excludes every coding tool', () => {
+  it('grants Read/Grep/Glob/WebFetch/WebSearch + the gitnexus READ tools + kstore/logistics; excludes every coding + gitnexus WRITE tool', () => {
     const a = resolveAuthority('secretary')
-    for (const tool of ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore', 'mcp__logistics']) {
+    for (const tool of ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__kstore', 'mcp__logistics',
+      'mcp__gitnexus__query', 'mcp__gitnexus__impact', 'mcp__gitnexus__context']) {
       expect(a.allowedTools, `secretary must grant ${tool}`).toContain(tool)
     }
     expect([...a.mcpServers].sort()).toEqual(['gitnexus', 'kstore', 'logistics'])
@@ -130,6 +149,11 @@ describe('resolveAuthority(secretary) — the primary-agent grant set', () => {
       expect(a.allowedTools, `secretary must NOT grant ${tool}`).not.toContain(tool)
     }
     expect(a.allowedTools).not.toContain('Agent')
+    // SEAMS#2 (f): the write-capable gitnexus tools are NOT granted — read-only
+    // is an allowlist boundary, not charter prose. (No blanket server token.)
+    for (const w of ['mcp__gitnexus', 'mcp__gitnexus__rename', 'mcp__gitnexus__group_sync', 'mcp__gitnexus__cypher']) {
+      expect(a.allowedTools, `secretary must NOT grant ${w}`).not.toContain(w)
+    }
     // The whole-asset gating invariant still holds with the widened secretary grant.
     expect(() => assertCodingToolsGating()).not.toThrow()
   })
@@ -138,7 +162,7 @@ describe('resolveAuthority(secretary) — the primary-agent grant set', () => {
 // ─── 2. grant snapshot via synthesis ─────────────────────────────────────────
 
 describe('synthesizeConfigDir — the reconciled k-secretary run grant', () => {
-  it('allowedTools = OLD set ∪ exactly {Grep, Glob, mcp__gitnexus}; denylist intact; gitnexus mounted via npx', () => {
+  it('allowedTools = OLD set ∪ exactly {Grep, Glob} + the gitnexus read-tool set; denylist intact; gitnexus mounted via npx', () => {
     seedAll() // flag was cleared in beforeEach → the reconcile upgrades/creates the row
     const k = getProfile('k-secretary')
     expect(k).not.toBeNull()
@@ -202,6 +226,47 @@ describe('seedProfiles — one-shot k-secretary grant reconcile (mig_k_primary_a
     seedAll()
     expect(getProfile('k-secretary')!.allowedTools).toEqual(PRE_LANE_TOOLS)
     expect(getProfile('k-secretary')!.mcpServers).toEqual(PRE_LANE_SERVERS)
+  })
+})
+
+// ─── 3b. SEAMS#2 (f): the blanket→per-tool one-shot swap ─────────────────────
+
+describe('seedProfiles — one-shot gitnexus per-tool swap (mig_gitnexus_per_tool_v1)', () => {
+  it('swaps a BLANKET mcp__gitnexus on a delegating-tier row for the read-tool set; flag-guarded; narrowed rows untouched', () => {
+    seedAll()
+    // Regress: a pre-narrowing row carries the BLANKET server token (what a DB
+    // upgraded through A.5 — or a pre-narrowing dynamic manager — holds).
+    const skills = readKRow()!.skills
+    const blanket = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore', 'mcp__logistics']
+    agentProfilesDb.updateProfileRow.run({
+      id: 'k-secretary', name: 'K', tier: 'secretary', charter: 'secretary', defaultModel: '',
+      allowedTools: JSON.stringify(blanket), mcpServers: JSON.stringify(['gitnexus', 'kstore', 'logistics']),
+      skills, identityOverlay: null,
+    })
+    deleteFlag2() // the scenario under test starts unswapped
+
+    seedAll() // → reconcileGitnexusPerToolGrants swaps the token
+    const k = getProfile('k-secretary')!
+    expect(k.allowedTools).not.toContain('mcp__gitnexus')
+    for (const t of NEW_GRANTS.filter(x => x.startsWith('mcp__gitnexus__'))) {
+      expect(k.allowedTools, `swap must grant ${t}`).toContain(t)
+    }
+    for (const w of ['mcp__gitnexus__rename', 'mcp__gitnexus__group_sync', 'mcp__gitnexus__cypher']) {
+      expect(k.allowedTools, `swap must NOT grant ${w}`).not.toContain(w)
+    }
+    expect(flag2Value(), 'swap flag must be set after success').toBeDefined()
+
+    // Flag-guarded: an operator who REMOVES gitnexus entirely stays narrowed
+    // across later seeds (the swap never re-adds what the row does not carry).
+    updateProfile('k-secretary', { allowedTools: PRE_LANE_TOOLS, mcpServers: PRE_LANE_SERVERS })
+    seedAll()
+    expect(getProfile('k-secretary')!.allowedTools).toEqual(PRE_LANE_TOOLS)
+
+    // And even a FORCED re-run (flag cleared) is a no-op on a row WITHOUT the
+    // blanket token — narrowing-preserving by construction.
+    deleteFlag2()
+    seedAll()
+    expect(getProfile('k-secretary')!.allowedTools).toEqual(PRE_LANE_TOOLS)
   })
 })
 

@@ -292,14 +292,16 @@ describe('sendToSession — frozen contract (cold-path resumable sends)', () => 
     expect(seed).not.toContain('note_add')
   })
 
-  it("a profile-sent message carries the provenance tag in the TURN TEXT only, trigger 'delegation'", async () => {
+  it("a profile-sent message stores the VERBATIM body (interim tag RETIRED — SEAMS#2 m2), trigger 'delegation'", async () => {
     const { t, s } = setup()
 
     await sendToSession(s.id, 'status update', { from: { kind: 'profile', profileId: 'k-secretary' } })
 
-    // Durable turn: tagged. Dispatch seed: the raw body (interim; Lane B owns provenance).
+    // Durable turn + dispatch seed: the raw body. Provenance is the RELAY's
+    // (escaped provenanceBlock in the body it hands us + the agent_messages
+    // row) — the unescaped W0 `[from x]` turn tag was a latent forge vector.
     const userTurns = listKThreadTurns(t.id).filter(x => x.role === 'user')
-    expect(userTurns[0].text).toBe('[from k-secretary] status update')
+    expect(userTurns[0].text).toBe('status update')
     const seed = String(vi.mocked(startRun).mock.calls.at(-1)![0])
     expect(seed).toContain('You: status update')
     expect(seed).not.toContain('[from k-secretary]')

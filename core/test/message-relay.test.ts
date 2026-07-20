@@ -3,7 +3,7 @@
  * Mocks: supervisor.startRun (adapter-test pattern — inserts a real runs row) and
  * supervisor.sendInput (spy, controllable). All fixtures ca-b-* + cleaned up.
  */
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import { db, agentSessionsDb } from '../src/db.js'
 import { startRun, sendInput, sendInterrupt } from '../src/supervisor.js'
@@ -27,7 +27,7 @@ vi.mock('../src/supervisor.js', async () => {
   }
 })
 
-const { drainAgentMessages, startMessageRelay, provenanceBlock } = await import('../src/message-relay.js')
+const { drainAgentMessages, startMessageRelay, provenanceBlock, __relayTestHooks } = await import('../src/message-relay.js')
 const { queueMessage, rowToAgentMessage } = await import('../src/agent-mail.js')
 const { getOrCreateConversation, ensureSession } = await import('../src/agent-sessions.js')
 const { listKThreadTurns } = await import('../src/k-thread.js')
@@ -64,6 +64,7 @@ beforeEach(() => {
   vi.mocked(sendInput).mockReturnValue(true)
   vi.mocked(sendInterrupt).mockClear()
   vi.mocked(sendInterrupt).mockReturnValue(true)
+  __relayTestHooks.resetProfileWakeBreaker()
 })
 afterAll(() => {
   resetState()
@@ -301,6 +302,99 @@ describe('drainAgentMessages — live paths (Lane A forward-compat)', () => {
     expect(await drainAgentMessages()).toBe(1)
     expect(msgRow(m.id).status).toBe('delivered')
     expect(vi.mocked(sendInput)).toHaveBeenCalledWith(runId, '[message from user · urgent] urgent steer')
+  })
+})
+
+describe('SEAMS#2 (b) — profile-originated wakes are budget-gated + breaker-damped', () => {
+  const PROFILE2 = 'ca-b-relay-agent2'
+  const PROFILE3 = 'ca-b-relay-agent3'
+  const created2: string[] = []
+  const SEEDED_COST_RUNS: string[] = []
+
+  beforeAll(() => {
+    for (const id of [PROFILE2, PROFILE3]) {
+      if (!getProfile(id)) {
+        createProfile({ id, name: `CaBRelay${id.slice(-1)}`, tier: 'orchestrator' })
+        created2.push(id)
+      }
+    }
+  })
+  afterEach(async () => {
+    // Restore the org cap + config cache for the rest of the shared singleFork DB.
+    const { setAutonomySettings, __resetConfigCache } = await import('../src/config-store.js')
+    const { DEFAULT_AUTONOMY_SETTINGS } = await import('@k/shared')
+    setAutonomySettings({ ...DEFAULT_AUTONOMY_SETTINGS })
+    __resetConfigCache()
+    delete process.env.MESSAGE_RELAY_PROFILE_WAKES_PER_HOUR
+    for (const id of SEEDED_COST_RUNS.splice(0)) db.prepare(`DELETE FROM runs WHERE id = ?`).run(id)
+  })
+  afterAll(() => {
+    for (const id of created2) db.prepare(`DELETE FROM agent_profiles WHERE id = ?`).run(id)
+  })
+
+  it('BUDGET-CAPPED: a profile wake HOLDS (claims revert to queued, one notification); an operator wake stays exempt', async () => {
+    const { setAutonomySettings, __resetConfigCache } = await import('../src/config-store.js')
+    const { budgetStatus } = await import('../src/budget-governor.js')
+    const { DEFAULT_AUTONOMY_SETTINGS } = await import('@k/shared')
+    // Cap relative to CURRENT measured spend, then push spend over it (the
+    // budget-gate.test.ts idiom — immune to the shared DB's accumulated runs).
+    const baseline = budgetStatus().org.spentUsd
+    setAutonomySettings({ ...DEFAULT_AUTONOMY_SETTINGS, orgDailyBudgetUsd: baseline + 0.5 })
+    __resetConfigCache()
+    const costId = `ca-b-cost-${uuid().slice(0, 8)}`
+    SEEDED_COST_RUNS.push(costId)
+    db.prepare(
+      `INSERT INTO runs (id, prompt, cwd, status, cost_usd, created_at) VALUES (?, 'cost', '.', 'done', 1.0, ?)`,
+    ).run(costId, Date.now())
+
+    // PROFILE-originated: gated → BudgetCapError → HOLD, not 'failed'.
+    const t = getOrCreateConversation(PROFILE2)
+    const m = queueMessage({ toProfileId: PROFILE2, toThreadId: t.id, from: { kind: 'profile', profileId: 'k-secretary' }, body: 'agent chatter' })
+    expect(await drainAgentMessages()).toBe(0)
+    expect(msgRow(m.id).status).toBe('queued')
+    expect(msgRow(m.id).delivered_at).toBeNull()
+    expect(vi.mocked(startRun)).not.toHaveBeenCalled()
+    const holds = db.prepare(
+      `SELECT * FROM notifications WHERE event_key = 'message_failed' AND title LIKE '%budget cap%'`,
+    ).all() as Row[]
+    expect(holds).toHaveLength(1)
+
+    // OPERATOR-originated: exempt — delivers under the same cap (the operator
+    // must always be able to reach their agents to raise it).
+    const t3 = getOrCreateConversation(PROFILE3)
+    const mu = queueMessage({ toProfileId: PROFILE3, toThreadId: t3.id, from: { kind: 'user' }, body: 'operator through' })
+    expect(await drainAgentMessages()).toBe(1)
+    expect(msgRow(mu.id).status).toBe('delivered')
+    // The held profile row is STILL queued (retried, not failed) after the tick.
+    expect(msgRow(m.id).status).toBe('queued')
+  })
+
+  it('CIRCUIT-BREAKER: past the rolling-hour cap further profile wakes hold; operator wakes unaffected', async () => {
+    process.env.MESSAGE_RELAY_PROFILE_WAKES_PER_HOUR = '1'
+
+    // Wake 1 (profile) delivers and consumes the hour's budget of 1.
+    const t2 = getOrCreateConversation(PROFILE2)
+    const m1 = queueMessage({ toProfileId: PROFILE2, toThreadId: t2.id, from: { kind: 'profile', profileId: 'k-secretary' }, body: 'first wake' })
+    expect(await drainAgentMessages()).toBe(1)
+    expect(msgRow(m1.id).status).toBe('delivered')
+
+    // Wake 2 (profile, other conversation) is HELD by the breaker.
+    const t3 = getOrCreateConversation(PROFILE3)
+    const m2 = queueMessage({ toProfileId: PROFILE3, toThreadId: t3.id, from: { kind: 'profile', profileId: 'k-secretary' }, body: 'second wake' })
+    expect(await drainAgentMessages()).toBe(0)
+    expect(msgRow(m2.id).status).toBe('queued')
+    const holds = db.prepare(
+      `SELECT * FROM notifications WHERE event_key = 'message_failed' AND title LIKE '%circuit-breaker%'`,
+    ).all() as Row[]
+    expect(holds).toHaveLength(1)
+
+    // An OPERATOR message to a fresh conversation rides through the breaker —
+    // it only dampens agent-caused wakes. (PROFILE's own conversation: its
+    // delivered wake left a live run pointer, so use the base PROFILE.)
+    const t1 = getOrCreateConversation(PROFILE)
+    const mu = queueMessage({ toProfileId: PROFILE, toThreadId: t1.id, from: { kind: 'user' }, body: 'operator still flows' })
+    expect(await drainAgentMessages()).toBe(1)
+    expect(msgRow(mu.id).status).toBe('delivered')
   })
 })
 

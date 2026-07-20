@@ -16,9 +16,12 @@
  *    EXECUTED as boundary until INT.4). A later tick finds the run parked or the
  *    session demoted and delivers.
  *  - idle (resumable/stale) → ONE sendToSession wake batching ALL of the
- *    conversation's queued messages. No `from` opt: the tagged block IS the
- *    provenance (relay-owned; supersedes the W0 interim `[from x]` turn tag, which
- *    a profile `from` would double-apply).
+ *    conversation's queued messages. The tagged block IS the provenance
+ *    (relay-owned; the W0 interim `[from x]` turn tag is RETIRED — SEAMS#2 m2).
+ *    A batch containing any profile-authored row passes a profile `from` so the
+ *    wake is BUDGET-GATED as agent-caused spend (SEAMS#2 b) and damped by the
+ *    rolling-hour circuit-breaker; budget-capped/breaker-held batches stay
+ *    QUEUED (reverted claims), never 'failed'.
  *  - W0 in-flight guard: a thread whose active_run_id points at a NON-terminal run
  *    is treated as mid-turn even when the session row is not 'live' — the W0
  *    adapter's one-shot turns never mark the session live, and waking mid-turn
@@ -49,6 +52,7 @@ import { resolveDelivery, rowToAgentMessage } from './agent-mail.js'
 import { sendInput, sendInterrupt } from './supervisor.js'
 import { appendTurn } from './k-thread.js'
 import { isTerminalRunStatus } from './run-lifecycle.js'
+import { BudgetCapError } from './budget-governor.js'
 
 const DEFAULT_RELAY_INTERVAL_MS = 2_000
 
@@ -61,6 +65,64 @@ const INTERRUPT_RESEND_MS = 30_000
  *  never reused — residue is one timestamp per interrupted-but-never-delivered
  *  run in this process (the sendChains boundedness posture). */
 const interruptRequestedAt = new Map<string, number>()
+
+// ── SEAMS#2 (b): profile-originated wake bounds ──────────────────────────────
+// The budget gate (agent-runs.ts) is the FINANCIAL bound on agent-caused wakes;
+// this circuit-breaker is the LOOP damper on top: a tier-permitted message
+// ping-pong (manager↔orchestrator, K↔anyone) is throttled to a rolling-hour wake
+// budget even while the org is under its cap. In-memory (restart resets — a
+// damper, not the meter); env-tunable; 0 disables the breaker entirely.
+const DEFAULT_PROFILE_WAKES_PER_HOUR = 30
+function profileWakesPerHour(): number {
+  const n = Number(process.env.MESSAGE_RELAY_PROFILE_WAKES_PER_HOUR)
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_PROFILE_WAKES_PER_HOUR
+}
+const profileWakeTimes: number[] = []
+let breakerNotifiedAt = 0
+let budgetNotifiedAt = 0
+const HOLD_NOTIFY_MIN_INTERVAL_MS = 60 * 60 * 1000
+
+/** Prune + count profile-originated wakes in the trailing hour. */
+function recentProfileWakes(now: number): number {
+  while (profileWakeTimes.length > 0 && profileWakeTimes[0] <= now - 3_600_000) profileWakeTimes.shift()
+  return profileWakeTimes.length
+}
+
+/** One un-spammy notification for a HOLD condition (breaker/budget): the rows
+ *  stay queued (retried every tick), so notify at most once per hour. */
+function notifyHoldOnce(kind: 'breaker' | 'budget', body: string): void {
+  const now = Date.now()
+  if (kind === 'breaker') {
+    if (now - breakerNotifiedAt < HOLD_NOTIFY_MIN_INTERVAL_MS) return
+    breakerNotifiedAt = now
+  } else {
+    if (now - budgetNotifiedAt < HOLD_NOTIFY_MIN_INTERVAL_MS) return
+    budgetNotifiedAt = now
+  }
+  try {
+    const n: Notification = {
+      id: randomUUID(), eventKey: 'message_failed',
+      title: kind === 'breaker' ? 'Agent messages held — wake circuit-breaker' : 'Agent messages held — org budget cap',
+      body: body.slice(0, 500), runId: null, projectId: null, createdAt: now, readAt: null,
+    }
+    notificationsDb.insertNotification.run({
+      id: n.id, eventKey: n.eventKey, title: n.title, body: n.body,
+      runId: null, projectId: null, createdAt: n.createdAt, readAt: null,
+    })
+    eventBus.broadcast({ type: 'notification', notification: n, browser: false })
+  } catch { /* never let the notifier crash the drain */ }
+}
+
+/** Test-only seam (the supervisor __testHooks precedent — keep usage confined to
+ *  core/test/*): reset the in-memory profile-wake breaker + hold-notify throttles
+ *  so tests don't inherit earlier files'/tests' wake history. */
+export const __relayTestHooks = {
+  resetProfileWakeBreaker(): void {
+    profileWakeTimes.length = 0
+    breakerNotifiedAt = 0
+    budgetNotifiedAt = 0
+  },
+}
 
 let draining = false
 
@@ -215,13 +277,46 @@ async function deliverConversation(g: ConversationGroup): Promise<number> {
     // see activeNonTerminal above) and the next tick wakes.
     if (activeNonTerminal) return 0
 
+    // SEAMS#2 (b): a batch containing ANY profile-authored message is an
+    // AGENT-CAUSED wake — budget-gated downstream and damped here by the
+    // rolling-hour circuit-breaker. Held batches stay queued (retried each
+    // tick), with one un-spammy notification per hour.
+    const profileSender = g.messages.find(m => m.fromKind === 'profile')
     const now = Date.now()
+    if (profileSender) {
+      const cap = profileWakesPerHour()
+      if (cap > 0 && recentProfileWakes(now) >= cap) {
+        notifyHoldOnce('breaker',
+          `profile-originated wakes hit the rolling-hour breaker (${cap}/h; MESSAGE_RELAY_PROFILE_WAKES_PER_HOUR tunes it). Queued messages deliver as the window rolls.`)
+        return 0
+      }
+    }
+
     for (const m of g.messages) {
       if (claimQueued.run({ id: m.id, deliveredAt: now }).changes > 0) claimed.push(m)
     }
     if (claimed.length === 0) return 0
     const block = claimed.map(provenanceBlock).join('\n\n')
-    await sendToSession(session.id, block)
+    try {
+      await sendToSession(session.id, block, profileSender
+        ? { from: { kind: 'profile', profileId: profileSender.fromProfileId ?? 'unknown' } }
+        : undefined)
+    } catch (err) {
+      if (err instanceof BudgetCapError) {
+        // Org budget capped: NOT a failure of the messages — put the claims back
+        // and hold (queued rows retry every tick; delivery resumes when the cap
+        // lifts). NB sendToSession appends the durable turn BEFORE dispatching,
+        // so the batch's turn stays on the thread awaiting the wake — the next
+        // successful establish replays it from the seed (ledgered INT.2 #8
+        // posture; the failed-wake ghost-turn wave owns the deeper fix).
+        for (const m of claimed) revertClaim.run({ id: m.id })
+        claimed.length = 0
+        notifyHoldOnce('budget', `org budget cap reached — agent-message delivery to ${g.profileId} held until the cap lifts: ${err.message}`)
+        return 0
+      }
+      throw err // real failures keep the failed+notify path below
+    }
+    if (profileSender) profileWakeTimes.push(now)
     return claimed.length
   } catch (err) {
     if (claimed.length > 0) {

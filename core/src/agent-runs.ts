@@ -81,6 +81,14 @@ export interface StartAgentRunOptions {
   /** Continuous Agents A.3 (D-127): the owning agent_sessions row id, threaded
    *  verbatim to startRun → runs.session_id. Absent for non-session runs. */
   sessionId?: string
+  /** SEAMS#2 (b): true when this session dispatch was CAUSED BY AN AGENT — a
+   *  relay-delivered profile message (briefing, report-back, agent→agent send)
+   *  waking the target. Profile-originated chat-turns ARE budget-gated: the
+   *  operator's own conversation stays exempt (they must always reach K to raise
+   *  the cap), but autonomous agent↔agent conversation is paid org spend and the
+   *  org cap must bound it (spec: "supervision briefings ARE budget-gated").
+   *  Absent/false → the pre-existing operator-exempt behavior, byte-identical. */
+  profileOriginated?: boolean
   /** H8 (opt-in): start the run's worktree from the source repo's uncommitted
    *  tracked+staged changes instead of clean HEAD. Threaded verbatim to startRun;
    *  default false/absent → byte-identical clean-HEAD behavior. */
@@ -140,7 +148,13 @@ export async function startAgentRun(
   // exempts by itself (the one 'user-message' site, k-thread.ts / agent-sessions.ts,
   // always dispatches a chat turn, so behavior is unchanged for legitimate callers).
   const kind = opts.kind ?? (opts.persistentSession ? 'chat-turn' : 'job')
-  const gated = !opts.interactive && kind !== 'chat-turn'
+  // SEAMS#2 (b): a chat-turn is exempt only as the OPERATOR's conversation
+  // channel. A PROFILE-ORIGINATED session wake (relay delivery of an agent
+  // message / briefing / report-back) is autonomous paid spend and rides the
+  // budget gate like any org dispatch — otherwise agent↔agent conversation
+  // would be unmetered and the org cap toothless over it. Non-chat kinds keep
+  // the pre-existing rule (gated unless interactive).
+  const gated = kind === 'chat-turn' ? opts.profileOriginated === true : !opts.interactive
   if (gated) {
     const g = budgetGate({ projectId: opts.projectId })
     if (!g.allowed) throw new BudgetCapError(g.scope, g.capUsd, g.spentUsd)

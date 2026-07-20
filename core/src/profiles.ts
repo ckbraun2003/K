@@ -295,7 +295,44 @@ export function seedProfiles(): string[] {
   } catch (e) {
     console.warn('[profiles] K primary-authority reconcile failed (will retry next boot):', e)
   }
+  // SEAMS#2 (f): one-shot swap of the blanket mcp__gitnexus token for the
+  // per-tool read set on the DELEGATING tiers' existing rows (same fail-safe
+  // posture — retried next boot until it lands).
+  try {
+    reconcileGitnexusPerToolGrants()
+  } catch (e) {
+    console.warn('[profiles] gitnexus per-tool grant reconcile failed (will retry next boot):', e)
+  }
   return created
+}
+
+/** app_config flag for the one-shot gitnexus per-tool grant swap (SEAMS#2 f). */
+const GITNEXUS_PER_TOOL_FLAG = 'mig_gitnexus_per_tool_v1'
+
+/**
+ * One-shot (SEAMS#2 f): existing secretary/chief-tier rows minted before the
+ * per-tool narrowing carry the blanket `mcp__gitnexus` token — which no longer
+ * sits inside the narrowed tier ceilings, so those rows would fail every grant
+ * re-assertion. Swap the exact token for GITNEXUS_READ_TOOL_GRANTS on every such
+ * row (dynamic managers included — any chief-tier profile). Operator-narrowing-
+ * preserving: a row WITHOUT the blanket token is untouched (an operator who
+ * already removed gitnexus stays narrowed), and the flag lands with the swaps in
+ * one transaction so a later operator narrowing is never re-widened by a retry.
+ * Orchestrator-tier rows keep the server-level grant (coding tier — see
+ * GITNEXUS_READ_TOOL_GRANTS' rationale).
+ */
+function reconcileGitnexusPerToolGrants(): void {
+  if (configDb.get(GITNEXUS_PER_TOOL_FLAG) != null) return
+  db.transaction(() => {
+    for (const p of listProfiles()) {
+      if (p.tier !== 'secretary' && p.tier !== 'chief') continue
+      if (!p.allowedTools.includes('mcp__gitnexus')) continue
+      const tools = p.allowedTools.filter(t => t !== 'mcp__gitnexus')
+      for (const t of GITNEXUS_READ_TOOL_GRANTS) if (!tools.includes(t)) tools.push(t)
+      updateProfile(p.id, { allowedTools: tools })
+    }
+    configDb.set(GITNEXUS_PER_TOOL_FLAG, String(Date.now()))
+  })()
 }
 
 // ─── A.5: K primary-agent authority reconcile (D-126, one-shot) ──────────────
@@ -303,6 +340,36 @@ export function seedProfiles(): string[] {
 /** app_config flag for the one-shot K primary-authority reconcile. Set AFTER a
  *  successful reconcile, so an operator NARROWING made later is never re-widened. */
 const K_PRIMARY_RECONCILE_FLAG = 'mig_k_primary_authority_v1'
+
+/**
+ * SEAMS#2 (f): the gitnexus READ/ANALYSIS per-tool grant set for the DELEGATING
+ * tiers (secretary + chief). A server-level `mcp__gitnexus` grant admits the
+ * write-capable tools too (`rename` non-dry-run edits source across files;
+ * `group_sync` mutates contract groups; `cypher` can carry graph-write clauses)
+ * — on tiers whose whole design is "mutations happen only in delegated runs
+ * under Trust Core", that made read-only gitnexus a charter-prose convention
+ * instead of a grant boundary (spec decision 3 violation; K is the
+ * highest-injection-exposure profile). Enforced at the grant layer now: these
+ * per-tool tokens narrow under the ceiling (authority.ts::toolWithinCeiling) and
+ * satisfy the mount requirement (assertMcpGrants accepts per-tool tokens). The
+ * ORCHESTRATOR tier keeps the server-level grant deliberately: it is the coding
+ * tier — its runs edit source anyway, under run-level Trust Core checkpoints.
+ */
+export const GITNEXUS_READ_TOOL_GRANTS: readonly string[] = [
+  'mcp__gitnexus__query',
+  'mcp__gitnexus__context',
+  'mcp__gitnexus__impact',
+  'mcp__gitnexus__api_impact',
+  'mcp__gitnexus__detect_changes',
+  'mcp__gitnexus__route_map',
+  'mcp__gitnexus__tool_map',
+  'mcp__gitnexus__shape_check',
+  'mcp__gitnexus__group_query',
+  'mcp__gitnexus__group_list',
+  'mcp__gitnexus__group_contracts',
+  'mcp__gitnexus__group_status',
+  'mcp__gitnexus__list_repos',
+]
 
 /** The write-once k-secretary identity-overlay seed (L1.5, D-126). Applied
  *  only while the column is NULL — the operator's later edits win forever. */
@@ -326,7 +393,12 @@ function reconcileKPrimaryAuthority(): void {
     const k = getProfile('k-secretary')
     if (k) {
       const tools = new Set(k.allowedTools)
-      for (const t of ['Read', 'Grep', 'Glob', 'mcp__gitnexus']) tools.add(t)
+      // Belt (SEAMS#2 f): a row carrying the pre-narrowing BLANKET token would
+      // make the widened union exceed the per-tool ceiling and wedge this
+      // reconcile in a warn-every-boot loop — swap it here regardless of the
+      // separate one-shot's flag state.
+      tools.delete('mcp__gitnexus')
+      for (const t of ['Read', 'Grep', 'Glob', ...GITNEXUS_READ_TOOL_GRANTS]) tools.add(t)
       const servers = new Set(k.mcpServers)
       servers.add('gitnexus')
       updateProfile('k-secretary', { allowedTools: [...tools], mcpServers: [...servers] })

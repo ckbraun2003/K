@@ -24,8 +24,16 @@ import {
 } from '../src/ollama-agent/native-tools.js'
 import type { ResolvedSkill } from '../src/run-assets.js'
 
-// ca-a A.5 (D-126): the primary-agent roster — Grep/Glob/mcp__gitnexus joined.
-const SECRETARY_ALLOWLIST = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore', 'mcp__logistics']
+// ca-a A.5 (D-126) + SEAMS#2 (f): the primary-agent roster — Grep/Glob + the
+// gitnexus READ tools joined (per-tool; rename/group_sync/cypher excluded).
+const SECRETARY_ALLOWLIST = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch',
+  'mcp__gitnexus__query', 'mcp__gitnexus__context', 'mcp__gitnexus__impact',
+  'mcp__gitnexus__api_impact', 'mcp__gitnexus__detect_changes',
+  'mcp__gitnexus__route_map', 'mcp__gitnexus__tool_map', 'mcp__gitnexus__shape_check',
+  'mcp__gitnexus__group_query', 'mcp__gitnexus__group_list',
+  'mcp__gitnexus__group_contracts', 'mcp__gitnexus__group_status',
+  'mcp__gitnexus__list_repos',
+  'mcp__kstore', 'mcp__logistics']
 const ORCH_ALLOWLIST = ['Bash', 'PowerShell', 'Read', 'Write', 'Edit', 'NotebookEdit', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch', 'mcp__gitnexus', 'mcp__kstore']
 
 let worktree: string

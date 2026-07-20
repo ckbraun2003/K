@@ -287,18 +287,21 @@ describe('sendToSession — hybrid live path (A.1)', () => {
     expect(String(vi.mocked(startRun).mock.calls.at(-1)![0])).toBe('next message')
   })
 
-  it("profile-send provenance — tagged turn, trigger 'delegation', raw-body seed", async () => {
+  it("profile-send — VERBATIM turn body (interim tag RETIRED, SEAMS#2 m2), trigger 'delegation', raw-body seed", async () => {
     const { t, s } = setup()
 
     await sendToSession(s.id, 'ping', { from: { kind: 'profile', profileId: 'chief' } })
 
+    // The turn stores the body verbatim: real provenance is the relay's escaped
+    // provenanceBlock (+ the agent_messages row); the unescaped `[from x]` tag
+    // was a latent forge vector once profile `from` became reachable.
     const userTurns = listKThreadTurns(t.id).filter(x => x.role === 'user')
-    expect(userTurns[0].text).toBe('[from chief] ping')
+    expect(userTurns[0].text).toBe('ping')
 
     const runs = agentRunsDb.listRecentAgentRunsByProfile.all(PROFILE, 10) as Row[]
     expect(runs[0].trigger).toBe('delegation')
 
-    // The dispatch seed carries the RAW body — provenance is turn-text only.
+    // The dispatch seed carries the RAW body too.
     const seed = String(vi.mocked(startRun).mock.calls.at(-1)![0])
     expect(seed).toContain('You: ping')
     expect(seed).not.toContain('[from chief]')

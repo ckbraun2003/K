@@ -31,7 +31,9 @@ beforeAll(async () => {
   await app.ready()
   if (!getProfile('k-secretary')) { createProfile({ id: 'k-secretary', name: 'K', tier: 'secretary' }); created.push('k-secretary') }
   if (!getProfile(AGENT)) { createProfile({ id: AGENT, name: 'CaBConvAgent', tier: 'orchestrator' }); created.push(AGENT) }
-})
+  // 30s: the index.js import + buildApp legitimately exceed the 10s default on a
+  // loaded box (the domains-routes / session-id-capture hookTimeout precedent).
+}, 30_000)
 beforeEach(cleanup)
 afterAll(async () => {
   cleanup()

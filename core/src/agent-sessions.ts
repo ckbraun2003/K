@@ -384,9 +384,13 @@ export async function sendToSession(
 /**
  * The delivery core: durable user turn first (the thread is the source of
  * truth; it survives a dispatch throw), then stdin into the live attachment or
- * a cold interactive spawn. A profile-sent message gets a `[from <profileId>] `
- * provenance prefix in the TURN TEXT ONLY — Lane B owns real provenance
- * (agent_messages rows) — the dispatch/stdin payload carries the raw body.
+ * a cold interactive spawn. The turn stores the body VERBATIM — provenance is
+ * the relay's (already-escaped provenanceBlock in the body it hands us, backed
+ * by the agent_messages row); the W0 interim `[from x]` turn-text tag is
+ * RETIRED (SEAMS#2 m2: it was unescaped and both UI provenance parsers matched
+ * it — a latent forge vector the moment any caller passed a profile `from`).
+ * `from` now drives only the dispatch trigger and the budget posture
+ * (profile-originated wakes are gated — SEAMS#2 b).
  * Re-reads the session row itself so A.2's lock can serialize on a fresh view.
  */
 async function deliverToSession(
@@ -399,8 +403,7 @@ async function deliverToSession(
   const session = rowToAgentSession(row)
 
   const from: MessageFrom = opts.from ?? { kind: 'user' }
-  const turnText = from.kind === 'profile' ? `[from ${from.profileId}] ${body}` : body
-  const turn = appendTurn(session.threadId, 'user', turnText, null)
+  const turn = appendTurn(session.threadId, 'user', body, null)
 
   const att = attachments.get(sessionId)
   if (att) {
@@ -459,6 +462,8 @@ async function spawnSessionRun(
     // (startAgentRun → startRun → runs.session_id); the run's kind resolves to
     // 'chat-turn' from persistentSession along the same path.
     sessionId: session.id,
+    // SEAMS#2 (b): an agent-caused wake is budget-gated; operator sends exempt.
+    profileOriginated: opts.from.kind === 'profile',
     persistentSession: { key: session.threadId, sessionId: cliSessionId, resume, homeDir: session.homeDir },
   })
   kThreadsDb.updateThreadActiveRun.run(runId, Date.now(), session.threadId)

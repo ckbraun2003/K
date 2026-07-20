@@ -16,7 +16,9 @@ beforeAll(async () => {
   const { stampSeededDomainMemberships } = await import('../src/domains.js')
   seedProfiles(); stampSeededDomainMemberships()
   app = await buildApp(); await app.ready()
-})
+  // 30s: the index.js import + seed + grant reconciles legitimately exceed the
+  // 10s default on a loaded box (the session-id-capture hookTimeout precedent).
+}, 30_000)
 afterAll(async () => {
   for (const id of createdDomains) db.prepare(`DELETE FROM domains WHERE id = ?`).run(id)
   for (const id of createdProfileIds) db.prepare(`DELETE FROM agent_profiles WHERE id = ?`).run(id)
