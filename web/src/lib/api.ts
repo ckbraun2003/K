@@ -1,4 +1,4 @@
-import type { Domain, Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry, BackgroundSettings, GradientPreset, BackgroundKind, AvailableModelsResponse, ConversationSummary, AgentMessage } from '@k/shared'
+import type { Domain, Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry, BackgroundSettings, GradientPreset, BackgroundKind, FontColorSettings, AvailableModelsResponse, ConversationSummary, AgentMessage } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -65,6 +65,12 @@ export interface RunPipelineBody {
   goal: string
   projectId?: string
   model?: string
+  // ui-adjustments Round 2 — optional "Observed by" orchestrator for an
+  // operator-launched run: the profile whose own conversation receives the
+  // "Update from {pipeline}" notifications. Omitted → core resolves the
+  // pipeline's domain manager (or a single clearly-named fallback). Wired to
+  // startPipelineRun({ ownerProfileId }) server-side (Lane B). NO schema bump.
+  orchestratorId?: string
 }
 
 /** POST /api/sub-agents body (Lane B Task B.2) — plain create (name+role+prompt) or a
@@ -816,6 +822,19 @@ export const api = {
       // the same image identity.
       imageBlob: (version: number) =>
         fetchAuthed(`/settings/background/image?v=${version}`).then(res => res.blob()),
+    },
+    // Font-colour override (ui-adjustments Round 2) — the operator's body-text
+    // colour when the default pale graphite-blue clashes with a custom
+    // wallpaper. app_config-backed (`ui.fontColor`, NO schema bump); the applier
+    // writes it to --text at runtime (Background.tsx). null color = theme default.
+    fontColor: {
+      get: () => req<{ settings: FontColorSettings }>('/settings/font-color'),
+      set: (patch: FontColorSettings) =>
+        req<{ settings: FontColorSettings }>('/settings/font-color', {
+          method: 'PUT',
+          headers: JSON_H,
+          body: JSON.stringify(patch),
+        }),
     },
   },
   // Voice — push-to-talk transcription. The browser holds NO transcription key:

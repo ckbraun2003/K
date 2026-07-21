@@ -1374,6 +1374,17 @@ export const BackgroundSettingsSchema = z.object({
 export type BackgroundSettings = z.infer<typeof BackgroundSettingsSchema>
 export const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = { kind: 'solid', preset: null, imageVersion: null }
 
+// Font-colour override (ui-adjustments Round 2) — lets the operator retune the
+// body text colour when a custom wallpaper clashes with the default pale
+// graphite-blue (--text). app_config-backed (`ui.fontColor`, NO schema bump),
+// mirroring the BackgroundSettings pattern. `color` is a 6-digit hex string, or
+// null to keep the theme default (the applier leaves --text untouched on null).
+export const FontColorSettingsSchema = z.object({
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
+})
+export type FontColorSettings = z.infer<typeof FontColorSettingsSchema>
+export const DEFAULT_FONT_COLOR_SETTINGS: FontColorSettings = { color: null }
+
 // PUT /api/settings/background/image body — a data: URL (browser-side
 // FileReader.readAsDataURL output). Restricted to the three formats the
 // route accepts (png/jpeg/webp); anything else fails validation at the
