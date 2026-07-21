@@ -5,8 +5,10 @@ import { cn } from '../lib/cn'
  * One interactive list row (impressive-wave FE-4 systemic #3) — the shared
  * skin for Runs rows, project Runs, Personal Chats, CI rows, Recent Activity.
  * Hover elevation + reveal-on-hover actions + right-aligned meta slots.
- * OPAQUE by design: dense lists never sit on blur, so this renders bg tokens
- * only — no glass tier, ever.
+ * Glass-LOOK by design (ui-adjustments C3, D-131): a semi-transparent tinted
+ * background (--glass-panel-bg resting, --glass-overlay-bg on hover/selected)
+ * with NO backdrop-filter — dense lists never sit on real blur (DEV-11 budget),
+ * so the row reads as glass without a blur cost.
  */
 export function Row({
   title, sub, leading, meta, actions, selected, onClick, className, testid,
@@ -39,9 +41,9 @@ export function Row({
       onKeyDown={onKeyDown}
       className={cn(
         'group relative flex w-full items-center gap-3 border-b border-border px-4 py-2.5 text-left',
-        'transition-colors duration-[var(--dur-1)]',
-        interactive && 'cursor-pointer hover:bg-surface focus-visible:glow-focus',
-        selected && 'bg-surface border-l-2 border-l-accent',
+        'bg-[var(--glass-panel-bg)] transition-colors duration-[var(--dur-1)]',
+        interactive && 'cursor-pointer hover:bg-[var(--glass-overlay-bg)] focus-visible:glow-focus',
+        selected && 'bg-[var(--glass-overlay-bg)] border-l-2 border-l-accent',
         className,
       )}
     >

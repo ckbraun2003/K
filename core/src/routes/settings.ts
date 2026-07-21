@@ -256,12 +256,13 @@ const ORG_DEFAULT_ID = 'default-orchestrator'
 
 const MIME_TO_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }
 const EXT_TO_MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' }
-const MAX_WALLPAPER_BYTES = 8 * 1024 * 1024 // 8 MB (decoded)
-// Fastify's default bodyLimit is 1 MiB — far below an 8 MB image's base64
+const MAX_WALLPAPER_BYTES = 25 * 1024 * 1024 // 25 MB (decoded) — HD/4K wallpapers (ui-adjustments C5)
+// Fastify's default bodyLimit is 1 MiB — far below a 25 MB image's base64
 // footprint (~4/3 expansion) once wrapped in the { dataUrl } JSON envelope. Cap
-// this route's request body generously above that so oversize requests reach
-// the handler's decoded-size check (→ a clean 400) instead of a raw 413 from
-// the transport layer; still bounded, not unlimited.
+// this route's request body generously above that (~35 MB) so oversize requests
+// reach the handler's decoded-size check (→ a clean 400) instead of a raw 413
+// from the transport layer; still bounded, not unlimited. Derived from
+// MAX_WALLPAPER_BYTES so the two caps can never drift.
 const MAX_UPLOAD_BODY_BYTES = Math.ceil((MAX_WALLPAPER_BYTES * 4) / 3) + 2 * 1024 * 1024
 
 /** Remove any existing `wallpaper.*` file in dir (best-effort — a stale second

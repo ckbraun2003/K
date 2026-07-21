@@ -186,8 +186,28 @@ describe('PUT/GET /api/settings/background/image', () => {
     }
   })
 
-  it('PUT rejects an oversize image (>8MB decoded) with 400', async () => {
-    const oversized = Buffer.alloc(8 * 1024 * 1024 + 1024, 1).toString('base64')
+  it('accepts a >8MB image now the cap is 25MB (HD/4K wallpapers, ui-adjustments C5)', async () => {
+    setBackgroundSettings({ kind: 'solid', preset: null, imageVersion: null })
+    // 10 MB decoded — over the old 8 MB ceiling, under the new 25 MB one. The
+    // route validates size + mime, not PNG structure, so a byte-filled buffer
+    // exercises the size path exactly.
+    const tenMb = Buffer.alloc(10 * 1024 * 1024, 1).toString('base64')
+    const app = await makeApp()
+    try {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/settings/background/image',
+        payload: { dataUrl: `data:image/png;base64,${tenMb}` },
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().settings.kind).toBe('image')
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('PUT rejects an oversize image (>25MB decoded) with 400', async () => {
+    const oversized = Buffer.alloc(25 * 1024 * 1024 + 1024, 1).toString('base64')
     const app = await makeApp()
     try {
       const res = await app.inject({

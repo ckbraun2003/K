@@ -10,10 +10,11 @@
   --raised: #33205c;   /* inputs, raised controls */
   --border: #3a2a5c;   /* hairline, lifted into the purple */
   --border-strong: #4a3775;
-  --text: #f4f0ff;
-  --muted: #b3a6cd;
-  --accent: #ff8fc0;        /* blush pink — accent fills, active pills, badges, links */
-  --accent-hover: #38bdf8;  /* sky blue — hover/active transition colour */
+  --text: #c6cede;          /* pale graphite-blue — body text (ui-adjustments D-131) */
+  --muted: #8f99ad;         /* cooler graphite — secondary/muted text */
+  --accent: #a855f7;        /* violet — primary accent fills, active pills, badges, links */
+  --accent-hover: #c084fc;  /* lighter violet — hover/active transition colour */
+  --accent-hi: #e9d5ff;     /* near-white lavender — top-emphasis accent in the hierarchy */
   --on-accent: #241640;     /* dark text on accent-filled chips (WCAG dark-on-light) */
   --green: #34d399;
   --amber: #fbbf24;
@@ -154,18 +155,18 @@ body { font-variant-numeric: tabular-nums; }
    Lives in @layer utilities so variant prefixes (focus-visible:glow-focus) work. */
 @layer utilities {
   .glow-focus {
-    box-shadow: 0 0 0 1px var(--accent-hover), 0 0 26px -6px rgba(56, 189, 248, 0.5);
+    box-shadow: 0 0 0 1px var(--accent-hover), 0 0 26px -6px rgba(192, 132, 252, 0.5);
   }
 }
 
-/* Card hover lift — 150ms, hairline transitions to the sky-blue highlight */
+/* Card hover lift — 150ms, hairline transitions to the violet highlight */
 .card-lift {
   transition: transform 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out;
 }
 .card-lift:hover {
   transform: translateY(-2px);
-  border-color: rgba(56, 189, 248, 0.45);
-  box-shadow: 0 10px 32px -14px rgba(56, 189, 248, 0.4);
+  border-color: rgba(192, 132, 252, 0.45);
+  box-shadow: 0 10px 32px -14px rgba(192, 132, 252, 0.4);
 }
 
 /* Rounded-surface conventions: panels are softer than controls. */
@@ -207,6 +208,18 @@ body { font-variant-numeric: tabular-nums; }
     box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-3);
   }
   .surface-solid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  /* Glass-LOOK for dense/repeated surfaces (ui-adjustments C2, D-131) — a tinted,
+     hairline-bordered "looks like glass, costs like a div" skin with NO
+     backdrop-filter, so it is safe to repeat across fields, pills, and list rows
+     without touching the DEV-11 blur budget (real blur stays on the
+     chrome/panel/overlay tiers only). Callers keep their own radius + any
+     state-specific border-color/bg overrides (invalid, hover, selected), which
+     win from @layer utilities. */
+  .glass-control {
+    background: var(--glass-panel-bg);
+    border: 1px solid var(--glass-tier-border);
+    box-shadow: inset 0 1px 0 var(--lg-edge);
+  }
   .micro-label { font-size: 10px; line-height: 12px; letter-spacing: 0.08em;
     text-transform: uppercase; font-weight: 500; color: var(--muted); }
   .shimmer { background: linear-gradient(90deg, var(--raised) 25%, var(--border) 50%, var(--raised) 75%);

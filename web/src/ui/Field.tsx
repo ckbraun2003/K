@@ -3,7 +3,7 @@ import { cn } from '../lib/cn'
 
 // Exported so AutoTextarea (which needs auto-grow height management the plain
 // Textarea primitive doesn't do) can carry the same base skin (orch-p2 C.6).
-export const SKIN = 'bg-bg/60 border text-body text-text placeholder:text-muted/70 rounded-control px-3 py-1.5 ' +
+export const SKIN = 'glass-control text-body text-text placeholder:text-muted/70 rounded-control px-3 py-1.5 ' +
   'transition-colors duration-[var(--dur-1)] focus-visible:outline-none focus-visible:glow-focus'
 const border = (invalid?: boolean) => (invalid ? 'border-red/60' : 'border-border hover:border-border-strong')
 
@@ -31,7 +31,7 @@ export const Checkbox = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInp
         ref={ref}
         type="checkbox"
         className={cn(
-          'h-4 w-4 shrink-0 cursor-pointer rounded border border-border bg-bg/60 accent-accent',
+          'h-4 w-4 shrink-0 cursor-pointer rounded glass-control accent-accent',
           'focus-visible:outline-none focus-visible:glow-focus disabled:cursor-default disabled:opacity-50',
           className,
         )}
