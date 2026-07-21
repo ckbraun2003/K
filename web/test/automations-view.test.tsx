@@ -1,28 +1,35 @@
 /**
- * AutomationsView (orch-p2 C.4, design §9/§6) — the unified Library | Runs |
- * Schedules surface that replaces the old Pipelines-tab SegControl toggle
- * between PipelinesView and the legacy WorkflowsView. This test locks:
+ * AutomationsView (orch-p2 C.4, design §9/§6) — the unified Library | Schedules
+ * surface that replaces the old Pipelines-tab SegControl toggle between
+ * PipelinesView and the legacy WorkflowsView. This test locks:
  *   - default segment is Library; a `defId` deep-link still shows Library
  *     (mirrors the old always-legacy-editor deep-link, now routed to the
  *     Library pane's inspector instead of WorkflowsView)
  *   - switching segments swaps the mounted pane
- *   - a dispatch from Library switches to Runs with the new run pre-selected
+ *   - a dispatch from Library hands off to the Runs page's Pipelines segment
+ *     (Lane B B1 — the old in-page Runs segment/PipelineRunsPane was relocated
+ *     onto RunsPage) and still shows a confirmation toast
  *   - Schedules renders an honest empty state today (pipelineDefId isn't
  *     populated by core/src/routes/routines.ts yet — Lane B's B.3)
- * `PipelineLibraryPane` / `PipelineRunsPane` (from PipelinesView.tsx) are mocked
- * to marker divs — their own internals are locked by pipeline-def-inspector /
- * pipeline-graph / pipeline-ledger-panel tests elsewhere.
+ * `PipelineLibraryPane` (from PipelinesView.tsx) is mocked to a marker div —
+ * its own internals are locked by pipeline-def-inspector tests elsewhere.
+ * `navigate` (from lib/route) is mocked so the handoff can be asserted directly.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { RoutineView } from '@k/shared'
 
-const { mockRoutinesList } = vi.hoisted(() => ({ mockRoutinesList: vi.fn() }))
+const { mockRoutinesList, mockNavigate } = vi.hoisted(() => ({
+  mockRoutinesList: vi.fn(),
+  mockNavigate: vi.fn(),
+}))
 
 vi.mock('../src/lib/api', () => ({
   api: { routines: { list: mockRoutinesList } },
 }))
+
+vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
 
 vi.mock('../src/pages/runs/PipelinesView', () => ({
   PipelineLibraryPane: (p: { focusDefId?: string; onDispatched?: (id: string) => void }) => (
@@ -32,9 +39,6 @@ vi.mock('../src/pages/runs/PipelinesView', () => ({
         dispatch
       </button>
     </div>
-  ),
-  PipelineRunsPane: (p: { selectedRunId?: string; onSelectRun: (id: string) => void }) => (
-    <div data-testid="runs-pane-mock">selectedRunId:{p.selectedRunId ?? 'none'}</div>
   ),
 }))
 
@@ -52,6 +56,7 @@ function renderView(props: { defId?: string } = {}) {
 beforeEach(() => {
   mockRoutinesList.mockReset()
   mockRoutinesList.mockResolvedValue([])
+  mockNavigate.mockReset()
 })
 afterEach(() => cleanup())
 
@@ -60,7 +65,6 @@ describe('AutomationsView', () => {
     renderView()
     expect(screen.getByTestId('seg-library').getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByTestId('library-pane-mock')).toBeTruthy()
-    expect(screen.queryByTestId('runs-pane-mock')).toBeNull()
   })
 
   it('threads a defId deep-link into the Library pane as focusDefId, still on the Library segment', () => {
@@ -69,11 +73,9 @@ describe('AutomationsView', () => {
     expect(screen.getByTestId('library-pane-mock').textContent).toContain('focusDefId:def-1')
   })
 
-  it('switches to the Runs pane when the Runs segment is clicked', () => {
+  it('has no Runs segment (B1 — relocated onto the Runs page)', () => {
     renderView()
-    fireEvent.click(screen.getByTestId('seg-runs'))
-    expect(screen.getByTestId('runs-pane-mock')).toBeTruthy()
-    expect(screen.queryByTestId('library-pane-mock')).toBeNull()
+    expect(screen.queryByTestId('seg-runs')).toBeNull()
   })
 
   it('switches to the Schedules pane when the Schedules segment is clicked', async () => {
@@ -82,12 +84,11 @@ describe('AutomationsView', () => {
     await waitFor(() => expect(screen.getByTestId('automations-schedules-empty')).toBeTruthy())
   })
 
-  it('a Library dispatch switches to Runs with the new run selected and shows a toast', async () => {
+  it('a Library dispatch hands off to Runs/Pipelines with the new run id and shows a toast', async () => {
     renderView()
     fireEvent.click(screen.getByTestId('library-pane-dispatch'))
 
-    expect(screen.getByTestId('seg-runs').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('runs-pane-mock').textContent).toContain('selectedRunId:run-9')
+    expect(mockNavigate).toHaveBeenCalledWith('runs', 'pipelines', 'run-9')
     await waitFor(() => expect(screen.getByTestId('pipeline-run-toast')).toBeTruthy())
   })
 

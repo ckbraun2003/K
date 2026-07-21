@@ -65,6 +65,10 @@ export const VIEW_REDIRECTS: Record<string, ViewRedirect> = {
         : { view: 'agents', param: 'catalog', subParam: r.subParam }
     }
     if (r.param === 'pipelines') return { view: 'agents', param: 'automations', subParam: r.subParam }
+    // Lane B (runs consolidation): the Automations "Runs" segment moved onto the
+    // Runs page as its Pipelines segment — #/agents/automations/runs(/id) now
+    // redirects to #/runs/pipelines(/id).
+    if (r.param === 'automations' && r.subParam === 'runs') return { view: 'runs', param: 'pipelines' }
     return r
   },
 }

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { isKnownModel } from '@k/shared'
-import { workflowDefsDb, pipelineDb } from '../db.js'
+import { workflowDefsDb, pipelineDb, artifactsDb } from '../db.js'
 import { rowToPipelineSpec, startPipelineRun } from '../pipeline-defs.js'
 import { resolveGate, rewindPipelineToStage, PipelineConflictError, type PipelineRunRow } from '../pipeline-engine.js'
 import type { PipelineStageRow } from '../pipeline-executor.js'
@@ -91,6 +91,32 @@ export async function pipelinesRoutes(app: FastifyInstance) {
     const run = pipelineDb.getPipelineRun.get(req.params.id) as PipelineRunRow | undefined
     if (!run) return sendError(reply, 404, 'not found')
     return reply.send(listLedger(req.params.id))
+  })
+
+  // GET /api/pipelines/runs/:id/artifacts — Lane B (runs consolidation, B4): the
+  // artifacts produced/edited by this pipeline run's stages, i.e. every `artifacts`
+  // row whose `linked_run_id` is one of the run's stage AGENT runs (`stage.run_id`,
+  // NOT the pipeline run's own id). 404 for an unknown run; an empty stage-runId
+  // set (nothing dispatched yet) short-circuits to `[]` without a query.
+  app.get<{ Params: { id: string } }>('/api/pipelines/runs/:id/artifacts', async (req, reply) => {
+    const run = pipelineDb.getPipelineRun.get(req.params.id) as PipelineRunRow | undefined
+    if (!run) return sendError(reply, 404, 'not found')
+    const stages = pipelineDb.listStagesForPipeline.all(req.params.id) as PipelineStageRow[]
+    const runIds = stages.map(s => s.run_id).filter((id): id is string => id != null)
+    const rows = artifactsDb.listArtifactsByLinkedRunIds(runIds) as Array<Record<string, unknown>>
+    return reply.send(
+      rows.map(r => ({
+        slug: String(r.slug),
+        title: String(r.title),
+        phase: r.phase ? String(r.phase) : undefined,
+        status: r.status ? String(r.status) : undefined,
+        tags: JSON.parse(String(r.tags ?? '[]')),
+        linkedRunId: r.linked_run_id ? String(r.linked_run_id) : undefined,
+        updatedAt: Number(r.updated_at),
+        projectId: r.project_id == null ? null : String(r.project_id),
+        origin: (r.origin as 'compiled' | 'scanned' | undefined) ?? 'compiled',
+      })),
+    )
   })
 
   // POST /api/pipelines/runs/:id/stages/:sid/gate — resolve a parked gate (single-resolver CAS).

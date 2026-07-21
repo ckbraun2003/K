@@ -1,37 +1,72 @@
-/** UI Simplification Task 16 — RunsPage slims to master-detail only. The former
- *  Workflows fold (SegControl + workflows branch, P4 C1) is REMOVED: Automations now
- *  lives under the Agents hub (AutomationsView mounted as a tab — agents-ia.test.tsx).
- *  RunsPage takes only `runId` (Shell already passes just that — Task 10); this
- *  locks the slimmed shape has no leftover fold surface (no SegControl, no
- *  Automations mount, no special-cased 'workflows' runId branch). */
+/** UI Simplification Task 16 established RunsPage as a slimmed master-detail-only
+ *  page (no SegControl). Lane B (runs consolidation, B1) reverses that specific
+ *  point: the Automations "Runs" segment (PipelineRunsPane) relocates onto the
+ *  Runs page as a NEW top-level "Agent Runs | Pipelines" SegControl — this file
+ *  now locks THAT shape instead. RunsPage takes `param`/`subParam` (Shell passes
+ *  both — B2); `param==='pipelines'` selects the Pipelines segment (a reserved
+ *  runs-param keyword, mirroring how 'workflows' used to be reserved), otherwise
+ *  `param` is treated as the selected agent-run id (unchanged master-detail
+ *  behavior) and `subParam` carries the selected pipeline run id. */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+
+const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }))
 
 vi.mock('../src/components/RunList', () => ({ default: () => <div data-testid="run-list" /> }))
 vi.mock('../src/components/RunConsole', () => ({ default: (p: { runId: string }) => <div data-testid="run-console">{p.runId}</div> }))
-vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
+vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
+vi.mock('../src/pages/runs/PipelinesView', () => ({
+  PipelineRunsPane: (p: { selectedRunId?: string; onSelectRun: (id: string) => void }) => (
+    <div data-testid="pipeline-runs-pane-mock">
+      <span>selectedRunId:{p.selectedRunId ?? 'none'}</span>
+      <button type="button" data-testid="pipeline-runs-pane-select" onClick={() => p.onSelectRun('prun-1')}>
+        select
+      </button>
+    </div>
+  ),
+}))
 
 import RunsPage from '../src/pages/RunsPage'
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); mockNavigate.mockClear() })
 
-describe('RunsPage — slimmed to master-detail only', () => {
-  it('renders the run list + empty-detail state with no runId', () => {
+describe('RunsPage — Agent Runs | Pipelines segmented control (Lane B B1)', () => {
+  it('defaults to the Agent Runs segment: run list + empty-detail state, no param', () => {
     render(<RunsPage />)
+    expect(screen.getByTestId('seg-agent').getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByTestId('run-list')).toBeTruthy()
     expect(screen.queryByTestId('run-console')).toBeNull()
+    expect(screen.queryByTestId('pipeline-runs-pane-mock')).toBeNull()
   })
 
-  it('a runId renders the run console', () => {
-    render(<RunsPage runId="run-abc" />)
+  it('a non-"pipelines" param renders the run console on the Agent Runs segment', () => {
+    render(<RunsPage param="run-abc" />)
+    expect(screen.getByTestId('seg-agent').getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByTestId('run-console').textContent).toBe('run-abc')
   })
 
-  it('has no leftover SegControl / Workflows surface (the fold moved to Agents/Automations)', () => {
-    render(<RunsPage runId="workflows" />)
-    // 'workflows' is just an ordinary (nonexistent) runId now — no special branch.
-    expect(screen.queryByTestId('seg-runs')).toBeNull()
-    expect(screen.queryByTestId('seg-workflows')).toBeNull()
-    expect(screen.getByTestId('run-console').textContent).toBe('workflows')
+  it("param='pipelines' selects the Pipelines segment and threads subParam as the selected pipeline run", () => {
+    render(<RunsPage param="pipelines" subParam="prun-7" />)
+    expect(screen.getByTestId('seg-pipelines').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByTestId('run-list')).toBeNull()
+    expect(screen.getByTestId('pipeline-runs-pane-mock').textContent).toContain('selectedRunId:prun-7')
+  })
+
+  it('clicking the Pipelines segment navigates to runs/pipelines', () => {
+    render(<RunsPage />)
+    fireEvent.click(screen.getByTestId('seg-pipelines'))
+    expect(mockNavigate).toHaveBeenCalledWith('runs', 'pipelines')
+  })
+
+  it('clicking the Agent Runs segment (from Pipelines) navigates back to a bare runs param', () => {
+    render(<RunsPage param="pipelines" />)
+    fireEvent.click(screen.getByTestId('seg-agent'))
+    expect(mockNavigate).toHaveBeenCalledWith('runs', undefined)
+  })
+
+  it('selecting a pipeline run from the pane navigates to runs/pipelines/<id>', () => {
+    render(<RunsPage param="pipelines" />)
+    fireEvent.click(screen.getByTestId('pipeline-runs-pane-select'))
+    expect(mockNavigate).toHaveBeenCalledWith('runs', 'pipelines', 'prun-1')
   })
 })

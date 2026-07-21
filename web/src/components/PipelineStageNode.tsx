@@ -14,6 +14,10 @@ export interface PipelineStageNodeData extends Record<string, unknown> {
    *  the non-interactive `__done__` sink. Mouse selection rides React Flow's
    *  onNodeClick at the graph level. */
   onSelect?: (stageKey: string) => void
+  /** The linked AGENT run id (Lane B B3) — threaded from `stage.runId` alongside
+   *  `stage` so the graph's click handler can read it without a `stage` cast.
+   *  Null/undefined for stages never dispatched to an agent (or the done sink). */
+  runId?: string | null
 }
 
 function PipelineStageNode({ id, data, selected }: NodeProps & { data: PipelineStageNodeData }) {

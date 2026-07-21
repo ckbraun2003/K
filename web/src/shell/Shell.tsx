@@ -102,7 +102,7 @@ export default function Shell() {
             {route.view === 'messages' && <MessagesPage conversationId={route.param} />}
             {route.view === 'personal' && <PersonalPage tab={route.param} />}
             {route.view === 'agents' && <AgentsPage tab={route.param} sub={route.subParam} />}
-            {route.view === 'runs' && <RunsPage runId={route.param} />}
+            {route.view === 'runs' && <RunsPage param={route.param} subParam={route.subParam} />}
             {route.view === 'timeline' && <TimelinePage />}
             {route.view === 'orchestrator' && <OrchestratorDetailPage id={route.param} />}
             {route.view === 'docs' && <DocsPage slug={route.param} />}

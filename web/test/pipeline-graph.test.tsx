@@ -5,10 +5,18 @@
  * selection via `onSelectStage`. The load-bearing layout logic (positions, edge
  * retargeting) is covered by `pipeline-layout.test.ts`; React Flow's own internals
  * (pan/zoom/minimap) aren't re-tested here.
+ *
+ * Lane B (B3): a stage node whose `stage.runId` is set now navigates straight to
+ * that agent run's console on click instead of reporting a stage selection — see
+ * the "node → console navigation" describe block below.
  */
 import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import type { PipelineRunView } from '@k/shared'
+
+const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }))
+vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
+
 import PipelineGraph, { stageCanonical, EDGE_COLOR, isGate } from '../src/components/PipelineGraph'
 
 beforeAll(() => {
@@ -19,7 +27,7 @@ beforeAll(() => {
     disconnect() {}
   } as any
 })
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); mockNavigate.mockClear() })
 
 function view(): PipelineRunView {
   return {
@@ -75,11 +83,24 @@ describe('PipelineGraph render', () => {
     expect(screen.getByText('review')).toBeTruthy()
   })
 
-  it('reports the clicked stage via onSelectStage', () => {
+  it('reports the clicked stage via onSelectStage when the stage has no linked agent run', () => {
     const onSelect = vi.fn()
     render(<PipelineGraph view={view()} onSelectStage={onSelect} />)
+    // 'review' (s2) has runId: null — no agent run to jump to, so it falls back
+    // to the in-page stage-select highlight.
+    fireEvent.click(screen.getByText('review'))
+    expect(onSelect).toHaveBeenCalledWith('review')
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('navigates to the linked agent run instead of selecting when the stage has a runId (B3)', () => {
+    const onSelect = vi.fn()
+    render(<PipelineGraph view={view()} onSelectStage={onSelect} />)
+    // 'implement' (s1) carries runId: 'r1' — clicking it jumps straight to that
+    // run's console rather than highlighting the stage in-page.
     fireEvent.click(screen.getByText('implement'))
-    expect(onSelect).toHaveBeenCalledWith('implement')
+    expect(mockNavigate).toHaveBeenCalledWith('runs', 'r1')
+    expect(onSelect).not.toHaveBeenCalled()
   })
 
   it('reflects a live status update when the view object changes (useNodesState sync)', () => {

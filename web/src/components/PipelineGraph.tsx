@@ -16,6 +16,7 @@ import type { EdgeWhen, PipelineRunView } from '@k/shared'
 import { stageCanonical, isGate } from '../lib/status'
 import { layoutPipeline, DONE_NODE_ID } from '../lib/pipeline-layout'
 import { nodeTypes, type PipelineStageNodeData } from './PipelineStageNode'
+import { navigate } from '../lib/route'
 
 /**
  * The live pipeline DAG (D-119 C3), rewritten on `@xyflow/react` + `@dagrejs/dagre`
@@ -64,7 +65,11 @@ function PipelineGraphInner({
         id: n.id,
         type: 'stage',
         position: n.position,
-        data: { ...n.data, onSelect: n.id === DONE_NODE_ID ? undefined : onSelectStage },
+        data: {
+          ...n.data,
+          onSelect: n.id === DONE_NODE_ID ? undefined : onSelectStage,
+          runId: n.data.stage?.runId ?? null,
+        },
         selected: n.id === selectedStageKey,
         draggable: true,
         focusable: false,
@@ -104,8 +109,17 @@ function PipelineGraphInner({
     [edges],
   )
 
-  const handleNodeClick: NodeMouseHandler = (_event, node) => {
+  // A node whose stage carries a linked agent run (B3) navigates straight to
+  // that run's console — the DAG becomes a jump-off point, not just a status
+  // board. Stages never dispatched to an agent (no `runId` yet) fall back to
+  // the existing in-page stage-select highlight.
+  const handleNodeClick: NodeMouseHandler<RFNode<PipelineStageNodeData>> = (_event, node) => {
     if (node.id === DONE_NODE_ID) return
+    const runId = node.data.runId
+    if (runId) {
+      navigate('runs', runId)
+      return
+    }
     onSelectStage?.(node.id)
   }
 
