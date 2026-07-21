@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import { navigate } from '../lib/route'
 import { groupFeedByDay } from '../lib/feed-query'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Field'
-import { Tag } from '../ui/Tag'
 
 /** The relay's real provenance block (`[message from <sender> · <priority>] …`) plus
  *  the W0 interim `[from <profileId>] …` tag. One regex, exported for tests — the UI's
@@ -177,6 +175,22 @@ export default function ConversationView({
                 const { sender, priority, rest } = parseProvenance(seg)
                 const label = senderLabel(t.role, sender)
                 const mine = t.role === 'user' && (sender == null || sender === 'user')
+                // K-surface relay/report-back segments (org traffic surfaced into the
+                // K thread) read as a quiet centered system-note — same treatment as the
+                // day separator — instead of a left-aligned agent bubble (A2). Direct
+                // you<->K turns and non-K surfaces are unaffected.
+                if (isK && sender != null && sender !== 'user') {
+                  return (
+                    <div
+                      key={`${t.id}:${i}`}
+                      data-testid="conversation-relay-note"
+                      className="micro-label text-center text-muted"
+                    >
+                      {label}
+                      {priority === 'urgent' ? ' · urgent' : ''} — {unescapeProvenanceLookalikes(rest)}
+                    </div>
+                  )
+                }
                 return (
                   <div
                     key={`${t.id}:${i}`}
@@ -199,12 +213,6 @@ export default function ConversationView({
                     >
                       {unescapeProvenanceLookalikes(rest)}
                     </div>
-                    {/* A turn produced by/for a run keeps its action chip (ChatView parity). */}
-                    {i === segments.length - 1 && t.runId && (
-                      <button type="button" data-testid="conversation-run-chip" onClick={() => navigate('runs', t.runId!)}>
-                        <Tag tint="sky">→ view run</Tag>
-                      </button>
-                    )}
                   </div>
                 )
               })
@@ -226,7 +234,7 @@ export default function ConversationView({
         </div>
       )}
       {showComposer && (
-        <div className="flex gap-2 pt-2">
+        <div className="glass-control mt-2 flex items-center gap-2 rounded-control px-3 py-2">
           <Input
             data-testid="conversation-composer-input"
             aria-label={`Message ${agentName}`}
@@ -234,9 +242,10 @@ export default function ConversationView({
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-            className="min-w-0 flex-1"
+            className="min-w-0 flex-1 border-0 bg-transparent px-0 py-0"
           />
           <Button
+            variant="primary"
             data-testid="conversation-composer-send"
             icon="send"
             disabled={draft.trim().length === 0 || send.isPending}

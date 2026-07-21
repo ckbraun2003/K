@@ -180,6 +180,59 @@ describe('ConversationView', () => {
     expect(screen.queryByTestId('conversation-send-error')).toBeNull()
   })
 
+  it('K surface: a relayed (non-user) provenance segment renders as a quiet system-note, not an agent bubble — direct you<->K turns keep full bubbles', async () => {
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'k-default', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'r1', threadId: 'k-default', role: 'user', text: 'hi K', runId: null, createdAt: Date.now() },
+        { id: 'r2', threadId: 'k-default', role: 'k', text: 'Hello — how can I help?', runId: null, createdAt: Date.now() },
+        { id: 'r3', threadId: 'k-default', role: 'user', text: '[message from chief · normal] status ping', runId: null, createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'k-secretary', agentName: 'K', threadId: 'k-default' })
+
+    // Direct you<->K turns are untouched — still full bubbles.
+    await screen.findByTestId('conversation-turn-user')
+    expect(screen.getByTestId('conversation-turn-user').textContent).toContain('hi K')
+    expect(screen.getByTestId('conversation-turn-agent').textContent).toContain('Hello — how can I help?')
+
+    // Relayed org traffic surfaced into the K thread reads as a quiet centered note
+    // (day-separator styling), not a left-aligned agent bubble.
+    const note = screen.getByTestId('conversation-relay-note')
+    expect(note.textContent).toContain('chief')
+    expect(note.textContent).toContain('status ping')
+    expect(note.className).toContain('micro-label')
+    expect(note.className).toContain('text-center')
+  })
+
+  it('non-K surfaces keep full-bubble rendering for relayed segments (no relay-note branch outside K)', async () => {
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'kt-chief', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'r1', threadId: 'kt-chief', role: 'user', text: '[message from k-secretary · normal] status ping', runId: null, createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'chief', agentName: 'Chief', threadId: 'kt-chief' })
+    await screen.findByTestId('conversation-turn-agent')
+    expect(screen.getByTestId('conversation-turn-agent').textContent).toContain('status ping')
+    expect(screen.queryByTestId('conversation-relay-note')).toBeNull()
+  })
+
+  it('the "view run" chip is gone on EVERY surface — even a non-K conversation whose turn has a runId (A5 global removal)', async () => {
+    // Locks in the decision that A5 removes the per-message chip everywhere ConversationView
+    // renders (Messages/agent-detail included), not just the K surface — the run stays
+    // reachable from the Runs page + pipeline nodes (Lane B), never per-message clutter.
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'kt-chief', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'rr', threadId: 'kt-chief', role: 'k', text: 'done — see the run', runId: 'run-123', createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'chief', agentName: 'Chief', threadId: 'kt-chief' })
+    await screen.findByText('done — see the run')
+    expect(screen.queryByTestId('conversation-run-chip')).toBeNull()
+  })
+
   it('the send button is disabled for empty and whitespace-only drafts', async () => {
     mount()
     await screen.findByText('please review')

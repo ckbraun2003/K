@@ -123,7 +123,7 @@ function Composer({
           )}
         </div>
       )}
-      <div className="mt-1.5 flex items-center gap-2 rounded-control border border-border bg-surface px-3 py-2">
+      <div className="mt-1.5 flex items-center gap-2">
         <span className="text-accent">⚡</span>
         <Input
           ref={inputRef}

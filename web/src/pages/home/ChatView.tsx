@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { KThreadSummary } from '@k/shared'
+import type { ConversationSummary } from '@k/shared'
 import { api } from '../../lib/api'
 import { useSelectedThread, selectThread, getSelectedThread } from '../../lib/thread-select'
 import { prefillDock } from '../../lib/dock-bus'
@@ -13,6 +13,7 @@ import { SkeletonRow } from '../../ui/Skeleton'
 import { Button, IconButton } from '../../ui/Button'
 import { Tag } from '../../ui/Tag'
 import { Input } from '../../ui/Field'
+import { Row } from '../../ui/Row'
 
 /** A thrown `api.threads.get` error that means the thread is DELETED (a 404) — the not-found
  *  route answers `{ error: 'not found' }`, a bare non-ok falls back to `404 <statusText>`. Lets
@@ -22,6 +23,13 @@ import { Input } from '../../ui/Field'
 function is404(e: unknown): boolean {
   return e instanceof Error && /\b404\b|not found/i.test(e.message)
 }
+
+/** K's own chat partition — the exact filter MessagesPage uses. Home's rail must never
+ *  show other profiles' (orchestrator/agent) conversations. Extracted so the three
+ *  read sites (main query, demotion probe, archive-demote) can't drift (A1). */
+const K_PROFILE_ID = 'k-secretary'
+const kThreadsOnly = (cs: ConversationSummary[] | undefined): ConversationSummary[] =>
+  (cs ?? []).filter(c => c.profileId === K_PROFILE_ID)
 
 /**
  * ChatView (UI Simplification Task 11) — Home's Chat tab: a thread-list rail
@@ -66,12 +74,27 @@ export default function ChatView() {
   // with archivedAt != null). Drives the honest "archived" chip on the transcript surface —
   // cleared the moment the selection returns to the list, goes null, or is demoted.
   const [archivedSelection, setArchivedSelection] = useState<string | null>(null)
+  // A3: search narrows the RAIL rows only, shown once the list exceeds ~5 (MessagesPage
+  // parity) — `threads` below stays the full list so selection/probe/demote logic never
+  // sees a filtered view.
+  const [q, setQ] = useState('')
 
-  const { data: threadsData, isError: threadsFailed, isSuccess: threadsLoaded, isPending: threadsPending } = useQuery({
-    queryKey: ['k-threads'],
-    queryFn: () => api.threads.list(),
+  // A1 (ui-adjustments): the rail used to call api.threads.list() — GET /api/k/threads has no
+  // profile filter, so it leaked EVERY orchestrator/agent thread into Home's chat rail.
+  // api.conversations.list() returns the same KThreadSummary fields plus profileId/unread/
+  // sessionState (MessagesPage's source, `['conversations']` key) — filter to K's own threads,
+  // the exact partition MessagesPage.tsx already uses. The richer type is a safe superset of
+  // the KThreadSummary shape this view otherwise consumes (selection/rename/archive unaffected).
+  const { data: conversationsData, isError: threadsFailed, isSuccess: threadsLoaded, isPending: threadsPending } = useQuery({
+    queryKey: ['conversations'],
+    queryFn: () => api.conversations.list(),
   })
-  const threads: KThreadSummary[] = threadsData?.threads ?? []
+  const threads: ConversationSummary[] = kThreadsOnly(conversationsData?.conversations)
+  // Rendered rows only — never read by the selection/probe/demote logic below.
+  const visibleThreads = q === '' ? threads : threads.filter(t =>
+    (t.title ?? 'New chat').toLowerCase().includes(q.toLowerCase()) ||
+    (t.snippet ?? '').toLowerCase().includes(q.toLowerCase()),
+  )
 
   const selectedListed = selected !== null && threads.some(t => t.id === selected)
   const effectiveId: string | null =
@@ -95,13 +118,13 @@ export default function ChatView() {
     }
     if (probeRef.current === selected) return // probe for this id already issued
     probeRef.current = selected
-    void qc.invalidateQueries({ queryKey: ['k-threads'] }).then(async () => {
+    void qc.invalidateQueries({ queryKey: ['conversations'] }).then(async () => {
       // Re-check against the FRESH cache — and only act if this probe is still
       // the live one and the user hasn't already re-selected something else.
       if (probeRef.current !== selected || getSelectedThread() !== selected) return
-      const state = qc.getQueryState<{ threads: KThreadSummary[] }>(['k-threads'])
+      const state = qc.getQueryState<{ conversations: ConversationSummary[] }>(['conversations'])
       if (state?.status !== 'success') { probeRef.current = null; return } // failed refetch: degrade only, re-arm
-      const fresh = state.data?.threads ?? []
+      const fresh = kThreadsOnly(state.data?.conversations)
       if (fresh.some(t => t.id === selected)) return // the list caught up — selection was real (dock-create race)
 
       // Absent even from the FRESH default list: archived (the server excludes archived from the
@@ -151,7 +174,10 @@ export default function ChatView() {
 
   const rename = useMutation({
     mutationFn: (vars: { id: string; title: string }) => api.threads.update(vars.id, { title: vars.title }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['k-threads'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['conversations'] })
+      void qc.invalidateQueries({ queryKey: ['k-threads'] }) // keeps MessageDock's own list in sync
+    },
   })
   const archive = useMutation({
     mutationFn: (id: string) => api.threads.update(id, { archived: true }),
@@ -162,16 +188,17 @@ export default function ChatView() {
     // clobbered. Demoting here (not leaving it to the probe) means the probe never ACTS on the
     // archived selection — its staleness guards abort any probe that raced this flow.
     onSuccess: async (_data, id) => {
-      await qc.invalidateQueries({ queryKey: ['k-threads'] })
+      await qc.invalidateQueries({ queryKey: ['conversations'] })
+      void qc.invalidateQueries({ queryKey: ['k-threads'] }) // keeps MessageDock's own list in sync
       if (getSelectedThread() !== id) return // the selection already moved on — nothing to demote
-      const state = qc.getQueryState<{ threads: KThreadSummary[] }>(['k-threads'])
+      const state = qc.getQueryState<{ conversations: ConversationSummary[] }>(['conversations'])
       if (state?.status !== 'success') return // failed refetch: degrade only, never write (spec 9)
-      const fresh = state.data?.threads ?? []
+      const fresh = kThreadsOnly(state.data?.conversations)
       selectThread(fresh.find(t => t.id !== id)?.id ?? null) // next thread, or the empty draft
     },
   })
 
-  function startRename(t: KThreadSummary) {
+  function startRename(t: ConversationSummary) {
     setRenamingId(t.id)
     setRenameText(t.title ?? '')
   }
@@ -210,6 +237,19 @@ export default function ChatView() {
               </Button>
             ) : undefined}
           />
+          {/* A3: a search box only earns its keep once there's enough to search — MessagesPage's
+              >5 threshold (messaging-service parity; K owns a single-profile list so no grouping
+              is needed here). */}
+          {threads.length > 5 && (
+            <Input
+              aria-label="Search chats"
+              placeholder="Search chats…"
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              className="mb-2 w-full"
+              data-testid="chat-search"
+            />
+          )}
         </div>
         <div className="flex-1 px-2 pb-2">
           {threadsPending ? (
@@ -222,18 +262,22 @@ export default function ChatView() {
               headline="No chats yet"
               action={<Button icon="plus" onClick={() => selectThread(null)}>New chat</Button>}
             />
+          ) : threadsLoaded && visibleThreads.length === 0 ? (
+            // Reachable only via search — a real (non-empty) list with zero matches must not
+            // masquerade as the first-run empty state (ChatsTab/MessagesPage parity).
+            <div data-testid="chat-no-matches" className="px-1 pt-2 text-caption text-muted">
+              No chats match “{q}”.
+            </div>
           ) : (
-            threads.map(t => {
+            visibleThreads.map(t => {
               const isSelected = t.id === effectiveId
-              return (
-                <div
-                  key={t.id}
-                  data-testid={`chat-thread-row-${t.id}`}
-                  className={`group flex items-center gap-1 rounded-control border-l-2 px-3 py-2 ${
-                    isSelected ? 'border-accent/50 bg-accent/10' : 'border-transparent hover:bg-raised'
-                  }`}
-                >
-                  {renamingId === t.id ? (
+              if (renamingId === t.id) {
+                return (
+                  <div
+                    key={t.id}
+                    data-testid={`chat-thread-row-${t.id}`}
+                    className="flex items-center gap-2 border-b border-border bg-[var(--glass-panel-bg)] px-4 py-2.5"
+                  >
                     <Input
                       autoFocus
                       data-testid={`chat-rename-input-${t.id}`}
@@ -244,32 +288,50 @@ export default function ChatView() {
                       onBlur={() => setRenamingId(null)}
                       className="min-w-0 flex-1 px-1.5 py-1"
                     />
-                  ) : (
-                    <button type="button" onClick={() => selectThread(t.id)} className="min-w-0 flex-1 text-left">
-                      <div className="truncate pr-1 text-body font-medium text-text">{t.title ?? 'New chat'}</div>
-                      {t.snippet && <div className="truncate pr-1 text-caption text-muted">{t.snippet}</div>}
-                      {t.lastTurnAt != null && (
-                        <div className="mono text-caption text-muted">{relativeTime(t.lastTurnAt)}</div>
+                  </div>
+                )
+              }
+              return (
+                <Row
+                  key={t.id}
+                  testid={`chat-thread-row-${t.id}`}
+                  selected={isSelected}
+                  onClick={() => selectThread(t.id)}
+                  title={t.title ?? 'New chat'}
+                  sub={t.snippet}
+                  meta={
+                    <span className="flex items-center gap-1.5">
+                      {t.unread > 0 && (
+                        <span
+                          data-testid={`chat-unread-${t.id}`}
+                          className="rounded-pill bg-accent/20 px-1.5 text-micro font-semibold text-accent"
+                        >
+                          {t.unread}
+                        </span>
                       )}
-                    </button>
-                  )}
-                  <IconButton
-                    name="edit"
-                    label="Rename"
-                    variant="ghost"
-                    data-testid={`chat-rename-${t.id}`}
-                    onClick={() => startRename(t)}
-                    className="shrink-0 opacity-0 transition-[opacity,transform,filter,background-color,border-color] duration-100 group-hover:opacity-100"
-                  />
-                  <IconButton
-                    name="trash"
-                    label="Archive"
-                    variant="ghost"
-                    data-testid={`chat-archive-${t.id}`}
-                    onClick={() => archive.mutate(t.id)}
-                    className="shrink-0 opacity-0 transition-[opacity,transform,filter,background-color,border-color] duration-100 hover:text-red group-hover:opacity-100"
-                  />
-                </div>
+                      {t.lastTurnAt != null && <span>{relativeTime(t.lastTurnAt)}</span>}
+                    </span>
+                  }
+                  actions={
+                    <>
+                      <IconButton
+                        name="edit"
+                        label="Rename"
+                        variant="ghost"
+                        data-testid={`chat-rename-${t.id}`}
+                        onClick={e => { e.stopPropagation(); startRename(t) }}
+                      />
+                      <IconButton
+                        name="trash"
+                        label="Archive"
+                        variant="ghost"
+                        data-testid={`chat-archive-${t.id}`}
+                        onClick={e => { e.stopPropagation(); archive.mutate(t.id) }}
+                        className="hover:text-red"
+                      />
+                    </>
+                  }
+                />
               )
             })
           )}
