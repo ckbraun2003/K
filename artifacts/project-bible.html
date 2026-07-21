@@ -206,7 +206,7 @@
     </a>
     <div class="nav-foot">
       K Agentic Engineering Harness<br>
-      compiled <span class="mono">2026-07-20 05:29</span><br>
+      compiled <span class="mono">2026-07-21 09:09</span><br>
       <span class="mono">j/k</span> navigate sections
     </div>
   </nav>
@@ -253,7 +253,11 @@ redesign.</li>
 output still lands as a durable artifact, run record, or PR; the chat directs work, it never
 replaces the audit trail.</li>
 </ul>
-<div class="live-empty">— no run data yet —</div>
+<div class="live-stats">
+      <div class="stat"><span class="stat-label">TOTAL RUNS</span><span class="stat-value">95</span></div>
+      <div class="stat"><span class="stat-label">TOKENS</span><span class="stat-value">5.3M</span></div>
+      <div class="stat"><span class="stat-label">COST</span><span class="stat-value">$9.54</span></div>
+    </div>
 
     </section>
 
@@ -1753,7 +1757,9 @@ Artifacts tab's <strong>"Refresh from disk"</strong> button. Serving posture is 
 </ul>
 <h2>Lifecycle</h2>
 <p><code>registered → onboarded (invariants satisfied) → active (runs/PRs flowing) → idle (no activity N days) → archived (hidden from home, data retained)</code></p>
-<div class="live-empty">— no registered project data yet —</div>
+<table><thead><tr><th>project</th><th>health</th><th>last verified</th></tr></thead><tbody><tr><td>jarvis-core</td>
+        <td><span class="dot dot-amber"></span><span class="mono">—</span></td>
+        <td>never</td></tr></tbody></table>
 
     </section>
 
@@ -2111,7 +2117,42 @@ gate, a machine-derived lesson still needs operator approval before it joins a p
 nothing self-modifies its brain. <strong>Scope (honest, D-113):</strong> implemented off <strong><code>verify_results</code>
 only</strong>; <strong><code>eval_results</code> is DEFERRED</strong> (it has no free-text failure-reason column to signature on) as
 a documented extension point.</p>
-<div class="live-empty">— no run data yet —</div>
+<table><thead><tr><th>run</th><th>prompt</th><th>status</th><th>cost</th><th>started</th></tr></thead><tbody><tr>
+      <td>b8ef4e40</td>
+      <td>You: Add a work item to my personal list: review the Phase 5 clo…</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.083</td>
+      <td>2026-07-20 19:30</td>
+    </tr><tr>
+      <td>9bc1c863</td>
+      <td>You are the synthesizer of a research loop.
+
+<p>Goal:
+Research and …</p></td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$1.593</td>
+      <td>2026-07-20 19:30</td>
+    </tr><tr>
+      <td>833fc469</td>
+      <td>You: [message from chief · normal] [domain briefing · Engineerin…</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.202</td>
+      <td>2026-07-20 19:30</td>
+    </tr><tr>
+      <td>f3f51373</td>
+      <td>You are the investigator of a research loop.<p></p>
+<p>Goal:
+Research and…</p></td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$1.007</td>
+      <td>2026-07-20 19:25</td>
+    </tr><tr>
+      <td>780ea9a7</td>
+      <td>You: hi</td>
+      <td><span class="dot dot-green"></span>done</td>
+      <td>$0.252</td>
+      <td>2026-07-20 19:24</td>
+    </tr></tbody></table><p></p>
 
     </section>
 
@@ -3172,6 +3213,12 @@ still reach empty.</li>
 <p>Full keyboard navigation (sidebar <code>g</code> chords, <code>j/k</code> lists, Ctrl/Cmd+K everywhere) · visible focus
 rings (accent) · WCAG AA contrast on all text · reduced-motion respects OS setting · 60fps graph
 interactions on a mid laptop; degrade node count before frame rate.</p>
+<h2>UI Adjustments (2026-07) — glass restyle · chat messaging surface · Runs consolidation · knowledge graph (D-129..D-132)</h2>
+<p>A four-lane refinement (W0 foundation → three file-disjoint in-place lanes → per-lane spec+quality review → whole-impl opus review [APPROVE] → full core+web+build gate) on <code>feat/ui-adjustments</code>. <strong>NO SCHEMA_VERSION bump</strong> (stays 16). Supersedes the palette <em>values</em> of the earlier Design-tokens sections (D-114/D-115/D-121/D-128) and the knowledge-graph render posture; the token NAMES and the <code>ui-token-gate</code> are unchanged.</p>
+<p><strong>Glass restyle &amp; palette (D-131).</strong> The accent hierarchy moves to purple/white over the retained purple background: <code>--text #c6cede</code> (pale graphite-blue body font), <code>--muted #8f99ad</code>, <code>--accent #a855f7</code> (violet), <code>--accent-hover #c084fc</code>, new <code>--accent-hi #e9d5ff</code>; <code>--bg</code>/<code>--surface</code>/<code>--raised</code> and the wallpaper system are unchanged, <code>--chart-1</code> stays frozen <code>#ff8fc0</code>, and every changed canvas token is mirrored in <code>web/src/lib/tokens.ts</code>. A new <strong><code>.glass-control</code></strong> class gives dense/repeated surfaces (fields, pills, list <code>Row</code>, checkboxes, StatusPill) a no-<code>backdrop-filter</code> glass-LOOK (tinted bg + hairline border + inset sheen), so "everything glass" respects the DEV-11 blur budget — real <code>backdrop-filter</code> stays only on the <code>.glass-chrome</code>/<code>.glass-panel</code>/<code>.glass-overlay</code> tiers. The wallpaper upload cap rises 8 MB → 25 MB (route bodyLimit derives ~35 MB) for HD/4K images, guards and the authenticated Blob→objectURL render path unchanged.</p>
+<p><strong>Home chat as a messaging surface (D-129).</strong> The Chats rail reads <code>api.conversations.list()</code> filtered to <code>profileId === 'k-secretary'</code> (was the unfiltered <code>api.threads.list()</code>, which leaked every orchestrator/agent conversation into Home). Relayed (non-user provenance) segments on the K surface render as quiet centered system-notes, not agent bubbles; the rail gains unread badges + search (&gt;5 threads); the message bar is a seamless glass pill; the per-message "view run" chip is removed from every <code>ConversationView</code> surface (the run stays reachable from Runs / pipeline nodes). The floating dock's recent-threads picker also switched to <code>conversations.list(k-secretary)</code>, and <code>useAskK</code> invalidates <code>['conversations']</code> so rail + picker stay live.</p>
+<p><strong>Runs page consolidation (D-130).</strong> The Runs page is the single home for active work: a segmented control "Agent Runs / Pipelines" (chats stay on Home). <code>PipelineRunsPane</code> moved off Agents→Automations onto Runs; <code>route.ts</code> reserves <code>pipelines</code> as a <code>runs</code> param keyword (<code>#/runs/pipelines[/&lt;id&gt;]</code>) with a legacy redirect. A pipeline stage node/card opens the agent's live <code>RunConsole</code> via <code>stage.runId</code>; a run's Artifacts panel lists artifacts by <code>linkedRunId</code> (<code>GET /api/pipelines/runs/:id/artifacts</code>); ledger artifact rows open the DocViewer. Archive / permanent-delete / clear-finished ride <code>app_config</code> key <code>runs.archived</code> (JSON array, no schema bump); <code>GET /api/runs?archived=include/only/exclude</code>. Permanent DELETE is guarded (404 → 409 running/queued → 409 not-archived → 204) and FK-safe in one transaction (removes the run + hard-FK children, NULLs <code>artifacts.linked_run_id</code> and the <code>runs.retry_of</code> self-FK, drops from the archived set; never cascades threads/artifacts).</p>
+<p><strong>Knowledge graph — calm, expanded, neutral (D-132).</strong> The 3D graph renders fully laid out with no settle animation (two-phase mount: empty sentinel → <code>warmupTicks</code> + <code>cooldownTicks=0</code> → one-shot <code>zoomToFit</code>; never <code>d3ReheatSimulation</code>), slowly auto-rotates via a rAF camera orbit that pauses on pointer-release/wheel and while the inspector is open and honors <code>prefers-reduced-motion</code>, and no longer flies the camera on node click (the inspector + View-in-Runs + Dispatch stay). Colors neutralize to a new <code>--graph-bg #14161c</code> graphite canvas token (mirrored index.css↔tokens.ts) with <code>--muted</code>/<code>--accent</code>-derived nodes/links. <code>forcesReady</code> resets across a <code>GraphErrorBoundary</code> remount so the two-phase mount can't be skipped after a WebGL crash.</p>
 
     </section>
 
@@ -4845,6 +4892,38 @@ materializer</strong>, pipeline <strong>event triggers</strong>, and <strong>int
 <td><strong><code>runs.kind ∈ chat-turn | job | pipeline-stage</code> + <code>runs.session_id</code>, stamped by trusted in-process code at dispatch (<code>persistentSession</code> → <code>chat-turn</code>; the pipeline executor → <code>pipeline-stage</code>; default <code>job</code>) with a one-shot v16 backfill of historical rows. The Runs surface defaults to <code>job</code> + <code>pipeline-stage</code> with a "show chat turns" toggle — conversation turns belong to their conversations (§08 Messages). Policy reads <code>kind</code>: the budget posture (an OPERATOR-originated <code>chat-turn</code> is exempt; a PROFILE-originated session wake is budget-gated + relay-breaker-damped — SEAMS #2 (b)) and the wake governor's org-relevance filter switch from K-shaped special cases to <code>kind</code>/origin (identical gating for every pre-existing caller; the one deliberate change is arming the gate on agent-caused wakes); <code>GET /api/runs</code> gains a <code>kind</code> filter (enum-validated, deduped).</strong></td>
 <td>Chat turns as top-level runs polluted every runs surface and forced budget/wake logic onto brittle profile-id special cases; one explicit discriminator makes "is this a conversation?" a stored fact rather than an inference, so UI filters, budget exemption, and wake relevance all read the same truth. Kind is unreachable from HTTP/MCP/queue input, so the exemption cannot be smuggled onto a paid dispatch.</td>
 <td>Inferring kind from trigger strings at read time (trigger semantics drifted — the mailbox dispatches profile sends as <code>'delegation'</code>); a separate chat-runs table (forks the run lifecycle every consumer rides); exposing <code>kind</code> on dispatch APIs (an exemption-smuggling surface — trusted in-process stamping only).</td>
+</tr>
+<tr>
+<td>D-129</td>
+<td>2026-07-21</td>
+<td>Home chat is a messaging surface, not a run list <em>(UI Adjustments, Lane A)</em></td>
+<td><strong>Home's Chats rail reads <code>api.conversations.list()</code> filtered to <code>profileId === 'k-secretary'</code> (was the unfiltered <code>api.threads.list()</code> → <code>GET /api/k/threads</code>, which has no profile filter and leaked every orchestrator/agent conversation into Home). On the K surface, a relayed (non-user provenance) segment renders as a quiet centered muted system-note (day-separator styling) instead of a left-aligned agent bubble; direct you↔K turns and non-K (agent-detail) surfaces are unchanged. The rail gains messaging-service affordances (unread badge, search past &gt;5 threads, <code>Row</code>-based rows). The per-message "view run" chip is removed from EVERY <code>ConversationView</code> surface — the run stays reachable from the Runs page and pipeline stage node/card (D-130). The message bar is a seamless glass pill (MessageDock composer inner box dropped; ConversationView composer restyled). The floating dock's own recent-threads picker also switched to <code>conversations.list(k-secretary)</code>, and <code>useAskK</code> now invalidates <code>['conversations']</code> so the rail + picker stay live after a send.</strong></td>
+<td>The operator reported "weird system messages from other orchestrators appearing as chats" and a message bar that read as a form field. The leak's root cause was a listing endpoint with no profile filter; <code>conversations.list</code> already carries <code>profileId</code>/<code>unread</code>/<code>sessionState</code> (the exact partition the Messages page uses), so one data-source swap fixes the leak AND supplies the messaging-rail fields. Relay report-backs are real content but not chat, so they read as quiet notes. The chip cluttered every reply while the run is reachable elsewhere. The picker fix closed a functional cross-thread path (selecting a leaked non-K thread would append a turn into that agent's thread via <code>api.k.ask</code>).</td>
+<td>Filtering the display client-side off <code>threads.list</code> (KThreadSummary carries no <code>profileId</code> to filter on); a core-side profile filter on <code>/api/k/threads</code> (would change behavior for the MessageDock selection-resolver and other consumers — deferred as a hardening follow-up, plus a <code>resolveAskThread</code> profile-ownership guard); gating the chip on <code>isK</code> only (the operator asked for no per-message chip anywhere — the run stays reachable from Runs/pipeline nodes).</td>
+</tr>
+<tr>
+<td>D-130</td>
+<td>2026-07-21</td>
+<td>Runs page consolidation — pipelines + agent runs, archive/delete via app_config <em>(UI Adjustments, Lane B)</em></td>
+<td><strong>The Runs page is the single home for active work: a segmented control "Agent Runs / Pipelines" (chats stay on Home). <code>PipelineRunsPane</code> moves off Agents→Automations onto the Runs page; AutomationsView keeps library+schedules; <code>route.ts</code> reserves <code>pipelines</code> as a <code>runs</code> param keyword (<code>#/runs/pipelines[/&lt;id&gt;]</code>) with a legacy <code>agents/automations/runs*</code> → <code>runs/pipelines*</code> redirect (replaceState). A pipeline stage node/card click opens the agent's live <code>RunConsole</code> via <code>stage.runId</code> (<code>navigate('runs', runId)</code>; stage-select highlight is the no-runId fallback) — this is how "see every ongoing agent's chat/context" is satisfied. A run's Artifacts panel lists artifacts whose <code>linkedRunId</code> ∈ its stage runIds (<code>GET /api/pipelines/runs/:id/artifacts</code>); ledger artifact rows click through to the DocViewer. Archive/permanent-delete/clear-finished ride <code>app_config</code> key <code>runs.archived</code> (JSON array — NO SCHEMA_VERSION bump): endpoints archive/unarchive/clear-finished/DELETE + <code>GET /api/runs?archived=include/only/exclude</code> (default exclude, every row self-tagged <code>archived</code>). Permanent DELETE is guarded (404 unknown → 409 running/queued → 409 not-archived → 204) and FK-safe in one transaction: removes the run row + its hard-FK children (events/review_comments/verify_results/run_plans), NULLs <code>artifacts.linked_run_id</code> and <code>runs.retry_of</code> (a self-FK with no ON DELETE), drops the id from the archived set, and never cascade-deletes threads or artifacts.</strong></td>
+<td>The operator wanted active pipelines + agent runs on the Runs page, the ability to clear/select-delete runs, pipeline nodes that open the agent's current context, and visibility into pipeline artifacts. Archive-then-permanent-delete (recoverable by default) mirrors the wallpaper's no-schema <code>app_config</code> pattern, so no table/version change was needed. The delete guard + FK-safe transaction prevent orphaned-ref crashes; the <code>retry_of</code> self-FK was caught in review (deleting a self-heal ORIGINAL run threw <code>SQLITE_CONSTRAINT_FOREIGNKEY</code> → 500) and is now nulled in the transaction.</td>
+<td>A SCHEMA_VERSION bump / a dedicated archived-runs table (JSON in <code>app_config</code> suffices — same rationale as the wallpaper pref); cascade-deleting threads/artifacts (destroys history — nulling dangling refs is correct); leaving chats on the Runs page (the operator kept chats on Home); ON DELETE SET NULL on <code>retry_of</code> (a migration on an existing column is riskier than nulling in the delete path); per-row app_config writes in clear-finished (batched to one read/write).</td>
+</tr>
+<tr>
+<td>D-131</td>
+<td>2026-07-21</td>
+<td>Glass everywhere — violet/graphite palette, no-blur glass-look, HD wallpaper <em>(UI Adjustments, Wave C / W0)</em></td>
+<td><strong>The palette shifts to a purple/white accent hierarchy over the retained purple background: <code>--text #c6cede</code> (pale graphite-blue body font), <code>--muted #8f99ad</code>, <code>--accent #a855f7</code> (violet), <code>--accent-hover #c084fc</code>, new <code>--accent-hi #e9d5ff</code>; <code>--bg</code>/<code>--surface</code>/<code>--raised</code> and the wallpaper system are unchanged, <code>--chart-1</code> stays frozen <code>#ff8fc0</code>, and every changed canvas token is mirrored in <code>lib/tokens.ts</code> (so <code>tokens.test.ts</code> and the graph/jsdom consumers stay in sync). Dense/repeated surfaces (fields, pills, list rows, checkboxes) adopt <code>.glass-control</code> — a no-<code>backdrop-filter</code> glass-LOOK (tinted bg + hairline border + inset sheen) — so "everything glass" respects the DEV-11 blur budget (real blur stays only on the chrome/panel/overlay tiers). The wallpaper upload cap rises 8 MB → 25 MB (route bodyLimit auto-derives ~35 MB) so HD/4K images render at native resolution, with the fixed-basename + triple-MIME (png/jpeg/webp) + path-safety guards and the authenticated Blob→objectURL render path all unchanged.</strong></td>
+<td>The operator asked for "every icon/page/form to be glass, with different shades of purple/white for hierarchy accents, and a pale graphite blue font," while keeping the purple background and user wallpaper. A blur-budget-safe glass-look class lets dense surfaces read as glass without the &gt;6-region <code>backdrop-filter</code> perf cliff; changing only token VALUES (not names) keeps every consumer and the token gate intact. The HD cap is a one-constant change (the bodyLimit derives from it) preserving the existing security guards and no-re-encode storage.</td>
+<td>Neutralizing the background to graphite (the operator kept purple); real <code>backdrop-filter</code> on list rows/fields (blows the DEV-11 budget); renaming tokens (breaks <code>tokens.test.ts</code> and every consumer); changing <code>--chart-1</code> or making <code>--muted</code> non-6-hex (violates the test contract); re-encoding/downscaling the wallpaper server-side (loses native resolution).</td>
+</tr>
+<tr>
+<td>D-132</td>
+<td>2026-07-21</td>
+<td>Knowledge graph — fully-expanded, slow auto-rotate, neutral glass palette <em>(UI Adjustments, Lane D)</em></td>
+<td><strong>The 3D knowledge graph renders fully laid out with NO settle/expansion animation: a two-phase mount (mount <code>ForceGraph3D</code> on an empty sentinel first so <code>configureGraphForces</code> runs before real data, then <code>warmupTicks</code> settles headless + <code>cooldownTicks=0</code> freezes, then a one-shot <code>zoomToFit</code>) — never calling <code>d3ReheatSimulation</code> (which crashes the 3D engine). A <code>requestAnimationFrame</code> loop slowly orbits the camera azimuth (react-force-graph-3d ships TrackballControls with no <code>autoRotate</code>), pausing on pointerdown and resuming only on pointerup/pointercancel + wheel (so a sustained drag never fights the user) and while the inspector is open, and disabled under <code>prefers-reduced-motion</code>. Free zoom/orbit stay on. Clicking a node no longer flies the camera (the disorienting drill-in) — it opens the glass-overlay inspector (details + View-in-Runs + Dispatch) only. Colors neutralize to match the glass: a new <code>--graph-bg #14161c</code> graphite canvas token (mirrored index.css↔tokens.ts), <code>GRAPH_COLORS.dim</code> and <code>GRAPH_LINK_COLOR</code> ride <code>--muted</code>, <code>ok</code> rides <code>--accent</code>. <code>forcesReady</code> resets across a <code>GraphErrorBoundary</code> remount (onReset + mount-gen key) so the two-phase mount can't be skipped after a WebGL crash.</strong></td>
+<td>The operator wanted "a rendered graph that is slowly rotating with the ability to zoom and control rotation, rather than navigating through a whole graph," fully expanded with no expansion animation, and neutral colors matching the glass. Pre-warm-then-freeze avoids the reheat crash while removing the visible spread; the rAF orbit with proper pointer-release tracking gives casual rotation that always yields to the user; removing the camera-fly keeps the inspector's value without the disorienting navigation. A canvas-bg token decoupled from the purple <code>--bg</code> reads calm behind the glass overlays.</td>
+<td>Calling <code>d3ReheatSimulation</code> to re-settle (crashes the WebGL canvas — documented in <code>graph.ts</code>); resuming auto-rotate on a flat timer from pointerdown (fights a &gt;1.5s drag); keeping the camera-fly on node click (the "navigating through the graph" the operator rejected); reusing the purple <code>--bg</code> for the canvas (reads busy behind glass); gating the two-phase mount on node-count alone (skips phase 1 on a boundary remount).</td>
 </tr>
 </tbody></table>
 
