@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   canonicalizePipelineRunStatus,
+  type AgentProfile,
   type Artifact,
   type PipelineRun,
   type PipelineRunView,
@@ -53,6 +54,11 @@ function RunPipelineDialog({
   const [defId, setDefId] = useState('')
   const [goal, setGoal] = useState('')
   const [projectId, setProjectId] = useState('')
+  // Lane B (ui-adjustments Round 2, seam w/ Lane C): the operator's optional
+  // "Observed by" pick — threaded to the backend as `orchestratorId`. '' (the
+  // default) omits the field entirely, so the server falls back to the pipeline
+  // definition's domain manager (see routes/pipelines.ts), else null.
+  const [orchestratorId, setOrchestratorId] = useState('')
 
   const { data: projects } = useQuery<Project[]>({
     queryKey: ['projects'],
@@ -60,8 +66,24 @@ function RunPipelineDialog({
     enabled: open,
   })
 
+  // Candidate "observers": chief-tier (domain managers) + orchestrator-tier
+  // (the 5 discipline leads + the default orchestrator) profiles — the same
+  // tiers routes/pipelines.ts accepts as an owner. api.profiles.list (not
+  // api.orchestrators.list, which server-filters to leads only) so Chief-tier
+  // domain managers are selectable too.
+  const { data: profiles } = useQuery<AgentProfile[]>({
+    queryKey: ['profiles'],
+    queryFn: () => api.profiles.list(),
+    enabled: open,
+  })
+  const observers = (profiles ?? []).filter(p => p.tier === 'chief' || p.tier === 'orchestrator')
+
   const dispatch = useMutation({
-    mutationFn: () => api.pipelines.run(defId, { goal: goal.trim(), projectId: projectId || undefined }),
+    mutationFn: () => api.pipelines.run(defId, {
+      goal: goal.trim(),
+      projectId: projectId || undefined,
+      orchestratorId: orchestratorId || undefined,
+    }),
     onSuccess: r => onDispatched(r.pipelineRunId),
   })
 
@@ -70,6 +92,7 @@ function RunPipelineDialog({
     if (!open) return
     setGoal('')
     setProjectId('')
+    setOrchestratorId('')
     setDefId(defs[0]?.id ?? '')
     dispatch.reset()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -148,6 +171,24 @@ function RunPipelineDialog({
           >
             <option value="">No project</option>
             {(projects ?? []).map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-caption text-muted">Observed by (optional)</label>
+          <Select
+            data-testid="pipeline-run-orchestrator"
+            aria-label="Observed by"
+            value={orchestratorId}
+            onChange={e => setOrchestratorId(e.target.value)}
+            className="w-full text-label"
+          >
+            <option value="">Auto (pipeline's domain manager)</option>
+            {observers.map(p => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>

@@ -10,11 +10,14 @@ type RunsSeg = 'agent' | 'pipelines'
 function RunsMasterDetail({ runId }: { runId?: string }) {
   return (
     <div className="flex h-full overflow-hidden">
-      {/* NOT glass-chrome — this scrolls dense run-list data, so it stays an
-          opaque surface (bg-surface, no blur/radius/all-side border — a flush
-          full-height divider, not a floating card) per "dense data never sits
-          on blur". */}
-      <aside className="bg-surface w-72 flex-shrink-0 overflow-hidden border-r border-border">
+      {/* Round 2 (Lane B): glass tint, not the old opaque bg-surface — the D-133
+          "dense data never sits on blur" rule that motivated the opaque surface no
+          longer applies: the glass tiers are opacity-tint ONLY (no backdrop-filter)
+          as of Round 2, so a scrolling list of run rows costs exactly what a plain
+          div would. bg-[var(--glass-2)] rather than the .glass-panel/.glass-chrome
+          CLASS — those bundle an all-sided border + radius + shadow for a floating
+          card, but this aside stays a flush full-height divider (border-r only). */}
+      <aside className="bg-[var(--glass-2)] w-72 flex-shrink-0 overflow-hidden border-r border-border">
         <RunList selectedId={runId ?? null} onSelect={id => navigate('runs', id)} />
       </aside>
       {/* section, not main — the shell already provides the page's <main> landmark */}

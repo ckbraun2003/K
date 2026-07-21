@@ -27,6 +27,8 @@ import { budgetStatus } from '../src/budget-governor.js'
 import { getPipelineRunView } from '../src/pipeline-views.js'
 import { appendLedger } from '../src/pipeline-ledger.js'
 import { eventBus } from '../src/events.js'
+import { createProfile } from '../src/profiles.js'
+import { createDomain } from '../src/domains.js'
 import { PipelineRunViewSchema, type WsMessage } from '@k/shared'
 
 vi.hoisted(() => { process.env.K_SKIP_BOOTSTRAP = '1' })
@@ -42,6 +44,9 @@ const DEF_ID = `pl-c2-${randomUUID().slice(0, 8)}`
 const createdPipelineRunIds: string[] = []
 const spentRunIds: string[] = []
 const createdArtifactSlugs: string[] = []
+const createdDomainIds: string[] = []
+const createdProfileIds: string[] = []
+const createdDefIds: string[] = []
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' })
@@ -131,6 +136,9 @@ afterAll(async () => {
   for (const id of spentRunIds) db.prepare('DELETE FROM runs WHERE id = ?').run(id)
   for (const slug of createdArtifactSlugs) db.prepare('DELETE FROM artifacts WHERE slug = ?').run(slug)
   db.prepare('DELETE FROM workflow_definitions WHERE id = ?').run(DEF_ID)
+  for (const id of createdDefIds) db.prepare('DELETE FROM workflow_definitions WHERE id = ?').run(id)
+  for (const id of createdProfileIds) db.prepare('DELETE FROM agent_profiles WHERE id = ?').run(id)
+  for (const id of createdDomainIds) db.prepare('DELETE FROM domains WHERE id = ?').run(id)
   db.prepare('DELETE FROM projects WHERE id = ?').run(projectId)
   fs.rmSync(repo, { recursive: true, force: true, maxRetries: 3 })
 })
@@ -191,6 +199,80 @@ describe('POST /pipelines/:id/run → view roundtrip', () => {
     expect(typeof res.json().capUsd).toBe('number')
 
     setAutonomySettings({ orgDailyBudgetUsd: null }); __resetConfigCache()
+  })
+})
+
+describe('POST /pipelines/:id/run — "Observed by" orchestrator (Lane B, ui-adjustments round 2)', () => {
+  it('an explicit orchestratorId stamps pipeline_runs.owner_profile_id verbatim', async () => {
+    const observer = createProfile({ name: `pl-b5-observer-${randomUUID().slice(0, 8)}`, tier: 'orchestrator' })
+    createdProfileIds.push(observer.id)
+
+    const res = await app.inject({
+      method: 'POST', url: `/api/pipelines/${DEF_ID}/run`, headers: JSON_HEADERS,
+      payload: JSON.stringify({ goal: 'observed run', orchestratorId: observer.id }),
+    })
+    expect(res.statusCode).toBe(201)
+    const pipelineRunId = res.json().pipelineRunId as string
+    createdPipelineRunIds.push(pipelineRunId)
+
+    const view = await app.inject({ method: 'GET', url: `/api/pipelines/runs/${pipelineRunId}`, headers: AUTH })
+    expect(view.json().run.ownerProfileId).toBe(observer.id)
+  })
+
+  it('an unknown orchestratorId 400s (never silently orphans the report-back)', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/api/pipelines/${DEF_ID}/run`, headers: JSON_HEADERS,
+      payload: JSON.stringify({ goal: 'g', orchestratorId: `nope-${randomUUID()}` }),
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('an existing but secretary-tier orchestratorId (e.g. K) 400s — the update must never land in the personal K chat', async () => {
+    const sec = createProfile({ name: `pl-b5-sec-${randomUUID().slice(0, 8)}`, tier: 'secretary' })
+    const res = await app.inject({
+      method: 'POST', url: `/api/pipelines/${DEF_ID}/run`, headers: JSON_HEADERS,
+      payload: JSON.stringify({ goal: 'g', orchestratorId: sec.id }),
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('omitted orchestratorId defaults to the definition\'s domain manager', async () => {
+    const manager = createProfile({ name: `pl-b5-manager-${randomUUID().slice(0, 8)}`, tier: 'chief' })
+    createdProfileIds.push(manager.id)
+    const domain = createDomain({ name: `PL B5 Domain ${randomUUID().slice(0, 8)}`, managerProfileId: manager.id })
+    createdDomainIds.push(domain.id)
+
+    const domainDefId = `pl-b5-def-${randomUUID().slice(0, 8)}`
+    createdDefIds.push(domainDefId)
+    workflowDefsDb.insertWorkflowDef.run({
+      id: domainDefId, name: `B5 Def ${domainDefId}`, roles: '[]', promptScaffold: 'x', crossProject: 0, createdAt: Date.now(),
+    })
+    pipelineDb.setDefSpec.run({ id: domainDefId, spec: JSON.stringify(SPEC) })
+    db.prepare('UPDATE workflow_definitions SET domain_id = ? WHERE id = ?').run(domain.id, domainDefId)
+
+    const res = await app.inject({
+      method: 'POST', url: `/api/pipelines/${domainDefId}/run`, headers: JSON_HEADERS,
+      payload: JSON.stringify({ goal: 'domain-default run' }),
+    })
+    expect(res.statusCode).toBe(201)
+    const pipelineRunId = res.json().pipelineRunId as string
+    createdPipelineRunIds.push(pipelineRunId)
+
+    const view = await app.inject({ method: 'GET', url: `/api/pipelines/runs/${pipelineRunId}`, headers: AUTH })
+    expect(view.json().run.ownerProfileId).toBe(manager.id)
+  })
+
+  it('omitted orchestratorId + no domain on the definition leaves owner_profile_id null', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/api/pipelines/${DEF_ID}/run`, headers: JSON_HEADERS,
+      payload: JSON.stringify({ goal: 'no-domain run' }),
+    })
+    expect(res.statusCode).toBe(201)
+    const pipelineRunId = res.json().pipelineRunId as string
+    createdPipelineRunIds.push(pipelineRunId)
+
+    const view = await app.inject({ method: 'GET', url: `/api/pipelines/runs/${pipelineRunId}`, headers: AUTH })
+    expect(view.json().run.ownerProfileId).toBeNull()
   })
 })
 

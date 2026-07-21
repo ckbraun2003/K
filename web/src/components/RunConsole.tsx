@@ -314,7 +314,10 @@ export default function RunConsole({ runId }: Props) {
   if (!run) return <div className="flex-1 flex items-center justify-center text-muted">Loading…</div>
 
   return (
-    <div className="flex flex-col h-full">
+    // Round 2 (Lane B): the selected run detail sits in its own glass box —
+    // overflow-hidden so the panel's rounded-panel corners clip the scrolling
+    // event-stream/timeline/changes body beneath the header.
+    <div className="glass-panel rounded-panel flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border flex-shrink-0">
         <div className="flex-1 min-w-0">

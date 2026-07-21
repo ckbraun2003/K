@@ -10,6 +10,8 @@ import { listLedger } from '../pipeline-ledger.js'
 import { budgetGate } from '../budget-governor.js'
 import { getProject } from '../projects.js'
 import { resolveDispatchScope } from '../lead-dispatch-relay.js'
+import { getProfile } from '../profiles.js'
+import { domainForPipelineDef } from '../domains.js'
 import { REPO_ROOT, kill } from '../supervisor.js'
 import { sendError, sendZodError, sendBudgetCapped } from './http-errors.js'
 
@@ -41,6 +43,12 @@ const RunBodySchema = z
     goal: z.string().min(1).max(20_000),
     projectId: z.string().min(1).optional(),
     model: z.string().min(1).optional(),
+    // ui-adjustments Round 2 (Lane B): the operator's optional "Observed by" pick — an
+    // AgentProfile id whose own conversation receives pipeline-update report-backs
+    // (Lane C's delivery seam). Omitted → resolved server-side to the pipeline
+    // definition's DOMAIN MANAGER (workflow_definitions.domain_id → domains.manager_profile_id),
+    // else left null (Lane C's delivery code handles a null owner).
+    orchestratorId: z.string().min(1).optional(),
   })
   .strict()
 
@@ -182,17 +190,33 @@ export async function pipelinesRoutes(app: FastifyInstance) {
 
   // POST /api/pipelines/:id/run — the operator delegation entrance (in-process, no queue): resolve
   // the project scope → cwd (fail-closed), park at the budget cap (429), then startPipelineRun. The
-  // scheduler picks up the running pipeline on its next tick. Body 400 → model 400 → def 404 →
-  // scope 400 → budget 429 → 201 { pipelineRunId }.
+  // scheduler picks up the running pipeline on its next tick. Body 400 → model 400 → orchestrator
+  // 400 → def 404 → scope 400 → budget 429 → 201 { pipelineRunId }. `orchestratorId` ("Observed by")
+  // stamps `pipeline_runs.owner_profile_id`, defaulting to the definition's domain manager.
   app.post<{ Params: { id: string } }>('/api/pipelines/:id/run', async (req, reply) => {
     const parsed = RunBodySchema.safeParse(req.body)
     if (!parsed.success) return sendZodError(reply, parsed.error)
-    const { goal, projectId, model } = parsed.data
+    const { goal, projectId, model, orchestratorId } = parsed.data
     if (model !== undefined && !isKnownModel(model)) return sendError(reply, 400, 'unknown model')
+    // An explicit "Observed by" pick must name a real CHIEF- or ORCHESTRATOR-tier
+    // profile (the same tiers the UI picker offers) — a stale/typo'd id would silently
+    // orphan the report-back, and a secretary-tier id (K) would land the pipeline
+    // update in the personal K chat, the very leak Lane C removes. Enforce the tier
+    // here so intent and validation match (the domain-manager default is chief-tier).
+    if (orchestratorId !== undefined) {
+      const owner = getProfile(orchestratorId)
+      if (!owner || (owner.tier !== 'chief' && owner.tier !== 'orchestrator')) {
+        return sendError(reply, 400, 'unknown orchestrator')
+      }
+    }
     // Resolve the definition by id, then name (mirrors delegate_pipeline), pinning the canonical id.
     const defRow = (workflowDefsDb.getWorkflowDefRow.get(req.params.id) ??
       workflowDefsDb.getWorkflowDefByNameRow.get(req.params.id)) as { id?: string } | undefined
     if (!defRow?.id) return sendError(reply, 404, 'not found')
+    // "Observed by": the operator's explicit pick wins; omitted → the definition's DOMAIN
+    // MANAGER (workflow_definitions.domain_id → domains.manager_profile_id) when the def
+    // belongs to a domain; else null (Lane C's delivery code tolerates a null owner).
+    const ownerProfileId = orchestratorId ?? domainForPipelineDef(defRow.id)?.managerProfileId ?? null
     // Resolve the pinned project scope → cwd (SAME fail-closed check the relay uses); an unscoped
     // run executes against K's own repo (REPO_ROOT).
     let resolvedProjectId: string | null = null
@@ -208,7 +232,7 @@ export async function pipelinesRoutes(app: FastifyInstance) {
     const g = budgetGate({ projectId: resolvedProjectId })
     if (!g.allowed) return sendBudgetCapped(reply, g)
     try {
-      const { pipelineRunId } = await startPipelineRun(defRow.id, { goal, projectId: resolvedProjectId, cwd, model })
+      const { pipelineRunId } = await startPipelineRun(defRow.id, { goal, projectId: resolvedProjectId, cwd, model, ownerProfileId })
       broadcastPipelineUpdate(pipelineRunId, null)
       return reply.status(201).send({ pipelineRunId })
     } catch (e) {

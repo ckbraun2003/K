@@ -1,10 +1,12 @@
 /**
- * RunList archive/delete (Lane B, B5 — runs consolidation): the default list
- * EXCLUDES archived runs via the server-side ?archived=exclude filter; the
- * "Show archived" toggle refetches with ?archived=include so both sets render
- * together (archived rows carry the muted "Archived" tag). Multi-select
- * checkboxes drive a bulk-action bar (Archive/Unarchive toggle, Delete
- * permanently via ConfirmDialog); "Clear finished" is a standalone action.
+ * RunList archive/delete (Lane B, B5 — runs consolidation; rewritten Round 2 for
+ * the Active|Archived segmented control). The default list EXCLUDES archived runs
+ * via the server-side ?archived=exclude filter; the Active|Archived `SegControl`
+ * (testids `seg-exclude`/`seg-only`, see SegControl.tsx) refetches with
+ * ?archived=only to show the archived set instead (archived rows carry the muted
+ * "Archived" tag). Multi-select checkboxes drive a floating selection popup
+ * (Archive/Unarchive toggle, Archive all, Delete permanently via ConfirmDialog);
+ * "Clear finished" is a standalone action.
  *
  * Stubs global fetch (REAL api module, like run-list-kind.test.tsx) so the
  * assertions cover the actual query string / endpoint each action hits. No
@@ -101,34 +103,46 @@ function runUrls(): string[] {
     .filter(u => u.includes('/api/runs') && !u.includes('/archive') && !u.includes('/unarchive') && !u.includes('/clear-finished'))
 }
 
-describe('RunList archive visibility (Lane B, B5)', () => {
+describe('RunList archive visibility (Lane B, B5 — Active|Archived segment, Round 2)', () => {
   it('the default fetch passes archived=exclude and hides the archived row', async () => {
     renderList()
     await waitFor(() => expect(screen.getByText('active run')).toBeTruthy())
     expect(runUrls().at(-1)).toContain('archived=exclude')
     expect(screen.queryByText('archived run')).toBeNull()
+    // Active is the default-pressed segment.
+    expect(screen.getByTestId('seg-exclude').getAttribute('aria-pressed')).toBe('true')
   })
 
-  it('toggling "Show archived" refetches with archived=include and shows the Archived tag', async () => {
+  it('switching to the Archived segment refetches with archived=only and shows the Archived tag', async () => {
     renderList()
     await waitFor(() => expect(screen.getByText('active run')).toBeTruthy())
 
-    fireEvent.click(screen.getByTestId('run-show-archived'))
+    fireEvent.click(screen.getByTestId('seg-only'))
 
     await waitFor(() => expect(screen.getByText('archived run')).toBeTruthy())
-    expect(runUrls().at(-1)).toContain('archived=include')
+    expect(runUrls().at(-1)).toContain('archived=only')
+    expect(screen.queryByText('active run')).toBeNull()
     expect(screen.getByTestId('run-archived-tag')).toBeTruthy()
+  })
+
+  it('there is no escape hatch back to an "include both" view — only exclude/only segments exist', async () => {
+    renderList()
+    await waitFor(() => expect(screen.getByText('active run')).toBeTruthy())
+    expect(screen.queryByTestId('run-show-archived')).toBeNull()
+    expect(screen.queryByTestId('seg-include')).toBeNull()
   })
 })
 
-describe('RunList bulk actions (Lane B, B5)', () => {
-  it('selecting a non-archived row shows the bulk bar with an Archive action', async () => {
+describe('RunList bulk actions (Lane B, B5 — floating selection popup, Round 2)', () => {
+  it('selecting a non-archived row shows the selection popup with an Archive action', async () => {
     renderList()
     await waitFor(() => expect(screen.getByText('active run')).toBeTruthy())
 
     fireEvent.click(screen.getByTestId(`run-select-${ACTIVE.id}`))
     expect(screen.getByTestId('run-bulk-bar')).toBeTruthy()
     expect(screen.getByTestId('run-bulk-archive').textContent).toContain('Archive')
+    // Archive-all only makes sense on the Active segment.
+    expect(screen.getByTestId('run-bulk-archive-all')).toBeTruthy()
 
     fireEvent.click(screen.getByTestId('run-bulk-archive'))
     await waitFor(() => expect(archiveCalls).toContain(ACTIVE.id))
@@ -136,23 +150,35 @@ describe('RunList bulk actions (Lane B, B5)', () => {
     await waitFor(() => expect(screen.queryByTestId('run-bulk-bar')).toBeNull())
   })
 
-  it('selecting only archived rows flips the bar to Unarchive', async () => {
+  it('selecting only archived rows flips the popup to Unarchive and hides Archive-all', async () => {
     renderList()
     await waitFor(() => expect(screen.getByText('active run')).toBeTruthy())
-    fireEvent.click(screen.getByTestId('run-show-archived'))
+    fireEvent.click(screen.getByTestId('seg-only'))
     await waitFor(() => expect(screen.getByText('archived run')).toBeTruthy())
 
     fireEvent.click(screen.getByTestId(`run-select-${ARCHIVED.id}`))
     expect(screen.getByTestId('run-bulk-archive').textContent).toContain('Unarchive')
+    expect(screen.queryByTestId('run-bulk-archive-all')).toBeNull()
 
     fireEvent.click(screen.getByTestId('run-bulk-archive'))
     await waitFor(() => expect(unarchiveCalls).toContain(ARCHIVED.id))
   })
 
+  it('"Archive all" archives every currently-listed active run, independent of checkbox selection', async () => {
+    renderList()
+    await waitFor(() => expect(screen.getByText('active run')).toBeTruthy())
+
+    // Select the row just to make the popup appear — Archive-all ignores the selection set.
+    fireEvent.click(screen.getByTestId(`run-select-${ACTIVE.id}`))
+    fireEvent.click(screen.getByTestId('run-bulk-archive-all'))
+
+    await waitFor(() => expect(archiveCalls).toContain(ACTIVE.id))
+  })
+
   it('Delete permanently opens a confirm dialog; confirming calls DELETE', async () => {
     renderList()
     await waitFor(() => expect(screen.getByText('active run')).toBeTruthy())
-    fireEvent.click(screen.getByTestId('run-show-archived'))
+    fireEvent.click(screen.getByTestId('seg-only'))
     await waitFor(() => expect(screen.getByText('archived run')).toBeTruthy())
 
     fireEvent.click(screen.getByTestId(`run-select-${ARCHIVED.id}`))

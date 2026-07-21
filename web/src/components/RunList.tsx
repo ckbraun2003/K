@@ -8,6 +8,7 @@ import { RUNS_LIST_KEY, RUNS_LIST_LIMIT, isActiveRun, isParkedRun } from '../lib
 import { cleanRunPrompt } from '../lib/prompt'
 import { runDuration } from '../lib/format-metrics'
 import ConfirmDialog from './ConfirmDialog'
+import SegControl from './SegControl'
 import { Checkbox } from '../ui/Field'
 import { Tag } from '../ui/Tag'
 import { StatusPill } from '../ui/StatusPill'
@@ -50,24 +51,25 @@ function formatTokens(n: number): string {
   return `${n} tok`
 }
 
-// A.3 (D-127): RunList's list is now KIND-scoped (chat turns hidden by default via
-// the server-side filter), so it owns a scoped query key — per the runs-query.ts
-// rule, a FILTERED list must never share the default RUNS_LIST_KEY cache entry.
-// Lane B (B5): the archived-visibility toggle is a second filter dimension on the
-// same scoped key (same rule applies — it's not the default-limit unfiltered list).
-const runListKey = (showChatTurns: boolean, showArchived: boolean) =>
-  ['runs', { limit: RUNS_LIST_LIMIT, showChatTurns, showArchived }] as const
+/** The two views of the Active|Archived segmented control — maps 1:1 to the server's `archived` query param. */
+type ArchivedSeg = 'exclude' | 'only'
+
+// A.3 (D-127): RunList's list is KIND-scoped (chat turns are hidden PERMANENTLY —
+// this is a runs console, not the Messages surface — via the server-side kind
+// filter), so it owns a scoped query key — per the runs-query.ts rule, a FILTERED
+// list must never share the default RUNS_LIST_KEY cache entry. Lane B (B5, then
+// Round 2): archived visibility is now a sub-segment (Active|Archived) rather than
+// an "include both" toggle — still a second filter dimension on the same scoped key.
+const runListKey = (archivedSeg: ArchivedSeg) =>
+  ['runs', { limit: RUNS_LIST_LIMIT, kind: 'job,pipeline-stage', archivedSeg }] as const
 
 export default function RunList({ selectedId, onSelect }: Props) {
   const qc = useQueryClient()
   const [filter, setFilter] = useState<FilterKey>('all')
-  // A.3 (D-127): chat-turn runs are conversation traffic (the Messages surface),
-  // hidden from the runs list by default via the server-side kind filter.
-  const [showChatTurns, setShowChatTurns] = useState(false)
-  // Lane B (B5): archived runs are hidden by default (server `archived=exclude`);
-  // toggling this asks the server for `archived=include` so both sets render
-  // together (archived rows get a muted "Archived" tag — see the row render below).
-  const [showArchived, setShowArchived] = useState(false)
+  // Lane B (B5, then Round 2): Active|Archived sub-segment — the server-side
+  // `archived` param. Archived rows carry a muted "Archived" tag (row render below)
+  // for the rare case a row transitions mid-view via the WS patch.
+  const [archivedSeg, setArchivedSeg] = useState<ArchivedSeg>('exclude')
   // Run pending kill-confirmation (null = no dialog).
   const [pendingKill, setPendingKill] = useState<Run | null>(null)
   const [killing, setKilling] = useState(false)
@@ -80,16 +82,15 @@ export default function RunList({ selectedId, onSelect }: Props) {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkError, setBulkError] = useState<string | null>(null)
 
-  // RunList's KIND-scoped list (chat turns excluded unless toggled). The key
-  // carries the toggle so each scope caches separately; the shared default-list
-  // entry (RUNS_LIST_KEY: ActiveRunsWidget + Sidebar) stays untouched per the
-  // runs-query.ts scoping rule.
+  // RunList's KIND-scoped, archived-segmented list. The key carries the segment so
+  // each scope caches separately; the shared default-list entry (RUNS_LIST_KEY:
+  // ActiveRunsWidget + Sidebar) stays untouched per the runs-query.ts scoping rule.
   const { data: runs = [], isLoading } = useQuery<RunRow[]>({
-    queryKey: runListKey(showChatTurns, showArchived),
+    queryKey: runListKey(archivedSeg),
     queryFn: () => api.runs.list({
       limit: RUNS_LIST_LIMIT,
-      kind: showChatTurns ? undefined : ['job', 'pipeline-stage'],
-      archived: showArchived ? 'include' : 'exclude',
+      kind: ['job', 'pipeline-stage'],
+      archived: archivedSeg,
     }),
     refetchInterval: 5_000,
   })
@@ -98,33 +99,38 @@ export default function RunList({ selectedId, onSelect }: Props) {
   // create a third cache entry and reach nobody):
   //  - the SHARED default-list entry, unchanged, so its consumers (Sidebar badge,
   //    ActiveRunsWidget) stay live exactly as before;
-  //  - THIS list's kind+archived-scoped entry — where a chat-turn update must not
-  //    INSERT while the toggle is off (the server excludes them; an already-listed
-  //    row still patches). The Shell-level ['runs'] prefix invalidation re-fetches
-  //    both on every run_update regardless, so a skipped insert can't go stale —
-  //    the same backstop covers the rare edge case of a run archived while parked
-  //    (awaiting_input) later changing status: the WS patch below preserves each
-  //    row's own `archived` flag (msg.run never carries one — that field is a
-  //    list-only annotation, see RunRow) rather than guessing at it.
+  //  - THIS list's kind+archived-scoped entry — a chat-turn update must never
+  //    INSERT (kind is now permanently excluded; an already-listed row still
+  //    patches, though a chat-turn row can never be in this list to begin with).
+  //    A run_update can't tell us its own archived state (msg.run never carries
+  //    one — a list-only annotation, see RunRow), so an update for a run NOT
+  //    already in this segment's cache is left alone rather than guessed at —
+  //    the Shell-level ['runs'] prefix invalidation (which re-fetches both keys
+  //    on every run_update) is the backstop that catches a genuinely new row or
+  //    a segment-crossing archive/unarchive. The patch below preserves each
+  //    existing row's own `archived` flag when updating it in place.
   useEffect(() => {
     return onWsMessage((msg: WsMessage) => {
       if (msg.type === 'run_update') {
-        const patch = (old?: RunRow[]): RunRow[] | undefined => {
+        qc.setQueryData<Run[]>(RUNS_LIST_KEY, (old) => {
           if (!old) return [msg.run]
           const idx = old.findIndex(r => r.id === msg.run.id)
           if (idx === -1) return [msg.run, ...old]
           const next = [...old]
+          next[idx] = msg.run
+          return next
+        })
+        qc.setQueryData<RunRow[]>(runListKey(archivedSeg), (old) => {
+          if (!old) return old
+          const idx = old.findIndex(r => r.id === msg.run.id)
+          if (idx === -1 || msg.run.kind === 'chat-turn') return old
+          const next = [...old]
           next[idx] = { ...msg.run, archived: old[idx].archived }
           return next
-        }
-        qc.setQueryData<Run[]>(RUNS_LIST_KEY, patch)
-        qc.setQueryData<RunRow[]>(runListKey(showChatTurns, showArchived), old => {
-          if (!showChatTurns && msg.run.kind === 'chat-turn' && !old?.some(r => r.id === msg.run.id)) return old
-          return patch(old)
         })
       }
     })
-  }, [qc, showChatTurns, showArchived])
+  }, [qc, archivedSeg])
 
   const filteredRuns = runs.filter(r => matchesFilter(r, filter))
 
@@ -178,6 +184,23 @@ export default function RunList({ selectedId, onSelect }: Props) {
     refreshLists()
   }
 
+  // Round 2 (Lane B): a convenience action independent of the checkbox selection —
+  // archives every run CURRENTLY LISTED on the Active segment (the filtered set the
+  // operator is looking at), not just the checked rows. Only meaningful from the
+  // Active segment (archived rows have nothing left to archive) — the caller gates
+  // on `archivedSeg === 'exclude'` before rendering the button.
+  async function runArchiveAllActive() {
+    setBulkBusy(true)
+    setBulkError(null)
+    const ids = filteredRuns.filter(r => !r.archived).map(r => r.id)
+    const results = await Promise.allSettled(ids.map(id => api.runs.archive(id)))
+    const failed = results.filter(r => r.status === 'rejected').length
+    if (failed > 0) setBulkError(`${failed} of ${ids.length} run(s) could not be archived.`)
+    setSelectedIds(new Set())
+    setBulkBusy(false)
+    refreshLists()
+  }
+
   async function confirmBulkDelete() {
     setBulkBusy(true)
     setBulkError(null)
@@ -205,10 +228,10 @@ export default function RunList({ selectedId, onSelect }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="relative flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border">
-        <h2 className="micro-label mb-2">Runs</h2>
+      <div className="px-4 py-3 border-b border-border space-y-2">
+        <h2 className="micro-label">Runs</h2>
         {/* Filter chips */}
         <div className="flex items-center gap-1 flex-wrap">
           {FILTERS.map(f => {
@@ -229,72 +252,30 @@ export default function RunList({ selectedId, onSelect }: Props) {
               </button>
             )
           })}
-          {/* A.3 (D-127): opt chat-turn (conversation) runs back into the list. */}
-          <label className="ml-auto flex items-center gap-1 text-label text-muted cursor-pointer">
-            <Checkbox
-              checked={showChatTurns}
-              onChange={e => setShowChatTurns(e.target.checked)}
-              data-testid="run-show-chat-turns"
-            />
-            Show chat turns
-          </label>
-          {/* Lane B (B5): archived runs are hidden by default. */}
-          <label className="flex items-center gap-1 text-label text-muted cursor-pointer">
-            <Checkbox
-              checked={showArchived}
-              onChange={e => setShowArchived(e.target.checked)}
-              data-testid="run-show-archived"
-            />
-            Show archived
-          </label>
           <button
             type="button"
             data-testid="run-clear-finished"
             onClick={runClearFinished}
             disabled={bulkBusy}
-            className="text-label text-muted hover:text-text disabled:opacity-50 focus-visible:glow-focus rounded-control"
+            className="ml-auto text-label text-muted hover:text-text disabled:opacity-50 focus-visible:glow-focus rounded-control"
           >
             Clear finished
           </button>
         </div>
+        {/* Lane B (B5, then Round 2): Active|Archived — replaces the old "Show
+            archived" checkbox with a proper sub-segment. Chat-turn runs (the
+            Messages surface's traffic) are now permanently excluded — the old
+            "Show chat turns" escape hatch is gone. */}
+        <SegControl<ArchivedSeg>
+          ariaLabel="Run archive view"
+          options={[
+            { label: 'Active', value: 'exclude' },
+            { label: 'Archived', value: 'only' },
+          ]}
+          value={archivedSeg}
+          onChange={setArchivedSeg}
+        />
       </div>
-
-      {/* Lane B (B5): bulk-action bar, visible once at least one run is selected. */}
-      {selectedIds.size > 0 && (
-        <div data-testid="run-bulk-bar" className="flex items-center gap-2 px-4 py-2 border-b border-border bg-[var(--glass-panel-bg)]">
-          <span className="text-label text-muted mono tabular-nums">{selectedIds.size} selected</span>
-          <Button
-            size="sm"
-            variant="glass"
-            data-testid="run-bulk-archive"
-            disabled={bulkBusy}
-            onClick={runBulkArchiveToggle}
-          >
-            {allSelectedArchived ? 'Unarchive' : 'Archive'}
-          </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            data-testid="run-bulk-delete"
-            disabled={bulkBusy}
-            onClick={() => setPendingBulkDelete(true)}
-          >
-            Delete permanently
-          </Button>
-          <button
-            type="button"
-            className="ml-auto text-label text-muted hover:text-text focus-visible:glow-focus rounded-control"
-            onClick={() => setSelectedIds(new Set())}
-          >
-            Clear selection
-          </button>
-        </div>
-      )}
-      {bulkError && (
-        <p data-testid="run-bulk-error" className="px-4 py-1.5 text-label text-red border-b border-border">
-          {bulkError}
-        </p>
-      )}
 
       {/* Run list */}
       <div className="flex-1 overflow-y-auto">
@@ -369,6 +350,66 @@ export default function RunList({ selectedId, onSelect }: Props) {
         </p>
       </div>
 
+      {/* Round 2 (Lane B): selection popup — floats over the list, pinned to the
+          aside, instead of docking a bar in the header. `.glass-overlay` (the real-
+          frost tier) so it reads as a floating control distinct from the opaque
+          list beneath it. Requires the root `relative` above. */}
+      {selectedIds.size > 0 && (
+        <div
+          data-testid="run-bulk-bar"
+          className="glass-overlay rounded-panel absolute bottom-3 left-3 right-3 z-10 space-y-2 p-3 shadow-lg"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-label text-muted mono tabular-nums">{selectedIds.size} selected</span>
+            <button
+              type="button"
+              className="ml-auto text-label text-muted hover:text-text focus-visible:glow-focus rounded-control"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear selection
+            </button>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              size="sm"
+              variant="glass"
+              data-testid="run-bulk-archive"
+              disabled={bulkBusy}
+              onClick={runBulkArchiveToggle}
+            >
+              {allSelectedArchived ? 'Unarchive' : 'Archive'}
+            </Button>
+            {/* Archives every LISTED active run (not just the checked ones) — a
+                convenience action, only meaningful from the Active segment. */}
+            {archivedSeg === 'exclude' && (
+              <Button
+                size="sm"
+                variant="glass"
+                data-testid="run-bulk-archive-all"
+                disabled={bulkBusy}
+                onClick={runArchiveAllActive}
+              >
+                Archive all
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="danger"
+              data-testid="run-bulk-delete"
+              disabled={bulkBusy}
+              onClick={() => setPendingBulkDelete(true)}
+            >
+              Delete permanently
+            </Button>
+          </div>
+          {bulkError && (
+            <p data-testid="run-bulk-error" className="text-label text-red">
+              {bulkError}
+            </p>
+          )}
+        </div>
+      )}
+
       <ConfirmDialog
         open={pendingKill !== null}
         title="Kill run?"
@@ -393,9 +434,9 @@ export default function RunList({ selectedId, onSelect }: Props) {
         error={bulkError ?? undefined}
         message={
           <>
-            Permanently deleting <span className="font-medium text-text">{selectedIds.size}</span> run(s)
-            removes their events, review comments, and plan — this cannot be undone. Only archived,
-            non-running runs can be deleted; any others in the selection are skipped.
+            This will permanently delete <span className="font-medium text-text">{selectedIds.size}</span> run(s)
+            — their events, review comments, and plan. This cannot be undone. Only archived,
+            non-running runs are deleted; any others in the selection are skipped.
           </>
         }
         confirmLabel="Delete permanently"

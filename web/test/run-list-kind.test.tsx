@@ -1,14 +1,15 @@
 /**
- * RunList chat-turn visibility (A.3, D-127): the default runs list EXCLUDES
- * chat-turn runs via the server-side kind filter (kind=job,pipeline-stage);
- * the "Show chat turns" toggle refetches WITHOUT the param (all kinds).
+ * RunList chat-turn visibility (A.3, D-127; Round 2 Lane B: the "Show chat turns"
+ * escape hatch is now GONE — chat turns are PERMANENTLY excluded, this is a runs
+ * console, not the Messages surface). The list always fetches with the server-side
+ * kind filter (kind=job,pipeline-stage); there is no UI path back to unfiltered.
  *
  * Stubs global fetch (REAL api module, unlike run-list-filter's api mock) so the
  * assertions cover the actual query string the server receives — including the
  * comma-join api.runs.list builds from the kind array.
  */
 import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 vi.mock('../src/lib/ws', () => ({ onWsMessage: () => () => {} }))
@@ -49,8 +50,8 @@ function runUrls(): string[] {
     .filter(u => u.includes('/api/runs'))
 }
 
-describe('RunList hides chat turns by default (A.3, D-127)', () => {
-  it('the default fetch passes kind=job,pipeline-stage', async () => {
+describe('RunList permanently hides chat turns (A.3, D-127; Round 2 Lane B)', () => {
+  it('the fetch always passes kind=job,pipeline-stage', async () => {
     renderList()
     await waitFor(() => expect(runUrls().length).toBeGreaterThan(0))
     const url = runUrls().at(-1)!
@@ -58,17 +59,19 @@ describe('RunList hides chat turns by default (A.3, D-127)', () => {
     expect(url).toContain('limit=100')
   })
 
-  it('toggling "Show chat turns" refetches WITHOUT the kind param', async () => {
+  it('switching the Active|Archived segment keeps the kind filter — no way to opt back into chat turns', async () => {
     renderList()
     await waitFor(() => expect(runUrls().length).toBeGreaterThan(0))
 
-    fireEvent.click(screen.getByTestId('run-show-chat-turns'))
+    fireEvent.click(screen.getByTestId('seg-only'))
 
-    await waitFor(() => {
-      const url = runUrls().at(-1)!
-      expect(url).not.toContain('kind=')
-    })
-    // Still the shared default limit — only the kind scope changed.
-    expect(runUrls().at(-1)!).toContain('limit=100')
+    await waitFor(() => expect(runUrls().at(-1)).toContain('archived=only'))
+    expect(runUrls().at(-1)).toContain('kind=job,pipeline-stage')
+  })
+
+  it('the "Show chat turns" toggle no longer exists', async () => {
+    renderList()
+    await waitFor(() => expect(runUrls().length).toBeGreaterThan(0))
+    expect(screen.queryByTestId('run-show-chat-turns')).toBeNull()
   })
 })
