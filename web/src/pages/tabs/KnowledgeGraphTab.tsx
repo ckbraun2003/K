@@ -218,6 +218,19 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
   // cancel — never mid-drag — or after a wheel tick, so a sustained drag isn't
   // fought mid-orbit) and while the node inspector is open; never starts at all
   // under prefers-reduced-motion.
+  //
+  // Soft-crash fix (ui-adjustments Lane D): this effect MUST depend on mountGen —
+  // a GraphErrorBoundary remount tears down the ForceGraph3D instance (graphRef
+  // goes null, then points at a fresh instance), and without re-arming here the
+  // stale loop from before the remount keeps calling camera methods against a
+  // torn-down/null instance. requestAnimationFrame callbacks run OUTSIDE React's
+  // render/commit cycle, so a throw inside tick() can NEVER be caught by
+  // GraphErrorBoundary (error boundaries don't catch errors from async callbacks)
+  // — it would otherwise escape straight past the boundary and blank the panel.
+  // tick() therefore also null-guards the ref/camera AND wraps its body in
+  // try/catch, cancelling the loop on any throw rather than risking a
+  // loop-forever throw storm. NEVER call d3ReheatSimulation here (see
+  // configureGraphForces' docblock — it crashes the 3D engine pre-digest).
   const selectedRef = useRef<GraphNode | null>(null)
   useEffect(() => {
     selectedRef.current = selected
@@ -237,24 +250,37 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
 
     const tick = (ts: number) => {
       rafId = requestAnimationFrame(tick)
-      if (paused || selectedRef.current) {
-        lastTs = null
-        return
-      }
-      if (lastTs == null) {
+      try {
+        if (paused || selectedRef.current) {
+          lastTs = null
+          return
+        }
+        if (lastTs == null) {
+          lastTs = ts
+          return
+        }
+        const dt = (ts - lastTs) / 1000
         lastTs = ts
-        return
+        const fg = graphRef.current
+        const cam = fg?.camera?.()
+        // Bail on a torn-down/null instance (e.g. mid GraphErrorBoundary remount) —
+        // this frame simply does nothing rather than touching a disposed engine.
+        if (!fg || !cam) return
+        const { x, y, z } = cam.position
+        const radius = Math.hypot(x, z)
+        if (radius < 1e-3) return // degenerate: camera sitting on the vertical axis
+        const angle = Math.atan2(x, z) + ANGULAR_SPEED * dt
+        fg.cameraPosition({ x: radius * Math.sin(angle), y, z: radius * Math.cos(angle) }, undefined, 0)
+      } catch (err) {
+        // A torn-down/disposed graph instance can throw here instead of just
+        // returning a falsy camera — and because this runs outside React's
+        // render/commit cycle, GraphErrorBoundary can never catch it. Cancel the
+        // frame this tick just rescheduled (rafId was reassigned above) so a
+        // transient failure stops the loop instead of throwing every frame
+        // forever; the effect re-arms a fresh loop on the next mountGen bump.
+        console.error('KnowledgeGraphTab: auto-rotate tick failed — cancelling the loop', err)
+        cancelAnimationFrame(rafId)
       }
-      const dt = (ts - lastTs) / 1000
-      lastTs = ts
-      const fg = graphRef.current
-      const cam = fg?.camera?.()
-      if (!cam) return
-      const { x, y, z } = cam.position
-      const radius = Math.hypot(x, z)
-      if (radius < 1e-3) return // degenerate: camera sitting on the vertical axis
-      const angle = Math.atan2(x, z) + ANGULAR_SPEED * dt
-      fg.cameraPosition({ x: radius * Math.sin(angle), y, z: radius * Math.cos(angle) }, undefined, 0)
     }
     rafId = requestAnimationFrame(tick)
 
@@ -295,7 +321,9 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
       window.removeEventListener('pointercancel', onPointerUp)
       el.removeEventListener('wheel', onWheel)
     }
-  }, [graph.nodes.length])
+    // mountGen: re-arms this loop on a GraphErrorBoundary remount — see the
+    // soft-crash-fix note above the effect for why this dep is load-bearing.
+  }, [graph.nodes.length, mountGen])
 
   const colorFn = useCallback((node: object) => nodeColor(node as GraphNode, filter), [filter])
 

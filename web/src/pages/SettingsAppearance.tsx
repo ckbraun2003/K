@@ -18,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BackgroundKind, GradientPreset } from '@k/shared'
 import { api } from '../lib/api'
 import { useBackgroundImageUrl } from '../lib/useBackgroundImageUrl'
+import { readToken } from '../lib/tokens'
 import { GlassPanel } from '../ui/GlassPanel'
 import { SectionHeader } from '../ui/SectionHeader'
 import { Select } from '../ui/Field'
@@ -50,6 +51,17 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
+/** Decode an image data URL just far enough to read its natural pixel size —
+ *  used only for the advisory too-small warning below, never to block upload. */
+function probeImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+    img.onerror = () => reject(new Error('Could not read that image.'))
+    img.src = dataUrl
+  })
+}
+
 export function BackgroundSection() {
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({
@@ -58,6 +70,7 @@ export function BackgroundSection() {
   })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [fileError, setFileError] = useState<string | null>(null)
+  const [sizeWarning, setSizeWarning] = useState<string | null>(null)
 
   const setMutation = useMutation({
     mutationFn: (patch: { kind: BackgroundKind; preset: GradientPreset | null }) =>
@@ -98,9 +111,24 @@ export function BackgroundSection() {
     e.target.value = '' // allow re-selecting the same file later
     if (!file) return
     setFileError(null)
+    setSizeWarning(null)
     try {
       const dataUrl = await readFileAsDataUrl(file)
-      uploadMutation.mutate(dataUrl)
+      uploadMutation.mutate(dataUrl) // never blocked by the dimension probe below
+      try {
+        const { width, height } = await probeImageDimensions(dataUrl)
+        const dpr = window.devicePixelRatio || 1
+        const screenW = Math.round(window.innerWidth * dpr)
+        const screenH = Math.round(window.innerHeight * dpr)
+        if (width < screenW || height < screenH) {
+          setSizeWarning(
+            `This image (${width}×${height}) is smaller than your screen (${screenW}×${screenH}) ` +
+            'and may look soft when stretched to fill.',
+          )
+        }
+      } catch {
+        // Advisory only — a failed probe (e.g. an unsupported format) never blocks upload.
+      }
     } catch (err) {
       setFileError(err instanceof Error ? err.message : 'Could not read that file.')
     }
@@ -180,7 +208,7 @@ export function BackgroundSection() {
                 disabled={saving}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {hasImage ? 'Replace image…' : 'Upload image…'}
+                {hasImage ? 'Set background' : 'Upload image…'}
               </Button>
               <input
                 ref={fileInputRef}
@@ -191,6 +219,13 @@ export function BackgroundSection() {
                 onChange={onFileChange}
               />
             </div>
+            {sizeWarning && (
+              <p data-testid="background-size-warning" className="text-caption text-amber">
+                {sizeWarning}
+              </p>
+            )}
+
+            <FontColorPicker />
           </div>
         </div>
       )}
@@ -198,5 +233,61 @@ export function BackgroundSection() {
         <p className="mt-2 text-caption text-red">{errorMessage}</p>
       )}
     </GlassPanel>
+  )
+}
+
+/**
+ * Font-colour override (ui-adjustments Round 2) — the operator's body-text
+ * colour when the default pale graphite-blue clashes with a custom
+ * wallpaper. Mirrors the BackgroundSection query/mutation pattern; rendered
+ * beside the wallpaper controls above. GET/PUT /api/settings/font-color
+ * (app_config-backed, `Background.tsx` applies the value to `--text` at
+ * runtime — see its docblock).
+ */
+function FontColorPicker() {
+  const qc = useQueryClient()
+  const { data } = useQuery({
+    queryKey: ['fontColor'],
+    queryFn: () => api.settings.fontColor.get(),
+  })
+  const color = data?.settings.color ?? null
+  // The native color input always needs a valid hex to show as its swatch —
+  // when there's no override yet, fall back to the current --text token's
+  // resolved value (never a hardcoded hex; see readToken/TOKEN_FALLBACKS).
+  const swatchValue = color ?? readToken('--text')
+
+  const mutation = useMutation({
+    mutationFn: (patch: { color: string | null }) => api.settings.fontColor.set(patch),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['fontColor'] })
+    },
+  })
+
+  return (
+    <div className="flex items-center gap-3">
+      <label htmlFor="font-color-input" className="text-label text-muted">
+        Text color
+      </label>
+      <input
+        id="font-color-input"
+        type="color"
+        aria-label="Text color"
+        data-testid="font-color-input"
+        value={swatchValue}
+        disabled={mutation.isPending}
+        onChange={e => mutation.mutate({ color: e.target.value })}
+        className="h-8 w-12 cursor-pointer rounded-control border border-border bg-transparent p-0.5"
+      />
+      <Button
+        variant="glass"
+        size="sm"
+        type="button"
+        disabled={mutation.isPending || color === null}
+        onClick={() => mutation.mutate({ color: null })}
+      >
+        Reset to default
+      </Button>
+      {mutation.isPending && <span className="text-caption text-muted">saving…</span>}
+    </div>
   )
 }

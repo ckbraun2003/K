@@ -18,7 +18,14 @@
  * query is loading (`settings` undefined), the root degrades to `solid` —
  * same visual either way — so nothing flashes in/out once the real
  * preference resolves.
+ *
+ * Also applies the operator's font-colour override (ui-adjustments Round 2,
+ * GET /api/settings/font-color): writes `--text` on the document root when a
+ * hex is set, or removes the inline override (falling back to the theme
+ * default) when `color` is null. Folded in here rather than a separate
+ * component since this is the one place already mounted once at Shell z-0.
  */
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useBackgroundImageUrl } from '../lib/useBackgroundImageUrl'
@@ -28,9 +35,22 @@ export default function Background() {
     queryKey: ['background'],
     queryFn: () => api.settings.background.get(),
   })
+  const { data: fontColorData } = useQuery({
+    queryKey: ['fontColor'],
+    queryFn: () => api.settings.fontColor.get(),
+  })
   const settings = data?.settings
   const kind = settings?.kind ?? 'solid'
   const imageUrl = useBackgroundImageUrl(kind, settings?.imageVersion ?? null)
+
+  useEffect(() => {
+    const color = fontColorData?.settings.color
+    if (color) {
+      document.documentElement.style.setProperty('--text', color)
+    } else {
+      document.documentElement.style.removeProperty('--text')
+    }
+  }, [fontColorData?.settings.color])
 
   if (kind === 'image' && imageUrl) {
     return (

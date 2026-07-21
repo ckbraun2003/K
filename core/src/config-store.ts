@@ -14,6 +14,7 @@ import {
   HomeLayoutSchema, type HomeLayout,
   AutonomySettingsSchema, DEFAULT_AUTONOMY_SETTINGS, type AutonomySettings, type AutonomyPatchBody,
   BackgroundSettingsSchema, DEFAULT_BACKGROUND_SETTINGS, type BackgroundSettings,
+  FontColorSettingsSchema, DEFAULT_FONT_COLOR_SETTINGS, type FontColorSettings,
 } from '@k/shared'
 import { configDb, DATA_DIR } from './db.js'
 import fs from 'fs'
@@ -224,6 +225,34 @@ export function backgroundSettings(): BackgroundSettings {
  *  boundary (PUT /api/settings/background) — this store write does not gate it. */
 export function setBackgroundSettings(s: BackgroundSettings): void {
   configDb.set(BG_KEY, JSON.stringify(s))
+}
+
+// ── Font-colour override (ui-adjustments Round 2) ────────────────────────────
+// Lets the operator retune the body text colour when a custom wallpaper clashes
+// with the default pale graphite-blue (--text). app_config-backed, NO schema
+// bump — mirrors the BackgroundSettings storage pattern exactly (one JSON blob,
+// absent/corrupt → default).
+
+const FC_KEY = 'ui.fontColor'
+
+/** Read the operator's font-colour override. Absent → DEFAULT_FONT_COLOR_SETTINGS
+ *  (`{ color: null }` — no override, theme default applies). Corrupt/unparseable
+ *  JSON or a value failing schema validation also falls back to the default. */
+export function fontColorSettings(): FontColorSettings {
+  const raw = configDb.get(FC_KEY)
+  if (!raw) return DEFAULT_FONT_COLOR_SETTINGS
+  try {
+    const parsed = FontColorSettingsSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : DEFAULT_FONT_COLOR_SETTINGS
+  } catch {
+    return DEFAULT_FONT_COLOR_SETTINGS
+  }
+}
+
+/** Persist the font-colour override. Callers MUST validate `s` at the route
+ *  boundary (PUT /api/settings/font-color) — this store write does not gate it. */
+export function setFontColorSettings(s: FontColorSettings): void {
+  configDb.set(FC_KEY, JSON.stringify(s))
 }
 
 // ── Wallpaper file storage ───────────────────────────────────────────────────

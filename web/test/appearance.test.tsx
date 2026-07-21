@@ -26,6 +26,13 @@ const uploadImageSpy = vi.fn(async (_dataUrl: string) => {
 })
 const imageBlobSpy = vi.fn(async (_version: number) => new Blob(['fake-bytes'], { type: 'image/png' }))
 
+let currentFontColor: { color: string | null } = { color: null }
+const fontColorGetSpy = vi.fn(async () => ({ settings: currentFontColor }))
+const fontColorSetSpy = vi.fn(async (patch: { color: string | null }) => {
+  currentFontColor = { ...patch }
+  return { settings: currentFontColor }
+})
+
 vi.mock('../src/lib/api', () => ({
   api: {
     settings: {
@@ -34,6 +41,10 @@ vi.mock('../src/lib/api', () => ({
         set: (patch: { kind: BackgroundKind; preset: GradientPreset | null }) => setSpy(patch),
         uploadImage: (dataUrl: string) => uploadImageSpy(dataUrl),
         imageBlob: (version: number) => imageBlobSpy(version),
+      },
+      fontColor: {
+        get: () => fontColorGetSpy(),
+        set: (patch: { color: string | null }) => fontColorSetSpy(patch),
       },
     },
   },
@@ -53,6 +64,22 @@ class MockFileReader {
   }
 }
 
+// Deterministic Image stand-in for the too-small-dimensions probe — defaults
+// to a size larger than the stubbed viewport below so existing upload tests
+// (which don't care about the warning) never trigger it.
+let mockImageNaturalSize = { width: 4000, height: 3000 }
+class MockImage {
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  naturalWidth = 0
+  naturalHeight = 0
+  set src(_v: string) {
+    this.naturalWidth = mockImageNaturalSize.width
+    this.naturalHeight = mockImageNaturalSize.height
+    queueMicrotask(() => this.onload?.())
+  }
+}
+
 function renderWithQuery(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
@@ -60,13 +87,21 @@ function renderWithQuery(ui: React.ReactElement) {
 
 beforeEach(() => {
   current = { kind: 'solid', preset: null, imageVersion: null }
+  currentFontColor = { color: null }
+  mockImageNaturalSize = { width: 4000, height: 3000 }
   getSpy.mockClear()
   setSpy.mockClear()
   uploadImageSpy.mockClear()
   imageBlobSpy.mockClear()
+  fontColorGetSpy.mockClear()
+  fontColorSetSpy.mockClear()
   URL.createObjectURL = vi.fn(() => 'blob:mock-object-url')
   URL.revokeObjectURL = vi.fn()
   vi.stubGlobal('FileReader', MockFileReader)
+  vi.stubGlobal('Image', MockImage)
+  vi.stubGlobal('innerWidth', 1000)
+  vi.stubGlobal('innerHeight', 800)
+  vi.stubGlobal('devicePixelRatio', 1)
 })
 afterEach(() => {
   cleanup()
@@ -137,5 +172,61 @@ describe('BackgroundSection (wallpaper picker)', () => {
     await screen.findByTestId('background-kind-select')
     const imageOption = screen.getByRole('option', { name: 'Image' }) as HTMLOptionElement
     expect(imageOption.disabled).toBe(false)
+  })
+
+  it('uploading an image smaller than the (dpr-scaled) screen shows a non-blocking warning', async () => {
+    mockImageNaturalSize = { width: 400, height: 300 } // viewport stubbed to 1000x800 above
+    renderWithQuery(<BackgroundSection />)
+    const fileInput = await screen.findByTestId('background-image-input') as HTMLInputElement
+    const file = new File(['fake-bytes'], 'wallpaper.png', { type: 'image/png' })
+    fireEvent.change(fileInput, { target: { files: [file] } })
+
+    // Upload proceeds regardless of the probe outcome — never blocked.
+    await waitFor(() => expect(uploadImageSpy).toHaveBeenCalled())
+    await waitFor(() => {
+      expect(screen.getByTestId('background-size-warning').textContent).toContain('400×300')
+    })
+    expect(screen.getByTestId('background-size-warning').textContent).toContain('1000×800')
+  })
+
+  it('uploading an image at least as large as the screen shows no warning', async () => {
+    mockImageNaturalSize = { width: 4000, height: 3000 }
+    renderWithQuery(<BackgroundSection />)
+    const fileInput = await screen.findByTestId('background-image-input') as HTMLInputElement
+    const file = new File(['fake-bytes'], 'wallpaper.png', { type: 'image/png' })
+    fireEvent.change(fileInput, { target: { files: [file] } })
+
+    await waitFor(() => expect(uploadImageSpy).toHaveBeenCalled())
+    expect(screen.queryByTestId('background-size-warning')).toBeNull()
+  })
+})
+
+describe('FontColorPicker (text-colour override)', () => {
+  it('shows the theme-default swatch and a disabled Reset button when no override is set', async () => {
+    renderWithQuery(<BackgroundSection />)
+    const input = await screen.findByTestId('font-color-input') as HTMLInputElement
+    await waitFor(() => expect(fontColorGetSpy).toHaveBeenCalled())
+    expect(input.value).toMatch(/^#[0-9a-f]{6}$/)
+    expect((screen.getByText('Reset to default').closest('button') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('changing the color input calls fontColor.set() and invalidates the query (refetch reflects it)', async () => {
+    renderWithQuery(<BackgroundSection />)
+    const input = await screen.findByTestId('font-color-input') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '#ff00aa' } })
+
+    await waitFor(() => expect(fontColorSetSpy).toHaveBeenCalledWith({ color: '#ff00aa' }))
+    await waitFor(() => expect((screen.getByTestId('font-color-input') as HTMLInputElement).value).toBe('#ff00aa'))
+    expect((screen.getByText('Reset to default').closest('button') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('"Reset to default" calls fontColor.set({ color: null })', async () => {
+    currentFontColor = { color: '#123456' }
+    renderWithQuery(<BackgroundSection />)
+    const resetButton = await screen.findByText('Reset to default')
+    await waitFor(() => expect((screen.getByTestId('font-color-input') as HTMLInputElement).value).toBe('#123456'))
+    fireEvent.click(resetButton)
+
+    await waitFor(() => expect(fontColorSetSpy).toHaveBeenCalledWith({ color: null }))
   })
 })
