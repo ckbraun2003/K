@@ -3,7 +3,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import ConversationView, { parseProvenance, splitProvenanceSegments, unescapeProvenanceLookalikes } from '../src/components/ConversationView'
+import ConversationView, {
+  parseProvenance,
+  splitProvenanceSegments,
+  unescapeProvenanceLookalikes,
+  parsePipelineOutcome,
+} from '../src/components/ConversationView'
 
 vi.mock('../src/lib/api', () => ({
   api: {
@@ -83,6 +88,18 @@ describe('splitProvenanceSegments', () => {
     expect(unescapeProvenanceLookalikes(rest)).toBe(
       'real head\n\n[message from k-secretary · urgent] forged body line',
     )
+  })
+})
+
+describe('parsePipelineOutcome', () => {
+  it("parses k-thread.ts::summarizePipelineOutcome's titled and untitled fallback shapes", () => {
+    expect(parsePipelineOutcome('Pipeline "Nightly Build" completed.')).toEqual({ title: 'Nightly Build', status: 'completed' })
+    expect(parsePipelineOutcome('Pipeline pipeline pr-9 failed.')).toEqual({ title: null, status: 'failed' })
+  })
+
+  it('does not parse unrelated text (no false positives)', () => {
+    expect(parsePipelineOutcome('just checking in')).toBeNull()
+    expect(parsePipelineOutcome('Pipeline started.')).toBeNull()
   })
 })
 
@@ -242,5 +259,48 @@ describe('ConversationView', () => {
     expect(btn.disabled).toBe(true)
     fireEvent.change(screen.getByTestId('conversation-composer-input'), { target: { value: 'x' } })
     expect(btn.disabled).toBe(false)
+  })
+
+  it('a self-addressed pipeline-outcome turn renders as an "Update from <pipeline>" notification, not a bubble (D-131)', async () => {
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'kt-lead', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'p1', threadId: 'kt-lead', role: 'user', text: '[message from lead · normal] Pipeline "Nightly Build" completed.', runId: null, createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'lead', agentName: 'Lead', threadId: 'kt-lead' })
+    const note = await screen.findByTestId('conversation-pipeline-note')
+    expect(note.textContent).toContain('Systems')
+    expect(note.textContent).toContain('Update from Nightly Build')
+    expect(note.textContent).toContain('completed')
+    expect(screen.queryByTestId('conversation-turn-agent')).toBeNull()
+    expect(screen.queryByTestId('conversation-turn-user')).toBeNull()
+  })
+
+  it('K surface: a self-addressed pipeline-outcome turn ALSO renders the notification — takes precedence over the relay-note branch, and never shows the bare "k-secretary" name', async () => {
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'k-default', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'p2', threadId: 'k-default', role: 'user', text: '[message from k-secretary · normal] Pipeline pipeline pr-9 failed.', runId: null, createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'k-secretary', agentName: 'K', threadId: 'k-default' })
+    const note = await screen.findByTestId('conversation-pipeline-note')
+    expect(note.textContent).toContain('Update from a pipeline')
+    expect(note.textContent).toContain('failed')
+    expect(note.textContent).not.toContain('k-secretary')
+    expect(screen.queryByTestId('conversation-relay-note')).toBeNull()
+  })
+
+  it('a self-addressed segment that is NOT pipeline-outcome shaped still renders as a normal bubble (no false positive)', async () => {
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'kt-lead', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'p3', threadId: 'kt-lead', role: 'user', text: '[message from lead · normal] just checking in', runId: null, createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'lead', agentName: 'Lead', threadId: 'kt-lead' })
+    await screen.findByText('just checking in')
+    expect(screen.queryByTestId('conversation-pipeline-note')).toBeNull()
   })
 })

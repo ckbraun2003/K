@@ -23,6 +23,7 @@ import { startRun, sendInput, kill, __testHooks } from '../src/supervisor.js'
 import { createProfile, getProfile } from '../src/profiles.js'
 import { mgmtTools } from '../src/mcp/mgmt.js'
 import { maybeFinalizePipeline } from '../src/pipeline-engine.js'
+import { getOrCreateConversation } from '../src/agent-sessions.js'
 
 // startRun mocked to avoid spawning a real agent, but it MUST insert a real runs
 // row (the K thread + agent_runs rows FK → runs(id)) and it mirrors the real
@@ -413,6 +414,37 @@ describe('askK — rides the session engine (A.4)', () => {
     expect(third.warm).toBe(true)
     const row = db.prepare('SELECT updated_at FROM k_threads WHERE id = ?').get(first.kThreadId) as Row
     expect(Number(row.updated_at)).toBeGreaterThan(1)
+  })
+})
+
+// ── resolveAskThread — ownership guard (defense-in-depth) ──────────────────────
+
+describe('askK — resolveAskThread ownership guard', () => {
+  it('an explicit threadId owned by ANOTHER profile 404s exactly like an unknown one — no turn appended', async () => {
+    const foreign = getOrCreateConversation('chief')
+    await expect(askK('hello', { threadId: foreign.id })).rejects.toThrow(/not found/i)
+    // Rejected BEFORE any write — the foreign thread stays untouched.
+    expect(listKThreadTurns(foreign.id)).toHaveLength(0)
+  })
+
+  it('a K-owned explicit threadId still resolves normally (no regression)', async () => {
+    const first = await askK('first message')
+    const second = await askK('second message', { threadId: first.kThreadId })
+    expect(second.kThreadId).toBe(first.kThreadId)
+    expect(listKThreadTurns(first.kThreadId).filter(t => t.role === 'user')).toHaveLength(2)
+  })
+
+  it('an ask with NO threadId never adopts another profile\'s more-recent thread — the fallback stays k-secretary-scoped', async () => {
+    // Establish a K thread, THEN make a foreign profile's conversation the
+    // most-recently-updated row in k_threads (getOrCreateConversation inserts at now).
+    const kThread = await askK('k first')
+    const foreign = getOrCreateConversation('chief')
+    // A fresh unscoped ask must resolve a K-OWNED thread, not chief's most-recent one.
+    const next = await askK('k second, no explicit thread')
+    expect(next.kThreadId).not.toBe(foreign.id)
+    expect(next.kThreadId).toBe(kThread.kThreadId)
+    const owner = db.prepare('SELECT profile_id FROM k_threads WHERE id = ?').get(next.kThreadId) as { profile_id: string }
+    expect(owner.profile_id).toBe('k-secretary')
   })
 })
 
@@ -1064,7 +1096,7 @@ describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a 
     return kRunId
   }
 
-  it('queues ONE message from the pipeline OWNER profile (provenance NULL) on terminal', async () => {
+  it('a real orchestrator OWNER gets the update in ITS OWN conversation, never k-secretary\'s (D-131 fix)', async () => {
     // A real K→Chief delegation links the delegating run to the K thread.
     const { runId: kRunId } = await askK('fix the failing pipeline suite')
     const stop = continuePipelineOutcomeToK()
@@ -1073,23 +1105,29 @@ describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a 
       const pid = seedTerminalPipeline({ owner: 'ca-b-lead-prof', kRunId })
       maybeFinalizePipeline(pid)
 
+      const ownerConvId = getOrCreateConversation('ca-b-lead-prof').id
+
       const msgs = queuedMessages()
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].to_profile_id).toBe('k-secretary')
-      expect(msgs[0].to_thread_id).toBe(DEFAULT_K_THREAD_ID)
+      // Delivered to the OWNER's own conversation — self-addressed (from === to),
+      // the same pattern domain-supervisor.ts::briefDomain uses — NOT k-secretary's.
+      expect(msgs[0].to_profile_id).toBe('ca-b-lead-prof')
+      expect(msgs[0].to_thread_id).toBe(ownerConvId)
+      expect(msgs[0].to_thread_id).not.toBe(DEFAULT_K_THREAD_ID)
       expect(msgs[0].from_kind).toBe('profile')
       expect(msgs[0].from_profile_id).toBe('ca-b-lead-prof') // pipeline_runs.owner_profile_id
       expect(msgs[0].provenance_run_id).toBeNull() // no single run owns a multi-run pipeline
       expect(String(msgs[0].body)).toBe('Pipeline "B4 pipeline" completed.')
 
-      // NO 'k' turn was appended directly.
+      // K's OWN thread received NOTHING — the "random orchestrator in K's chat" bug
+      // this fix closes. No 'k' turn was appended directly either.
       expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(turnsBefore)
     } finally {
       stop()
     }
   })
 
-  it('owner NULL → falls back to the delegating K run\'s profile', async () => {
+  it('owner NULL → falls back to the delegating K run\'s profile, delivered to THAT profile\'s conversation', async () => {
     // The delegating run carries its own agent_runs activation (seeded as 'chief'
     // here — A.4 retired askK's auto-delegation, so the edge is seeded directly;
     // the fallback under test reads the delegating run's OWN activation profile).
@@ -1114,13 +1152,15 @@ describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a 
       const msgs = queuedMessages()
       expect(msgs).toHaveLength(1)
       expect(msgs[0].from_profile_id).toBe('chief')
+      expect(msgs[0].to_profile_id).toBe('chief')
+      expect(msgs[0].to_thread_id).toBe(getOrCreateConversation('chief').id)
       expect(msgs[0].provenance_run_id).toBeNull()
     } finally {
       stop()
     }
   })
 
-  it('owner NULL + no activation row on the delegating run → falls back to k-secretary', () => {
+  it('owner NULL + no activation row on the delegating run → falls back to k-secretary\'s OWN delegating thread', () => {
     const kRunId = seedBareDelegatingKRun()
     const stop = continuePipelineOutcomeToK()
     try {
@@ -1130,6 +1170,31 @@ describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a 
       const msgs = queuedMessages()
       expect(msgs).toHaveLength(1)
       expect(msgs[0].from_profile_id).toBe('k-secretary')
+      // Preserved behavior: k-secretary keeps landing on the ORIGINAL delegating
+      // thread (not necessarily the default thread — resolveKDelegationThread's
+      // own resolution), not re-routed through getOrCreateConversation.
+      expect(msgs[0].to_profile_id).toBe('k-secretary')
+      expect(msgs[0].to_thread_id).toBe(DEFAULT_K_THREAD_ID)
+    } finally {
+      stop()
+    }
+  })
+
+  it('owner points to a since-deleted profile → falls back to k-secretary delivery, never silently dropped', () => {
+    // owner_profile_id has no FK, so a run can outlive its owner profile. Without the
+    // guard, queueMessage(toProfileId=<deleted>) throws and the outcome vanishes;
+    // the guard reroutes it to k-secretary's own delegating thread so it's never lost.
+    const kRunId = seedBareDelegatingKRun()
+    const stop = continuePipelineOutcomeToK()
+    try {
+      const pid = seedTerminalPipeline({ owner: 'deleted-orch-does-not-exist', kRunId })
+      maybeFinalizePipeline(pid)
+
+      const msgs = queuedMessages()
+      expect(msgs).toHaveLength(1) // delivered, not dropped
+      expect(msgs[0].from_profile_id).toBe('k-secretary')
+      expect(msgs[0].to_profile_id).toBe('k-secretary')
+      expect(msgs[0].to_thread_id).toBe(DEFAULT_K_THREAD_ID)
     } finally {
       stop()
     }

@@ -126,6 +126,7 @@ function Composer({
       <div className="mt-1.5 flex items-center gap-2">
         <span className="text-accent">⚡</span>
         <Input
+          variant="bare"
           ref={inputRef}
           data-testid="dock-input"
           value={text}
@@ -421,6 +422,13 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
       // the old 'new' key; drop it so a later "+ New chat" can't resurrect a sent message
       // into the composer and invite an accidental re-send (M-D1).
       if (createdNow) drafts.current.delete('new')
+      // D-129: Home = Overview only — the bar variant (only mounted on the home
+      // route, Shell.tsx's `variant={route.view === 'home' ? 'bar' : 'float'}`) is
+      // a quick-ask affordance, not an inline chat surface. A successful send
+      // redirects to the Chats/Messages tab with K's conversation open so the
+      // message appears in the transcript there, not on Home. The float variant
+      // (Messages/agent-detail pages) stays put — it's already where its thread lives.
+      if (variant === 'bar') navigate('messages', threadId)
     }
   }
 

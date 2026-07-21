@@ -31,10 +31,16 @@ import { queueMessage } from './agent-mail.js'
 import { kill } from './supervisor.js'
 import { isTerminalRunStatus, trackSupervisedRun } from './run-lifecycle.js'
 import { onPipelineTerminal } from './pipeline-engine.js'
-import { ensureSession, sendToSession, undoSessionRun } from './agent-sessions.js'
+import { ensureSession, sendToSession, undoSessionRun, getOrCreateConversation } from './agent-sessions.js'
+import { getProfile } from './profiles.js'
 
 /** The singleton default K thread — the one front-door conversation for now. */
 export const DEFAULT_K_THREAD_ID = 'k-default'
+
+/** K's own profile id — the owner every K thread defaults to (k_threads.profile_id
+ *  DEFAULT 'k-secretary', v16). Local copy per repo convention (agent-sessions.ts,
+ *  agent-mail.ts each define their own rather than importing a shared constant). */
+const K_SECRETARY_PROFILE_ID = 'k-secretary'
 
 /** How many recent turns to fold into a cold reseed (bounded so the prompt stays small). */
 const SEED_TURN_WINDOW = 12
@@ -124,23 +130,35 @@ export function createKThread(): KThread {
  * Resolve the thread an ask targets. An explicit `threadId` must exist (throws
  * {@link KThreadNotFoundError} otherwise — the route
  * layer 404s); with none given, defaults to the most-recently-updated NON-archived
- * thread (kThreadsDb.listThreads is already updated_at DESC), falling back to
- * {@link ensureDefaultKThread} when there is no such thread (a wholly empty/all-
- * archived DB) — so a fresh install's first ask still works with zero threads.
+ * K-OWNED thread (scoped to profile_id === 'k-secretary' via listByProfile, itself
+ * updated_at DESC), falling back to {@link ensureDefaultKThread} when there is no
+ * such thread (a wholly empty/all-archived DB) — so a fresh install's first ask
+ * still works with zero threads. The k-secretary scope is load-bearing: askK is
+ * K's own front door, so an unscoped fallback could otherwise silently adopt
+ * another profile's most-recently-updated conversation as K's — a real risk now
+ * that pipeline outcomes touch non-k-secretary threads on every completion.
  * Either path can land on an ARCHIVED thread (possible once PATCH can archive
  * any thread, including the one an explicit threadId names): that thread is
  * un-archived first — a thread receiving new activity must be visible in the
  * non-archived list, or the message would land hidden.
+ *
+ * Ownership guard (defense-in-depth): an explicit `threadId` must be a
+ * K-OWNED thread (k_threads.profile_id === 'k-secretary'). askK is K's own
+ * front door — a caller has no business resolving another profile's
+ * conversation through it. A foreign-owned id is treated exactly like a
+ * missing one (KThreadNotFoundError / 404) so this never leaks whether the
+ * id exists under another profile.
  */
 export function resolveAskThread(threadId?: string): KThread {
   if (threadId) {
-    const t = getKThread(threadId)
-    if (!t) throw new KThreadNotFoundError(threadId)
+    const raw = kThreadsDb.getThread.get(threadId) as Row | undefined
+    if (!raw || String(raw.profile_id) !== K_SECRETARY_PROFILE_ID) throw new KThreadNotFoundError(threadId)
+    const t = rowToKThread(raw)
     if (t.archivedAt == null) return t
     kThreadsDb.setThreadArchived.run(null, Date.now(), t.id)
     return getKThread(t.id)!
   }
-  const rows = kThreadsDb.listThreads.all() as Array<{ id: string; archived_at: number | null }>
+  const rows = kThreadsDb.listByProfile.all(K_SECRETARY_PROFILE_ID) as Array<{ id: string; archived_at: number | null }>
   const recent = rows.find(r => r.archived_at == null)
   if (recent) return getKThread(recent.id)!
   const fallback = ensureDefaultKThread()
@@ -572,17 +590,34 @@ export function continuePipelineOutcomeToK(): () => void {
     const kProf = agentRunsDb.getAgentRunProfileByRunId.get(String(row.k_run_id)) as
       | { profile_id?: string }
       | undefined
-    const fromProfileId =
+    let fromProfileId =
       pr?.owner_profile_id != null
         ? String(pr.owner_profile_id)
         : kProf?.profile_id != null
           ? String(kProf.profile_id)
-          : 'k-secretary'
+          : K_SECRETARY_PROFILE_ID
+    // owner_profile_id has no FK (a profile can be deleted without invalidating run
+    // history), so a since-deleted owner would make queueMessage throw "unknown target
+    // profile" and the outcome would silently vanish. Fall back to k-secretary delivery
+    // so a completed pipeline's report-back is never lost.
+    if (fromProfileId !== K_SECRETARY_PROFILE_ID && !getProfile(fromProfileId)) {
+      fromProfileId = K_SECRETARY_PROFILE_ID
+    }
     const body = summarizePipelineOutcome(pipelineRunId, status)
+    // Deliver to the RESOLVED OWNER's own conversation, not unconditionally to
+    // k-secretary's thread (the "random orchestrator in K's chat" bug): when the
+    // pipeline's owner is a real orchestrator/manager profile, its outcome belongs
+    // in THAT profile's own conversation (getOrCreateConversation — same
+    // self-addressed-delivery pattern domain-supervisor.ts::briefDomain uses), so
+    // K's personal chat never surfaces another profile's pipeline updates. Only the
+    // k-secretary-owned case (no resolvable owner, or K itself delegated it) keeps
+    // landing on the original delegating thread. Both toProfileId/toThreadId move
+    // together — queueMessage requires toThreadId's owning profile_id === toProfileId.
+    const toThreadId = fromProfileId === K_SECRETARY_PROFILE_ID ? threadId : getOrCreateConversation(fromProfileId).id
     try {
       queueMessage({
-        toProfileId: 'k-secretary',
-        toThreadId: threadId,
+        toProfileId: fromProfileId,
+        toThreadId,
         from: { kind: 'profile', profileId: fromProfileId },
         body,
         provenanceRunId: null,

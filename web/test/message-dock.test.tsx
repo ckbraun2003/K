@@ -70,6 +70,7 @@ vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 
 import MessageDock from '../src/shell/MessageDock'
 import { selectThread } from '../src/lib/thread-select'
+import { navigate } from '../src/lib/route'
 
 function thread(over: Partial<KThreadSummary>): KThreadSummary {
   return {
@@ -120,6 +121,7 @@ beforeEach(() => {
   mockAsk.mockReset()
   mockUndo.mockClear()
   mockInbox.mockReset()
+  vi.mocked(navigate).mockClear()
   mockThreadsList.mockResolvedValue({ threads: [] })
   mockConversationsList.mockResolvedValue({ conversations: [] })
   mockThreadsGet.mockResolvedValue({ thread: thread({}), turns: [] })
@@ -388,6 +390,32 @@ describe('MessageDock', () => {
     expect(screen.getByTestId('dock-undo-toast')).toBeTruthy()
     fireEvent.click(undo)
     await waitFor(() => expect(mockUndo).toHaveBeenCalledWith('run-123'))
+  })
+
+  it('D-129: a successful send from the BAR variant (Home) redirects to the Chats/Messages surface with the conversation open', async () => {
+    mockThreadsList.mockResolvedValue({ threads: [thread({ id: 'kt-5', title: 'Existing' })] })
+    renderDock('bar')
+    act(() => { selectThread('kt-5') })
+    await screen.findByText('→ Existing')
+
+    fireEvent.change(screen.getByTestId('dock-input'), { target: { value: 'hi from home' } })
+    fireEvent.click(screen.getByTestId('dock-send'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('messages', 'kt-5'))
+  })
+
+  it('D-129: a successful send from the FLOAT variant (Messages/agent-detail) does NOT redirect — already where its thread lives', async () => {
+    mockThreadsList.mockResolvedValue({ threads: [thread({ id: 'kt-5', title: 'Existing' })] })
+    renderDock('float')
+    fireEvent.click(screen.getByTestId('dock-fab'))
+    await screen.findByTestId('dock-overlay')
+    act(() => { selectThread('kt-5') })
+
+    fireEvent.change(screen.getByTestId('dock-input'), { target: { value: 'hi from messages' } })
+    fireEvent.click(screen.getByTestId('dock-send'))
+
+    await waitFor(() => expect(mockAsk).toHaveBeenCalledTimes(1))
+    expect(navigate).not.toHaveBeenCalled()
   })
 
   it('a FORCED send queues a mailbox message — NO undo toast is raised (A.4, D-126)', async () => {

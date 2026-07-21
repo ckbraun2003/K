@@ -51,6 +51,23 @@ export function splitProvenanceSegments(text: string): string[] {
   return text.split(/\n\n(?=\[(?:message )?from [^\]·\n]+?(?:\s·\s(?:normal|urgent))?\])/)
 }
 
+/** k-thread.ts::summarizePipelineOutcome's exact body shape — `Pipeline "<title>"
+ *  completed/failed.` (titled) or `Pipeline pipeline <id> completed/failed.`
+ *  (untitled fallback). Matched only against a SELF-ADDRESSED segment (its parsed
+ *  provenance sender equals the conversation's own profileId — the delivery shape
+ *  continuePipelineOutcomeToK now uses: an orchestrator's pipeline outcome lands in
+ *  ITS OWN conversation, from itself) so it renders as a quiet "Update from
+ *  <pipeline>" notification instead of a raw relay note, or a bubble that would
+ *  otherwise show a profile talking to itself under its bare (often generic, e.g.
+ *  "orchestrator") name. */
+const PIPELINE_OUTCOME_RE = /^Pipeline (?:"(.+)"|pipeline (\S+)) (completed|failed)\.$/
+
+export function parsePipelineOutcome(text: string): { title: string | null; status: 'completed' | 'failed' } | null {
+  const m = PIPELINE_OUTCOME_RE.exec(text)
+  if (!m) return null
+  return { title: m[1] ?? null, status: m[3] as 'completed' | 'failed' }
+}
+
 /**
  * ConversationView (Continuous Agents B.6) — the shared transcript + composer for
  * ANY conversation: Home's K chat (composer off — the MessageDock owns it there),
@@ -175,6 +192,31 @@ export default function ConversationView({
                 const { sender, priority, rest } = parseProvenance(seg)
                 const label = senderLabel(t.role, sender)
                 const mine = t.role === 'user' && (sender == null || sender === 'user')
+                // Pipeline-outcome notification (D-131 fix): a SELF-addressed segment
+                // (continuePipelineOutcomeToK delivers an orchestrator's own pipeline
+                // outcome into ITS OWN conversation, from itself) whose body matches
+                // summarizePipelineOutcome's shape renders as a quiet "Update from
+                // <pipeline>" notification — checked BEFORE the K relay-note branch so
+                // it takes precedence there too (K's own k-secretary-owned fallback
+                // case is also self-addressed). Never surfaces the bare (often generic,
+                // e.g. "orchestrator") profile name — only the pipeline's own name.
+                const pipelineOutcome = sender != null && sender === profileId ? parsePipelineOutcome(rest) : null
+                if (pipelineOutcome) {
+                  return (
+                    <div
+                      key={`${t.id}:${i}`}
+                      data-testid="conversation-pipeline-note"
+                      className="flex items-center justify-center gap-1.5 text-center"
+                    >
+                      <span className="rounded-pill bg-[var(--glass-2)] px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-muted">
+                        Systems
+                      </span>
+                      <span className="micro-label text-muted">
+                        Update from {pipelineOutcome.title ?? 'a pipeline'} — {pipelineOutcome.status}
+                      </span>
+                    </div>
+                  )
+                }
                 // K-surface relay/report-back segments (org traffic surfaced into the
                 // K thread) read as a quiet centered system-note — same treatment as the
                 // day separator — instead of a left-aligned agent bubble (A2). Direct
@@ -234,8 +276,9 @@ export default function ConversationView({
         </div>
       )}
       {showComposer && (
-        <div className="glass-control mt-2 flex items-center gap-2 rounded-control px-3 py-2">
+        <div className="mt-2 flex items-center gap-2 rounded-control px-3 py-2">
           <Input
+            variant="bare"
             data-testid="conversation-composer-input"
             aria-label={`Message ${agentName}`}
             placeholder={`Message ${agentName}…`}

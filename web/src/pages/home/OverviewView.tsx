@@ -8,6 +8,7 @@ import { GlassPanel } from '../../ui/GlassPanel'
 import { Button } from '../../ui/Button'
 import { Icon } from '../../ui/Icon'
 import { EmptyState } from '../../ui/EmptyState'
+import { SectionHeader } from '../../ui/SectionHeader'
 
 /**
  * OverviewView — Home's Overview tab (UI Simplification Task 12), replacing
@@ -53,21 +54,24 @@ export default function OverviewView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex items-center justify-end gap-2">
-        {!loaded && <span className="text-micro text-muted">Loading layout...</span>}
-        <Button
-          // variant="ghost" (not the Button default "glass", INT.5 blur-budget fix) —
-          // a lone toolbar toggle has no business being its own independent glass
-          // tier; see ProjectCard.tsx's delete IconButton for the same convention.
-          variant="ghost"
-          size="sm"
-          icon="edit"
-          aria-pressed={customize}
-          data-testid="overview-customize"
-          onClick={toggleCustomize}
-        >
-          {customize ? 'Done' : 'Customize'}
-        </Button>
+      <div className="flex items-center justify-between gap-2">
+        <SectionHeader as="h2" label="Overview" className="mb-0" />
+        <div className="flex items-center gap-2">
+          {!loaded && <span className="text-micro text-muted">Loading layout...</span>}
+          <Button
+            // variant="ghost" (not the Button default "glass", INT.5 blur-budget fix) —
+            // a lone toolbar toggle has no business being its own independent glass
+            // tier; see ProjectCard.tsx's delete IconButton for the same convention.
+            variant="ghost"
+            size="sm"
+            icon="edit"
+            aria-pressed={customize}
+            data-testid="overview-customize"
+            onClick={toggleCustomize}
+          >
+            {customize ? 'Done' : 'Customize'}
+          </Button>
+        </div>
       </div>
       {loaded && layout.widgets.length === 0 && !customize && (
         <EmptyState
