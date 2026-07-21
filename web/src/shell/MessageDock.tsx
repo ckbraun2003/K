@@ -230,6 +230,12 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const ask = useAskK({ navigateOnSend: false })
 
   const { data: threadsData, isSuccess: threadsLoaded } = useQuery({ queryKey: ['k-threads'], queryFn: () => api.threads.list() })
+  // A1 follow-up (ui-adjustments): the recent-threads picker below must show ONLY K's own
+  // chats — `api.threads.list()` (used above for selection-resolution) has no profile filter,
+  // so its summaries can't be filtered here. The picker reads api.conversations.list()
+  // (carries `profileId`) filtered to k-secretary, the same partition Home's rail uses; the
+  // ['conversations'] cache is shared with ChatView and kept live by useAskK's invalidation.
+  const { data: convData } = useQuery({ queryKey: ['conversations'], queryFn: () => api.conversations.list() })
   // A selection can point at a thread ABSENT from the default (non-archived) list — archived,
   // or just-created before the list caught up. Resolve it by id so the header tells the truth
   // about where a send lands. Enabled only in that case (and only once the list has SETTLED so
@@ -666,7 +672,9 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     )
   }
 
-  const recentThreads = (threadsData?.threads ?? []).filter(t => t.archivedAt === null).slice(0, 8)
+  const recentThreads = (convData?.conversations ?? [])
+    .filter(t => t.profileId === 'k-secretary' && t.archivedAt === null)
+    .slice(0, 8)
 
   return (
     <>

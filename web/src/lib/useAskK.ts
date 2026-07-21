@@ -99,6 +99,7 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
       // is a PREFIX match: it also invalidates every scoped `['k-thread', id]`.
       void qc.invalidateQueries({ queryKey: ['k-thread'] })
       void qc.invalidateQueries({ queryKey: ['k-threads'] })
+      void qc.invalidateQueries({ queryKey: ['conversations'] }) // ChatView rail + MessageDock picker read this key (A1)
       // Undo was pressed while the ask was in flight → kill now that the id exists.
       // The window is already closed (undo nulled pendingUndo); don't re-raise or
       // navigate to a run the operator just undid. A `runId: null` resolve (queued
@@ -112,6 +113,7 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
           // drop it from any thread surface reading these keys (M-D2).
           void qc.invalidateQueries({ queryKey: ['k-thread'] })
           void qc.invalidateQueries({ queryKey: ['k-threads'] })
+          void qc.invalidateQueries({ queryKey: ['conversations'] })
         }
         return true
       }
@@ -162,6 +164,7 @@ export function useAskK(opts?: { navigateOnSend?: boolean }) {
     // later invalidation (M-D2).
     void qc.invalidateQueries({ queryKey: ['k-thread'] })
     void qc.invalidateQueries({ queryKey: ['k-threads'] })
+    void qc.invalidateQueries({ queryKey: ['conversations'] })
   }, [pendingUndo, qc])
 
   const clearUndo = useCallback(() => setPendingUndo(null), [])
