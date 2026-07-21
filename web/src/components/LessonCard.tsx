@@ -24,12 +24,12 @@ export function LessonCard({
   return (
     <div
       data-testid={`memory-lesson-${lesson.id}`}
-      className="rounded-xl border border-border bg-surface px-4 py-3"
+      className="rounded-xl border border-[var(--glass-tier-border)] bg-[var(--glass-2)] px-4 py-3"
     >
       <p className="text-sm text-text">{lesson.lesson}</p>
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
-        <span className="rounded bg-raised px-1.5 py-0.5">
+        <span className="rounded bg-[var(--glass-1)] px-1.5 py-0.5">
           {lesson.profileName ?? 'unassigned'}
         </span>
         <span className="mono">{lesson.runId ? lesson.runId.slice(0, 8) : 'no run'}</span>
@@ -50,7 +50,7 @@ export function LessonCard({
           <button
             onClick={() => onReject?.(lesson.id)}
             data-testid={`memory-reject-${lesson.id}`}
-            className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-red transition-colors hover:bg-red/15"
+            className="rounded-lg border border-[var(--glass-tier-border)] px-3 py-1.5 text-xs font-semibold text-red transition-colors hover:bg-red/15"
           >
             Reject
           </button>

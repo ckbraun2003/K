@@ -59,9 +59,11 @@ export default function ProjectCard({
 
   return (
     <GlassPanel
-      // solid, not glass: the fleet grid is unbounded (2-3 cols × N projects) and
-      // >6 simultaneous backdrop-filter regions breaks the blur budget (DEV-11).
-      tier="solid"
+      // glass, not solid (ui-adjustments Round 2, D-133): "panel" is opacity-tint
+      // only (no backdrop-filter), so the fleet grid's unbounded card count (2-3
+      // cols × N projects) no longer risks the DEV-11 blur budget — that budget
+      // only counts real-frost tiers (.glass-overlay/.glass-blur), not this one.
+      tier="panel"
       interactive
       data-testid={`project-card-${project.id}`}
       role="button"
@@ -71,9 +73,9 @@ export default function ProjectCard({
       className={cn('group relative p-4', attention && 'border-amber/40')}
     >
       {onDelete && (
-        // variant="ghost" (not the IconButton default "glass") — this card is
-        // itself a GlassPanel (backdrop-filter); a glass-chrome child button
-        // would be a nested blur, which the design system forbids.
+        // variant="ghost" (not the IconButton default "glass") — kept understated
+        // so the delete affordance doesn't visually compete with the card's own
+        // glass-panel tier; it reveals its own hover:bg-red/15 danger tint anyway.
         <IconButton
           name="trash"
           label={`Delete project ${project.name}`}

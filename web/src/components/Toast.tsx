@@ -48,12 +48,12 @@ export default function Toast({ open, message, action, testid, kind, durationMs 
           data-testid={testid}
           role="status"
           aria-live="polite"
-          // NOTE: stays an OPAQUE surface (not glass-panel/glass-overlay) — Toast is
-          // a shared component and one call site (NotificationBell's notif-toast) is
-          // a DOM descendant of TopBar's glass-chrome header, so a glass tier here
-          // would be a nested backdrop-filter (disallowed) on that path. rounded-panel
-          // is just the radius token, independent of the glass tiers.
-          className="fixed bottom-5 right-5 z-50 flex max-w-sm items-center gap-3 rounded-panel border border-border bg-surface px-4 py-3 shadow-lg"
+          // ui-adjustments Round 2 (D-133): graded-glass, not opaque — .glass-panel's
+          // tier fill is opacity-tint only (no backdrop-filter), so this no longer
+          // risks a nested blur on the one call site (NotificationBell's notif-toast)
+          // that's a DOM descendant of TopBar's glass-chrome header. rounded-panel is
+          // just the radius token, independent of the glass tiers.
+          className="fixed bottom-5 right-5 z-50 flex max-w-sm items-center gap-3 rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-4 py-3 shadow-lg"
           initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}
           transition={{ type: 'spring', stiffness: 420, damping: 32 }}
         >
@@ -70,7 +70,7 @@ export default function Toast({ open, message, action, testid, kind, durationMs 
             <button
               onClick={() => { action.onClick(); onDismiss() }}
               data-testid={action.testid}
-              className="flex-shrink-0 rounded-control border border-border px-2.5 py-1 text-xs font-semibold text-accent-hover transition-colors hover:border-accent"
+              className="flex-shrink-0 rounded-control border border-[var(--glass-tier-border)] px-2.5 py-1 text-xs font-semibold text-accent-hover transition-colors hover:bg-[var(--glass-active)] hover:border-accent"
             >
               {action.label}
             </button>
@@ -78,7 +78,7 @@ export default function Toast({ open, message, action, testid, kind, durationMs 
           <button
             onClick={onDismiss}
             aria-label="Dismiss"
-            className="flex-shrink-0 text-muted transition-colors hover:text-text"
+            className="flex-shrink-0 rounded-control p-0.5 text-muted transition-colors hover:bg-[var(--glass-active)] hover:text-text"
           >
             <Icon name="close" size={14} />
           </button>

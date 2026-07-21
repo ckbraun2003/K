@@ -9,7 +9,7 @@ type Size = 'sm' | 'md'
 const VARIANT: Record<Variant, string> = {
   primary: 'bg-accent text-on-accent font-medium hover:brightness-110',
   glass: 'glass-chrome glass-interactive text-text hover:border-border-strong',
-  ghost: 'text-muted hover:text-text hover:bg-raised',
+  ghost: 'text-muted hover:text-text hover:bg-[var(--glass-active)]',
   danger: 'border border-red/40 text-red hover:bg-red/10',
 }
 const SIZE: Record<Size, string> = {

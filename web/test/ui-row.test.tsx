@@ -20,7 +20,7 @@ describe('Row', () => {
   it('carries hover elevation and reveal-on-hover action classes', () => {
     render(<Row testid="r" title="t" onClick={() => {}} actions={<button>kill</button>} />)
     const row = screen.getByTestId('r')
-    expect(row.className).toContain('hover:bg-[var(--glass-overlay-bg)]')
+    expect(row.className).toContain('hover:bg-[var(--glass-active)]')
     const actions = screen.getByText('kill').parentElement!
     expect(actions.className).toContain('group-hover:opacity-100')
     expect(actions.className).toContain('focus-within:opacity-100')

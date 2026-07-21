@@ -145,7 +145,7 @@ export default function PlanCard({ runId }: { runId: string }) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="border border-border"
+                className="border border-[var(--glass-tier-border)]"
                 onClick={() => { setEditing(false); setDraft(null); setFilesText('') }}
               >
                 Cancel

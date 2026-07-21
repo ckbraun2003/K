@@ -27,7 +27,7 @@ export default function Tabs<T extends string>({
             {t.icon && <span aria-hidden>{t.icon}</span>}
             <span>{t.label}</span>
             {t.count != null && (
-              <span className="rounded-full bg-[var(--raised)] px-1.5 text-[10px] text-[var(--muted)]">{t.count}</span>
+              <span className="rounded-full bg-[var(--glass-1)] px-1.5 text-[10px] text-[var(--muted)]">{t.count}</span>
             )}
           </button>
         )
