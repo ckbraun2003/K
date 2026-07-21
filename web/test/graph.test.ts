@@ -3,6 +3,8 @@ import type { GraphDispatchBody, WsMessage } from '@k/shared'
 import {
   GRAPH_COLORS,
   GRAPH_LEGEND,
+  GRAPH_BG,
+  GRAPH_LINK_COLOR,
   DISPATCH_ACTIONS,
   hasFailingFindings,
   nodeColor,
@@ -10,6 +12,7 @@ import {
   configureGraphForces,
   type GraphNode,
 } from '../src/lib/graph'
+import { readToken } from '../src/lib/tokens'
 import { api } from '../src/lib/api'
 
 function node(over: Partial<GraphNode> = {}): GraphNode {
@@ -65,6 +68,22 @@ describe('legend / dispatch action config', () => {
 
   it('exposes the three dispatch actions in order', () => {
     expect(DISPATCH_ACTIONS.map(a => a.action)).toEqual(['investigate', 'fix', 'explain'])
+  })
+})
+
+describe('D4 — neutral palette (ui-adjustments)', () => {
+  it('GRAPH_BG rides a dedicated --graph-bg token, decoupled from the app --bg', () => {
+    expect(GRAPH_BG).toBe(readToken('--graph-bg'))
+    expect(GRAPH_BG).not.toBe(readToken('--bg'))
+  })
+
+  it('dim status colour rides --muted (graphite), not a chart/accent token', () => {
+    expect(GRAPH_COLORS.dim).toBe(readToken('--muted'))
+  })
+
+  it('link colour is a low-alpha --muted, not the old sky-blue accent-hover', () => {
+    expect(GRAPH_LINK_COLOR).not.toContain('56, 189, 248') // old sky-blue rgb
+    expect(GRAPH_LINK_COLOR).toMatch(/^rgba\(\d+, \d+, \d+, 0\.4\)$/)
   })
 })
 

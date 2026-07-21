@@ -22,6 +22,9 @@
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   /* xterm pane — deliberately darker than --bg-deep for terminal legibility */
   --terminal-bg: #0b0e14;
+  /* knowledge-graph 3D canvas — neutral graphite, decoupled from the purple --bg
+     so the canvas reads calm behind the glass overlays (ui-adjustments D4) */
+  --graph-bg: #14161c;
   /* chart palette — retuned into the purple/blush/sky family */
   --chart-1: #ff8fc0; --chart-2: #34d399; --chart-3: #fbbf24; --chart-4: #38bdf8;
   --chart-5: #a855f7; --chart-6: #f87171; --chart-7: #c084fc; --chart-8: #6366f1;

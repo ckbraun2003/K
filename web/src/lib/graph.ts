@@ -18,11 +18,14 @@ export type GraphNode = {
 }
 
 // Canonical node colours via readToken; maintains backward compatibility with tests.
+// `ok`/`dim` ride the shared palette tokens (violet accent / graphite muted) so a
+// future palette retune (like ui-adjustments' purple→violet shift) cascades here
+// automatically — `failing`/`untested` stay on the dedicated status tokens.
 export const GRAPH_COLORS = {
   failing: readToken('--red'),
   untested: readToken('--amber'),
   ok: readToken('--accent'),
-  dim: readToken('--chart-other'),
+  dim: readToken('--muted'),
 } as const
 
 export const GRAPH_LEGEND: { color: string; label: string }[] = [
@@ -68,14 +71,17 @@ export function nodeColor(node: GraphNode, filter: string): string {
 // as a legible diagnostic surface (bible §06). Painting only runs during layout +
 // interaction (cooldownTicks settles the sim), so the glow cost isn't continuous.
 
-/** Canvas background for every graph — the new midnight-purple base. */
-export const GRAPH_BG = readToken('--bg')
-/** Visible edge colour — sky-blue, semi-transparent, so links read on the dark canvas. */
-export const GRAPH_LINK_COLOR = `rgba(${hexToRgb(readToken('--accent-hover'))}, 0.4)`
+/** Canvas background for every graph — a neutral graphite (`--graph-bg`), deliberately
+ *  decoupled from the app's purple `--bg` so the canvas reads calm behind the glass
+ *  node-inspector/legend overlays (ui-adjustments D4) instead of doubling the app chrome. */
+export const GRAPH_BG = readToken('--graph-bg')
+/** Visible edge colour — low-alpha graphite, so links read as quiet structure rather
+ *  than competing with the violet `ok`-status node colour (ui-adjustments D4). */
+export const GRAPH_LINK_COLOR = `rgba(${hexToRgb(readToken('--muted'))}, 0.4)`
 
 function hexToRgb(hex: string): string {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  if (!result) return '56, 189, 248'
+  if (!result) return '143, 153, 173' // --muted fallback (graphite)
   const r = parseInt(result[1], 16)
   const g = parseInt(result[2], 16)
   const b = parseInt(result[3], 16)
@@ -152,6 +158,36 @@ export function paintNodePointerArea(
 export const GRAPH_LINK_DISTANCE = 60
 /** Many-body charge: negative = repulsive, so disconnected clusters push apart. */
 export const GRAPH_CHARGE_STRENGTH = -240
+
+/**
+ * Headless settle depth for the pre-warm-then-freeze render (ui-adjustments D1):
+ * `warmupTicks` ticks the d3 simulation this many times BEFORE the first paint
+ * (no `d3AlphaMin` is configured, so it always runs the full count rather than
+ * exiting early on convergence), then `cooldownTicks={0}` freezes the result —
+ * the graph appears fully expanded with no visible spread animation.
+ */
+export const GRAPH_WARMUP_TICKS = 300
+
+/**
+ * Empty graph-data shape for the "phase 1" mount of a warmupTicks-driven
+ * ForceGraph3D. `d3Force()` (used by configureGraphForces to register the
+ * collide force and tune link/charge) is an IMPERATIVE ref method that only
+ * becomes callable AFTER the engine's first mount+digest — and with
+ * `warmupTicks` set, that first digest ticks the simulation headlessly and
+ * SYNCHRONOUSLY as part of the very same mount, before any caller could reach
+ * the ref. Feeding the real graphData straight away would therefore warm the
+ * layout against the library's UNTUNED default forces, and `cooldownTicks={0}`
+ * means no later tick ever gets a chance to correct it (see the configureGraphForces
+ * docblock for why we can't just reheat). Mounting on this empty shape first gives the
+ * digest nothing to warm (trivially instant), so the caller's effect can call
+ * configureGraphForces() once the ref exists — then swap in the real data;
+ * `never[]` is assignable to any node/link array type, so this fits either
+ * graph's GraphData shape. The underlying d3ForceLayout instance is created
+ * once and persists for the component's lifetime, so later digests (e.g. a
+ * knowledge-graph rebuild refresh) automatically reuse the already-tuned
+ * forces — this two-phase mount only has to happen once.
+ */
+export const EMPTY_FORCE_GRAPH_DATA: { nodes: never[]; links: never[] } = { nodes: [], links: [] }
 
 /**
  * Collision radius for a node = its painted size + a small pad, so the painted

@@ -9,12 +9,14 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Project } from '@k/shared'
+import { EMPTY_FORCE_GRAPH_DATA } from '../src/lib/graph'
 
-const { fitSpy, cameraPositionSpy, mockList, mockNavigate } = vi.hoisted(() => ({
+const { fitSpy, cameraPositionSpy, mockList, mockNavigate, graphDataSpy } = vi.hoisted(() => ({
   fitSpy: vi.fn(),
   cameraPositionSpy: vi.fn(),
   mockList: vi.fn(),
   mockNavigate: vi.fn(),
+  graphDataSpy: vi.fn(),
 }))
 
 beforeAll(() => {
@@ -33,10 +35,17 @@ vi.mock('react-force-graph-3d', async () => {
       cameraPosition: cameraPositionSpy,
       d3Force: () => ({ distance: () => {}, strength: () => {} }),
     }))
-    // Simulate the layout settling — the real component calls onEngineStop then.
+    // Simulate the layout settling — the real component calls onEngineStop after
+    // EVERY graphData digest, not just once on mount. ui-adjustments D1 feeds an
+    // empty shape first (forces get tuned), then swaps in the real data — that
+    // second digest is what actually fires the auto-fit, so the dep array must
+    // track graphData (not `[]`) to simulate that second digest firing too.
     React.useEffect(() => {
+      // Records EVERY graphData value this mock receives, in order — used by the
+      // D1 two-phase-mount test below to assert the empty sentinel goes first.
+      graphDataSpy(props.graphData)
       ;(props.onEngineStop as (() => void) | undefined)?.()
-    }, [])
+    }, [props.graphData])
     return React.createElement('div', { 'data-testid': 'force-graph-3d' })
   })
   return { default: Comp }
@@ -62,7 +71,13 @@ function renderPage() {
   )
 }
 
-beforeEach(() => { fitSpy.mockClear(); cameraPositionSpy.mockClear(); mockList.mockReset(); mockList.mockResolvedValue(projects) })
+beforeEach(() => {
+  fitSpy.mockClear()
+  cameraPositionSpy.mockClear()
+  graphDataSpy.mockClear()
+  mockList.mockReset()
+  mockList.mockResolvedValue(projects)
+})
 afterEach(() => cleanup())
 
 describe('FleetGraphPage — F-043 fit', () => {
@@ -77,6 +92,23 @@ describe('FleetGraphPage — F-043 fit', () => {
     const autoCalls = fitSpy.mock.calls.length
     fireEvent.click(fitBtn)
     expect(fitSpy.mock.calls.length).toBe(autoCalls + 1)
+  })
+})
+
+describe('FleetGraphPage — D1 two-phase mount (ui-adjustments)', () => {
+  it('feeds the empty sentinel to ForceGraph3D before the real project data', async () => {
+    renderPage()
+    await waitFor(() => expect(fitSpy).toHaveBeenCalled())
+
+    const captured = graphDataSpy.mock.calls.map(c => c[0])
+    expect(captured.length).toBeGreaterThanOrEqual(2)
+    // Phase 1: the very first graphData this mock ever saw is the sentinel itself
+    // (referential identity), not just an empty-shaped object.
+    expect(captured[0]).toBe(EMPTY_FORCE_GRAPH_DATA)
+    // Phase 2: a later value swaps in the real project nodes.
+    expect(
+      captured.some(d => Array.isArray((d as { nodes?: unknown[] })?.nodes) && (d as { nodes: unknown[] }).nodes.length === projects.length),
+    ).toBe(true)
   })
 })
 

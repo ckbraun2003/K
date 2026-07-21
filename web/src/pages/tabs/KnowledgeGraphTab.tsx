@@ -13,7 +13,10 @@ import {
   GRAPH_LEGEND,
   GRAPH_BG,
   GRAPH_LINK_COLOR,
+  GRAPH_WARMUP_TICKS,
+  EMPTY_FORCE_GRAPH_DATA,
   configureGraphForces,
+  smallFleetCameraZ,
   type DispatchAction,
   type GraphNode,
   makeGraphUpdateHandler,
@@ -77,6 +80,15 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const graphRef = useRef<any>(undefined)
   const [dims, setDims] = useState({ width: 800, height: 600 })
+  // D1: gates the real graphData behind a two-phase mount — see
+  // EMPTY_FORCE_GRAPH_DATA's doc comment in graph.ts for why (warmupTicks digests
+  // headlessly & synchronously on mount, before configureGraphForces' ref-based
+  // force-tuning could otherwise ever run first).
+  const [forcesReady, setForcesReady] = useState(false)
+  // D2 fix: bumped on a GraphErrorBoundary reset so the ForceGraph3D subtree gets a
+  // fresh `key` (a truly new instance + imperative ref) and the two-phase-mount
+  // effect below (keyed on it) re-arms — see handleGraphReset.
+  const [mountGen, setMountGen] = useState(0)
 
   // Live: a graph_update for THIS project refreshes the graph (build done / went stale).
   useEffect(() => {
@@ -131,41 +143,158 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
     return () => ro.disconnect()
   }, [])
 
+  // DF-2: 1-2 node graphs degenerate zoomToFit's bounding sphere and park the
+  // camera inside the node mesh (GraphView already guards this the same way via
+  // smallFleetCameraZ) — pin a fixed sane distance instead of fitting. durationMs=0
+  // gives an instant snap (used for the one-shot fit-on-load below); the manual
+  // "Fit (f)" button/shortcut keep their smooth 400ms animation.
+  const didFitRef = useRef(false)
+  const fit = useCallback(
+    (durationMs: number) => {
+      const z = smallFleetCameraZ(graph.nodes.length)
+      if (z != null) graphRef.current?.cameraPosition({ x: 0, y: 0, z }, { x: 0, y: 0, z: 0 }, durationMs)
+      else graphRef.current?.zoomToFit(durationMs)
+    },
+    [graph.nodes.length],
+  )
+
+  // Re-arm the fit-once latch when the node set changes (fresh build/rebuild), so a
+  // meaningfully different graph gets re-framed — mirrors GraphView's didFitRef reset.
+  // Also re-arms on a GraphErrorBoundary remount (mountGen): the fresh ForceGraph3D
+  // instance opens on a default camera, so it needs its own one-shot fit too.
+  useEffect(() => {
+    didFitRef.current = false
+  }, [graph.nodes.length, mountGen])
+
+  // GraphErrorBoundary reset (D2 fix): the remounted ForceGraph3D is a brand-new
+  // d3ForceLayout, so the two-phase mount (D1) must redo phase 1 — reset forcesReady
+  // and bump mountGen so the effect below + the ForceGraph3D `key` both re-fire.
+  const handleGraphReset = useCallback(() => {
+    setForcesReady(false)
+    setMountGen(g => g + 1)
+  }, [])
+
   // 'f' key shortcut to fit view
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (e.key === 'f') graphRef.current?.zoomToFit(400)
+      if (e.key === 'f') fit(400)
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [fit])
 
+  // D3: selecting a node opens the inspector panel only — no camera-fly. Free
+  // zoom/orbit (and the auto-rotate below, once the panel closes) are how the
+  // user reframes the view now instead of the camera jumping to the node.
   const handleNodeClick = useCallback((node: object) => {
-    const n = node as GraphNode & { x?: number; y?: number; z?: number }
-    setSelected(n)
-    // Fly the 3D camera to look at the clicked node (respect reduced-motion).
-    const fg = graphRef.current
-    if (fg && typeof n.x === 'number' && typeof n.y === 'number' && typeof n.z === 'number') {
-      const ms = prefersReducedMotion() ? 0 : 600
-      const distance = 120
-      const hyp = Math.hypot(n.x, n.y, n.z)
-      if (hyp < 1e-6) {
-        // Node sits at the origin: a ratio-scaled position would equal the lookAt
-        // target (0,0,0), giving three.js a NaN view orientation (black view).
-        // Pull straight back along +z instead.
-        fg.cameraPosition({ x: 0, y: 0, z: distance }, n, ms)
-      } else {
-        const ratio = 1 + distance / hyp
-        fg.cameraPosition({ x: n.x * ratio, y: n.y * ratio, z: n.z * ratio }, n, ms)
-      }
-    }
+    setSelected(node as GraphNode)
   }, [])
 
   // Apply collision + spacing forces once the graph has data (and whenever the node
   // set changes), so nodes don't overlap and edges rarely cross through nodes.
+  // Two-phase mount (D1): the FIRST ForceGraph3D mount below is fed
+  // EMPTY_FORCE_GRAPH_DATA (a trivial, instant digest) precisely so d3Force() — only
+  // callable once the engine has mounted — is reachable here BEFORE the real data's
+  // warmupTicks-driven digest ever runs; forcesReady then swaps the real data in.
   useEffect(() => {
+    // Guard on real data: without this, this effect's mount pass fires while
+    // `graph` is still the local EMPTY placeholder (0 nodes, pre-query-resolve) —
+    // before the ForceGraph3D below (gated behind `hasData`) has ever mounted —
+    // which would flip forcesReady true prematurely and defeat the two-phase
+    // mount entirely (its real FIRST mount would get real data directly, since
+    // forcesReady is already true by the time hasData flips on).
+    if (graph.nodes.length === 0) return
     configureGraphForces(graphRef.current, { nodeSize: 5 })
+    setForcesReady(true)
+  }, [graph.nodes.length, mountGen])
+
+  // D2: slow ambient auto-rotate around the graph center. react-force-graph-3d's
+  // three.js TrackballControls have no built-in `autoRotate` (unlike OrbitControls),
+  // so we drive the orbit ourselves: each frame, read the camera's CURRENT position
+  // (not a fixed radius/angle) and nudge its azimuth via cameraPosition() — so
+  // resuming after a user zoom/tilt never snaps back to some earlier framing.
+  // Pauses on pointer-down/wheel (the idle-resume timer only arms on pointer-up/
+  // cancel — never mid-drag — or after a wheel tick, so a sustained drag isn't
+  // fought mid-orbit) and while the node inspector is open; never starts at all
+  // under prefers-reduced-motion.
+  const selectedRef = useRef<GraphNode | null>(null)
+  useEffect(() => {
+    selectedRef.current = selected
+  }, [selected])
+
+  useEffect(() => {
+    if (graph.nodes.length === 0 || prefersReducedMotion()) return
+    const el = containerRef.current
+    if (!el) return
+
+    const ANGULAR_SPEED = 0.05 // rad/s — a full revolution takes ~2 minutes
+    const RESUME_DELAY_MS = 1500
+    let rafId = 0
+    let resumeTimer: ReturnType<typeof setTimeout> | undefined
+    let lastTs: number | null = null
+    let paused = false
+
+    const tick = (ts: number) => {
+      rafId = requestAnimationFrame(tick)
+      if (paused || selectedRef.current) {
+        lastTs = null
+        return
+      }
+      if (lastTs == null) {
+        lastTs = ts
+        return
+      }
+      const dt = (ts - lastTs) / 1000
+      lastTs = ts
+      const fg = graphRef.current
+      const cam = fg?.camera?.()
+      if (!cam) return
+      const { x, y, z } = cam.position
+      const radius = Math.hypot(x, z)
+      if (radius < 1e-3) return // degenerate: camera sitting on the vertical axis
+      const angle = Math.atan2(x, z) + ANGULAR_SPEED * dt
+      fg.cameraPosition({ x: radius * Math.sin(angle), y, z: radius * Math.cos(angle) }, undefined, 0)
+    }
+    rafId = requestAnimationFrame(tick)
+
+    const armResumeTimer = () => {
+      if (resumeTimer) clearTimeout(resumeTimer)
+      resumeTimer = setTimeout(() => {
+        paused = false
+      }, RESUME_DELAY_MS)
+    }
+    // pointerdown pauses immediately and CLEARS any pending resume timer — a drag
+    // held past RESUME_DELAY_MS must not have the idle-resume fire mid-drag and
+    // fight TrackballControls while the user is still orbiting. The resume timer is
+    // armed only once the drag actually ends; pointerup/pointercancel are listened
+    // on window (not the container) since a drag can end outside it.
+    const onPointerDown = () => {
+      paused = true
+      if (resumeTimer) {
+        clearTimeout(resumeTimer)
+        resumeTimer = undefined
+      }
+    }
+    const onPointerUp = () => armResumeTimer()
+    // wheel has no "held" state to fight — pause-then-idle-resume per tick is fine.
+    const onWheel = () => {
+      paused = true
+      armResumeTimer()
+    }
+    el.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerUp)
+    el.addEventListener('wheel', onWheel, { passive: true })
+
+    return () => {
+      cancelAnimationFrame(rafId)
+      if (resumeTimer) clearTimeout(resumeTimer)
+      el.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
+      el.removeEventListener('wheel', onWheel)
+    }
   }, [graph.nodes.length])
 
   const colorFn = useCallback((node: object) => nodeColor(node as GraphNode, filter), [filter])
@@ -217,7 +346,7 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
           placeholder="Filter nodes…"
           className="w-48 px-2.5 py-1 text-xs"
         />
-        <Button variant="glass" size="sm" onClick={() => graphRef.current?.zoomToFit(400)} title="Fit view (f)">
+        <Button variant="glass" size="sm" onClick={() => fit(400)} title="Fit view (f)">
           Fit (f)
         </Button>
         <Button
@@ -288,10 +417,11 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
             </div>
           ) : (
             <>
-              <GraphErrorBoundary>
+              <GraphErrorBoundary onReset={handleGraphReset}>
                 <ForceGraph3D
+                  key={mountGen}
                   ref={graphRef}
-                  graphData={filteredData}
+                  graphData={forcesReady ? filteredData : EMPTY_FORCE_GRAPH_DATA}
                   width={dims.width}
                   height={dims.height}
                   backgroundColor={GRAPH_BG}
@@ -304,10 +434,23 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                   linkWidth={1}
                   linkOpacity={0.5}
                   onNodeClick={handleNodeClick}
-                  cooldownTicks={100}
+                  warmupTicks={GRAPH_WARMUP_TICKS}
+                  cooldownTicks={0}
                   d3VelocityDecay={0.3}
                   d3AlphaDecay={0.02}
                   enableNodeDrag
+                  onEngineStop={() => {
+                    // First real digest after the two-phase mount (D1): the headless
+                    // warmupTicks pre-settle just finished, so fit-to-view once,
+                    // instantly (no visible camera animation stacked on top of the
+                    // pre-settle). Gated on forcesReady so the phase-1 empty-data
+                    // mount's own onEngineStop (cooldownTicks=0 fires even at 0
+                    // nodes) can't consume the one-shot flag before real data loads.
+                    if (forcesReady && !didFitRef.current) {
+                      didFitRef.current = true
+                      fit(0)
+                    }
+                  }}
                 />
               </GraphErrorBoundary>
               {/* Legend — only the states actually present in this graph (Step 6). */}

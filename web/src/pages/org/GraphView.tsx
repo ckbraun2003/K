@@ -1,11 +1,17 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import ForceGraph3D from 'react-force-graph-3d'
 import type { Project } from '@k/shared'
 import { api } from '../../lib/api'
 import GraphErrorBoundary from '../../components/GraphErrorBoundary'
 import { navigate } from '../../lib/route'
-import { GRAPH_BG, configureGraphForces, smallFleetCameraZ } from '../../lib/graph'
+import {
+  GRAPH_BG,
+  GRAPH_WARMUP_TICKS,
+  EMPTY_FORCE_GRAPH_DATA,
+  configureGraphForces,
+  smallFleetCameraZ,
+} from '../../lib/graph'
 import { healthRubric } from '../../lib/health'
 import { GlassPanel } from '../../ui/GlassPanel'
 import { Button } from '../../ui/Button'
@@ -42,6 +48,15 @@ export default function GraphView() {
   // node lands in-viewport (F-043). Reset the latch when the project set changes so
   // a freshly loaded fleet re-fits, but a user's later zoom/pan is never yanked.
   const didFitRef = useRef(false)
+  // D1 (ui-adjustments): gates the real graphData behind a two-phase mount — see
+  // EMPTY_FORCE_GRAPH_DATA's doc comment in graph.ts for why (warmupTicks digests
+  // headlessly & synchronously on mount, before configureGraphForces' ref-based
+  // force-tuning could otherwise ever run first).
+  const [forcesReady, setForcesReady] = useState(false)
+  // D2 fix: bumped on a GraphErrorBoundary reset so the ForceGraph3D subtree gets a
+  // fresh `key` (a truly new instance + imperative ref) and the two-phase-mount
+  // effect below (keyed on it) re-arms — see handleGraphReset.
+  const [mountGen, setMountGen] = useState(0)
 
   // DF-2: 1-2 node fleets degenerate zoomToFit's bounding sphere and park the
   // camera inside the node mesh — pin a fixed sane distance instead of fitting.
@@ -51,9 +66,19 @@ export default function GraphView() {
     else graphRef.current?.zoomToFit(400, 40)
   }, [projects.length])
 
+  // Also re-arms on a GraphErrorBoundary remount (mountGen): the fresh ForceGraph3D
+  // instance opens on a default camera, so it needs its own one-shot fit too.
   useEffect(() => {
     didFitRef.current = false
-  }, [projects.length])
+  }, [projects.length, mountGen])
+
+  // GraphErrorBoundary reset (D2 fix): the remounted ForceGraph3D is a brand-new
+  // d3ForceLayout, so the two-phase mount (D1) must redo phase 1 — reset forcesReady
+  // and bump mountGen so the effect below + the ForceGraph3D `key` both re-fire.
+  const handleGraphReset = useCallback(() => {
+    setForcesReady(false)
+    setMountGen(g => g + 1)
+  }, [])
 
   // Fit-view keyboard shortcut (parity with the Knowledge-Graph tab's 'f').
   useEffect(() => {
@@ -81,23 +106,43 @@ export default function GraphView() {
     return () => ro.disconnect()
   }, [])
 
-  // Space nodes out + prevent overlap once the project set is known.
+  // Space nodes out + prevent overlap once the project set is known. Two-phase
+  // mount (D1): the FIRST ForceGraph3D mount below is fed EMPTY_FORCE_GRAPH_DATA
+  // (a trivial, instant digest) precisely so d3Force() — only callable once the
+  // engine has mounted — is reachable here BEFORE the real data's
+  // warmupTicks-driven digest ever runs; forcesReady then swaps the real data in.
   useEffect(() => {
+    // Guard on real data: without this, this effect's mount pass fires while
+    // `projects` is still `[]` (pre-query-resolve) — before the ForceGraph3D below
+    // (gated behind `projects.length === 0`) has ever mounted — which would flip
+    // forcesReady true prematurely and defeat the two-phase mount entirely (its
+    // real FIRST mount would get real data directly, since forcesReady is already
+    // true by the time the fleet actually has projects).
+    if (projects.length === 0) return
     configureGraphForces(graphRef.current, { nodeSize: 7 })
-  }, [projects.length])
+    setForcesReady(true)
+  }, [projects.length, mountGen])
 
-  const graphData = {
-    nodes: projects.map(p => ({
-      id: p.id,
-      label: p.name,
-      val: 6,
-      color: healthColor(p.healthScore),
-    })),
-    // Cross-project dependency edges aren't derivable yet: the fleet view is fed only
-    // by GET /projects (independent project records with no inter-project relation).
-    // Leave nodes-only until a backend data source for fleet dependencies exists.
-    links: [] as { source: string; target: string }[],
-  }
+  // Memoized: react-kapsule diffs props by REFERENCE (prevProps[p] !== props[p]),
+  // so an un-memoized object literal here would be "new" on every render — and
+  // with warmupTicks now driving the initial layout (D1), that would re-run the
+  // full headless pre-settle on every unrelated re-render, not just when the
+  // project set actually changes.
+  const graphData = useMemo(
+    () => ({
+      nodes: projects.map(p => ({
+        id: p.id,
+        label: p.name,
+        val: 6,
+        color: healthColor(p.healthScore),
+      })),
+      // Cross-project dependency edges aren't derivable yet: the fleet view is fed only
+      // by GET /projects (independent project records with no inter-project relation).
+      // Leave nodes-only until a backend data source for fleet dependencies exists.
+      links: [] as { source: string; target: string }[],
+    }),
+    [projects],
+  )
 
   return (
     <div className="flex h-full flex-col">
@@ -129,10 +174,11 @@ export default function GraphView() {
           </div>
         ) : (
           <>
-            <GraphErrorBoundary>
+            <GraphErrorBoundary onReset={handleGraphReset}>
               <ForceGraph3D
+                key={mountGen}
                 ref={graphRef}
-                graphData={graphData}
+                graphData={forcesReady ? graphData : EMPTY_FORCE_GRAPH_DATA}
                 width={dims.width}
                 height={dims.height}
                 backgroundColor={GRAPH_BG}
@@ -144,15 +190,18 @@ export default function GraphView() {
                 onNodeClick={(node: FGNode) => {
                   if (node.id) navigate('project', node.id as string)
                 }}
-                cooldownTicks={100}
+                warmupTicks={GRAPH_WARMUP_TICKS}
+                cooldownTicks={0}
                 d3VelocityDecay={0.3}
                 d3AlphaDecay={0.02}
                 enableNodeDrag
                 onEngineStop={() => {
                   // Auto-fit once the force layout settles, so the whole fleet is
                   // framed on first load (guarded so a later re-settle after a
-                  // user pan/zoom doesn't fight them).
-                  if (!didFitRef.current) {
+                  // user pan/zoom doesn't fight them). forcesReady also guards the
+                  // phase-1 empty-data mount's own onEngineStop (cooldownTicks=0
+                  // fires even at 0 nodes) from consuming the one-shot flag early.
+                  if (forcesReady && !didFitRef.current) {
                     didFitRef.current = true
                     fit()
                   }

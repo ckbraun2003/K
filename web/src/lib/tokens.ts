@@ -12,6 +12,7 @@ export const TOKEN_FALLBACKS: Record<string, string> = {
   '--chart-4': '#38bdf8', '--chart-5': '#a855f7', '--chart-6': '#f87171',
   '--chart-7': '#c084fc', '--chart-8': '#6366f1', '--chart-other': '#4c3a6e',
   '--terminal-bg': '#0b0e14',
+  '--graph-bg': '#14161c',
   // LG2 + code-viewer (impressive-wave W0.2) — mirrored from index.css :root
   '--lg-blob-1': 'rgba(168, 85, 247, 0.16)', '--lg-blob-2': 'rgba(255, 143, 192, 0.13)',
   '--lg-blob-3': 'rgba(56, 189, 248, 0.11)', '--lg-blob-4': 'rgba(99, 102, 241, 0.10)',
