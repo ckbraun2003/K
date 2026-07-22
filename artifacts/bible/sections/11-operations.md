@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-07-14
+updated: 2026-07-22
 ---
 
 ## Running locally
@@ -202,25 +202,17 @@ dev token transparently (no login). Accessed remotely, a REST `401` triggers a
 **login screen**: paste the harness token; it is stored in `sessionStorage` and
 attached to subsequent REST (`Authorization: Bearer …`) and WS (`?token=…`)
 calls. The real token is **never** baked into the built bundle, and since W10a
-(D-066) even the loopback-only dev terminal/harness tokens are emitted only under
+(D-066) even the loopback-only dev harness token is emitted only under
 `vite serve` — a **prod build ships none**.
 
-## Security hardening — terminal + host credentials (W10a, D-066)
+## Security hardening — host credentials (W10a, D-066)
 
-Three defense-in-depth hardenings on top of the loopback default:
-
-- **Scrubbed terminal env (F-084).** The browser terminal's `node-pty` no longer inherits
-  `process.env`. It runs a **scrubbed** env — a denylist strips vendor prefixes and any
-  `*_TOKEN` / `*_KEY` / `*_SECRET` / `*_PASSWORD` plus connection-string
-  `*_URL` / `*_URI` / `*_DSN` / `*_PASS` / `*_PWD` / `CONNECTION` vars (while `PATH` / `HOME` / `PWD`
-  and the like survive) — so even a leaked/guessed terminal token can't `echo $ANTHROPIC_API_KEY`.
-- **No dev tokens in a prod bundle (F-084).** `VITE_TERMINAL_TOKEN` and `VITE_HARNESS_TOKEN` are
-  emitted `undefined` in a production build (the dev literal is injected only under `vite serve`), and
-  `TerminalPage`'s token fallback is dev-gated — so `pnpm build` never ships `dev-terminal-token` /
-  `dev-token-change-me`; prod fails **closed** instead.
-- **Remote terminal is opt-in (F-084).** A non-loopback `HOST` **with** `ENABLE_TERMINAL` now
-  **refuses to boot** unless `TERMINAL_ALLOW_REMOTE=true` — even with a strong `TERMINAL_TOKEN`
-  (previously only a weak/empty token was refused) — so an accidental LAN bind can't expose a shell.
+The built-in browser terminal's own defense-in-depth hardening (F-084 — a scrubbed
+`process.env` denylist stripping `*_TOKEN`/`*_KEY`/`*_SECRET`/`*_PASSWORD`/connection-string vars
+from the shell it spawned, a dev-gated `VITE_TERMINAL_TOKEN` never baked into a prod bundle, and an
+opt-in-only remote `TERMINAL_ALLOW_REMOTE` gate) was retired along with the terminal feature itself
+in UI Adjustments Round 3 (D-134, 2026-07-22) — see the roadmap's 3-6 entry for the shipped history.
+What remains of W10a is host-credential hardening:
 
 **Credential posture is surfaced + opt-out-able (F-064/F-090).** The agent-engine boundary (§02) uses
 a K-token-first auth with a guarded host-credential dogfooding fallback (D-027). That fallback is now
@@ -398,8 +390,7 @@ the REST API with a `git credential` token.
 - The main `/ws` event gateway is **authenticated** (Phase 4): exempt from the
   header hook (a browser WS can't send one) but its handler validates a
   `?token=` query param with a constant-time compare and closes unauthenticated
-  sockets with code `4401` before subscribing them. `/ws/terminal` keeps its own
-  scoped `TERMINAL_TOKEN` gate (default-off feature).
+  sockets with code `4401` before subscribing them.
 - Setting `HOST=0.0.0.0` is still only safe **behind** Tailscale or an
   authenticating HTTPS reverse proxy (see Remote access). The non-loopback safety
   gate prevents booting that posture with a weak/empty token.

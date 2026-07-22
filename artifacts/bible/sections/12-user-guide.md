@@ -2,7 +2,7 @@
 title: User Guide
 icon: "❔"
 status: active
-updated: 2026-07-20
+updated: 2026-07-22
 ---
 
 The mental model is **you direct an agent organization**: you talk to **K** — a genuine engineering
@@ -54,11 +54,10 @@ The shell has four persistent zones: the icon **sidebar** (left), the **command 
 | ⋔ | **Workflows** | The delegation loop as designed + a live sub-agent tree for a chosen run |
 | ∿ | **Metrics** | Tokens, cost, and run trends over time |
 | ⇄ | **Routing** | Model routing stats |
-| `>_` | **Terminal** | Guarded web terminal (default-off; needs `ENABLE_TERMINAL` + a `TERMINAL_TOKEN`) |
 | ⚙ | **Settings** *(footer)* | Provider/auth status (no secrets) + the guarded global CLAUDE.md editor |
 | ❔ | **Help** *(footer)* | Opens this bible |
 
-Each icon shows a tooltip on hover/focus; the active destination gets the accent pill. Keyboard `g` then a letter jumps (`g p` → Projects, `g w` → Workflows, `g ,` → Settings). **Phase 5** regrouped these into **Direct** (K-home · Chief · Orchestrators · Workflows · Projects · Skills · Memory) and **Observe** (Runs · Graph · Metrics · Routing · Evals · Terminal), with K-home as the landing (§08).
+Each icon shows a tooltip on hover/focus; the active destination gets the accent pill. Keyboard `g` then a letter jumps (`g p` → Projects, `g w` → Workflows, `g ,` → Settings). **Phase 5** regrouped these into **Direct** (K-home · Chief · Orchestrators · Workflows · Projects · Skills · Memory) and **Observe** (Runs · Graph · Metrics · Routing · Evals), with K-home as the landing (§08).
 
 **⌘K command bar** — one input, two behaviors ranked in a single result list:
 
