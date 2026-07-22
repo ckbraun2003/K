@@ -17,11 +17,14 @@ import {
   EMPTY_FORCE_GRAPH_DATA,
   configureGraphForces,
   smallFleetCameraZ,
+  applyGraphLod,
+  LOD_LOW_RES_THRESHOLD,
   type DispatchAction,
   type GraphNode,
   makeGraphUpdateHandler,
   nodeColor,
 } from '../../lib/graph'
+import { computeGraphLayout, type LayoutPosition } from '../../lib/graph-layout'
 import { Icon } from '../../ui/Icon'
 import { Button, IconButton } from '../../ui/Button'
 import { Spinner } from '../../ui/Spinner'
@@ -55,6 +58,11 @@ function formatBuiltAt(builtAt: number | null): string {
   return `built ${Math.floor(h / 24)}d ago`
 }
 
+// Hardening fix (opus review, Minor #2): if the graph-layout worker hasn't resolved
+// positions within this budget, the layout effect falls back to the synchronous
+// path so the "Computing layout…" overlay can never hang on a stuck/silent worker.
+const WORKER_WATCHDOG_MS = 4_000
+
 interface Props {
   projectId: string
 }
@@ -70,6 +78,15 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
 
   const graph = data ?? EMPTY
   const building = graph.status === 'building'
+
+  // Large-graph guardrail: above LOD_NODE_CAP nodes, render only the top-N most
+  // connected (applyGraphLod) so the WebGL scene — and the layout below — never
+  // has to handle thousands of meshes. Memoised on the raw graph arrays so a text
+  // filter (which only narrows the visible subset) never re-caps or re-lays-out.
+  const lod = useMemo(
+    () => applyGraphLod(graph.nodes as unknown as GraphNode[], graph.links as unknown as GraphLink[]),
+    [graph.nodes, graph.links],
+  )
 
   const [selected, setSelected] = useState<GraphNode | null>(null)
   const [filter, setFilter] = useState('')
@@ -89,6 +106,20 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
   // fresh `key` (a truly new instance + imperative ref) and the two-phase-mount
   // effect below (keyed on it) re-arms — see handleGraphReset.
   const [mountGen, setMountGen] = useState(0)
+  // D-134 (Round 3): precomputed force-layout positions, keyed by node id, produced
+  // OFF the main thread by graph-layout.worker (or a synchronous fallback). Null while
+  // the layout is still computing — the graph mounts on EMPTY until this fills in, so
+  // the page never blocks on a headless warmup regardless of graph size.
+  //
+  // Hardening fix (opus review, Minor #1): positions are bound to the EXACT `lod`
+  // they were computed for. Without this, a `lod` change (Refresh / WS graph_update
+  // on an already-loaded graph) leaves the OLD positions map non-null for one render
+  // — layoutReady would read true and the NEW node ids get looked up against the
+  // stale map, reaching the canvas without fx/fy/fz for one frame. Gating readiness
+  // on `layout.lod === lod` (referential identity — `lod` is memoised) closes that
+  // window: the gate holds EMPTY until positions for the CURRENT lod land.
+  const [layout, setLayout] = useState<{ lod: typeof lod; map: Map<string, { x: number; y: number; z: number }> } | null>(null)
+  const layoutReady = layout != null && layout.lod === lod
 
   // Live: a graph_update for THIS project refreshes the graph (build done / went stale).
   useEffect(() => {
@@ -209,6 +240,104 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
     setForcesReady(true)
   }, [graph.nodes.length, mountGen])
 
+  // D-134 (Round 3): compute the force layout OFF the main thread. On each new
+  // (LOD-capped) dataset, hand the bare {id}/{source,target} shape to a Web Worker
+  // that runs d3-force-3d to a bounded tick budget and posts back fixed positions;
+  // the main thread then pins them as fx/fy/fz and mounts with warmupTicks=0 (below),
+  // so the page NEVER runs the O(n log n) warmup synchronously. Falls back to a
+  // bounded SYNCHRONOUS layout when Worker is unavailable (jsdom/tests/SSR), which is
+  // also what keeps the mount testable. Re-runs only when the capped node/link set
+  // changes — a text filter never re-lays-out.
+  useEffect(() => {
+    const nodes = lod.nodes
+    const links = lod.links
+    if (nodes.length === 0) {
+      setLayout(null)
+      return
+    }
+    // Reset while (re)computing → layoutReady (gated on `layout.lod === lod`) reads
+    // false for the new `lod` even before this fires (the previous lod's `layout`
+    // fails the identity check on its own), but clearing here too avoids holding a
+    // stale map in state while the "Computing layout…" overlay shows and the graph
+    // stays mounted on EMPTY (zero simulation) until positions for THIS lod arrive.
+    setLayout(null)
+    if (lod.capped) {
+      // No silent truncation — record what the guardrail dropped.
+      console.info(
+        `KnowledgeGraphTab: large graph — laying out the top ${lod.shown} of ${lod.total} nodes (by degree).`,
+      )
+    }
+
+    const layoutNodes = nodes.map(n => ({ id: n.id }))
+    const layoutLinks = links.map(l => ({
+      source: typeof l.source === 'object' ? l.source.id : l.source,
+      target: typeof l.target === 'object' ? l.target.id : l.target,
+    }))
+    const opts = { ticks: GRAPH_WARMUP_TICKS, nodeSize: 5 }
+
+    let cancelled = false
+    // Hardening fix (opus review, Minor #2): a worker watchdog. If the worker
+    // hasn't resolved positions for THIS lod within WORKER_WATCHDOG_MS, fall back
+    // to the synchronous path — so a stuck/silent worker (one that never posts a
+    // message and never fires onerror) can't leave the "Computing layout…" overlay
+    // hung forever. Cleared as soon as positions resolve by any path, and in the
+    // effect cleanup; guarded by `cancelled` so a watchdog that fires for a stale
+    // lod (effect already re-ran) is a no-op.
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+    const clearWatchdog = () => {
+      if (watchdog !== undefined) {
+        clearTimeout(watchdog)
+        watchdog = undefined
+      }
+    }
+    const apply = (pos: LayoutPosition[]) => {
+      clearWatchdog()
+      if (cancelled) return
+      const map = new Map<string, { x: number; y: number; z: number }>()
+      for (const p of pos) map.set(p.id, { x: p.x, y: p.y, z: p.z })
+      setLayout({ lod, map })
+    }
+    const runSync = () => apply(computeGraphLayout(layoutNodes, layoutLinks, opts))
+
+    // Fallback: no Worker (jsdom/tests/SSR) → bounded synchronous layout.
+    if (typeof Worker === 'undefined') {
+      runSync()
+      return
+    }
+
+    let worker: Worker
+    try {
+      worker = new Worker(new URL('../../lib/graph-layout.worker.ts', import.meta.url), { type: 'module' })
+    } catch {
+      // Worker construction unsupported here — degrade gracefully.
+      runSync()
+      return
+    }
+    worker.onmessage = (e: MessageEvent<LayoutPosition[]>) => {
+      apply(e.data)
+      worker.terminate()
+    }
+    worker.onerror = () => {
+      // Worker threw (e.g. module load failed) — fall back so the graph still
+      // renders instead of spinning on the overlay forever.
+      clearWatchdog()
+      if (!cancelled) runSync()
+      worker.terminate()
+    }
+    worker.postMessage({ nodes: layoutNodes, links: layoutLinks, opts })
+    watchdog = setTimeout(() => {
+      watchdog = undefined
+      if (cancelled) return
+      worker.terminate()
+      runSync()
+    }, WORKER_WATCHDOG_MS)
+    return () => {
+      cancelled = true
+      clearWatchdog()
+      worker.terminate()
+    }
+  }, [lod])
+
   // D2: slow ambient auto-rotate around the graph center. react-force-graph-3d's
   // three.js TrackballControls have no built-in `autoRotate` (unlike OrbitControls),
   // so we drive the orbit ourselves: each frame, read the camera's CURRENT position
@@ -237,7 +366,10 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
   }, [selected])
 
   useEffect(() => {
-    if (graph.nodes.length === 0 || prefersReducedMotion()) return
+    // layoutReady gate (D-134): don't orbit before the worker/fallback has produced
+    // positions — the graph is still mounted on EMPTY until then, so there is nothing
+    // to rotate and the camera reads a degenerate scene.
+    if (graph.nodes.length === 0 || !layoutReady || prefersReducedMotion()) return
     const el = containerRef.current
     if (!el) return
 
@@ -323,7 +455,8 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
     }
     // mountGen: re-arms this loop on a GraphErrorBoundary remount — see the
     // soft-crash-fix note above the effect for why this dep is load-bearing.
-  }, [graph.nodes.length, mountGen])
+    // layoutReady: arms the loop only once positions have arrived (D-134).
+  }, [graph.nodes.length, mountGen, layoutReady])
 
   const colorFn = useCallback((node: object) => nodeColor(node as GraphNode, filter), [filter])
 
@@ -338,22 +471,32 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
   }, [graph.nodes])
 
   const filteredData = useMemo(() => {
-    const nodes = graph.nodes as unknown as GraphNode[]
-    const links = graph.links as unknown as GraphLink[]
-    if (!filter) return { nodes, links }
+    const baseNodes = lod.nodes
+    const baseLinks = lod.links
+    // Merge the precomputed FIXED positions (fx/fy/fz) so the graph mounts on the
+    // off-thread layout with zero main-thread simulation. Fresh node objects — never
+    // mutate the React Query cache. While positions are still computing (or belong to
+    // a stale `lod` — see the `layout` state doc comment) the render gate keeps EMPTY
+    // mounted, so unpositioned nodes never reach the canvas.
+    const positions = layout && layout.lod === lod ? layout.map : null
+    const place = (n: GraphNode): GraphNode => {
+      const p = positions?.get(n.id)
+      return p ? { ...n, x: p.x, y: p.y, z: p.z, fx: p.x, fy: p.y, fz: p.z } : n
+    }
+    if (!filter) return { nodes: baseNodes.map(place), links: baseLinks }
     const q = filter.toLowerCase()
     const matchIds = new Set(
-      nodes.filter(n => (n.label ?? n.id ?? '').toString().toLowerCase().includes(q)).map(n => n.id),
+      baseNodes.filter(n => (n.label ?? n.id ?? '').toString().toLowerCase().includes(q)).map(n => n.id),
     )
     return {
-      nodes: nodes.filter(n => matchIds.has(n.id)),
-      links: links.filter(l => {
+      nodes: baseNodes.filter(n => matchIds.has(n.id)).map(place),
+      links: baseLinks.filter(l => {
         const src = typeof l.source === 'object' ? l.source.id : l.source
         const tgt = typeof l.target === 'object' ? l.target.id : l.target
         return matchIds.has(src as string) && matchIds.has(tgt as string)
       }),
     }
-  }, [graph.nodes, graph.links, filter])
+  }, [lod, filter, layout])
 
   const enrichment = selected?.enrichment
   // Canonical "do we have graph data" signal: the actually-rendered node array, so the
@@ -389,6 +532,15 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
         <span className="font-mono text-[10px] text-muted" data-testid="kg-count-label">
           {filteredData.nodes.length} nodes · {filteredData.links.length} edges
         </span>
+        {lod.capped && (
+          <span
+            data-testid="kg-lod-note"
+            className="rounded bg-[var(--glass-3)] px-2 py-0.5 text-[10px] font-medium text-muted"
+            title={`Large graph: showing the ${lod.shown} most-connected of ${lod.total} nodes so rendering stays responsive.`}
+          >
+            top {lod.shown} of {lod.total}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-2">
           {building && (
             <span className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
@@ -449,7 +601,10 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                 <ForceGraph3D
                   key={mountGen}
                   ref={graphRef}
-                  graphData={forcesReady ? filteredData : EMPTY_FORCE_GRAPH_DATA}
+                  // Mount on the precomputed FIXED positions once BOTH the two-phase
+                  // forces are tuned (forcesReady) AND the off-thread layout is in
+                  // (layoutReady). Until then, EMPTY — zero nodes, nothing to warm.
+                  graphData={forcesReady && layoutReady ? filteredData : EMPTY_FORCE_GRAPH_DATA}
                   width={dims.width}
                   height={dims.height}
                   backgroundColor={GRAPH_BG}
@@ -457,30 +612,47 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                   nodeColor={colorFn}
                   nodeVal={5}
                   nodeOpacity={0.9}
-                  nodeResolution={16}
+                  // Large graphs drop to coarser spheres to cut per-node mesh cost.
+                  nodeResolution={lod.shown > LOD_LOW_RES_THRESHOLD ? 8 : 16}
                   linkColor={() => GRAPH_LINK_COLOR}
                   linkWidth={1}
                   linkOpacity={0.5}
                   onNodeClick={handleNodeClick}
-                  warmupTicks={GRAPH_WARMUP_TICKS}
+                  // D-134: positions are precomputed OFF the main thread and pinned as
+                  // fx/fy/fz, so the on-mount simulation does ZERO work — no headless
+                  // warmup (the old freeze cause), no cooldown animation. The layout
+                  // budget now lives in the worker (GRAPH_WARMUP_TICKS ticks there).
+                  warmupTicks={0}
                   cooldownTicks={0}
                   d3VelocityDecay={0.3}
                   d3AlphaDecay={0.02}
                   enableNodeDrag
                   onEngineStop={() => {
-                    // First real digest after the two-phase mount (D1): the headless
-                    // warmupTicks pre-settle just finished, so fit-to-view once,
-                    // instantly (no visible camera animation stacked on top of the
-                    // pre-settle). Gated on forcesReady so the phase-1 empty-data
-                    // mount's own onEngineStop (cooldownTicks=0 fires even at 0
-                    // nodes) can't consume the one-shot flag before real data loads.
-                    if (forcesReady && !didFitRef.current) {
+                    // First digest once real (positioned) data swaps in: fit-to-view
+                    // once, instantly. Gated on forcesReady so the phase-1 empty-data
+                    // mount's own onEngineStop (cooldownTicks=0 fires even at 0 nodes)
+                    // can't consume the one-shot flag before real data loads.
+                    if (forcesReady && layoutReady && !didFitRef.current) {
                       didFitRef.current = true
                       fit(0)
                     }
                   }}
                 />
               </GraphErrorBoundary>
+              {/* Layout overlay: shown while the worker (or fallback) computes fixed
+                  positions. pointer-events-none so the page stays fully interactive —
+                  the graph is mounted on EMPTY behind it, nothing to block. */}
+              {!layoutReady && (
+                <div
+                  data-testid="kg-layout-overlay"
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center"
+                >
+                  <div className="flex items-center gap-2 glass-overlay rounded-panel px-4 py-2 text-sm text-muted">
+                    <Spinner size={16} />
+                    <span>Computing layout…</span>
+                  </div>
+                </div>
+              )}
               {/* Legend — only the states actually present in this graph (Step 6). */}
               {visibleLegend.length > 0 && (
                 <div data-testid="kg-legend" className="pointer-events-none absolute bottom-3 left-3 flex flex-col gap-1 glass-overlay px-3 py-2">
@@ -606,7 +778,7 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                   dispatchMutation.reset()
                   setDispatchOpen(true)
                 }}
-                className="w-full rounded-lg border border-border bg-raised px-3 py-2 text-xs font-semibold text-text transition-colors hover:border-accent"
+                className="w-full rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-2 text-xs font-semibold text-text transition-colors hover:bg-[var(--glass-hover)]"
               >
                 Dispatch Agent
               </motion.button>
@@ -623,7 +795,7 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
             variants={fade} initial="hidden" animate="visible" exit="exit"
             className={`absolute bottom-3 right-3 z-40 flex items-center gap-3 rounded-lg border px-3 py-2 text-xs shadow-lg ${
               notice.kind === 'ok'
-                ? 'border-border bg-surface text-text'
+                ? 'border-[var(--glass-tier-border)] bg-[var(--glass-3)] text-text'
                 : 'border-red/40 bg-red/10 text-red'
             }`}
             role="status"
@@ -676,8 +848,8 @@ export default function KnowledgeGraphTab({ projectId }: Props) {
                   key={a.action}
                   className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition-colors ${
                     action === a.action
-                      ? 'border-accent bg-accent/10'
-                      : 'border-border bg-surface hover:border-accent'
+                      ? 'border-[var(--glass-active-edge)] bg-[var(--glass-active)]'
+                      : 'border-[var(--glass-tier-border)] bg-[var(--glass-2)] hover:bg-[var(--glass-hover)]'
                   }`}
                 >
                   <input

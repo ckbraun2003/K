@@ -10,6 +10,7 @@ import {
   nodeColor,
   makeGraphUpdateHandler,
   configureGraphForces,
+  applyGraphLod,
   type GraphNode,
 } from '../src/lib/graph'
 import { readToken } from '../src/lib/tokens'
@@ -157,6 +158,57 @@ describe('configureGraphForces', () => {
   it('is a no-op for a null/undefined ref', () => {
     expect(() => configureGraphForces(null)).not.toThrow()
     expect(() => configureGraphForces(undefined)).not.toThrow()
+  })
+})
+
+describe('applyGraphLod — large-graph level-of-detail guardrail', () => {
+  it('returns the graph unchanged (same refs) below the cap', () => {
+    const nodes = [{ id: 'a' }, { id: 'b' }]
+    const links = [{ source: 'a', target: 'b' }]
+    const r = applyGraphLod(nodes, links, 10)
+    expect(r.capped).toBe(false)
+    expect(r.nodes).toBe(nodes)
+    expect(r.links).toBe(links)
+    expect(r.total).toBe(2)
+    expect(r.shown).toBe(2)
+  })
+
+  it('caps to the top-N most-connected nodes and drops dangling links', () => {
+    // 'h' is a hub (degree 4); 'lonely' has degree 0.
+    const nodes = [{ id: 'h' }, { id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }, { id: 'lonely' }]
+    const links = [
+      { source: 'h', target: 'a' },
+      { source: 'h', target: 'b' },
+      { source: 'h', target: 'c' },
+      { source: 'h', target: 'd' },
+    ]
+    const r = applyGraphLod(nodes, links, 3)
+    expect(r.capped).toBe(true)
+    expect(r.total).toBe(6)
+    expect(r.shown).toBe(3)
+    const ids = r.nodes.map(n => n.id)
+    expect(ids).toContain('h') // highest degree survives
+    expect(ids).not.toContain('lonely') // degree-0 dropped
+    // every surviving link has BOTH endpoints in the kept set
+    const kept = new Set(ids)
+    for (const l of r.links) {
+      expect(kept.has(l.source as string)).toBe(true)
+      expect(kept.has(l.target as string)).toBe(true)
+    }
+  })
+
+  it('breaks equal-degree ties on original order (deterministic)', () => {
+    const nodes = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+    const r = applyGraphLod(nodes, [], 2)
+    expect(r.nodes.map(n => n.id)).toEqual(['a', 'b'])
+  })
+
+  it('resolves object endpoints ({id}) when computing degree', () => {
+    const nodes = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+    const links = [{ source: { id: 'a' }, target: { id: 'b' } }]
+    const r = applyGraphLod(nodes, links, 2)
+    expect(r.shown).toBe(2)
+    expect(r.nodes.map(n => n.id).sort()).toEqual(['a', 'b']) // c (degree 0) dropped
   })
 })
 

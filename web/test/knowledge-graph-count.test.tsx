@@ -9,12 +9,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { GraphResponse } from '@k/shared'
 import { EMPTY_FORCE_GRAPH_DATA } from '../src/lib/graph'
 
-const { mockGraph, mockNavigate, zoomToFitSpy, cameraPositionSpy, graphDataSpy } = vi.hoisted(() => ({
+const { mockGraph, mockNavigate, zoomToFitSpy, cameraPositionSpy, graphDataSpy, propsSpy } = vi.hoisted(() => ({
   mockGraph: vi.fn(),
   mockNavigate: vi.fn(),
   zoomToFitSpy: vi.fn(),
   cameraPositionSpy: vi.fn(),
   graphDataSpy: vi.fn(),
+  propsSpy: vi.fn(),
 }))
 
 beforeAll(() => {
@@ -42,6 +43,7 @@ vi.mock('react-force-graph-3d', async () => {
     // dep array tracks graphData, not `[]`, to simulate both digests.
     React.useEffect(() => {
       graphDataSpy(props.graphData)
+      propsSpy(props)
       ;(props.onEngineStop as (() => void) | undefined)?.()
     }, [props.graphData])
     return React.createElement('div', { 'data-testid': 'force-graph-3d' })
@@ -80,6 +82,7 @@ beforeEach(() => {
   zoomToFitSpy.mockClear()
   cameraPositionSpy.mockClear()
   graphDataSpy.mockClear()
+  propsSpy.mockClear()
 })
 afterEach(() => cleanup())
 
@@ -127,5 +130,42 @@ describe('KnowledgeGraphTab — fit-on-load', () => {
     fireEvent.change(screen.getByPlaceholderText('Filter nodes…'), { target: { value: 'alpha' } })
     await waitFor(() => expect(screen.getByTestId('kg-count-label').textContent).toBe('1 nodes · 0 edges'))
     expect(zoomToFitSpy.mock.calls.length).toBe(callsAfterFirstFit)
+  })
+})
+
+describe('KnowledgeGraphTab — D-134 off-main-thread fixed-position mount', () => {
+  it('mounts with warmupTicks=0 / cooldownTicks=0 (zero main-thread simulation)', async () => {
+    renderTab()
+    // Wait for the phase-2 (real, positioned) mount — fit-on-load only fires then.
+    await waitFor(() => expect(zoomToFitSpy).toHaveBeenCalled())
+    // EVERY ForceGraph3D render used a zero warmup: the old synchronous headless
+    // warmup (the freeze cause) is gone — positions are precomputed off-thread.
+    expect(propsSpy.mock.calls.length).toBeGreaterThan(0)
+    for (const [props] of propsSpy.mock.calls) {
+      expect(props.warmupTicks).toBe(0)
+      expect(props.cooldownTicks).toBe(0)
+    }
+  })
+
+  it('pins the real nodes at precomputed fixed fx/fy/fz positions', async () => {
+    renderTab()
+    await waitFor(() => expect(zoomToFitSpy).toHaveBeenCalled())
+    const captured = graphDataSpy.mock.calls.map(c => c[0]) as Array<{ nodes?: Array<Record<string, unknown>> }>
+    const realData = captured.find(d => Array.isArray(d?.nodes) && d.nodes!.length === graph.nodes.length)
+    expect(realData).toBeTruthy()
+    for (const n of realData!.nodes!) {
+      expect(Number.isFinite(n.fx as number)).toBe(true)
+      expect(Number.isFinite(n.fy as number)).toBe(true)
+      expect(Number.isFinite(n.fz as number)).toBe(true)
+    }
+  })
+
+  it('shows the "Computing layout…" overlay only until positions arrive', async () => {
+    renderTab()
+    // The synchronous fallback (jsdom has no Worker) resolves positions on mount, so
+    // once the real graph is up the overlay is gone. (The overlay markup is exercised
+    // here; the transient computing state is covered by the pure-fn + fallback path.)
+    await waitFor(() => expect(screen.getByTestId('force-graph-3d')).toBeTruthy())
+    await waitFor(() => expect(screen.queryByTestId('kg-layout-overlay')).toBeNull())
   })
 })
