@@ -33,6 +33,8 @@ import { isTerminalRunStatus, trackSupervisedRun } from './run-lifecycle.js'
 import { onPipelineTerminal } from './pipeline-engine.js'
 import { ensureSession, sendToSession, undoSessionRun, getOrCreateConversation } from './agent-sessions.js'
 import { getProfile } from './profiles.js'
+import { domainForPipelineDef } from './domains.js'
+import { ORG_DEFAULT_PROFILE_ID } from './plan-gate.js'
 
 /** The singleton default K thread — the one front-door conversation for now. */
 export const DEFAULT_K_THREAD_ID = 'k-default'
@@ -585,7 +587,7 @@ export function continuePipelineOutcomeToK(): () => void {
     // "reporting profile" a multi-run pipeline has), falling back to the delegating
     // run's profile, then K itself. provenance NULL — no single run owns the outcome.
     const pr = pipelineDb.getPipelineRun.get(pipelineRunId) as
-      | { owner_profile_id?: string | null }
+      | { owner_profile_id?: string | null; definition_id?: string | null }
       | undefined
     const kProf = agentRunsDb.getAgentRunProfileByRunId.get(String(row.k_run_id)) as
       | { profile_id?: string }
@@ -596,6 +598,20 @@ export function continuePipelineOutcomeToK(): () => void {
         : kProf?.profile_id != null
           ? String(kProf.profile_id)
           : K_SECRETARY_PROFILE_ID
+    // The generic seeded default-orchestrator (profiles.ts:208, id ORG_DEFAULT_PROFILE_ID)
+    // is a catch-all row, not a real orchestrator/manager identity an operator recognizes
+    // — authoring an outcome note into ITS OWN conversation is the stray "orchestrator"
+    // message bug (an unowned conversation surfacing in Messages). Redirect to the
+    // pipeline definition's DOMAIN MANAGER instead — the SAME resolution
+    // routes/pipelines.ts's "Observed by" default uses (domainForPipelineDef(defId)
+    // ?.managerProfileId) — when one resolves to a real, non-deleted profile; otherwise
+    // fall through to the deleted-owner guard below, which lands k-secretary delivery on
+    // the delegating thread. The generic profile's own conversation is NEVER addressed.
+    if (fromProfileId === ORG_DEFAULT_PROFILE_ID) {
+      const managerId =
+        pr?.definition_id != null ? domainForPipelineDef(String(pr.definition_id))?.managerProfileId ?? null : null
+      fromProfileId = managerId != null && getProfile(managerId) ? managerId : K_SECRETARY_PROFILE_ID
+    }
     // owner_profile_id has no FK (a profile can be deleted without invalidating run
     // history), so a since-deleted owner would make queueMessage throw "unknown target
     // profile" and the outcome would silently vanish. Fall back to k-secretary delivery

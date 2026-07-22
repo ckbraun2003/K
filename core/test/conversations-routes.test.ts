@@ -8,6 +8,8 @@ import { ConversationSummarySchema } from '@k/shared'
 import { db } from '../src/db.js'
 import { createProfile, getProfile } from '../src/profiles.js'
 import { ensureDefaultKThread, appendTurn, DEFAULT_K_THREAD_ID } from '../src/k-thread.js'
+import { getOrCreateConversation } from '../src/agent-sessions.js'
+import { ORG_DEFAULT_PROFILE_ID } from '../src/plan-gate.js'
 
 const TOKEN = process.env.HARNESS_TOKEN ?? 'dev-token-change-me'
 const AUTH = { authorization: `Bearer ${TOKEN}` }
@@ -31,6 +33,13 @@ beforeAll(async () => {
   await app.ready()
   if (!getProfile('k-secretary')) { createProfile({ id: 'k-secretary', name: 'K', tier: 'secretary' }); created.push('k-secretary') }
   if (!getProfile(AGENT)) { createProfile({ id: AGENT, name: 'CaBConvAgent', tier: 'orchestrator' }); created.push(AGENT) }
+  // Lane E fixture: the generic seeded default-orchestrator (profiles.ts:208) — a real
+  // profile row here so its conversation exclusion is tested against an ACTUAL profile,
+  // not merely a missing one (which listProfiles() would skip on its own).
+  if (!getProfile(ORG_DEFAULT_PROFILE_ID)) {
+    createProfile({ id: ORG_DEFAULT_PROFILE_ID, name: 'orchestrator', tier: 'orchestrator' })
+    created.push(ORG_DEFAULT_PROFILE_ID)
+  }
   // 30s: the index.js import + buildApp legitimately exceed the 10s default on a
   // loaded box (the domains-routes / session-id-capture hookTimeout precedent).
 }, 30_000)
@@ -112,6 +121,25 @@ describe('GET /api/conversations', () => {
     expect((def.json().conversations as Array<Record<string, unknown>>).some(c => c.id === t.id)).toBe(false)
     const all = await app.inject({ method: 'GET', url: '/api/conversations?archived=1', headers: AUTH })
     expect((all.json().conversations as Array<Record<string, unknown>>).some(c => c.id === t.id)).toBe(true)
+  })
+
+  it('excludes the generic default-orchestrator: never force-created, and hidden even if a conversation already exists (Lane E fix)', async () => {
+    // The read auto-ensures every non-K profile's conversation — ORG_DEFAULT_PROFILE_ID
+    // must NOT get one, unlike every other durable profile (AGENT, above).
+    const res = await app.inject({ method: 'GET', url: '/api/conversations', headers: AUTH })
+    expect(res.statusCode).toBe(200)
+    const { conversations } = res.json() as { conversations: Array<Record<string, unknown>> }
+    expect(conversations.some(c => c.profileId === ORG_DEFAULT_PROFILE_ID)).toBe(false)
+    expect(db.prepare(`SELECT 1 FROM k_threads WHERE profile_id = ?`).get(ORG_DEFAULT_PROFILE_ID)).toBeUndefined()
+
+    // Even a PRE-EXISTING generic conversation (created directly, bypassing the ensure
+    // loop above — e.g. leftover pre-fix data) must stay hidden from BOTH the default
+    // list and the ?archived=1 list.
+    const generic = getOrCreateConversation(ORG_DEFAULT_PROFILE_ID)
+    const res2 = await app.inject({ method: 'GET', url: '/api/conversations', headers: AUTH })
+    expect((res2.json().conversations as Array<Record<string, unknown>>).some(c => c.id === generic.id)).toBe(false)
+    const res3 = await app.inject({ method: 'GET', url: '/api/conversations?archived=1', headers: AUTH })
+    expect((res3.json().conversations as Array<Record<string, unknown>>).some(c => c.id === generic.id)).toBe(false)
   })
 })
 

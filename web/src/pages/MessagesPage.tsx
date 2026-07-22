@@ -44,7 +44,13 @@ export default function MessagesPage({ conversationId }: { conversationId?: stri
     displayName(c).toLowerCase().includes(q.toLowerCase()) ||
     (c.snippet ?? '').toLowerCase().includes(q.toLowerCase())
   const kConvs = conversations.filter(c => c.profileId === 'k-secretary' && matches(c))
-  const agentConvs = conversations.filter(c => c.profileId !== 'k-secretary' && matches(c))
+  // The generic seeded default-orchestrator (core/src/profiles.ts:208) is a catch-all
+  // row, not a real orchestrator identity an operator recognizes — the server already
+  // excludes it from the list + never force-creates it (routes/conversations.ts), but
+  // this client-side guard also hides an already-existing one (pre-fix data) defensively.
+  const agentConvs = conversations.filter(
+    c => c.profileId !== 'k-secretary' && c.profileId !== 'default-orchestrator' && matches(c),
+  )
   const selected = conversationId ? conversations.find(c => c.id === conversationId) ?? null : null
 
   // The last id this surface advanced the cursor for — dedups the same-selection
