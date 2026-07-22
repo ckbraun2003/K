@@ -73,7 +73,7 @@ function ExpandableRow({
       // substrings, and that 'var(--red)' is absent in the non-error case) — do
       // not convert to semantic-token classes.
       className={cn(
-        'rounded-lg border bg-[var(--raised)]',
+        'rounded-lg border bg-[var(--glass-3)]',
         error ? 'border-[var(--red)]/50' : 'border-[var(--border)]',
       )}
     >
@@ -134,7 +134,7 @@ function CodeBlock({ text, tone }: { text: string; tone?: 'add' | 'del' | 'error
         tone === 'add' && 'bg-green/10 text-green',
         tone === 'del' && 'bg-red/10 text-red',
         tone === 'error' && 'bg-red/10 text-red',
-        tone == null && 'bg-surface text-muted',
+        tone == null && 'bg-[var(--glass-code)] text-muted',
       )}
     >
       {text}

@@ -180,8 +180,8 @@ export function regressionBadge(
   if (c?.status === 'REGRESSION')
     return { label: 'REGRESSION', colorClass: 'bg-red/20 text-red' }
   // A dry run never compares fabricated results to real baselines — show a neutral, non-red badge.
-  if (c?.status === 'dry') return { label: 'dry', colorClass: 'bg-raised text-muted' }
-  return { label: 'no baseline', colorClass: 'bg-raised text-muted' }
+  if (c?.status === 'dry') return { label: 'dry', colorClass: 'bg-[var(--glass-2)] text-muted' }
+  return { label: 'no baseline', colorClass: 'bg-[var(--glass-2)] text-muted' }
 }
 
 /**

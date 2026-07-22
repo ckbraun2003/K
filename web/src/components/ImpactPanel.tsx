@@ -41,7 +41,7 @@ export default function ImpactPanel({ runId, projectId }: { runId: string; proje
   if (!data) return null
   if (!data.indexed) {
     return (
-      <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-border bg-raised px-3 py-2" data-testid="impact-cta">
+      <div className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-2" data-testid="impact-cta">
         <span className="text-xs text-muted">Impact map needs a code index.</span>
         {projectId && (
           <button
@@ -65,7 +65,7 @@ export default function ImpactPanel({ runId, projectId }: { runId: string; proje
             {data.risk} risk
           </span>
         )}
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-raised border border-border text-muted font-medium">
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--glass-3)] border border-[var(--glass-tier-border)] text-muted font-medium">
           {data.totalSymbols} symbols · {data.totalDependents} dependents
         </span>
         <span className="flex-1" />

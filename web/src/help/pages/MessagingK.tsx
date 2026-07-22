@@ -5,7 +5,7 @@ export function MessagingK() {
       <h2 className="text-title text-text">Messaging K & dispatching</h2>
       <p className="text-body text-muted">
         The dock is the one front door: a bar on Home, a floating K button everywhere else.{' '}
-        <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-text">⌘K</kbd> focuses it anywhere.
+        <kbd className="mono rounded bg-[var(--glass-3)] px-1.5 py-0.5 text-[10px] text-text">⌘K</kbd> focuses it anywhere.
       </p>
       <p className="text-body text-muted">
         The route preview shows where a message will land before you send it. Typing{' '}

@@ -69,7 +69,7 @@ export default function ReviewDeck({ runId, projectId }: ReviewDeckProps) {
     <div data-testid="review-deck" className="flex-1 min-h-0 flex flex-col">
       {/* Deck header: metric chips + verify chip + actions */}
       <div className="flex items-center gap-2 px-5 py-2 border-b border-border flex-shrink-0">
-        <span className="text-xs px-2 py-0.5 rounded font-medium bg-raised border border-border text-muted">
+        <span className="text-xs px-2 py-0.5 rounded font-medium bg-[var(--glass-3)] border border-[var(--glass-tier-border)] text-muted">
           {files.length} files · <span className="text-green">+{additions}</span> <span className="text-red">−{deletions}</span>
         </span>
         {diff?.truncated && (

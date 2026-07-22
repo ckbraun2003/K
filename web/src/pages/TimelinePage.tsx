@@ -52,7 +52,7 @@ export default function TimelinePage() {
               data-testid={`feed-chip-${k}`}
               className={cn(
                 'rounded px-1.5 py-0.5 text-[10px]',
-                active.has(k) ? 'bg-accent text-on-accent' : 'bg-raised text-muted',
+                active.has(k) ? 'bg-accent text-on-accent' : 'bg-[var(--glass-2)] text-muted',
               )}
             >
               <span aria-hidden="true">{FEED_ICON[k]}</span> {k.replace('_', ' ')} <span className="mono">{feed.counts[k] ?? 0}</span>

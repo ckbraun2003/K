@@ -105,7 +105,7 @@ function Composer({
       {/* @project picker — rows above the input, shown whenever `text` starts with
           '@'; picking one hands off to the dispatch confirm card below. */}
       {projectMatches && (
-        <div data-testid="dock-project-picker" className="mt-1.5 max-h-40 overflow-y-auto rounded-control border border-border bg-surface">
+        <div data-testid="dock-project-picker" className="mt-1.5 max-h-40 overflow-y-auto rounded-control border border-[var(--glass-tier-border)] bg-[var(--glass-3)]">
           {projectMatches.length === 0 ? (
             <p className="px-3 py-2 text-xs text-muted">No matching project</p>
           ) : (
@@ -115,7 +115,7 @@ function Composer({
                 type="button"
                 data-testid={`dock-project-row-${p.id}`}
                 onClick={() => onPickProject(p)}
-                className="block w-full px-3 py-1.5 text-left text-xs text-text transition-colors duration-100 hover:bg-raised"
+                className="block w-full px-3 py-1.5 text-left text-xs text-text transition-colors duration-100 hover:bg-[var(--glass-hover)]"
               >
                 <span className="text-accent">@</span> {p.name}
               </button>
@@ -570,7 +570,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                 onChange={e => setDispatchPrompt(e.target.value)}
                 onKeyDown={onDispatchComposeKeyDown}
                 placeholder="Describe the task for the agent…"
-                className="glow-focus w-full resize-none rounded-control border border-border bg-surface px-3 py-2 text-sm text-text placeholder-muted outline-none"
+                className="glow-focus w-full resize-none rounded-control border border-[var(--glass-tier-border)] bg-[var(--glass-2)] px-3 py-2 text-sm text-text placeholder-muted outline-none"
               />
               <p className="mt-1 text-[10px] text-muted">
                 <kbd className="mono">↵</kbd> send · <kbd className="mono">⇧↵</kbd> newline
@@ -728,7 +728,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                 type="button"
                 data-testid="dock-picker-new-chat"
                 onClick={() => selectThread(null)}
-                className="block w-full px-4 py-2 text-left text-xs text-accent-hover transition-colors duration-100 hover:bg-raised"
+                className="block w-full px-4 py-2 text-left text-xs text-accent-hover transition-colors duration-100 hover:bg-[var(--glass-hover)]"
               >
                 + New chat
               </button>
@@ -739,8 +739,8 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                   data-testid={`dock-picker-thread-${t.id}`}
                   onClick={() => selectThread(t.id)}
                   aria-current={t.id === selected}
-                  className={`block w-full px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-raised ${
-                    t.id === selected ? 'bg-raised text-text' : 'text-text'
+                  className={`block w-full px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-[var(--glass-hover)] ${
+                    t.id === selected ? 'bg-[var(--glass-active)] text-text shadow-[inset_0_0_0_1px_var(--glass-active-edge)]' : 'text-text'
                   }`}
                 >
                   <span className="flex items-center justify-between gap-2">

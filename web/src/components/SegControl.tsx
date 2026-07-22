@@ -6,6 +6,9 @@
  * ('surface' default | 'accent' — accent fill uses `text-[var(--bg)]`, never text-white).
  * Both strictly additive: existing callers ({ options:{label,value}[], value, onChange })
  * and their rendered class output are unchanged.
+ * Round 3 (D-134): interactions are sky-blue — the 'surface' active segment uses
+ * --glass-active + a --glass-active-edge ring (not the purple --glass-4), and
+ * inactive-option hover uses --glass-hover.
  */
 export interface SegOption<T extends string> { label: string; value: T; icon?: string; count?: number; disabled?: boolean }
 
@@ -22,7 +25,7 @@ export default function SegControl<T extends string>({
   const pad = size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-xs'
   const activeCls = activeTone === 'accent'
     ? 'bg-[var(--accent)] text-[var(--bg)] shadow-sm'
-    : 'bg-[var(--glass-4)] text-[var(--text)] shadow-sm'
+    : 'bg-[var(--glass-active)] text-[var(--text)] shadow-[inset_0_0_0_1px_var(--glass-active-edge)]'
   return (
     <div role="group" aria-label={ariaLabel} className="flex items-center gap-0.5 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-1)] p-0.5">
       {options.map((o) => {
@@ -37,7 +40,7 @@ export default function SegControl<T extends string>({
             aria-disabled={o.disabled || undefined}
             onClick={() => onChange(o.value)}
             className={`inline-flex items-center gap-1 rounded ${pad} font-medium transition-colors ${
-              active ? activeCls : 'text-[var(--muted)] hover:bg-[var(--glass-active)] hover:text-[var(--text)]'
+              active ? activeCls : 'text-[var(--muted)] hover:bg-[var(--glass-hover)] hover:text-[var(--text)]'
             }${o.disabled ? ' cursor-not-allowed opacity-40' : ''}`}
           >
             {o.icon && <span aria-hidden>{o.icon}</span>}

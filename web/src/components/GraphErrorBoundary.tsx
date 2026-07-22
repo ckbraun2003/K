@@ -55,7 +55,7 @@ export class GraphErrorBoundary extends Component<Props, State> {
         <span className="text-[11px] text-[var(--muted)]">Try reloading the page.</span>
         <button
           onClick={this.reset}
-          className="mt-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)]"
+          className="mt-1 rounded-lg border border-[var(--border)] bg-[var(--glass-3)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)]"
         >
           Retry
         </button>

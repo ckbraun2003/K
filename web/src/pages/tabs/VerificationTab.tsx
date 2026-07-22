@@ -113,7 +113,7 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
           {/* Left column */}
           <div className="space-y-5">
             {/* Score + breakdown */}
-            <div className="rounded-panel border border-border bg-surface p-4">
+            <div className="rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
               <div className="flex items-baseline gap-3">
                 <span className={cn('mono text-3xl font-semibold', scoreColor(latest.score))}>
                   {latest.score ?? '—'}
@@ -163,7 +163,7 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
             </div>
 
             {/* Findings */}
-            <div className="rounded-panel border border-border bg-surface p-4">
+            <div className="rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
               <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
                 Findings
               </h3>
@@ -196,7 +196,7 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
             </div>
 
             {/* Fixes applied */}
-            <div className="rounded-panel border border-border bg-surface p-4">
+            <div className="rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
               <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
                 Fixes applied
               </h3>
@@ -216,7 +216,7 @@ export default function VerificationTab({ projectId }: { projectId: string }) {
           </div>
 
           {/* Right column: history with sparkline trend */}
-          <div className="rounded-panel border border-border bg-surface p-4">
+          <div className="rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
             <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
               History
             </h3>

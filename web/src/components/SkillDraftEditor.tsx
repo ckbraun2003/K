@@ -100,7 +100,7 @@ export default function SkillDraftEditor({
     name !== initial.name || description !== initial.description || body !== initial.body
 
   const inputCls =
-    'w-full rounded-lg border border-border bg-raised px-3 py-1.5 text-sm text-text placeholder-muted focus:border-accent focus:outline-none'
+    'w-full rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-1.5 text-sm text-text placeholder-muted focus:border-accent focus:outline-none'
 
   return (
     <div data-testid="draft-editor" className="space-y-3">

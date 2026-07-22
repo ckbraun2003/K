@@ -132,7 +132,7 @@ export default function McpTab() {
               This server runs on your machine with your permissions when mounted into a run.
               Review the command it executes:
             </span>
-            <span className="mono block break-all rounded-control bg-raised px-2.5 py-2 text-micro text-text">
+            <span className="mono block break-all rounded-control bg-[var(--glass-code)] px-2.5 py-2 text-micro text-text">
               {reviewing?.commandSummary}
             </span>
             <span className="block text-micro">
@@ -214,13 +214,13 @@ function McpRow({
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="truncate text-body font-medium text-text">{server.name}</span>
             <SourceBadge sourceKind={server.sourceKind} pluginName={server.pluginName} />
-            <span className="mono rounded-pill bg-raised px-1.5 py-0.5 text-micro text-muted">
+            <span className="mono rounded-pill bg-[var(--glass-4)] px-1.5 py-0.5 text-micro text-muted">
               {server.transport}
             </span>
             {isK ? (
               <span
                 data-testid={`mcp-managed-${server.id}`}
-                className="rounded-pill bg-raised px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-muted"
+                className="rounded-pill bg-[var(--glass-4)] px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-muted"
               >
                 managed by K
               </span>
@@ -244,7 +244,7 @@ function McpRow({
                 missing
               </span>
             )}
-            <span className="mono rounded-pill bg-raised px-1.5 py-0.5 text-micro text-muted">
+            <span className="mono rounded-pill bg-[var(--glass-4)] px-1.5 py-0.5 text-micro text-muted">
               {server.estTokens !== null ? `~${formatCompact(server.estTokens)} tok` : 'tok n/a'}
               {server.toolCount !== null ? ` · ${server.toolCount} tools` : ''}
             </span>

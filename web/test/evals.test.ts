@@ -118,19 +118,19 @@ describe('regressionBadge', () => {
   it('maps no-baseline → muted', () => {
     expect(regressionBadge(none)).toEqual({
       label: 'no baseline',
-      colorClass: 'bg-raised text-muted',
+      colorClass: 'bg-[var(--glass-2)] text-muted',
     })
   })
   it('maps undefined → muted', () => {
     expect(regressionBadge(undefined)).toEqual({
       label: 'no baseline',
-      colorClass: 'bg-raised text-muted',
+      colorClass: 'bg-[var(--glass-2)] text-muted',
     })
   })
   it('maps dry → neutral (never red) — a dry run is not compared to real baselines (F-025)', () => {
     expect(regressionBadge({ status: 'dry' })).toEqual({
       label: 'dry',
-      colorClass: 'bg-raised text-muted',
+      colorClass: 'bg-[var(--glass-2)] text-muted',
     })
   })
 })

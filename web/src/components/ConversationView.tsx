@@ -159,7 +159,7 @@ export default function ConversationView({
           {sessionState != null && (
             <span
               data-testid="conversation-session-chip"
-              className={`flex items-center gap-1.5 rounded-pill border border-border bg-raised px-2 py-0.5 text-micro font-semibold uppercase tracking-wide ${
+              className={`flex items-center gap-1.5 rounded-pill border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-2 py-0.5 text-micro font-semibold uppercase tracking-wide ${
                 sessionState === 'live' ? 'text-green' : 'text-muted'
               }`}
             >
@@ -250,7 +250,7 @@ export default function ConversationView({
                     </span>
                     <div
                       className={`max-w-[85%] whitespace-pre-wrap rounded-control px-3 py-2 text-body ${
-                        mine ? 'bg-accent/15 text-text' : 'border border-border bg-raised text-text'
+                        mine ? 'bg-accent/15 text-text' : 'border border-border bg-[var(--glass-2)] text-text'
                       }`}
                     >
                       {unescapeProvenanceLookalikes(rest)}
@@ -275,8 +275,14 @@ export default function ConversationView({
           Queued — delivered when {agentName} next wakes.
         </div>
       )}
+      {/* Round 3 (D-134) message-bar regression fix: Round 2 removed the form-look
+          border and left this wrapper with NO background at all — the bar
+          disappeared. `.glass-bar` restores a real --glass-2 surface + hairline
+          (pink-purple ring on hover/focus-within); the inner Input stays
+          `variant="bare"` (transparent/borderless) — the surface lives on the
+          wrapper, never the input. */}
       {showComposer && (
-        <div className="mt-2 flex items-center gap-2 rounded-control px-3 py-2">
+        <div className="glass-bar mt-2 flex items-center gap-2 rounded-pill px-3 py-2">
           <Input
             variant="bare"
             data-testid="conversation-composer-input"

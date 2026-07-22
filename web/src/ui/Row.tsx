@@ -6,10 +6,10 @@ import { cn } from '../lib/cn'
  * skin for Runs rows, project Runs, Personal Chats, CI rows, Recent Activity.
  * Hover elevation + reveal-on-hover actions + right-aligned meta slots.
  * Glass-LOOK by design (ui-adjustments C3, D-131): a semi-transparent tinted
- * background (--glass-2 resting; --glass-active blue interaction wash on
- * hover/selected, ui-adjustments Round 2 D-133) with NO backdrop-filter —
- * dense lists never sit on real blur (DEV-11 budget), so the row reads as
- * glass without a blur cost.
+ * background (--glass-2 resting; --glass-hover sky-blue wash on hover;
+ * --glass-active + a --glass-active-edge ring on selected, ui-adjustments
+ * Round 3 D-134) with NO backdrop-filter — dense lists never sit on real
+ * blur (DEV-11 budget), so the row reads as glass without a blur cost.
  */
 export function Row({
   title, sub, leading, meta, actions, selected, onClick, className, testid,
@@ -43,8 +43,8 @@ export function Row({
       className={cn(
         'group relative flex w-full items-center gap-3 border-b border-border px-4 py-2.5 text-left',
         'bg-[var(--glass-2)] transition-colors duration-[var(--dur-1)]',
-        interactive && 'cursor-pointer hover:bg-[var(--glass-active)] focus-visible:glow-focus',
-        selected && 'bg-[var(--glass-active)] border-l-2 border-l-accent',
+        interactive && 'cursor-pointer hover:bg-[var(--glass-hover)] focus-visible:glow-focus',
+        selected && 'bg-[var(--glass-active)] border-l-2 border-l-accent shadow-[inset_0_0_0_1px_var(--glass-active-edge)]',
         className,
       )}
     >

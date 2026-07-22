@@ -20,8 +20,6 @@
   --amber: #fbbf24;
   --red: #f87171;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  /* xterm pane — deliberately darker than --bg-deep for terminal legibility */
-  --terminal-bg: #0b0e14;
   /* knowledge-graph 3D canvas — neutral graphite, decoupled from the purple --bg
      so the canvas reads calm behind the glass overlays (ui-adjustments D4) */
   --graph-bg: #14161c;
@@ -46,11 +44,20 @@
      opacity-only (no backdrop-filter) so the wallpaper stays sharp and every
      surface can be glass without touching the DEV-11 blur budget — real frost
      stays on the curated .glass-overlay / opt-in .glass-blur tiers only. */
-  --glass-1: rgba(255, 255, 255, 0.055);
-  --glass-2: rgba(228, 220, 248, 0.09);
-  --glass-3: rgba(186, 156, 232, 0.14);
-  --glass-4: rgba(158, 124, 218, 0.20);
-  --glass-active: rgba(96, 170, 250, 0.22);
+  /* Round 3 (D-134): color-by-role glass — white panels warm w/ depth ·
+     pinkish-purple icons · sky-blue interactions */
+  --glass-1: rgba(255, 255, 255, 0.035);
+  --glass-2: rgba(250, 238, 252, 0.06);
+  --glass-3: rgba(244, 222, 248, 0.095);
+  --glass-4: rgba(238, 210, 246, 0.145);
+  --glass-icon: rgba(226, 148, 224, 0.20);
+  --glass-icon-strong: rgba(226, 148, 224, 0.30);
+  --icon-glyph: #e7a8e4;
+  --glass-icon-edge: rgba(226, 148, 224, 0.55);
+  --glass-hover: rgba(135, 206, 250, 0.18);
+  --glass-active: rgba(135, 206, 250, 0.30);        /* was rgba(96,170,250,0.22) — retune to sky blue */
+  --glass-active-edge: rgba(135, 206, 250, 0.55);
+  --glass-code: rgba(16, 12, 26, 0.55);
   /* Legacy tier-fill aliases — repointed onto the new scale so every existing
      bg-[var(--glass-*-bg)] caller (Row, ChatView, RunList) and the tier
      gradients below upgrade to the graded shades with no call-site churn. */
@@ -231,7 +238,10 @@ body { font-variant-numeric: tabular-nums; }
     border-radius: var(--radius-lg);
     box-shadow: inset 0 1px 0 var(--lg-edge), var(--shadow-3);
   }
-  .surface-solid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  /* Round 3 (D-134): the former opaque "solid" tier is repointed to white glass so
+     every GlassPanel tier="solid" caller upgrades at once — no opaque purple survives.
+     Uses glass-3 (raised) to keep former-solid panels the most present of the ramp. */
+  .surface-solid { background: var(--glass-3); border: 1px solid var(--glass-tier-border); border-radius: var(--radius); }
   /* Glass-LOOK for dense/repeated surfaces (ui-adjustments C2, D-131) — a tinted,
      hairline-bordered "looks like glass, costs like a div" skin with NO
      backdrop-filter, so it is safe to repeat across fields, pills, and list rows
@@ -259,6 +269,23 @@ body { font-variant-numeric: tabular-nums; }
      it wins the colour longhand; callers may also use hover:bg-[var(--glass-active)]
      or a conditional bg-[var(--glass-active)] utility (utilities layer wins). */
   .glass-active { background-color: var(--glass-active); }
+  /* Round 3 (D-134) — icon bubbles carry the one saturated-purple role; the
+     message-bar wrapper skin (surface + hairline, pink-purple ring on
+     hover/focus-within — the inner input stays `variant="bare"`). */
+  .glass-icon {
+    background: var(--glass-icon);
+    color: var(--icon-glyph);
+    box-shadow: inset 0 0 0 1px var(--glass-icon-edge);
+  }
+  .glass-bar {
+    background: var(--glass-2);
+    border: 1px solid var(--glass-tier-border);
+    box-shadow: inset 0 1px 0 var(--lg-edge);
+    transition: box-shadow var(--dur-1) var(--ease);
+  }
+  .glass-bar:hover, .glass-bar:focus-within {
+    box-shadow: inset 0 1px 0 var(--lg-edge), 0 0 0 1px var(--glass-icon-edge);
+  }
   .micro-label { font-size: 10px; line-height: 12px; letter-spacing: 0.08em;
     text-transform: uppercase; font-weight: 500; color: var(--muted); }
   .shimmer { background: linear-gradient(90deg, var(--raised) 25%, var(--border) 50%, var(--raised) 75%);
@@ -313,10 +340,10 @@ body { font-variant-numeric: tabular-nums; }
   .doc-markdown p { color: var(--text); line-height: 1.7; margin: 0.75em 0; }
   .doc-markdown a { color: var(--accent); text-decoration: underline; }
   .doc-markdown code {
-    color: var(--accent-hover); background: var(--surface);
+    color: var(--accent-hover); background: var(--glass-code);
     padding: 0.1em 0.4em; border-radius: var(--radius-sm); font-size: 0.85em;
   }
-  .doc-markdown pre { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75em; overflow-x: auto; }
+  .doc-markdown pre { background: var(--glass-code); border: 1px solid var(--glass-tier-border); border-radius: var(--radius); padding: 0.75em; overflow-x: auto; }
   .doc-markdown pre code { background: transparent; padding: 0; }
   .doc-markdown blockquote { border-left: 2px solid var(--accent); color: var(--muted); padding-left: 1em; margin: 0.75em 0; }
   .doc-markdown th { color: var(--muted); font-size: 0.75em; text-transform: uppercase; text-align: left; }

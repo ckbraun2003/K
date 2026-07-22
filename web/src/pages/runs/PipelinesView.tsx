@@ -359,7 +359,7 @@ function RunDetail({ runId }: { runId: string }) {
 
       {openArtifactSlug && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" data-testid="pipeline-artifact-viewer">
-          <div className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-panel border border-border bg-surface shadow-2xl">
+          <div className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] shadow-2xl">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <span className="mono text-xs text-muted">
                 Artifact: <span className="text-text">{openArtifactSlug}</span>
@@ -525,7 +525,7 @@ export function PipelineRunsPane({
                   data-testid={`pipeline-run-row-${run.id}`}
                   className={cn(
                     'w-full rounded-control border px-3 py-2 text-left transition-colors',
-                    run.id === selectedRunId ? 'border-accent bg-raised' : 'border-border hover:border-border-strong',
+                    run.id === selectedRunId ? 'border-accent bg-[var(--glass-active)] shadow-[inset_0_0_0_1px_var(--glass-active-edge)]' : 'border-border hover:border-border-strong',
                   )}
                 >
                   <div className="flex items-center gap-2">

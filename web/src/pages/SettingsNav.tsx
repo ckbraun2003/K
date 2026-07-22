@@ -39,7 +39,7 @@ export default function SettingsNav({ items }: { items: Array<{ id: string; labe
   }, [])
 
   return (
-    <nav aria-label="Settings sections" className="sticky top-4 hidden self-start lg:flex lg:flex-col lg:gap-0.5">
+    <nav aria-label="Settings sections" className="sticky top-4 hidden self-start rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-2 lg:flex lg:flex-col lg:gap-0.5">
       {items.map(item => (
         <button
           key={item.id}
@@ -48,7 +48,9 @@ export default function SettingsNav({ items }: { items: Array<{ id: string; labe
           onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
           className={cn(
             'rounded-control px-2 py-1 text-caption transition-colors',
-            activeId === item.id ? 'bg-raised text-text' : 'text-muted hover:text-text',
+            activeId === item.id
+              ? 'bg-[var(--glass-active)] text-text shadow-[inset_0_0_0_1px_var(--glass-active-edge)]'
+              : 'text-muted hover:bg-[var(--glass-hover)] hover:text-text',
           )}
         >
           {item.label}

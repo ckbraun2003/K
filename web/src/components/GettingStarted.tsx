@@ -119,7 +119,7 @@ export default function GettingStarted({
             <motion.div
               key={step.n}
               variants={staggerItem}
-              className="flex flex-col rounded-lg border border-border bg-surface p-4"
+              className="flex flex-col rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] p-4"
             >
               <div className="flex items-center gap-2">
                 <span
@@ -140,7 +140,7 @@ export default function GettingStarted({
                 className={
                   step.n === 1 && !step.done
                     ? 'mt-3 rounded-lg bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg transition-opacity hover:opacity-90'
-                    : 'mt-3 rounded-lg border border-border bg-raised px-3 py-1.5 text-[11px] font-semibold text-text transition-colors hover:border-accent'
+                    : 'mt-3 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-1.5 text-[11px] font-semibold text-text transition-colors hover:border-accent'
                 }
               >
                 {step.cta} →

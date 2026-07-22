@@ -361,7 +361,7 @@ export default function ChatView() {
                   type="button"
                   data-testid="chat-suggest"
                   onClick={() => prefillDock(p)}
-                  className="rounded-pill border border-border bg-raised px-3 py-1.5 text-caption text-muted transition-colors duration-[var(--dur-1)] hover:border-strong hover:text-text"
+                  className="rounded-pill border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-1.5 text-caption text-muted transition-colors duration-[var(--dur-1)] hover:border-strong hover:text-text"
                 >
                   {p === '@' ? '@project — dispatch a run' : p}
                 </button>

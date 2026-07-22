@@ -64,7 +64,7 @@ export default function ActiveRunsWidget() {
                 type="button"
                 data-testid="widget-active-runs-row"
                 onClick={() => navigate('runs', r.id)}
-                className="flex items-center gap-2 rounded-control px-1.5 py-1 text-left text-body transition-colors hover:bg-raised"
+                className="flex items-center gap-2 rounded-control px-1.5 py-1 text-left text-body transition-colors hover:bg-[var(--glass-hover)]"
               >
                 <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-pill ${meta.dot}`} />
                 <span className="min-w-0 flex-1 truncate text-text">{cleanRunPrompt(r.prompt)}</span>

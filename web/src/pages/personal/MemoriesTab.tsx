@@ -123,7 +123,7 @@ export default function MemoriesTab() {
           value={addText}
           onChange={e => setAddText(e.target.value)}
           onKeyDown={onAddKeyDown}
-          className="w-full resize-none rounded border border-border bg-surface px-2 py-1.5 text-body text-text outline-none focus:border-accent-hover/35"
+          className="w-full resize-none rounded glass-control px-2 py-1.5 text-body text-text outline-none focus:border-accent-hover/35"
         />
         <Button
           variant="primary"
@@ -180,7 +180,7 @@ export default function MemoriesTab() {
                     onChange={e => setEditText(e.target.value)}
                     onKeyDown={e => onEditKeyDown(e, m.id)}
                     onBlur={() => setEditingId(null)}
-                    className="w-full resize-none rounded border border-border bg-surface px-1.5 py-1 text-body text-text outline-none"
+                    className="w-full resize-none rounded glass-control px-1.5 py-1 text-body text-text outline-none"
                   />
                 ) : (
                   <p className="whitespace-pre-wrap text-body text-text">{m.content}</p>

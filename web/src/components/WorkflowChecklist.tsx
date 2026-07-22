@@ -36,7 +36,7 @@ export default function WorkflowChecklist({
   workflowRun?: WorkflowRun | null
 }) {
   return (
-    <div data-testid="wf-checklist" className="rounded-lg border border-border bg-surface p-3">
+    <div data-testid="wf-checklist" className="rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-3">
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
           Workflow checklist
@@ -65,7 +65,7 @@ export default function WorkflowChecklist({
                 <span className={cn('mt-px font-mono', st.cls)} aria-hidden>
                   {st.icon}
                 </span>
-                <span className="shrink-0 rounded bg-raised px-1 py-px text-[10px] uppercase tracking-wide text-muted">
+                <span className="shrink-0 rounded bg-[var(--glass-3)] px-1 py-px text-[10px] uppercase tracking-wide text-muted">
                   {KIND_LABEL[s.kind]}
                 </span>
                 <span className="min-w-0 flex-1">

@@ -15,7 +15,7 @@ export function Tag({ tint = 'neutral', onDismiss, className, children }: {
     <span className={cn('inline-flex items-center gap-1 rounded-pill border px-2 py-0.5 text-label', TINT[tint], className)}>
       {children}
       {onDismiss && (
-        <button type="button" aria-label="remove" onClick={onDismiss} className="rounded-pill hover:bg-[var(--glass-active)] hover:text-text">
+        <button type="button" aria-label="remove" onClick={onDismiss} className="rounded-pill hover:bg-[var(--glass-hover)] hover:text-text">
           <Icon name="close" size={14} />
         </button>
       )}

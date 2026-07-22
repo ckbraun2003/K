@@ -25,7 +25,7 @@ export default function CapabilityStatRow() {
       title={`Estimates of prompt-context weight, not billed tokens${
         unestimated > 0 ? `; ${unestimated} not yet measured excluded` : ''
       }`}
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-surface px-5 py-2 text-[11px] text-muted"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-[var(--glass-2)] px-5 py-2 text-[11px] text-muted"
     >
       {data ? (
         <>

@@ -105,9 +105,9 @@ export default function Sidebar({
           'group relative flex h-10 items-center gap-3 rounded-control border border-transparent text-sm transition-all duration-150',
           collapsed ? 'w-10 justify-center px-0' : 'w-full px-3',
           d.enabled
-            ? 'text-[var(--muted)] hover:border-[color:rgba(56,189,248,0.35)] hover:bg-[var(--raised)] hover:text-[var(--text)]'
+            ? 'text-[var(--muted)] hover:bg-[var(--glass-hover)] hover:text-[var(--text)]'
             : 'cursor-default text-[color:rgba(169,155,196,0.4)]',
-          isActive && 'bg-raised text-[var(--text)]'
+          isActive && 'bg-[var(--glass-active)] text-[var(--text)] shadow-[inset_0_0_0_1px_var(--glass-active-edge)]'
         )}
       >
         {/* Active indicator — a blush bar on the rail's left edge, in place of the
@@ -149,7 +149,7 @@ export default function Sidebar({
               // do not rewrite to the semantic `text-amber` token (see task-13 brief).
               parkedRuns > 0
                 ? 'bg-amber/20 text-[var(--amber)]'
-                : 'bg-[var(--raised)] text-[var(--accent-hover)]',
+                : 'bg-[var(--glass-active)] text-[var(--accent-hover)] shadow-[inset_0_0_0_1px_var(--glass-active-edge)]',
             )}
           >
             {badgeCount}
@@ -199,7 +199,7 @@ export default function Sidebar({
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-expanded={!collapsed}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] transition-colors hover:bg-[var(--raised)] hover:text-[var(--accent-hover)]"
+          className="flex h-7 w-7 items-center justify-center rounded-control text-[var(--muted)] transition-colors hover:bg-[var(--glass-hover)] hover:text-[var(--accent-hover)]"
         >
           <Icon
             name={collapsed ? 'chevronRight' : 'arrowLeft'}

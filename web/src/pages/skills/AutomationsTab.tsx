@@ -36,7 +36,7 @@ const TYPE_COLORS: Record<Skill['type'], string> = {
 }
 
 const TRIGGER_COLORS: Record<Skill['triggerType'], string> = {
-  manual: 'bg-raised text-muted',
+  manual: 'bg-[var(--glass-4)] text-muted',
   schedule: 'bg-amber/15 text-amber',
   // accent, not red — red is reserved for genuine failure (EVAL_BADGE.fail,
   // the regression badge) and would otherwise read as a failure state on a
@@ -386,12 +386,13 @@ export default function AutomationsTab() {
 
 /** Eval-status badge colors — exported so the Skill Creator's EvalPanel (C4)
  *  renders draft evals with the SAME status palette as the automation registry.
- *  LOCKED verbatim (skill-creator.test.tsx asserts the literal `text-[var(--green)]`
- *  substring on the 'pass' entry) — do not restyle this map. */
+ *  Only the 'pass' entry's `text-[var(--green)]` substring is LOCKED (skill-creator.test.tsx
+ *  asserts it literally) — do not touch that substring. The neutral backgrounds are NOT
+ *  pinned; they were intentionally moved to glass tokens in Round 3. */
 export const EVAL_BADGE: Record<SkillEval['status'], string> = {
   pass: 'bg-green/20 text-[var(--green)]',
   fail: 'bg-red/20 text-[var(--red)]',
-  pending: 'bg-[var(--raised)] text-[var(--muted)]',
+  pending: 'bg-[var(--glass-4)] text-[var(--muted)]',
 }
 
 function SkillRow({
@@ -666,7 +667,7 @@ function SkillEditor({ skill, onDone }: { skill: Skill; onDone: () => void }) {
           <AutoTextarea
             id={`skill-edit-source-${skill.id}`}
             data-testid="skill-edit-source"
-            className="w-full resize-none rounded-control border border-border bg-raised px-3 py-1.5 text-body text-text placeholder:text-muted focus:border-accent focus:outline-none"
+            className="w-full resize-none rounded-control glass-control px-3 py-1.5 text-body text-text placeholder:text-muted focus:border-accent focus:outline-none"
             value={source}
             onChange={e => setSource(e.target.value)}
           />

@@ -182,10 +182,10 @@ describe('widget catalog', () => {
     mockRunsList.mockResolvedValue([])
     renderWidget(<ActiveRunsWidget />)
     const headline = await screen.findByText(/Idle/)
-    // FU-2: EmptyState tier="solid" — this cell sits inside a GlassPanel
-    // ancestor (OverviewView), so the icon bubble must be surface-solid, not
-    // glass-panel (nested backdrop-filter can't stack on itself).
-    expect(headline.parentElement?.querySelector('.surface-solid')).toBeTruthy()
+    // Round 3 (D-134): EmptyState tier="solid" icon bubble is now the pinkish-purple
+    // .glass-icon (flat tint, no backdrop-filter, so it still can't nest a blur under
+    // the GlassPanel ancestor). Must NOT be .glass-panel.
+    expect(headline.parentElement?.querySelector('.glass-icon')).toBeTruthy()
     expect(headline.parentElement?.querySelector('.glass-panel')).toBeNull()
   })
 
@@ -310,7 +310,7 @@ describe('widget catalog', () => {
     renderWidget(<PersonalTasksWidget />)
     const headline = await screen.findByText('No personal work items yet.')
     // FU-2: EmptyState tier="solid" — see ActiveRunsWidget's idle test for why.
-    expect(headline.parentElement?.querySelector('.surface-solid')).toBeTruthy()
+    expect(headline.parentElement?.querySelector('.glass-icon')).toBeTruthy()
     expect(headline.parentElement?.querySelector('.glass-panel')).toBeNull()
   })
 
@@ -403,7 +403,7 @@ describe('widget catalog', () => {
     renderWidget(<NotesWidget />)
     const headline = await screen.findByText('No notes yet — ask K to take one.')
     // FU-2: EmptyState tier="solid" — see ActiveRunsWidget's idle test for why.
-    expect(headline.parentElement?.querySelector('.surface-solid')).toBeTruthy()
+    expect(headline.parentElement?.querySelector('.glass-icon')).toBeTruthy()
     expect(headline.parentElement?.querySelector('.glass-panel')).toBeNull()
   })
 

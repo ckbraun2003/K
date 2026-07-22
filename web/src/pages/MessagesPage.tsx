@@ -127,7 +127,7 @@ export default function MessagesPage({ conversationId }: { conversationId?: stri
       <div
         key={c.id}
         className={`group flex items-center gap-1 rounded-control border-l-2 px-3 py-2 ${
-          isSelected ? 'border-accent/50 bg-accent/10' : 'border-transparent hover:bg-raised'
+          isSelected ? 'border-[var(--glass-active-edge)] bg-[var(--glass-active)]' : 'border-transparent hover:bg-[var(--glass-hover)]'
         }`}
       >
         {renamingId === c.id ? (

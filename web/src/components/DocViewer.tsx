@@ -70,7 +70,7 @@ export default function DocViewer({ slug }: Props) {
             className={`rounded-control border px-3 py-1 text-xs font-medium transition-colors ${
               edit
                 ? 'border-accent bg-accent text-on-accent'
-                : 'border-border text-muted hover:text-text hover:bg-surface'
+                : 'border-border text-muted hover:text-text hover:bg-[var(--glass-hover)]'
             }`}
           >
             Edit
@@ -83,7 +83,7 @@ export default function DocViewer({ slug }: Props) {
                 className={`px-3 py-1 text-xs font-medium transition-colors ${
                   view === v
                     ? 'bg-accent text-bg'
-                    : 'text-muted hover:text-text hover:bg-surface'
+                    : 'text-muted hover:text-text hover:bg-[var(--glass-hover)]'
                 }`}
               >
                 .{v}
@@ -122,7 +122,7 @@ export default function DocViewer({ slug }: Props) {
       {/* P4 E-30 — edit-in-place. Mounts only when Edit is on; SectionEditor
           self-hides (renders null) for non-bible artifacts. */}
       {edit && (
-        <div className="flex-shrink-0 max-h-[45%] overflow-y-auto bg-surface">
+        <div className="flex-shrink-0 max-h-[45%] overflow-y-auto bg-[var(--glass-3)]">
           {/* key by slug so switching artifacts fully remounts the editor — otherwise a
               stale section pick + edited draft could Save into the NEWLY-selected bible. */}
           <SectionEditor key={slug} slug={slug} />

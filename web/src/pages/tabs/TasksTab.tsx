@@ -233,7 +233,7 @@ export default function TasksTab({ projectId }: Props) {
         {tasks.map(task => (
           <div
             key={task.id}
-            className="group flex items-center gap-3 px-4 py-3 border-b border-border hover:bg-surface transition-colors"
+            className="group flex items-center gap-3 px-4 py-3 border-b border-border hover:bg-[var(--glass-hover)] transition-colors"
           >
             {/* Multi-select checkbox (workflow delegation path) */}
             <Checkbox
@@ -311,7 +311,7 @@ export default function TasksTab({ projectId }: Props) {
           data-testid="tasks-workflow-bar"
           role="region"
           aria-label="Delegation workflow actions"
-          className="flex-shrink-0 px-4 py-3 border-t border-border flex items-center justify-between gap-3 bg-raised"
+          className="flex-shrink-0 px-4 py-3 border-t border-border flex items-center justify-between gap-3 bg-[var(--glass-3)]"
         >
           <div className="flex items-center gap-2">
             <Button
