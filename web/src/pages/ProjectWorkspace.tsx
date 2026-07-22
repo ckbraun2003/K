@@ -16,7 +16,6 @@ import RunsTab from './tabs/RunsTab'
 import TasksTab from './tabs/TasksTab'
 import PrsCiTab from './tabs/PrsCiTab'
 import KnowledgeGraphTab from './tabs/KnowledgeGraphTab'
-import TerminalPage from './TerminalPage'
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
@@ -28,7 +27,6 @@ const TABS = [
   { id: 'prs-ci',         label: 'PRs & CI' },
   { id: 'verification',   label: 'Verification' },
   { id: 'artifacts',      label: 'Artifacts' },
-  { id: 'terminal',       label: 'Terminal' },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -127,7 +125,7 @@ export default function ProjectWorkspace({
       </div>
 
       {/* ── Tab bar (canonical Tabs, P4 E-30) ─────────────────────────────── */}
-      <div className="border-b border-border bg-surface px-4 py-2">
+      <div className="border-b border-[var(--glass-tier-border)] bg-[var(--glass-2)] px-4 py-2">
         <Tabs<TabId>
           ariaLabel="Project workspace tabs"
           items={TABS.map(t => ({ value: t.id, label: t.label }))}
@@ -164,7 +162,6 @@ export default function ProjectWorkspace({
                   {t.id === 'tasks'         && <TasksTab         projectId={projectId!} />}
                   {t.id === 'prs-ci'        && <PrsCiTab         projectId={projectId!} />}
                   {t.id === 'knowledge-graph' && <KnowledgeGraphTab projectId={projectId!} />}
-                  {t.id === 'terminal'      && <TerminalPage />}
                 </motion.div>
               </AnimatePresence>
             )}

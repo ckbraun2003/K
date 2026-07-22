@@ -43,7 +43,6 @@ it('pre-P4 legacy hashes land in the new hubs (one hop)', () => {
   expect(resolve('#/workflows')).toEqual({ view: 'agents', param: 'automations', subParam: undefined })
   expect(resolve('#/workflow-detail/def-9')).toEqual({ view: 'agents', param: 'automations', subParam: 'def-9' })
   expect(resolve('#/memory')).toEqual({ view: 'personal', param: 'inbox' })
-  expect(resolve('#/terminal')).toEqual({ view: 'settings' })
 })
 
 it('surviving views resolve unchanged', () => {

@@ -61,6 +61,6 @@ describe('ProjectWorkspace not-found', () => {
     // ProjectWorkspace's own header/tab-bar render for a real project.
     await screen.findByRole('heading', { name: 'Alpha' })
     expect(screen.queryByTestId('project-not-found')).toBeNull()
-    expect(screen.getAllByRole('tab')).toHaveLength(8)
+    expect(screen.getAllByRole('tab')).toHaveLength(7)
   })
 })

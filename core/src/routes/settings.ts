@@ -127,7 +127,6 @@ export interface StatusEnv {
   voiceModel: string
   tokenSource: 'env' | 'generated'
   host: string
-  terminalEnabled: boolean
   credentialPosture: CredentialPosture
 }
 
@@ -147,7 +146,6 @@ export function buildStatus(probes: StatusProbes, env: StatusEnv): Status {
       tokenSource: env.tokenSource,
       host: env.host,
       loopbackOnly: isLoopbackHost(env.host),
-      terminalEnabled: env.terminalEnabled,
       credentialPosture: env.credentialPosture,
     },
     voice: {
@@ -213,7 +211,6 @@ function liveStatusEnv(): StatusEnv {
     voiceModel: whisperModel(),
     tokenSource: harnessTokenSource(),
     host: process.env.HOST ?? '127.0.0.1',
-    terminalEnabled: process.env.ENABLE_TERMINAL === 'true',
     credentialPosture: credentialPosture(),
   }
 }

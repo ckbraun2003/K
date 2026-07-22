@@ -13,7 +13,7 @@ const statusValue: Status = {
   claude: { available: true },
   ollama: { enabled: true, reachable: true, baseUrl: '', model: 'llama3.2' },
   github: { authenticated: false },
-  auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'managed' },
+  auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, credentialPosture: 'managed' },
   voice: { enabled: false, reachable: false, baseUrl: '', model: '' },
 }
 

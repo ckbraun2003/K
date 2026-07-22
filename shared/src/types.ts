@@ -2217,7 +2217,6 @@ export const StatusSchema = z.object({
     tokenSource: z.enum(['env', 'generated']),
     host: z.string(),
     loopbackOnly: z.boolean(),
-    terminalEnabled: z.boolean(),
     // Credential posture (F-064/F-090), never the credential itself:
     //   'managed'       → a managed token (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN) is set;
     //   'host-fallback' → no managed token → runs COPY host ~/.claude credentials (default);

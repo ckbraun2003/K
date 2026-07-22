@@ -8,13 +8,10 @@ import {
   generateToken,
   isLoopbackHost,
   isWeakToken,
-  isWeakTerminalToken,
   unsafeBootReason,
-  unsafeTerminalBootReason,
   tokensEqual,
   wsTokenOk,
   LEGACY_WEAK_TOKEN,
-  LEGACY_WEAK_TERMINAL_TOKEN,
 } from '../src/auth.js'
 
 describe('isAuthExempt', () => {
@@ -136,50 +133,6 @@ describe('isWeakToken', () => {
   it('whitespace → weak', () => expect(isWeakToken('   ')).toBe(true))
   it('legacy literal → weak', () => expect(isWeakToken(LEGACY_WEAK_TOKEN)).toBe(true))
   it('strong token → not weak', () => expect(isWeakToken(generateToken())).toBe(false))
-})
-
-describe('isWeakTerminalToken', () => {
-  it('empty → weak', () => expect(isWeakTerminalToken('')).toBe(true))
-  it('whitespace → weak', () => expect(isWeakTerminalToken('   ')).toBe(true))
-  it('legacy literal → weak', () =>
-    expect(isWeakTerminalToken(LEGACY_WEAK_TERMINAL_TOKEN)).toBe(true))
-  it('strong token → not weak', () => expect(isWeakTerminalToken(generateToken())).toBe(false))
-})
-
-describe('unsafeTerminalBootReason (terminal safety gate)', () => {
-  it('disabled → safe (null) regardless of host/token', () => {
-    expect(unsafeTerminalBootReason('0.0.0.0', false, LEGACY_WEAK_TERMINAL_TOKEN)).toBeNull()
-    expect(unsafeTerminalBootReason('0.0.0.0', false, '')).toBeNull()
-  })
-  it('enabled + loopback + weak token → safe (null)', () => {
-    expect(unsafeTerminalBootReason('127.0.0.1', true, LEGACY_WEAK_TERMINAL_TOKEN)).toBeNull()
-    expect(unsafeTerminalBootReason('localhost', true, '')).toBeNull()
-  })
-  it('enabled + non-loopback + weak token → refuses (message)', () => {
-    const reason = unsafeTerminalBootReason('0.0.0.0', true, LEGACY_WEAK_TERMINAL_TOKEN)
-    expect(reason).toBeTruthy()
-    expect(reason).toContain('TERMINAL_TOKEN')
-  })
-  it('enabled + non-loopback + empty token → refuses', () => {
-    expect(unsafeTerminalBootReason('192.168.1.5', true, '')).toBeTruthy()
-  })
-  it('enabled + non-loopback + strong token but NO opt-in → refuses (even with a strong token)', () => {
-    const reason = unsafeTerminalBootReason('0.0.0.0', true, generateToken())
-    expect(reason).toBeTruthy()
-    expect(reason).toContain('TERMINAL_ALLOW_REMOTE')
-  })
-  it('enabled + non-loopback + strong token + explicit opt-in → safe (null)', () => {
-    expect(unsafeTerminalBootReason('0.0.0.0', true, generateToken(), true)).toBeNull()
-  })
-  it('opt-in does NOT rescue a weak token on a non-loopback host', () => {
-    const reason = unsafeTerminalBootReason('0.0.0.0', true, LEGACY_WEAK_TERMINAL_TOKEN, true)
-    expect(reason).toBeTruthy()
-    expect(reason).toContain('TERMINAL_TOKEN')
-  })
-  it('loopback + strong token is unaffected by the opt-in (null with or without it)', () => {
-    expect(unsafeTerminalBootReason('127.0.0.1', true, generateToken())).toBeNull()
-    expect(unsafeTerminalBootReason('127.0.0.1', true, generateToken(), false)).toBeNull()
-  })
 })
 
 describe('unsafeBootReason (safety gate)', () => {

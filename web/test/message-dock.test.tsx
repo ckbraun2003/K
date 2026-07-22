@@ -44,7 +44,7 @@ vi.mock('../src/lib/api', () => ({
       claude: { available: true },
       ollama: { enabled: false, reachable: false, baseUrl: '', model: '' },
       github: { authenticated: false },
-      auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'managed' },
+      auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, credentialPosture: 'managed' },
       voice: { enabled: false, reachable: false, baseUrl: '', model: '' },
     }),
     claudeModel: {

@@ -1,9 +1,6 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** Scoped terminal token exposed to the browser for the terminal WS (see
-   *  vite.config.ts). Distinct from HARNESS_TOKEN — grants only terminal access. */
-  readonly VITE_TERMINAL_TOKEN?: string
   /** Dev-only harness token for the authenticated /ws gateway (see vite.config.ts).
    *  Loopback dev convenience only; the real remote token comes from the runtime
    *  login (sessionStorage), never the bundle. */

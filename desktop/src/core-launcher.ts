@@ -49,8 +49,8 @@ export interface CoreEnvInput {
 }
 
 /**
- * Build the env for the forked core process. Loopback-only, terminal off, data dir
- * + web dist pinned to the app's locations. HARNESS_TOKEN is forced EMPTY so core
+ * Build the env for the forked core process. Loopback-only, data dir + web dist
+ * pinned to the app's locations. HARNESS_TOKEN is forced EMPTY so core
  * generates + persists its own strong token (the shell reads it back from disk) —
  * never inheriting a stray token from the desktop process.
  */
@@ -64,8 +64,6 @@ export function buildCoreEnv(input: CoreEnvInput): NodeJS.ProcessEnv {
     // Same-origin — no CORS needed, but pin it to the actual origin (defense-in-depth
     // vs the dev default of :5173).
     CORS_ORIGIN: `http://127.0.0.1:${input.port}`,
-    // Sensitive default-off feature — never auto-enable a shell in the app.
-    ENABLE_TERMINAL: 'false',
     // Let core own its token; don't inherit one from the desktop env.
     HARNESS_TOKEN: '',
     // The shell reads the token from disk + seeds it — core must NOT print the full

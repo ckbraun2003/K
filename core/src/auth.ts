@@ -4,11 +4,10 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 /** Pure auth-exemption predicate — pathname match, immune to query/dot-segment tricks. */
-// '/ws' and '/ws/terminal' are exempt from the header hook because a browser
-// WebSocket cannot send an Authorization header. Both validate a `token` query
-// param inside their handlers instead: '/ws' against the harness token (see
-// wsTokenOk / index.ts), '/ws/terminal' against the scoped TERMINAL_TOKEN.
-const PUBLIC_PATHS = new Set(['/ws', '/ws/terminal', '/health'])
+// '/ws' is exempt from the header hook because a browser WebSocket cannot send
+// an Authorization header. It validates a `token` query param inside its
+// handler instead, against the harness token (see wsTokenOk / index.ts).
+const PUBLIC_PATHS = new Set(['/ws', '/health'])
 
 export function isAuthExempt(url: string): boolean {
   try {
@@ -28,9 +27,6 @@ export function isAuthExempt(url: string): boolean {
 
 /** The legacy insecure default that must never silently guard a remote host. */
 export const LEGACY_WEAK_TOKEN = 'dev-token-change-me'
-
-/** The dev default for the scoped terminal token — weak, loopback-only. */
-export const LEGACY_WEAK_TERMINAL_TOKEN = 'dev-terminal-token'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // Mirror db.ts's DATA_DIR convention so the token sits beside k.db.
@@ -131,16 +127,6 @@ export function isWeakToken(token: string): boolean {
 }
 
 /**
- * A terminal token is "weak" if it is empty or the dev default literal. The
- * terminal grants a host shell, so this gates a non-loopback boot the same way
- * isWeakToken gates the harness token.
- */
-export function isWeakTerminalToken(token: string): boolean {
-  const t = token.trim()
-  return t === '' || t === LEGACY_WEAK_TERMINAL_TOKEN
-}
-
-/**
  * Refuse to bind a non-loopback host with a weak/empty token. Returns an
  * actionable error message when the boot is unsafe, or null when it is safe.
  * Pure predicate — callers decide whether to throw (index.ts does).
@@ -152,46 +138,6 @@ export function unsafeBootReason(host: string, token: string): string | null {
       `Refusing to start: HOST=${host} is non-loopback but the harness token is ` +
       `weak or unset. Set a strong HARNESS_TOKEN (e.g. \`openssl rand -base64 32\`), ` +
       `or remove the HARNESS_TOKEN override so a strong one is generated and persisted. ` +
-      `Only expose a non-loopback HOST behind Tailscale or an authenticating HTTPS proxy.`
-    )
-  }
-  return null
-}
-
-/**
- * Refuse to expose the web terminal (a host shell) on a non-loopback HOST unless
- * it is BOTH guarded by a strong TERMINAL_TOKEN AND explicitly opted in via
- * `TERMINAL_ALLOW_REMOTE=true`. Two independent guards:
- *   1. a weak/empty/default TERMINAL_TOKEN is always refused on a non-loopback host;
- *   2. even a STRONG token is refused on a non-loopback host without the explicit
- *      opt-in, so an accidental LAN bind can never expose the shell silently.
- * Returns an actionable message when unsafe, or null when safe (terminal disabled,
- * loopback host, or strong token + opt-in). Pure predicate — index.ts decides
- * whether to throw.
- */
-export function unsafeTerminalBootReason(
-  host: string,
-  enabled: boolean,
-  terminalToken: string,
-  allowRemote = false,
-): string | null {
-  if (!enabled) return null
-  if (isLoopbackHost(host)) return null
-  if (isWeakTerminalToken(terminalToken)) {
-    return (
-      `Refusing to start: HOST=${host} is non-loopback and ENABLE_TERMINAL=true, ` +
-      `but TERMINAL_TOKEN is weak or unset. The web terminal grants a host shell. ` +
-      `Set a strong TERMINAL_TOKEN (e.g. \`openssl rand -base64 32\`), or unset ` +
-      `ENABLE_TERMINAL to disable the terminal. Only expose a non-loopback HOST ` +
-      `behind Tailscale or an authenticating HTTPS proxy.`
-    )
-  }
-  if (!allowRemote) {
-    return (
-      `Refusing to start: HOST=${host} is non-loopback and ENABLE_TERMINAL=true. ` +
-      `The web terminal grants a host shell, so exposing it beyond loopback needs an ` +
-      `EXPLICIT opt-in even with a strong TERMINAL_TOKEN. Set TERMINAL_ALLOW_REMOTE=true ` +
-      `to confirm, unset ENABLE_TERMINAL to disable the terminal, or bind a loopback HOST. ` +
       `Only expose a non-loopback HOST behind Tailscale or an authenticating HTTPS proxy.`
     )
   }

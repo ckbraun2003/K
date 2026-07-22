@@ -30,7 +30,7 @@ the project bible (linked at the bottom).
 pnpm install
 ```
 
-Native dependencies (`better-sqlite3`, `node-pty`, `esbuild`) are built automatically — they're listed
+Native dependencies (`better-sqlite3`, `esbuild`) are built automatically — they're listed
 under `onlyBuiltDependencies` in `pnpm-workspace.yaml`. No extra steps.
 
 ## Run

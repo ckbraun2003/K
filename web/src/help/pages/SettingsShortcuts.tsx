@@ -14,14 +14,14 @@ export function SettingsShortcuts() {
       <h2 className="text-title text-text">Settings & shortcuts</h2>
       <p className="text-body text-muted">
         Settings holds provider status (Claude/Ollama/GitHub/auth), default + local models, voice push-to-talk, the
-        Autonomous Org master switch and behaviors, notification rules, the guarded global system prompt, host
-        diagnostics and the guarded terminal.
+        Autonomous Org master switch and behaviors, notification rules, the guarded global system prompt, and host
+        diagnostics.
       </p>
       <ul className="flex flex-col gap-2">
         {SHORTCUTS.map((s) => (
           <li key={s.keys} className="flex items-center justify-between gap-4 text-body text-muted">
             <span>{s.desc}</span>
-            <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-text">{s.keys}</kbd>
+            <kbd className="mono rounded bg-[var(--glass-3)] px-1.5 py-0.5 text-[10px] text-text">{s.keys}</kbd>
           </li>
         ))}
       </ul>

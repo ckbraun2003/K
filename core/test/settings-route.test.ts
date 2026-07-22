@@ -67,7 +67,6 @@ describe('buildStatus (pure)', () => {
     voiceModel: 'whisper-base.en',
     tokenSource: 'generated',
     host: '127.0.0.1',
-    terminalEnabled: false,
     credentialPosture: 'managed',
   }
   const probes: StatusProbes = {

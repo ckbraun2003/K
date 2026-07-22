@@ -82,7 +82,6 @@ const ROUTES: RouteCheck[] = [
   { name: '28-redirect-workflows', hash: '#/workflows', canonical: '#/agents/pipelines' },
   { name: '29-redirect-workflow-detail', hash: '#/workflow-detail/code-wave', canonical: '#/agents/pipelines/code-wave' },
   { name: '30-redirect-memory', hash: '#/memory', canonical: '#/personal/inbox' },
-  { name: '31-redirect-terminal', hash: '#/terminal', canonical: '#/settings' },
   { name: '32-redirect-org', hash: '#/org', canonical: '#/agents/org/roster' },
   { name: '33-redirect-skills', hash: '#/skills', canonical: '#/agents/skills' },
   { name: '34-redirect-inbox', hash: '#/inbox', canonical: '#/personal/inbox' },

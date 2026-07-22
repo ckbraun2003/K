@@ -20,8 +20,6 @@ import { makeScratchRepo } from '../lib/fixtures'
 //     Modal dismiss via backdrop + Escape.
 //   • ⌘K abuse: empty prompt, huge multi-KB prompt, special chars/emoji/quotes,
 //     rapid double-submit.
-//   • Terminal (#/terminal) with ENABLE_TERMINAL=false → clear "disabled" banner,
-//     not a hang or cryptic failure.
 //   • WS resilience: client auto-reconnects in 3s on drop — observe the status
 //     dot transition (close the socket via page.evaluate).
 //   • REAL RUN (budget = exactly ONE): dispatch one tiny plan-mode run, then KILL
@@ -34,7 +32,7 @@ import { makeScratchRepo } from '../lib/fixtures'
 // ===========================================================================
 
 const CHARTER =
-  'Resilience / edge cases: register-form abuse + modal dismiss, ⌘K abuse (empty/huge/special/double-submit), terminal-disabled banner, WS auto-reconnect, ONE real kill-flow dispatch, concurrent actions.'
+  'Resilience / edge cases: register-form abuse + modal dismiss, ⌘K abuse (empty/huge/special/double-submit), WS auto-reconnect, ONE real kill-flow dispatch, concurrent actions.'
 const findings: Finding[] = []
 let sink: ConsoleSink
 
@@ -416,92 +414,7 @@ test('command bar: a huge multi-KB prompt does not freeze or crash the palette',
 })
 
 // ===========================================================================
-// 3. TERMINAL DISABLED BANNER (ENABLE_TERMINAL=false default)
-// ===========================================================================
-
-test('terminal (#/terminal) shows a clear disabled/error banner, not a silent hang', async ({ page }) => {
-  try {
-    // No Sidebar rail button reaches Terminal anymore (E-30 folded it into
-    // Settings' embedded "Diagnostics" shell); #/terminal now redirects to
-    // #/settings, where the embedded TerminalPage renders unconditionally.
-    await gotoApp(page, '#/terminal')
-
-    // The page wires an error banner three ways: a JSON {type:'error',code:'disabled'}
-    // frame → "Terminal disabled — set ENABLE_TERMINAL=true to enable it.", or a
-    // transport onerror/onclose → "connection failed…" / "connection closed
-    // unexpectedly…". Any of these is acceptable (clear, not a hang); a fully
-    // blank pane with no banner after a few seconds is the failure.
-    const banner = page.locator(
-      'text=/Terminal disabled|connection failed|connection closed unexpectedly|terminal error/i',
-    ).first()
-
-    let bannerText = ''
-    const shown = await banner
-      .isVisible({ timeout: 12_000 })
-      .then(async (v) => {
-        if (v) bannerText = (await banner.textContent().catch(() => '')) ?? ''
-        return v
-      })
-      .catch(() => false)
-
-    await safeShot(page, 'P09-terminal-disabled')
-
-    if (!shown) {
-      findings.push({
-        title: 'Terminal pane is silently blank — no disabled/error banner at all',
-        severity: 'High',
-        category: 'UX',
-        surface: 'TerminalPage / #/terminal',
-        repro: 'Stack default ENABLE_TERMINAL=false → navigate #/terminal, wait ~12s.',
-        expected: 'A clear banner ("Terminal disabled — set ENABLE_TERMINAL=true…") rather than a silent blank xterm pane.',
-        actual: 'No banner of any kind appeared within 12s; the pane is entirely blank (see screenshot). Operator gets zero feedback that the terminal is off, broken, or just slow.',
-        evidence: 'reports/screens/P09-terminal-disabled.png',
-      })
-      // Root cause: terminalWsUrl() hardcodes port 3001 (web/src/lib/terminal.ts),
-      // ignoring VITE_CORE_PORT. On any non-default core port the terminal WS dials
-      // a dead port. The "disabled" reason frame (errorReason('disabled')) can
-      // therefore never be delivered, and even the transport-error banner
-      // (ws.onerror) did not surface here.
-      findings.push({
-        title: 'Terminal WS URL hardcodes port 3001 (ignores VITE_CORE_PORT) → unreachable on any other core port',
-        severity: 'High',
-        category: 'Bug',
-        surface: 'web/src/lib/terminal.ts terminalWsUrl()',
-        repro: 'Run core on any port ≠ 3001 (e.g. the e2e isolated stack) → open #/terminal.',
-        expected: 'Terminal WS uses the configured core port (like ws.ts, which reads VITE_CORE_PORT).',
-        actual: 'terminalWsUrl() returns `ws://${hostname}:3001/ws/terminal…` — a literal 3001 — so the socket dials a dead port and the server\'s {error,code:"disabled"} frame is never received. This also makes the "Terminal disabled" reason effectively dead code off the default port.',
-        evidence: 'web/src/lib/terminal.ts:10-12; compare web/src/lib/ws.ts:30 (VITE_CORE_PORT).',
-      })
-    } else if (!/disabled/i.test(bannerText)) {
-      // It degraded, but via a generic transport error rather than the precise
-      // "disabled" reason — the operator can't tell config from outage.
-      findings.push({
-        title: 'Terminal-disabled state presents as a generic connection error',
-        severity: 'Low',
-        category: 'UX',
-        surface: 'TerminalPage / #/terminal',
-        repro: 'ENABLE_TERMINAL=false → open #/terminal.',
-        expected: 'The specific "Terminal disabled — set ENABLE_TERMINAL=true" reason (server should send {error,disabled}).',
-        actual: `Banner read: "${bannerText.trim().slice(0, 160)}" — a transport error, not the disabled reason. Operator can't distinguish "off by config" from "core down".`,
-        evidence: 'reports/screens/P09-terminal-disabled.png',
-      })
-    }
-  } catch (e) {
-    findings.push({
-      title: 'Terminal page threw while testing the disabled state',
-      severity: 'Med',
-      category: 'Bug',
-      surface: 'TerminalPage / #/terminal',
-      repro: 'Navigate #/terminal with ENABLE_TERMINAL=false.',
-      expected: 'Page renders with a banner; no exception.',
-      actual: String(e).slice(0, 300),
-      evidence: 'reports/screens/P09-terminal-disabled.png',
-    })
-  }
-})
-
-// ===========================================================================
-// 4. WS RESILIENCE — auto-reconnect in 3s
+// 3. WS RESILIENCE — auto-reconnect in 3s
 // ===========================================================================
 
 test('WS auto-reconnects within ~3s after the socket is force-closed', async ({ page }) => {
@@ -576,7 +489,7 @@ test('WS auto-reconnects within ~3s after the socket is force-closed', async ({ 
 })
 
 // ===========================================================================
-// 5. REAL RUN — dispatch ONE tiny plan-mode run, then KILL it
+// 4. REAL RUN — dispatch ONE tiny plan-mode run, then KILL it
 // ===========================================================================
 
 test('kill flow: dispatch one tiny run and assert the UI reaches a terminal state', async ({ page }) => {
@@ -759,7 +672,7 @@ test('kill flow: dispatch one tiny run and assert the UI reaches a terminal stat
 })
 
 // ===========================================================================
-// 6. CONCURRENT ACTIONS — rapid double-nav, no state corruption
+// 5. CONCURRENT ACTIONS — rapid double-nav, no state corruption
 // ===========================================================================
 
 test('concurrent navigation: rapid route switches do not corrupt the shell', async ({ page }) => {

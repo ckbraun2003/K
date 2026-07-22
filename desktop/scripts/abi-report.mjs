@@ -35,14 +35,5 @@ try {
   console.log('better-sqlite3: FAIL —', String(e.message).split('\n')[0])
 }
 
-let ptyOk = false
-try {
-  const pty = coreRequire('node-pty')
-  ptyOk = typeof pty.spawn === 'function'
-  console.log('node-pty     :', ptyOk ? 'OK (spawn present)' : 'loaded but no spawn')
-} catch (e) {
-  console.log('node-pty     : FAIL —', String(e.message).split('\n')[0])
-}
-
-console.log('RESULT       :', sqliteOk && ptyOk ? 'PASS' : 'FAIL')
-process.exit(sqliteOk && ptyOk ? 0 : 1)
+console.log('RESULT       :', sqliteOk ? 'PASS' : 'FAIL')
+process.exit(sqliteOk ? 0 : 1)
