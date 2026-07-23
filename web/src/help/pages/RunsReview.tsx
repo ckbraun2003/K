@@ -8,8 +8,8 @@ export function RunsReview() {
         (replayable, checkpoint markers with Rewind-here), and <strong className="text-text">Changes</strong> — the
         per-wave diff of what the agent actually edited: file tree, syntax-highlighted split/unified diff,
         word-level change marks, viewed-checkmarks,{' '}
-        <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-text">j</kbd>/
-        <kbd className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-text">k</kbd> file hops.
+        <kbd className="mono rounded bg-[var(--glass-3)] px-1.5 py-0.5 text-[10px] text-text">j</kbd>/
+        <kbd className="mono rounded bg-[var(--glass-3)] px-1.5 py-0.5 text-[10px] text-text">k</kbd> file hops.
       </p>
       <p className="text-body text-muted">
         Interactive runs park at <em>awaiting your reply</em> — answer inline, "Compact context" when the meter runs

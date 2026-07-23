@@ -51,7 +51,7 @@ export default function CatalogPage({ tab }: { tab?: string }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Tab bar (canonical Tabs — E-30) ───────────────────────────────── */}
-      <div className="border-b border-border bg-surface px-4 py-2">
+      <div className="border-b border-[var(--glass-tier-border)] bg-[var(--glass-2)] px-4 py-2">
         <Tabs<TabId>
           ariaLabel="Catalog"
           items={TABS.map(t => ({ value: t.id, label: t.label }))}

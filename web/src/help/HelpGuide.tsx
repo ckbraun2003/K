@@ -41,7 +41,7 @@ export default function HelpGuide({ open, onOpenChange }: {
                   aria-current={i === page ? 'page' : undefined}
                   onClick={() => setPage(i)}
                   className={cn('block w-full px-4 py-2 text-left text-body transition-colors duration-[var(--dur-1)]',
-                    i === page ? 'bg-raised text-text' : 'text-muted hover:text-text')}
+                    i === page ? 'bg-[var(--glass-active)] text-text shadow-[inset_0_0_0_1px_var(--glass-active-edge)]' : 'text-muted hover:text-text')}
                 >
                   <span className="mono mr-2 text-micro text-muted">{i + 1}</span>{p.title}
                 </button>

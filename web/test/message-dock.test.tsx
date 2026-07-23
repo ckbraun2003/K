@@ -12,14 +12,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor, fireEvent, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MotionGlobalConfig } from 'framer-motion'
-import type { KThreadSummary } from '@k/shared'
+import type { KThreadSummary, ConversationSummary } from '@k/shared'
 
 // framer-motion's rAF frameloop can stall a fake-timers test — mirrors
 // command-bar-ask-k.test.tsx's guard so the undo toast's exit is deterministic.
 MotionGlobalConfig.skipAnimations = true
 
-const { mockThreadsList, mockThreadsGet, mockThreadsCreate, mockAsk, mockUndo, mockInbox } = vi.hoisted(() => ({
+const { mockThreadsList, mockConversationsList, mockThreadsGet, mockThreadsCreate, mockAsk, mockUndo, mockInbox } = vi.hoisted(() => ({
   mockThreadsList: vi.fn(),
+  mockConversationsList: vi.fn(),
   mockThreadsGet: vi.fn(),
   mockThreadsCreate: vi.fn(),
   mockAsk: vi.fn(),
@@ -30,6 +31,8 @@ const { mockThreadsList, mockThreadsGet, mockThreadsCreate, mockAsk, mockUndo, m
 vi.mock('../src/lib/api', () => ({
   api: {
     threads: { list: mockThreadsList, get: mockThreadsGet, create: mockThreadsCreate },
+    // A1 follow-up: the float picker reads api.conversations.list() (k-secretary-filtered).
+    conversations: { list: mockConversationsList },
     k: { ask: mockAsk, undo: mockUndo },
     // Task 9: the dock now previews an @project picker, so it queries the project
     // list unconditionally like CommandBar does — empty by default here since none
@@ -41,7 +44,7 @@ vi.mock('../src/lib/api', () => ({
       claude: { available: true },
       ollama: { enabled: false, reachable: false, baseUrl: '', model: '' },
       github: { authenticated: false },
-      auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'managed' },
+      auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, credentialPosture: 'managed' },
       voice: { enabled: false, reachable: false, baseUrl: '', model: '' },
     }),
     claudeModel: {
@@ -67,6 +70,7 @@ vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 
 import MessageDock from '../src/shell/MessageDock'
 import { selectThread } from '../src/lib/thread-select'
+import { navigate } from '../src/lib/route'
 
 function thread(over: Partial<KThreadSummary>): KThreadSummary {
   return {
@@ -79,6 +83,20 @@ function thread(over: Partial<KThreadSummary>): KThreadSummary {
     updatedAt: 0,
     snippet: null,
     lastTurnAt: null,
+    ...over,
+  }
+}
+
+/** ConversationSummary fixture for the float picker (api.conversations.list) — a K thread
+ *  by default; pass `profileId` to simulate a leaked non-K conversation that must NOT appear. */
+function conv(over: Partial<ConversationSummary>): ConversationSummary {
+  return {
+    ...thread(over),
+    profileId: 'k-secretary',
+    profileName: 'K',
+    sessionState: null,
+    contextTokens: null,
+    unread: 0,
     ...over,
   }
 }
@@ -97,12 +115,15 @@ beforeEach(() => {
   // (see mic-button.test.tsx), nothing extra to stub here.
   selectThread(null)
   mockThreadsList.mockReset()
+  mockConversationsList.mockReset()
   mockThreadsGet.mockReset()
   mockThreadsCreate.mockReset()
   mockAsk.mockReset()
   mockUndo.mockClear()
   mockInbox.mockReset()
+  vi.mocked(navigate).mockClear()
   mockThreadsList.mockResolvedValue({ threads: [] })
+  mockConversationsList.mockResolvedValue({ conversations: [] })
   mockThreadsGet.mockResolvedValue({ thread: thread({}), turns: [] })
   mockInbox.mockResolvedValue({ items: [], counts: {}, total: 0 })
   mockAsk.mockImplementation(async (message: string, opts?: { threadId?: string }) => ({
@@ -299,8 +320,13 @@ describe('MessageDock', () => {
 
   it('clicking a picker thread row switches the selection (float overlay)', async () => {
     const { getSelectedThread } = await import('../src/lib/thread-select')
+    // The picker renders from conversations.list (A1 follow-up); the selection-resolver
+    // (dock-target label) still reads threads.list — populate both so kt-b resolves to "Beta".
     mockThreadsList.mockResolvedValue({
       threads: [thread({ id: 'kt-a', title: 'Alpha' }), thread({ id: 'kt-b', title: 'Beta' })],
+    })
+    mockConversationsList.mockResolvedValue({
+      conversations: [conv({ id: 'kt-a', title: 'Alpha' }), conv({ id: 'kt-b', title: 'Beta' })],
     })
     renderDock('float')
     fireEvent.click(screen.getByTestId('dock-fab'))
@@ -315,6 +341,21 @@ describe('MessageDock', () => {
     fireEvent.click(screen.getByTestId('dock-picker-new-chat'))
     await waitFor(() => expect(screen.queryByTestId('dock-target')).toBeNull())
     expect(getSelectedThread()).toBeNull()
+  })
+
+  it('float picker lists ONLY K conversations — a leaked non-K (orchestrator) thread never renders (A1 follow-up)', async () => {
+    mockConversationsList.mockResolvedValue({
+      conversations: [
+        conv({ id: 'kt-k', title: 'My chat' }),
+        conv({ id: 'kt-chief', title: 'Chief thread', profileId: 'chief' }),
+      ],
+    })
+    renderDock('float')
+    fireEvent.click(screen.getByTestId('dock-fab'))
+    await screen.findByTestId('dock-thread-picker')
+    // findBy — the picker reads convData (api.conversations.list) asynchronously.
+    expect(await screen.findByTestId('dock-picker-thread-kt-k')).toBeTruthy()
+    expect(screen.queryByTestId('dock-picker-thread-kt-chief')).toBeNull()
   })
 
   it('the expander reveals the model + force-route selects', async () => {
@@ -349,6 +390,32 @@ describe('MessageDock', () => {
     expect(screen.getByTestId('dock-undo-toast')).toBeTruthy()
     fireEvent.click(undo)
     await waitFor(() => expect(mockUndo).toHaveBeenCalledWith('run-123'))
+  })
+
+  it('D-129: a successful send from the BAR variant (Home) redirects to the Chats/Messages surface with the conversation open', async () => {
+    mockThreadsList.mockResolvedValue({ threads: [thread({ id: 'kt-5', title: 'Existing' })] })
+    renderDock('bar')
+    act(() => { selectThread('kt-5') })
+    await screen.findByText('→ Existing')
+
+    fireEvent.change(screen.getByTestId('dock-input'), { target: { value: 'hi from home' } })
+    fireEvent.click(screen.getByTestId('dock-send'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('messages', 'kt-5'))
+  })
+
+  it('D-129: a successful send from the FLOAT variant (Messages/agent-detail) does NOT redirect — already where its thread lives', async () => {
+    mockThreadsList.mockResolvedValue({ threads: [thread({ id: 'kt-5', title: 'Existing' })] })
+    renderDock('float')
+    fireEvent.click(screen.getByTestId('dock-fab'))
+    await screen.findByTestId('dock-overlay')
+    act(() => { selectThread('kt-5') })
+
+    fireEvent.change(screen.getByTestId('dock-input'), { target: { value: 'hi from messages' } })
+    fireEvent.click(screen.getByTestId('dock-send'))
+
+    await waitFor(() => expect(mockAsk).toHaveBeenCalledTimes(1))
+    expect(navigate).not.toHaveBeenCalled()
   })
 
   it('a FORCED send queues a mailbox message — NO undo toast is raised (A.4, D-126)', async () => {

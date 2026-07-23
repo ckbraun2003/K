@@ -43,7 +43,7 @@ export default function NeedsYouWidget() {
       data-testid="widget-needs-you"
       aria-label={`Open inbox — ${box.total} item${box.total === 1 ? '' : 's'} need you`}
       onClick={() => navigate('personal', 'inbox')}
-      className="flex h-full w-full flex-col gap-2 overflow-y-auto p-3 text-left transition-colors hover:bg-raised"
+      className="flex h-full w-full flex-col gap-2 overflow-y-auto p-3 text-left transition-colors hover:bg-[var(--glass-hover)]"
     >
       <SectionHeader label="Needs you" />
       {/* The count headline is DATA-DERIVED, so it is gated on !isError alongside the chips —

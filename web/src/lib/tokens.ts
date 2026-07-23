@@ -5,13 +5,22 @@ export const TOKEN_FALLBACKS: Record<string, string> = {
   '--bg': '#1b1030', '--bg-deep': '#140b26',
   '--surface': '#2a1a47', '--raised': '#33205c',
   '--border': '#3a2a5c', '--border-strong': '#4a3775',
-  '--text': '#f4f0ff', '--muted': '#b3a6cd',
-  '--accent': '#ff8fc0', '--accent-hover': '#38bdf8', '--on-accent': '#241640',
+  '--text': '#c6cede', '--muted': '#8f99ad',
+  '--accent': '#a855f7', '--accent-hover': '#c084fc', '--accent-hi': '#e9d5ff', '--on-accent': '#241640',
   '--green': '#34d399', '--amber': '#fbbf24', '--red': '#f87171',
   '--chart-1': '#ff8fc0', '--chart-2': '#34d399', '--chart-3': '#fbbf24',
   '--chart-4': '#38bdf8', '--chart-5': '#a855f7', '--chart-6': '#f87171',
   '--chart-7': '#c084fc', '--chart-8': '#6366f1', '--chart-other': '#4c3a6e',
-  '--terminal-bg': '#0b0e14',
+  '--graph-bg': '#14161c',
+  // glass shade/opacity hierarchy (ui-adjustments Round 3, D-134) — color-by-role:
+  // white panels warm w/ depth · pinkish-purple icons · sky-blue interactions;
+  // mirrored from index.css :root.
+  '--glass-1': 'rgba(255, 255, 255, 0.035)', '--glass-2': 'rgba(250, 238, 252, 0.06)',
+  '--glass-3': 'rgba(244, 222, 248, 0.095)', '--glass-4': 'rgba(238, 210, 246, 0.145)',
+  '--glass-icon': 'rgba(226, 148, 224, 0.20)', '--glass-icon-strong': 'rgba(226, 148, 224, 0.30)',
+  '--icon-glyph': '#e7a8e4', '--glass-icon-edge': 'rgba(226, 148, 224, 0.55)',
+  '--glass-hover': 'rgba(135, 206, 250, 0.18)', '--glass-active': 'rgba(135, 206, 250, 0.30)',
+  '--glass-active-edge': 'rgba(135, 206, 250, 0.55)', '--glass-code': 'rgba(16, 12, 26, 0.55)',
   // LG2 + code-viewer (impressive-wave W0.2) — mirrored from index.css :root
   '--lg-blob-1': 'rgba(168, 85, 247, 0.16)', '--lg-blob-2': 'rgba(255, 143, 192, 0.13)',
   '--lg-blob-3': 'rgba(56, 189, 248, 0.11)', '--lg-blob-4': 'rgba(99, 102, 241, 0.10)',

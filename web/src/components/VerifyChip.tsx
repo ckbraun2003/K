@@ -51,15 +51,15 @@ export default function VerifyChip({ runId }: { runId: string }) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-6 z-50 w-80 rounded-lg border border-border bg-surface shadow-lg p-3" data-testid="verify-popover">
+          <div className="absolute right-0 top-6 z-50 w-80 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-4)] shadow-lg p-3" data-testid="verify-popover">
             <div className="flex flex-wrap gap-1.5 pb-2">
               {data.scope && (
                 <>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-raised border border-border text-muted font-medium">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--glass-1)] border border-[var(--glass-tier-border)] text-muted font-medium">
                     {data.scope.files.length} files changed
                   </span>
                   {data.scope.indexed && data.scope.symbols != null && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-raised border border-border text-muted font-medium">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--glass-1)] border border-[var(--glass-tier-border)] text-muted font-medium">
                       {data.scope.symbols} indexed symbols
                     </span>
                   )}

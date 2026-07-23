@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   canonicalizePipelineRunStatus,
+  type AgentProfile,
+  type Artifact,
   type PipelineRun,
   type PipelineRunView,
   type PipelineStageRun,
@@ -15,9 +17,10 @@ import PipelineStageCard from '../../components/PipelineStageCard'
 import PipelineGateDialog from '../../components/PipelineGateDialog'
 import PipelineDefInspector from '../../components/PipelineDefInspector'
 import PipelineLedgerPanel from '../../components/PipelineLedgerPanel'
+import DocViewer from '../../components/DocViewer'
 import { StatusPill } from '../../ui/StatusPill'
 import { SectionHeader } from '../../ui/SectionHeader'
-import { Button } from '../../ui/Button'
+import { Button, IconButton } from '../../ui/Button'
 import { Tag } from '../../ui/Tag'
 import { Select, Textarea } from '../../ui/Field'
 import { Dialog } from '../../ui/Dialog'
@@ -51,6 +54,11 @@ function RunPipelineDialog({
   const [defId, setDefId] = useState('')
   const [goal, setGoal] = useState('')
   const [projectId, setProjectId] = useState('')
+  // Lane B (ui-adjustments Round 2, seam w/ Lane C): the operator's optional
+  // "Observed by" pick — threaded to the backend as `orchestratorId`. '' (the
+  // default) omits the field entirely, so the server falls back to the pipeline
+  // definition's domain manager (see routes/pipelines.ts), else null.
+  const [orchestratorId, setOrchestratorId] = useState('')
 
   const { data: projects } = useQuery<Project[]>({
     queryKey: ['projects'],
@@ -58,8 +66,24 @@ function RunPipelineDialog({
     enabled: open,
   })
 
+  // Candidate "observers": chief-tier (domain managers) + orchestrator-tier
+  // (the 5 discipline leads + the default orchestrator) profiles — the same
+  // tiers routes/pipelines.ts accepts as an owner. api.profiles.list (not
+  // api.orchestrators.list, which server-filters to leads only) so Chief-tier
+  // domain managers are selectable too.
+  const { data: profiles } = useQuery<AgentProfile[]>({
+    queryKey: ['profiles'],
+    queryFn: () => api.profiles.list(),
+    enabled: open,
+  })
+  const observers = (profiles ?? []).filter(p => p.tier === 'chief' || p.tier === 'orchestrator')
+
   const dispatch = useMutation({
-    mutationFn: () => api.pipelines.run(defId, { goal: goal.trim(), projectId: projectId || undefined }),
+    mutationFn: () => api.pipelines.run(defId, {
+      goal: goal.trim(),
+      projectId: projectId || undefined,
+      orchestratorId: orchestratorId || undefined,
+    }),
     onSuccess: r => onDispatched(r.pipelineRunId),
   })
 
@@ -68,6 +92,7 @@ function RunPipelineDialog({
     if (!open) return
     setGoal('')
     setProjectId('')
+    setOrchestratorId('')
     setDefId(defs[0]?.id ?? '')
     dispatch.reset()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,6 +178,24 @@ function RunPipelineDialog({
           </Select>
         </div>
 
+        <div>
+          <label className="mb-1 block text-caption text-muted">Observed by (optional)</label>
+          <Select
+            data-testid="pipeline-run-orchestrator"
+            aria-label="Observed by"
+            value={orchestratorId}
+            onChange={e => setOrchestratorId(e.target.value)}
+            className="w-full text-label"
+          >
+            <option value="">Auto (pipeline's domain manager)</option>
+            {observers.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+
         {dispatch.isError && (
           <p data-testid="pipeline-run-error" className="text-label text-red">
             {(dispatch.error as Error).message}
@@ -168,11 +211,40 @@ function RunDetail({ runId }: { runId: string }) {
   const qc = useQueryClient()
   const [selectedStageKey, setSelectedStageKey] = useState<string | undefined>(undefined)
   const [gateStage, setGateStage] = useState<PipelineStageRun | null>(null)
+  // Lane B (B4): the shared artifact viewer's open slug — the Artifacts panel below
+  // AND the ledger's clickable 'artifact' rows both open into this one modal.
+  const [openArtifactSlug, setOpenArtifactSlug] = useState<string | null>(null)
 
   const { data: view, isLoading, isError, refetch } = useQuery<PipelineRunView>({
     queryKey: ['pipeline-run', runId],
     queryFn: () => api.pipelines.getRun(runId),
   })
+
+  // Lane B (B4): artifacts produced/edited by this run's stages (server joins on
+  // each stage's linked agent runId → artifacts.linkedRunId). Queried unconditionally
+  // (hooks can't follow the early-loading-return below) — cheap no-op while `view`
+  // hasn't arrived yet since the stageArtifactSlug map below just falls back to {}.
+  const artifactsQ = useQuery<Omit<Artifact, 'md' | 'html'>[]>({
+    queryKey: ['pipeline-run-artifacts', runId],
+    queryFn: () => api.pipelines.runArtifacts(runId),
+  })
+  const artifacts = artifactsQ.data ?? []
+
+  // stageKey → artifact slug, for the ledger's clickable 'artifact' rows: a ledger
+  // 'artifact' entry only carries a commit SHA, not a slug, so this joins the run's
+  // stages (stage.runId, the linked AGENT run) against the fetched artifacts
+  // (artifact.linkedRunId) to find what — if anything — that stage actually produced.
+  const stageArtifactSlug = useMemo(() => {
+    const byAgentRunId = new Map<string, string>()
+    for (const a of artifacts) {
+      if (a.linkedRunId && !byAgentRunId.has(a.linkedRunId)) byAgentRunId.set(a.linkedRunId, a.slug)
+    }
+    const map: Record<string, string> = {}
+    for (const stage of view?.stages ?? []) {
+      if (stage.runId && byAgentRunId.has(stage.runId)) map[stage.stageKey] = byAgentRunId.get(stage.runId)!
+    }
+    return map
+  }, [artifacts, view])
 
   // A mutation (rewind / gate / cancel) returns the refreshed view — write it straight
   // into the cache so the DAG + cards update without a round-trip. Live WS deltas land
@@ -237,8 +309,43 @@ function RunDetail({ runId }: { runId: string }) {
         ))}
       </div>
 
+      <div className="surface-solid rounded-panel p-3" data-testid="pipeline-artifacts-panel">
+        <SectionHeader label="Artifacts" count={artifacts.length} as="h3" />
+        {artifactsQ.isLoading ? (
+          <SkeletonTile tier="solid" />
+        ) : artifactsQ.isError ? (
+          <div data-testid="pipeline-artifacts-error">
+            <ErrorState message="Failed to load artifacts." onRetry={() => void artifactsQ.refetch()} />
+          </div>
+        ) : artifacts.length === 0 ? (
+          <div data-testid="pipeline-artifacts-empty">
+            <EmptyState
+              tier="solid"
+              icon="file"
+              headline="No artifacts yet"
+              hint="Artifacts produced by this run's stages appear here."
+            />
+          </div>
+        ) : (
+          <ul className="space-y-1" data-testid="pipeline-artifacts-list">
+            {artifacts.map(a => (
+              <li key={a.slug}>
+                <button
+                  type="button"
+                  data-testid={`pipeline-artifact-${a.slug}`}
+                  onClick={() => setOpenArtifactSlug(a.slug)}
+                  className="w-full rounded-control border border-border px-3 py-2 text-left transition-colors hover:border-border-strong"
+                >
+                  <span className="truncate text-label font-medium text-text">{a.title ?? a.slug}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <div className="surface-solid rounded-panel p-3">
-        <PipelineLedgerPanel runId={runId} />
+        <PipelineLedgerPanel runId={runId} stageArtifacts={stageArtifactSlug} onOpenArtifact={setOpenArtifactSlug} />
       </div>
 
       <PipelineGateDialog
@@ -249,6 +356,22 @@ function RunDetail({ runId }: { runId: string }) {
         onResolved={applyView}
         onConflict={() => void refetch()}
       />
+
+      {openArtifactSlug && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" data-testid="pipeline-artifact-viewer">
+          <div className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <span className="mono text-xs text-muted">
+                Artifact: <span className="text-text">{openArtifactSlug}</span>
+              </span>
+              <IconButton name="close" variant="ghost" label="Close artifact" onClick={() => setOpenArtifactSlug(null)} />
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <DocViewer slug={openArtifactSlug} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -402,7 +525,7 @@ export function PipelineRunsPane({
                   data-testid={`pipeline-run-row-${run.id}`}
                   className={cn(
                     'w-full rounded-control border px-3 py-2 text-left transition-colors',
-                    run.id === selectedRunId ? 'border-accent bg-raised' : 'border-border hover:border-border-strong',
+                    run.id === selectedRunId ? 'border-accent bg-[var(--glass-active)] shadow-[inset_0_0_0_1px_var(--glass-active-edge)]' : 'border-border hover:border-border-strong',
                   )}
                 >
                   <div className="flex items-center gap-2">

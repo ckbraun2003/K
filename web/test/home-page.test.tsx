@@ -1,33 +1,21 @@
 /**
- * HomePage (UI Simplification Task 11) — the Chat|Overview SegControl switch
- * (testids `seg-chat`/`seg-overview` free from SegControl.tsx). Chat is the
- * default landing tab (S-6: a fresh install with nothing stored faces K); the
- * picked tab persists to localStorage `'k.home.view'` so a reload restores it.
- * Mocks api at the same seam chat-view.test.tsx uses — ChatView is the
- * default-rendered tab, so it needs the same threads.list stub (no real
- * network, empty list keeps it to the "no crash" empty state). Also stubs
- * homeLayout.get/put (Task 12's OverviewView reads it via useHomeLayout) —
- * these tests only assert the SegControl switch/persistence, not grid
- * content, so a null (DEFAULT_LAYOUT-falling-back) layout is enough.
+ * HomePage (D-129 — Home = Overview only). The Chat|Overview SegControl is
+ * gone (superseded — ChatView is retired from this route); HomePage renders
+ * a single Overview surface under an in-page "Overview" section header
+ * (SectionHeader, testid-free — same convention as other section labels).
+ * The quick-ask affordance is the globally-mounted MessageDock bar variant
+ * (Shell.tsx, not exercised here); a send from it redirects to Chats — see
+ * message-dock.test.tsx's D-129 tests for that behavior. Stubs
+ * homeLayout.get/put (OverviewView reads it via useHomeLayout) — `layout:
+ * null` degrades to DEFAULT_LAYOUT, same as a fresh install that never saved
+ * a custom grid.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 vi.mock('../src/lib/api', () => ({
   api: {
-    threads: {
-      list: vi.fn(async () => ({ threads: [] })),
-      get: vi.fn(),
-      update: vi.fn(),
-      create: vi.fn(),
-      remove: vi.fn(),
-    },
-    // ChatView marks the open conversation read (INT.2 read-cursor fix).
-    conversations: { read: vi.fn(async () => ({ ok: true })) },
-    // The Overview tab now renders the widget grid (Task 12) — it reads this
-    // via useHomeLayout. `layout: null` degrades to DEFAULT_LAYOUT, same as
-    // a fresh install that never saved a custom grid (spec 8.3).
     homeLayout: {
       get: vi.fn(async () => ({ layout: null })),
       put: vi.fn(async (layout) => ({ layout })),
@@ -38,7 +26,6 @@ vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 vi.mock('../src/lib/ws', () => ({ onWsMessage: () => () => {} }))
 
 import HomePage from '../src/pages/HomePage'
-import { selectThread } from '../src/lib/thread-select'
 
 function renderHome() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -51,39 +38,18 @@ function renderHome() {
 
 beforeEach(() => {
   localStorage.clear()
-  selectThread(null)
 })
 afterEach(() => {
   cleanup()
-  selectThread(null)
   localStorage.clear()
 })
 
 describe('HomePage', () => {
-  it('renders the Chat|Overview SegControl, defaulting to Chat on first boot (S-6)', () => {
+  it('renders the Overview widget grid directly — no Chat|Overview SegControl', () => {
     renderHome()
-    expect(screen.getByTestId('seg-chat')).toBeTruthy()
-    expect(screen.getByTestId('seg-overview')).toBeTruthy()
-    expect(screen.getByTestId('seg-chat').getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByTestId('seg-overview').getAttribute('aria-pressed')).toBe('false')
-  })
-
-  it('clicking seg-overview swaps to the Overview widget grid and persists k.home.view', async () => {
-    renderHome()
-    fireEvent.click(screen.getByTestId('seg-overview'))
-    await waitFor(() => expect(screen.getByTestId('seg-overview').getAttribute('aria-pressed')).toBe('true'))
+    expect(screen.getByText('Overview')).toBeTruthy()
     expect(screen.getByTestId('overview-customize')).toBeTruthy()
-    expect(localStorage.getItem('k.home.view')).toBe('overview')
-  })
-
-  it('re-mount restores the persisted view', async () => {
-    const first = renderHome()
-    fireEvent.click(screen.getByTestId('seg-overview'))
-    await waitFor(() => expect(localStorage.getItem('k.home.view')).toBe('overview'))
-    first.unmount()
-
-    renderHome()
-    await waitFor(() => expect(screen.getByTestId('seg-overview').getAttribute('aria-pressed')).toBe('true'))
-    expect(screen.getByTestId('overview-customize')).toBeTruthy()
+    expect(screen.queryByTestId('seg-chat')).toBeNull()
+    expect(screen.queryByTestId('seg-overview')).toBeNull()
   })
 })

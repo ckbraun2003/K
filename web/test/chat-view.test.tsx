@@ -1,39 +1,44 @@
 /**
  * ChatView (UI Simplification Task 11) — Home's chat pane: a thread-list rail
  * (rename/archive row actions, "+ New chat") + the selected thread's
- * transcript (user/K bubbles, run action chips). Mocks `api.threads.*` at the
- * same seam message-dock.test.tsx uses (no real network); `thread-select.ts`
+ * transcript (user/K bubbles). Mocks `api.conversations.*`/`api.threads.*` at
+ * the same seam message-dock.test.tsx uses (no real network); `thread-select.ts`
  * is the REAL module (a process-wide store) so `selectThread()` drives the
  * component exactly as MessageDock would — beforeEach resets it so tests
  * don't leak selection into each other.
+ *
+ * A1 (ui-adjustments): the rail reads `api.conversations.list()` (filtered to
+ * `profileId === 'k-secretary'`) instead of the unfiltered `api.threads.list()`
+ * — the fixture helper below produces the richer `ConversationSummary` shape
+ * (MessagesPage's `conv()` pattern).
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor, fireEvent, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { KThreadSummary, KThreadTurn } from '@k/shared'
+import type { ConversationSummary, KThreadTurn } from '@k/shared'
 
-const { mockThreadsList, mockThreadsGet, mockThreadsUpdate, mockNavigate, mockConversationsRead } = vi.hoisted(() => ({
-  mockThreadsList: vi.fn(),
+const {
+  mockConversationsList, mockThreadsGet, mockThreadsUpdate, mockConversationsRead,
+} = vi.hoisted(() => ({
+  mockConversationsList: vi.fn(),
   mockThreadsGet: vi.fn(),
   mockThreadsUpdate: vi.fn(),
-  mockNavigate: vi.fn(),
   mockConversationsRead: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
   api: {
     threads: {
-      list: mockThreadsList,
       get: mockThreadsGet,
       update: mockThreadsUpdate,
       create: vi.fn(),
       remove: vi.fn(),
     },
     // The INT.2 read-cursor fix: ChatView marks the open conversation read.
-    conversations: { read: mockConversationsRead },
+    conversations: { list: mockConversationsList, read: mockConversationsRead },
   },
 }))
-vi.mock('../src/lib/route', () => ({ navigate: mockNavigate }))
+vi.mock('../src/lib/route', () => ({ navigate: vi.fn() }))
 
 import ChatView from '../src/pages/home/ChatView'
 import { selectThread, getSelectedThread } from '../src/lib/thread-select'
@@ -44,7 +49,7 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn()
 })
 
-function thread(over: Partial<KThreadSummary>): KThreadSummary {
+function thread(over: Partial<ConversationSummary>): ConversationSummary {
   return {
     id: 'kt-1',
     title: 'Untitled',
@@ -55,6 +60,11 @@ function thread(over: Partial<KThreadSummary>): KThreadSummary {
     updatedAt: 0,
     snippet: null,
     lastTurnAt: null,
+    profileId: 'k-secretary',
+    profileName: 'K',
+    sessionState: null,
+    contextTokens: null,
+    unread: 0,
     ...over,
   }
 }
@@ -82,12 +92,11 @@ function renderChat() {
 
 beforeEach(() => {
   selectThread(null)
-  mockThreadsList.mockReset()
+  mockConversationsList.mockReset()
   mockThreadsGet.mockReset()
   mockThreadsUpdate.mockReset()
-  mockNavigate.mockReset()
   mockConversationsRead.mockReset()
-  mockThreadsList.mockResolvedValue({ threads: [] })
+  mockConversationsList.mockResolvedValue({ conversations: [] })
   mockThreadsGet.mockResolvedValue({ thread: thread({}), turns: [] })
   mockThreadsUpdate.mockResolvedValue(thread({}))
   mockConversationsRead.mockResolvedValue({ ok: true, lastReadAt: Date.now() })
@@ -103,7 +112,7 @@ describe('ChatView', () => {
     const t2 = thread({ id: 'kt-2', title: 'Second chat', snippet: 'yo', lastTurnAt: Date.now() })
     // Server already orders newest-first (kThreadsDb.listThreads) — the component
     // must render in the order it receives, not re-sort client-side.
-    mockThreadsList.mockResolvedValue({ threads: [t2, t1] })
+    mockConversationsList.mockResolvedValue({ conversations: [t2, t1] })
     mockThreadsGet.mockImplementation(async (id: string) => ({
       thread: id === 'kt-2' ? t2 : t1,
       turns: id === 'kt-2' ? [turn({ id: 'tn-1', threadId: 'kt-2', role: 'user', text: 'yo' })] : [],
@@ -119,10 +128,21 @@ describe('ChatView', () => {
     await waitFor(() => expect(screen.getByTestId('conversation-turn-user').textContent).toContain('yo'))
   })
 
+  it('filters to K\'s own threads — an orchestrator/agent conversation in the list is never shown in Home\'s rail (A1)', async () => {
+    const kThread = thread({ id: 'k-default', title: 'K chat', profileId: 'k-secretary' })
+    const agentThread = thread({ id: 'kt-chief', title: 'Chief chat', profileId: 'chief', profileName: 'Chief' })
+    mockConversationsList.mockResolvedValue({ conversations: [agentThread, kThread] })
+    renderChat()
+
+    await waitFor(() => expect(screen.getByTestId('chat-thread-row-k-default')).toBeTruthy())
+    expect(screen.queryByTestId('chat-thread-row-kt-chief')).toBeNull()
+    expect(screen.queryByText('Chief chat')).toBeNull()
+  })
+
   it('advances the read cursor for the open conversation (INT.2 — Messages badge must clear from Home too)', async () => {
     const t1 = thread({ id: 'kt-1', title: 'First chat' })
     const t2 = thread({ id: 'kt-2', title: 'Second chat' })
-    mockThreadsList.mockResolvedValue({ threads: [t1, t2] })
+    mockConversationsList.mockResolvedValue({ conversations: [t1, t2] })
     mockThreadsGet.mockImplementation(async (id: string) => ({
       thread: id === 'kt-1' ? t1 : t2,
       turns: [],
@@ -143,7 +163,7 @@ describe('ChatView', () => {
   it('clicking a thread row selects it (thread-select store) and swaps the transcript', async () => {
     const t1 = thread({ id: 'kt-1', title: 'First chat' })
     const t2 = thread({ id: 'kt-2', title: 'Second chat' })
-    mockThreadsList.mockResolvedValue({ threads: [t1, t2] })
+    mockConversationsList.mockResolvedValue({ conversations: [t1, t2] })
     mockThreadsGet.mockImplementation(async (id: string) => ({
       thread: id === 'kt-1' ? t1 : t2,
       turns: [turn({ id: `turn-${id}`, threadId: id, role: 'k', text: `reply in ${id}` })],
@@ -160,7 +180,7 @@ describe('ChatView', () => {
 
   it('rename: pencil -> inline input -> Enter calls api.threads.update(id, {title})', async () => {
     const t1 = thread({ id: 'kt-1', title: 'Old title' })
-    mockThreadsList.mockResolvedValue({ threads: [t1] })
+    mockConversationsList.mockResolvedValue({ conversations: [t1] })
     renderChat()
     await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-1')).toBeTruthy())
 
@@ -175,11 +195,11 @@ describe('ChatView', () => {
   it('archive: calls api.threads.update(id, {archived:true}); selection falls back to most recent remaining', async () => {
     const t1 = thread({ id: 'kt-1', title: 'Older', updatedAt: 1 })
     const t2 = thread({ id: 'kt-2', title: 'Newer', updatedAt: 2 })
-    // First read: both present. After the archive mutation invalidates ['k-threads'],
+    // First read: both present. After the archive mutation invalidates ['conversations'],
     // the refetch reflects the server's default (archived excluded) — kt-1 is gone.
-    mockThreadsList
-      .mockResolvedValueOnce({ threads: [t2, t1] })
-      .mockResolvedValue({ threads: [t2] })
+    mockConversationsList
+      .mockResolvedValueOnce({ conversations: [t2, t1] })
+      .mockResolvedValue({ conversations: [t2] })
     mockThreadsUpdate.mockResolvedValue({ ...t1, archivedAt: Date.now() })
     selectThread('kt-1')
     renderChat()
@@ -191,9 +211,9 @@ describe('ChatView', () => {
     await waitFor(() => expect(getSelectedThread()).toBe('kt-2'))
   })
 
-  it('a turn with runId renders an action chip that navigates to the run console', async () => {
+  it('a turn with runId no longer renders an action chip (A5 — the "view run" chip was removed)', async () => {
     const t1 = thread({ id: 'kt-1' })
-    mockThreadsList.mockResolvedValue({ threads: [t1] })
+    mockConversationsList.mockResolvedValue({ conversations: [t1] })
     mockThreadsGet.mockResolvedValue({
       thread: t1,
       turns: [turn({ id: 'tn-1', threadId: 'kt-1', role: 'k', text: 'routed it', runId: 'run-9' })],
@@ -201,13 +221,12 @@ describe('ChatView', () => {
     selectThread('kt-1')
     renderChat()
 
-    const chip = await screen.findByTestId('conversation-run-chip')
-    fireEvent.click(chip)
-    expect(mockNavigate).toHaveBeenCalledWith('runs', 'run-9')
+    await screen.findByText('routed it')
+    expect(screen.queryByTestId('conversation-run-chip')).toBeNull()
   })
 
   it('with zero threads, shows the empty new-chat state (no crash)', async () => {
-    mockThreadsList.mockResolvedValue({ threads: [] })
+    mockConversationsList.mockResolvedValue({ conversations: [] })
     renderChat()
     await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeTruthy())
     expect(screen.queryAllByTestId(/^chat-thread-row-/).length).toBe(0)
@@ -216,16 +235,16 @@ describe('ChatView', () => {
   it('dock create race: a selection missing from a stale settled list is NOT demoted — one refetch confirms it first', async () => {
     // Repro of the reviewer-verified Critical: MessageDock.submit() on a new
     // chat does threads.create() -> selectThread(created.id) -> ask.send(...),
-    // and the ['k-threads'] invalidation only lands AFTER the ask round-trip.
+    // and the ['conversations'] invalidation only lands AFTER the ask round-trip.
     // In that window ChatView's cached list is settled-and-stale (no such id):
     // the fallback must NOT demote the just-created selection — it probes with
     // ONE list refetch (fetched after the create, so it includes the id) and
     // keeps the selection.
     const t1 = thread({ id: 'kt-1', title: 'Existing chat' })
     const tNew = thread({ id: 'kt-new', title: 'New chat' })
-    mockThreadsList
-      .mockResolvedValueOnce({ threads: [t1] }) // pre-create snapshot
-      .mockResolvedValue({ threads: [tNew, t1] }) // any fetch after the create sees it
+    mockConversationsList
+      .mockResolvedValueOnce({ conversations: [t1] }) // pre-create snapshot
+      .mockResolvedValue({ conversations: [tNew, t1] }) // any fetch after the create sees it
     mockThreadsGet.mockImplementation(async (id: string) => ({
       thread: id === 'kt-new' ? tNew : t1,
       turns: id === 'kt-new'
@@ -240,8 +259,8 @@ describe('ChatView', () => {
 
     // The stale settled list must not overwrite the selection...
     expect(getSelectedThread()).toBe('kt-new')
-    // ...it triggers exactly one probe refetch of ['k-threads'] instead...
-    await waitFor(() => expect(mockThreadsList).toHaveBeenCalledTimes(2))
+    // ...it triggers exactly one probe refetch of ['conversations'] instead...
+    await waitFor(() => expect(mockConversationsList).toHaveBeenCalledTimes(2))
     expect(getSelectedThread()).toBe('kt-new')
     // ...and once the refreshed list includes the id it stays selected, with
     // its transcript query enabled (turns render).
@@ -249,7 +268,7 @@ describe('ChatView', () => {
     expect(getSelectedThread()).toBe('kt-new')
     expect(mockThreadsGet).toHaveBeenCalledWith('kt-new')
     await waitFor(() => expect(screen.getByTestId('conversation-turn-user').textContent).toContain('first message'))
-    expect(mockThreadsList).toHaveBeenCalledTimes(2) // exactly one probe — no refetch loop
+    expect(mockConversationsList).toHaveBeenCalledTimes(2) // exactly one probe — no refetch loop
   })
 
   it('a selection absent even from a fresh refetch IS demoted to the newest remaining thread', async () => {
@@ -257,15 +276,15 @@ describe('ChatView', () => {
     // lands AFTER the selection was made and still lacks the id — only now
     // does the fallback demote to the most recent non-archived thread.
     const t1 = thread({ id: 'kt-1', title: 'Existing chat' })
-    mockThreadsList.mockResolvedValue({ threads: [t1] }) // never contains kt-ghost
+    mockConversationsList.mockResolvedValue({ conversations: [t1] }) // never contains kt-ghost
     renderChat()
     await waitFor(() => expect(screen.getByTestId('chat-thread-row-kt-1')).toBeTruthy())
 
     act(() => { selectThread('kt-ghost') })
 
-    await waitFor(() => expect(mockThreadsList).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mockConversationsList).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(getSelectedThread()).toBe('kt-1'))
-    expect(mockThreadsList).toHaveBeenCalledTimes(2) // one probe, then it settles
+    expect(mockConversationsList).toHaveBeenCalledTimes(2) // one probe, then it settles
   })
 
   it('an archived selection (opened from Chats/Memories) is KEPT with its transcript + an archived indicator — never demoted', async () => {
@@ -275,7 +294,7 @@ describe('ChatView', () => {
     // not a different conversation the probe demoted them onto.
     const active = thread({ id: 'kt-1', title: 'Active chat' })
     const archived = thread({ id: 'kt-arch', title: 'Archived plan', archivedAt: Date.now() })
-    mockThreadsList.mockResolvedValue({ threads: [active] }) // the default list excludes the archived one
+    mockConversationsList.mockResolvedValue({ conversations: [active] }) // the default list excludes the archived one
     mockThreadsGet.mockImplementation(async (id: string) => ({
       thread: id === 'kt-arch' ? archived : active,
       turns: id === 'kt-arch'
@@ -289,19 +308,19 @@ describe('ChatView', () => {
 
     // One probe refetch confirms kt-arch is absent from the default list; the by-id read then
     // proves it EXISTS (archived) — so the selection is KEPT (not demoted to kt-1)…
-    await waitFor(() => expect(mockThreadsList).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mockConversationsList).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.getByTestId('conversation-turn-user').textContent).toContain('archived message'))
     expect(getSelectedThread()).toBe('kt-arch')
     // …and the chat surface is honest that the thread is archived.
     expect(screen.getByTestId('chat-archived-indicator')).toBeTruthy()
-    expect(mockThreadsList).toHaveBeenCalledTimes(2) // exactly one probe — no refetch loop
+    expect(mockConversationsList).toHaveBeenCalledTimes(2) // exactly one probe — no refetch loop
   })
 
   it('a DELETED selection (by-id 404) IS still demoted to the newest remaining thread — no archived chip', async () => {
     // The control: a genuinely-deleted id 404s on the by-id read (unlike an archived thread,
     // which resolves) — so it is demoted exactly as before, and no archived indicator shows.
     const active = thread({ id: 'kt-1', title: 'Active chat' })
-    mockThreadsList.mockResolvedValue({ threads: [active] })
+    mockConversationsList.mockResolvedValue({ conversations: [active] })
     mockThreadsGet.mockImplementation(async (id: string) => {
       if (id === 'kt-del') throw new Error('not found')
       return { thread: active, turns: [] }
@@ -311,7 +330,7 @@ describe('ChatView', () => {
 
     act(() => { selectThread('kt-del') })
 
-    await waitFor(() => expect(mockThreadsList).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mockConversationsList).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(getSelectedThread()).toBe('kt-1'))
     expect(screen.queryByTestId('chat-archived-indicator')).toBeNull()
   })
@@ -324,9 +343,9 @@ describe('ChatView', () => {
     // parked on the chip state instead of falling to the next conversation.
     const t1 = thread({ id: 'kt-1', title: 'Open chat' })
     const t2 = thread({ id: 'kt-2', title: 'Other chat' })
-    mockThreadsList
-      .mockResolvedValueOnce({ threads: [t1, t2] }) // pre-archive snapshot
-      .mockResolvedValue({ threads: [t2] }) // any fetch after the archive excludes kt-1
+    mockConversationsList
+      .mockResolvedValueOnce({ conversations: [t1, t2] }) // pre-archive snapshot
+      .mockResolvedValue({ conversations: [t2] }) // any fetch after the archive excludes kt-1
     mockThreadsGet.mockImplementation(async (id: string) => ({
       thread: id === 'kt-1' ? { ...t1, archivedAt: Date.now() } : t2,
       turns: [],
@@ -351,11 +370,44 @@ describe('ChatView', () => {
     // rather than crash or hang, while leaving the persisted selection alone (a
     // transient fetch failure should not silently wipe it).
     selectThread('kt-1')
-    mockThreadsList.mockRejectedValue(new Error('boom'))
+    mockConversationsList.mockRejectedValue(new Error('boom'))
     renderChat()
 
     await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeTruthy())
     expect(screen.queryAllByTestId(/^chat-thread-row-/).length).toBe(0)
     expect(getSelectedThread()).toBe('kt-1')
+  })
+
+  it('shows a search box once the list exceeds ~5 threads and filters rows by title/snippet (A3)', async () => {
+    const threads = Array.from({ length: 6 }).map((_, i) =>
+      thread({ id: `kt-${i}`, title: `Chat ${i}`, snippet: i === 3 ? 'find me' : null }))
+    mockConversationsList.mockResolvedValue({ conversations: threads })
+    renderChat()
+
+    const search = await screen.findByTestId('chat-search')
+    expect(screen.getAllByTestId(/^chat-thread-row-/).length).toBe(6)
+
+    fireEvent.change(search, { target: { value: 'find me' } })
+    await waitFor(() => expect(screen.getAllByTestId(/^chat-thread-row-/).length).toBe(1))
+    expect(screen.getByTestId('chat-thread-row-kt-3')).toBeTruthy()
+  })
+
+  it('no search box under the ~5-thread threshold', async () => {
+    const threads = Array.from({ length: 3 }).map((_, i) => thread({ id: `kt-${i}`, title: `Chat ${i}` }))
+    mockConversationsList.mockResolvedValue({ conversations: threads })
+    renderChat()
+
+    await waitFor(() => expect(screen.getAllByTestId(/^chat-thread-row-/).length).toBe(3))
+    expect(screen.queryByTestId('chat-search')).toBeNull()
+  })
+
+  it('shows an unread badge on a row with unread > 0, and none when unread is 0', async () => {
+    const t1 = thread({ id: 'kt-1', title: 'Has unread', unread: 3 })
+    const t2 = thread({ id: 'kt-2', title: 'No unread', unread: 0 })
+    mockConversationsList.mockResolvedValue({ conversations: [t1, t2] })
+    renderChat()
+
+    await waitFor(() => expect(screen.getByTestId('chat-unread-kt-1').textContent).toBe('3'))
+    expect(screen.queryByTestId('chat-unread-kt-2')).toBeNull()
   })
 })

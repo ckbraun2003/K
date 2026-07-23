@@ -311,7 +311,7 @@ function CatalogRow({
                   key={pid}
                   onClick={() => navigate('orchestrator', pid)}
                   data-testid={`catalog-mountedby-${skill.id}-${pid}`}
-                  className="rounded-pill bg-raised px-1.5 py-0.5 text-micro text-accent-hover transition-colors hover:bg-border"
+                  className="rounded-pill bg-[var(--glass-4)] px-1.5 py-0.5 text-micro text-accent-hover transition-colors hover:bg-border"
                 >
                   {pid} →
                 </button>

@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
-import { terminalTokenDefine, harnessTokenDefine, devAutoAuthEnabled, devProxyAuthHeader } from './src/lib/vite-token-defines'
+import { harnessTokenDefine, devAutoAuthEnabled, devProxyAuthHeader } from './src/lib/vite-token-defines'
 
 // Isolation knobs (default to the production-equivalent single-stack values).
 // The e2e swarm boots N stacks in parallel by overriding CORE_PORT/WEB_PORT per
@@ -19,20 +19,7 @@ const WEB_HOST = process.env.WEB_HOST ?? '127.0.0.1'
 
 export default defineConfig(({ command }) => ({
   plugins: [react()],
-  // The terminal WS upgrade can't carry an auth header, so its token is passed
-  // as a query param — exposed to the client here. NOTE: this is the SCOPED
-  // TERMINAL_TOKEN, never HARNESS_TOKEN — so a leaked bundle grants only terminal
-  // access (a default-off feature), not the full REST API.
   define: {
-    // Never bake a REAL terminal token into any bundle, and never bake ANY token
-    // (not even the dev literal) into a PROD build — emit `undefined` so the token
-    // is injected at runtime (like the harness login). Only a dev server (vite
-    // serve) with no real token gets the dev literal. Enforced in code, not by
-    // discipline (see src/lib/vite-token-defines.ts).
-    'import.meta.env.VITE_TERMINAL_TOKEN': terminalTokenDefine({
-      isDev: command === 'serve',
-      token: process.env.TERMINAL_TOKEN,
-    }),
     // Dev-only harness token, exposed so the authenticated /ws gateway works
     // under `pnpm dev` with no login. Mirrors the value the /api proxy injects
     // (below), so loopback dev is zero-friction. NEVER baked into a PROD build (nor

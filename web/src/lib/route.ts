@@ -35,7 +35,6 @@ export const VIEW_REDIRECTS: Record<string, ViewRedirect> = {
   workflows: (r) => ({ view: 'agents', param: 'automations', subParam: r.param }),
   'workflow-detail': (r) => ({ view: 'agents', param: 'automations', subParam: r.param }),
   memory: () => ({ view: 'personal', param: 'inbox' }),
-  terminal: () => ({ view: 'settings' }),
   // P4-era views folding into the hubs
   org: (r) => ({ view: 'agents', param: 'org', subParam: r.param ?? 'roster' }),
   // orchestration-p2 Task B.4 — 'Skills' (top-level Agents tab) renamed 'Catalog'.
@@ -65,6 +64,10 @@ export const VIEW_REDIRECTS: Record<string, ViewRedirect> = {
         : { view: 'agents', param: 'catalog', subParam: r.subParam }
     }
     if (r.param === 'pipelines') return { view: 'agents', param: 'automations', subParam: r.subParam }
+    // Lane B (runs consolidation): the Automations "Runs" segment moved onto the
+    // Runs page as its Pipelines segment — #/agents/automations/runs(/id) now
+    // redirects to #/runs/pipelines(/id).
+    if (r.param === 'automations' && r.subParam === 'runs') return { view: 'runs', param: 'pipelines' }
     return r
   },
 }

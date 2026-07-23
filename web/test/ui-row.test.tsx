@@ -16,11 +16,13 @@ describe('Row', () => {
   })
   // [pins literal classes] — the hover-affordance regression the 2026-07-14
   // audit found (zero hover: classes on Runs rows) is guarded by pinning the
-  // literal hover class, per the sidebar-badge house pattern.
+  // literal hover class, per the sidebar-badge house pattern. Retuned
+  // ui-adjustments Round 3 (D-134): hover uses --glass-hover (sky-blue wash);
+  // --glass-active is reserved for the persisted selected state below.
   it('carries hover elevation and reveal-on-hover action classes', () => {
     render(<Row testid="r" title="t" onClick={() => {}} actions={<button>kill</button>} />)
     const row = screen.getByTestId('r')
-    expect(row.className).toContain('hover:bg-surface')
+    expect(row.className).toContain('hover:bg-[var(--glass-hover)]')
     const actions = screen.getByText('kill').parentElement!
     expect(actions.className).toContain('group-hover:opacity-100')
     expect(actions.className).toContain('focus-within:opacity-100')

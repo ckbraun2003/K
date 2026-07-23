@@ -60,7 +60,7 @@ function NotFound({ id }: { id?: string }) {
       <Button variant="ghost" size="sm" icon="arrowLeft" onClick={() => navigate('agents', 'org', 'roster')}>
         Orchestrators
       </Button>
-      <div className="mt-6 rounded-panel border border-border bg-surface p-6" data-testid="orchestrator-notfound">
+      <div className="mt-6 rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-6" data-testid="orchestrator-notfound">
         <EmptyState
           icon="warning"
           headline="Orchestrator not found"
@@ -213,7 +213,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
         {detail.effectiveModel && (
           <span
             data-testid="orchestrator-effective-model"
-            className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted"
+            className="mono rounded bg-[var(--glass-2)] px-1.5 py-0.5 text-[10px] text-muted"
           >
             {detail.effectiveModel.source === 'override'
               ? `override: ${detail.effectiveModel.model}`
@@ -250,7 +250,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left — tabbed authority editor. */}
-        <section className="rounded-panel border border-border bg-surface p-4">
+        <section className="rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
           <div className="mb-3">
             <SegControl<Tab>
               ariaLabel="Authority"
@@ -267,7 +267,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
                   Charter
                 </span>
-                <span className="mono rounded bg-raised px-1.5 py-0.5 text-[11px] text-text">
+                <span className="mono rounded bg-[var(--glass-3)] px-1.5 py-0.5 text-[11px] text-text">
                   {profile.charter}
                 </span>
               </div>
@@ -322,7 +322,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                   profile.allowedTools.map(tool => (
                     <div
                       key={tool}
-                      className="flex items-center gap-2 rounded-lg border border-border bg-raised px-3 py-1.5 text-xs"
+                      className="flex items-center gap-2 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-1.5 text-xs"
                     >
                       <span className="mono min-w-0 flex-1 truncate text-text">{tool}</span>
                       <button
@@ -460,7 +460,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
                           type="button"
                           onClick={() => navigate('runs', run.id)}
                           data-testid={`orchestrator-run-${run.id}`}
-                          className="flex w-full items-center gap-2 rounded-lg border border-border bg-raised px-3 py-1.5 text-left text-xs transition-colors hover:border-accent"
+                          className="flex w-full items-center gap-2 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-1.5 text-left text-xs transition-colors hover:border-accent"
                         >
                           <span className="mono text-text">{run.id.slice(0, 8)}</span>
                           <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${meta.badge}`}>
@@ -504,7 +504,7 @@ export default function OrchestratorDetailPage({ id }: { id?: string }) {
       {(agentConv?.conversation || agentConvFailed) && (
         <section
           data-testid="orchestrator-conversation"
-          className="mt-6 rounded-panel border border-border bg-surface p-4"
+          className="mt-6 rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4"
         >
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
             Conversation

@@ -10,19 +10,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-const { mockThreadsList } = vi.hoisted(() => ({ mockThreadsList: vi.fn() }))
+// A1 (ui-adjustments): the rail now reads api.conversations.list() (filtered
+// to profileId === 'k-secretary') instead of the unfiltered api.threads.list().
+const { mockConversationsList } = vi.hoisted(() => ({ mockConversationsList: vi.fn() }))
 
 vi.mock('../src/lib/api', () => ({
   api: {
     threads: {
-      list: mockThreadsList,
       get: vi.fn(),
       update: vi.fn(),
       create: vi.fn(),
       remove: vi.fn(),
     },
     // ChatView marks the open conversation read (INT.2 read-cursor fix).
-    conversations: { read: vi.fn(async () => ({ ok: true })) },
+    conversations: { list: mockConversationsList, read: vi.fn(async () => ({ ok: true })) },
   },
 }))
 
@@ -38,8 +39,8 @@ function renderChat() {
 }
 
 beforeEach(() => {
-  mockThreadsList.mockReset()
-  mockThreadsList.mockResolvedValue({ threads: [] })
+  mockConversationsList.mockReset()
+  mockConversationsList.mockResolvedValue({ conversations: [] })
 })
 afterEach(() => cleanup())
 

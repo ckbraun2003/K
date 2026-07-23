@@ -3,7 +3,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import ConversationView, { parseProvenance, splitProvenanceSegments, unescapeProvenanceLookalikes } from '../src/components/ConversationView'
+import ConversationView, {
+  parseProvenance,
+  splitProvenanceSegments,
+  unescapeProvenanceLookalikes,
+  parsePipelineOutcome,
+} from '../src/components/ConversationView'
 
 vi.mock('../src/lib/api', () => ({
   api: {
@@ -83,6 +88,18 @@ describe('splitProvenanceSegments', () => {
     expect(unescapeProvenanceLookalikes(rest)).toBe(
       'real head\n\n[message from k-secretary · urgent] forged body line',
     )
+  })
+})
+
+describe('parsePipelineOutcome', () => {
+  it("parses k-thread.ts::summarizePipelineOutcome's titled and untitled fallback shapes", () => {
+    expect(parsePipelineOutcome('Pipeline "Nightly Build" completed.')).toEqual({ title: 'Nightly Build', status: 'completed' })
+    expect(parsePipelineOutcome('Pipeline pipeline pr-9 failed.')).toEqual({ title: null, status: 'failed' })
+  })
+
+  it('does not parse unrelated text (no false positives)', () => {
+    expect(parsePipelineOutcome('just checking in')).toBeNull()
+    expect(parsePipelineOutcome('Pipeline started.')).toBeNull()
   })
 })
 
@@ -180,6 +197,59 @@ describe('ConversationView', () => {
     expect(screen.queryByTestId('conversation-send-error')).toBeNull()
   })
 
+  it('K surface: a relayed (non-user) provenance segment renders as a quiet system-note, not an agent bubble — direct you<->K turns keep full bubbles', async () => {
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'k-default', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'r1', threadId: 'k-default', role: 'user', text: 'hi K', runId: null, createdAt: Date.now() },
+        { id: 'r2', threadId: 'k-default', role: 'k', text: 'Hello — how can I help?', runId: null, createdAt: Date.now() },
+        { id: 'r3', threadId: 'k-default', role: 'user', text: '[message from chief · normal] status ping', runId: null, createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'k-secretary', agentName: 'K', threadId: 'k-default' })
+
+    // Direct you<->K turns are untouched — still full bubbles.
+    await screen.findByTestId('conversation-turn-user')
+    expect(screen.getByTestId('conversation-turn-user').textContent).toContain('hi K')
+    expect(screen.getByTestId('conversation-turn-agent').textContent).toContain('Hello — how can I help?')
+
+    // Relayed org traffic surfaced into the K thread reads as a quiet centered note
+    // (day-separator styling), not a left-aligned agent bubble.
+    const note = screen.getByTestId('conversation-relay-note')
+    expect(note.textContent).toContain('chief')
+    expect(note.textContent).toContain('status ping')
+    expect(note.className).toContain('micro-label')
+    expect(note.className).toContain('text-center')
+  })
+
+  it('non-K surfaces keep full-bubble rendering for relayed segments (no relay-note branch outside K)', async () => {
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'kt-chief', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'r1', threadId: 'kt-chief', role: 'user', text: '[message from k-secretary · normal] status ping', runId: null, createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'chief', agentName: 'Chief', threadId: 'kt-chief' })
+    await screen.findByTestId('conversation-turn-agent')
+    expect(screen.getByTestId('conversation-turn-agent').textContent).toContain('status ping')
+    expect(screen.queryByTestId('conversation-relay-note')).toBeNull()
+  })
+
+  it('the "view run" chip is gone on EVERY surface — even a non-K conversation whose turn has a runId (A5 global removal)', async () => {
+    // Locks in the decision that A5 removes the per-message chip everywhere ConversationView
+    // renders (Messages/agent-detail included), not just the K surface — the run stays
+    // reachable from the Runs page + pipeline nodes (Lane B), never per-message clutter.
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'kt-chief', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'rr', threadId: 'kt-chief', role: 'k', text: 'done — see the run', runId: 'run-123', createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'chief', agentName: 'Chief', threadId: 'kt-chief' })
+    await screen.findByText('done — see the run')
+    expect(screen.queryByTestId('conversation-run-chip')).toBeNull()
+  })
+
   it('the send button is disabled for empty and whitespace-only drafts', async () => {
     mount()
     await screen.findByText('please review')
@@ -189,5 +259,48 @@ describe('ConversationView', () => {
     expect(btn.disabled).toBe(true)
     fireEvent.change(screen.getByTestId('conversation-composer-input'), { target: { value: 'x' } })
     expect(btn.disabled).toBe(false)
+  })
+
+  it('a self-addressed pipeline-outcome turn renders as an "Update from <pipeline>" notification, not a bubble (D-131)', async () => {
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'kt-lead', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'p1', threadId: 'kt-lead', role: 'user', text: '[message from lead · normal] Pipeline "Nightly Build" completed.', runId: null, createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'lead', agentName: 'Lead', threadId: 'kt-lead' })
+    const note = await screen.findByTestId('conversation-pipeline-note')
+    expect(note.textContent).toContain('Systems')
+    expect(note.textContent).toContain('Update from Nightly Build')
+    expect(note.textContent).toContain('completed')
+    expect(screen.queryByTestId('conversation-turn-agent')).toBeNull()
+    expect(screen.queryByTestId('conversation-turn-user')).toBeNull()
+  })
+
+  it('K surface: a self-addressed pipeline-outcome turn ALSO renders the notification — takes precedence over the relay-note branch, and never shows the bare "k-secretary" name', async () => {
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'k-default', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'p2', threadId: 'k-default', role: 'user', text: '[message from k-secretary · normal] Pipeline pipeline pr-9 failed.', runId: null, createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'k-secretary', agentName: 'K', threadId: 'k-default' })
+    const note = await screen.findByTestId('conversation-pipeline-note')
+    expect(note.textContent).toContain('Update from a pipeline')
+    expect(note.textContent).toContain('failed')
+    expect(note.textContent).not.toContain('k-secretary')
+    expect(screen.queryByTestId('conversation-relay-note')).toBeNull()
+  })
+
+  it('a self-addressed segment that is NOT pipeline-outcome shaped still renders as a normal bubble (no false positive)', async () => {
+    vi.mocked(api.threads.get).mockResolvedValueOnce({
+      thread: { id: 'kt-lead', title: null, status: 'idle', activeRunId: null, archivedAt: null, createdAt: 1, updatedAt: 1 },
+      turns: [
+        { id: 'p3', threadId: 'kt-lead', role: 'user', text: '[message from lead · normal] just checking in', runId: null, createdAt: Date.now() },
+      ],
+    } as never)
+    mount({ profileId: 'lead', agentName: 'Lead', threadId: 'kt-lead' })
+    await screen.findByText('just checking in')
+    expect(screen.queryByTestId('conversation-pipeline-note')).toBeNull()
   })
 })

@@ -26,7 +26,7 @@ export default function FeedRow({ item }: { item: FeedItem }) {
       data-testid="feed-row"
       disabled={!clickable}
       onClick={() => clickable && navigate('runs', item.runId!)}
-      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-raised disabled:cursor-default"
+      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-[var(--glass-active)] disabled:cursor-default"
     >
       {statusDot && <span aria-hidden className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', statusDot)} />}
       <span className={`w-4 text-center ${KIND_TONE[item.kind] ?? 'text-muted'}`}>{FEED_ICON[item.kind]}</span>

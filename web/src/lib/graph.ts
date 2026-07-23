@@ -18,11 +18,14 @@ export type GraphNode = {
 }
 
 // Canonical node colours via readToken; maintains backward compatibility with tests.
+// `ok`/`dim` ride the shared palette tokens (violet accent / graphite muted) so a
+// future palette retune (like ui-adjustments' purple→violet shift) cascades here
+// automatically — `failing`/`untested` stay on the dedicated status tokens.
 export const GRAPH_COLORS = {
   failing: readToken('--red'),
   untested: readToken('--amber'),
   ok: readToken('--accent'),
-  dim: readToken('--chart-other'),
+  dim: readToken('--muted'),
 } as const
 
 export const GRAPH_LEGEND: { color: string; label: string }[] = [
@@ -68,14 +71,17 @@ export function nodeColor(node: GraphNode, filter: string): string {
 // as a legible diagnostic surface (bible §06). Painting only runs during layout +
 // interaction (cooldownTicks settles the sim), so the glow cost isn't continuous.
 
-/** Canvas background for every graph — the new midnight-purple base. */
-export const GRAPH_BG = readToken('--bg')
-/** Visible edge colour — sky-blue, semi-transparent, so links read on the dark canvas. */
-export const GRAPH_LINK_COLOR = `rgba(${hexToRgb(readToken('--accent-hover'))}, 0.4)`
+/** Canvas background for every graph — a neutral graphite (`--graph-bg`), deliberately
+ *  decoupled from the app's purple `--bg` so the canvas reads calm behind the glass
+ *  node-inspector/legend overlays (ui-adjustments D4) instead of doubling the app chrome. */
+export const GRAPH_BG = readToken('--graph-bg')
+/** Visible edge colour — low-alpha graphite, so links read as quiet structure rather
+ *  than competing with the violet `ok`-status node colour (ui-adjustments D4). */
+export const GRAPH_LINK_COLOR = `rgba(${hexToRgb(readToken('--muted'))}, 0.4)`
 
 function hexToRgb(hex: string): string {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  if (!result) return '56, 189, 248'
+  if (!result) return '143, 153, 173' // --muted fallback (graphite)
   const r = parseInt(result[1], 16)
   const g = parseInt(result[2], 16)
   const b = parseInt(result[3], 16)
@@ -154,11 +160,109 @@ export const GRAPH_LINK_DISTANCE = 60
 export const GRAPH_CHARGE_STRENGTH = -240
 
 /**
+ * Headless settle depth for the pre-warm-then-freeze render (ui-adjustments D1):
+ * `warmupTicks` ticks the d3 simulation this many times BEFORE the first paint
+ * (no `d3AlphaMin` is configured, so it always runs the full count rather than
+ * exiting early on convergence), then `cooldownTicks={0}` freezes the result —
+ * the graph appears fully expanded with no visible spread animation.
+ */
+export const GRAPH_WARMUP_TICKS = 300
+
+/**
+ * Empty graph-data shape for the "phase 1" mount of a warmupTicks-driven
+ * ForceGraph3D. `d3Force()` (used by configureGraphForces to register the
+ * collide force and tune link/charge) is an IMPERATIVE ref method that only
+ * becomes callable AFTER the engine's first mount+digest — and with
+ * `warmupTicks` set, that first digest ticks the simulation headlessly and
+ * SYNCHRONOUSLY as part of the very same mount, before any caller could reach
+ * the ref. Feeding the real graphData straight away would therefore warm the
+ * layout against the library's UNTUNED default forces, and `cooldownTicks={0}`
+ * means no later tick ever gets a chance to correct it (see the configureGraphForces
+ * docblock for why we can't just reheat). Mounting on this empty shape first gives the
+ * digest nothing to warm (trivially instant), so the caller's effect can call
+ * configureGraphForces() once the ref exists — then swap in the real data;
+ * `never[]` is assignable to any node/link array type, so this fits either
+ * graph's GraphData shape. The underlying d3ForceLayout instance is created
+ * once and persists for the component's lifetime, so later digests (e.g. a
+ * knowledge-graph rebuild refresh) automatically reuse the already-tuned
+ * forces — this two-phase mount only has to happen once.
+ */
+export const EMPTY_FORCE_GRAPH_DATA: { nodes: never[]; links: never[] } = { nodes: [], links: [] }
+
+/**
  * Collision radius for a node = its painted size + a small pad, so the painted
  * circles (and their labels' anchor) never touch. PURE — unit-tested.
  */
 export function collideRadius(nodeSize: number, labelPad = 4): number {
   return nodeSize + labelPad
+}
+
+// ─── Large-graph level-of-detail (guardrail against thousands of nodes) ────────
+
+/** Above this node count the knowledge graph renders a LEVEL-OF-DETAIL subset
+ *  (top-N by degree) instead of every node, so a huge graph never overwhelms the
+ *  WebGL scene. The off-main-thread layout still only runs on the capped subset. */
+export const LOD_NODE_CAP = 1500
+/** Above this node count, drop `nodeResolution` (sphere geometry segments) to cut
+ *  per-node mesh cost — smaller spheres read fine at scale. */
+export const LOD_LOW_RES_THRESHOLD = 500
+
+type LinkEndpoint = string | { id?: string }
+function endpointId(e: LinkEndpoint): string | undefined {
+  return typeof e === 'object' ? e?.id : e
+}
+
+export interface GraphLodResult<N, L> {
+  nodes: N[]
+  links: L[]
+  /** Node count BEFORE capping. */
+  total: number
+  /** Node count AFTER capping (=== total when not capped). */
+  shown: number
+  /** True when the graph exceeded the cap and was reduced to a subset. */
+  capped: boolean
+}
+
+/**
+ * Level-of-detail cap for large graphs. Returns the graph unchanged when
+ * `nodes.length <= cap`; otherwise keeps the top-`cap` nodes by DEGREE (the
+ * most-connected structural hubs) and only the links whose BOTH endpoints survive.
+ * PURE + deterministic (stable tie-break on original index) — and never a SILENT
+ * truncation: `capped`/`total`/`shown` let the UI annotate "N of M shown".
+ */
+export function applyGraphLod<
+  N extends { id: string },
+  L extends { source: LinkEndpoint; target: LinkEndpoint },
+>(nodes: N[], links: L[], cap: number = LOD_NODE_CAP): GraphLodResult<N, L> {
+  const total = nodes.length
+  if (total <= cap) return { nodes, links, total, shown: total, capped: false }
+
+  const degree = new Map<string, number>()
+  for (const n of nodes) degree.set(n.id, 0)
+  for (const l of links) {
+    const s = endpointId(l.source)
+    const t = endpointId(l.target)
+    if (s != null && degree.has(s)) degree.set(s, (degree.get(s) ?? 0) + 1)
+    if (t != null && degree.has(t)) degree.set(t, (degree.get(t) ?? 0) + 1)
+  }
+
+  // Rank by degree desc, tie-break by original index so the selection is stable.
+  const keptIds = new Set(
+    nodes
+      .map((n, i) => ({ id: n.id, i, d: degree.get(n.id) ?? 0 }))
+      .sort((a, b) => b.d - a.d || a.i - b.i)
+      .slice(0, cap)
+      .map(r => r.id),
+  )
+  // Preserve original node order among the survivors (deterministic; keeps identity
+  // stable across a text-filter toggle over the same capped set).
+  const keptNodes = nodes.filter(n => keptIds.has(n.id))
+  const keptLinks = links.filter(l => {
+    const s = endpointId(l.source)
+    const t = endpointId(l.target)
+    return s != null && t != null && keptIds.has(s) && keptIds.has(t)
+  })
+  return { nodes: keptNodes, links: keptLinks, total, shown: keptNodes.length, capped: true }
 }
 
 // Minimal structural type for the bits of a ForceGraph2D ref we touch. Typed loosely

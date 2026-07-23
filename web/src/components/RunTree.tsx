@@ -40,9 +40,9 @@ function NodeButton({
       aria-pressed={selected}
       data-testid={testid}
       className={cn(
-        'w-full rounded-lg border bg-raised px-3 py-2 text-left transition-colors',
+        'w-full rounded-lg border bg-[var(--glass-3)] px-3 py-2 text-left transition-colors',
         statusClasses,
-        selected ? 'ring-1 ring-accent' : 'hover:border-accent-hover/35',
+        selected ? 'bg-[var(--glass-active)] shadow-[inset_0_0_0_1px_var(--glass-active-edge)]' : 'hover:bg-[var(--glass-hover)]',
       )}
     >
       <div className="flex items-center gap-2">
@@ -57,7 +57,7 @@ function NodeButton({
 /** Scrollable mono block for prompt / result text. */
 function Mono({ text }: { text: string }) {
   return (
-    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-surface px-2.5 py-1.5 font-mono text-xs text-muted">
+    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--glass-code)] px-2.5 py-1.5 font-mono text-xs text-muted">
       {text}
     </pre>
   )
@@ -153,7 +153,7 @@ export default function RunTree({ tree }: { tree: WorkflowTree }) {
 
       {/* Detail panel */}
       <aside className="lg:w-80 lg:flex-shrink-0">
-        <div className="rounded-xl border border-border bg-surface p-4">
+        <div className="rounded-xl border border-[var(--glass-tier-border)] bg-[var(--glass-3)] p-4">
           {/* Keyed (not AnimatePresence) so selecting a node remounts with an
               enter animation and the new content is in the DOM immediately — no
               exit-wait holding the previous panel on screen. */}

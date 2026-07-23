@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-20
+updated: 2026-07-22
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -70,7 +70,7 @@ Back-trap), and `resolveRoute` is idempotent (a canonical view is never a redire
 | ▶ **Runs** | `#/runs` | — | live + past runs with the rich console, now a plain master-detail (no Workflows sub-tab — Agents → Automations → Runs owns pipeline-run visibility now) |
 | ∿ **Insights** | `#/insights` | Metrics · Routing · Evals | **4 tabs** — Overview (deterministic deltas + anomalies) · Charts · Routing · Evals |
 | ▦ **Projects** | `#/projects` | — | the fleet; each opens its 7-tab workspace |
-| **Footer** | ❔ **Help** · ⚙ **Settings** | Terminal | Help opens the in-app multi-page guide (D-116, below) — no longer a bible deep-link; Settings hosts diagnostics terminal, CLAUDE.md editor, org-default authority/MCP panel |
+| **Footer** | ❔ **Help** · ⚙ **Settings** | — | Help opens the in-app multi-page guide (D-116, below) — no longer a bible deep-link; Settings hosts the CLAUDE.md editor, org-default authority/MCP panel (the built-in diagnostics terminal was removed entirely, Round 3, D-134) |
 
 The active destination sits on a translucent-blush glass pill (`aria-current="page"`); `g` + first
 letter jumps (`web/src/lib/chords.ts`: `h`→Home, `m`→Messages, `u`→Personal, `a`→Agents, `r`→Runs,
@@ -400,7 +400,6 @@ already-canonical `#/agents/<catalog|automations|org>/*` hash passes through unc
 | `#/workflows[/:id]` | Agents → Automations[/:id] |
 | `#/workflow-detail/:id` | Agents → Automations/:id |
 | `#/memory` , `#/lessons` | Personal → Inbox |
-| `#/terminal` | Settings |
 | `#/org[/:seg]` (P4-era) | Agents → Org[/:seg] |
 | `#/skills[/:tab]` (P4-era) | Agents → Catalog[/:tab] *(D-120; a bare `#/skills/automations` — the retired workflow-skills registry sub-tab — redirects to the top-level Automations tab instead of a nonexistent Catalog sub-tab)* |
 | `#/agents/skills[/:tab]` (D-101-era) | Agents → Catalog[/:tab] *(D-120)* |
@@ -560,16 +559,53 @@ still holds, and the dataviz mitigations (legend for ≥2-series charts, selecti
 text-token colors for text) carry the rest.
 
 **Glass tiers** (`@layer components`, `web/src/index.css`) — FOUR explicit tiers, picked by role,
-not a single hero/non-hero switch:
+not a single hero/non-hero switch. **Round 3 (D-134)** re-expressed the whole ramp **by role,
+color-coded**, and — because opaque holdouts were the operator's loudest Round-2 complaint —
+repointed the formerly-opaque `.surface-solid` onto the glass ramp too, so every `tier="solid"`
+panel upgrades to glass at once:
 
 | Class | Background | Blur | Radius | Used for |
 |-------|-----------|------|--------|----------|
-| `.glass-chrome` | `--glass-chrome-bg` rgba(24,24,34,.42) | `blur(24px) saturate(1.6)` | (caller's) | persistent shell chrome — Sidebar, TopBar, the Message Dock bar |
-| `.glass-panel` | `--glass-panel-bg` rgba(28,28,38,.42) | `blur(22px) saturate(1.6)` | 18px | in-flow cards/panels — widget cells, KPI tiles, summary cards |
-| `.glass-overlay` | `--glass-overlay-bg` rgba(30,30,42,.58) | `blur(28px) saturate(1.6)` | 18px | floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay |
-| `.surface-solid` | `--surface` (opaque) | none | 14px | dense repeated rows — fleet/roster grids, list rows |
+| `.glass-chrome` | `--glass-chrome-bg` → `var(--glass-3)` | none (opacity-tint, D-133) | (caller's) | persistent shell chrome — Sidebar, TopBar, the Message Dock bar |
+| `.glass-panel` | `--glass-panel-bg` → `var(--glass-2)` | none (opacity-tint, D-133) | 18px | in-flow cards/panels — widget cells, KPI tiles, summary cards |
+| `.glass-overlay` | `--glass-overlay-bg` → `var(--glass-4)` | `blur(28px) saturate(1.6)` | 18px | floating/portal surfaces — Dialog, Tooltip, popovers, the Message Dock float overlay |
+| `.surface-solid` | `var(--glass-3)` *(Round 3, D-134 — was opaque `--surface`)* | none | 14px | dense repeated rows — fleet/roster grids, list rows; every remaining "solid" panel |
 
-The tier fills have been re-graded twice. **Liquid Glass 2.0 (D-115, below)** first dropped them one step from the D-114 launch values (`.55/.72/.82` → `.48/.64/.76`) so body text held ≥4.5:1 AA/WCAG contrast against the brighter living-ambient layer. **UI Refinement (D-128, 2026-07-17)** then retuned the whole glass system from the D-011 purple family to a **neutral modern frosting** — the values in the table above (dark-neutral `.42/.42/.58`) over higher blur/saturate (22–28px / 1.6), with D-115's living-ambient *animation* and SVG *refraction* removed and the static wallpaper (below) supplying the backdrop. Only token **values** moved; the token **names** stayed stable, so `tokens.test.ts` and every consumer are untouched.
+The tier fills have been re-graded four times. **Liquid Glass 2.0 (D-115, below)** first dropped
+them one step from the D-114 launch values so body text held ≥4.5:1 AA/WCAG contrast against the
+brighter living-ambient layer. **UI Refinement (D-128, 2026-07-17)** retuned the whole system to a
+neutral dark-neutral frosting. **UI Adjustments Round 2 (D-133, below)** dropped `backdrop-filter`
+from `.glass-chrome`/`.glass-panel` entirely (pure opacity-tint — real frost stays confined to
+`.glass-overlay` + opt-in `.glass-blur`) and introduced the graded `--glass-1..4` white→purple
+scale the legacy `--glass-*-bg` aliases now point at. **UI Adjustments Round 3 (D-134, below)**
+re-tuned `--glass-1..4` to a Subtle white base that **warms with a light purple-pink as panels
+nest** (color-by-role, not the D-133 purple-leaning shade) and repointed `.surface-solid` onto the
+ramp (row above). Only token **values** moved across all four passes; the token **names** stayed
+stable, so `tokens.test.ts` and every consumer are untouched.
+
+**Icon, interaction, and legibility tokens (Round 3, D-134).** The saturated pink-purple accent
+lives in exactly one role — icons — and blue lives in exactly one role — interaction — never on a
+resting panel:
+
+| Token | Value | Role |
+|-------|-------|------|
+| `--glass-icon` | `rgba(226, 148, 224, 0.20)` | icon chip / bubble — resting (`.glass-icon` helper class) |
+| `--glass-icon-strong` | `rgba(226, 148, 224, 0.30)` | icon emphasis / badge |
+| `--icon-glyph` | `#e7a8e4` | glyph stroke color inside a `.glass-icon` chip |
+| `--glass-icon-edge` | `rgba(226, 148, 224, 0.55)` | 1px pink-purple ring — the message bar's hover/focus ring only (operator-specified exception to blue=interaction) |
+| `--glass-hover` | `rgba(135, 206, 250, 0.18)` | sky-blue hover wash |
+| `--glass-active` | `rgba(135, 206, 250, 0.30)` | sky-blue click / active / selected (retuned from the D-133 cornflower value; `.glass-active` class repointed) |
+| `--glass-active-edge` | `rgba(135, 206, 250, 0.55)` | 1px sky-blue inset ring on active/selected |
+| `--glass-code` | `rgba(16, 12, 26, 0.55)` | dark-neutral dense glass for code/diff legibility surfaces (`DiffViewer`, `DocViewer`/`.doc-markdown pre`, `ToolCall`, `Markdown`, `RunTree`/`RunTimeline` raw blocks) — translucent, never opaque purple |
+
+Two new helper classes carry the icon/bar roles: **`.glass-icon`** sets `background:
+var(--glass-icon)` + `color: var(--icon-glyph)` + an inset `--glass-icon-edge` ring, used by icon
+bubbles (`EmptyState` `tier="solid"`, work-item/note widget icons — below). **`.glass-bar`** is the
+message-bar container skin (`background: var(--glass-2)` + hairline + pill radius) that shows a 1px
+pink-purple ring on `:hover`/`:focus-within`; the ring sits on the bar **wrapper**, never the inner
+input, which stays `Field variant="bare"` from D-133. Everywhere else, blue is applied at call
+sites via `hover:bg-[var(--glass-hover)]` / a conditional `bg-[var(--glass-active)]` + edge ring —
+resting icons and resting panels never carry blue.
 
 Each blurred tier carries an `@supports not (backdrop-filter: blur(1px))` opaque fallback
 (`.glass-chrome`→`--surface`, `.glass-panel`/`.glass-overlay`→`--raised`) so a browser without
@@ -750,7 +786,7 @@ not a shadcn/ui copy-paste base:
 |------|---------|-------|
 | `Button.tsx` | `Button`, `IconButton` | 4 variants (primary/glass/ghost/danger) × 2 sizes (sm/md); `loading` swaps in `Spinner`; `IconButton` is a square `Button` wrapping one `Icon` with a required `label` |
 | `Dialog.tsx` | `Dialog` | Radix root/portal/overlay/content, `glass-overlay` tier, built-in title + close + footer slots |
-| `EmptyState.tsx` | `EmptyState` | icon bubble (its own `.glass-panel`) + headline + optional hint/action |
+| `EmptyState.tsx` | `EmptyState` | icon bubble — `.glass-panel` by default, or the pinkish-purple `.glass-icon` chip when `tier="solid"` (Round 3, D-134 — work-item/note widget icons) + headline + optional hint/action |
 | `ErrorState.tsx` | `ErrorState` | `role="alert"`, message + optional Retry `Button` |
 | `Field.tsx` | `Input`, `Textarea`, `Select` | one shared skin string + an `invalid` boolean → red border + `aria-invalid` |
 | `GlassPanel.tsx` | `GlassPanel` | polymorphic (`as`), `tier` ∈ chrome/panel/overlay/solid, `interactive` adds `.card-lift` hover |
@@ -833,16 +869,52 @@ Help, Home — Overview).
   **`[]` — empty**. The suite today runs `it.each` over literally every source file with zero
   exemptions.
 - `lib/tokens.ts` is the ONE file exempt from the gate entirely (`EXEMPT` set in
-  `ui-token-gate.test.ts`), for its `TOKEN_FALLBACKS` hex mirror (above). Every other file,
-  including `pages/TerminalPage.tsx`, is fully gate-compliant with zero exemption: xterm's canvas
-  theme option cannot consume a CSS `var()` directly, so `TerminalPage.tsx` reads the color via
-  `readToken('--terminal-bg')` (a JS read through `lib/tokens.ts`, not a raw literal) and its two
-  DOM-styled panes use `var(--terminal-bg)` inline — Task 22 (commit `fcc3284`) removed the file's
-  prior raw hex literals and moved it onto the token, which is why the allowlist could drop it and
-  still reach empty.
+  `ui-token-gate.test.ts`), for its `TOKEN_FALLBACKS` hex mirror (above). Every other file is fully
+  gate-compliant with zero exemption — Task 22 (commit `fcc3284`) tokenized the last two files to
+  reach empty; one of those two was the built-in terminal page's canvas-theme color
+  (`--terminal-bg`, read via `lib/tokens.ts`'s `readToken` because xterm's canvas theme option
+  cannot consume a CSS `var()` directly), which is moot now that the built-in terminal feature —
+  page, token, and all — was removed entirely in Round 3 (D-134, above).
 
 ## Accessibility & quality bar
 
 Full keyboard navigation (sidebar `g` chords, `j/k` lists, Ctrl/Cmd+K everywhere) · visible focus
 rings (accent) · WCAG AA contrast on all text · reduced-motion respects OS setting · 60fps graph
 interactions on a mid laptop; degrade node count before frame rate.
+
+## UI Adjustments (2026-07) — glass restyle · chat messaging surface · Runs consolidation · knowledge graph (D-129..D-132)
+
+A four-lane refinement (W0 foundation → three file-disjoint in-place lanes → per-lane spec+quality review → whole-impl opus review [APPROVE] → full core+web+build gate) on `feat/ui-adjustments`. **NO SCHEMA_VERSION bump** (stays 16). Supersedes the palette *values* of the earlier Design-tokens sections (D-114/D-115/D-121/D-128) and the knowledge-graph render posture; the token NAMES and the `ui-token-gate` are unchanged.
+
+**Glass restyle & palette (D-131).** The accent hierarchy moves to purple/white over the retained purple background: `--text #c6cede` (pale graphite-blue body font), `--muted #8f99ad`, `--accent #a855f7` (violet), `--accent-hover #c084fc`, new `--accent-hi #e9d5ff`; `--bg`/`--surface`/`--raised` and the wallpaper system are unchanged, `--chart-1` stays frozen `#ff8fc0`, and every changed canvas token is mirrored in `web/src/lib/tokens.ts`. A new **`.glass-control`** class gives dense/repeated surfaces (fields, pills, list `Row`, checkboxes, StatusPill) a no-`backdrop-filter` glass-LOOK (tinted bg + hairline border + inset sheen), so "everything glass" respects the DEV-11 blur budget — real `backdrop-filter` stays only on the `.glass-chrome`/`.glass-panel`/`.glass-overlay` tiers. The wallpaper upload cap rises 8 MB → 25 MB (route bodyLimit derives ~35 MB) for HD/4K images, guards and the authenticated Blob→objectURL render path unchanged.
+
+**Home chat as a messaging surface (D-129).** The Chats rail reads `api.conversations.list()` filtered to `profileId === 'k-secretary'` (was the unfiltered `api.threads.list()`, which leaked every orchestrator/agent conversation into Home). Relayed (non-user provenance) segments on the K surface render as quiet centered system-notes, not agent bubbles; the rail gains unread badges + search (>5 threads); the message bar is a seamless glass pill; the per-message "view run" chip is removed from every `ConversationView` surface (the run stays reachable from Runs / pipeline nodes). The floating dock's recent-threads picker also switched to `conversations.list(k-secretary)`, and `useAskK` invalidates `['conversations']` so rail + picker stay live.
+
+**Runs page consolidation (D-130).** The Runs page is the single home for active work: a segmented control "Agent Runs / Pipelines" (chats stay on Home). `PipelineRunsPane` moved off Agents→Automations onto Runs; `route.ts` reserves `pipelines` as a `runs` param keyword (`#/runs/pipelines[/<id>]`) with a legacy redirect. A pipeline stage node/card opens the agent's live `RunConsole` via `stage.runId`; a run's Artifacts panel lists artifacts by `linkedRunId` (`GET /api/pipelines/runs/:id/artifacts`); ledger artifact rows open the DocViewer. Archive / permanent-delete / clear-finished ride `app_config` key `runs.archived` (JSON array, no schema bump); `GET /api/runs?archived=include/only/exclude`. Permanent DELETE is guarded (404 → 409 running/queued → 409 not-archived → 204) and FK-safe in one transaction (removes the run + hard-FK children, NULLs `artifacts.linked_run_id` and the `runs.retry_of` self-FK, drops from the archived set; never cascades threads/artifacts).
+
+**Knowledge graph — calm, expanded, neutral (D-132).** The 3D graph renders fully laid out with no settle animation (two-phase mount: empty sentinel → `warmupTicks` + `cooldownTicks=0` → one-shot `zoomToFit`; never `d3ReheatSimulation`), slowly auto-rotates via a rAF camera orbit that pauses on pointer-release/wheel and while the inspector is open and honors `prefers-reduced-motion`, and no longer flies the camera on node click (the inspector + View-in-Runs + Dispatch stay). Colors neutralize to a new `--graph-bg #14161c` graphite canvas token (mirrored index.css↔tokens.ts) with `--muted`/`--accent`-derived nodes/links. `forcesReady` resets across a `GraphErrorBoundary` remount so the two-phase mount can't be skipped after a WebGL crash.
+
+## UI Adjustments Round 2 (2026-07-21) — glass shade/opacity correction · bare message bar · Home=Overview · Runs rework · orchestrator-update routing · KG fix (D-133)
+
+The operator called Round 1 (above) a miss — the ask was to reskin the **glass**, not the theme. Round 2 (`f31bc99`/`09767f8`/`d9bd53e`/`5457b6c`/`e65faef` on the same `feat/ui-adjustments` branch) corrects the mechanism and closes a batch of concrete bugs found live. **NO SCHEMA_VERSION bump** (stays 16).
+
+- **Glass shade/opacity replaces theme recolor.** New `--glass-1..4` (graded white→purple, rising alpha = prominence) + `--glass-active` (blue interaction wash) tokens, mirrored in `lib/tokens.ts`. `.glass-chrome`/`.glass-panel`/`.glass-control` drop `backdrop-filter` in favor of pure opacity-tint — real blur stays confined to `.glass-overlay` + opt-in `.glass-blur`, so "everything glass" respects the DEV-11 budget without a wallpaper-blurring cost. Legacy `--glass-*-bg` repoint onto the new scale. Crucially, `--bg`/`--accent`/`--text`/`--chart-*` (the D-131 theme tokens) are **unchanged** — hierarchy is expressed through glass shade, not color, and blue means interaction (hover/press/selected) while purple/white means resting. The former solid holdouts (Tag, ErrorState, SectionHeader/Tabs badges, Row, Button ghost, MetricCard, ProjectCard, Toast, NotificationBell, VerifyChip, SegControl, FeedRow, PlanCard, LessonCard) convert to graded glass.
+- **Bare message composer.** `Field` gains a `variant='bare'` that drops the glass-control box + focus glow; both the ConversationView and MessageDock composers adopt it, so the message bar reads as a bar rather than a form field.
+- **Home = Overview.** The Chat|Overview `SegControl` is removed; `OverviewView` renders under a plain "Overview" header. Sending from the Home composer now redirects into the Chats tab (`navigate('messages', threadId)`) with the K conversation open, rather than rendering a chat transcript on Home.
+- **Orchestrator-update routing fix** (the "random orchestrator in K's chat" bug). `continuePipelineOutcomeToK` now delivers a pipeline outcome to the RESOLVED OWNER's own conversation when the owner is a real orchestrator/manager, instead of unconditionally to k-secretary; the client renders it as an "Update from {pipeline}" Systems notification rather than a bare profile name, and K's personal chat no longer shows other profiles' pipeline updates. `resolveAskThread` gained an ownership guard (an explicit foreign `threadId` → not-found). The launch side adds an optional tier-validated "Observed by" `orchestratorId` on the pipeline-run route → `owner_profile_id` (default = the definition's domain manager) — reusing the pre-existing column.
+- **Runs rework.** A collapsible NarrativeCard (per-run `localStorage`); the "Show chat turns"/"Show archived" toggles are replaced by an Active|Archived sub-segment; a floating selection popup offers Archive / Archive-all / Delete; a permanent-delete `ConfirmDialog` mirrors the Messages tab; run detail and the runs aside are each wrapped in their own glass-panel.
+- **Knowledge-graph soft-crash fix.** The auto-rotate rAF loop had omitted `mountGen` from its dependency array, so after a `GraphErrorBoundary` remount it kept firing camera/graph methods on a torn-down instance — and because rAF runs outside React's commit cycle, the resulting throw escaped the boundary entirely, leaving a dead panel on a populated graph. Fixed by including `mountGen` in deps (re-arms on remount), null-bailing before any ref method, and wrapping the tick in try/catch so it can only cancel its own rAF id on failure.
+- **Settings.** A font-color picker (`app_config` key `ui.fontColor`, `GET`/`PUT` + Zod validation; the Background applier writes `--text` at runtime, `null` removes the override); "Replace image…" renamed "Set background"; a non-blocking upscaling warning fires when an uploaded wallpaper's pixel dimensions are smaller than screen×dpr — the reported "blurry HD wallpaper" is CSS upscaling of an under-sized source image, not quality loss (the store/serve path is confirmed byte-lossless).
+
+**Deferred follow-ups (non-blocking):** a keyboard-only focus ring for the bare composer (`:focus-visible` matches on click for text inputs too, so a keyboard-only affordance isn't achievable in CSS alone — honored as explicitly requested, WCAG tradeoff flagged); the diverging selected-state glass convention (Row blue vs SegControl purple vs an un-migrated Sidebar — an operator eyeball decision); a partial everything-glass sweep (message bubbles/dropdowns still opaque); the now-dead `.glass-active` CSS class.
+
+## UI Adjustments Round 3 (2026-07-22) — color-by-role glass hierarchy · built-in terminal removed · knowledge-graph background worker · orchestrator-update routing hygiene (D-134)
+
+The operator called Round 2 a miss too: glass still read as "pure transparent white," several panels (Overview/Project/Insight/some Settings) were "still pure opaque purple," and the actual intent — **color assigned by role**, not by opacity alone — had never been expressed. Round 3 (`feat/ui-adjustments`, continuing on the same branch) locks a swatch-approved palette and closes four concrete bugs found live. **NO SCHEMA_VERSION bump** (stays 16).
+
+- **Color-by-role glass hierarchy (supersedes D-131/D-133's glass posture).** Panels/forms/sidebars/navbars/cards/widgets are translucent **white** glass that warms to a light purple-pink with nesting depth (`--glass-1..4`, retuned — see the tables above); main icons + chips carry the one saturated **pinkish-purple** role (`--glass-icon`/`--glass-icon-strong`, glyph `--icon-glyph`); hover/click/active/selected is **sky-blue** (`--glass-active`/`--glass-active-edge`/`--glass-hover`) and appears nowhere else; the message bar is a visible `.glass-bar` pill with a pink-purple hover/focus ring (the one operator-specified exception to blue=interaction); code/diff legibility surfaces get a dark-neutral `--glass-code` instead of the white ramp (busy wallpaper behind translucent code hurts readability); `.surface-solid` is repointed from opaque `--surface` onto `var(--glass-3)` so every remaining `tier="solid"` panel — including `EmptyState`'s icon bubble, work-item and note widget icons, and `SettingsNav`, which also gains its own `glass-panel` wrapper so it no longer floats on the bare page background — upgrades to glass at once. Theme tokens (`--bg`/`--accent`/`--text`) are **not** recolored — the hierarchy is expressed purely through the glass tint tokens, same discipline as D-133.
+- **Built-in terminal removed entirely.** The dedicated in-app terminal (`web/src/pages/TerminalPage.tsx`, `web/src/lib/terminal.ts`, `core/src/terminal.ts`, the `/ws/terminal` WS route, the `@xterm/xterm`/`@xterm/addon-fit`/`node-pty` dependencies, and the `ENABLE_TERMINAL`/`TERMINAL_TOKEN`/`TERMINAL_ALLOW_REMOTE` env plumbing) is deleted — modules, tests, docs, and screenshots. `Settings` no longer hosts a diagnostics-terminal section; the `#/terminal` hash is no longer a special redirect (an unrouted legacy `#/terminal` bookmark now falls through to the ordinary 404, same as any other unmatched hash). Run-lifecycle "terminal" run-state (`terminalRuns`, `onRunTerminal`, `TERMINAL_RUN_STATUSES`) and the general WS/loopback auth helpers (`wsTokenOk`, `isLoopbackHost`) are untouched — only the interactive shell feature is gone.
+- **Knowledge graph — off-main-thread layout.** The force-layout computation moves into a Web Worker (`web/src/lib/graph-layout.worker.ts`, running `d3-force-3d` — already a dependency, no new runtime dep) to a bounded tick budget; the main thread applies the returned positions as **fixed** `fx`/`fy`/`fz` and mounts `react-force-graph-3d` with `warmupTicks={0} cooldownTicks={0}` — zero main-thread simulation, so a large (thousands-of-nodes) graph no longer freezes the page. A top-N-by-degree LOD cap plus a "Computing layout…" overlay and a watchdog guard oversized graphs; the D-132/D-133 two-phase mount, `mountGen` rAF soft-crash guard, and slow auto-rotate are preserved unchanged.
+- **Orchestrator-update routing hygiene.** D-133 fixed pipeline-outcome routing for a *resolved, real* orchestrator/manager owner, but left a gap: a pipeline still owned by the generic seeded `default-orchestrator` profile had no real conversation to author into, so the update fell through to K's own chat — the "stray orchestrator message" the operator kept seeing. `continuePipelineOutcomeToK` now resolves that case to the pipeline's **domain manager** (falling back to the delegating thread, never the generic conversation), and the never-authored `default-orchestrator` conversation is hidden from the Messages list/bucketing, mirroring the existing `org-shared.ts` orchestrator-tier exclusion.
+
+**Method.** W0 (glass foundation: `index.css`/`tokens.ts`/`tokens.test.ts`) → file-disjoint in-place parallel lanes (glass application sweep by page directory · terminal removal · orchestrator routing · knowledge-graph worker) → per-lane spec+quality review → controller commit per lane → opus whole-implementation review → full core+web+build gate → live Playwright smoke → docs (this section). Held at the operator merge gate — not merged to `main` as of this writing.

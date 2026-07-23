@@ -80,7 +80,7 @@ export default function DiffViewer({
             <div
               key={c.id}
               data-testid={`diff-comment-${c.id}`}
-              className="mx-3 my-1 rounded-lg border border-border bg-surface px-3 py-2"
+              className="mx-3 my-1 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-2"
             >
               <div className="flex items-start gap-2">
                 <p className="flex-1 whitespace-pre-wrap break-words text-text">{c.body}</p>
@@ -105,13 +105,13 @@ export default function DiffViewer({
         return (
           <section key={file.path} id={`diff-file-${file.path}`} className="border-b border-border">
             {/* Sticky file header: path (rename arrow) + per-file counts + v2 controls */}
-            <div className="sticky top-0 z-10 flex items-center gap-2 bg-raised px-3 py-1.5 border-b border-border">
+            <div className="sticky top-0 z-10 flex items-center gap-2 bg-[var(--glass-3)] px-3 py-1.5 border-b border-border">
               <span className="flex-1 truncate font-mono text-text">
                 {file.oldPath && file.oldPath !== file.path
                   ? <><span className="text-muted">{file.oldPath}</span> → {file.path}</>
                   : file.path}
               </span>
-              <span className="flex-shrink-0 rounded bg-surface px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+              <span className="flex-shrink-0 rounded bg-[var(--glass-4)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
                 {file.status}
               </span>
               <span className="flex-shrink-0 font-mono text-[10px]">
@@ -211,7 +211,7 @@ function DiffHunkBlock({
 
   return (
     <div className="min-w-max">
-      <div className="bg-surface px-3 py-0.5 font-mono text-[10px] text-muted">{hunk.header}</div>
+      <div className="bg-[var(--glass-code)] px-3 py-0.5 font-mono text-[10px] text-muted">{hunk.header}</div>
       {rows.map((row, ri) => {
         const key = row.right?.newLine != null ? `${filePath}:${row.right.newLine}` : null
         const rowComments = commentsFor(row)
@@ -301,7 +301,7 @@ function InlineComposer({ onSubmit, onCancel }: { onSubmit: (body: string) => vo
     onSubmit(text)
   }
   return (
-    <div className="mx-3 my-1.5 rounded-lg border border-border bg-surface p-2">
+    <div className="mx-3 my-1.5 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] p-2">
       <AutoTextarea
         data-testid="diff-comment-body"
         autoFocus

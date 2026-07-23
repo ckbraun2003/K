@@ -50,7 +50,7 @@ export default function ProjectHealthWidget() {
               type="button"
               data-testid={`widget-project-health-row-${p.id}`}
               onClick={() => navigate('project', p.id)}
-              className="flex items-center gap-2 rounded-control px-1.5 py-1 text-left text-body transition-colors hover:bg-raised"
+              className="flex items-center gap-2 rounded-control px-1.5 py-1 text-left text-body transition-colors hover:bg-[var(--glass-hover)]"
             >
               <span className="min-w-0 flex-1 truncate text-text">{p.name}</span>
               <span data-testid={`widget-project-health-dot-${p.id}`} className="flex-shrink-0">

@@ -30,7 +30,7 @@ export default function OrgGlanceWidget() {
       data-testid="widget-org-glance"
       aria-label={`Open org tree — ${leadsActive} lead${leadsActive === 1 ? '' : 's'} active, ${objectives} objective${objectives === 1 ? '' : 's'} in flight`}
       onClick={() => navigate('agents', 'org', 'tree')}
-      className="flex h-full w-full flex-col gap-2 overflow-y-auto p-3 text-left transition-colors hover:bg-[var(--raised)]"
+      className="flex h-full w-full flex-col gap-2 overflow-y-auto p-3 text-left transition-colors hover:bg-[var(--glass-hover)]"
     >
       <SectionHeader label="Org at a glance" />
       {isPending ? (

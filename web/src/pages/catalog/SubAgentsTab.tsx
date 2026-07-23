@@ -179,7 +179,7 @@ function SubAgentCard({
               {badge.label}
             </span>
             {agent.model && (
-              <span className="mono rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">
+              <span className="mono rounded bg-[var(--glass-4)] px-1.5 py-0.5 text-[10px] text-muted">
                 {agent.model}
               </span>
             )}

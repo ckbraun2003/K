@@ -1,5 +1,5 @@
 /**
- * Where the browser should dial core's WebSocket endpoints (/ws, /ws/terminal).
+ * Where the browser should dial core's WebSocket endpoints (/ws).
  * Pure + unit-tested (web/test/core-origin.test.ts).
  *
  * PROD (packaged desktop app, or any `pnpm build` served by core): the SPA is

@@ -58,7 +58,7 @@ export function ObjectiveRow({
   const dirty = sel !== '' && selName !== assignment.lead
   return (
     <div
-      className="rounded-control border border-border bg-raised px-3 py-2"
+      className="rounded-control border border-[var(--glass-tier-border)] bg-[var(--glass-2)] px-3 py-2"
       data-testid={`chief-objective-${assignment.id}`}
     >
       <div className="flex items-center gap-2">
@@ -77,7 +77,7 @@ export function ObjectiveRow({
           data-testid={`chief-objective-status-${assignment.id}`}
           className={cn(
             'rounded-pill px-1.5 py-0.5 font-semibold uppercase tracking-wide',
-            assignment.leadRunId ? 'bg-green/15 text-green' : 'bg-raised text-muted',
+            assignment.leadRunId ? 'bg-green/15 text-green' : 'bg-[var(--glass-3)] text-muted',
           )}
         >
           {assignment.leadRunId ? 'dispatched' : 'pending'}
@@ -128,8 +128,8 @@ export function ObjectiveRow({
 /** One autonomous-wake row (an AgentRun). Links into the run when it reached one. */
 function WakeRow({ wake }: { wake: AgentRun }) {
   return (
-    <li className="flex items-center gap-2 rounded-control border border-border bg-raised px-3 py-2 text-caption">
-      <span className="flex-shrink-0 rounded-pill bg-surface px-1.5 py-0.5 text-micro uppercase tracking-wide text-muted">
+    <li className="flex items-center gap-2 rounded-control border border-[var(--glass-tier-border)] bg-[var(--glass-2)] px-3 py-2 text-caption">
+      <span className="flex-shrink-0 rounded-pill bg-[var(--glass-3)] px-1.5 py-0.5 text-micro uppercase tracking-wide text-muted">
         {wake.trigger}
       </span>
       <span className="min-w-0 flex-1 truncate text-text">{wake.goal ?? '(no goal)'}</span>
@@ -290,7 +290,7 @@ export default function TreeView() {
             <h2 className="text-label uppercase tracking-wide text-muted">
               Hand Chief work
             </h2>
-            <div className="mt-2 flex items-center gap-2 rounded-control border border-border bg-surface px-3 py-2">
+            <div className="mt-2 flex items-center gap-2 rounded-control border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-2">
               <Icon name="bolt" size={16} className="text-accent" />
               <Input
                 value={handQuery}

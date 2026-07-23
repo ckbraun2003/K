@@ -123,7 +123,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
           <span
             key={chip.label}
             className={cn(
-              'mono rounded-full border border-border bg-surface px-2.5 py-0.5 text-[10px]',
+              'mono rounded-full border border-[var(--glass-tier-border)] bg-[var(--glass-2)] px-2.5 py-0.5 text-[10px]',
               chip.tone,
             )}
           >
@@ -133,7 +133,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* ── Health Score ─────────────────────────────────────────────── */}
-      <div className="rounded-panel border border-border bg-surface p-4">
+      <div className="rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
         <div className="flex items-baseline gap-3">
           {reportsLoading ? (
             <Spinner size={20} />
@@ -182,7 +182,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* ── Recent Runs ──────────────────────────────────────────────── */}
-      <div className="rounded-panel border border-border bg-surface p-4">
+      <div className="rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
         <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
           Recent Runs
         </h3>
@@ -197,7 +197,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
             {recentRuns.map(run => (
               <li key={run.id}>
                 <button
-                  className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-xs hover:bg-raised transition-colors"
+                  className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-xs hover:bg-[var(--glass-hover)] transition-colors"
                   onClick={() => navigate('project', projectId, 'runs')}
                 >
                   <span
@@ -223,7 +223,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
       </div>
 
       {/* ── Open PRs ─────────────────────────────────────────────────── */}
-      <div className="rounded-panel border border-border bg-surface p-4">
+      <div className="rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
         <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
           Open PRs
         </h3>
@@ -355,7 +355,7 @@ export default function OverviewTab({ projectId }: { projectId: string }) {
 
       {/* ── Onboard result notice ─────────────────────────────────────── */}
       {onboardResult && (
-        <div className="rounded-panel border border-border bg-surface p-4 text-xs">
+        <div className="rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4 text-xs">
           <div className="flex items-center justify-between">
             <span className="font-semibold text-text">Onboarding complete</span>
             <IconButton

@@ -15,6 +15,7 @@ export default {
         muted: 'rgb(from var(--muted) r g b / <alpha-value>)',
         accent: 'rgb(from var(--accent) r g b / <alpha-value>)',
         'accent-hover': 'rgb(from var(--accent-hover) r g b / <alpha-value>)',
+        'accent-hi': 'rgb(from var(--accent-hi) r g b / <alpha-value>)',
         'on-accent': 'rgb(from var(--on-accent) r g b / <alpha-value>)',
         green: 'rgb(from var(--green) r g b / <alpha-value>)',
         amber: 'rgb(from var(--amber) r g b / <alpha-value>)',

@@ -191,8 +191,8 @@ export default function MicButton({ onTranscript, disabled, title, className }: 
           // Accent FILL → dark --bg text for WCAG contrast (see ui-demo .micbtn.rec).
           ? 'border-accent bg-accent text-bg'
           : status === 'error'
-            ? 'border-red/50 bg-surface text-red'
-            : 'border-border bg-surface text-muted hover:border-accent/50 hover:text-accent-hover',
+            ? 'border-red/50 bg-[var(--glass-icon)] text-red'
+            : 'border-border bg-[var(--glass-icon)] text-muted hover:border-accent/50 hover:text-accent-hover',
         'disabled:cursor-not-allowed disabled:opacity-40',
         className,
       )}

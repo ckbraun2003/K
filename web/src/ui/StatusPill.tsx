@@ -40,7 +40,7 @@ export function StatusPill({ status, canonical, label, className }: {
     : STATUS_META[status ?? ''] ?? FALLBACK_META
   return (
     <span className={cn('inline-flex items-center gap-1.5 rounded-pill px-2 py-0.5 text-micro font-medium',
-      'bg-raised border border-border', className)}>
+      'glass-control', className)}>
       <span aria-hidden className={cn('size-1.5 rounded-pill', meta.dot)} />
       <span className={cn('uppercase tracking-wide', meta.text)}>{label ?? meta.label}</span>
     </span>

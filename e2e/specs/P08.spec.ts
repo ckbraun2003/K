@@ -96,7 +96,6 @@ test('every enabled sidebar destination loads + updates active state/TopBar', as
     { label: 'Skills', view: 'skills', title: 'Skills' },
     { label: 'Metrics', view: 'metrics', title: 'Metrics' },
     { label: 'Routing', view: 'routing', title: 'Routing' },
-    { label: 'Terminal', view: 'terminal', title: 'Terminal' },
     { label: 'Docs', view: 'docs', title: 'Docs' },
     { label: 'Help', view: 'docs', title: 'Docs' }, // deep-links to docs/project-bible
   ]
@@ -356,20 +355,20 @@ test('g-chord jump-to-view works for h/p/r/d/n', async ({ page }) => {
 
 // ---------------------------------------------------------------------------
 // 5. Chord coverage gap: enabled destinations with NO chord (graph, skills,
-//    routing, terminal). Power-user expectation: parity or a discoverable map.
+//    routing). Power-user expectation: parity or a discoverable map.
 // ---------------------------------------------------------------------------
 test('chord coverage: several enabled views have no keyboard jump', async ({ page }) => {
-  test.skip(true, 'CommandBar retired at UI Simplification Task 18 (2026-07) — chords.ts now gives every enabled Sidebar destination a chord plus an in-app "?" legend (the coverage gap recorded here, finding #24, was fixed by the restructure); Fleet Graph/Skills/Routing/Terminal are also no longer separate Sidebar destinations to begin with.')
+  test.skip(true, 'CommandBar retired at UI Simplification Task 18 (2026-07) — chords.ts now gives every enabled Sidebar destination a chord plus an in-app "?" legend (the coverage gap recorded here, finding #24, was fixed by the restructure); Fleet Graph/Skills/Routing are also no longer separate Sidebar destinations to begin with.')
   await gotoApp(page, '#/home')
-  // The map in Shell.tsx is { h, p, r, d, m } only — graph/skills/routing/
-  // terminal have no chord, and there is no in-app legend listing chords.
-  const uncovered = ['Fleet Graph (graph)', 'Skills', 'Routing', 'Terminal']
+  // The map in Shell.tsx is { h, p, r, d, m } only — graph/skills/routing
+  // have no chord, and there is no in-app legend listing chords.
+  const uncovered = ['Fleet Graph (graph)', 'Skills', 'Routing']
   add({
     title: 'Keyboard chords cover only 5 of 9 enabled views; no in-app legend',
     severity: 'Low',
     category: 'Missing',
     surface: 'Shell keyboard chords',
-    repro: 'Try to jump to graph/skills/routing/terminal with a g-chord.',
+    repro: 'Try to jump to graph/skills/routing with a g-chord.',
     expected: 'Chord parity across enabled views, or a discoverable shortcut legend (the cheatsheet only documents h/p/r/d/m).',
     actual: `No chord for: ${uncovered.join(', ')}. The chord map is { h, p, r, d, m }. There is also no UI surfacing available chords.`,
     evidence: 'Shell.tsx chord map; nothing renders the shortcut list.',

@@ -2,7 +2,7 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-07-20
+updated: 2026-07-22
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
@@ -94,7 +94,9 @@ passkey/TOTP auth hardening is **deferred to a later phase** (see the Phase 4 *D
   auth-guarded by a scoped `TERMINAL_TOKEN` (distinct from `HARNESS_TOKEN`, the only token in the
   web bundle); node-pty dynamically imported so a missing binding degrades to a clean error, never
   crashing boot; session disposed on disconnect. Verified live (real echo on a valid token; no
-  shell spawned on a bad token).*
+  shell spawned on a bad token).* **Removed entirely, UI Adjustments Round 3 (D-134, 2026-07-22)**
+  — the feature, its `node-pty`/xterm.js dependencies, and the `ENABLE_TERMINAL`/`TERMINAL_TOKEN`/
+  `TERMINAL_ALLOW_REMOTE` env plumbing are deleted; kept here as shipped history, not current state.
 - [x] **3-7 — Structured task/goal records + GitHub Issues sync** *(re-homed from Phase 1).*
   `GitHubProvider.syncIssues` reconciles `gh issue list` into `project_tasks` (insert / close /
   reopen / no-clobber of `in_progress`); Tasks-tab sync button. *Done — mapping verified with a

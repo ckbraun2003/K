@@ -199,7 +199,7 @@ export function LocalModelsSection() {
           )}
 
           {/* Active-model selector */}
-          <div className="mb-3 mt-3 flex items-center gap-3 rounded-xl border border-border bg-raised p-3">
+          <div className="mb-3 mt-3 flex items-center gap-3 rounded-xl border border-[var(--glass-tier-border)] bg-[var(--glass-4)] p-3">
             <span className="micro-label">Active</span>
             {installed.length === 0 ? (
               <span className="text-caption text-muted">No models installed — pull one below.</span>
@@ -226,7 +226,7 @@ export function LocalModelsSection() {
               {installed.map(m => (
                 <li
                   key={m.name}
-                  className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-label"
+                  className="flex items-center gap-3 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-4)] px-3 py-2 text-label"
                 >
                   <span className="mono truncate text-text">{m.name}</span>
                   {m.name === active && (
@@ -257,7 +257,7 @@ export function LocalModelsSection() {
               return (
                 <li
                   key={item.name}
-                  className="rounded-xl border border-border bg-surface p-3 text-label"
+                  className="rounded-xl border border-[var(--glass-tier-border)] bg-[var(--glass-4)] p-3 text-label"
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-text">{item.label}</span>

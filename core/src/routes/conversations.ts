@@ -11,6 +11,7 @@ import { assertSafeSegment } from '../agent-config.js'
 import { getProfile, listProfiles } from '../profiles.js'
 import { queueMessage, mayMessage, AgentMailError } from '../agent-mail.js'
 import { sendError, sendZodError } from './http-errors.js'
+import { ORG_DEFAULT_PROFILE_ID } from '../plan-gate.js'
 
 type Row = Record<string, unknown>
 
@@ -40,8 +41,21 @@ const CONVERSATION_SELECT = `
   FROM k_threads th
   LEFT JOIN agent_profiles p ON p.id = th.profile_id
   LEFT JOIN agent_sessions s ON s.profile_id = th.profile_id AND s.thread_id = th.id`
-const listConversations = db.prepare(`${CONVERSATION_SELECT} WHERE th.archived_at IS NULL ORDER BY th.updated_at DESC`)
-const listConversationsAll = db.prepare(`${CONVERSATION_SELECT} ORDER BY th.updated_at DESC`)
+// Both list queries exclude the generic seeded default-orchestrator's conversation
+// (org-shared.ts:113's isLead exclusion mirrored here) — it is a catch-all row no
+// operator recognizes as an owner, so its conversation must never surface in Messages
+// even if one exists on disk (pre-fix data, or a direct getOrCreateConversation call
+// bypassing ensureProfileConversations below). ORG_DEFAULT_PROFILE_ID is a compile-time
+// constant (no user input), so inlining it into the SQL text is safe — the same
+// convention domains.ts::stampSeededDomainMemberships uses for its seeded-id IN list.
+// getConversation (the direct /api/agents/:profileId/conversation GET) is UNCHANGED —
+// an explicit by-id lookup is a different surface than the list.
+const listConversations = db.prepare(
+  `${CONVERSATION_SELECT} WHERE th.archived_at IS NULL AND th.profile_id <> '${ORG_DEFAULT_PROFILE_ID}' ORDER BY th.updated_at DESC`,
+)
+const listConversationsAll = db.prepare(
+  `${CONVERSATION_SELECT} WHERE th.profile_id <> '${ORG_DEFAULT_PROFILE_ID}' ORDER BY th.updated_at DESC`,
+)
 const getConversation = db.prepare(`${CONVERSATION_SELECT} WHERE th.id = ?`)
 // The MONOTONIC read cursor (the W0.1 ledger note: kThreadsDb.setLastReadAt has no
 // clamp, so the route's statement carries it): never backwards. Never bumps
@@ -69,7 +83,13 @@ function rowToConversation(r: Row): ConversationSummary {
  *  agent even before any message exists. K keeps explicit multi-thread. */
 function ensureProfileConversations(log: FastifyBaseLogger): void {
   for (const p of listProfiles()) {
-    if (p.id === 'k-secretary') continue
+    // K keeps explicit multi-thread (never a single ensured conversation), and the
+    // generic seeded default-orchestrator (org-shared.ts:113's isLead exclusion
+    // mirrored here) is a catch-all row no operator recognizes as an owner —
+    // force-creating its own conversation is the stray "orchestrator" Messages row
+    // this guard prevents; k-thread.ts::continuePipelineOutcomeToK never addresses
+    // it either (it redirects to the pipeline's domain manager, or k-secretary).
+    if (p.id === 'k-secretary' || p.id === ORG_DEFAULT_PROFILE_ID) continue
     try {
       getOrCreateConversation(p.id)
     } catch (e) {

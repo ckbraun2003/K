@@ -27,12 +27,14 @@ import { z } from 'zod'
 import {
   type Status, SystemPromptBodySchema, isKnownModel,
   GRADIENT_PRESETS, BACKGROUND_KINDS, BackgroundSettingsSchema, BackgroundImageUploadSchema,
+  FontColorSettingsSchema,
 } from '@k/shared'
 import { resolveAvailableModels, availableModelIds } from '../models.js'
 import { isOllamaReachable } from '../router.js'
 import {
   ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel,
   backgroundSettings, setBackgroundSettings, wallpaperDir,
+  fontColorSettings, setFontColorSettings,
 } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 import { credentialPosture, type CredentialPosture } from '../agent-config.js'
@@ -125,7 +127,6 @@ export interface StatusEnv {
   voiceModel: string
   tokenSource: 'env' | 'generated'
   host: string
-  terminalEnabled: boolean
   credentialPosture: CredentialPosture
 }
 
@@ -145,7 +146,6 @@ export function buildStatus(probes: StatusProbes, env: StatusEnv): Status {
       tokenSource: env.tokenSource,
       host: env.host,
       loopbackOnly: isLoopbackHost(env.host),
-      terminalEnabled: env.terminalEnabled,
       credentialPosture: env.credentialPosture,
     },
     voice: {
@@ -211,7 +211,6 @@ function liveStatusEnv(): StatusEnv {
     voiceModel: whisperModel(),
     tokenSource: harnessTokenSource(),
     host: process.env.HOST ?? '127.0.0.1',
-    terminalEnabled: process.env.ENABLE_TERMINAL === 'true',
     credentialPosture: credentialPosture(),
   }
 }
@@ -256,12 +255,13 @@ const ORG_DEFAULT_ID = 'default-orchestrator'
 
 const MIME_TO_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }
 const EXT_TO_MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' }
-const MAX_WALLPAPER_BYTES = 8 * 1024 * 1024 // 8 MB (decoded)
-// Fastify's default bodyLimit is 1 MiB — far below an 8 MB image's base64
+const MAX_WALLPAPER_BYTES = 25 * 1024 * 1024 // 25 MB (decoded) — HD/4K wallpapers (ui-adjustments C5)
+// Fastify's default bodyLimit is 1 MiB — far below a 25 MB image's base64
 // footprint (~4/3 expansion) once wrapped in the { dataUrl } JSON envelope. Cap
-// this route's request body generously above that so oversize requests reach
-// the handler's decoded-size check (→ a clean 400) instead of a raw 413 from
-// the transport layer; still bounded, not unlimited.
+// this route's request body generously above that (~35 MB) so oversize requests
+// reach the handler's decoded-size check (→ a clean 400) instead of a raw 413
+// from the transport layer; still bounded, not unlimited. Derived from
+// MAX_WALLPAPER_BYTES so the two caps can never drift.
 const MAX_UPLOAD_BODY_BYTES = Math.ceil((MAX_WALLPAPER_BYTES * 4) / 3) + 2 * 1024 * 1024
 
 /** Remove any existing `wallpaper.*` file in dir (best-effort — a stale second
@@ -359,6 +359,23 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!found) return sendError(reply, 404, 'no image uploaded')
     const bytes = await fs.readFile(path.join(wallpaperDir(), found.file))
     return reply.header('cache-control', 'no-cache').type(EXT_TO_MIME[found.ext]).send(bytes)
+  })
+
+  // GET /api/settings/font-color — the operator's body-text colour override
+  // (ui-adjustments Round 2). `{ color: null }` = no override, theme default
+  // applies; the client applier (Background.tsx) writes/removes --text at
+  // runtime based on this value.
+  app.get('/api/settings/font-color', async (_req, reply) =>
+    reply.send({ settings: fontColorSettings() }))
+
+  // PUT /api/settings/font-color — set or clear the override. Validated against
+  // FontColorSettingsSchema at the boundary (6-digit hex or null) — the store
+  // write itself does not gate the value.
+  app.put('/api/settings/font-color', async (req, reply) => {
+    const parsed = FontColorSettingsSchema.safeParse(req.body)
+    if (!parsed.success) return sendZodError(reply, parsed.error, 'invalid font color settings')
+    setFontColorSettings(parsed.data)
+    return reply.send({ settings: parsed.data })
   })
 
   // GET /api/system-prompt — the human-editable region of the prompt file only.

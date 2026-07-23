@@ -49,9 +49,9 @@ function NodeButton({
       aria-pressed={selected}
       data-testid={`delegation-tree-node-${node.id}`}
       className={cn(
-        'w-full rounded-control border bg-raised px-3 py-2 text-left transition-colors',
+        'w-full rounded-control border bg-[var(--glass-3)] px-3 py-2 text-left transition-colors',
         statusClasses(node.status),
-        selected ? 'ring-1 ring-accent' : 'hover:border-accent-hover/35',
+        selected ? 'bg-[var(--glass-active)] shadow-[inset_0_0_0_1px_var(--glass-active-edge)]' : 'hover:bg-[var(--glass-hover)]',
       )}
     >
       <div className="flex items-center gap-2">

@@ -20,8 +20,8 @@ export default function DocsPage({ slug }: { slug?: string }) {
 
   return (
     <div className="flex h-full">
-      <aside className="w-64 flex-shrink-0 overflow-y-auto border-r border-border">
-        <div className="border-b border-border px-4 py-3">
+      <aside className="w-64 flex-shrink-0 overflow-y-auto border-r border-[var(--glass-tier-border)] bg-[var(--glass-2)]">
+        <div className="border-b border-[var(--glass-tier-border)] px-4 py-3">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Artifacts</h2>
         </div>
         {rows.map(a => (
@@ -29,8 +29,8 @@ export default function DocsPage({ slug }: { slug?: string }) {
             key={a.slug}
             onClick={() => navigate('docs', a.slug)}
             className={cn(
-              'block w-full border-b border-border px-4 py-2.5 text-left transition-colors duration-150 hover:bg-surface',
-              active === a.slug && 'border-l-2 border-l-accent bg-surface'
+              'block w-full border-b border-[var(--glass-tier-border)] px-4 py-2.5 text-left transition-colors duration-150 hover:bg-[var(--glass-hover)]',
+              active === a.slug && 'border-l-2 border-l-accent bg-[var(--glass-active)] shadow-[inset_0_0_0_1px_var(--glass-active-edge)]'
             )}
           >
             <span className="block truncate text-sm text-text">{a.railLabel}</span>

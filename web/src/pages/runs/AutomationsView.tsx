@@ -2,16 +2,17 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { RoutineView } from '@k/shared'
 import { api } from '../../lib/api'
+import { navigate } from '../../lib/route'
 import SegControl from '../../components/SegControl'
 import Toast from '../../components/Toast'
-import { PipelineLibraryPane, PipelineRunsPane } from './PipelinesView'
+import { PipelineLibraryPane } from './PipelinesView'
 import { SectionHeader } from '../../ui/SectionHeader'
 import { Tag } from '../../ui/Tag'
 import { EmptyState } from '../../ui/EmptyState'
 import { ErrorState } from '../../ui/ErrorState'
 import { SkeletonTile } from '../../ui/Skeleton'
 
-type AutomationsSeg = 'library' | 'runs' | 'schedules'
+type AutomationsSeg = 'library' | 'schedules'
 
 /**
  * The Schedules pane (orch-p2 C.4, design §9) — routines that target a pipeline
@@ -67,7 +68,7 @@ function SchedulesPane() {
 }
 
 /**
- * The unified Automations surface (orch-p2 C.4, design §9/§6) — Library | Runs |
+ * The unified Automations surface (orch-p2 C.4, design §9/§6) — Library |
  * Schedules, replacing the SegControl toggle that used to sit directly in
  * AgentsPage's Pipelines tab (Pipelines-vs-legacy-Automations, PipelinesView vs
  * WorkflowsView). A definition deep-link (`defId`, e.g. AgentsPage's `sub` route
@@ -78,10 +79,15 @@ function SchedulesPane() {
  *
  * `WorkflowsView` (the legacy named-workflow editor) has been DELETED — this
  * surface fully replaces it; no reference to it remains.
+ *
+ * Lane B (runs consolidation, B1): the former "Runs" segment (PipelineRunsPane)
+ * moved onto the Runs page as its Pipelines segment. Dispatching from the Library
+ * now hands off via `navigate('runs', 'pipelines', pipelineRunId)` instead of
+ * switching a local segment — the toast still fires here so the operator sees
+ * confirmation before the page transition lands.
  */
 export default function AutomationsView({ defId }: { defId?: string }) {
   const [seg, setSeg] = useState<AutomationsSeg>('library')
-  const [selectedRunId, setSelectedRunId] = useState<string | undefined>(undefined)
   const [toastRunId, setToastRunId] = useState<string | null>(null)
 
   return (
@@ -91,7 +97,6 @@ export default function AutomationsView({ defId }: { defId?: string }) {
           ariaLabel="Automations view"
           options={[
             { label: 'Library', value: 'library' },
-            { label: 'Runs', value: 'runs' },
             { label: 'Schedules', value: 'schedules' },
           ]}
           value={seg}
@@ -103,13 +108,11 @@ export default function AutomationsView({ defId }: { defId?: string }) {
           <PipelineLibraryPane
             focusDefId={defId}
             onDispatched={runId => {
-              setSelectedRunId(runId)
               setToastRunId(runId)
-              setSeg('runs')
+              navigate('runs', 'pipelines', runId)
             }}
           />
         )}
-        {seg === 'runs' && <PipelineRunsPane selectedRunId={selectedRunId} onSelectRun={setSelectedRunId} />}
         {seg === 'schedules' && <SchedulesPane />}
       </div>
 

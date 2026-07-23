@@ -17,12 +17,14 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vites
 import { v4 as uuid } from 'uuid'
 import type { Run } from '@k/shared'
 import { KForceRouteSchema } from '@k/shared'
-import { db, agentRunsDb, pipelineDb } from '../src/db.js'
+import { db, agentRunsDb, pipelineDb, domainsDb, workflowDefsDb } from '../src/db.js'
 import { eventBus } from '../src/events.js'
 import { startRun, sendInput, kill, __testHooks } from '../src/supervisor.js'
 import { createProfile, getProfile } from '../src/profiles.js'
 import { mgmtTools } from '../src/mcp/mgmt.js'
 import { maybeFinalizePipeline } from '../src/pipeline-engine.js'
+import { getOrCreateConversation } from '../src/agent-sessions.js'
+import { ORG_DEFAULT_PROFILE_ID } from '../src/plan-gate.js'
 
 // startRun mocked to avoid spawning a real agent, but it MUST insert a real runs
 // row (the K thread + agent_runs rows FK → runs(id)) and it mirrors the real
@@ -127,6 +129,17 @@ function resetKState() {
 let createdKSecretary = false
 let createdChief = false
 let createdLeadProf = false
+let createdDomainMgr = false
+let createdDomain = false
+let createdWorkflowDef = false
+
+/** Lane E fixture: a real domain manager + domain + workflow-definition (domain_id
+ *  stamped), so continuePipelineOutcomeToK's default-orchestrator redirect has a real
+ *  domainForPipelineDef(defId)?.managerProfileId to resolve — the SAME resolution
+ *  routes/pipelines.ts's "Observed by" default uses. */
+const DOMAIN_MGR_PROFILE_ID = 'ca-e-domain-mgr'
+const DOMAIN_ID = 'ca-e-domain'
+const DOMAIN_DEF_ID = 'ca-e-def'
 
 beforeAll(() => {
   if (!getProfile('k-secretary')) {
@@ -145,6 +158,27 @@ beforeAll(() => {
     createProfile({ id: 'ca-b-lead-prof', name: 'CA-B Lead', tier: 'orchestrator' })
     createdLeadProf = true
   }
+  // Lane E: the domain-manager redirect fixture (see DOMAIN_MGR_PROFILE_ID doc above).
+  if (!getProfile(DOMAIN_MGR_PROFILE_ID)) {
+    createProfile({ id: DOMAIN_MGR_PROFILE_ID, name: 'CA-E Domain Mgr', tier: 'orchestrator' })
+    createdDomainMgr = true
+  }
+  if (!domainsDb.get.get(DOMAIN_ID)) {
+    domainsDb.create.run({
+      id: DOMAIN_ID, name: 'CA-E Domain', description: null,
+      managerProfileId: DOMAIN_MGR_PROFILE_ID, createdAt: Date.now(),
+    })
+    createdDomain = true
+  }
+  if (!workflowDefsDb.getWorkflowDefRow.get(DOMAIN_DEF_ID)) {
+    workflowDefsDb.insertWorkflowDef.run({
+      id: DOMAIN_DEF_ID, name: 'CA-E Def', roles: '[]', promptScaffold: 'x', crossProject: 0, createdAt: Date.now(),
+    })
+    // domain_id has no named-param slot on insertWorkflowDef (added later via
+    // migration, mirrors domains.ts::stampSeededDomainMemberships' own UPDATE).
+    db.prepare(`UPDATE workflow_definitions SET domain_id = ? WHERE id = ?`).run(DOMAIN_ID, DOMAIN_DEF_ID)
+    createdWorkflowDef = true
+  }
 })
 
 beforeEach(() => {
@@ -159,6 +193,10 @@ afterAll(() => {
   if (createdKSecretary) db.prepare(`DELETE FROM agent_profiles WHERE id = 'k-secretary'`).run()
   if (createdChief) db.prepare(`DELETE FROM agent_profiles WHERE id = 'chief'`).run()
   if (createdLeadProf) db.prepare(`DELETE FROM agent_profiles WHERE id = 'ca-b-lead-prof'`).run()
+  // Lane E fixture teardown — reverse creation order (workflow def → domain → profile).
+  if (createdWorkflowDef) db.prepare(`DELETE FROM workflow_definitions WHERE id = ?`).run(DOMAIN_DEF_ID)
+  if (createdDomain) db.prepare(`DELETE FROM domains WHERE id = ?`).run(DOMAIN_ID)
+  if (createdDomainMgr) db.prepare(`DELETE FROM agent_profiles WHERE id = ?`).run(DOMAIN_MGR_PROFILE_ID)
 })
 
 // ── routeForMessage (pure preview) ────────────────────────────────────────────
@@ -413,6 +451,37 @@ describe('askK — rides the session engine (A.4)', () => {
     expect(third.warm).toBe(true)
     const row = db.prepare('SELECT updated_at FROM k_threads WHERE id = ?').get(first.kThreadId) as Row
     expect(Number(row.updated_at)).toBeGreaterThan(1)
+  })
+})
+
+// ── resolveAskThread — ownership guard (defense-in-depth) ──────────────────────
+
+describe('askK — resolveAskThread ownership guard', () => {
+  it('an explicit threadId owned by ANOTHER profile 404s exactly like an unknown one — no turn appended', async () => {
+    const foreign = getOrCreateConversation('chief')
+    await expect(askK('hello', { threadId: foreign.id })).rejects.toThrow(/not found/i)
+    // Rejected BEFORE any write — the foreign thread stays untouched.
+    expect(listKThreadTurns(foreign.id)).toHaveLength(0)
+  })
+
+  it('a K-owned explicit threadId still resolves normally (no regression)', async () => {
+    const first = await askK('first message')
+    const second = await askK('second message', { threadId: first.kThreadId })
+    expect(second.kThreadId).toBe(first.kThreadId)
+    expect(listKThreadTurns(first.kThreadId).filter(t => t.role === 'user')).toHaveLength(2)
+  })
+
+  it('an ask with NO threadId never adopts another profile\'s more-recent thread — the fallback stays k-secretary-scoped', async () => {
+    // Establish a K thread, THEN make a foreign profile's conversation the
+    // most-recently-updated row in k_threads (getOrCreateConversation inserts at now).
+    const kThread = await askK('k first')
+    const foreign = getOrCreateConversation('chief')
+    // A fresh unscoped ask must resolve a K-OWNED thread, not chief's most-recent one.
+    const next = await askK('k second, no explicit thread')
+    expect(next.kThreadId).not.toBe(foreign.id)
+    expect(next.kThreadId).toBe(kThread.kThreadId)
+    const owner = db.prepare('SELECT profile_id FROM k_threads WHERE id = ?').get(next.kThreadId) as { profile_id: string }
+    expect(owner.profile_id).toBe('k-secretary')
   })
 })
 
@@ -1007,12 +1076,19 @@ describe('continueLeadOutcomeToK — the lead outcome completes the up-chain to 
 describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a message', () => {
   /** Seed a pipeline run with ONE passed stage (so maybeFinalizePipeline completes it),
    *  optionally linked to a delegating K run via a pipeline_dispatches intent row. */
-  function seedTerminalPipeline(opts: { owner?: string | null; kRunId?: string | null; title?: string }): string {
+  function seedTerminalPipeline(
+    opts: { owner?: string | null; kRunId?: string | null; title?: string; definitionId?: string },
+  ): string {
     const pid = `mock-k-pipe-${uuid().slice(0, 8)}`
     const now = Date.now()
     pipelineDb.insertPipelineRun.run({
       id: pid,
-      definitionId: 'ca-b4-def',
+      // Lane E: overridable so a test can point at DOMAIN_DEF_ID (domain_id stamped,
+      // manager = DOMAIN_MGR_PROFILE_ID) instead of the domain-less default 'ca-b4-def'.
+      // The dispatch row's own pipeline_id stays 'ca-b4-def' below regardless (a
+      // separate concern from pipeline_runs.definition_id) — resetKState's targeted
+      // cleanup keys off THAT literal, unaffected by this override.
+      definitionId: opts.definitionId ?? 'ca-b4-def',
       projectId: null,
       title: opts.title ?? 'B4 pipeline',
       cwd: '.',
@@ -1064,7 +1140,7 @@ describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a 
     return kRunId
   }
 
-  it('queues ONE message from the pipeline OWNER profile (provenance NULL) on terminal', async () => {
+  it('a real orchestrator OWNER gets the update in ITS OWN conversation, never k-secretary\'s (D-131 fix)', async () => {
     // A real K→Chief delegation links the delegating run to the K thread.
     const { runId: kRunId } = await askK('fix the failing pipeline suite')
     const stop = continuePipelineOutcomeToK()
@@ -1073,23 +1149,85 @@ describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a 
       const pid = seedTerminalPipeline({ owner: 'ca-b-lead-prof', kRunId })
       maybeFinalizePipeline(pid)
 
+      const ownerConvId = getOrCreateConversation('ca-b-lead-prof').id
+
       const msgs = queuedMessages()
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].to_profile_id).toBe('k-secretary')
-      expect(msgs[0].to_thread_id).toBe(DEFAULT_K_THREAD_ID)
+      // Delivered to the OWNER's own conversation — self-addressed (from === to),
+      // the same pattern domain-supervisor.ts::briefDomain uses — NOT k-secretary's.
+      expect(msgs[0].to_profile_id).toBe('ca-b-lead-prof')
+      expect(msgs[0].to_thread_id).toBe(ownerConvId)
+      expect(msgs[0].to_thread_id).not.toBe(DEFAULT_K_THREAD_ID)
       expect(msgs[0].from_kind).toBe('profile')
       expect(msgs[0].from_profile_id).toBe('ca-b-lead-prof') // pipeline_runs.owner_profile_id
       expect(msgs[0].provenance_run_id).toBeNull() // no single run owns a multi-run pipeline
       expect(String(msgs[0].body)).toBe('Pipeline "B4 pipeline" completed.')
 
-      // NO 'k' turn was appended directly.
+      // K's OWN thread received NOTHING — the "random orchestrator in K's chat" bug
+      // this fix closes. No 'k' turn was appended directly either.
       expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(turnsBefore)
     } finally {
       stop()
     }
   })
 
-  it('owner NULL → falls back to the delegating K run\'s profile', async () => {
+  it('generic default-orchestrator owner WITH a domain manager → lands in the MANAGER\'s own conversation, never the generic\'s (Lane E fix)', async () => {
+    const { runId: kRunId } = await askK('run the domain pipeline')
+    const stop = continuePipelineOutcomeToK()
+    try {
+      const turnsBefore = listKThreadTurns(DEFAULT_K_THREAD_ID).length
+      const pid = seedTerminalPipeline({ owner: ORG_DEFAULT_PROFILE_ID, kRunId, definitionId: DOMAIN_DEF_ID })
+      maybeFinalizePipeline(pid)
+
+      const managerConvId = getOrCreateConversation(DOMAIN_MGR_PROFILE_ID).id
+      const msgs = queuedMessages()
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].from_kind).toBe('profile')
+      expect(msgs[0].from_profile_id).toBe(DOMAIN_MGR_PROFILE_ID)
+      expect(msgs[0].to_profile_id).toBe(DOMAIN_MGR_PROFILE_ID)
+      expect(msgs[0].to_thread_id).toBe(managerConvId)
+      expect(String(msgs[0].body)).toBe('Pipeline "B4 pipeline" completed.')
+
+      // Never authored by, or into, the generic default-orchestrator.
+      expect(msgs.some(m => m.from_profile_id === ORG_DEFAULT_PROFILE_ID)).toBe(false)
+      expect(msgs.some(m => m.to_profile_id === ORG_DEFAULT_PROFILE_ID)).toBe(false)
+      const genericThread = db.prepare(`SELECT 1 FROM k_threads WHERE profile_id = ?`).get(ORG_DEFAULT_PROFILE_ID)
+      expect(genericThread).toBeUndefined()
+
+      // K's OWN thread received NOTHING either.
+      expect(listKThreadTurns(DEFAULT_K_THREAD_ID)).toHaveLength(turnsBefore)
+    } finally {
+      stop()
+    }
+  })
+
+  it('generic default-orchestrator owner with NO domain manager → falls back to k-secretary\'s delegating thread, never creating the generic\'s own conversation (Lane E fix)', () => {
+    const kRunId = seedBareDelegatingKRun()
+    const stop = continuePipelineOutcomeToK()
+    try {
+      // definitionId omitted → the domain-less default 'ca-b4-def' (no workflow_definitions
+      // row exists for it in this file, so domainForPipelineDef resolves null → no manager).
+      const pid = seedTerminalPipeline({ owner: ORG_DEFAULT_PROFILE_ID, kRunId })
+      maybeFinalizePipeline(pid)
+
+      const msgs = queuedMessages()
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].from_profile_id).toBe('k-secretary')
+      expect(msgs[0].to_profile_id).toBe('k-secretary')
+      expect(msgs[0].to_thread_id).toBe(DEFAULT_K_THREAD_ID)
+
+      // The generic default-orchestrator's own conversation was never created, and it
+      // never appears as either endpoint of the delivered message.
+      const genericThread = db.prepare(`SELECT 1 FROM k_threads WHERE profile_id = ?`).get(ORG_DEFAULT_PROFILE_ID)
+      expect(genericThread).toBeUndefined()
+      expect(msgs.some(m => m.from_profile_id === ORG_DEFAULT_PROFILE_ID)).toBe(false)
+      expect(msgs.some(m => m.to_profile_id === ORG_DEFAULT_PROFILE_ID)).toBe(false)
+    } finally {
+      stop()
+    }
+  })
+
+  it('owner NULL → falls back to the delegating K run\'s profile, delivered to THAT profile\'s conversation', async () => {
     // The delegating run carries its own agent_runs activation (seeded as 'chief'
     // here — A.4 retired askK's auto-delegation, so the edge is seeded directly;
     // the fallback under test reads the delegating run's OWN activation profile).
@@ -1114,13 +1252,15 @@ describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a 
       const msgs = queuedMessages()
       expect(msgs).toHaveLength(1)
       expect(msgs[0].from_profile_id).toBe('chief')
+      expect(msgs[0].to_profile_id).toBe('chief')
+      expect(msgs[0].to_thread_id).toBe(getOrCreateConversation('chief').id)
       expect(msgs[0].provenance_run_id).toBeNull()
     } finally {
       stop()
     }
   })
 
-  it('owner NULL + no activation row on the delegating run → falls back to k-secretary', () => {
+  it('owner NULL + no activation row on the delegating run → falls back to k-secretary\'s OWN delegating thread', () => {
     const kRunId = seedBareDelegatingKRun()
     const stop = continuePipelineOutcomeToK()
     try {
@@ -1130,6 +1270,31 @@ describe('continuePipelineOutcomeToK — a delegated pipeline terminal queues a 
       const msgs = queuedMessages()
       expect(msgs).toHaveLength(1)
       expect(msgs[0].from_profile_id).toBe('k-secretary')
+      // Preserved behavior: k-secretary keeps landing on the ORIGINAL delegating
+      // thread (not necessarily the default thread — resolveKDelegationThread's
+      // own resolution), not re-routed through getOrCreateConversation.
+      expect(msgs[0].to_profile_id).toBe('k-secretary')
+      expect(msgs[0].to_thread_id).toBe(DEFAULT_K_THREAD_ID)
+    } finally {
+      stop()
+    }
+  })
+
+  it('owner points to a since-deleted profile → falls back to k-secretary delivery, never silently dropped', () => {
+    // owner_profile_id has no FK, so a run can outlive its owner profile. Without the
+    // guard, queueMessage(toProfileId=<deleted>) throws and the outcome vanishes;
+    // the guard reroutes it to k-secretary's own delegating thread so it's never lost.
+    const kRunId = seedBareDelegatingKRun()
+    const stop = continuePipelineOutcomeToK()
+    try {
+      const pid = seedTerminalPipeline({ owner: 'deleted-orch-does-not-exist', kRunId })
+      maybeFinalizePipeline(pid)
+
+      const msgs = queuedMessages()
+      expect(msgs).toHaveLength(1) // delivered, not dropped
+      expect(msgs[0].from_profile_id).toBe('k-secretary')
+      expect(msgs[0].to_profile_id).toBe('k-secretary')
+      expect(msgs[0].to_thread_id).toBe(DEFAULT_K_THREAD_ID)
     } finally {
       stop()
     }

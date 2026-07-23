@@ -6,8 +6,8 @@ productName: K
 directories:
   output: release
 
-# The Electron main process uses NO native modules — better-sqlite3 / node-pty live in
-# the STAGED core (extraResources), which runs under the bundled Node-20 runtime, not
+# The Electron main process uses NO native modules — better-sqlite3 lives in the
+# STAGED core (extraResources), which runs under the bundled Node-20 runtime, not
 # Electron. So skip @electron/rebuild (it also mis-walks the pnpm store and fails).
 npmRebuild: false
 

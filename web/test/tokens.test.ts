@@ -22,4 +22,21 @@ describe('tokens', () => {
       expect(TOKEN_FALLBACKS[t], t).toBeTruthy()
     }
   })
+  it('covers the Round 3 (D-134) color-by-role glass tokens with the locked palette values', () => {
+    expect(TOKEN_FALLBACKS['--glass-1']).toBe('rgba(255, 255, 255, 0.035)')
+    expect(TOKEN_FALLBACKS['--glass-2']).toBe('rgba(250, 238, 252, 0.06)')
+    expect(TOKEN_FALLBACKS['--glass-3']).toBe('rgba(244, 222, 248, 0.095)')
+    expect(TOKEN_FALLBACKS['--glass-4']).toBe('rgba(238, 210, 246, 0.145)')
+    expect(TOKEN_FALLBACKS['--glass-icon']).toBe('rgba(226, 148, 224, 0.20)')
+    expect(TOKEN_FALLBACKS['--glass-icon-strong']).toBe('rgba(226, 148, 224, 0.30)')
+    expect(TOKEN_FALLBACKS['--icon-glyph']).toBe('#e7a8e4')
+    expect(TOKEN_FALLBACKS['--glass-icon-edge']).toBe('rgba(226, 148, 224, 0.55)')
+    expect(TOKEN_FALLBACKS['--glass-hover']).toBe('rgba(135, 206, 250, 0.18)')
+    expect(TOKEN_FALLBACKS['--glass-active']).toBe('rgba(135, 206, 250, 0.30)')
+    expect(TOKEN_FALLBACKS['--glass-active-edge']).toBe('rgba(135, 206, 250, 0.55)')
+    expect(TOKEN_FALLBACKS['--glass-code']).toBe('rgba(16, 12, 26, 0.55)')
+  })
+  it('no longer carries the removed --terminal-bg token (terminal feature deleted, D-134)', () => {
+    expect(TOKEN_FALLBACKS['--terminal-bg']).toBeUndefined()
+  })
 })

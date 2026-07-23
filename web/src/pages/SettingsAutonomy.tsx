@@ -51,7 +51,7 @@ export function AutonomousOrgSection() {
       ) : error || !data ? (
         <p className="text-xs text-[var(--red)]">Failed to load autonomy settings.</p>
       ) : (
-        <div className="glass rounded-xl border border-[var(--border)] p-4">
+        <div className="rounded-xl border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
           <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
             <span className="text-xs font-semibold text-[var(--text)]">Autonomous Org</span>
             <Checkbox
@@ -145,7 +145,7 @@ export function AutonomousOrgSection() {
       {errorMsg && (
         <p
           data-testid="autonomy-error"
-          className="mt-2 rounded-lg border border-[var(--red)]/40 bg-[var(--raised)] px-3 py-2 text-[11px] text-[var(--red)]"
+          className="mt-2 rounded-lg border border-[var(--red)]/40 bg-red/10 px-3 py-2 text-[11px] text-[var(--red)]"
         >
           {errorMsg}
         </p>

@@ -290,7 +290,7 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
               try {
                 const parsed = JSON.parse(rawStr)
                 rawContent = (
-                  <pre className="mono mt-1 text-label text-muted bg-raised rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-words">
+                  <pre className="mono mt-1 text-label text-muted bg-[var(--glass-code)] rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-words">
                     {JSON.stringify(parsed, null, 2)}
                   </pre>
                 )
@@ -335,7 +335,7 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
                 className={cn(
                   'py-1.5 pl-2 border-b border-border last:border-0 border-l-2 transition-opacity duration-150',
                   EVENT_BAND[e.type] ?? 'border-l-border',
-                  inSpan(idx) ? 'bg-raised/30' : undefined,
+                  inSpan(idx) ? 'bg-[var(--glass-3)]' : undefined,
                   dimmed ? 'opacity-25' : 'opacity-100',
                 )}
               >
@@ -352,7 +352,7 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
                   </span>
                   <span
                     aria-hidden
-                    className="inline-block h-0.5 self-center rounded-pill bg-raised flex-shrink-0"
+                    className="inline-block h-0.5 self-center rounded-pill bg-[var(--glass-3)] flex-shrink-0"
                     style={{ width: gapBarWidth(gapMs, maxGap) }}
                     title={idx === 0 ? undefined : `+${(gapMs / 1000).toFixed(1)}s since previous`}
                   />
@@ -377,7 +377,7 @@ export default function RunTimeline({ events, runId, terminal = false }: Props) 
       </div>
 
       {/* Replay scrubber footer */}
-      <div className="flex-shrink-0 border-t border-border px-5 py-3 space-y-2 bg-surface">
+      <div className="flex-shrink-0 border-t border-border px-5 py-3 space-y-2 bg-[var(--glass-3)]">
         {/* Readout */}
         <div className="mono text-label text-muted tabular-nums">
           seq {cursorEvent.seq} · {cursor + 1}/{events.length} · {formatRelTime(cursorEvent.ts - firstTs)}

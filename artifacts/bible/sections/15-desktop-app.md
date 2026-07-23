@@ -2,10 +2,10 @@
 title: Desktop App
 icon: "▣"
 status: stable
-updated: 2026-07-10
+updated: 2026-07-22
 ---
 
-The K web app — `@k/core` (Fastify + better-sqlite3 + node-pty) and the `@k/web` React SPA — is packaged as a **Windows Electron desktop app** in a `desktop/` workspace. The shell owns nothing product-facing: it launches the *existing* core, opens the *existing* SPA on one origin, and adds the three things a desktop app buys that a browser tab cannot — a persistent tray process, native notifications, and one-click install + auto-update. The build ships Windows-first and **unsigned**; the `claude` CLI (the agent engine) is a detect-and-guide prerequisite, never bundled. Decisions D-089 → D-094.
+The K web app — `@k/core` (Fastify + better-sqlite3) and the `@k/web` React SPA — is packaged as a **Windows Electron desktop app** in a `desktop/` workspace. The shell owns nothing product-facing: it launches the *existing* core, opens the *existing* SPA on one origin, and adds the three things a desktop app buys that a browser tab cannot — a persistent tray process, native notifications, and one-click install + auto-update. The build ships Windows-first and **unsigned**; the `claude` CLI (the agent engine) is a detect-and-guide prerequisite, never bundled. Decisions D-089 → D-094.
 
 ## Architecture
 

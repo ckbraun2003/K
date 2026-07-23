@@ -248,7 +248,7 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
 
       {/* ── Gallery rail + viewer ────────────────────────────────────────── */}
       <div className="flex min-h-0 flex-1">
-        <aside className="w-56 flex-shrink-0 overflow-y-auto border-r border-border bg-surface">
+        <aside className="w-56 flex-shrink-0 overflow-y-auto border-r border-[var(--glass-tier-border)] bg-[var(--glass-2)]">
           {isLoading && <p className="px-4 py-3 text-xs text-muted">Loading…</p>}
           {!isLoading && mine.length === 0 && (
             <p className="px-4 py-3 text-xs text-muted">No artifacts yet.</p>
@@ -264,7 +264,7 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
                   'block w-full border-b border-border px-4 py-2.5 text-left transition-colors duration-150',
                   isActive
                     ? 'border-l-2 border-l-accent bg-accent/10'
-                    : 'hover:bg-raised',
+                    : 'hover:bg-[var(--glass-hover)]',
                 )}
               >
                 <span className="flex items-center gap-1.5 text-sm text-text">
@@ -300,7 +300,7 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
       {/* ── Editor (modal overlay) ──────────────────────────────────────── */}
       {editingSlug && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="flex w-full max-w-3xl flex-col rounded-panel border border-border bg-surface shadow-2xl">
+          <div className="flex w-full max-w-3xl flex-col rounded-panel border border-[var(--glass-tier-border)] bg-[var(--glass-2)] shadow-2xl">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <span className="mono text-xs text-muted">
                 {editingIsBible ? 'Editing bible section' : 'Editing'}:{' '}
@@ -341,7 +341,7 @@ export default function ArtifactsTab({ projectId }: { projectId?: string }) {
                   onChange={e => (editingIsBible ? setSectionBody(e.target.value) : setEditMd(e.target.value))}
                   spellCheck={false}
                   data-testid="artifact-editor-textarea"
-                  className="mono min-h-[400px] w-full resize-y rounded-none border-0 bg-raised px-4 py-3 text-xs"
+                  className="mono min-h-[400px] w-full resize-y rounded-none border-0 bg-[var(--glass-3)] px-4 py-3 text-xs"
                 />
                 {editError && (
                   <p className="flex items-center gap-1 px-4 py-1 text-[11px] text-red" data-testid="artifact-editor-error">

@@ -17,6 +17,25 @@ import { budgetGate } from '../budget-governor.js'
 // the request; on timeout the card degrades to 'unavailable' (never blocks/500s).
 const NARRATIVE_BULLETS_TIMEOUT_MS = 20_000
 
+// Lane B (B5, runs consolidation): `?archived=` is intentionally NOT part of
+// RunsQuerySchema (shared/src/types.ts is out of scope for this change) and
+// archived-run membership lives in app_config as a JSON set, not a SQL column —
+// so it can't be pushed into listRunsFiltered's WHERE. Instead the list route
+// overfetches past the requested `limit` and filters/slices in JS. Fine at this
+// project's scale (a dev harness, not a high-volume prod service).
+const ARCHIVED_FILTER_OVERFETCH_LIMIT = 500
+// clear-finished scans each finished status in full (not just the display page) —
+// generous but bounded rather than an unbounded SQL LIMIT.
+const CLEAR_FINISHED_SCAN_LIMIT = 100_000
+const FINISHED_RUN_STATUSES: RunStatus[] = ['done', 'error', 'killed']
+
+/** Lane B (B5): archive/delete both refuse a run that's still live. Matches the
+ *  plan's literal guard list — awaiting_input/awaiting_plan runs (parked, process
+ *  dead or stdin-idle) are NOT blocked, only genuinely in-flight ones. */
+function isRunLive(status: unknown): boolean {
+  return status === 'running' || status === 'queued'
+}
+
 /**
  * A client-supplied `cwd` must resolve under a registered project's localPath
  * OR under the harness REPO_ROOT (its default). Anything else (e.g. C:\Windows,
@@ -87,7 +106,8 @@ export async function runsRoutes(app: FastifyInstance) {
     }
   })
 
-  // GET /api/runs — list recent runs; optional ?status=, ?limit=, ?projectId=, ?kind= query params
+  // GET /api/runs — list recent runs; optional ?status=, ?limit=, ?projectId=, ?kind=,
+  // and (Lane B B5) ?archived=include|only|exclude (default exclude) query params.
   app.get('/api/runs', async (req, reply) => {
     const parsed = RunsQuerySchema.safeParse(req.query)
     if (!parsed.success) {
@@ -97,15 +117,40 @@ export async function runsRoutes(app: FastifyInstance) {
     if (parsed.data.projectId && !projectsDb.getProject.get(parsed.data.projectId)) {
       return sendError(reply, 400, 'unknown projectId')
     }
+    // B5: hand-validated (see the ARCHIVED_FILTER_OVERFETCH_LIMIT comment above) —
+    // RunsQuerySchema doesn't know this param.
+    const archivedRaw = (req.query as Record<string, unknown>).archived
+    const archivedMode = archivedRaw === undefined ? 'exclude' : archivedRaw
+    if (archivedMode !== 'include' && archivedMode !== 'only' && archivedMode !== 'exclude') {
+      return sendError(reply, 400, 'archived must be one of: include, only, exclude')
+    }
+    const fetchLimit = archivedMode === 'include'
+      ? parsed.data.limit
+      : Math.max(parsed.data.limit, ARCHIVED_FILTER_OVERFETCH_LIMIT)
     const rows = runsDb.listRunsFiltered({
       status: parsed.data.status,
-      limit: parsed.data.limit,
+      limit: fetchLimit,
       projectId: parsed.data.projectId,
       // A.3 (D-127): ?kind=a,b — a validated RunKind[] (RunsQuerySchema splits the
       // comma list); absent → no kind filter (byte-compatible).
       kinds: parsed.data.kind,
     })
-    return reply.send(rows.map(dbRowToRun))
+    // Fetched unconditionally (one cheap app_config read) so every returned row —
+    // 'include' mode too — can be tagged with its archived state below; the
+    // frontend list (RunList.tsx) needs this to render an "Archived" tag and to
+    // gate the bulk archive/unarchive toggle when 'include' mixes both.
+    const archivedIds = runsDb.getArchivedRunIds()
+    let filtered = rows
+    if (archivedMode !== 'include') {
+      filtered = rows.filter(r => {
+        const isArchived = archivedIds.has(r.id as string)
+        return archivedMode === 'only' ? isArchived : !isArchived
+      })
+    }
+    return reply.send(filtered.slice(0, parsed.data.limit).map(r => ({
+      ...dbRowToRun(r),
+      archived: archivedIds.has(r.id as string),
+    })))
   })
 
   // GET /api/runs/:id — single run
@@ -233,6 +278,58 @@ export async function runsRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>('/api/runs/:id/end', async (req, reply) => {
     if (!runsDb.getRun.get(req.params.id)) return sendError(reply, 404, 'not found')
     return reply.send({ ended: endSession(req.params.id) })
+  })
+
+  // Archive/unarchive/clear-finished/delete below cover agent runs (`runs` table)
+  // only. Exposing the same archive/delete lifecycle for PIPELINE runs was B5's
+  // optional stretch scope and was intentionally deferred out of this pass.
+
+  // POST /api/runs/:id/archive — Lane B B5. Archived ids live in app_config, not a
+  // column (see runsDb.archiveRun) — no schema bump. Refuses a live run (409).
+  app.post<{ Params: { id: string } }>('/api/runs/:id/archive', async (req, reply) => {
+    const row = runsDb.getRun.get(req.params.id) as Record<string, unknown> | undefined
+    if (!row) return sendError(reply, 404, 'not found')
+    if (isRunLive(row.status)) return sendError(reply, 409, 'cannot archive a running or queued run')
+    runsDb.archiveRun(req.params.id)
+    return reply.send({ id: req.params.id, archived: true })
+  })
+
+  // POST /api/runs/:id/unarchive — Lane B B5. Idempotent; no live-run guard needed
+  // (unarchiving never conflicts with a run's own lifecycle).
+  app.post<{ Params: { id: string } }>('/api/runs/:id/unarchive', async (req, reply) => {
+    if (!runsDb.getRun.get(req.params.id)) return sendError(reply, 404, 'not found')
+    runsDb.unarchiveRun(req.params.id)
+    return reply.send({ id: req.params.id, archived: false })
+  })
+
+  // POST /api/runs/clear-finished — Lane B B5. Bulk-archives every done/error/killed
+  // run that isn't already archived. Never touches live or already-archived runs.
+  // Collects ids across all three finished statuses and hands them to archiveRuns
+  // in ONE batch call (one app_config read + one write) instead of a per-row
+  // isRunArchived + archiveRun round trip — matters here because the scan can
+  // return up to CLEAR_FINISHED_SCAN_LIMIT rows per status.
+  app.post('/api/runs/clear-finished', async (_req, reply) => {
+    const ids: string[] = []
+    for (const status of FINISHED_RUN_STATUSES) {
+      const rows = runsDb.listRunsFiltered({ status, limit: CLEAR_FINISHED_SCAN_LIMIT })
+      for (const r of rows) ids.push(r.id as string)
+    }
+    const archivedCount = runsDb.archiveRuns(ids)
+    return reply.send({ archivedCount })
+  })
+
+  // DELETE /api/runs/:id — Lane B B5. Permanent. Guarded to archived + non-live runs
+  // only (the archive step is the deliberate "are you sure" gate — see runsDb.deleteRun
+  // for the FK-safe cleanup + the artifacts.linked_run_id null-out).
+  app.delete<{ Params: { id: string } }>('/api/runs/:id', async (req, reply) => {
+    const row = runsDb.getRun.get(req.params.id) as Record<string, unknown> | undefined
+    if (!row) return sendError(reply, 404, 'not found')
+    if (isRunLive(row.status)) return sendError(reply, 409, 'cannot delete a running or queued run')
+    if (!runsDb.isRunArchived(req.params.id)) {
+      return sendError(reply, 409, 'run must be archived before it can be permanently deleted')
+    }
+    runsDb.deleteRun(req.params.id)
+    return reply.status(204).send()
   })
 }
 

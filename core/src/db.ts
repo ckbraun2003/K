@@ -2084,7 +2084,96 @@ function listRunsFiltered({ status, limit, projectId, kinds }: { status?: RunSta
   return stmt.all(...params, limit) as Array<Record<string, unknown>>
 }
 
-export const runsDb = { insertRun, updateRunStatus, getRun, listRunsFiltered, clearRunWorktree, setRunCliSessionId, markRunReviewed }
+// ─── Run archive + permanent delete (Lane B B5, runs consolidation) ──────────
+// Archived run ids live in app_config under this key as a JSON array — a
+// lightweight, low-cardinality set that doesn't warrant a SCHEMA_VERSION bump
+// (mirrors other schema-free settings stored via configDb, e.g. ui.background).
+const ARCHIVED_RUNS_CONFIG_KEY = 'runs.archived'
+
+function readArchivedRunIds(): Set<string> {
+  const raw = configDb.get(ARCHIVED_RUNS_CONFIG_KEY)
+  if (!raw) return new Set()
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? new Set(parsed.filter((v): v is string => typeof v === 'string')) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function writeArchivedRunIds(ids: Set<string>): void {
+  configDb.set(ARCHIVED_RUNS_CONFIG_KEY, JSON.stringify([...ids]))
+}
+
+function archiveRun(id: string): void {
+  const ids = readArchivedRunIds()
+  ids.add(id)
+  writeArchivedRunIds(ids)
+}
+
+/** Batch variant of archiveRun — ONE read of the archived set + adds every id +
+ *  ONE write, vs. N reads/writes for N individual archiveRun calls (used by
+ *  POST /api/runs/clear-finished, which can touch hundreds of rows). Idempotent:
+ *  ids already archived are skipped. Returns the count of ids newly archived. */
+function archiveRuns(ids: string[]): number {
+  const archived = readArchivedRunIds()
+  let added = 0
+  for (const id of ids) {
+    if (!archived.has(id)) {
+      archived.add(id)
+      added++
+    }
+  }
+  if (added > 0) writeArchivedRunIds(archived)
+  return added
+}
+
+function unarchiveRun(id: string): void {
+  const ids = readArchivedRunIds()
+  if (ids.delete(id)) writeArchivedRunIds(ids)
+}
+
+function isRunArchived(id: string): boolean {
+  return readArchivedRunIds().has(id)
+}
+
+// Permanent delete (B5 `DELETE /api/runs/:id`, route-guarded to archived +
+// non-running only). FK-safe order mirrors deleteProject's run-scoped cleanup
+// above (deleteProjectRunPlans etc.): run_plans, review_comments, and
+// verify_results all carry a hard (no ON DELETE clause) FK on runs(id), as does
+// events — all four must be cleared before the runs row itself or better-sqlite3
+// throws (foreign_keys = ON is a global pragma). Every OTHER run_id-ish column in
+// the schema is declared ON DELETE SET NULL and is nulled by SQLite itself, EXCEPT
+// two explicit exceptions handled in code here: artifacts.linked_run_id carries NO
+// FK at all (see the artifacts DDL), and runs.retry_of is a self-FK on runs(id)
+// with no ON DELETE clause (self-heal.ts stamps a retry run's retry_of to the
+// ORIGINAL failed run's id — deleting that original with a retry still pointing at
+// it would throw SQLITE_CONSTRAINT_FOREIGNKEY otherwise). Both are nulled
+// explicitly below rather than left dangling (Lane B plan: "tolerate/null dangling
+// refs" — null is the more complete reading). Threads and artifact rows themselves
+// are never cascade-deleted (plan requirement).
+const deleteRunPlanRow = db.prepare(`DELETE FROM run_plans WHERE run_id = ?`)
+const deleteRunCommentRows = db.prepare(`DELETE FROM review_comments WHERE run_id = ?`)
+const deleteRunVerifyResultRow = db.prepare(`DELETE FROM verify_results WHERE run_id = ?`)
+const deleteRunEventRows = db.prepare(`DELETE FROM events WHERE run_id = ?`)
+const nullDanglingArtifactLinks = db.prepare(`UPDATE artifacts SET linked_run_id = NULL WHERE linked_run_id = ?`)
+const nullDanglingRetryOfLinks = db.prepare(`UPDATE runs SET retry_of = NULL WHERE retry_of = ?`)
+const deleteRunRow = db.prepare(`DELETE FROM runs WHERE id = ?`)
+const deleteRun = db.transaction((id: string) => {
+  deleteRunPlanRow.run(id)
+  deleteRunCommentRows.run(id)
+  deleteRunVerifyResultRow.run(id)
+  deleteRunEventRows.run(id)
+  nullDanglingArtifactLinks.run(id)
+  nullDanglingRetryOfLinks.run(id)
+  deleteRunRow.run(id)
+  unarchiveRun(id) // nothing left to track once the row is gone
+})
+
+export const runsDb = {
+  insertRun, updateRunStatus, getRun, listRunsFiltered, clearRunWorktree, setRunCliSessionId, markRunReviewed,
+  archiveRun, archiveRuns, unarchiveRun, isRunArchived, getArchivedRunIds: readArchivedRunIds, deleteRun,
+}
 
 // ─── Event helpers ───────────────────────────────────────────────────────────
 
@@ -2257,6 +2346,21 @@ const getArtifact = db.prepare(`SELECT * FROM artifacts WHERE slug = ?`)
 const listArtifacts = db.prepare(`SELECT slug, title, phase, status, tags, updated_at, project_id, origin FROM artifacts ORDER BY updated_at DESC`)
 const listArtifactsByProject = db.prepare(`SELECT slug, title, phase, status, tags, updated_at, project_id, origin FROM artifacts WHERE project_id = ? ORDER BY updated_at DESC`)
 
+// Lane B (runs consolidation, B4): artifacts produced/linked by a PIPELINE run's
+// stages — joined by `linked_run_id IN (<stage.runId ...>)`, i.e. the AGENT runs
+// a stage dispatched, not the pipeline run's own id. Dynamic IN-list length is
+// bounded by a run's stage count (small), cached by SQL shape like listRunsFiltered.
+const listArtifactsByLinkedRunIdsStmtCache = new Map<string, import('better-sqlite3').Statement>()
+function listArtifactsByLinkedRunIds(runIds: string[]): Array<Record<string, unknown>> {
+  const ids = [...new Set(runIds)]
+  if (ids.length === 0) return []
+  const sql = `SELECT slug, title, phase, status, tags, linked_run_id, updated_at, project_id, origin
+    FROM artifacts WHERE linked_run_id IN (${ids.map(() => '?').join(', ')}) ORDER BY updated_at DESC`
+  let stmt = listArtifactsByLinkedRunIdsStmtCache.get(sql)
+  if (!stmt) { stmt = db.prepare(sql); listArtifactsByLinkedRunIdsStmtCache.set(sql, stmt) }
+  return stmt.all(...ids) as Array<Record<string, unknown>>
+}
+
 // D-117 scan-managed rows. The DO UPDATE WHERE clause is a second belt: a slug
 // collision with a compiled row silently no-ops instead of flipping provenance
 // (the scanner's backing-path check should prevent it ever firing).
@@ -2281,7 +2385,7 @@ const listArtifactHtmlPaths = db.prepare(`SELECT slug, html_path FROM artifacts 
 export const artifactsDb = {
   upsertArtifact, getArtifact, listArtifacts, listArtifactsByProject,
   upsertScannedArtifact, listScannedArtifacts, deleteScannedArtifact, deleteArtifact,
-  listArtifactHtmlPaths,
+  listArtifactHtmlPaths, listArtifactsByLinkedRunIds,
 }
 
 // ─── Project helpers ─────────────────────────────────────────────────────────

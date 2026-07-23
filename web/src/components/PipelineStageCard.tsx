@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import type { PipelineRunView, PipelineStageRun } from '@k/shared'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
+import { navigate } from '../lib/route'
 import { StatusPill } from '../ui/StatusPill'
 import { Button } from '../ui/Button'
 import { Tag } from '../ui/Tag'
@@ -95,8 +96,20 @@ export default function PipelineStageCard({
       )}
       {stage.gateNote && <p className="mt-1 text-caption text-muted">{stage.gateNote}</p>}
 
-      {(parkedGate || rewindable) && (
+      {(parkedGate || rewindable || stage.runId) && (
         <div className="mt-2 flex items-center justify-end gap-2">
+          {stage.runId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="border border-border"
+              icon="external"
+              data-testid={`pipeline-stage-open-agent-${stage.stageKey}`}
+              onClick={() => navigate('runs', stage.runId!)}
+            >
+              Open agent run
+            </Button>
+          )}
           {rewindable && (
             <Button
               variant="ghost"

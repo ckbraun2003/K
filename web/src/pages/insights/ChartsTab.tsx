@@ -314,11 +314,11 @@ export default function ChartsTab({ days }: { days: Days }) {
 
       {/* P5 autonomy — measured budget burn-down + retry rate (stub charts; lanes A/D fill) */}
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+        <div className="rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Budget burn-down (24h, measured)</h2>
           <BudgetBurndownChart />
         </div>
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+        <div className="rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Retry rate</h2>
           <RetryRateChart />
         </div>

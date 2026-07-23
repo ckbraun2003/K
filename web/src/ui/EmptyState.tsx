@@ -12,17 +12,19 @@ export function EmptyState({ icon, headline, hint, action, cta, illustration, ti
   /** FE-4 #2 — replaces the icon bubble with a custom (reduced-motion-safe)
    *  illustration; the icon bubble is skipped entirely when set. */
   illustration?: ReactNode
-  /** FU-2: 'solid' swaps the icon bubble's glass-panel for the non-blur
-   *  surface-solid tier — for use inside a cell that's already a GlassPanel
-   *  ancestor, where a nested glass-panel would stack backdrop-filter inside
-   *  backdrop-filter. */
+  /** FU-2, retuned Round 3 (D-134): 'solid' swaps the icon bubble's glass-panel
+   *  for the `.glass-icon` pinkish-purple chip — the one saturated-purple role
+   *  in the color-by-role hierarchy (work-item/note icons). Originally the
+   *  non-blur surface-solid tier (for a cell already nested inside a
+   *  GlassPanel ancestor); glass-icon has no backdrop-filter either, so the
+   *  nesting rationale still holds. */
   tier?: 'panel' | 'solid'
   className?: string
 }) {
   return (
     <div className={cn('flex flex-col items-center justify-center gap-2 py-12 text-center', className)}>
       {illustration ?? (
-        <div className={cn(tier === 'solid' ? 'surface-solid' : 'glass-panel', 'rounded-pill p-3 text-muted')}>
+        <div className={cn(tier === 'solid' ? 'glass-icon' : 'glass-panel text-muted', 'rounded-pill p-3')}>
           <Icon name={icon} size={20} />
         </div>
       )}

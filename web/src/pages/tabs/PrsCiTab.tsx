@@ -83,7 +83,7 @@ function PrRow({ pr, projectId }: { pr: PrInfo; projectId: string }) {
   return (
     <div
       data-testid={`pr-row-${pr.number}`}
-      className="flex items-start gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-surface"
+      className="flex items-start gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-[var(--glass-hover)]"
     >
       {/* Check dot */}
       <span className={cn('mt-1 w-2 h-2 rounded-full flex-shrink-0', CHECK_DOT[pr.checks] ?? 'bg-muted')} />
@@ -267,7 +267,7 @@ export default function PrsCiTab({ projectId }: Props) {
 
       {/* Success banner */}
       {prUrl != null && prNumber != null && (
-        <div className="flex-shrink-0 px-4 py-2 bg-surface border-b border-border text-xs text-text flex items-center gap-2">
+        <div className="flex-shrink-0 px-4 py-2 bg-[var(--glass-2)] border-b border-[var(--glass-tier-border)] text-xs text-text flex items-center gap-2">
           <span className="text-green">PR created:</span>
           <a
             href={prUrl}
@@ -303,7 +303,7 @@ export default function PrsCiTab({ projectId }: Props) {
         <>
           {/* PRs section */}
           <div className="flex-shrink-0">
-            <div className="px-4 py-2 bg-raised border-b border-border">
+            <div className="px-4 py-2 bg-[var(--glass-3)] border-b border-[var(--glass-tier-border)]">
               <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
                 Open PRs · <span className="mono">{openPrs.length}</span>
               </h3>
@@ -318,7 +318,7 @@ export default function PrsCiTab({ projectId }: Props) {
           {/* Merged / closed PRs section (F-046) — only when there are any */}
           {closedPrs.length > 0 && (
             <div className="flex-shrink-0">
-              <div className="px-4 py-2 bg-raised border-b border-border">
+              <div className="px-4 py-2 bg-[var(--glass-3)] border-b border-[var(--glass-tier-border)]">
                 <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
                   Merged / Closed · <span className="mono">{closedPrs.length}</span>
                 </h3>
@@ -329,7 +329,7 @@ export default function PrsCiTab({ projectId }: Props) {
 
           {/* CI Runs section */}
           <div className="flex-shrink-0">
-            <div className="px-4 py-2 bg-raised border-b border-border">
+            <div className="px-4 py-2 bg-[var(--glass-3)] border-b border-[var(--glass-tier-border)]">
               <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
                 CI Runs · <span className="mono">{ciRuns.length}</span>
               </h3>

@@ -65,7 +65,7 @@ export default function HooksTab() {
                 <span className="text-body font-medium text-text">{hook.event}</span>
                 <SourceBadge sourceKind={hook.sourceKind} pluginName={hook.pluginName} />
                 {hook.matcher && (
-                  <span className="mono rounded-pill bg-raised px-1.5 py-0.5 text-micro text-muted">
+                  <span className="mono rounded-pill bg-[var(--glass-4)] px-1.5 py-0.5 text-micro text-muted">
                     matcher: {hook.matcher}
                   </span>
                 )}

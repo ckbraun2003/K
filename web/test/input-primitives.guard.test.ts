@@ -19,12 +19,15 @@ import { join, relative } from 'node:path'
  *     the auto-grow textarea that carries Field's exported SKIN internally). A
  *     raw element inside either is the implementation, not a bypass of it.
  *
- *  2. `type="radio"`, `type="range"`, and `type="file"` inputs — `ui/Field.tsx`
- *     has no Radio/Range/File primitive. Radio (KnowledgeGraphTab's dispatch-action
- *     picker) and range (RunTimeline's/SettingsAutonomy's replay/budget sliders)
- *     stay raw. A native file input can't be skinned, so SettingsAppearance's
+ *  2. `type="radio"`, `type="range"`, `type="file"`, and `type="color"` inputs —
+ *     `ui/Field.tsx` has no Radio/Range/File/Color primitive. Radio (KnowledgeGraphTab's
+ *     dispatch-action picker) and range (RunTimeline's/SettingsAutonomy's replay/budget
+ *     sliders) stay raw. A native file input can't be skinned, so SettingsAppearance's
  *     wallpaper upload uses an `sr-only` `<input type="file">` driven by a styled
- *     Button — the design-system-conformant file-upload pattern, not a bypass.
+ *     Button — the design-system-conformant file-upload pattern, not a bypass. A native
+ *     color input (SettingsAppearance's font-colour override, ui-adjustments Round 2)
+ *     is the same case as file: the browser renders its own OS-level swatch/picker UI
+ *     that can't be replicated by a styled wrapper, so it stays raw too.
  *
  *  3. A tag mention inside a `//` line comment (e.g. TerminalPage.tsx documents
  *     xterm's own internal `.xterm-helper-textarea` DOM node in prose) is not a
@@ -70,7 +73,7 @@ describe('input-primitives guard — raw form elements route through ui/Field.ts
 
         if (m[1] === 'input') {
           const tag = tagSlice(src, idx)
-          if (/type=["'](radio|range|file)["']/.test(tag)) continue
+          if (/type=["'](radio|range|file|color)["']/.test(tag)) continue
         }
 
         const snippet = line.trim().slice(0, 100)

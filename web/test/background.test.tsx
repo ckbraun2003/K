@@ -9,9 +9,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-const { mockGet, mockImageBlob } = vi.hoisted(() => ({
+const { mockGet, mockImageBlob, mockFontColorGet } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockImageBlob: vi.fn(),
+  mockFontColorGet: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
@@ -22,6 +23,10 @@ vi.mock('../src/lib/api', () => ({
         set: vi.fn(),
         uploadImage: vi.fn(),
         imageBlob: mockImageBlob,
+      },
+      fontColor: {
+        get: mockFontColorGet,
+        set: vi.fn(),
       },
     },
   },
@@ -44,6 +49,8 @@ let revokeObjectUrlSpy: ReturnType<typeof vi.fn>
 beforeEach(() => {
   mockGet.mockReset()
   mockImageBlob.mockReset()
+  mockFontColorGet.mockReset()
+  mockFontColorGet.mockResolvedValue({ settings: { color: null } })
   createObjectUrlSpy = vi.fn(() => 'blob:mock-object-url')
   revokeObjectUrlSpy = vi.fn()
   // jsdom doesn't implement createObjectURL/revokeObjectURL for Blob — stub
@@ -51,6 +58,7 @@ beforeEach(() => {
   // `new URL(...)` elsewhere in the app is unaffected) and remove after.
   URL.createObjectURL = createObjectUrlSpy
   URL.revokeObjectURL = revokeObjectUrlSpy
+  document.documentElement.style.removeProperty('--text')
 })
 afterEach(() => {
   cleanup()
@@ -58,6 +66,7 @@ afterEach(() => {
   delete URL.createObjectURL
   // @ts-expect-error test-only cleanup of the stub added above
   delete URL.revokeObjectURL
+  document.documentElement.style.removeProperty('--text')
 })
 
 describe('Background', () => {
@@ -132,5 +141,24 @@ describe('Background', () => {
     expect(rafSpy).not.toHaveBeenCalled()
     expect(screen.getByTestId('app-background').querySelector('canvas')).toBeNull()
     rafSpy.mockRestore()
+  })
+
+  it('font-colour: writes a saved hex to --text on the document root', async () => {
+    mockGet.mockResolvedValue({ settings: { kind: 'solid', preset: null, imageVersion: null }, presets: [], kinds: [] })
+    mockFontColorGet.mockResolvedValue({ settings: { color: '#ff00aa' } })
+    renderBg()
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--text')).toBe('#ff00aa')
+    })
+  })
+
+  it('font-colour: a null color removes any --text override (theme default applies)', async () => {
+    document.documentElement.style.setProperty('--text', '#123456') // simulate a prior override
+    mockGet.mockResolvedValue({ settings: { kind: 'solid', preset: null, imageVersion: null }, presets: [], kinds: [] })
+    mockFontColorGet.mockResolvedValue({ settings: { color: null } })
+    renderBg()
+    await waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--text')).toBe('')
+    })
   })
 })

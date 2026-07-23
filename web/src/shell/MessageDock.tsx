@@ -105,7 +105,7 @@ function Composer({
       {/* @project picker — rows above the input, shown whenever `text` starts with
           '@'; picking one hands off to the dispatch confirm card below. */}
       {projectMatches && (
-        <div data-testid="dock-project-picker" className="mt-1.5 max-h-40 overflow-y-auto rounded-control border border-border bg-surface">
+        <div data-testid="dock-project-picker" className="mt-1.5 max-h-40 overflow-y-auto rounded-control border border-[var(--glass-tier-border)] bg-[var(--glass-3)]">
           {projectMatches.length === 0 ? (
             <p className="px-3 py-2 text-xs text-muted">No matching project</p>
           ) : (
@@ -115,7 +115,7 @@ function Composer({
                 type="button"
                 data-testid={`dock-project-row-${p.id}`}
                 onClick={() => onPickProject(p)}
-                className="block w-full px-3 py-1.5 text-left text-xs text-text transition-colors duration-100 hover:bg-raised"
+                className="block w-full px-3 py-1.5 text-left text-xs text-text transition-colors duration-100 hover:bg-[var(--glass-hover)]"
               >
                 <span className="text-accent">@</span> {p.name}
               </button>
@@ -123,9 +123,16 @@ function Composer({
           )}
         </div>
       )}
-      <div className="mt-1.5 flex items-center gap-2 rounded-control border border-border bg-surface px-3 py-2">
+      {/* Round 3 follow-up: the dock is "the persistent front door to K" (the main
+          K message bar). Its bare input had no field surface — inside the faint
+          glass-chrome footer it read as "no message bar", only the solid Send showed.
+          `.glass-bar` gives the input row a visible pill (surface + hairline +
+          pink-purple hover/focus-within ring), matching the ConversationView fix;
+          the inner Input stays `variant="bare"`. Shared by both dock variants. */}
+      <div className="glass-bar mt-1.5 flex items-center gap-2 rounded-pill px-3 py-1.5">
         <span className="text-accent">⚡</span>
         <Input
+          variant="bare"
           ref={inputRef}
           data-testid="dock-input"
           value={text}
@@ -230,6 +237,12 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
   const ask = useAskK({ navigateOnSend: false })
 
   const { data: threadsData, isSuccess: threadsLoaded } = useQuery({ queryKey: ['k-threads'], queryFn: () => api.threads.list() })
+  // A1 follow-up (ui-adjustments): the recent-threads picker below must show ONLY K's own
+  // chats — `api.threads.list()` (used above for selection-resolution) has no profile filter,
+  // so its summaries can't be filtered here. The picker reads api.conversations.list()
+  // (carries `profileId`) filtered to k-secretary, the same partition Home's rail uses; the
+  // ['conversations'] cache is shared with ChatView and kept live by useAskK's invalidation.
+  const { data: convData } = useQuery({ queryKey: ['conversations'], queryFn: () => api.conversations.list() })
   // A selection can point at a thread ABSENT from the default (non-archived) list — archived,
   // or just-created before the list caught up. Resolve it by id so the header tells the truth
   // about where a send lands. Enabled only in that case (and only once the list has SETTLED so
@@ -415,6 +428,13 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
       // the old 'new' key; drop it so a later "+ New chat" can't resurrect a sent message
       // into the composer and invite an accidental re-send (M-D1).
       if (createdNow) drafts.current.delete('new')
+      // D-129: Home = Overview only — the bar variant (only mounted on the home
+      // route, Shell.tsx's `variant={route.view === 'home' ? 'bar' : 'float'}`) is
+      // a quick-ask affordance, not an inline chat surface. A successful send
+      // redirects to the Chats/Messages tab with K's conversation open so the
+      // message appears in the transcript there, not on Home. The float variant
+      // (Messages/agent-detail pages) stays put — it's already where its thread lives.
+      if (variant === 'bar') navigate('messages', threadId)
     }
   }
 
@@ -556,7 +576,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                 onChange={e => setDispatchPrompt(e.target.value)}
                 onKeyDown={onDispatchComposeKeyDown}
                 placeholder="Describe the task for the agent…"
-                className="glow-focus w-full resize-none rounded-control border border-border bg-surface px-3 py-2 text-sm text-text placeholder-muted outline-none"
+                className="glow-focus w-full resize-none rounded-control border border-[var(--glass-tier-border)] bg-[var(--glass-2)] px-3 py-2 text-sm text-text placeholder-muted outline-none"
               />
               <p className="mt-1 text-[10px] text-muted">
                 <kbd className="mono">↵</kbd> send · <kbd className="mono">⇧↵</kbd> newline
@@ -657,7 +677,13 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
             viewport bottom (a structural chrome bar, not a floating chip), so zero the
             side/bottom edges and keep only the top hairline — matching --border (not
             the tier's own --glass-tier-border), same convention as Sidebar/TopBar. */}
-        <footer data-testid="message-dock-bar" className="glass-chrome border-x-0 border-b-0 border-t border-[var(--border)] px-4 py-2">
+        {/* `relative z-10` lifts the bar above the fixed wallpaper (Background is z-0),
+            matching Shell's `<main className="relative z-10">`. Without it the footer sits
+            in normal flow BEHIND the wallpaper, which paints over the composer's inner
+            content (only the Send button, its own stacking context, escaped) — the
+            "K message bar not rendering" bug. Round 2 removing glass-chrome's
+            backdrop-filter (which had created this stacking context) exposed it. */}
+        <footer data-testid="message-dock-bar" className="relative z-10 glass-chrome border-x-0 border-b-0 border-t border-[var(--border)] px-4 py-2">
           {composer}
         </footer>
         {undoToast}
@@ -666,7 +692,9 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
     )
   }
 
-  const recentThreads = (threadsData?.threads ?? []).filter(t => t.archivedAt === null).slice(0, 8)
+  const recentThreads = (convData?.conversations ?? [])
+    .filter(t => t.profileId === 'k-secretary' && t.archivedAt === null)
+    .slice(0, 8)
 
   return (
     <>
@@ -712,7 +740,7 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                 type="button"
                 data-testid="dock-picker-new-chat"
                 onClick={() => selectThread(null)}
-                className="block w-full px-4 py-2 text-left text-xs text-accent-hover transition-colors duration-100 hover:bg-raised"
+                className="block w-full px-4 py-2 text-left text-xs text-accent-hover transition-colors duration-100 hover:bg-[var(--glass-hover)]"
               >
                 + New chat
               </button>
@@ -723,8 +751,8 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
                   data-testid={`dock-picker-thread-${t.id}`}
                   onClick={() => selectThread(t.id)}
                   aria-current={t.id === selected}
-                  className={`block w-full px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-raised ${
-                    t.id === selected ? 'bg-raised text-text' : 'text-text'
+                  className={`block w-full px-4 py-2 text-left text-xs transition-colors duration-100 hover:bg-[var(--glass-hover)] ${
+                    t.id === selected ? 'bg-[var(--glass-active)] text-text shadow-[inset_0_0_0_1px_var(--glass-active-edge)]' : 'text-text'
                   }`}
                 >
                   <span className="flex items-center justify-between gap-2">

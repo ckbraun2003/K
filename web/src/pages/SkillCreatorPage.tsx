@@ -27,7 +27,7 @@ const STATUS_BADGE: Record<SkillDraft['status'], string> = {
 }
 
 const inputCls =
-  'w-full rounded-lg border border-border bg-raised px-3 py-1.5 text-sm text-text placeholder-muted focus:border-accent focus:outline-none'
+  'w-full rounded-lg glass-control px-3 py-1.5 text-sm text-text placeholder-muted focus:border-accent focus:outline-none'
 
 export default function SkillCreatorPage({ draftId }: { draftId?: string }) {
   const { data: drafts = [] } = useQuery<SkillDraft[]>({
@@ -38,7 +38,7 @@ export default function SkillCreatorPage({ draftId }: { draftId?: string }) {
   return (
     <div className="flex h-full overflow-hidden">
       {/* ── Left rail — resumable drafts + new. ───────────────────────────── */}
-      <aside className="flex w-64 flex-shrink-0 flex-col border-r border-border bg-surface">
+      <aside className="flex w-64 flex-shrink-0 flex-col border-r border-[var(--glass-tier-border)] bg-[var(--glass-2)]">
         <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
           <Button variant="ghost" size="sm" icon="arrowLeft" onClick={() => navigate('agents', 'catalog')}>
             Catalog
@@ -69,7 +69,7 @@ export default function SkillCreatorPage({ draftId }: { draftId?: string }) {
                   className={`w-full rounded-lg border px-2.5 py-2 text-left transition-colors ${
                     d.id === draftId
                       ? 'border-accent/30 bg-accent/15'
-                      : 'border-transparent hover:bg-raised'
+                      : 'border-transparent hover:bg-[var(--glass-hover)]'
                   }`}
                 >
                   <span className="block truncate text-xs font-medium text-text">
@@ -274,7 +274,7 @@ function StatusHeader({
   retryPending: boolean
 }) {
   return (
-    <div data-testid="draft-status-header" className="rounded-xl border border-border bg-surface px-4 py-3">
+    <div data-testid="draft-status-header" className="rounded-xl border border-[var(--glass-tier-border)] bg-[var(--glass-2)] px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${STATUS_BADGE[draft.status]}`}
@@ -363,7 +363,7 @@ function RefinePanel({
   const revisions = Object.entries(revisionRuns).sort(([a], [b]) => Number(a) - Number(b))
 
   return (
-    <section data-testid="refine-panel" className="rounded-xl border border-border bg-surface p-4">
+    <section data-testid="refine-panel" className="rounded-xl border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
         Refine · revision <span className="mono">{draft.revision}</span>
       </h2>
@@ -443,7 +443,7 @@ function EvalPanel({ draft }: { draft: SkillDraft }) {
   })
 
   return (
-    <section data-testid="eval-panel" className="rounded-xl border border-border bg-surface p-4">
+    <section data-testid="eval-panel" className="rounded-xl border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
       <div className="flex items-center justify-between">
         <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
           Evaluations
@@ -472,7 +472,7 @@ function EvalPanel({ draft }: { draft: SkillDraft }) {
             <li
               key={ev.id}
               data-testid={`eval-row-${ev.id}`}
-              className="flex items-center gap-2 rounded-lg border border-border bg-raised px-2.5 py-1.5 text-xs"
+              className="flex items-center gap-2 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-2.5 py-1.5 text-xs"
             >
               <span
                 className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${EVAL_BADGE[ev.status]}`}
@@ -548,7 +548,7 @@ function SaveBar({ draft }: { draft: SkillDraft }) {
   }
 
   return (
-    <section data-testid="save-bar" className="rounded-xl border border-border bg-surface p-4">
+    <section data-testid="save-bar" className="rounded-xl border border-[var(--glass-tier-border)] bg-[var(--glass-2)] p-4">
       <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
         Save to K library
       </h2>

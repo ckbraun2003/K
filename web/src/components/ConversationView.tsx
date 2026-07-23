@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import { navigate } from '../lib/route'
 import { groupFeedByDay } from '../lib/feed-query'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Field'
-import { Tag } from '../ui/Tag'
 
 /** The relay's real provenance block (`[message from <sender> · <priority>] …`) plus
  *  the W0 interim `[from <profileId>] …` tag. One regex, exported for tests — the UI's
@@ -51,6 +49,23 @@ export function splitProvenanceSegments(text: string): string[] {
   // only a tag the parser would actually accept — an unknown-priority lookalike
   // neither splits nor parses.
   return text.split(/\n\n(?=\[(?:message )?from [^\]·\n]+?(?:\s·\s(?:normal|urgent))?\])/)
+}
+
+/** k-thread.ts::summarizePipelineOutcome's exact body shape — `Pipeline "<title>"
+ *  completed/failed.` (titled) or `Pipeline pipeline <id> completed/failed.`
+ *  (untitled fallback). Matched only against a SELF-ADDRESSED segment (its parsed
+ *  provenance sender equals the conversation's own profileId — the delivery shape
+ *  continuePipelineOutcomeToK now uses: an orchestrator's pipeline outcome lands in
+ *  ITS OWN conversation, from itself) so it renders as a quiet "Update from
+ *  <pipeline>" notification instead of a raw relay note, or a bubble that would
+ *  otherwise show a profile talking to itself under its bare (often generic, e.g.
+ *  "orchestrator") name. */
+const PIPELINE_OUTCOME_RE = /^Pipeline (?:"(.+)"|pipeline (\S+)) (completed|failed)\.$/
+
+export function parsePipelineOutcome(text: string): { title: string | null; status: 'completed' | 'failed' } | null {
+  const m = PIPELINE_OUTCOME_RE.exec(text)
+  if (!m) return null
+  return { title: m[1] ?? null, status: m[3] as 'completed' | 'failed' }
 }
 
 /**
@@ -144,7 +159,7 @@ export default function ConversationView({
           {sessionState != null && (
             <span
               data-testid="conversation-session-chip"
-              className={`flex items-center gap-1.5 rounded-pill border border-border bg-raised px-2 py-0.5 text-micro font-semibold uppercase tracking-wide ${
+              className={`flex items-center gap-1.5 rounded-pill border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-2 py-0.5 text-micro font-semibold uppercase tracking-wide ${
                 sessionState === 'live' ? 'text-green' : 'text-muted'
               }`}
             >
@@ -177,6 +192,47 @@ export default function ConversationView({
                 const { sender, priority, rest } = parseProvenance(seg)
                 const label = senderLabel(t.role, sender)
                 const mine = t.role === 'user' && (sender == null || sender === 'user')
+                // Pipeline-outcome notification (D-131 fix): a SELF-addressed segment
+                // (continuePipelineOutcomeToK delivers an orchestrator's own pipeline
+                // outcome into ITS OWN conversation, from itself) whose body matches
+                // summarizePipelineOutcome's shape renders as a quiet "Update from
+                // <pipeline>" notification — checked BEFORE the K relay-note branch so
+                // it takes precedence there too (K's own k-secretary-owned fallback
+                // case is also self-addressed). Never surfaces the bare (often generic,
+                // e.g. "orchestrator") profile name — only the pipeline's own name.
+                const pipelineOutcome = sender != null && sender === profileId ? parsePipelineOutcome(rest) : null
+                if (pipelineOutcome) {
+                  return (
+                    <div
+                      key={`${t.id}:${i}`}
+                      data-testid="conversation-pipeline-note"
+                      className="flex items-center justify-center gap-1.5 text-center"
+                    >
+                      <span className="rounded-pill bg-[var(--glass-2)] px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-muted">
+                        Systems
+                      </span>
+                      <span className="micro-label text-muted">
+                        Update from {pipelineOutcome.title ?? 'a pipeline'} — {pipelineOutcome.status}
+                      </span>
+                    </div>
+                  )
+                }
+                // K-surface relay/report-back segments (org traffic surfaced into the
+                // K thread) read as a quiet centered system-note — same treatment as the
+                // day separator — instead of a left-aligned agent bubble (A2). Direct
+                // you<->K turns and non-K surfaces are unaffected.
+                if (isK && sender != null && sender !== 'user') {
+                  return (
+                    <div
+                      key={`${t.id}:${i}`}
+                      data-testid="conversation-relay-note"
+                      className="micro-label text-center text-muted"
+                    >
+                      {label}
+                      {priority === 'urgent' ? ' · urgent' : ''} — {unescapeProvenanceLookalikes(rest)}
+                    </div>
+                  )
+                }
                 return (
                   <div
                     key={`${t.id}:${i}`}
@@ -194,17 +250,11 @@ export default function ConversationView({
                     </span>
                     <div
                       className={`max-w-[85%] whitespace-pre-wrap rounded-control px-3 py-2 text-body ${
-                        mine ? 'bg-accent/15 text-text' : 'border border-border bg-raised text-text'
+                        mine ? 'bg-accent/15 text-text' : 'border border-border bg-[var(--glass-2)] text-text'
                       }`}
                     >
                       {unescapeProvenanceLookalikes(rest)}
                     </div>
-                    {/* A turn produced by/for a run keeps its action chip (ChatView parity). */}
-                    {i === segments.length - 1 && t.runId && (
-                      <button type="button" data-testid="conversation-run-chip" onClick={() => navigate('runs', t.runId!)}>
-                        <Tag tint="sky">→ view run</Tag>
-                      </button>
-                    )}
                   </div>
                 )
               })
@@ -225,18 +275,26 @@ export default function ConversationView({
           Queued — delivered when {agentName} next wakes.
         </div>
       )}
+      {/* Round 3 (D-134) message-bar regression fix: Round 2 removed the form-look
+          border and left this wrapper with NO background at all — the bar
+          disappeared. `.glass-bar` restores a real --glass-2 surface + hairline
+          (pink-purple ring on hover/focus-within); the inner Input stays
+          `variant="bare"` (transparent/borderless) — the surface lives on the
+          wrapper, never the input. */}
       {showComposer && (
-        <div className="flex gap-2 pt-2">
+        <div className="glass-bar mt-2 flex items-center gap-2 rounded-pill px-3 py-2">
           <Input
+            variant="bare"
             data-testid="conversation-composer-input"
             aria-label={`Message ${agentName}`}
             placeholder={`Message ${agentName}…`}
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-            className="min-w-0 flex-1"
+            className="min-w-0 flex-1 border-0 bg-transparent px-0 py-0"
           />
           <Button
+            variant="primary"
             data-testid="conversation-composer-send"
             icon="send"
             disabled={draft.trim().length === 0 || send.isPending}

@@ -23,8 +23,6 @@ import { BackgroundSection } from './SettingsAppearance'
 import { SystemRequirementsSection } from './SettingsDoctor'
 // P5-B — self-contained autonomous-org on/off front door section.
 import { AutonomousOrgSection } from './SettingsAutonomy'
-// P4 E-30 — the embedded diagnostics shell (the #/terminal redirect lands here).
-import TerminalPage from './TerminalPage'
 // Task 8 fix — sidebar nav as scroll-to buttons (never anchors; the app is hash-routed).
 import SettingsNav from './SettingsNav'
 import { GlassPanel } from '../ui/GlassPanel'
@@ -141,7 +139,7 @@ export function SystemPromptSection() {
           onClick={() => setConfirmOpen(true)}
           disabled={!dirty || save.isPending}
           data-testid="system-prompt-save"
-          className="rounded-lg border border-border bg-raised px-4 py-1.5 text-label font-semibold text-text transition-colors hover:border-accent-hover/35 disabled:opacity-40"
+          className="rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-4 py-1.5 text-label font-semibold text-text transition-colors hover:bg-[var(--glass-hover)] disabled:opacity-40"
         >
           Save
         </button>
@@ -224,7 +222,7 @@ function AuthorityList({
           {items.map(item => (
             <li
               key={item}
-              className="flex items-center gap-2 rounded-lg border border-border bg-raised px-3 py-1.5 text-label"
+              className="flex items-center gap-2 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-1.5 text-label"
             >
               <span className={`${mono ? 'mono ' : ''}min-w-0 flex-1 truncate text-text`}>{item}</span>
               <button
@@ -340,7 +338,7 @@ function OrgDefaultSection() {
       {errorMsg && (
         <p
           data-testid="org-default-error"
-          className="mt-2 rounded-lg border border-red/40 bg-raised px-3 py-2 text-caption text-red"
+          className="mt-2 rounded-lg border border-red/40 bg-red/10 px-3 py-2 text-caption text-red"
         >
           {errorMsg}
         </p>
@@ -457,7 +455,6 @@ const SETTINGS_NAV: Array<{ id: string; label: string }> = [
   { id: 'autonomy', label: 'Autonomous Org' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'prompt', label: 'System Prompt' },
-  { id: 'terminal', label: 'Diagnostics' },
 ]
 
 export default function SettingsPage() {
@@ -519,17 +516,6 @@ export default function SettingsPage() {
 
           <section id="prompt" className="mb-8 scroll-mt-16">
             <SystemPromptSection />
-          </section>
-
-          {/* P4 E-30 — Diagnostics: an embedded shell (node-pty · /ws/terminal); the #/terminal redirect lands here. */}
-          <section id="terminal" className="mb-8 scroll-mt-16">
-            <GlassPanel tier="solid" className="p-4">
-              <SectionHeader label="Diagnostics" as="h2" />
-              <p className="mt-1 text-caption text-muted">An embedded shell (node-pty · /ws/terminal) — the #/terminal redirect lands here.</p>
-              <div className="mt-3 h-96 overflow-hidden rounded-xl border border-border">
-                <TerminalPage />
-              </div>
-            </GlassPanel>
           </section>
         </div>
       </div>

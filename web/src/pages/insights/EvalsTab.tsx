@@ -117,10 +117,10 @@ export default function EvalsTab() {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="truncate text-body font-medium text-text">{s.title}</span>
-                  <span className="mono rounded bg-raised px-1.5 py-0.5 text-micro text-muted">
+                  <span className="mono rounded bg-[var(--glass-4)] px-1.5 py-0.5 text-micro text-muted">
                     {s.id}
                   </span>
-                  {!s.enabled && <Badge label="disabled" className="bg-raised text-muted" />}
+                  {!s.enabled && <Badge label="disabled" className="bg-[var(--glass-4)] text-muted" />}
                 </div>
                 {s.job && s.job !== s.title && (
                   <p className="mt-0.5 truncate text-caption text-muted">{s.job}</p>
@@ -272,14 +272,14 @@ function RunDialog({
               Pick systems (none selected = all). Defaults to a free dry run.
             </p>
 
-            <div className="mt-3 max-h-52 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--raised)] p-2">
+            <div className="mt-3 max-h-52 overflow-y-auto rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] p-2">
               {systems.length === 0 && (
                 <p className="px-1 py-1 text-xs text-[var(--muted)]">No systems to select.</p>
               )}
               {systems.map(s => (
                 <label
                   key={s.id}
-                  className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs text-[var(--text)] hover:bg-[var(--surface)]"
+                  className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs text-[var(--text)] hover:bg-[var(--glass-hover)]"
                 >
                   <Checkbox
                     data-testid={`evals-system-check-${s.id}`}
@@ -372,7 +372,7 @@ export function RunSummaryRow({
       )}
       <Badge
         label={run.dry ? 'dry' : 'REAL'}
-        className={run.dry ? 'bg-raised text-muted' : 'bg-amber/20 text-[var(--amber)]'}
+        className={run.dry ? 'bg-[var(--glass-4)] text-muted' : 'bg-amber/20 text-[var(--amber)]'}
       />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {/* Label the count as JOBS DONE, not a pass ratio — "N/N" is completion, not all-green (F-044).
@@ -620,7 +620,7 @@ export function EvalResultsTable({ rows }: { rows: EvalResultRow[] }) {
                   className={
                     r.variant === 'degraded'
                       ? 'bg-amber/20 text-[var(--amber)]'
-                      : 'bg-raised text-muted'
+                      : 'bg-[var(--glass-4)] text-muted'
                   }
                 />
               </td>

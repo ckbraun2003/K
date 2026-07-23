@@ -1,6 +1,6 @@
 /** P3 A2 - NarrativeCard renders deterministic fields always; bullets are labeled + degrade. */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import NarrativeCard from '../src/components/NarrativeCard'
 
@@ -21,7 +21,7 @@ function renderCard() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={qc}><NarrativeCard runId={base.runId} /></QueryClientProvider>)
 }
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); localStorage.clear() })
 beforeEach(() => mockNarrative.mockReset())
 
 describe('NarrativeCard', () => {
@@ -55,5 +55,71 @@ describe('NarrativeCard', () => {
     await screen.findByTestId('narrative-card')
     expect(screen.getByTestId('narrative-verify').textContent).toMatch(/not run/i)
     expect(screen.getByText(/none recorded/i)).toBeTruthy()
+  })
+})
+
+// Lane B (ui-adjustments Round 2): collapsible header, persisted per-run in localStorage.
+describe('NarrativeCard collapse (Lane B, ui-adjustments Round 2)', () => {
+  it('is expanded by default and the chevron toggle hides/shows the body', async () => {
+    mockNarrative.mockResolvedValue(base)
+    renderCard()
+    await screen.findByTestId('narrative-card')
+    expect(screen.getByTestId('narrative-goal')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('narrative-collapse-toggle'))
+    expect(screen.queryByTestId('narrative-goal')).toBeNull()
+    // Header (title + status pill) stays visible while collapsed.
+    expect(screen.getByText('Run narrative')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('narrative-collapse-toggle'))
+    expect(screen.getByTestId('narrative-goal')).toBeTruthy()
+  })
+
+  it('persists the collapsed state per-run in localStorage and restores it on remount', async () => {
+    mockNarrative.mockResolvedValue(base)
+    const { unmount } = renderCard()
+    await screen.findByTestId('narrative-card')
+
+    fireEvent.click(screen.getByTestId('narrative-collapse-toggle'))
+    expect(localStorage.getItem(`narrative-collapsed:${base.runId}`)).toBe('1')
+    unmount()
+
+    renderCard()
+    await screen.findByTestId('narrative-card')
+    expect(screen.queryByTestId('narrative-goal')).toBeNull()
+  })
+
+  it('a different runId does not inherit another run\'s collapsed state', async () => {
+    localStorage.setItem(`narrative-collapsed:${base.runId}`, '1')
+    mockNarrative.mockResolvedValue(base)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <NarrativeCard runId="other-run-id" />
+      </QueryClientProvider>,
+    )
+    await screen.findByTestId('narrative-card')
+    expect(screen.getByTestId('narrative-goal')).toBeTruthy()
+  })
+
+  // The regression the [runId] useEffect exists to prevent: RunConsole keeps ONE
+  // persistent <NarrativeCard> across a run switch (no remount), so a live runId
+  // prop change — not a fresh mount — must re-derive collapsed from the new key.
+  // Without the effect, run A's collapsed=true leaks onto run B and the body stays
+  // hidden. (The fresh-mount test above passes even with the effect deleted.)
+  it('re-derives collapsed from the new key on a live runId change (persistent instance)', async () => {
+    const runA = base.runId
+    const runB = 'bbbbbbbb-2222-4333-8444-555555555555'
+    localStorage.setItem(`narrative-collapsed:${runA}`, '1') // A collapsed; B has no key → expanded
+    mockNarrative.mockResolvedValue(base)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={qc}><NarrativeCard runId={runA} /></QueryClientProvider>,
+    )
+    await screen.findByTestId('narrative-card')
+    expect(screen.queryByTestId('narrative-goal')).toBeNull() // A is collapsed
+
+    rerender(<QueryClientProvider client={qc}><NarrativeCard runId={runB} /></QueryClientProvider>)
+    await waitFor(() => expect(screen.getByTestId('narrative-goal')).toBeTruthy()) // B re-derived → expanded
   })
 })

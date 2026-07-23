@@ -93,10 +93,8 @@ import {
   tokensEqual,
   wsTokenOk,
   unsafeBootReason,
-  unsafeTerminalBootReason,
   type ResolvedToken,
 } from './auth.js'
-import { terminalGate, createTerminalSession, scrubSensitiveEnv, installConptyStderrFilter, type SpawnPty } from './terminal.js'
 import { credentialPosture } from './agent-config.js'
 import fastifyStatic from '@fastify/static'
 import { resolveWebDist, isPublicAssetPath } from './web-static.js'
@@ -110,10 +108,6 @@ const HOST = process.env.HOST ?? '127.0.0.1'
 // start() refuses to bind a non-loopback HOST with a weak/empty token.
 const RESOLVED_TOKEN: ResolvedToken = resolveHarnessToken()
 const BEARER_TOKEN = RESOLVED_TOKEN.token
-// Separate, narrower credential for the web terminal. It is embedded in the web
-// bundle (vite.config.ts) so a leaked bundle grants ONLY terminal access — never
-// the full-REST HARNESS_TOKEN. Default-off feature; loopback posture applies.
-const TERMINAL_TOKEN = process.env.TERMINAL_TOKEN ?? 'dev-terminal-token'
 
 // Captured at bootstrap so the Fastify onClose hook can tear down the
 // auto-reindex EventBus subscription (set in start(); undefined in tests).
@@ -251,8 +245,8 @@ export async function buildApp() {
 
     // The event gateway streams ALL agent activity, so it must be authenticated.
     // A browser WS upgrade can't carry an Authorization header, so the token
-    // rides in the `?token=` query param (mirroring /ws/terminal) and is checked
-    // with a constant-time compare BEFORE the socket is subscribed to the bus.
+    // rides in the `?token=` query param and is checked with a constant-time
+    // compare BEFORE the socket is subscribed to the bus.
     const wsToken = ((req.query ?? {}) as { token?: string }).token
     if (!wsTokenOk(wsToken, BEARER_TOKEN)) {
       // 4401: application-level "unauthorized" close (4000–4999 is app-reserved).
@@ -298,68 +292,6 @@ export async function buildApp() {
       console.warn('[ws] socket error:', err.message)
       cleanup()
     })
-  })
-
-  // ── Web terminal (opt-in, sensitive) ─────────────────────────────────────────
-  // Default OFF. Gated on ENABLE_TERMINAL=true + a matching `token` query param
-  // (browsers can't send an auth header on a WS upgrade). node-pty is imported
-  // dynamically so its native binding never affects core boot, and an
-  // unavailable pty degrades to a clean 'unavailable' error frame.
-  app.get('/ws/terminal', { websocket: true }, async (connection: SocketStream, req) => {
-    const socket = connection.socket
-
-    const token = ((req.query ?? {}) as { token?: string }).token
-    const gate = terminalGate({
-      enabled: process.env.ENABLE_TERMINAL === 'true',
-      token,
-      expectedToken: TERMINAL_TOKEN,
-    })
-    if (!gate.ok) {
-      if (socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify({ type: 'error', code: gate.code }))
-      }
-      socket.close()
-      return
-    }
-
-    // Dynamically import node-pty: keep it off the core boot path, and degrade
-    // gracefully if the native binding is missing on this platform.
-    let spawnPty: SpawnPty
-    try {
-      const pty = await import('node-pty')
-      // F-088: node-pty's ConPTY teardown can print a benign `AttachConsole failed`
-      // stack to stderr. Install the narrow filter now that a pty is actually in use
-      // (idempotent — only the first terminal session installs it).
-      installConptyStderrFilter()
-      spawnPty = (shell, cols, rows) =>
-        pty.spawn(shell, [], {
-          name: 'xterm-color',
-          cols,
-          rows,
-          cwd: process.env.HOME ?? process.cwd(),
-          // SCRUBBED env: the browser shell must never inherit the core's own
-          // credentials (ANTHROPIC_API_KEY / HARNESS_TOKEN / TERMINAL_TOKEN /
-          // cloud keys, …), or `echo $ANTHROPIC_API_KEY` would leak them.
-          env: scrubSensitiveEnv(process.env),
-        })
-    } catch {
-      if (socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify({ type: 'error', code: 'unavailable' }))
-      }
-      socket.close()
-      return
-    }
-
-    const session = createTerminalSession({
-      send: (f) => {
-        if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(f))
-      },
-      spawn: spawnPty,
-    })
-
-    socket.on('message', (d: Buffer | string) => session.onClientMessage(d.toString()))
-    socket.on('close', () => session.dispose())
-    socket.on('error', () => session.dispose())
   })
 
   // ── Same-origin SPA (registered LAST so specific /api, /ws, /health routes win
@@ -438,20 +370,6 @@ async function start() {
   const unsafe = unsafeBootReason(HOST, BEARER_TOKEN)
   if (unsafe) {
     console.error(`\n✖ ${unsafe}\n`)
-    process.exit(1)
-  }
-  // Same gate for the web terminal: a host shell must never be reachable on a
-  // non-loopback HOST with a weak/default TERMINAL_TOKEN — AND, even with a STRONG
-  // token, exposing the shell beyond loopback requires an explicit
-  // TERMINAL_ALLOW_REMOTE opt-in so an accidental LAN bind can't expose it.
-  const unsafeTerminal = unsafeTerminalBootReason(
-    HOST,
-    process.env.ENABLE_TERMINAL === 'true',
-    TERMINAL_TOKEN,
-    process.env.TERMINAL_ALLOW_REMOTE === 'true',
-  )
-  if (unsafeTerminal) {
-    console.error(`\n✖ ${unsafeTerminal}\n`)
     process.exit(1)
   }
 

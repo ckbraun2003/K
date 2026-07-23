@@ -50,12 +50,13 @@ export default function MetricCard({ label, value, spark, accent, tone = 'accent
     <div
       className={cn(
         'card-lift min-w-[150px] flex-1 rounded-panel border px-5 py-4',
-        // Non-blur blush tint: this card renders inside glass widget cells, so a
-        // glass tier here would nest backdrop-filter (T25 I-1; legacy glass-tint
-        // was deleted in T22).
+        // Non-blur tints only: this card renders inside glass widget cells, so it
+        // must never use the .glass-panel/.glass-chrome tier CLASSES (those would
+        // nest backdrop-filter — T25 I-1). The neutral branch below uses the flat
+        // --glass-2 var (a plain opacity tint, no filter), which is safe here.
         pink && 'bg-accent/10 border-accent/25',
         positive && 'border-green/[0.28] bg-green/[0.08]',
-        !accent && 'border-border bg-surface',
+        !accent && 'border-[var(--glass-tier-border)] bg-[var(--glass-2)]',
       )}
     >
       <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{label}</span>

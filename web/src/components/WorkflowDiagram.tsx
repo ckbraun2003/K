@@ -41,8 +41,8 @@ function RoleBox({
       className={cn(
         'rounded-lg border px-4 py-2 text-sm font-medium transition-colors',
         selected
-          ? 'border-accent bg-accent/15 text-text'
-          : 'border-border bg-raised text-muted hover:border-accent-hover/35 hover:text-text',
+          ? 'border-transparent bg-[var(--glass-active)] text-text shadow-[inset_0_0_0_1px_var(--glass-active-edge)]'
+          : 'border-[var(--glass-tier-border)] bg-[var(--glass-3)] text-muted hover:bg-[var(--glass-hover)] hover:text-text',
       )}
     >
       {label}
@@ -129,7 +129,7 @@ export default function WorkflowDiagram({
         >
           {selected ? (
             <div
-              className="rounded-xl border border-border bg-surface p-4"
+              className="rounded-xl border border-[var(--glass-tier-border)] bg-[var(--glass-3)] p-4"
               data-testid="role-detail"
             >
               <h3 className="text-sm font-semibold text-text">{selected.label}</h3>

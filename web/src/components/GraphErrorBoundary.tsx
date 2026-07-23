@@ -15,6 +15,10 @@ interface Props {
   children: ReactNode
   fallback?: ReactNode
   className?: string
+  /** Called before the boundary clears its own error state, so a parent that fed
+   *  a two-phase mount (D1) can reset it — the remounted subtree gets a fresh
+   *  imperative ref, so `forcesReady` etc. must re-arm too. */
+  onReset?: () => void
 }
 
 interface State {
@@ -32,7 +36,10 @@ export class GraphErrorBoundary extends Component<Props, State> {
     console.error('GraphErrorBoundary caught a graph render error:', error, info)
   }
 
-  private reset = () => this.setState({ hasError: false })
+  private reset = () => {
+    this.props.onReset?.()
+    this.setState({ hasError: false })
+  }
 
   render(): ReactNode {
     if (!this.state.hasError) return this.props.children
@@ -48,7 +55,7 @@ export class GraphErrorBoundary extends Component<Props, State> {
         <span className="text-[11px] text-[var(--muted)]">Try reloading the page.</span>
         <button
           onClick={this.reset}
-          className="mt-1 rounded-lg border border-[var(--border)] bg-[var(--raised)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)]"
+          className="mt-1 rounded-lg border border-[var(--border)] bg-[var(--glass-3)] px-2.5 py-1 text-xs text-[var(--text)] transition-colors hover:border-[var(--accent)]"
         >
           Retry
         </button>

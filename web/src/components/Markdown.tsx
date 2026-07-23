@@ -37,10 +37,10 @@ export default function Markdown({ text, className, inline = false }: {
             /language-/.test(cls ?? '') ? (
               <code className="mono block text-label">{children}</code>
             ) : (
-              <code className="mono rounded bg-raised px-1 py-0.5 text-label">{children}</code>
+              <code className="mono rounded bg-[var(--glass-code)] px-1 py-0.5 text-label">{children}</code>
             ),
           pre: ({ children }) => (
-            <pre className="mono mb-1.5 overflow-x-auto rounded-control bg-raised px-3 py-2 text-label last:mb-0">{children}</pre>
+            <pre className="mono mb-1.5 overflow-x-auto rounded-control bg-[var(--glass-code)] px-3 py-2 text-label last:mb-0">{children}</pre>
           ),
           blockquote: ({ children }) => (
             <blockquote className="mb-1.5 border-l-2 border-border pl-3 text-muted last:mb-0">{children}</blockquote>

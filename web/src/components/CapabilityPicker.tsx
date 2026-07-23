@@ -156,7 +156,7 @@ export default function CapabilityPicker({
             return (
               <li
                 key={key}
-                className="flex items-center gap-2 rounded-lg border border-border bg-raised px-3 py-1.5 text-xs"
+                className="flex items-center gap-2 rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] px-3 py-1.5 text-xs"
               >
                 {hit ? (
                   <>
@@ -164,7 +164,7 @@ export default function CapabilityPicker({
                       {hit.name}
                     </span>
                     <SourceBadge sourceKind={hit.sourceKind} pluginName={hit.pluginName} />
-                    <span className="mono rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted">
+                    <span className="mono rounded bg-[var(--glass-2)] px-1.5 py-0.5 text-[10px] text-muted">
                       {hit.estTokens !== null ? `~${formatCompact(hit.estTokens)} tok` : 'tok n/a'}
                     </span>
                     {hit.blockReason && (
@@ -186,7 +186,7 @@ export default function CapabilityPicker({
                     <span
                       data-testid={`${testidPrefix}-ghost-${key}`}
                       title="No catalog row matches this entry — it is excluded from the token subtotal."
-                      className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted"
+                      className="rounded bg-[var(--glass-2)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted"
                     >
                       not in catalog
                     </span>
@@ -269,7 +269,7 @@ export default function CapabilityPicker({
             id={`${testidPrefix}-options`}
             role="listbox"
             data-testid={`${testidPrefix}-options`}
-            className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-lg"
+            className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[var(--glass-tier-border)] bg-[var(--glass-3)] p-1 shadow-lg"
           >
             {candidates.length === 0 && (
               <p className="px-2 py-1.5 text-[11px] italic text-muted">
@@ -295,9 +295,9 @@ export default function CapabilityPicker({
                 data-testid={`${testidPrefix}-option-${c.id}`}
                 className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs ${
                   c.addable
-                    ? 'text-text hover:bg-raised'
+                    ? 'text-text hover:bg-[var(--glass-hover)]'
                     : 'cursor-not-allowed text-muted opacity-60'
-                } ${i === sel ? 'bg-raised' : ''} ${busy ? 'pointer-events-none opacity-50' : ''}`}
+                } ${i === sel ? 'bg-[var(--glass-active)] shadow-[inset_0_0_0_1px_var(--glass-active-edge)]' : ''} ${busy ? 'pointer-events-none opacity-50' : ''}`}
               >
                 <span className="min-w-0 flex-1 truncate" title={c.id}>{c.name}</span>
                 <SourceBadge sourceKind={c.sourceKind} pluginName={c.pluginName} />
@@ -315,7 +315,7 @@ export default function CapabilityPicker({
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => navigate('agents', 'catalog', catalogHash)}
                 data-testid={`${testidPrefix}-catalog-link`}
-                className="mt-0.5 w-full rounded-md px-2 py-1.5 text-left text-[11px] text-accent-hover hover:bg-raised"
+                className="mt-0.5 w-full rounded-md px-2 py-1.5 text-left text-[11px] text-accent-hover hover:bg-[var(--glass-hover)]"
               >
                 open the catalog to enable more →
               </button>

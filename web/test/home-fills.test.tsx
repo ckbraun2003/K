@@ -13,13 +13,14 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
-import type { KThreadSummary, KThreadTurn, HomeLayout } from '@k/shared'
+import type { KThreadSummary, KThreadTurn, HomeLayout, ConversationSummary } from '@k/shared'
 
 const {
-  mockThreadsList, mockThreadsGet, mockThreadsCreate, mockThreadsUpdate, mockThreadsRemove,
+  mockThreadsList, mockConversationsList, mockThreadsGet, mockThreadsCreate, mockThreadsUpdate, mockThreadsRemove,
   mockAsk, mockUndo, mockHomeLayoutGet, mockHomeLayoutPut, mockUseAskPending,
 } = vi.hoisted(() => ({
   mockThreadsList: vi.fn(),
+  mockConversationsList: vi.fn(),
   mockThreadsGet: vi.fn(),
   mockThreadsCreate: vi.fn(),
   mockThreadsUpdate: vi.fn(),
@@ -37,8 +38,9 @@ vi.mock('../src/lib/api', () => ({
       list: mockThreadsList, get: mockThreadsGet, create: mockThreadsCreate,
       update: mockThreadsUpdate, remove: mockThreadsRemove,
     },
-    // ChatView marks the open conversation read (INT.2 read-cursor fix).
-    conversations: { read: vi.fn(async () => ({ ok: true })) },
+    // ChatView's rail + MessageDock's picker read conversations.list (A1); ChatView also
+    // marks the open conversation read (INT.2 read-cursor fix).
+    conversations: { list: mockConversationsList, read: vi.fn(async () => ({ ok: true })) },
     k: { ask: mockAsk, undo: mockUndo },
     // MessageDock's @project picker + dispatch-card model picker query these
     // unconditionally (message-dock.test.tsx's same seam) — offline stubs.
@@ -47,7 +49,7 @@ vi.mock('../src/lib/api', () => ({
       claude: { available: true },
       ollama: { enabled: false, reachable: false, baseUrl: '', model: '' },
       github: { authenticated: false },
-      auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, terminalEnabled: false, credentialPosture: 'managed' },
+      auth: { tokenSource: 'generated', host: '127.0.0.1', loopbackOnly: true, credentialPosture: 'managed' },
       voice: { enabled: false, reachable: false, baseUrl: '', model: '' },
     }),
     claudeModel: { get: async () => ({ model: 'claude-sonnet-4-6', options: [] }) },
@@ -94,6 +96,13 @@ function thread(over: Partial<KThreadSummary>): KThreadSummary {
 function turn(over: Partial<KThreadTurn>): KThreadTurn {
   return { id: 't-1', threadId: 'kt-1', role: 'user', text: 'hello', runId: null, createdAt: 0, ...over }
 }
+function conv(over: Partial<ConversationSummary>): ConversationSummary {
+  return {
+    ...thread(over),
+    profileId: 'k-secretary', profileName: 'K', sessionState: null, contextTokens: null, unread: 0,
+    ...over,
+  }
+}
 
 function qcRender(node: ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -103,6 +112,7 @@ function qcRender(node: ReactElement) {
 beforeEach(() => {
   selectThread(null)
   mockThreadsList.mockReset()
+  mockConversationsList.mockReset()
   mockThreadsGet.mockReset()
   mockThreadsCreate.mockReset()
   mockThreadsUpdate.mockReset()
@@ -113,6 +123,7 @@ beforeEach(() => {
   mockUseAskPending.mockReset()
   mockUseAskPending.mockReturnValue(null)
   mockThreadsList.mockResolvedValue({ threads: [] })
+  mockConversationsList.mockResolvedValue({ conversations: [] })
   mockThreadsGet.mockResolvedValue({ thread: thread({}), turns: [] })
   mockHomeLayoutGet.mockResolvedValue({ layout: null })
   mockHomeLayoutPut.mockResolvedValue({ layout: null })
@@ -152,6 +163,7 @@ describe('home-fills (Task 9 probes)', () => {
   it('4. ChatView: turns on two days render a day separator per day + per-turn times; a pending ask renders chat-typing', async () => {
     const t1 = thread({ id: 'kt-1', title: 'Two-day chat' })
     mockThreadsList.mockResolvedValue({ threads: [t1] })
+    mockConversationsList.mockResolvedValue({ conversations: [conv({ id: 'kt-1', title: 'Two-day chat' })] })
     mockThreadsGet.mockResolvedValue({
       thread: t1,
       turns: [

@@ -39,8 +39,7 @@ describe('buildCoreEnv', () => {
     expect(env.K_WEB_DIST).toBe('/app/web/dist')
   })
 
-  it('forces the terminal off and clears any inherited HARNESS_TOKEN', () => {
-    expect(env.ENABLE_TERMINAL).toBe('false')
+  it('clears any inherited HARNESS_TOKEN', () => {
     // Empty string → core's resolveHarnessToken treats it as unset and generates one.
     expect(env.HARNESS_TOKEN).toBe('')
   })

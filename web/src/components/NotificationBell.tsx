@@ -85,7 +85,7 @@ export default function NotificationBell() {
         aria-expanded={open}
         aria-label={unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'}
         onClick={() => setOpen(o => !o)}
-        className="relative flex h-8 w-8 items-center justify-center rounded-control text-muted transition-colors hover:text-text"
+        className="relative flex h-8 w-8 items-center justify-center rounded-control text-muted transition-colors hover:bg-[var(--glass-active)] hover:text-text"
       >
         <Icon name="bell" size={16} />
         {unread > 0 && (
@@ -129,7 +129,7 @@ export default function NotificationBell() {
                       onClick={() => onRowClick(n)}
                       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(n) } }}
                       className={cn(
-                        'group flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-raised cursor-pointer',
+                        'group flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-[var(--glass-active)] cursor-pointer',
                         n.readAt != null && 'opacity-50',
                       )}
                     >

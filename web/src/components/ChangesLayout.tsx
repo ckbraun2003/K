@@ -96,7 +96,7 @@ export default function ChangesLayout({
                   aria-current={selected === f.path ? 'true' : undefined}
                   onClick={() => pickFile(f.path)}
                   className={cn('flex w-full items-center gap-1.5 px-3 py-1 text-left text-xs transition-colors',
-                    selected === f.path ? 'bg-raised text-text' : 'text-muted hover:text-text')}
+                    selected === f.path ? 'bg-[var(--glass-active)] text-text shadow-[inset_0_0_0_1px_var(--glass-active-edge)]' : 'text-muted hover:text-text')}
                 >
                   <span className="min-w-0 flex-1 truncate">{f.path.slice(g.dir ? g.dir.length + 1 : 0)}</span>
                   {viewed.has(f.path) && <span aria-label="viewed" className="text-green">✓</span>}

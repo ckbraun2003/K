@@ -1,4 +1,4 @@
-import type { Domain, Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry, BackgroundSettings, GradientPreset, BackgroundKind, AvailableModelsResponse, ConversationSummary, AgentMessage } from '@k/shared'
+import type { Domain, Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry, BackgroundSettings, GradientPreset, BackgroundKind, FontColorSettings, AvailableModelsResponse, ConversationSummary, AgentMessage } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -65,6 +65,12 @@ export interface RunPipelineBody {
   goal: string
   projectId?: string
   model?: string
+  // ui-adjustments Round 2 — optional "Observed by" orchestrator for an
+  // operator-launched run: the profile whose own conversation receives the
+  // "Update from {pipeline}" notifications. Omitted → core resolves the
+  // pipeline's domain manager (or a single clearly-named fallback). Wired to
+  // startPipelineRun({ ownerProfileId }) server-side (Lane B). NO schema bump.
+  orchestratorId?: string
 }
 
 /** POST /api/sub-agents body (Lane B Task B.2) — plain create (name+role+prompt) or a
@@ -148,7 +154,7 @@ const JSON_H = { 'Content-Type': 'application/json' }
 
 export const api = {
   runs: {
-    list: (opts?: { status?: RunStatus; limit?: number; projectId?: string; kind?: string[] }) => {
+    list: (opts?: { status?: RunStatus; limit?: number; projectId?: string; kind?: string[]; archived?: 'include' | 'only' | 'exclude' }) => {
       const params = new URLSearchParams()
       if (opts?.status !== undefined) params.set('status', opts.status)
       if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
@@ -156,8 +162,18 @@ export const api = {
       // A.3 (D-127): server-side run-kind filter — comma-joined; RunsQuerySchema
       // splits it back. Absent/empty → no filter (every kind).
       if (opts?.kind !== undefined && opts.kind.length > 0) params.set('kind', opts.kind.join(','))
+      // Lane B (runs consolidation, B5): archived-run visibility. Server defaults
+      // to 'exclude' when omitted, so the common (non-archive) callers don't need
+      // to pass this at all.
+      if (opts?.archived !== undefined) params.set('archived', opts.archived)
       const qs = params.size > 0 ? `?${params.toString()}` : ''
-      return req<Run[]>(`/runs${qs}`)
+      // The server tags EVERY returned row with `archived` regardless of mode (a
+      // cheap unconditional app_config read — see routes/runs.ts), including the
+      // default exclude mode where every row is trivially archived:false. It's
+      // still optional on this wire type only because every other Run[] consumer
+      // is unaffected (a wider type is still assignable to their plain `Run[]`
+      // declarations) — not because the server ever omits it.
+      return req<(Run & { archived?: boolean })[]>(`/runs${qs}`)
     },
     get: (id: string) => req<Run>(`/runs/${id}`),
     events: (id: string, opts?: { raw?: boolean }) =>
@@ -188,6 +204,16 @@ export const api = {
     // Gracefully end an interactive session (close stdin → run completes 'done').
     end: (id: string) =>
       req<{ ended: boolean }>(`/runs/${id}/end`, { method: 'POST' }),
+    // ── Lane B (runs consolidation, B5) — archive lifecycle ─────────────────────
+    // Archived state lives in an app_config JSON set, not a schema column (no
+    // SCHEMA_VERSION bump). Archive/unarchive refuse running|queued runs (409);
+    // `remove` is a PERMANENT delete and additionally requires the run already be
+    // archived (409 otherwise) — the UI's "Delete permanently" action is reached
+    // only from the archived view.
+    archive: (id: string) => req<{ archived: true }>(`/runs/${id}/archive`, { method: 'POST' }),
+    unarchive: (id: string) => req<{ archived: false }>(`/runs/${id}/unarchive`, { method: 'POST' }),
+    remove: (id: string) => req<void>(`/runs/${id}`, { method: 'DELETE' }),
+    clearFinished: () => req<{ archivedCount: number }>('/runs/clear-finished', { method: 'POST' }),
     // ── P1 Trust Core ────────────────────────────────────────────────────────
     // FE-5 IN-7: optional context param (whole-diff expand bumps 3→24). BE-2
     // will honor it server-side; until then it's harmlessly ignored.
@@ -599,6 +625,11 @@ export const api = {
     // seq order. Live via `pipeline_update`'s optional `ledgerSeq` cursor (see
     // makePipelineInvalidator), not its own WS message.
     ledger: (runId: string) => req<PipelineLedgerEntry[]>(`/pipelines/runs/${runId}/ledger`),
+    // Lane B (runs consolidation, B4): artifacts produced/edited by this pipeline
+    // run's stages (joined server-side on each stage's linked agent runId) — the
+    // RunDetail Artifacts panel + the ledger's clickable 'artifact' rows both read
+    // from this.
+    runArtifacts: (runId: string) => req<Omit<Artifact, 'md' | 'html'>[]>(`/pipelines/runs/${runId}/artifacts`),
   },
   // Sub-agent worker registry (Lane B Task B.2/B.5) — K-native (read-only, source:'k')
   // + operator (full CRUD, source:'operator') workers an `agent` pipeline stage's
@@ -791,6 +822,19 @@ export const api = {
       // the same image identity.
       imageBlob: (version: number) =>
         fetchAuthed(`/settings/background/image?v=${version}`).then(res => res.blob()),
+    },
+    // Font-colour override (ui-adjustments Round 2) — the operator's body-text
+    // colour when the default pale graphite-blue clashes with a custom
+    // wallpaper. app_config-backed (`ui.fontColor`, NO schema bump); the applier
+    // writes it to --text at runtime (Background.tsx). null color = theme default.
+    fontColor: {
+      get: () => req<{ settings: FontColorSettings }>('/settings/font-color'),
+      set: (patch: FontColorSettings) =>
+        req<{ settings: FontColorSettings }>('/settings/font-color', {
+          method: 'PUT',
+          headers: JSON_H,
+          body: JSON.stringify(patch),
+        }),
     },
   },
   // Voice — push-to-talk transcription. The browser holds NO transcription key:

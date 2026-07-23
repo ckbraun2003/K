@@ -49,12 +49,12 @@ Fixtures (local only — NO GitHub URLs, NO real PRs): `makeScratchRepo('P0N','n
 ## Selector cheatsheet (verified)
 
 - Sidebar nav: `page.getByRole('button', { name: 'Home' | 'Projects' | 'Fleet Graph' | 'Runs' |
-  'Skills' | 'Metrics' | 'Routing' | 'Terminal' | 'Docs' | 'Help' })`. `Tasks` and `Settings`
+  'Skills' | 'Metrics' | 'Routing' | 'Docs' | 'Help' })`. `Tasks` and `Settings`
   are **disabled** by design.
 - WS dot: `[title="core connected"]` (green) / `[title="connecting…"]` (amber).
 - ⌘K button: role button name `/Ask K or jump anywhere/`.
 - Routing is hash-based: `#/home`, `#/projects`, `#/graph`, `#/runs`, `#/skills`, `#/metrics`,
-  `#/routing`, `#/terminal`, `#/docs/<slug>`, `#/project/<id>/<tab>`, `#/verify/<id>`.
+  `#/routing`, `#/docs/<slug>`, `#/project/<id>/<tab>`, `#/verify/<id>`.
 - Verify page has real `data-testid`s: `verify-rerun`, `verify-deep`, `bar-<key>`.
 - Keyboard chords exist: `g` then `h/p/r/d/m`.
 
