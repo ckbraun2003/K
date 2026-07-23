@@ -20,6 +20,7 @@ const otherMsg = { type: 'pong' } as WsMessage
 const githubUpdate = { type: 'github_update', projectId: 'p1', kind: 'pr', payload: [] } as WsMessage
 const terminalRunUpdate = { type: 'run_update', run: { status: 'done' } as never } as WsMessage
 const runningRunUpdate = { type: 'run_update', run: { status: 'running' } as never } as WsMessage
+const awaitingInputRunUpdate = { type: 'run_update', run: { status: 'awaiting_input' } as never } as WsMessage
 
 const ORG_KEYS = ['chief-org', 'orchestrators', 'orchestrator'] as const
 // UI Simplification Task 7 added 'k-threads' / 'user-memories' / 'notifications' to
@@ -123,6 +124,25 @@ describe('makeRunUpdateInvalidator', () => {
     const counts = keyCounts(invalidateQueries)
     for (const key of K_KEYS) expect(counts[key]).toBeUndefined()
     // runs/metrics still invalidate per message regardless of status.
+    expect(counts.runs).toBe(1)
+    dispose()
+  })
+
+  // A mid-conversation interactive K reply parks at `awaiting_input` after appending its
+  // k-turn — the OPEN conversation (['k-thread']) MUST refetch on that status so the reply
+  // appears live (it's WS-only for K, no polling), but the heavier K-home surfaces stay
+  // terminal-gated since they don't change mid-turn.
+  it('an awaiting_input run_update invalidates ONLY [k-thread], not the heavier K-home keys', () => {
+    const invalidateQueries = vi.fn()
+    const { handler, dispose } = makeRunUpdateInvalidator({ invalidateQueries })
+
+    handler(awaitingInputRunUpdate)
+
+    const counts = keyCounts(invalidateQueries)
+    expect(counts['k-thread']).toBe(1)
+    for (const key of ['k-notes', 'k-schedule', 'k-work-items', 'k-threads', 'user-memories', 'notifications']) {
+      expect(counts[key]).toBeUndefined()
+    }
     expect(counts.runs).toBe(1)
     dispose()
   })

@@ -52,11 +52,19 @@ export function makeRunUpdateInvalidator(
     if (msg.type !== 'run_update') return
     void qc.invalidateQueries({ queryKey: ['runs'] })
     void qc.invalidateQueries({ queryKey: ['metrics'] })
-    // A run reaching TERMINAL may have written K-home surfaces (a completed K ask adds
-    // a k-turn and can create notes / schedule entries / work-items). Refresh those
-    // reads so K-authored items + replies appear live, not only on reload (F-059).
-    if (TERMINAL_RUN_STATUSES.has(msg.run.status)) {
+    // An interactive K reply parks the run at `awaiting_input` (NON-terminal) AFTER
+    // appending its k-turn (supervisor.ts / k-thread.captureAnswers), so the OPEN
+    // conversation (['k-thread', id] — WS-only for K, no polling) must refetch on that
+    // status too, or an agent reply only appears after a manual reload. The heavier
+    // K-home surfaces (notes / schedule / work-items / thread list / memories /
+    // notifications) don't change mid-turn, so they stay TERMINAL-gated — a chatty run
+    // mustn't refetch them on each event (F-059).
+    const status = msg.run.status
+    const terminal = TERMINAL_RUN_STATUSES.has(status)
+    if (terminal || status === 'awaiting_input') {
       void qc.invalidateQueries({ queryKey: ['k-thread'] })
+    }
+    if (terminal) {
       void qc.invalidateQueries({ queryKey: ['k-notes'] })
       void qc.invalidateQueries({ queryKey: ['k-schedule'] })
       void qc.invalidateQueries({ queryKey: ['k-work-items'] })
