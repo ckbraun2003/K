@@ -7,7 +7,7 @@ import { makeScratchRepo } from '../lib/fixtures'
 // ===========================================================================
 // UI Adjustments ROUND 3 (D-134) live smoke. Drives a real browser against the
 // auto-booted, isolated stack to prove the Round 3 correction pass renders
-// without crashes/regressions. Six surfaces, each with an assertion +
+// without crashes/regressions. Eight surfaces, each with an assertion +
 // screenshot where visual:
 //   1. Glass renders over BOTH a gradient wallpaper and a REAL uploaded PNG
 //      image wallpaper (Home + a panel-heavy page under each).
@@ -29,6 +29,23 @@ import { makeScratchRepo } from '../lib/fixtures'
 //   6. The Settings side-nav sits in its own distinct glass panel container
 //      (non-transparent background + hairline border), not floating bare on
 //      the page background.
+//   7. The Home Message Dock ("the main K message bar") renders as a visible
+//      bar: `message-dock-bar` (the footer) and `dock-input` are both
+//      visible, `message-dock-bar` computes to `position:relative`/`zIndex:10`
+//      (lifted above the fixed z-0 wallpaper — the actual paint fix; a plain
+//      `toBeVisible()` alone does NOT catch the wallpaper painting over the
+//      footer's content, since Playwright's visibility check ignores paint
+//      order), and `dock-input` sits inside a real `.glass-bar` surface with a
+//      non-transparent background — the fix for the operator-reported
+//      regression where the wallpaper occluded everything but the Send
+//      button (its own escaped stacking context). Hard-asserted because this
+//      is the specific regression the round exists to prove fixed.
+//   8. The corner-K `dock-fab` is suppressed entirely on Messages and
+//      Settings (both routes have their own composer / no dock use case) —
+//      proven absent there, and still present on a normal route (`personal`)
+//      to show the suppression is scoped to exactly those two routes, not a
+//      global regression. Hard-asserted and placed last, so a real
+//      regression fails loudly without skipping tests 1-7.
 //
 // Resilient per RUNBOOK.md: exploratory interactions are wrapped in try/catch
 // and converted into `findings`; only the fundamentals (WS-connected boot,
@@ -49,7 +66,10 @@ const CHARTER =
   'wallpaper, the ConversationView .glass-bar composer regression fix, no stray "orchestrator" ' +
   'conversation (server+client exclusion), full terminal removal (tab/route/settings), the ' +
   'Knowledge Graph off-thread-worker/LOD path on a MODERATE (64-node) populated graph with a ' +
-  'hard-asserted zero-uncaught-error mount+remount, and the Settings side-nav\'s own glass panel.'
+  'hard-asserted zero-uncaught-error mount+remount, the Settings side-nav\'s own glass panel, ' +
+  'the Home Message Dock bar rendering as a visible .glass-bar surface lifted (relative/z-10) ' +
+  'above the wallpaper (operator-reported "message bar not rendering" regression fix), and the ' +
+  'corner-K dock-fab suppressed on Messages/Settings only (still present elsewhere).'
 
 const findings: Finding[] = []
 let sink: ConsoleSink
@@ -707,6 +727,155 @@ test('6. Settings side-nav sits in its own glass panel container', async ({ page
 
   await screenshot(page, 'r3-6-settings-nav')
   recordConsoleFindings('#/settings (side-nav panel)')
+})
+
+// --- 7. Home Message Dock bar visible (operator-reported regression fix) -------
+//
+// The operator reported "the main K message bar is not rendering." A first fix
+// attempt (adding `.glass-bar` to the input row alone) did NOT fix it visually:
+// the footer sat in normal flow BEHIND the fixed z-0 wallpaper (outside Shell's
+// `<main className="relative z-10">`), so the wallpaper painted over the
+// composer's content — only the Send button (its own escaped stacking context)
+// showed. The real fix lifts the footer itself: `<footer data-testid=
+// "message-dock-bar" className="relative z-10 ...">` (MessageDock.tsx), on top
+// of the `.glass-bar` input-row wrapper (matching the ConversationView composer
+// fix verified in test 2 above). The dock renders `variant="bar"` only on Home
+// (`route.view === 'home'`, Shell.tsx) — everywhere else it's the floating
+// `variant="float"` fab, so this must specifically drive `#/home`.
+//
+// Hard-asserted (not the try/catch->findings pattern used elsewhere in this
+// file) so a real regression fails this test loudly without skipping the other
+// six in the `serial` run — this is the exact bug the round exists to prove
+// fixed, so a silent findings-only record isn't enough. Test 8 (corner-K
+// suppression) follows it, also hard-asserted.
+
+test('7. Home Message Dock: dock-bar renders as a visible glass-bar surface (message-bar-not-rendering fix)', async ({ page }) => {
+  await openApp(page, '#/home')
+
+  const dockBar = page.getByTestId('message-dock-bar')
+  await expect(dockBar).toBeVisible({ timeout: 10_000 })
+  const dockInput = page.getByTestId('dock-input')
+  await expect(dockInput).toBeVisible({ timeout: 10_000 })
+
+  // The paint fix itself: message-dock-bar must be lifted into its own stacking
+  // context ABOVE the fixed z-0 wallpaper (`relative z-10`, matching Shell's
+  // `<main className="relative z-10">`). Without this the footer sits in normal
+  // flow BEHIND the wallpaper, which paints over the composer's content — only
+  // the Send button (its own stacking context) escaped. This is the exact
+  // regression a DOM-visibility-only check (below) cannot catch: `toBeVisible()`
+  // passes even when the wallpaper is painting over the element, because
+  // Playwright's visibility check doesn't account for a sibling with a higher
+  // paint order occluding it. Asserting the computed style directly closes that
+  // gap.
+  const dockBarStyle = await dockBar.evaluate(el => {
+    const s = getComputedStyle(el)
+    return { position: s.position, zIndex: s.zIndex }
+  })
+  expect(dockBarStyle.position, 'message-dock-bar must be position:relative (paint-order fix)').toBe('relative')
+  expect(dockBarStyle.zIndex, 'message-dock-bar must be zIndex:10 (lifted above the z-0 wallpaper)').toBe('10')
+
+  // Walk up from dock-input to the nearest ancestor carrying `.glass-bar` and
+  // read its computed background — proves the input row is a real surface,
+  // not the invisible regression (bare input, no wrapper background).
+  const glassBar = await dockInput.evaluate(el => {
+    let node: HTMLElement | null = el.parentElement
+    while (node) {
+      if (node.classList.contains('glass-bar')) {
+        return { found: true, bg: getComputedStyle(node).backgroundColor }
+      }
+      node = node.parentElement
+    }
+    return { found: false, bg: '' }
+  })
+
+  expect(glassBar.found, 'dock-input must sit inside a .glass-bar ancestor (the dock-bar regression fix)').toBe(true)
+  const isTransparent = glassBar.bg === 'transparent' || /rgba\([^)]*,\s*0\s*\)/.test(glassBar.bg)
+  expect(
+    isTransparent,
+    `.glass-bar wrapping dock-input resolved to a transparent background (${glassBar.bg}) — ` +
+      'the operator-reported "message bar not rendering" regression (only Send would be visible).',
+  ).toBe(false)
+
+  // Full-width crop of the bottom bar (falls back to a full-page shot if the
+  // locator screenshot fails for any reason — the bar must still be in frame).
+  const screensDir = path.resolve(__dirname, '..', 'reports', 'screens')
+  fs.mkdirSync(screensDir, { recursive: true })
+  try {
+    await dockBar.screenshot({ path: path.join(screensDir, 'r3-7-k-dock-bar.png') })
+  } catch {
+    await page.screenshot({ path: path.join(screensDir, 'r3-7-k-dock-bar.png'), fullPage: true })
+  }
+
+  // Hover + focus the input to show the pink-purple ring (.glass-bar:hover /
+  // :focus-within, index.css) — same surface, interactive state.
+  await dockInput.hover()
+  await dockInput.focus()
+  try {
+    await dockBar.screenshot({ path: path.join(screensDir, 'r3-7-k-dock-bar-focus.png') })
+  } catch {
+    await page.screenshot({ path: path.join(screensDir, 'r3-7-k-dock-bar-focus.png'), fullPage: true })
+  }
+
+  recordConsoleFindings('#/home (Message Dock bar)')
+})
+
+// --- 8. Corner-K dock-fab suppressed on Messages + Settings only ---------------
+//
+// Shell.tsx now suppresses <MessageDock> entirely on the `messages` and
+// `settings` routes (`route.view !== 'messages' && route.view !== 'settings'`)
+// — both have their own composer / no dock use case, so the floating corner-K
+// fab there was redundant/unwanted. Proves the fab (and the bar) are gone on
+// BOTH of those routes, and that a normal, unrelated route (`personal`) still
+// gets the fab — the suppression is scoped to exactly the two intended routes,
+// not a global regression that would silently kill the dock everywhere.
+//
+// Hard-asserted (same rationale as test 7) and placed last so a real
+// regression fails loudly without skipping the earlier tests.
+
+test('8. Corner-K dock-fab is suppressed on Messages + Settings only, still present elsewhere', async ({ page }) => {
+  const screensDir = path.resolve(__dirname, '..', 'reports', 'screens')
+  fs.mkdirSync(screensDir, { recursive: true })
+
+  // --- Home: definitive visual proof the dock bar paints its full content
+  // (⚡ spark, "Message K…" placeholder, Send) — not just the Send button. ---
+  await openApp(page, '#/home')
+  const homeDockBar = page.getByTestId('message-dock-bar')
+  await expect(homeDockBar).toBeVisible({ timeout: 10_000 })
+  try {
+    await homeDockBar.screenshot({ path: path.join(screensDir, 'r3-8-k-dock-fixed.png') })
+  } catch {
+    await page.screenshot({ path: path.join(screensDir, 'r3-8-k-dock-fixed.png'), fullPage: true })
+  }
+
+  // --- Messages: no corner-K fab (it has its own per-conversation composer,
+  // test 2), and no bar variant either. ---
+  await openApp(page, '#/messages')
+  await expect(page.getByTestId('dock-fab')).toHaveCount(0)
+  await expect(page.getByTestId('message-dock-bar')).toHaveCount(0)
+  const vp = page.viewportSize()
+  if (vp) {
+    // Clipped to the bottom-right quadrant (where the fab would float,
+    // `fixed bottom-4 right-4`) — easy to eyeball its absence directly.
+    await page.screenshot({
+      path: path.join(screensDir, 'r3-8-messages-no-fab.png'),
+      clip: { x: Math.max(0, vp.width - 260), y: Math.max(0, vp.height - 260), width: 260, height: 260 },
+    })
+  } else {
+    await page.screenshot({ path: path.join(screensDir, 'r3-8-messages-no-fab.png'), fullPage: true })
+  }
+
+  // --- Settings: same suppression. ---
+  await openApp(page, '#/settings')
+  await expect(page.getByTestId('dock-fab')).toHaveCount(0)
+  await expect(page.getByTestId('message-dock-bar')).toHaveCount(0)
+
+  // --- Control: a normal, unrelated route still gets the floating fab —
+  // proves the suppression above is scoped, not a global dock regression. ---
+  await openApp(page, '#/personal')
+  await expect(page.getByTestId('dock-fab')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('message-dock-bar')).toHaveCount(0)
+
+  recordConsoleFindings('#/home + #/messages + #/settings + #/personal (corner-K suppression scope)')
 })
 
 test.afterAll(() => {

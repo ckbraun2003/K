@@ -118,7 +118,12 @@ export default function Shell() {
         </AnimatePresence>
       </main>
 
-      <MessageDock variant={route.view === 'home' ? 'bar' : 'float'} />
+      {/* The dock is Home's inline K bar; elsewhere it's the floating "K" fab. Suppress it
+          entirely on Messages (which has its own per-conversation composer) and Settings —
+          the corner-K fab is redundant/unwanted on those two surfaces. */}
+      {route.view !== 'messages' && route.view !== 'settings' && (
+        <MessageDock variant={route.view === 'home' ? 'bar' : 'float'} />
+      )}
       {/* Global nudge: a finalized task-workflow prompts the operator to review + close
           its tasks (F-076 — the harness never auto-closes them). */}
       <WorkflowNudge />

@@ -123,7 +123,13 @@ function Composer({
           )}
         </div>
       )}
-      <div className="mt-1.5 flex items-center gap-2">
+      {/* Round 3 follow-up: the dock is "the persistent front door to K" (the main
+          K message bar). Its bare input had no field surface — inside the faint
+          glass-chrome footer it read as "no message bar", only the solid Send showed.
+          `.glass-bar` gives the input row a visible pill (surface + hairline +
+          pink-purple hover/focus-within ring), matching the ConversationView fix;
+          the inner Input stays `variant="bare"`. Shared by both dock variants. */}
+      <div className="glass-bar mt-1.5 flex items-center gap-2 rounded-pill px-3 py-1.5">
         <span className="text-accent">⚡</span>
         <Input
           variant="bare"
@@ -671,7 +677,13 @@ export default function MessageDock({ variant }: { variant: 'bar' | 'float' }) {
             viewport bottom (a structural chrome bar, not a floating chip), so zero the
             side/bottom edges and keep only the top hairline — matching --border (not
             the tier's own --glass-tier-border), same convention as Sidebar/TopBar. */}
-        <footer data-testid="message-dock-bar" className="glass-chrome border-x-0 border-b-0 border-t border-[var(--border)] px-4 py-2">
+        {/* `relative z-10` lifts the bar above the fixed wallpaper (Background is z-0),
+            matching Shell's `<main className="relative z-10">`. Without it the footer sits
+            in normal flow BEHIND the wallpaper, which paints over the composer's inner
+            content (only the Send button, its own stacking context, escaped) — the
+            "K message bar not rendering" bug. Round 2 removing glass-chrome's
+            backdrop-filter (which had created this stacking context) exposed it. */}
+        <footer data-testid="message-dock-bar" className="relative z-10 glass-chrome border-x-0 border-b-0 border-t border-[var(--border)] px-4 py-2">
           {composer}
         </footer>
         {undoToast}
