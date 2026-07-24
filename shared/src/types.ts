@@ -677,7 +677,11 @@ export const InboxItemSchema = z.discriminatedUnion('kind', [
   z.object({ ...inboxCommon, kind: z.literal('plan_pending'), runId: z.string(),
     risk: z.enum(['low', 'medium', 'high']).nullable(), steps: z.number().int().nullable(), edited: z.boolean() }),
   // actions: reply (POST /api/runs/:id/input) / end — navigate to the run console
-  z.object({ ...inboxCommon, kind: z.literal('input_needed'), runId: z.string(), model: z.string() }),
+  // `question`/`inputKind` (ui-adjustments Round 4) are optional so the inbox
+  // card can surface the agent's actual question; existing producers that
+  // don't populate them still parse.
+  z.object({ ...inboxCommon, kind: z.literal('input_needed'), runId: z.string(), model: z.string(),
+    question: z.string().optional(), inputKind: z.enum(['question', 'verification', 'feedback']).optional() }),
   // actions: approve / reject (POST /api/memory/lessons/:id/approve|reject) — inline
   z.object({ ...inboxCommon, kind: z.literal('lesson_pending'), lessonId: z.string(), profileName: z.string().nullable() }),
   // actions: trust (POST /api/capabilities/mcp/:id/trust) / dismiss (POST /api/inbox/mcp/:id/dismiss) — inline
@@ -1370,9 +1374,13 @@ export const BackgroundSettingsSchema = z.object({
   kind: BackgroundKindSchema,
   preset: GradientPresetSchema.nullable(),
   imageVersion: z.number().int().nonnegative().nullable(),
+  // ui-adjustments Round 4 — solid-background color override, 6-digit hex or
+  // null to keep the theme default. Optional on input (defaults to null) so
+  // pre-R4 stored app_config JSON still parses.
+  solidColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().default(null),
 })
 export type BackgroundSettings = z.infer<typeof BackgroundSettingsSchema>
-export const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = { kind: 'solid', preset: null, imageVersion: null }
+export const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = { kind: 'solid', preset: null, imageVersion: null, solidColor: null }
 
 // Font-colour override (ui-adjustments Round 2) — lets the operator retune the
 // body text colour when a custom wallpaper clashes with the default pale
@@ -1384,6 +1392,22 @@ export const FontColorSettingsSchema = z.object({
 })
 export type FontColorSettings = z.infer<typeof FontColorSettingsSchema>
 export const DEFAULT_FONT_COLOR_SETTINGS: FontColorSettings = { color: null }
+
+// Primary/secondary accent-colour overrides (ui-adjustments Round 4) — same
+// shape as FontColorSettings, app_config-backed (`ui.primaryColor` /
+// `ui.secondaryColor`, NO schema bump). `color` is a 6-digit hex string, or
+// null to keep the theme default.
+export const PrimaryColorSettingsSchema = z.object({
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
+})
+export type PrimaryColorSettings = z.infer<typeof PrimaryColorSettingsSchema>
+export const DEFAULT_PRIMARY_COLOR_SETTINGS: PrimaryColorSettings = { color: null }
+
+export const SecondaryColorSettingsSchema = z.object({
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
+})
+export type SecondaryColorSettings = z.infer<typeof SecondaryColorSettingsSchema>
+export const DEFAULT_SECONDARY_COLOR_SETTINGS: SecondaryColorSettings = { color: null }
 
 // PUT /api/settings/background/image body — a data: URL (browser-side
 // FileReader.readAsDataURL output). Restricted to the three formats the

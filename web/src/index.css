@@ -12,9 +12,14 @@
   --border-strong: #4a3775;
   --text: #c6cede;          /* pale graphite-blue — body text (ui-adjustments D-131) */
   --muted: #8f99ad;         /* cooler graphite — secondary/muted text */
-  --accent: #a855f7;        /* violet — primary accent fills, active pills, badges, links */
-  --accent-hover: #c084fc;  /* lighter violet — hover/active transition colour */
-  --accent-hi: #e9d5ff;     /* near-white lavender — top-emphasis accent in the hierarchy */
+  /* Role anchors (ui-adjustments R4 / D-135) — user-tunable at runtime by Background.tsx
+     (setProperty). Role tokens below derive from these via color-mix so one override cascades.
+     Defaults reproduce the exact D-134 values; --accent unifies violet→pink (approved). */
+  --primary: #e294e0;    /* rgb(226,148,224) — icons / accents / links / active / focus */
+  --secondary: #87cefa;  /* rgb(135,206,250) — hover / press / selection */
+  --accent: var(--primary);
+  --accent-hover: color-mix(in srgb, var(--primary) 72%, white);
+  --accent-hi: color-mix(in srgb, var(--primary) 40%, white);
   --on-accent: #241640;     /* dark text on accent-filled chips (WCAG dark-on-light) */
   --green: #34d399;
   --amber: #fbbf24;
@@ -50,13 +55,13 @@
   --glass-2: rgba(250, 238, 252, 0.06);
   --glass-3: rgba(244, 222, 248, 0.095);
   --glass-4: rgba(238, 210, 246, 0.145);
-  --glass-icon: rgba(226, 148, 224, 0.20);
-  --glass-icon-strong: rgba(226, 148, 224, 0.30);
-  --icon-glyph: #e7a8e4;
-  --glass-icon-edge: rgba(226, 148, 224, 0.55);
-  --glass-hover: rgba(135, 206, 250, 0.18);
-  --glass-active: rgba(135, 206, 250, 0.30);        /* was rgba(96,170,250,0.22) — retune to sky blue */
-  --glass-active-edge: rgba(135, 206, 250, 0.55);
+  --glass-icon: color-mix(in srgb, var(--primary) 20%, transparent);
+  --glass-icon-strong: color-mix(in srgb, var(--primary) 30%, transparent);
+  --icon-glyph: color-mix(in srgb, var(--primary) 85%, white);
+  --glass-icon-edge: color-mix(in srgb, var(--primary) 55%, transparent);
+  --glass-hover: color-mix(in srgb, var(--secondary) 18%, transparent);
+  --glass-active: color-mix(in srgb, var(--secondary) 30%, transparent);
+  --glass-active-edge: color-mix(in srgb, var(--secondary) 55%, transparent);
   --glass-code: rgba(16, 12, 26, 0.55);
   /* Legacy tier-fill aliases — repointed onto the new scale so every existing
      bg-[var(--glass-*-bg)] caller (Row, ChatView, RunList) and the tier
@@ -112,6 +117,7 @@ html, body, #root {
   color: var(--text);
   font-family: 'Inter Variable', Inter, system-ui, sans-serif;
   font-size: 14px;
+  font-weight: 450;
 }
 
 body { font-variant-numeric: tabular-nums; }
@@ -134,37 +140,15 @@ body { font-variant-numeric: tabular-nums; }
   overflow: hidden;
 }
 
-/* Wallpaper gradient presets (usability-access P2.6 wallpaper UI) — static
-   CSS gradients recombining the same LG2 blob tokens used to paint the
-   living-ambient blobs, so the palette stays sanctioned without any JS
-   animation loop. `.bg-gradient-aurora` is an alias for `.lg-aurora` (still
-   used standalone by LoginScreen's pre-auth backdrop). */
+/* LoginScreen pre-auth backdrop gradient (usability-access P2.6). The wallpaper
+   gradient PRESET options were dropped in UI Adjustments R4 (D-135) — the
+   Appearance picker now offers Solid | Image only — so only `.lg-aurora` and
+   its `.bg-gradient-aurora` alias survive, used standalone by LoginScreen. */
 .lg-aurora, .bg-gradient-aurora {
   background:
     radial-gradient(60% 50% at 20% 20%, var(--lg-blob-1), transparent 70%),
     radial-gradient(55% 45% at 80% 10%, var(--lg-blob-2), transparent 70%),
     radial-gradient(50% 60% at 50% 90%, var(--lg-blob-3), transparent 70%),
-    var(--bg-deep);
-}
-.bg-gradient-dusk {
-  background:
-    radial-gradient(65% 55% at 75% 15%, var(--lg-blob-2), transparent 70%),
-    radial-gradient(55% 50% at 15% 75%, var(--lg-blob-4), transparent 70%),
-    radial-gradient(45% 40% at 50% 50%, var(--lg-blob-1), transparent 75%),
-    var(--bg-deep);
-}
-.bg-gradient-ocean {
-  background:
-    radial-gradient(60% 55% at 25% 80%, var(--lg-blob-3), transparent 70%),
-    radial-gradient(50% 45% at 80% 20%, var(--lg-blob-4), transparent 70%),
-    radial-gradient(55% 50% at 60% 60%, var(--lg-blob-3), transparent 75%),
-    var(--bg-deep);
-}
-.bg-gradient-ember {
-  background:
-    radial-gradient(60% 50% at 30% 20%, var(--lg-blob-2), transparent 70%),
-    radial-gradient(55% 55% at 85% 75%, var(--lg-blob-1), transparent 70%),
-    radial-gradient(45% 40% at 50% 50%, var(--lg-blob-2), transparent 75%),
     var(--bg-deep);
 }
 

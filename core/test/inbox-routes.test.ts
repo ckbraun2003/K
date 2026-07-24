@@ -33,6 +33,13 @@ beforeAll(async () => {
   runPlansDb.insertRunPlan.run({ runId: planRun, plan: JSON.stringify({ steps: [{ title: 'a' }, { title: 'b' }], files: [], risk: 'high' }),
     raw: 'r', edited: 0, profileId: null, createdAt: 4000, updatedAt: 4000 })
   runsDb.insertRun.run({ ...base, id: inputRun, prompt: 'interactive question', status: 'awaiting_input', createdAt: 3000 })
+  // ui-adjustments R4 (D2): input_needed now DERIVES from an unanswered
+  // input_request event (no bare park) — this fixture must carry one for the
+  // union test below to still see an input_needed card for it.
+  eventsDb.insertEvent.run({ id: randomUUID(), runId: inputRun, seq: 0, type: 'input_request', ts: 3500,
+    raw: JSON.stringify({ kind: 'question' }), text: 'Use Postgres or SQLite?', tool: null, tokensIn: null,
+    tokensOut: null, costUsd: null, toolUseId: null, toolKind: null, toolInput: null, toolResult: null,
+    toolResultIsError: null, subagentType: null, childLabel: null, contextTokens: null })
   runsDb.insertRun.run({ ...base, id: reviewRun, prompt: 'finished work', status: 'done', createdAt: 1000 })
   db.prepare(`UPDATE runs SET ended_at = 2000 WHERE id = ?`).run(reviewRun)
   eventsDb.insertEvent.run({ id: randomUUID(), runId: reviewRun, seq: 3, type: 'checkpoint', ts: 1500,
@@ -75,6 +82,10 @@ describe('GET /api/inbox', () => {
       ['input_needed', 'lesson_pending', 'mcp_trust', 'plan_pending', 'review_ready'])
     const plan = mine.find(i => i.kind === 'plan_pending')!
     expect(plan).toMatchObject({ risk: 'high', steps: 2, edited: false, projectName: expect.stringContaining('p2b-') })
+    // D2: the card carries the agent's literal question + kind (from its input_request event)
+    expect(mine.find(i => i.kind === 'input_needed')).toMatchObject({
+      runId: inputRun, question: 'Use Postgres or SQLite?', inputKind: 'question',
+    })
     expect(mine.find(i => i.kind === 'review_ready')).toMatchObject({ runId: reviewRun, verifyStatus: null })
     // the already-reviewed done run is absent:
     expect(inbox.items.some(i => i.kind === 'review_ready' && i.runId === reviewedRun)).toBe(false)
@@ -87,6 +98,58 @@ describe('GET /api/inbox', () => {
     // ts DESC across kinds:
     const ts = inbox.items.map(i => i.ts)
     expect([...ts].sort((a, b) => b - a)).toEqual(ts)
+  })
+})
+
+describe('input_needed derivation (ui-adjustments R4 D2 — unanswered request_input only)', () => {
+  const rid = randomUUID()
+  const base = { cwd: 'C:\\nowhere\\p2b', worktree: null, provider: 'claude', model: 'm',
+    tokensIn: 0, tokensOut: 0, costUsd: 0, projectId: pid }
+
+  afterAll(() => {
+    db.prepare('DELETE FROM events WHERE run_id = ?').run(rid)
+    db.prepare('DELETE FROM runs WHERE id = ?').run(rid)
+  })
+
+  it('absent with no ask; present + carries question once asked; deduped to one card on a 2nd ask; absent again once answered', async () => {
+    runsDb.insertRun.run({ ...base, id: rid, prompt: 'ordinary interactive park, no explicit ask', status: 'awaiting_input', createdAt: 9000 })
+    const before = (await fetchInbox()).counts.input_needed
+
+    // 1. a bare park (no input_request event) is NOT an inbox card — every turn
+    //    parks at awaiting_input; only an EXPLICIT ask should surface.
+    let inbox = await fetchInbox()
+    expect(inbox.items.some(i => i.kind === 'input_needed' && i.runId === rid)).toBe(false)
+    expect(inbox.counts.input_needed).toBe(before)
+
+    // 2. the agent calls request_input — an input_request event lands → the card appears
+    eventsDb.insertEvent.run({ id: randomUUID(), runId: rid, seq: 0, type: 'input_request', ts: 9500,
+      raw: JSON.stringify({ kind: 'verification' }), text: 'Use Postgres?', tool: null, tokensIn: null,
+      tokensOut: null, costUsd: null, toolUseId: null, toolKind: null, toolInput: null, toolResult: null,
+      toolResultIsError: null, subagentType: null, childLabel: null, contextTokens: null })
+    inbox = await fetchInbox()
+    expect(inbox.items.find(i => i.kind === 'input_needed' && i.runId === rid))
+      .toMatchObject({ question: 'Use Postgres?', inputKind: 'verification' })
+    expect(inbox.counts.input_needed).toBe(before + 1)
+
+    // 3. a SECOND (later) input_request for the SAME run — still exactly ONE card,
+    //    surfacing the latest question (no duplicate/no stale text).
+    eventsDb.insertEvent.run({ id: randomUUID(), runId: rid, seq: 1, type: 'input_request', ts: 9600,
+      raw: JSON.stringify({ kind: 'question' }), text: 'Actually — Postgres or SQLite?', tool: null, tokensIn: null,
+      tokensOut: null, costUsd: null, toolUseId: null, toolKind: null, toolInput: null, toolResult: null,
+      toolResultIsError: null, subagentType: null, childLabel: null, contextTokens: null })
+    inbox = await fetchInbox()
+    expect(inbox.items.filter(i => i.kind === 'input_needed' && i.runId === rid)).toHaveLength(1)
+    expect(inbox.items.find(i => i.kind === 'input_needed' && i.runId === rid))
+      .toMatchObject({ question: 'Actually — Postgres or SQLite?', inputKind: 'question' })
+    expect(inbox.counts.input_needed).toBe(before + 1)
+
+    // 4. a later 'running' status event (the resume boundary) — answered, absent again
+    eventsDb.insertEvent.run({ id: randomUUID(), runId: rid, seq: 2, type: 'status', ts: 9700, text: 'running',
+      raw: null, tool: null, tokensIn: null, tokensOut: null, costUsd: null, toolUseId: null, toolKind: null,
+      toolInput: null, toolResult: null, toolResultIsError: null, subagentType: null, childLabel: null, contextTokens: null })
+    inbox = await fetchInbox()
+    expect(inbox.items.some(i => i.kind === 'input_needed' && i.runId === rid)).toBe(false)
+    expect(inbox.counts.input_needed).toBe(before)
   })
 })
 

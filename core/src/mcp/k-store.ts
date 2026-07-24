@@ -29,7 +29,7 @@ import {
   type WorkflowStep,
   type AgentMessage,
 } from '@k/shared'
-import { workItemsDb, agentMemoryDb, workflowStepsDb, workflowRunsDb, runsDb, agentRunsDb, pipelineDb, workflowDefsDb } from '../db.js'
+import { eventsDb, workItemsDb, agentMemoryDb, workflowStepsDb, workflowRunsDb, runsDb, agentRunsDb, pipelineDb, workflowDefsDb } from '../db.js'
 import { getProject, getProjectByName } from '../projects.js'
 import { getProfile, getProfileByName } from '../profiles.js'
 import { queueMessage, mayMessage, AgentMailError } from '../agent-mail.js'
@@ -434,6 +434,57 @@ function messageAgent(args: unknown, ctx: KStoreContext): {
   return { id: msg.id, to: target.id, priority: msg.priority, status: msg.status }
 }
 
+// ── operator ask (ui-adjustments R4, D-relocation) ────────────────────────────
+
+const RequestInputInput = {
+  question: z.string().min(1).max(2_000),
+  kind: z.enum(['question', 'verification', 'feedback']).optional(),
+}
+/** ui-adjustments R4: the ONLY producer of a Personal-Inbox `input_needed` card.
+ *  Lives on kstore — not mgmt — because kstore is the ONLY MCP server mounted on
+ *  every interactive tier (chief/orchestrator/secretary; see agent-config/mcp/
+ *  *.json). A dispatched lead/worker (orchestrator tier) is exactly who needs to
+ *  ask the operator mid-task, so the tool must be reachable there, not just from
+ *  Chief. Every interactive turn still parks the run at `awaiting_input`
+ *  (supervisor.ts — untouched by this tool) so the resume/session/metrics
+ *  machinery is unaffected; the inbox now surfaces a card ONLY when the agent
+ *  EXPLICITLY calls this tool. It appends a durable `input_request` event (no
+ *  schema bump — reuses the events table, `type='input_request'`) that
+ *  inbox.ts's listInputParked query and notify.ts's awaiting_input rule both key
+ *  off (ts-ordered against the run's last 'running' status event, so an answered
+ *  ask never re-surfaces). Pure marker write — no run-status/session mutation;
+ *  the operator's reply arrives as the agent's next turn exactly as it always
+ *  has.
+ *
+ *  seq is NOT hand-rolled: this handler runs in the kstore MCP CHILD process,
+ *  while supervisor.ts assigns seq for the SAME run's other events from its own
+ *  in-memory per-process counter — both writers race into the same
+ *  UNIQUE(run_id, seq) index. Reusing the hardened eventsDb pair (the same
+ *  INSERT OR IGNORE every other writer uses — see events.ts::emitEvent /
+ *  supervisor.ts's resume reseed) turns a same-seq collision into a silently
+ *  dropped insert (changes:0) instead of a thrown SQLITE_CONSTRAINT; the bounded
+ *  retry recomputes seq and tries again so the operator's ask is guaranteed to
+ *  land rather than vanish. */
+function requestInput(args: unknown, ctx: KStoreContext): string {
+  const input = z.object(RequestInputInput).parse(args ?? {})
+  const owner = resolveOwnerRunId(ctx)
+  if (!owner) throw new KStoreError('request_input requires a managed run context (no run id).')
+  let inserted = false
+  for (let attempt = 0; attempt < 8 && !inserted; attempt++) {
+    const seq = (eventsDb.nextEventSeq.get(owner) as { next: number }).next
+    const res = eventsDb.insertEvent.run({
+      id: uuid(), runId: owner, seq, type: 'input_request', ts: Date.now(),
+      text: input.question, raw: JSON.stringify({ kind: input.kind ?? 'question' }),
+      tool: null, tokensIn: null, tokensOut: null, costUsd: null, toolUseId: null,
+      toolKind: null, toolInput: null, toolResult: null, toolResultIsError: null,
+      subagentType: null, childLabel: null, contextTokens: null,
+    })
+    inserted = res.changes > 0
+  }
+  if (!inserted) throw new KStoreError('could not record input request (event seq contention)')
+  return `Posted your request to the operator's inbox. End your turn; their reply arrives as your next message.`
+}
+
 // ── registry ────────────────────────────────────────────────────────────────
 
 export interface KStoreTool {
@@ -508,5 +559,12 @@ export const kStoreTools: KStoreTool[] = [
       "Send a message to another durable agent's conversation (the priority mailbox). `to` is the agent profile id or name; `priority` 'urgent' interrupts/steers, 'normal' (default) delivers at the next turn boundary. Tier-gated: K reaches anyone; a manager reaches its domain's agents + K; an orchestrator reaches its running stages + its manager. Returns { id, to, priority, status:'queued' } — the relay delivers it in the background.",
     inputShape: MessageAgentInput,
     handler: messageAgent,
+  },
+  {
+    name: 'request_input',
+    description:
+      "Ask the operator a question, or request verification or feedback. Posts to their Personal Inbox as an input_needed card carrying your literal question; their reply arrives as your next message. Use this ONLY when you genuinely need the operator — an ordinary turn boundary does NOT notify them.",
+    inputShape: RequestInputInput,
+    handler: requestInput,
   },
 ]

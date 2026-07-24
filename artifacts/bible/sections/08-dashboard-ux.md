@@ -2,7 +2,7 @@
 title: Dashboard — Command Deck
 icon: "▣"
 status: active
-updated: 2026-07-22
+updated: 2026-07-24
 ---
 
 The dashboard is the **window into the agent organization** (§03) — held to product quality, not
@@ -455,7 +455,10 @@ Terms defined in §14 render an inline `GlossaryTerm` tooltip wherever they appe
   approvals (runs parked at `awaiting_plan`), `awaiting_input` parks, pending lessons (§04),
   untrusted MCP servers, review-ready runs, and **autonomy proposals (P5 Autonomy)**. It is **a
   query, never a table** (D-081): each item is read live from its own authoritative source, so it can
-  never drift out of sync.
+  never drift out of sync. **UI Adjustments Round 4 (D-135, below) narrows the `awaiting_input`
+  source**: it now requires the parked run to also have an UNANSWERED `input_request` event (an
+  agent explicitly asked a question via the new `request_input` kstore tool — §11), not merely the
+  park state itself, so an ordinary interactive turn boundary no longer manufactures an inbox item.
 - **Proposal cards (P5 Autonomy, E-14/E-18).** The `proposal` inbox kind surfaces the **blocked**,
   sourced `org` work_items the collectors + self-heal write (§07): a card shows its `source` chip
   (ci_failed / verify_finding / open_issue / stale_bible; a self-heal park renders under the
@@ -518,7 +521,10 @@ Terms defined in §14 render an inline `GlossaryTerm` tooltip wherever they appe
   `Icon`/`IconName` lookup it used was deleted, not merely hidden).
 - **Focus + a11y.** The Message Dock overlay carries `role="dialog"`/`aria-modal`/label and a focus
   trap (`lib/useFocusTrap.ts`) that returns focus to the FAB on Escape; ConfirmDialog and the evals
-  RunDialog get the same trap. Accent fills always use dark `--bg` text via the `--on-accent` token.
+  RunDialog get the same trap. Accent fills always use dark `--bg` text via the `--on-accent` token —
+**UI Adjustments Round 4 (D-135, below) makes `--on-accent` computed, not fixed**: since the accent
+color is now operator-chosen, `--on-accent` auto-flips between the light and dark ink to whichever
+wins WCAG contrast against the chosen `--primary`, rather than a hard-coded dark hex.
 
 ## Knowledge graph spec (fleet + per-project, unchanged)
 
@@ -549,7 +555,9 @@ extensions) and `core/src/ui-artifact.ts` (the `ui-demo` inline CSS) — change 
 `#3a2a5c` / strong border `#4a3775`; `text` `#f4f0ff` / `muted` `#b3a6cd`; accent — **blush**
 `#ff8fc0` (fills/active pills/badges) — accent-hover — **sky** `#38bdf8` (hover/active/focus);
 `--on-accent` `#241640` (dark text on accent fills, WCAG AA — white-on-blush fails); status
-green/amber/red `#34d399`/`#fbbf24`/`#f87171`. The `--chart-1..8` + `--chart-other` dataviz palette
+green/amber/red `#34d399`/`#fbbf24`/`#f87171`. **UI Adjustments Round 4 (D-135, below)** makes
+`--accent` operator-overridable — it unifies onto a new `--primary` anchor token, with a `--secondary`
+anchor driving the interaction roles (below) — while status green/amber/red stay fixed. The `--chart-1..8` + `--chart-other` dataviz palette
 is the same family with exactly ONE token changed this program: **`--chart-8`** `#818cf8` →
 **`#6366f1`** — a CVD validator run against the real dark surface (`#2a1a47`) found the adjacent
 chart-7↔chart-8 pair failing protanopia contrast (ΔE 1.1); the same-hue snap to `#6366f1` passes
@@ -585,7 +593,11 @@ stable, so `tokens.test.ts` and every consumer are untouched.
 
 **Icon, interaction, and legibility tokens (Round 3, D-134).** The saturated pink-purple accent
 lives in exactly one role — icons — and blue lives in exactly one role — interaction — never on a
-resting panel:
+resting panel. **UI Adjustments Round 4 (D-135, below) re-expresses the pink-purple values below as
+`color-mix()` against a new operator-overridable `--primary` anchor, and the sky-blue values against
+a new `--secondary` anchor** — the defaults are unchanged (primary defaults to the same pink-purple,
+secondary to the same sky-blue), so this table still documents the resting values, just no longer
+the hard-coded source of truth:
 
 | Token | Value | Role |
 |-------|-------|------|
@@ -705,7 +717,11 @@ motion/capability-guarded. All new tokens live in `index.css` `:root` under the 
   (`lib/starfield.ts`) and the `<Ambient/>` blob layer are RETIRED. The root keeps the uniform
   `data-testid="app-background"` + `data-variant` contract and is `aria-hidden` (decorative). A
   **Settings → Appearance** picker (solid/gradient/image select + FileReader→dataURL upload + live
-  preview) writes the preference and invalidates the `['background']` query.
+  preview) writes the preference and invalidates the `['background']` query. **UI Adjustments Round 4
+  (D-135, below) drops the gradient option** — `kind` becomes a **Solid | Image** segmented toggle,
+  Solid gains a `solidColor` picker, and the four `aurora/dusk/ocean/ember` presets are removed from
+  the picker UI (`preset` stays on the type/in storage as a vestigial migration field; a
+  previously-saved `gradient` kind coerces to `solid` on read). See Round 4 for the full picture.
 - **Static glass hover (replaces W0.6 pointer sheen).** `.glass-interactive::before` now paints a
   static `linear-gradient(135deg, var(--lg-sheen), transparent 60%)` that fades in on `:hover` (plus a
   `filter: brightness(1.04)` lift) — no cursor tracking, no window listener. `--lg-sheen` is retained;
@@ -753,7 +769,10 @@ pulse, and shimmer animations.
 `@fontsource-variable/inter`) for UI text, `JetBrains Mono` (self-hosted
 `@fontsource/jetbrains-mono`) for numerals/ids/code; `body { font-variant-numeric: tabular-nums; }`
 is global, plus an explicit `.mono` utility for monospace runs — every number is mono so columns of
-metrics align.
+metrics align. **UI Adjustments Round 4 (D-135, below) bumps the base body weight 400 → 450** (still
+`Inter Variable`, no new font file) so plain text holds up over detailed wallpapers and operator-set
+font colors; the `label`/`title` 500/600 call sites are unchanged so the hierarchy step is still
+legible, just smaller.
 
 **Radii:** `--radius-lg` 18px (panels) · `--radius` 14px (controls), mirrored as Tailwind
 `rounded-panel`/`rounded-control`; `--radius-sm` 10px (small surfaces — e.g. the skeleton shimmer,
@@ -917,4 +936,17 @@ The operator called Round 2 a miss too: glass still read as "pure transparent wh
 - **Knowledge graph — off-main-thread layout.** The force-layout computation moves into a Web Worker (`web/src/lib/graph-layout.worker.ts`, running `d3-force-3d` — already a dependency, no new runtime dep) to a bounded tick budget; the main thread applies the returned positions as **fixed** `fx`/`fy`/`fz` and mounts `react-force-graph-3d` with `warmupTicks={0} cooldownTicks={0}` — zero main-thread simulation, so a large (thousands-of-nodes) graph no longer freezes the page. A top-N-by-degree LOD cap plus a "Computing layout…" overlay and a watchdog guard oversized graphs; the D-132/D-133 two-phase mount, `mountGen` rAF soft-crash guard, and slow auto-rotate are preserved unchanged.
 - **Orchestrator-update routing hygiene.** D-133 fixed pipeline-outcome routing for a *resolved, real* orchestrator/manager owner, but left a gap: a pipeline still owned by the generic seeded `default-orchestrator` profile had no real conversation to author into, so the update fell through to K's own chat — the "stray orchestrator message" the operator kept seeing. `continuePipelineOutcomeToK` now resolves that case to the pipeline's **domain manager** (falling back to the delegating thread, never the generic conversation), and the never-authored `default-orchestrator` conversation is hidden from the Messages list/bucketing, mirroring the existing `org-shared.ts` orchestrator-tier exclusion.
 
-**Method.** W0 (glass foundation: `index.css`/`tokens.ts`/`tokens.test.ts`) → file-disjoint in-place parallel lanes (glass application sweep by page directory · terminal removal · orchestrator routing · knowledge-graph worker) → per-lane spec+quality review → controller commit per lane → opus whole-implementation review → full core+web+build gate → live Playwright smoke → docs (this section). Held at the operator merge gate — not merged to `main` as of this writing.
+**Method.** W0 (glass foundation: `index.css`/`tokens.ts`/`tokens.test.ts`) → file-disjoint in-place parallel lanes (glass application sweep by page directory · terminal removal · orchestrator routing · knowledge-graph worker) → per-lane spec+quality review → controller commit per lane → opus whole-implementation review → full core+web+build gate → live Playwright smoke → docs (this section). **Merged to `main` 2026-07-23** (PR #11 `--merge`, merge commit `a3fca9f`, both CI runs GREEN, GitNexus reindexed) — Round 4 below continues on a new branch cut from that merge.
+
+## UI Adjustments Round 4 (2026-07-24) — user-settable Primary/Secondary theme colors, Solid|Image background, contained Settings sidebar, heavier base font, new-chat-on-load, explicit input-request inbox gating (D-135)
+
+The operator asked for a fourth pass on `feat/ui-adjustments-r4` (cut from the merged Round 3 commit above): the theme was still fixed-palette and opaque-feeling to the operator despite three rounds of glass work, the Personal Inbox filled with an item for every single agent reply instead of the things that actually needed the operator, the Settings nav pill floated awkwardly instead of reading as part of the page, and body text ran thin over image wallpapers and custom font colors. **NO SCHEMA_VERSION bump** (stays 16) — every new preference rides the same `app_config` JSON-blob pattern as `ui.background`/`ui.fontColor`.
+
+- **Appearance — background.** The kind selector drops its `solid | gradient | image` dropdown for a **Solid | Image** segmented toggle; Solid gains an inline color picker (`BackgroundSettings.solidColor`, still `app_config` key `ui.background`, no schema bump). The four gradient presets (`aurora/dusk/ocean/ember`) are removed from the picker; a previously-saved `gradient` kind coerces to `solid` on read so no stored preference breaks. `LoginScreen` is unaffected — it keeps its own independent aurora backdrop, never wired to `ui.background`. Applied the same way as before: mounted once at Shell z-0.
+- **Appearance — Primary + Secondary colors.** Two new pickers, two new `app_config` keys — `ui.primaryColor` and `ui.secondaryColor` — following the exact override pattern D-133 established for `ui.fontColor` (`GET`/`PUT`, Zod-validated, `null` clears back to default). `index.css` gains `--primary` (default: the same pink-purple accent) and `--secondary` (default: the same sky-blue interaction color) as the new anchor tokens; `--accent` is unified onto `--primary` (one token, not two), and the D-134 color-by-role glass tokens (`--glass-icon`/`--glass-icon-strong`/`--icon-glyph`/`--glass-icon-edge` from `--primary`; `--glass-hover`/`--glass-active`/`--glass-active-edge` from `--secondary`) are re-expressed with `color-mix()` against the anchors instead of hard-coded rgba values, so one runtime override cascades through the whole role hierarchy without touching every call site. `--on-accent` (§ Universal interaction patterns, above) becomes computed — it auto-flips to whichever of light/dark ink wins WCAG contrast against the chosen `--primary`, replacing the fixed dark hex. **Legibility colors are deliberately untouched**: status green/amber/red, the `--chart-1..8` dataviz palette, and `--glass-code` stay fixed regardless of the chosen theme colors, so meaning-bearing color never drifts with a cosmetic preference.
+- **Settings sidebar — contained panel.** `SettingsNav` moves from a floating `glass-panel`-wrapped pill (D-134) to a **contained, full-height sidebar panel** — a wider column with larger labels and its own bounded scroll region, read as a structural part of the Settings page rather than an overlay floating on the background. The underlying navigation mechanism — `scrollIntoView` + `IntersectionObserver` active-section tracking (D-128, replacing the old `<a href="#">` hash-anchor pill that 404'd) — is unchanged; only the container chrome changed.
+- **Base font weight.** Body text bumps 400 → 450 on the existing self-hosted `Inter Variable` (no new font file, no new token — `font-weight` at the `body` rule only) so plain text stays legible over detailed image wallpapers and arbitrary operator-chosen font colors. The `label`/`title` 500/600 call sites (Type scale, above) are unchanged, so the weight step between body and emphasized text is compressed but still present.
+- **Chats default to a new conversation on load.** The selected-thread store no longer restores the last-open thread from `localStorage` on initial mount; a `#/messages/<id>` deep link is normalized to `#/messages` before the app mounts, so a bookmarked or refreshed URL doesn't reopen a specific thread either. The Messages list still shows full history — nothing is deleted or hidden — this only changes what's pre-selected when the app first loads, so K's chat opens to a blank composer instead of resurfacing whatever thread was open last session.
+- **Personal Inbox — explicit input-requests only.** A new `request_input` MCP tool ships on the **kstore** server — K's universal working-store server, mounted at every interactive agent tier via the existing server-wide `mcp__kstore` grant (§03), not a chief-only tool — that lets any agent explicitly ask the operator a question, request verification, or ask for feedback. Calling it records an `'input_request'` event on the agent's run. The Inbox's `awaiting_input` source (§ Notifications, above) and the run-awaiting-input notification now both derive from an `awaiting_input`-parked run that additionally has an **unanswered** `input_request` event — newer than the run's last resume — instead of firing on the bare park state at every interactive turn boundary. Ordinary agent replies that don't call `request_input` no longer produce an inbox item at all; the run resume/session/metrics machinery underneath is untouched. See §11 Operations for the tool's technical mechanics.
+
+**Deferred (documented, non-blocking):** hardening `sendInput`'s resume-sequence reseed to be more defensive against an out-of-order resume race (no known live failure, precautionary); the color-input commit-on-drag debounce for the new Primary/Secondary/Solid pickers follows the same pattern the existing font-color picker already used, not a new gap; `BackgroundSettings.preset` is now a vestigial field (kept on the type for storage-migration compatibility, no longer read by the Solid|Image UI); the unused `--lg-blob-4` token (Liquid Glass 2.0-era, D-115) remains defined in `:root` with no active consumer.

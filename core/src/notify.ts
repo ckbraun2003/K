@@ -57,7 +57,11 @@ export function registerNotifications(): () => void {
     else lastStatus.set(run.id, run.status)
     const body = run.prompt.split('\n')[0].slice(0, 80)
     const projectId = run.projectId ?? null
-    if (run.status === 'awaiting_input') {
+    // ui-adjustments R4 (D2): every interactive turn still parks at awaiting_input
+    // (supervisor.ts, untouched) — notify ONLY when the agent explicitly asked via
+    // the request_input kstore tool and that ask is still unanswered (db.ts's twin
+    // of inbox.ts's listInputParked predicate). An ordinary park no longer notifies.
+    if (run.status === 'awaiting_input' && eventsDb.hasUnansweredInputRequest(run.id)) {
       fire('run_awaiting_input', 'Run needs your reply', body, run.id, projectId)
     } else if (run.status === 'awaiting_plan') {
       fire('run_awaiting_plan', 'Plan ready for review', body, run.id, projectId)

@@ -464,7 +464,7 @@ export default function SettingsPage() {
         <h1 className="text-label font-semibold uppercase tracking-[0.12em] text-muted">Settings</h1>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[10rem_1fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[13rem_1fr]">
         <SettingsNav items={SETTINGS_NAV} />
 
         <div className="min-w-0">

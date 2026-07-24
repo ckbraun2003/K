@@ -1,18 +1,22 @@
 /**
  * <Background/> (usability-access P2.6 wallpaper UI) — renders the
- * operator's saved wallpaper (GET /api/settings/background): solid,
- * one of the static CSS gradient presets, or an authenticated-fetch
- * uploaded image. Replaces the old animated galaxy-canvas + Ambient-blobs
- * system: no canvas, no `requestAnimationFrame` loop.
+ * operator's saved wallpaper (GET /api/settings/background): a flat solid
+ * (with an optional solidColor override) or an authenticated-fetch uploaded
+ * image. Replaces the old animated galaxy-canvas + Ambient-blobs system: no
+ * canvas, no `requestAnimationFrame` loop. The gradient kind is dropped from
+ * the UI (ui-adjustments Round 4) — a persisted legacy value falls through
+ * to solid, covered below.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-const { mockGet, mockImageBlob, mockFontColorGet } = vi.hoisted(() => ({
+const { mockGet, mockImageBlob, mockFontColorGet, mockPrimaryColorGet, mockSecondaryColorGet } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockImageBlob: vi.fn(),
   mockFontColorGet: vi.fn(),
+  mockPrimaryColorGet: vi.fn(),
+  mockSecondaryColorGet: vi.fn(),
 }))
 
 vi.mock('../src/lib/api', () => ({
@@ -26,6 +30,14 @@ vi.mock('../src/lib/api', () => ({
       },
       fontColor: {
         get: mockFontColorGet,
+        set: vi.fn(),
+      },
+      primaryColor: {
+        get: mockPrimaryColorGet,
+        set: vi.fn(),
+      },
+      secondaryColor: {
+        get: mockSecondaryColorGet,
         set: vi.fn(),
       },
     },
@@ -51,6 +63,10 @@ beforeEach(() => {
   mockImageBlob.mockReset()
   mockFontColorGet.mockReset()
   mockFontColorGet.mockResolvedValue({ settings: { color: null } })
+  mockPrimaryColorGet.mockReset()
+  mockPrimaryColorGet.mockResolvedValue({ settings: { color: null } })
+  mockSecondaryColorGet.mockReset()
+  mockSecondaryColorGet.mockResolvedValue({ settings: { color: null } })
   createObjectUrlSpy = vi.fn(() => 'blob:mock-object-url')
   revokeObjectUrlSpy = vi.fn()
   // jsdom doesn't implement createObjectURL/revokeObjectURL for Blob — stub
@@ -59,6 +75,9 @@ beforeEach(() => {
   URL.createObjectURL = createObjectUrlSpy
   URL.revokeObjectURL = revokeObjectUrlSpy
   document.documentElement.style.removeProperty('--text')
+  document.documentElement.style.removeProperty('--primary')
+  document.documentElement.style.removeProperty('--secondary')
+  document.documentElement.style.removeProperty('--on-accent')
 })
 afterEach(() => {
   cleanup()
@@ -67,6 +86,9 @@ afterEach(() => {
   // @ts-expect-error test-only cleanup of the stub added above
   delete URL.revokeObjectURL
   document.documentElement.style.removeProperty('--text')
+  document.documentElement.style.removeProperty('--primary')
+  document.documentElement.style.removeProperty('--secondary')
+  document.documentElement.style.removeProperty('--on-accent')
 })
 
 describe('Background', () => {
@@ -86,20 +108,22 @@ describe('Background', () => {
     expect(screen.getByTestId('app-background').getAttribute('data-variant')).toBe('solid')
   })
 
-  it("gradient: applies the .bg-gradient-<preset> class for the saved preset", async () => {
-    mockGet.mockResolvedValue({ settings: { kind: 'gradient', preset: 'dusk', imageVersion: null }, presets: [], kinds: [] })
+  it('a persisted gradient kind (dropped from the UI, ui-adjustments Round 4) falls through to solid', async () => {
+    mockGet.mockResolvedValue({ settings: { kind: 'gradient', preset: 'dusk', imageVersion: null, solidColor: null }, presets: [], kinds: [] })
     renderBg()
     await waitFor(() => {
-      expect(screen.getByTestId('app-background').getAttribute('data-variant')).toBe('gradient')
+      expect(screen.getByTestId('app-background').getAttribute('data-variant')).toBe('solid')
     })
-    expect(screen.getByTestId('app-background').className).toContain('bg-gradient-dusk')
+    const root = screen.getByTestId('app-background') as HTMLElement
+    expect(root.style.background).toContain('var(--bg-deep)')
   })
 
-  it('gradient: falls back to the aurora preset when none is saved', async () => {
-    mockGet.mockResolvedValue({ settings: { kind: 'gradient', preset: null, imageVersion: null }, presets: [], kinds: [] })
+  it('solid: an operator solidColor override paints the background with that hex instead of --bg-deep', async () => {
+    mockGet.mockResolvedValue({ settings: { kind: 'solid', preset: null, imageVersion: null, solidColor: '#123456' }, presets: [], kinds: [] })
     renderBg()
     await waitFor(() => {
-      expect(screen.getByTestId('app-background').className).toContain('bg-gradient-aurora')
+      const root = screen.getByTestId('app-background') as HTMLElement
+      expect(root.style.background).toBe('rgb(18, 52, 86)')
     })
   })
 

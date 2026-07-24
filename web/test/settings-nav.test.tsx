@@ -88,4 +88,23 @@ describe('SettingsNav', () => {
     expect(screen.getByRole('button', { name: 'B' }).getAttribute('aria-current')).toBe('true')
     expect(screen.getByRole('button', { name: 'A' }).getAttribute('aria-current')).toBeNull()
   })
+
+  it('reads as a contained full-height sidebar panel, not a floating pill', () => {
+    renderNav()
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+
+    // No longer a self-sized floating pill — it's a bounded panel with internal scroll.
+    expect(nav.className).not.toMatch(/\bself-start\b/)
+    expect(nav.className).toMatch(/\bsticky\b/)
+    expect(nav.className).toMatch(/\btop-4\b/)
+    expect(nav.className).toMatch(/max-h-\[calc\(100vh-2rem\)\]/)
+    expect(nav.className).toMatch(/\boverflow-y-auto\b/)
+  })
+
+  it('sizes nav buttons as text-body, not text-caption', () => {
+    renderNav()
+    const button = screen.getByRole('button', { name: 'A' })
+    expect(button.className).toMatch(/\btext-body\b/)
+    expect(button.className).not.toMatch(/\btext-caption\b/)
+  })
 })

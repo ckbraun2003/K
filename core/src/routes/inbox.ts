@@ -15,10 +15,21 @@ const listPlanParked = db.prepare(`
   WHERE r.status = 'awaiting_plan'
   ORDER BY rp.created_at DESC
 `)
+// ui-adjustments R4 (D2): every interactive turn still parks at awaiting_input
+// (supervisor.ts, untouched) — the card now surfaces ONLY when the agent
+// explicitly asked via the request_input kstore tool AND that ask is still
+// unanswered (no later 'running' status event, i.e. no resume since). One row
+// per run (correlated subqueries pull the LATEST input_request's question/raw,
+// so two asks for one run still produce exactly one card); kept in exact sync
+// with db.ts's hasUnansweredInputRequest (notify.ts's twin predicate).
 const listInputParked = db.prepare(`
-  SELECT r.id, r.prompt, r.model, r.created_at AS ts, r.project_id, p.name AS project_name
+  SELECT r.id, r.prompt, r.model, r.created_at AS ts, r.project_id, p.name AS project_name,
+    (SELECT e.text FROM events e WHERE e.run_id=r.id AND e.type='input_request' ORDER BY e.ts DESC, e.seq DESC LIMIT 1) AS question,
+    (SELECT e.raw  FROM events e WHERE e.run_id=r.id AND e.type='input_request' ORDER BY e.ts DESC, e.seq DESC LIMIT 1) AS input_raw
   FROM runs r LEFT JOIN projects p ON p.id = r.project_id
-  WHERE r.status = 'awaiting_input'
+  WHERE r.status='awaiting_input'
+    AND EXISTS (SELECT 1 FROM events e WHERE e.run_id=r.id AND e.type='input_request'
+      AND e.ts > COALESCE((SELECT MAX(s.ts) FROM events s WHERE s.run_id=r.id AND s.type='status' AND s.text='running'), 0))
   ORDER BY r.created_at DESC
 `)
 const listPendingLessons = db.prepare(`
@@ -64,6 +75,18 @@ function firstLine(prompt: unknown): string {
   return String(prompt).split('\n')[0].slice(0, 120)
 }
 
+const INPUT_KINDS = new Set(['question', 'verification', 'feedback'])
+type InputKind = 'question' | 'verification' | 'feedback'
+/** Defensive parse of an input_request event's `raw` JSON — a garbled/absent value
+ *  must not throw or crash the union (mirrors parseProjects's mgmt.ts precedent). */
+function inputRequestKind(raw: unknown): InputKind | undefined {
+  if (raw == null) return undefined
+  try {
+    const parsed = JSON.parse(String(raw)) as { kind?: unknown }
+    return typeof parsed.kind === 'string' && INPUT_KINDS.has(parsed.kind) ? (parsed.kind as InputKind) : undefined
+  } catch { return undefined }
+}
+
 function planMeta(planJson: unknown): { risk: 'low' | 'medium' | 'high' | null; steps: number | null } {
   if (planJson == null) return { risk: null, steps: null }
   try {
@@ -89,7 +112,9 @@ export async function inboxRoutes(app: FastifyInstance) {
       items.push({ kind: 'input_needed', id: `input_needed:${r.id}`, ts: Number(r.ts),
         projectId: r.project_id != null ? String(r.project_id) : null,
         projectName: r.project_name != null ? String(r.project_name) : null,
-        title: firstLine(r.prompt), runId: String(r.id), model: String(r.model) })
+        title: firstLine(r.prompt), runId: String(r.id), model: String(r.model),
+        question: r.question != null ? String(r.question) : undefined,
+        inputKind: inputRequestKind(r.input_raw) })
     }
     for (const r of listPendingLessons.all() as Record<string, unknown>[]) {
       items.push({ kind: 'lesson_pending', id: `lesson_pending:${r.id}`, ts: Number(r.ts),

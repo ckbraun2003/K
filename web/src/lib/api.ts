@@ -1,4 +1,4 @@
-import type { Domain, Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry, BackgroundSettings, GradientPreset, BackgroundKind, FontColorSettings, AvailableModelsResponse, ConversationSummary, AgentMessage } from '@k/shared'
+import type { Domain, Run, RunStatus, AgentEvent, Artifact, MetricsSummary, MetricsTimeseries, MetricsQualityTimeseries, TimeseriesGroupBy, RoutingStats, Project, GithubStatus, VerificationReport, ProjectTask, Skill, CreateSkill, UpdateSkill, SkillEval, GraphResponse, ProjectGraphMeta, GraphDispatchBody, Status, WorkflowRun, WorkflowStep, LessonStatus, ChiefOrgPayload, KAskResult, KThread, KThreadTurn, KThreadSummary, ChiefOrgLead, AgentProfile, OrchestratorRosterPayload, NamedWorkflow, KForceRoute, Note, KSchedule, WorkItem, WorkItemStatus, DurableWorkItemScope, Assignment, CatalogSkillsResponse, CatalogMcpResponse, CatalogHooksResponse, RescanResult, CapabilitySummary, CatalogSkill, CatalogMcpServer, SkillDraft, DraftEval, DiffPayload, ReviewComment, RunCheckpoint, VerifyResult, VerifyRecipe, RunImpactPayload, RunPlan, PlanDoc, InboxPayload, Notification as KNotification, NotificationRule, MergePrResult, PrInfo, RunNarrative, FeedPayload, RecentActuals, CostRollup, DoctorReport, UserMemory, HomeLayout, AutonomySettings, AutonomyPatchBody, BudgetStatus, RoutineView, RetryRateSeries, PipelineSpec, PipelineRun, PipelineRunView, SubAgentDef, PipelineLedgerEntry, BackgroundSettings, GradientPreset, BackgroundKind, FontColorSettings, PrimaryColorSettings, SecondaryColorSettings, AvailableModelsResponse, ConversationSummary, AgentMessage } from '@k/shared'
 import { authHeader, clearSessionToken } from './auth'
 import { notifyUnauthorized } from './auth-events'
 import type { SkillRun } from './skill-runs'
@@ -802,7 +802,12 @@ export const api = {
   settings: {
     background: {
       get: () => req<{ settings: BackgroundSettings; presets: GradientPreset[]; kinds: BackgroundKind[] }>('/settings/background'),
-      set: (patch: { kind: BackgroundKind; preset: GradientPreset | null }) =>
+      // solidColor is NOT preserved server-side when omitted (routes/settings.ts's
+      // PUT .pick({kind,preset,solidColor}) — an omitted field resets to the schema
+      // default, null), unlike imageVersion which the route carries forward itself.
+      // Every caller must pass the current solidColor through on every set() —
+      // SettingsAppearance.tsx's onSegmentChange/onSolidColorChange already do.
+      set: (patch: { kind: BackgroundKind; preset: GradientPreset | null; solidColor?: string | null }) =>
         req<{ settings: BackgroundSettings }>('/settings/background', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -831,6 +836,28 @@ export const api = {
       get: () => req<{ settings: FontColorSettings }>('/settings/font-color'),
       set: (patch: FontColorSettings) =>
         req<{ settings: FontColorSettings }>('/settings/font-color', {
+          method: 'PUT',
+          headers: JSON_H,
+          body: JSON.stringify(patch),
+        }),
+    },
+    // Primary/secondary accent-colour overrides (ui-adjustments Round 4) — the
+    // operator's `--primary`/`--secondary` tokens. app_config-backed (NO
+    // schema bump); the applier (Background.tsx) writes/removes the CSS
+    // custom properties at runtime. null color = theme default.
+    primaryColor: {
+      get: () => req<{ settings: PrimaryColorSettings }>('/settings/primary-color'),
+      set: (patch: PrimaryColorSettings) =>
+        req<{ settings: PrimaryColorSettings }>('/settings/primary-color', {
+          method: 'PUT',
+          headers: JSON_H,
+          body: JSON.stringify(patch),
+        }),
+    },
+    secondaryColor: {
+      get: () => req<{ settings: SecondaryColorSettings }>('/settings/secondary-color'),
+      set: (patch: SecondaryColorSettings) =>
+        req<{ settings: SecondaryColorSettings }>('/settings/secondary-color', {
           method: 'PUT',
           headers: JSON_H,
           body: JSON.stringify(patch),

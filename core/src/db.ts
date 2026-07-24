@@ -2240,12 +2240,29 @@ const nextEventSeq = db.prepare(`SELECT COALESCE(MAX(seq) + 1, 0) AS next FROM e
 // P2 E-05/E-19: SQL-only "has reviewable changes" predicate (checkpoint events).
 const hasCheckpointEvents = db.prepare(`SELECT EXISTS(SELECT 1 FROM events WHERE run_id = ? AND type = 'checkpoint') AS n`)
 
+// ui-adjustments R4 (D2): "an explicit request_input the agent posted is still
+// UNANSWERED" — ts-ordered against the run's LAST 'running' status event (the
+// resume boundary sendInput/supervisor.ts stamp), so an input_request from a prior
+// park never re-surfaces after the operator has replied and the run moved on. Kept
+// in exact sync with inbox.ts's listInputParked EXISTS clause (its per-row SQL
+// twin) — notify.ts gates the awaiting_input notification on this same predicate.
+const hasUnansweredInputRequestStmt = db.prepare(`
+  SELECT EXISTS (
+    SELECT 1 FROM events e WHERE e.run_id = ? AND e.type = 'input_request'
+      AND e.ts > COALESCE(
+        (SELECT MAX(s.ts) FROM events s WHERE s.run_id = ? AND s.type = 'status' AND s.text = 'running'), 0)
+  ) AS n
+`)
+function hasUnansweredInputRequest(runId: string): boolean {
+  return (hasUnansweredInputRequestStmt.get(runId, runId) as { n: number }).n === 1
+}
+
 // E-18: the failing run's error text — the ONLY place it lives is the `text` column
 // of its latest type='error' event (supervisor.ts, `text: String(err)`); a clean
 // non-zero exit persists NO such event (BLOCKER 4). Backs failure classification.
 const latestErrorEvent = db.prepare(`SELECT text FROM events WHERE run_id = ? AND type = 'error' ORDER BY seq DESC LIMIT 1`)
 
-export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listCheckpointEvents, listAssistantEvents, listAssistantEventsAfterSeq, latestAssistantEvent, nextEventSeq, hasCheckpointEvents, latestErrorEvent }
+export const eventsDb = { insertEvent, listEvents, listDelegateEvents, getEventRaw, listCheckpointEvents, listAssistantEvents, listAssistantEventsAfterSeq, latestAssistantEvent, nextEventSeq, hasCheckpointEvents, hasUnansweredInputRequest, latestErrorEvent }
 
 // ─── Review comment helpers (P1 E-01) ────────────────────────────────────────
 

@@ -8,10 +8,11 @@
  * workflow" path. The MCP transport glue (k-store-server.ts) is intentionally
  * not unit-tested here — it is exercised by the Wave 6 live-spawn integration.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { v4 as uuid } from 'uuid'
 import {
   db,
+  eventsDb,
   runsDb,
   projectsDb,
   workflowRunsDb,
@@ -24,6 +25,7 @@ import type { WorkItem, Lesson, WorkflowStep } from '@k/shared'
 const PROJECT_ID = uuid()
 const RUN_WF = uuid() // a run bound to a workflow_run
 const RUN_PLAIN = uuid() // a run with no workflow_run
+const RUN_COLLIDE = uuid() // isolated run for the request_input seq-collision-retry test
 const WF_ID = uuid()
 const createdWorkItemIds: string[] = []
 const createdLessonIds: string[] = []
@@ -37,6 +39,7 @@ function call(name: string, args: unknown, ctx: KStoreContext): unknown {
 
 const wfCtx: KStoreContext = { runId: RUN_WF }
 const plainCtx: KStoreContext = { runId: RUN_PLAIN }
+const collideCtx: KStoreContext = { runId: RUN_COLLIDE }
 const noneCtx: KStoreContext = { runId: null }
 
 beforeAll(() => {
@@ -49,7 +52,7 @@ beforeAll(() => {
     bibleDir: 'docs/bible',
     createdAt: Date.now(),
   })
-  for (const id of [RUN_WF, RUN_PLAIN]) {
+  for (const id of [RUN_WF, RUN_PLAIN, RUN_COLLIDE]) {
     runsDb.insertRun.run({
       id,
       prompt: 'kstore fixture',
@@ -83,7 +86,10 @@ afterAll(() => {
   for (const id of createdLessonIds) db.prepare('DELETE FROM agent_memory WHERE id = ?').run(id)
   db.prepare('DELETE FROM workflow_steps WHERE workflow_run_id = ?').run(WF_ID)
   db.prepare('DELETE FROM workflow_runs WHERE id = ?').run(WF_ID)
-  db.prepare('DELETE FROM runs WHERE id IN (?, ?)').run(RUN_WF, RUN_PLAIN)
+  // events FK-references runs(id) — must clear the request_input rows the tests below
+  // insert before the run rows themselves can be deleted.
+  db.prepare('DELETE FROM events WHERE run_id IN (?, ?, ?)').run(RUN_WF, RUN_PLAIN, RUN_COLLIDE)
+  db.prepare('DELETE FROM runs WHERE id IN (?, ?, ?)').run(RUN_WF, RUN_PLAIN, RUN_COLLIDE)
   db.prepare('DELETE FROM projects WHERE id = ?').run(PROJECT_ID)
 })
 
@@ -223,5 +229,75 @@ describe('kstore: workflow status-write', () => {
       expect(status.ok).toBe(false)
       expect(status.reason).toBe('not_in_workflow')
     }
+  })
+})
+
+describe('kstore: request_input (ui-adjustments R4 D1/relocation — the sole input_request producer)', () => {
+  it('posts exactly one input_request event carrying the question text + kind raw', () => {
+    const result = call('request_input', { question: 'Use Postgres?', kind: 'question' }, wfCtx)
+    expect(typeof result).toBe('string')
+    const rows = db.prepare(
+      `SELECT text, raw FROM events WHERE run_id = ? AND type = 'input_request'`,
+    ).all(RUN_WF) as Array<{ text: string; raw: string }>
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text).toBe('Use Postgres?')
+    expect(JSON.parse(rows[0].raw)).toEqual({ kind: 'question' })
+  })
+
+  it('kind defaults to "question" when omitted', () => {
+    call('request_input', { question: 'Proceed with the migration?' }, plainCtx)
+    const row = db.prepare(
+      `SELECT raw FROM events WHERE run_id = ? AND type = 'input_request'`,
+    ).get(RUN_PLAIN) as { raw: string }
+    expect(JSON.parse(row.raw)).toEqual({ kind: 'question' })
+  })
+
+  it('rejects a null run context (KStoreError, not an FK crash)', () => {
+    expect(() => call('request_input', { question: 'no run context' }, noneCtx)).toThrow(KStoreError)
+  })
+
+  it('a bogus K_RUN_ID also rejects (no matching runs row to own the event)', () => {
+    expect(() => call('request_input', { question: 'ghost run' }, { runId: uuid() })).toThrow(KStoreError)
+  })
+
+  it('rejects an empty question (zod boundary)', () => {
+    expect(() => call('request_input', { question: '' }, wfCtx)).toThrow()
+  })
+
+  it('retries past a seq collision instead of losing the ask (cross-process race simulation)', () => {
+    // A concurrent writer (supervisor.ts's in-memory per-process counter, in the
+    // real cross-process race) already committed seq 0 for this run.
+    const occupied = eventsDb.insertEvent.run({
+      id: uuid(), runId: RUN_COLLIDE, seq: 0, type: 'status', ts: Date.now(),
+      text: 'running', raw: null, tool: null, tokensIn: null, tokensOut: null, costUsd: null,
+      toolUseId: null, toolKind: null, toolInput: null, toolResult: null, toolResultIsError: null,
+      subagentType: null, childLabel: null, contextTokens: null,
+    })
+    expect(occupied.changes).toBe(1)
+
+    // Force requestInput's FIRST attempt to compute the ALREADY-occupied seq (a
+    // stale read, exactly what a racing cross-process reader would see) so its own
+    // INSERT OR IGNORE lands changes:0 — then let the real statement answer every
+    // later call, so the retry's re-read finds the true next-free seq. This proves
+    // the LOOP saves the ask, not merely that a sequential re-read would.
+    const realGet = eventsDb.nextEventSeq.get.bind(eventsDb.nextEventSeq)
+    const spy = vi.spyOn(eventsDb.nextEventSeq, 'get')
+      .mockReturnValueOnce({ next: 0 } as never)
+      .mockImplementation((...args: unknown[]) => (realGet as (...a: unknown[]) => unknown)(...args))
+
+    try {
+      const result = call('request_input', { question: 'racy ask' }, collideCtx)
+      expect(typeof result).toBe('string')
+    } finally {
+      spy.mockRestore()
+    }
+
+    const rows = db.prepare(
+      `SELECT seq, text, raw FROM events WHERE run_id = ? AND type = 'input_request'`,
+    ).all(RUN_COLLIDE) as Array<{ seq: number; text: string; raw: string }>
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text).toBe('racy ask')
+    expect(rows[0].seq).toBeGreaterThan(0) // NOT the collided seq — the retry's fresh seq
+    expect(JSON.parse(rows[0].raw)).toEqual({ kind: 'question' })
   })
 })

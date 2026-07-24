@@ -122,4 +122,29 @@ describe('InboxTab', () => {
     fireEvent.click(await screen.findByTestId('inbox-open-review_ready:r3'))
     expect(navigate).toHaveBeenCalledWith('runs', 'r3')
   })
+
+  // ui-adjustments R4 (D3): the card surfaces the agent's literal request_input
+  // question over the generic prompt-firstline title, and the existing Reply
+  // action/route is unchanged.
+  it('an input_needed card with a question renders the agent\'s literal question, and Reply still routes to the run', async () => {
+    const inbox = fullInbox()
+    inbox.items = inbox.items.map(i =>
+      i.kind === 'input_needed' ? { ...i, question: 'Use Postgres?', inputKind: 'question' as const } : i)
+    mockList.mockResolvedValue(inbox)
+    renderPage()
+    const card = await screen.findByTestId('inbox-card-input_needed:r2')
+    expect(card.textContent).toContain('Use Postgres?')
+    expect(card.textContent).not.toContain('Run waiting on your reply')
+    fireEvent.click(await screen.findByTestId('inbox-open-input_needed:r2'))
+    expect(navigate).toHaveBeenCalledWith('runs', 'r2')
+  })
+
+  // Fallback: an input_needed item with NO question (older/unasked producers)
+  // still renders the existing prompt-firstline title — proven by the base fixture.
+  it('an input_needed card WITHOUT a question falls back to the prompt firstline title', async () => {
+    mockList.mockResolvedValue(fullInbox())
+    renderPage()
+    const card = await screen.findByTestId('inbox-card-input_needed:r2')
+    expect(card.textContent).toContain('Run waiting on your reply')
+  })
 })

@@ -50,13 +50,48 @@ describe('registerNotifications', () => {
     expect(rows.some(r => r.run_id === run.id && r.event_key === 'run_awaiting_plan')).toBe(true)
   })
 
-  it('re-park after resume fires again (running → awaiting_input → running → awaiting_input)', () => {
+  it('an ORDINARY park (no request_input event) does NOT notify (ui-adjustments R4 D2)', () => {
+    // Every interactive turn still parks at awaiting_input (supervisor.ts, untouched
+    // by this wave) — this proves the notify engine no longer treats a bare park as
+    // needing the operator: only an explicit request_input event does.
     const run = makeRun('running')
     eventBus.emitRunUpdate(run)
     eventBus.emitRunUpdate({ ...run, status: 'awaiting_input' })
     eventBus.emitRunUpdate({ ...run, status: 'running' })
     eventBus.emitRunUpdate({ ...run, status: 'awaiting_input' })
+    expect(wsSeen.filter(m => m.notification.runId === run.id && m.notification.eventKey === 'run_awaiting_input')).toHaveLength(0)
+  })
+
+  it('re-park after resume fires again ONLY when each park carries an unanswered request_input event', () => {
+    // events.run_id FK-references runs(id) — a real row is required to insert the
+    // input_request/status events this test drives the gate with.
+    const run = makeRun('running', { projectId: null })
+    runsDb.insertRun.run({ ...run, worktree: null })
+    eventBus.emitRunUpdate(run)
+
+    // 1st ask + park → fires
+    eventsDb.insertEvent.run({ id: randomUUID(), runId: run.id, seq: 0, type: 'input_request', ts: 2,
+      raw: JSON.stringify({ kind: 'question' }), text: 'Use Postgres?', tool: null, tokensIn: null,
+      tokensOut: null, costUsd: null, toolUseId: null, toolKind: null, toolInput: null, toolResult: null,
+      toolResultIsError: null, subagentType: null, childLabel: null, contextTokens: null })
+    eventBus.emitRunUpdate({ ...run, status: 'awaiting_input' })
+
+    // resume (the ask is now answered — a 'running' status event lands)
+    eventsDb.insertEvent.run({ id: randomUUID(), runId: run.id, seq: 1, type: 'status', ts: 3, text: 'running',
+      raw: null, tool: null, tokensIn: null, tokensOut: null, costUsd: null, toolUseId: null, toolKind: null,
+      toolInput: null, toolResult: null, toolResultIsError: null, subagentType: null, childLabel: null, contextTokens: null })
+    eventBus.emitRunUpdate({ ...run, status: 'running' })
+
+    // 2nd ask + re-park → fires again (a genuinely NEW ask, not a dedupe-suppressed repeat)
+    eventsDb.insertEvent.run({ id: randomUUID(), runId: run.id, seq: 2, type: 'input_request', ts: 4,
+      raw: JSON.stringify({ kind: 'feedback' }), text: 'Does this look right?', tool: null, tokensIn: null,
+      tokensOut: null, costUsd: null, toolUseId: null, toolKind: null, toolInput: null, toolResult: null,
+      toolResultIsError: null, subagentType: null, childLabel: null, contextTokens: null })
+    eventBus.emitRunUpdate({ ...run, status: 'awaiting_input' })
+
     expect(wsSeen.filter(m => m.notification.runId === run.id && m.notification.eventKey === 'run_awaiting_input')).toHaveLength(2)
+    db.prepare('DELETE FROM events WHERE run_id = ?').run(run.id)
+    db.prepare('DELETE FROM runs WHERE id = ?').run(run.id)
   })
 
   it('run_review_ready needs done + projectId + a checkpoint event', () => {

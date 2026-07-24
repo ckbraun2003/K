@@ -27,7 +27,7 @@ import { z } from 'zod'
 import {
   type Status, SystemPromptBodySchema, isKnownModel,
   GRADIENT_PRESETS, BACKGROUND_KINDS, BackgroundSettingsSchema, BackgroundImageUploadSchema,
-  FontColorSettingsSchema,
+  FontColorSettingsSchema, PrimaryColorSettingsSchema, SecondaryColorSettingsSchema,
 } from '@k/shared'
 import { resolveAvailableModels, availableModelIds } from '../models.js'
 import { isOllamaReachable } from '../router.js'
@@ -35,6 +35,8 @@ import {
   ollamaEnabled, ollamaBaseUrl, activeOllamaModel, voiceEnabled, whisperBaseUrl, whisperModel,
   backgroundSettings, setBackgroundSettings, wallpaperDir,
   fontColorSettings, setFontColorSettings,
+  primaryColorSettings, setPrimaryColorSettings,
+  secondaryColorSettings, setSecondaryColorSettings,
 } from '../config-store.js'
 import { harnessTokenSource, isLoopbackHost } from '../auth.js'
 import { credentialPosture, type CredentialPosture } from '../agent-config.js'
@@ -307,12 +309,16 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.get('/api/settings/background', async (_req, reply) =>
     reply.send({ settings: backgroundSettings(), presets: GRADIENT_PRESETS, kinds: BACKGROUND_KINDS }))
 
-  // PUT /api/settings/background — set kind + preset. imageVersion is preserved
-  // (it is only ever advanced by the image-upload route below). Selecting
-  // kind:'image' with no wallpaper on disk is rejected — the client can never
-  // point the app at an image that doesn't exist.
+  // PUT /api/settings/background — set kind + preset + solidColor. imageVersion
+  // is preserved (it is only ever advanced by the image-upload route below).
+  // solidColor is NOT preserved across a PUT that omits it — like preset, it
+  // travels with the picked payload (defaulting to null via the schema) rather
+  // than carrying forward the prior value, so the client always resends the
+  // current solid-color choice alongside kind/preset. Selecting kind:'image'
+  // with no wallpaper on disk is rejected — the client can never point the app
+  // at an image that doesn't exist.
   app.put('/api/settings/background', async (req, reply) => {
-    const parsed = BackgroundSettingsSchema.pick({ kind: true, preset: true }).safeParse(req.body)
+    const parsed = BackgroundSettingsSchema.pick({ kind: true, preset: true, solidColor: true }).safeParse(req.body)
     if (!parsed.success) return sendZodError(reply, parsed.error, 'invalid background settings')
 
     const prev = backgroundSettings()
@@ -347,7 +353,10 @@ export async function settingsRoutes(app: FastifyInstance) {
     await fs.writeFile(path.join(dir, `wallpaper.${ext}`), buf)
 
     const prev = backgroundSettings()
-    const next = { kind: 'image' as const, preset: null, imageVersion: (prev.imageVersion ?? 0) + 1 }
+    // solidColor is preserved across an image upload (unlike the PUT above, this
+    // route never touches the solid-color choice) so switching back to Solid
+    // later still shows the operator's last pick.
+    const next = { kind: 'image' as const, preset: null, imageVersion: (prev.imageVersion ?? 0) + 1, solidColor: prev.solidColor }
     setBackgroundSettings(next)
     return reply.send({ settings: next })
   })
@@ -375,6 +384,40 @@ export async function settingsRoutes(app: FastifyInstance) {
     const parsed = FontColorSettingsSchema.safeParse(req.body)
     if (!parsed.success) return sendZodError(reply, parsed.error, 'invalid font color settings')
     setFontColorSettings(parsed.data)
+    return reply.send({ settings: parsed.data })
+  })
+
+  // GET /api/settings/primary-color — the operator's `--primary` accent-colour
+  // override (ui-adjustments Round 4). `{ color: null }` = no override, theme
+  // default applies; the client applier (Background.tsx) writes/removes
+  // --primary (and the derived --on-accent) at runtime based on this value.
+  app.get('/api/settings/primary-color', async (_req, reply) =>
+    reply.send({ settings: primaryColorSettings() }))
+
+  // PUT /api/settings/primary-color — set or clear the override. Validated
+  // against PrimaryColorSettingsSchema at the boundary (6-digit hex or null) —
+  // the store write itself does not gate the value.
+  app.put('/api/settings/primary-color', async (req, reply) => {
+    const parsed = PrimaryColorSettingsSchema.safeParse(req.body)
+    if (!parsed.success) return sendZodError(reply, parsed.error, 'invalid primary color settings')
+    setPrimaryColorSettings(parsed.data)
+    return reply.send({ settings: parsed.data })
+  })
+
+  // GET /api/settings/secondary-color — the operator's `--secondary` accent-colour
+  // override (ui-adjustments Round 4). `{ color: null }` = no override, theme
+  // default applies; the client applier (Background.tsx) writes/removes
+  // --secondary at runtime based on this value.
+  app.get('/api/settings/secondary-color', async (_req, reply) =>
+    reply.send({ settings: secondaryColorSettings() }))
+
+  // PUT /api/settings/secondary-color — set or clear the override. Validated
+  // against SecondaryColorSettingsSchema at the boundary (6-digit hex or null) —
+  // the store write itself does not gate the value.
+  app.put('/api/settings/secondary-color', async (req, reply) => {
+    const parsed = SecondaryColorSettingsSchema.safeParse(req.body)
+    if (!parsed.success) return sendZodError(reply, parsed.error, 'invalid secondary color settings')
+    setSecondaryColorSettings(parsed.data)
     return reply.send({ settings: parsed.data })
   })
 
