@@ -215,6 +215,10 @@ export default function InboxTab() {
 // ── One inbox row card (LessonCard look: left = title + subtitle, right = actions) ──
 
 function InboxCard({ item, handlers, total }: { item: InboxItem; handlers: Handlers; total: number }) {
+  // ui-adjustments R4 (D3): an input_needed card surfaces the agent's LITERAL
+  // question (from request_input) when it has one; older/unasked cards fall back
+  // to the existing prompt-firstline title exactly as before.
+  const title = item.kind === 'input_needed' && item.question ? item.question : item.title
   return (
     // DEV-15 (Task 14 precedent) — blur budget: >5 glass cards would exceed the
     // ≤6-blurred-regions constraint, so a longer list degrades to the solid tier.
@@ -225,7 +229,7 @@ function InboxCard({ item, handlers, total }: { item: InboxItem; handlers: Handl
       className="flex items-start justify-between gap-3 px-4 py-3"
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate text-body text-text" title={item.title}>{item.title}</p>
+        <p className="truncate text-body text-text" title={title}>{title}</p>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-muted">
           <span>{item.projectName ?? '—'}</span>
           <span className="mono">· {relativeTime(item.ts)}</span>
