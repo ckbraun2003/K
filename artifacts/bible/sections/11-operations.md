@@ -2,7 +2,7 @@
 title: Operations
 icon: "⌘"
 status: stable
-updated: 2026-07-22
+updated: 2026-07-24
 ---
 
 ## Running locally
@@ -431,3 +431,37 @@ flag for K's hybrid idle-timeout.
 | `core/src/agent-runs.ts` | **BUILT (P5.0)** | `startAgentRun` — generalizes `startRun`, riding the `run-lifecycle` seam |
 | `core/src/routes/memory.ts` | **BUILT (P5.1b)** | the layer-A operator gate — `GET /api/memory/lessons` + `POST …/approve\|reject` (status transitions only) over the kstore `agent_memory` rows |
 | `core/src/workflows.ts` | **BUILT (P5.3b)** | `renderWorkflowPrompt(scaffold, tasks)` over the seeded `NamedWorkflow` scaffolds (`buildDelegationPrompt` byte-identical); the task-dispatch route accepts an optional `workflowId` (P5.7 C2) |
+
+## `request_input` — explicit operator asks (UI Adjustments Round 4, D-135)
+
+Every interactive turn still parks its run at `awaiting_input` (`supervisor.ts`, untouched) so the
+resume/session/metrics machinery is unaffected. Before Round 4 the Personal Inbox's `input_needed`
+card and the `run_awaiting_input` notification fired on that bare park state — i.e. on **every**
+interactive turn boundary, agent question or not. Round 4 adds a tool an agent must explicitly call
+to actually notify the operator, narrowing both surfaces to genuine asks.
+
+- **The tool.** `request_input` ships on the **kstore** MCP server (`core/src/mcp/k-store.ts`) —
+  K's working-store server, mounted via the server-wide `mcp__kstore` grant at every interactive tier
+  (chief/orchestrator/secretary — not a chief-only tool; a dispatched lead/worker is exactly who needs
+  to ask the operator mid-task). Input: `{ question: string (1–2000 chars), kind?: 'question' |
+  'verification' | 'feedback' }` (default `kind` reads as `'question'`). It requires a managed run
+  context (`resolveOwnerRunId` — throws `request_input requires a managed run context` for a bare/no
+  run id, same guard as `message_agent`).
+- **What it writes.** A durable `input_request` event on the calling run's own event stream — **no
+  schema bump**, it reuses the existing `events` table with `type='input_request'`, `text` = the
+  literal question, `raw` = `{"kind": …}`. It's a pure marker write: no run-status or session mutation.
+  The insert races the run's own event-seq counter under a bounded 8-attempt retry (recomputes `seq`
+  on a dropped/constraint-failed insert) so a genuine ask is never silently lost.
+- **"Unanswered" derivation.** Both `core/src/routes/inbox.ts`'s `listInputParked` query and
+  `core/src/notify.ts`'s `awaiting_input` rule (via `eventsDb.hasUnansweredInputRequest`) key off the
+  same predicate, kept in exact sync: the run is `awaiting_input` **and** it has an `input_request`
+  event whose `ts` is newer than the run's own latest `status`/`'running'` event (i.e. no resume has
+  happened since the ask). A card/notification is one row per run even if the agent asked more than
+  once (correlated subquery pulls the *latest* `input_request`'s question). Once the operator replies,
+  the run resumes to `running`, which retires the ask — the next `request_input` call (if any) starts
+  the cycle over.
+- **Net effect.** An ordinary agent reply that never calls `request_input` produces **no** inbox item
+  and **no** `run_awaiting_input` notification — only an explicit question/verification/feedback ask
+  surfaces to the operator. The Inbox card still renders as an `input_needed` kind (§08) carrying the
+  agent's literal question; the operator's reply is delivered as the agent's next turn exactly as
+  before — nothing about how a reply is delivered changed, only what triggers the surfacing.

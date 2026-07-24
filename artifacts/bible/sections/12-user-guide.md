@@ -2,7 +2,7 @@
 title: User Guide
 icon: "❔"
 status: active
-updated: 2026-07-22
+updated: 2026-07-24
 ---
 
 The mental model is **you direct an agent organization**: you talk to **K** — a genuine engineering
@@ -179,6 +179,26 @@ you opt it in, and K never modifies your `~/.claude`.
    (`agent-config/skills/`) and registers it in the catalog. Until you save, the header honestly
    reads "agent-generated draft — not saved".
 
+## Customizing appearance
+
+**Settings → Appearance** (UI Adjustments Round 4, D-135) covers everything about how K looks:
+
+- **Background.** A **Solid | Image** toggle. Solid gives you a color picker; Image lets you upload
+  a wallpaper (`png`/`jpeg`/`webp`, up to 25 MB) with a live preview — an undersized image gets a
+  non-blocking warning that it will look upscaled at your screen resolution, not a quality loss on
+  K's end. (The four gradient presets from earlier rounds are gone; if you had one saved, it now
+  shows as Solid.)
+- **Primary + Secondary colors.** Two pickers set the app's whole theme in one move: **Primary**
+  drives the accent color and every icon role; **Secondary** drives hover/press/selected states.
+  Pick colors that read clearly against your background — text color on filled buttons/pills
+  auto-adjusts (light or dark ink, whichever is more legible) against whatever Primary you choose.
+  Status colors (green/amber/red for health and CI), the metrics/charts palette, and code/diff
+  syntax highlighting are intentionally **not** affected by these pickers — they stay put so their
+  meaning never changes with your theme.
+- **Font color.** A separate override for body text color, independent of Primary/Secondary — useful
+  if your chosen background makes the default text hard to read.
+- Every appearance choice applies live, no restart, and is remembered per-install (not per-browser).
+
 ## Setting up the Autonomous Org
 
 By default the org does nothing on its own — it acts only when you talk to K or dispatch a run.
@@ -231,6 +251,30 @@ conversation; your own sent messages never show as unread.
 - Each conversation shows whether the agent is **live** (a warm process, instant replies) or
   **resumable** (it wakes on your next message — same memory, a beat slower), plus its context
   meter. You never have to manage this; sessions warm up and wind down on their own.
+- **Chats open fresh (D-135).** Loading the app (or a bare `#/messages` link) always lands you on a
+  new, blank K conversation rather than reopening whatever thread you last had open — nothing about
+  your history changes, it's just no longer the default landing spot. Your full conversation history
+  is still right there in the Messages list; pick any thread to reopen it.
+
+## The Personal Inbox — what actually surfaces there (D-135)
+
+The Inbox (Personal tab) is a "needs-you" queue, not a log of every reply. As of UI Adjustments
+Round 4 it's stricter about what counts as needing you: an agent's ordinary turn no longer creates
+an Inbox item on its own. A card appears only when something genuinely needs a decision —
+
+- a **plan** parked for your approval,
+- a pending **lesson** waiting for you to accept/reject it (§04),
+- a newly-**discovered MCP server** waiting for trust,
+- a **review-ready run**,
+- an **autonomy proposal** (§ Setting up the Autonomous Org, above), or
+- an agent that **explicitly asked you something** — it called a tool to ask a question, request
+  verification, or ask for feedback, and is now waiting on your reply.
+
+That last kind is the one that changed: previously, every agent response parked the run for a beat
+and that alone produced an Inbox card, so the Inbox filled up even when nothing actually needed you.
+Now an agent has to deliberately ask — its card shows the literal question it asked, and replying to
+it (from the Inbox card or the agent's own conversation in Messages) resolves it the same way it
+always has.
 
 ## Domains & managers
 
