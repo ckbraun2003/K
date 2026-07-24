@@ -58,7 +58,7 @@ procedure.
 
 **Approving a proposal commissions it.** A standing job's output is, in effect, "here is what I
 did, here is what needs you" — and the things that need the user become active commissions the
-instant they are approved. The decision queue (§03) is where passive work re-enters active work;
+instant they are approved. The decision queue (see *Boards*, below) is where passive work re-enters active work;
 nothing about a proposal's origin as passive output survives approval — once accepted, it is a
 commission like any other.
 
