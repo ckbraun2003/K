@@ -22,7 +22,7 @@ export const TOKEN_FALLBACKS: Record<string, string> = {
   '--glass-1': 'rgba(255, 255, 255, 0.035)', '--glass-2': 'rgba(250, 238, 252, 0.06)',
   '--glass-3': 'rgba(244, 222, 248, 0.095)', '--glass-4': 'rgba(238, 210, 246, 0.145)',
   '--glass-icon': 'rgba(226, 148, 224, 0.20)', '--glass-icon-strong': 'rgba(226, 148, 224, 0.30)',
-  '--icon-glyph': '#e7a8e4', '--glass-icon-edge': 'rgba(226, 148, 224, 0.55)',
+  '--icon-glyph': '#e6a4e5', '--glass-icon-edge': 'rgba(226, 148, 224, 0.55)',
   '--glass-hover': 'rgba(135, 206, 250, 0.18)', '--glass-active': 'rgba(135, 206, 250, 0.30)',
   '--glass-active-edge': 'rgba(135, 206, 250, 0.55)', '--glass-code': 'rgba(16, 12, 26, 0.55)',
   // LG2 + code-viewer (impressive-wave W0.2) — mirrored from index.css :root

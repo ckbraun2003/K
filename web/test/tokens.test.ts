@@ -29,7 +29,7 @@ describe('tokens', () => {
     expect(TOKEN_FALLBACKS['--glass-4']).toBe('rgba(238, 210, 246, 0.145)')
     expect(TOKEN_FALLBACKS['--glass-icon']).toBe('rgba(226, 148, 224, 0.20)')
     expect(TOKEN_FALLBACKS['--glass-icon-strong']).toBe('rgba(226, 148, 224, 0.30)')
-    expect(TOKEN_FALLBACKS['--icon-glyph']).toBe('#e7a8e4')
+    expect(TOKEN_FALLBACKS['--icon-glyph']).toBe('#e6a4e5')
     expect(TOKEN_FALLBACKS['--glass-icon-edge']).toBe('rgba(226, 148, 224, 0.55)')
     expect(TOKEN_FALLBACKS['--glass-hover']).toBe('rgba(135, 206, 250, 0.18)')
     expect(TOKEN_FALLBACKS['--glass-active']).toBe('rgba(135, 206, 250, 0.30)')
