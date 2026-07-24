@@ -38,7 +38,7 @@ live tooltip component — edit here, then run `pnpm bible`.
 
 **Worker** — an ephemeral, tier-bounded subagent that does one job and hands back evidence; the only position with hands.
 
-**Doctrine** — the locked conduct rules every member of the organization inherits; craft-free, not user-editable.
+**Doctrine** — the four-layer rule system every member inherits: universal conduct and position procedure (locked and craft-free) plus domain policy and unit SOP (the user's to configure); you reshape the organization, never the locked layers.
 
 **Gate class** — the category of a blocking decision: plan, review, merge/terminal, spend, destructive, or external.
 

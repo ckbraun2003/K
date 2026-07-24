@@ -386,14 +386,14 @@ item lives and how long it lives:
 
 | `scope` | What | Lifetime |
 |---------|------|----------|
-| **`run`** | a managed run's own working tickets (the kstore **default** — a lead's checklist for one wave) | **ephemeral** — visible only to the run that created it |
+| **`run`** | a managed run's own working tickets (the kstore **default** — an orchestrator's checklist for one wave) | **ephemeral** — visible only to the run that created it |
 | **`personal`** | the operator's own list — reminders, cross-cutting to-dos K keeps for you | **durable operator-global** (persists across sessions and runs) |
 | **`org`** | an org-wide item — an org-level goal being tracked | **durable operator-global** |
 | **`project`** | a project-scoped ticket that lives in a project workspace and feeds delegation workflows (§05) | owned by the project |
 
 **Who creates what (as-built, D-053).** K creates **`personal`** (or `org`) items — durable, so
 "K's list survives the run that wrote it"; a managed run's working tickets default to **`run`**
-(the original run-isolated semantics, unchanged for leads); and **`project`** tickets are created
+(the original run-isolated semantics, unchanged for managed runs); and **`project`** tickets are created
 via the **projects API only** — kstore **REJECTS `scope='project'`** at the tool boundary with an
 explicit error. Durable scopes filter by **scope only** (`run_id` is kept on insert as provenance,
 never as an access filter); `run` scope keeps the ownership guard. Scope **promotion** along the

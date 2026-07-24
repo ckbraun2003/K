@@ -5,7 +5,7 @@ export const GLOSSARY: Record<string, string> = {
   "Cohort": "the 1–5 agents an orchestrator runs on one objective, convergent (candidates then synthesis) or partitioned (disjoint parts then merge).",
   "Commission": "a unit of accountability handed to a chief: objective, constraints, acceptance criteria, and allowance.",
   "Commission thread": "the standing room per chief (user + K + chief) that is the durable record of that domain's work.",
-  "Doctrine": "the locked conduct rules every member of the organization inherits; craft-free, not user-editable.",
+  "Doctrine": "the four-layer rule system every member inherits: universal conduct and position procedure (locked and craft-free) plus domain policy and unit SOP (the user's to configure); you reshape the organization, never the locked layers.",
   "Escalation": "mandatory, never-delegable notification to the user, fired on locked doctrine triggers regardless of autonomy.",
   "Gate class": "the category of a blocking decision: plan, review, merge/terminal, spend, destructive, or external.",
   "Grounding artifact": "the output of a pipeline's Ground phase: what the bible and docs say, read before any work begins.",
