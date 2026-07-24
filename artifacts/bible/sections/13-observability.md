@@ -269,6 +269,17 @@ Domain supervision is observable in exactly one place — the **manager's conver
   notification — the event key deliberately bypasses the notification-rules gate and ships no
   operator toggle, because "never silent" is the failure contract (§04).
 
+## Boards as read-time projections (§04, D-142)
+
+The three boards described in §08 — Decision queue, Standing work, and Activity — are not a
+separate data store: they are read-time projections over the same append-only event stream defined
+in §04 *Correspondence and visibility*. Per §04, one checkpoint write is simultaneously a chief-wake
+event, a thread message, a board row, and an audit entry — **four consumers, one source** (the
+ledger) — so a board can never drift out of sync with the wakes that fire or the audit trail this
+section already covers, because all four read the identical append. D-142 (§10) is the decision
+that fixed this correspondence/boards model; surface design for the boards themselves — layout,
+navigation, component shape — is a deferred follow-on, out of scope for this section.
+
 ## Implementation history (dashboard)
 
 > Moved here from §08 so that section stays a UI *spec*. These are the as-built milestone records
@@ -341,14 +352,3 @@ The dashboard *surfaces* delivered in Phase 4 (internals above):
   `DELEGATION_WORKFLOW`) + Run (live runtime sub-agent tree from a run's `delegate` calls).
 - **Force-graph surfaces → 3D** — all three force-graph surfaces moved to `react-force-graph-3d` with
   a collision force + per-surface error boundary; the renderer-subpackage rule still holds.
-
-## Boards as read-time projections (§04, D-142)
-
-The three boards described in §08 — Decision queue, Standing work, and Activity — are not a
-separate data store: they are read-time projections over the same append-only event stream defined
-in §04 *Correspondence and visibility*. Per §04, one checkpoint write is simultaneously a chief-wake
-event, a thread message, a board row, and an audit entry — **four consumers, one source** (the
-ledger) — so a board can never drift out of sync with the wakes that fire or the audit trail this
-section already covers, because all four read the identical append. D-142 (§10) is the decision
-that fixed this correspondence/boards model; surface design for the boards themselves — layout,
-navigation, component shape — is a deferred follow-on, out of scope for this section.
