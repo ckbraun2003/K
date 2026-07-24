@@ -1,199 +1,294 @@
 ---
 title: Workflows & Memory
-icon: "⟲"
+icon: "🔀"
 status: active
-updated: 2026-07-20
+updated: 2026-07-24
 ---
 
-> **Status — BUILT (Phase 5, finalized P5.7).** The single hardcoded delegation loop
-> (`core/src/workflows.ts`) generalized into **named workflow definitions** (P5.3b, D-047), with the
-> orchestrator **reporting progress** through the kstore status-write tools. **Memory layer A is
-> built as a TOOL, not a file**: managed agents propose lessons through kstore `lesson_propose`
-> (gated, held pending) into the `agent_memory` table — now **profile-linked** (D-053) —
-> `tasks/lessons.md` is a **home-development-only** tracker, never written by a managed run. Work
-> items are the **unified, `scope`-discriminated `work_items` store, fully collapsed**
-> (D-045 → D-048 → D-053 → D-058: `project_tasks` is dropped). **The Continuous Agents wave
-> (D-123/D-124) adds the conversation + mailbox subsystem below**: every durable agent has a
-> conversation, and messages, steering, and report-backs flow through `agent_messages`. **Still
-> planned:** memory layers B/C (retrieval/weighting) and scope **promotion** along a row.
+K's agent organization (§03) does its work in two modes and remembers what it learns through a
+third system. This section documents the **workflow doctrine** — the two work modes a chief
+operates in, the pipeline system that is the organization's SOP, the loops that keep work from
+stopping early or drifting forever, the ledgers that make it auditable, and the correspondence
+model that keeps an event-driven organization visible — followed by **memory**, which is how a
+profile gets smarter across runs instead of starting cold every time. Positions, doctrine, gates,
+and autonomy levels used throughout are defined in §03 and are not redefined here.
 
-A lead does work by **running a workflow** and gets smarter over time through **memory**. Both are
-configuration, not new engines — the substrate is the supervisor/EventBus already in place.
+## Two work modes
 
-## Workflow definitions
+A chief does everything it does in one of two modes. Same chief, same doctrine, same typed
+handback contract (§03) — only the wake context and the gate handling differ.
 
-Today, `workflows.ts` carries a single, hardcoded loop: `buildDelegationPrompt(tasks)` renders a
-selection of todos as a checklist and instructs one supervised controller run to act out the
-delegation loop in its own worktree, producing one reviewable PR (decision D-012). That loop is
-**prose methodology** the orchestrator carries out internally — it is not a multi-run engine.
+| | **Active — a commission** | **Passive — a standing job** |
+|---|---|---|
+| Origin | The user, via K — or directly, in the chief's thread | The system — a shipped catalog, armed and scheduled by the user |
+| Authored by | The user's request | The system — never the user, never an agent |
+| Wakes into | The chief's standing thread | Clean context |
+| Someone waiting | Yes | No |
+| Autonomy means | Who holds the gate key | Whether it is armed, and how far its pre-authorized scope reaches |
+| Decided | During the work | Before it starts |
+| Terminates in | A final report in the thread | Reports on the standing-work board |
 
-> **SUPERSEDED — the executable pipeline engine landed (D-119, 2026-07-16).** The "not a multi-run
-> engine" limitation is now closed. `workflow_definitions.spec` carries an executable `PipelineSpec`
-> (Zod in `@k/shared`) that a main-process `PipelineEngine` + scheduler walks as a real DAG:
-> `agent`/`deterministic`/`gate`/`hook` stages, per-edge `share-tree`/`branch`/`merge` handoff via the
-> checkpoint chain (sweep-immune `refs/k-pipelines/…`), declarative + dynamically-inserted gates,
-> retry-in-place (the self-heal retry brain + the `runs.pipeline_stage_id` ownership guard that prevents
-> double-fire), conditional forward routing (`markSkips` + skip-aware finalize), and reboot reconcile —
-> all built the lead-relay way (DB ledger + CAS claim). K (or the operator) delegates via
-> `delegate_pipeline` / `POST /api/pipelines/:id/run`, and the Agents → Automations tab (D-120, §08)
-> renders the live DAG. Seeded reference pipelines: `code-wave` (implementer → parallel share-tree
-> reviews → merge-join controller → gate → verify), `investigate`, `refactor`. See §10 D-119 and the
-> §09 roadmap.
->
-> **SUPERSEDED AGAIN — executable pipelines now REPLACE the legacy named-workflow templates
-> outright (D-120, Orchestration Program Phase 2, 2026-07-16).** The D-119-era "stays for
-> backward-compat, lazily compiles" posture is gone: at **boot**, every existing `NamedWorkflow`
-> template AND every `type:'workflow'` skill is **converted to a `PipelineSpec` pipeline def**
-> (idempotent — an already-converted row is skipped — and fail-safe — a conversion error degrades
-> that one row rather than blocking boot). The **legacy `WorkflowsView` UI is retired**; its former
-> address (`#/workflows`, `#/workflow-detail/:id`) redirects into **Agents → Automations → Library**
-> (§08). `PipelineSpec` (not `NamedWorkflow`/`buildDelegationPrompt`) is now **the** definition —
-> the `workflow_definitions` table and its `spec` column persist, but the row is read/run as a
-> pipeline everywhere, including the **6 newly-seeded standard pipelines** (Implementation Cycle,
-> Deep Research, Bug Triage & Fix, Refactor, Security Audit, Quick Task) that ship alongside the
-> Phase-1 reference three. Phase 2 also added a per-worker registry (§08 Sub Agents) so an `agent`
-> stage names a real, editable actor instead of a hardcoded subagent string, and **bounded loops**
-> (`when:'loop'` + `maxIterations` ≤10) to the engine itself. **Deferred (documented, D-120):**
-> operator-worker EXECUTION (Phase 2.5 — the registry is editable but an operator-authored worker
-> isn't yet mountable as a live stage actor); the autonomous multi-pipeline supervision loop (a
-> later phase, consuming the progress ledger this wave added); event triggers for pipelines; loop
-> re-fork semantics (a loop re-entry re-forks from the loop head's pre-loop base, not the prior
-> iteration's result tree — cross-stage tree-carry is a Phase-3/injection concern). Carried forward
-> from D-119: repair-LOOP back-edges, `commit`/`ci` deterministic actions, hook `inject`
-> propagation, run-internal operator hooks (Phase 1.5), the injection intelligence (Phase 3).
+### Active — a commission
 
-Phase 5 generalizes that single loop into **named workflow definitions** a lead selects per goal. A
-definition is a small declarative record — its role sequence, the prompt scaffold, and a scope flag —
-that `startAgentRun(profileId, { workflowId, … })` seeds into a run:
+K writes a commission into the chief's thread — an objective, its constraints, its known
+acceptance criteria. The chief wakes into that thread, exercises discretion, chooses its means, and
+proceeds. Checkpoint reports post to the thread as the work progresses; gates surface to the user or
+are resolved by the chief if it is authorized to (§03), and either way they are recorded and posted.
+The chief closes with a final report in the same thread.
 
-```ts
-NamedWorkflow {                 // BUILT — P5.3b (generalizes today's single buildDelegationPrompt)
-  id: uuid                      // pinned for the seeds: 'code-wave' | 'investigate' | 'refactor'
-  name: string                 // "Code wave" (the first), "Investigate", "Refactor", …
-  roles: WorkflowRole[]        // the role-subagent sequence (e.g. implementer → spec-review → quality-review)
-  promptScaffold: string       // how the goal + roles are rendered into the controller prompt ({{CHECKLIST}} token)
-  crossProject: boolean        // may the run touch more than one project? (flag lands; multi-project EXECUTION deferred)
-}
-```
+### Passive — a standing job
 
-> **Named `NamedWorkflow`, NOT `WorkflowDefinition` (D-047).** The persisted DB entity is
-> `NamedWorkflow` (table `workflow_definitions`) — deliberately distinct from the existing
-> `@k/shared` `WorkflowDefinition` (roles + edges), which is the read-only **diagram** type and is
-> left untouched.
+A trigger fires, the chief wakes with clean context, does the job, files its reports, and sleeps.
+**Passive autonomy is fixed before the job ever runs** — whether it is armed, and how far its
+pre-authorized scope reaches — never negotiated while it works, which is the opposite of active
+autonomy's "who holds the gate key, decided during the work."
 
-- **`implement+review` is the first definition** — it is exactly today's loop, lifted verbatim into
-  a named record so nothing regresses while the mechanism generalizes.
-- The **cross-project scope flag** is part of the schema from day one so the data model is honest,
-  but **execution across projects is deferred** — `startRun` is still one-agent/one-worktree, so a
-  cross-project run is a later increment, not part of the first cut (same posture as D-012's staged-
-  engine growth point).
+Clean-context wake carries two consequences. A standing job is **self-contained**: its brief comes
+from the catalog definition plus current system state, never from conversation history — which is
+what makes it repeatable and schedulable on a cadence nobody has to babysit. And **a passive job
+never blocks**: it completes everything within its pre-authorized scope and converts anything
+beyond that scope into a proposal rather than stopping to ask. A standing job that parked waiting on
+an answer would be hung, not paused, so it never does.
 
-> **Sequencing (P5.3 split, D-043 → BUILT P5.3b, D-047).** The named-definition mechanism above
-> has **landed** as **P5.3b**: a `workflow_definitions` table + `NamedWorkflow` repo/CRUD
-> (`core/src/workflow-defs.ts`, `routes/workflows.ts`), with `buildDelegationPrompt` generalized —
-> `renderWorkflowPrompt(scaffold, tasks)` renders a `{{CHECKLIST}}` token, and the exported
-> `CODE_WAVE_SCAFFOLD` is the pre-P5.3b prompt **verbatim**, so `buildDelegationPrompt` is
-> **byte-identical** and the existing workflow/dispatch tests stay green. The `code-wave` seed is that
-> first named def; `investigate` + `refactor` are seeded alongside it. The **Workflows list + detail
-> UI** (`WorkflowsPage` Definitions tab + `WorkflowDetailPage`) reads/edits them, and the **Settings
-> org-default authority panel** surfaces the `default-orchestrator` grant leads inherit (§08).
-> **P5.3a shipped first**: the Orchestrators roster + detail + per-lead authority control plane (§08).
+Standing jobs are drawn from a **shipped catalog — never authored by the user and never authored by
+an agent.** Arming one only ever toggles cadence and pre-authorized scope; it never invents new
+procedure.
 
-> **Reused by the Chief→lead dispatch (loop-a, D-049).** `renderWorkflowPrompt` is now also the
-> seed-builder for the autonomous **Chief→lead** hop: when the Chief `dispatch_lead`s an assignment,
-> `core/src/chief-dispatch.ts::buildLeadSeed` renders the chosen NamedWorkflow's `promptScaffold`
-> through the SAME `renderWorkflowPrompt` — passing the **objective as the single checklist item**
-> (`[{ title: objective }]`) — then appends a lead charter line (open a PR, never push to a default
-> branch). To serve both callers the signature was widened to `renderWorkflowPrompt(scaffold,
-> readonly { title }[])` (a `ProjectTask` still satisfies it, so the todo-batch path is unchanged and
-> byte-identical). The chosen workflow defaults to `code-wave` when the assignment named none. See §03
-> *Chief→lead dispatch*.
+### The seam between modes
 
-> **Operator launcher — "Run this workflow" (P5.7 C2).** A named definition is now directly
-> launchable from its own detail page: `WorkflowDetailPage`'s **Run this workflow** dialog picks a
-> project → its open tasks → dispatches, and the existing task-dispatch route
-> (`POST /api/projects/:id/tasks/dispatch`) accepts an optional **`workflowId`** that seeds the
-> prompt from THAT definition's `promptScaffold` through the same `renderWorkflowPrompt` seam
-> (unknown id → a clean `400`, validate-before-mutate: no `workflow_run` row inserted, no task
-> locked; omitted → the `code-wave` default, byte-identical to before). A new
-> `GET /api/workflows/runs` feeds the Run-tree picker's **workflow-only default filter** (with an
-> all-runs toggle; deep links default to all).
+**Approving a proposal commissions it.** A standing job's output is, in effect, "here is what I
+did, here is what needs you" — and the things that need the user become active commissions the
+instant they are approved. The decision queue (§03) is where passive work re-enters active work;
+nothing about a proposal's origin as passive output survives approval — once accepted, it is a
+commission like any other.
 
-## The delegation loop
+### Reporting asymmetry
 
-The first workflow's loop is the harness's core methodology (see also §13 Observability, which
-visualizes it):
+A routine standing job always writes to the standing-work board — that record exists whether or not
+anyone reads it. It posts into the chief's thread only when there is something *for the user*: a
+proposal, an escalation, a notable finding. A colleague does not message you every time it finishes
+a routine task; the record still exists for whoever wants to check.
+
+## Pipelines — the SOP system
+
+Pipelines are the organization's standard operating procedure for doing work. They are deliberately
+**few and deeply designed, not a catalog** — a pipeline is a designed system with typed inputs, a
+defined artifact per phase, explicit decision points, and a defined output, not a script of
+prompts. **Skills are abundant and granular; pipelines are broad and precise.** Consistency comes
+from there being few of them, and from every one sharing the same anatomy.
+
+### One anatomy
+
+Every work pipeline is the same shape, instantiated differently:
 
 ```
-orchestrator ──▶ implementer      (writes the change)
-   ▲              │
-   │              ▼
-   │           spec-review         (does it meet the spec?)
-   │              │
-   │              ▼
-   │           quality-review      (is it correct, simple, safe?)
-   │              │
-   └──────────────┘  orchestrator applies fixes → ONE reviewable commit / PR → CI gates the merge
+Ground ──► [ Scale ──► Cohort ──► Converge ──► Orchestrator gate ]* ──► Review swarm ──► Terminal gate
 ```
 
-Delegated agents run **in-process** via the `Task` tool (the CLI's subagent-spawn tool-id; "agent"
-stays the prose concept — see §03), so a run's sub-agents *are* its `delegate` tool calls — there is
-no separate sub-run table (reused; see §13). The worker roles are now real **subagent definitions**
-(`agent-config/agents/*.md`) the orchestrator spawns, each tool-scoped to its authority. A review
-role runs **every wave, no exceptions**; a separate whole-implementation review runs before merge. As
-it goes, the orchestrator marks each ticket, loop phase, review, and the CI gate through the kstore
-status-write tools so the run is visible as a live checklist (§13).
+- **Ground** — read the project bible and relevant documentation, and produce a grounding
+  artifact. Every pipeline starts here; the bible is the one consistent source of project truth
+  every agent reads, so no unit ever begins from a blank slate or from whatever the last
+  conversation happened to say. Ground depends on the bible existing — **a pipeline cannot run
+  against a project with no bible** — which is exactly what the project-onboarding system pipeline
+  (below) manufactures.
+- **Scale** — the orchestrator chooses cohort width, from **1 to 5**, and **must justify that
+  choice in the ledger** (see *Ledgers and artifacts*, below). The choice is bounded by the unit's
+  remaining allowance, so a scale decision draws down the same budget tree as everything else (see
+  *Loops*).
+- **Cohort** — N agents work one objective, in one of two modes: **convergent**, where each
+  produces a candidate and a synthesis pass follows — right for planning, where diverse approaches
+  beat one approach iterated — or **partitioned**, where the work splits into disjoint sub-parts
+  that are later merged — right for implementation.
+- **Converge** — the cohort's output becomes a named, addressable pipeline artifact. A plan is an
+  artifact; an implementation is an artifact.
+- **Orchestrator gate** — an **orchestrator gate** (§03): the orchestrator approves, or denies and
+  re-runs the phase with adjustments, bounded by the loop's own budget (see *Loops*). It lives in
+  the unit ledger and never reaches the user.
+- **Review swarm** — parallel quality and spec review, one to N reviewers, producing a review
+  artifact.
+- **Terminal gate** — the pipeline's **escalated gate** (§03). For Code, this is the merge gate;
+  for Operate, a floor-class gate; Investigate has none.
 
-## Conversations & the mailbox — messages, steering, report-backs (Continuous Agents, D-123/D-124)
+**Every phase closes by producing a readable artifact** — that is what makes the whole pipeline
+inspectable at any depth. The orchestrator **reads the review artifact before resolving the
+terminal gate**: that artifact is both the visibility surface for the user and the loop context
+that lets a denied review re-run intelligently instead of blindly.
 
-**Every durable agent is conversable.** `k_threads` carries a `profile_id` (default `k-secretary`),
-so a thread is a conversation for ANY profile over the same threads/turns machinery — K keeps
-multi-thread; every other durable agent (managers, orchestrator leads) gets exactly ONE auto-created
-conversation (`getOrCreateConversation(profileId)`). Conversations execute over the session layer
-(§02) and surface on the Messages page (§08).
+### The four broad work pipelines
 
-**The mailbox is a DB queue, delivered by state.** `agent_messages` rows (to-profile + optional
-to-thread, from `user | profile`, body, priority `normal | urgent`, `provenance_run_id`) are drained
-by the main-process relay (§02) and delivered by the target session's state:
+The everyday SOP. Any qualified orchestrator runs these four; intent and discipline are parameters,
+not separate pipelines — **a bugfix is `Code`, not its own pipeline.**
 
-- **live + parked** → written to stdin NOW (real-time steering — same run, same context);
-- **live mid-turn** → held for the next turn boundary. An **urgent** message additionally fires ONE
-  control-protocol **interrupt nudge** (`sendInterrupt`, per-run cooldown) asking the CLI to end its
-  turn early — the nudge only *accelerates* the boundary, it never delivers by itself, so an
-  interrupt-less CLI degrades **structurally** to boundary delivery rather than through a fallback
-  branch;
-- **idle** → the session is woken with all of that conversation's queued messages batched into one
-  turn.
+| Pipeline | Covers | Instantiation | Terminal |
+|---|---|---|---|
+| **Code** | Any change to a codebase — feature, bugfix, refactor, upgrade | Ground → plan cohort (convergent) → plan artifact → orchestrator gate → impl cohort (partitioned) → impl artifact → orchestrator gate → review swarm → review artifact → merge gate | Merge gate (escalated) |
+| **Investigate** | Read-only — feasibility, root cause, architecture, audit | Ground → one cohort → report artifact | None |
+| **Verify** | Independent verification of existing work | Ground → discipline cohort → findings artifact + proposals | Findings; proposals enter the decision queue |
+| **Operate** | Acting on running systems — deploy, release, rollback, incident | Ground → plan → orchestrator gate → execute → operation artifact | Floor-class gate (escalated) |
 
-A delivery failure marks the row `failed` and raises a notification — never silent (§13).
+### Specialized pipelines
 
-**Provenance is relay-owned and forge-resistant.** Every delivered message is embedded as a
-provenance-tagged transcript block (`[message from <sender> · <priority>] …`); the relay **escapes
-lookalike tags inside bodies** before embedding (the UI unescapes for display), so a message body
-cannot forge another sender's block. The mailbox row itself keeps the body verbatim.
+A distinct class: unique, deeply designed systems for **specialized, uncommon work**, not everyday
+development. Each is discipline-bound and its own designed system — **not a parameter set** of the
+broad four. This is what "orchestrator-specific" means: not a special category of orchestrator,
+just a pipeline whose discipline requirement happens to be set.
 
-**`message_agent` — the tier-gated send tool.** Mounted at every tier, gated by a pure matrix:
-**K → anyone; a manager → its domains' members + K; an orchestrator → its manager + the actors of
-its running stages; self-send denied** (the wake-loop guard — and what keeps the supervisor's
-self-addressed briefings unforgeable, since only the internal queue path may mint them; §13). The
-sender is resolved from the calling run, never from the payload.
+| Pipeline | Discipline | For |
+|---|---|---|
+| `live-smoke` | frontend | Driving the running application end to end against real surfaces |
+| `mass-pen-test` | security | Broad adversarial security sweep |
+| `regression-sweep` | test | Wide re-verification across a suite |
 
-**Report-backs are messages now.** Chief delegation outcomes, lead continuations, and pipeline
-terminals all queue through the mailbox to K's originating conversation — as does a manager's mgmt
-`report`, which **dual-writes** a message to K in real time; the terminal report-back is
-**de-duplicated** against that dual-write, so a reported outcome is never quoted at K twice. The
-outcome still lands *where you asked* — it is just a message from that agent, not a bespoke
-turn-append.
+These are added as genuine new pipelines over time, not spun up per request.
 
-**Cost honesty.** A message, report-back, or briefing delivered to an **idle** agent is a REAL
-dispatch — a wake run, stamped `kind='chat-turn'` (D-127). The exemption splits by ORIGIN: the
-**operator's own** conversation turns are never budget-blocked (the operator must always reach
-their agents to raise a cap), but a **profile-originated** wake — an agent message, briefing, or
-report-back causing the dispatch — **rides the org budget gate** like any autonomous spend, plus a
-rolling-hour relay circuit-breaker as a loop damper. A capped agent delivery **holds** (rows stay
-queued, one notification; delivery resumes when the cap lifts — never `failed`). Supervision
-briefing *creation* is additionally governed by the wake governor + per-domain caps (§13).
-Free-looking report-backs are not free; they are metered.
+### System pipelines
+
+The system operating on itself, triggered by **system events** rather than commissioned — passive
+work with an event trigger instead of a cadence. Both are owned by Operations, since repo lifecycle
+already is, and each produces a first-class artifact:
+
+| Pipeline | Trigger | Produces |
+|---|---|---|
+| **Project onboarding** | A project is registered | Analyzes the codebase and writes a properly structured project bible and artifacts directory — the source of truth every subsequent Ground phase reads |
+| **Documentation sync** | Drift detected between code and bible | Re-analyzes and updates the bible; emits a sync-report artifact |
+
+Onboarding is load-bearing: it manufactures the bible that makes Ground possible for everything
+else.
+
+## Loops
+
+Three scales, three meanings of "keep going." What makes them one system is a shared invariant:
+**every loop has an exit condition, a budget, and someone above it who hears about failure.**
+
+| | **Pipeline iterate** | **Orchestrator satisfaction** | **Chief objective** |
+|---|---|---|---|
+| Owner | The pipeline definition | The orchestrator, for its unit | The chief, for a commission |
+| Goal | A condition on stage output | The acceptance criteria recorded before dispatch | The objective as commissioned |
+| Judgment | None — mechanical | "Is this actually good?" | "Is this actually done?" |
+| Between attempts may | Retry the stage | Change approach, re-plan, use a different worker | Re-commission — a different unit, orchestrator, or discipline |
+| Bounded by | A declared iteration cap | Retries, spend, time | Commission budget, escalation triggers |
+| On exhaustion | Stage fails | Escalate to chief | Escalate to user |
+
+### Nobody may move their own goalposts
+
+An orchestrator's acceptance criteria are fixed when the unit starts; loosening them is an
+escalation, never a decision it can make on its own. A chief's objective is fixed when the
+commission is accepted; changing it is a renegotiation with the user — a message, not an internal
+call. Without this rule, "keep working until it is good" degenerates reliably into "redefine good,"
+and every loop terminates in a confident false report.
+
+### The failure ladder
+
+> stage fails → pipeline retries it (cap) → orchestrator changes approach (budget) → chief
+> re-commissions differently (budget) → the user hears about it
+
+Each rung has strictly more expensive options than the one below it, which is the correct order in
+which to spend. Because every iteration emits a checkpoint, a grinding loop is visible *while* it
+grinds — intervention is possible at rung two rather than discovery at rung four.
+
+### Nested budgets
+
+The ladder's danger is multiplicative: three iterations by three retries by three re-commissions is
+twenty-seven units of work from one request. Budgets are therefore **nested and enforced
+downward**. The commission carries an allowance; the chief allocates from it per unit; the
+orchestrator allocates from that per retry; the pipeline's iteration cap sits inside that. A child
+can never exceed its parent's remaining allowance, and the parent sees the drawdown. Standing jobs
+receive their allowance at arming time.
+
+## Ledgers and artifacts
+
+Ledgers and artifacts are mandatory at every level, not just for the broad work pipelines:
+
+- **Orchestrator ledger, per unit** — created at unit start, appended at every checkpoint:
+  acceptance criteria, scale decisions and their justification, cohort composition, artifacts
+  produced, gate outcomes, retries, spend.
+- **Chief ledger, per goal** — objective, means chosen, units dispatched, gates resolved (by whom,
+  why), escalations, drawdown, status. A chief's goal-level artifacts — the objective/decision
+  record, the final report — hang off this ledger.
+- **System pipelines** carry ledgers and artifacts on the same terms; onboarding and documentation
+  sync are not exempt.
+
+**The ledger is the write side; threads and boards are read-side projections; the report is the
+ledger's closing entry.** A checkpoint is not a separate act of reporting — it is a ledger append
+that surfaces (see *Oversight granularity equals reporting granularity*, below). And a report is
+only as good as what it points to: **a report whose claimed evidence artifacts do not exist does
+not validate.** "Tests passed" without a linked run is a rejected submission, not a completed one.
+
+## Correspondence and visibility
+
+Because a chief is event-driven (§03) and nobody is resident watching a run happen, the
+organization has to make its own state visible without anyone staying awake to narrate it. That is
+what threads and boards are for.
+
+### Threads
+
+Per the correspondence model, a thread is a room, not a DM: one thread per chief, with three
+participants — the user, K, and that chief. A commission K writes *is* a message in that room,
+visible and replyable, never a hidden side channel; the user may also talk to a chief directly
+without going through K. The sidebar is people: K, and one entry per chief, nothing else.
+
+Messages are typed: `message · commission · checkpoint · gate · escalation · report`. That typing
+is what lets one write feed several surfaces at once (see *Oversight granularity*, below).
+
+**The thread is the record; the working context is a window onto it.** A standing thread never
+ends, so a chief wakes with a rolling summary plus recent messages plus current state — not full
+history. Durable truth lives in the thread, not in anyone's context window.
+
+### Boards
+
+Three projections over the same event stream:
+
+- **Decision queue** — what needs the user: gates, proposals, escalations, each with the evidence
+  needed to decide and what is blocked behind it.
+- **Standing work** — every armed job across every domain: cadence, last fired, what it did, next
+  fire, allowance drawdown.
+- **Activity** — what is happening right now: which chiefs are awake, which units are live, which
+  loop is on which iteration, spend against budget.
+
+**The activity board is the direct mitigation for event-driven chiefs**: nobody is resident, so the
+system itself holds the live picture instead.
+
+### Oversight granularity equals reporting granularity
+
+Because nobody is watching, reports cannot be terminal-only. Position procedure (§03) mandates
+interim posts at defined checkpoints — stage transitions, gate resolutions, threshold crossings,
+discipline handoffs.
+
+**One checkpoint write is simultaneously a chief-wake event, a thread message, a board row, and an
+audit entry** — four consumers, one source (the ledger, above). Mandatory reporting is therefore
+not overhead bolted onto the real work; it *is* the coordination substrate.
+
+The visual surface for threads and boards lives in §08 Dashboard UX and §13 Observability.
+
+## Standing jobs — default arming
+
+Standing jobs split by blast radius. Armed jobs are advisory only — they cannot change anything;
+disarmed jobs write.
+
+**Armed by default — advisory only, cannot change anything:**
+
+| Domain | Job | Cadence |
+|---|---|---|
+| Quality & Security | Review open changes | hourly |
+| Quality & Security | Dependency vulnerability audit | daily |
+| Quality & Security | Test health and flake triage | daily |
+| Operations | CI failure triage — investigates and proposes, never pushes | on red build |
+| Engineering | Backlog grooming — reads, clarifies, proposes ordering | daily |
+
+**Disarmed by default — these write:**
+
+| Domain | Job | Cadence |
+|---|---|---|
+| Engineering | Backlog execution | daily |
+| Operations | Dependency upgrade sweep | weekly |
+| Operations | Repo hygiene | weekly |
+
+A fresh install does nothing, and by morning has produced a review of open changes, a triage of
+failing tests, a vulnerability report, and a groomed backlog — with zero blast radius, because none
+of those jobs can change anything. The jobs that act are one deliberate toggle away.
+
+**All chiefs start at L0 Attended** (§03); the floor is intact in every domain regardless of which
+standing jobs are armed.
 
 ## Skills — capability catalog vs automation registry (BUILT — host-integration program)
 
@@ -233,40 +328,23 @@ lands it.
 
 ## Memory — layered, starting at A
 
-Every durable profile (K, Chief, each lead) carries a **memory**. Memory is **layered**, and Phase 5
-deliberately **starts at layer A** with storage shaped so B and C are a swap, not a rewrite — the
-same posture the **ModelRouter** takes (start simple, grow into learned behavior on the same seam).
-**Memory is a tool, not a file:** managed agents record lessons only through the kstore memory tool —
-never by writing a file. (`tasks/lessons.md` is the human operator's home-development tracker, outside
-the managed-run architecture.) K's **conversation** follows the same rule: the durable K thread
-(`k_threads` / `k_thread_turns`, P5.1c) is a **tool-backed store, not a file**, so K's identity and
-its own answers persist across reload while any run executing that thread stays ephemeral.
+Every durable profile (K, Chief, each orchestrator) carries a **memory**. Memory is **layered**,
+and Phase 5 deliberately **starts at layer A** with storage shaped so B and C are a swap, not a
+rewrite — the same posture the **ModelRouter** takes (start simple, grow into learned behavior on
+the same seam). **Memory is a tool, not a file:** managed agents record lessons only through the
+kstore memory tool — never by writing a file. (`tasks/lessons.md` is the human operator's
+home-development tracker, outside the managed-run architecture.) K's **conversation** follows the
+same rule: the durable K thread (`k_threads` / `k_thread_turns`, P5.1c) is a **tool-backed store,
+not a file**, so K's identity and its own answers persist across reload while any run executing
+that thread stays ephemeral.
 
-**Report-back lands on the same thread (D-046).** When K delegates an engineering ask up to the Chief
-(`startAgentRun('chief', { trigger:'delegation' })` — see §03), the outcome comes back *where you
-asked*: on the Chief run reaching terminal, `reportDelegationBack` (riding the run-lifecycle seam)
-appends a `k` turn to the durable K thread, summarizing the Chief's latest **mgmt `report`** (or, as a
-fallback, the run's assistant text / a status line). The up/down chain — you ask K, K hands up to the
-Chief, the Chief works and reports up — is thus visible in the one place the operator is already
-looking, over the existing thread + event stream (no new channel).
-
-**The report continues past the Chief's turn (D-051, loop-b b2).** A Chief's bounded activation can
-terminate BEFORE the lead it dispatched finishes — so `reportDelegationBack` (which fires on the
-**Chief** terminal) can land a PRE-lead status. loop-b b2 closes that gap: `continueLeadOutcomeToK`
-rides the **lead** run's terminal (the same main-EventBus signal the lead→Chief mgmt report uses) and,
-IF the parent Chief run was itself a K delegation (resolved from the same `k_thread_turns.run_id` link
-that recorded the hop), appends the lead's outcome one more hop UP onto the durable K thread ("Chief
-(via <lead>) completed: …"). It is idempotent (the run-lifecycle once-latch) and a **no-op when the
-Chief woke autonomously** (no linked thread). So the operator's thread reflects the lead's REAL
-outcome, not just the Chief's mid-turn status — completing the up-chain the down-chain (§03) opened.
-
-> **MECHANISM SUPERSEDED — D-124 (Continuous Agents).** Both report-back hops above (and the
-> pipeline-terminal report) now flow through the **mailbox**: the outcome is queued as an
-> `agent_messages` row from the reporting profile to K's originating conversation and delivered by
-> the relay (a wake when K is idle — a real, governed dispatch). The *where-you-asked* guarantee and
-> the traceability links are unchanged; only the transport moved off bespoke turn-appends. Note also
-> that the D-046-era **automatic** K→Chief hand-up these reports answered is itself retired (D-126,
-> §03) — K delegates via pipelines and messages now. See *Conversations & the mailbox* above.
+**Report-backs land on the thread they came from.** A commission's outcome — a chief's final
+report, an escalation, a checkpoint digest — is delivered as a typed message into the thread the
+commission was written to (see *Correspondence and visibility*, above), so the operator finds the
+answer where they asked the question, not in a separate channel. This delivery mechanism predates
+the current doctrine — it shipped as the mailbox/conversation subsystem (D-046, D-051, D-124) — and
+continues to serve as the transport underneath threads; only the position vocabulary above it
+changed, from a single Chief dispatching a lead to a per-domain chief driving orchestrators (§03).
 
 | Layer | What | Status |
 |-------|------|--------|
