@@ -8,8 +8,8 @@
  * Shell z-0) picks up the change immediately.
  *
  * Round 4 drops the gradient backdrop kind from the UI entirely — the picker
- * is now a Solid | Image segmented toggle (SegControl), never a <select>. A
- * persisted legacy `kind: 'gradient'` value is coerced to display as the
+ * is now a Solid | Image segmented toggle (SegControl), never a native select
+ * dropdown. A persisted legacy `kind: 'gradient'` value is coerced to display as the
  * Solid segment (Background.tsx does the matching render-side fallthrough).
  *
  * The `image` segment is disabled until an image has been uploaded at least
