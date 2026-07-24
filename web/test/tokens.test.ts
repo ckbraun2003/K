@@ -39,4 +39,14 @@ describe('tokens', () => {
   it('no longer carries the removed --terminal-bg token (terminal feature deleted, D-134)', () => {
     expect(TOKEN_FALLBACKS['--terminal-bg']).toBeUndefined()
   })
+  it('covers the R4 (D-135) role anchors and the accent token now derived from --primary', () => {
+    expect(TOKEN_FALLBACKS['--primary']).toBe('#e294e0')
+    expect(TOKEN_FALLBACKS['--secondary']).toBe('#87cefa')
+    // --accent unifies onto --primary (pink); --accent-hover/-hi are the resolved
+    // color-mix(in srgb, --primary 72%/40%, white) values — concrete hex, never a
+    // literal color-mix(...) string, since jsdom/canvas readers must resolve them directly.
+    expect(TOKEN_FALLBACKS['--accent']).toBe('#e294e0')
+    expect(TOKEN_FALLBACKS['--accent-hover']).toBe('#eab2e9')
+    expect(TOKEN_FALLBACKS['--accent-hi']).toBe('#f3d4f3')
+  })
 })

@@ -8,9 +8,9 @@ import {
 it('background settings model: kinds/presets + default + schema validation', () => {
   expect(BACKGROUND_KINDS).toEqual(['solid', 'gradient', 'image'])
   expect(GRADIENT_PRESETS).toEqual(['aurora', 'dusk', 'ocean', 'ember'])
-  expect(DEFAULT_BACKGROUND_SETTINGS).toEqual({ kind: 'solid', preset: null, imageVersion: null })
+  expect(DEFAULT_BACKGROUND_SETTINGS).toEqual({ kind: 'solid', preset: null, imageVersion: null, solidColor: null })
   expect(BackgroundSettingsSchema.parse({ kind: 'gradient', preset: 'aurora', imageVersion: null })).toEqual({
-    kind: 'gradient', preset: 'aurora', imageVersion: null,
+    kind: 'gradient', preset: 'aurora', imageVersion: null, solidColor: null,
   })
   expect(BackgroundSettingsSchema.safeParse({ kind: 'nope', preset: null, imageVersion: null }).success).toBe(false)
 })

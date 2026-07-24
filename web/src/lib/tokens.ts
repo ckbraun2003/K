@@ -6,7 +6,11 @@ export const TOKEN_FALLBACKS: Record<string, string> = {
   '--surface': '#2a1a47', '--raised': '#33205c',
   '--border': '#3a2a5c', '--border-strong': '#4a3775',
   '--text': '#c6cede', '--muted': '#8f99ad',
-  '--accent': '#a855f7', '--accent-hover': '#c084fc', '--accent-hi': '#e9d5ff', '--on-accent': '#241640',
+  // Role anchors (ui-adjustments R4 / D-135) — user-tunable at runtime; mirrored from index.css :root.
+  '--primary': '#e294e0', '--secondary': '#87cefa',
+  // --accent unifies onto --primary (pink); --accent-hover/-hi are the resolved color-mix(primary, white)
+  // values (72%/40%) since jsdom/canvas readers must never see a literal color-mix(...) string.
+  '--accent': '#e294e0', '--accent-hover': '#eab2e9', '--accent-hi': '#f3d4f3', '--on-accent': '#241640',
   '--green': '#34d399', '--amber': '#fbbf24', '--red': '#f87171',
   '--chart-1': '#ff8fc0', '--chart-2': '#34d399', '--chart-3': '#fbbf24',
   '--chart-4': '#38bdf8', '--chart-5': '#a855f7', '--chart-6': '#f87171',
