@@ -140,37 +140,15 @@ body { font-variant-numeric: tabular-nums; }
   overflow: hidden;
 }
 
-/* Wallpaper gradient presets (usability-access P2.6 wallpaper UI) — static
-   CSS gradients recombining the same LG2 blob tokens used to paint the
-   living-ambient blobs, so the palette stays sanctioned without any JS
-   animation loop. `.bg-gradient-aurora` is an alias for `.lg-aurora` (still
-   used standalone by LoginScreen's pre-auth backdrop). */
+/* LoginScreen pre-auth backdrop gradient (usability-access P2.6). The wallpaper
+   gradient PRESET options were dropped in UI Adjustments R4 (D-135) — the
+   Appearance picker now offers Solid | Image only — so only `.lg-aurora` and
+   its `.bg-gradient-aurora` alias survive, used standalone by LoginScreen. */
 .lg-aurora, .bg-gradient-aurora {
   background:
     radial-gradient(60% 50% at 20% 20%, var(--lg-blob-1), transparent 70%),
     radial-gradient(55% 45% at 80% 10%, var(--lg-blob-2), transparent 70%),
     radial-gradient(50% 60% at 50% 90%, var(--lg-blob-3), transparent 70%),
-    var(--bg-deep);
-}
-.bg-gradient-dusk {
-  background:
-    radial-gradient(65% 55% at 75% 15%, var(--lg-blob-2), transparent 70%),
-    radial-gradient(55% 50% at 15% 75%, var(--lg-blob-4), transparent 70%),
-    radial-gradient(45% 40% at 50% 50%, var(--lg-blob-1), transparent 75%),
-    var(--bg-deep);
-}
-.bg-gradient-ocean {
-  background:
-    radial-gradient(60% 55% at 25% 80%, var(--lg-blob-3), transparent 70%),
-    radial-gradient(50% 45% at 80% 20%, var(--lg-blob-4), transparent 70%),
-    radial-gradient(55% 50% at 60% 60%, var(--lg-blob-3), transparent 75%),
-    var(--bg-deep);
-}
-.bg-gradient-ember {
-  background:
-    radial-gradient(60% 50% at 30% 20%, var(--lg-blob-2), transparent 70%),
-    radial-gradient(55% 55% at 85% 75%, var(--lg-blob-1), transparent 70%),
-    radial-gradient(45% 40% at 50% 50%, var(--lg-blob-2), transparent 75%),
     var(--bg-deep);
 }
 
