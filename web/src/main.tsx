@@ -4,7 +4,15 @@ import '@fontsource/jetbrains-mono/600.css'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App.tsx'
+import { normalizeBootHash } from './lib/boot-hash'
 import './index.css'
+
+// UI Adjustments Task C1: run BEFORE React mounts so a reload on `#/messages/<id>`
+// never lets MessagesPage re-select that thread — chats always boot to a new-chat
+// draft (thread-select.ts's `selected` now seeds `null`, not the old localStorage
+// value). See lib/boot-hash.ts.
+const normalizedHash = normalizeBootHash(location.hash)
+if (normalizedHash !== location.hash) history.replaceState(null, '', normalizedHash)
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 5_000 } },

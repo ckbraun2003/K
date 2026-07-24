@@ -7,14 +7,20 @@ import { useSyncExternalStore } from 'react'
  * first send (Task 9), not on selection. A plain module store (mirrors
  * `dock-bus.ts`'s listener-set idiom) so the bar and float variants — and any
  * other future surface (e.g. a Chats list, Task 15) — share one source of truth
- * without prop drilling through Shell. Persisted to localStorage so the pick
- * survives a reload; `localStorage` access is guarded (private-browsing /
- * disabled-storage throws) so a blocked store degrades to in-memory only.
+ * without prop drilling through Shell.
+ *
+ * UI Adjustments Task C1: the boot default is ALWAYS a new-chat draft (`null`)
+ * — a reload never resumes the last-open thread. Full history stays one click
+ * away in the Messages list; only the initial seed changed. In-session writes
+ * still persist to localStorage (below) so a selection made THIS session
+ * survives an in-page remount; `localStorage` access is guarded (private-
+ * browsing / disabled-storage throws) so a blocked store degrades to
+ * in-memory only.
  */
 const KEY = 'k.chat.selected'
 type Listener = (id: string | null) => void
 const listeners = new Set<Listener>()
-let selected: string | null = (() => { try { return localStorage.getItem(KEY) } catch { return null } })()
+let selected: string | null = null
 
 export function getSelectedThread(): string | null { return selected }
 
