@@ -191,25 +191,32 @@ export function BackgroundSection() {
               </div>
             )}
 
-            <div className="flex items-center gap-3">
-              <Button
-                variant="glass"
-                size="sm"
-                type="button"
-                disabled={saving}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {hasImage ? 'Set background' : 'Upload image…'}
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                data-testid="background-image-input"
-                className="sr-only"
-                onChange={onFileChange}
-              />
-            </div>
+            {/* The image upload/replace control belongs to the Image kind only.
+                It stays visible on the Solid segment ONLY when no image exists
+                yet (the bootstrap path — the Image segment is disabled until the
+                first upload), so picking a solid color never shows a stray
+                "set background" image button (ui-adjustments R4 operator fix). */}
+            {(activeSegment === 'image' || !hasImage) && (
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="glass"
+                  size="sm"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {hasImage ? 'Replace image…' : 'Upload image…'}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  data-testid="background-image-input"
+                  className="sr-only"
+                  onChange={onFileChange}
+                />
+              </div>
+            )}
             {sizeWarning && (
               <p data-testid="background-size-warning" className="text-caption text-amber">
                 {sizeWarning}

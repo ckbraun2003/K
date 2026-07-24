@@ -209,6 +209,21 @@ describe('BackgroundSection (wallpaper picker)', () => {
     expect(screen.queryByTestId('background-solid-color')).toBeNull()
   })
 
+  it('no image upload button on the Solid segment once an image exists (R4 operator fix)', async () => {
+    current = { kind: 'solid', preset: null, imageVersion: 2, solidColor: null }
+    renderWithQuery(<BackgroundSection />)
+    await screen.findByTestId('seg-solid')
+    expect(screen.queryByTestId('background-image-input')).toBeNull()
+    expect(screen.queryByText(/set background/i)).toBeNull()
+  })
+
+  it('the image control shows as "Replace image…" on the Image segment', async () => {
+    current = { kind: 'image', preset: null, imageVersion: 1, solidColor: null }
+    renderWithQuery(<BackgroundSection />)
+    await screen.findByTestId('background-image-input')
+    expect(screen.getByText(/replace image/i)).toBeTruthy()
+  })
+
   it('selecting a file in the image input reads it as a data URL and calls uploadImage()', async () => {
     renderWithQuery(<BackgroundSection />)
     const fileInput = await screen.findByTestId('background-image-input') as HTMLInputElement
