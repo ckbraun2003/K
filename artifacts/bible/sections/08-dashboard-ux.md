@@ -950,3 +950,15 @@ The operator asked for a fourth pass on `feat/ui-adjustments-r4` (cut from the m
 - **Personal Inbox — explicit input-requests only.** A new `request_input` MCP tool ships on the **kstore** server — K's universal working-store server, mounted at every interactive agent tier via the existing server-wide `mcp__kstore` grant (§03), not a chief-only tool — that lets any agent explicitly ask the operator a question, request verification, or ask for feedback. Calling it records an `'input_request'` event on the agent's run. The Inbox's `awaiting_input` source (§ Notifications, above) and the run-awaiting-input notification now both derive from an `awaiting_input`-parked run that additionally has an **unanswered** `input_request` event — newer than the run's last resume — instead of firing on the bare park state at every interactive turn boundary. Ordinary agent replies that don't call `request_input` no longer produce an inbox item at all; the run resume/session/metrics machinery underneath is untouched. See §11 Operations for the tool's technical mechanics.
 
 **Deferred (documented, non-blocking):** hardening `sendInput`'s resume-sequence reseed to be more defensive against an out-of-order resume race (no known live failure, precautionary); the color-input commit-on-drag debounce for the new Primary/Secondary/Solid pickers follows the same pattern the existing font-color picker already used, not a new gap; `BackgroundSettings.preset` is now a vestigial field (kept on the type for storage-migration compatibility, no longer read by the Solid|Image UI); the unused `--lg-blob-4` token (Liquid Glass 2.0-era, D-115) remains defined in `:root` with no active consumer.
+
+## Correspondence home — threads and boards (§04, D-142)
+
+The operator's home surface is the correspondence model defined in §04: one persistent thread per
+chief is the room where that chief's commissions, checkpoints, gates, and reports collect, and three
+boards project the same event stream into different views — the **Decision queue** (what needs the
+user), **Standing work** (every armed job, its cadence, and its drawdown), and **Activity** (what is
+live right now). §04 *Correspondence and visibility* is the model of record for both threads and
+boards; D-142 (§10) is the decision that fixed one thread per correspondent with boards as read-side
+projections, rather than a separate inbox or timeline per surface. Surface design for this home —
+layout, navigation, which rail destination hosts which board — is an explicitly deferred follow-on,
+not decided here.

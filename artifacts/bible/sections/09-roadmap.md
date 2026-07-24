@@ -2,12 +2,80 @@
 title: Roadmap
 icon: "➤"
 status: active
-updated: 2026-07-22
+updated: 2026-07-24
 ---
 
 Re-baselined 2026-06-10 to fold in the compiled-bible, registry, GitHub, verification, and Command Deck designs.
 
 <!-- @live:roadmap-progress -->
+
+## Agentic Org Foundation — code-integration phase map (A–I) *(next up)*
+
+> The largest program on the board: move the approved **Agentic Org Foundation** off the page and into the engine. Documentation-first — this roadmap entry and the bible rewrites land before any code — then nine dependency-ordered, independently shippable phases.
+
+This program takes the Agentic Org Foundation — design of record: **§01** (vision principles), **§03** (positions K/Chief/Orchestrator/Worker, doctrine layers, gates, autonomy L0–L3, the floor, escalation), **§04** (work modes, pipelines, loops, correspondence, ledgers), and decisions **D-136..D-143** — and lands it in the engine. It is documentation-first: this roadmap entry and the accompanying bible rewrites land before any application code changes. The code then proceeds in nine dependency-ordered phases (A–I); each is a future spec→plan→implementation cycle that produces working, testable software on its own and upholds the foundation invariants it introduces.
+
+### Foundation invariants
+
+The seventeen properties every phase must uphold — the table's **Key invariants** column cites these numbers. They hold only *jointly*: a phase that introduces one must not break another.
+
+1. No agent completes without a valid typed exit.
+2. A report whose claimed evidence artifacts do not exist does not validate.
+3. Every loop has an exit condition, a budget, and an escalation path — none is unbounded.
+4. No agent may relax its own success criteria; loosening acceptance criteria or changing an objective is an escalation or renegotiation, never a decision.
+5. Every gate a chief resolves on the user's behalf appears in that chief's report.
+6. Floor classes require explicit per-chief, per-class authorization — there is no global override.
+7. Escalations are never delegable and always reach the user.
+8. A child's budget never exceeds its parent's remaining allowance.
+9. Locked doctrine layers are not user-editable through any surface.
+10. Orchestrators never modify code; workers never delegate; K never changes state and never resolves a gate.
+11. A passive job never blocks; work beyond its pre-authorized scope becomes a proposal.
+12. Every domain has exactly one chief; every unit has exactly one orchestrator; every commission has exactly one owning chief.
+13. No craft-specific rule appears in a locked layer.
+14. Every pipeline phase closes by producing an addressable artifact; every unit and every goal has a ledger.
+15. Every work pipeline begins with a Ground phase that reads the project bible; a pipeline cannot run against a project with no bible.
+16. The orchestrator reads the review artifact before resolving the terminal gate.
+17. Orchestrator-resolver gates never reach the decision queue; escalated gates always do (subject to delegation).
+
+### The phases
+
+| Phase | Delivers | Depends on | Risk | Key invariants |
+|---|---|---|---|---|
+| **A — Doctrine & prompt layering** | Split the base operating prompt into universal doctrine + per-position procedure + separate K doctrine; add the worker procedure; the synthesizer mounts the right layers per position | — | Low | 9, 13 |
+| **B — Positions & authority realignment** | Worker as a first-class position; orchestrators lose code tools (Bash/Write/Edit/PowerShell → workers only); chief verbs move from assignment-shaped to means-selection | A | **High** — removes tools a tier uses today | 10, 12 |
+| **C — Gates, resolver levels, autonomy, floor, escalation** | Gate-class taxonomy; orchestrator vs escalated resolver levels; per-chief × per-gate-class autonomy matrix replacing the global blob; the floor; escalation doctrine + triggers; unified decision-queue data model | B | High | 5, 6, 7, 17 |
+| **D — Typed exits, handback contract, ledgers** | Schema-validated per-position submit tools; report validation against linked artifacts; mandatory per-unit and per-goal ledgers | B | Medium | 1, 2, 5, 14 |
+| **E — Loops & nested budgets** | Orchestrator satisfaction loop; chief objective loop; goalpost-immovability guard; nested budgets enforced downward | C, D | Medium | 3, 4, 8 |
+| **F — Pipeline SOP system** | Broad-pipeline anatomy (ground/scale/cohort/converge/orchestrator-gate/review-swarm/terminal); Code/Investigate/Verify/Operate; cohort modes; per-phase artifacts; orchestrator-resolver gates wired | E, D | High | 14, 15, 16 |
+| **G — Work modes & standing jobs** | Active commission flow (K→chief thread); passive standing-job catalog with arming, cadence, pre-authorized scope; proposal→commission seam; system pipelines (onboarding writes the bible, doc-sync) | F | Medium | 11, 15 |
+| **H — Correspondence & boards (model)** | One thread per correspondent; typed messages; thread-context rollover; decision-queue / standing-work / activity boards as projections. UI layout is the separate Surface design follow-on | C, G | Medium | 17 |
+| **I — Shipped roster** | Seed three domains, disciplines as orchestrators, default-armed advisory jobs, disarmed writing jobs, all chiefs L0 | G, H | Low | 6, 12 |
+
+**Phase A — Doctrine & prompt layering.** The unstructured "default principles" prose becomes a layered doctrine — universal conduct rules that bind every member, per-position procedure mounted on top, and K's separate fidelity doctrine — plus the new worker procedure. It leads the program because every later phase inherits these layers: positions (B), gates (C), and typed exits (D) all reference doctrine that must already be structured and locked. A live smoke would prove that the config synthesizer, mounting a chief, produces universal doctrine + the chief procedure but *not* the worker or K layers, and that no surface can edit the locked layers (inv. 9, 13).
+
+**Phase B — Positions & authority realignment.** Promotes the worker to a first-class position and realigns authority to the position model: orchestrators become oversight-only, and chief tooling shifts from assignment-shaped verbs to means-selection. It depends only on A and gates everything after it, because C's resolver levels, D's per-position exits, and F's cohorts all assume the position/authority shape is already true. **Migration hazard — why this is HIGH risk:** orchestrators lose their hands. The coding tools (Bash/Write/Edit/PowerShell) move to workers only, so **every existing code path that today assumes an orchestrator-tier agent can Write/Edit/run Bash must be rerouted through a worker before this phase lands.** An orchestrator that still holds those tools violates inv. 10, and any un-migrated path breaks the instant the tools are removed — inventorying and rerouting those paths is the bulk of the phase and the first thing to do. A live smoke would prove that an orchestrator asked to change a file cannot (it holds no code tools) and instead drives a worker that makes the edit and hands back evidence (inv. 10, 12).
+
+**Phase C — Gates, resolver levels, autonomy, floor, escalation.** Introduces the gate as a first-class object with a class and a resolver level, the per-chief × per-gate-class autonomy matrix that replaces the single global blob, the never-delegable floor, escalation doctrine with its triggers, and the unified decision-queue data model. It sits after B because delegated gate authority is scoped to a chief's domain — positions and domain ownership must exist first. A live smoke would prove that, with a chief at L1, a plan gate resolves in-domain and lands in that chief's report while a floor-class merge gate refuses delegation and escalates to the user (inv. 5, 6, 7, 17).
+
+**Phase D — Typed exits, handback contract, ledgers.** Makes the handback contract executable: schema-validated submit tools per position, report validation that rejects any claimed evidence artifact that does not exist, and the mandatory per-unit and per-goal ledgers that are the write side of all reporting. It shares B as its dependency and precedes E/F because loops and pipelines both need ledgers and typed checkpoints to be real. A live smoke would prove that a worker submitting a report which cites a test-run artifact that was never produced is rejected, not completed (inv. 1, 2, 5, 14).
+
+**Phase E — Loops & nested budgets.** Adds the two judgment loops above the mechanical pipeline iterate — the orchestrator satisfaction loop ("is this actually good?") and the chief objective loop ("is this actually done?") — the goalpost-immovability guard, and budget nesting enforced downward through the tree. It depends on C (escalation is the loop's exhaustion path) and D (the ledger records each iteration), and must exist before F so a denied pipeline gate re-runs under a bounded budget rather than forever. A live smoke would prove that an orchestrator whose worker output fails its recorded acceptance criteria changes approach and retries until budget is exhausted, then escalates — and that a child dispatch cannot draw more than its parent's remaining allowance (inv. 3, 4, 8).
+
+**Phase F — Pipeline SOP system.** Builds the one broad-pipeline anatomy (ground → scale → cohort → converge → orchestrator gate → review swarm → terminal gate) and the four broad work pipelines — Code, Investigate, Verify, Operate — with convergent/partitioned cohort modes, a named artifact per phase, and orchestrator-resolver gates wired into the satisfaction loop. It depends on E (the satisfaction loop that drives re-runs) and D (per-phase artifacts and ledgers); it is HIGH risk because it collapses the abundant per-intent pipeline catalog into four deeply designed ones. A live smoke would prove that running Code grounds against the bible, scales a plan cohort to an approved plan artifact, partitions implementation, runs the review swarm, and reads the review artifact before the merge gate (inv. 14, 15, 16).
+
+**Phase G — Work modes & standing jobs.** Wires both work modes end to end: the active commission flow (K writes a commission into the chief's thread) and the passive standing-job catalog with arming, cadence, and pre-authorized scope; the proposal→commission seam where passive work re-enters active work; and the two system pipelines — onboarding, which writes the bible, and documentation-sync. It follows F because standing jobs and system pipelines run the pipelines F builds. A live smoke would prove that a disarmed writing job stays dormant while an armed advisory job fires on cadence, does its work with zero blast radius, and converts anything beyond its pre-authorized scope into a proposal rather than blocking (inv. 11, 15).
+
+**Phase H — Correspondence & boards (model).** Delivers the correspondence model — one thread per correspondent, typed messages, and thread-context rollover so a chief wakes with a rolling summary rather than full history — plus the three boards (decision queue, standing work, activity) as projections over the one event stream. UI layout is deliberately out of scope; it is the separate Surface design follow-on (below). It depends on C (the decision-queue object) and G (the standing-work and proposal streams that populate the boards). A live smoke would prove that an orchestrator-resolver gate stays in the unit ledger and never appears on the decision queue, while an escalated gate appears both inline in the chief's thread and on the decision queue (inv. 17).
+
+**Phase I — Shipped roster.** Seeds the first-boot organization: three domains (Engineering, Quality & Security, Operations) with their disciplines as orchestrators, the default-armed advisory jobs and disarmed writing jobs, and every chief at L0 Attended with the floor intact. It is last because it is pure configuration over everything A–H built, and low-risk for the same reason. A live smoke would prove that a fresh install boots with exactly one chief per domain, does nothing on its own, and by morning has produced advisory output (a review of open changes, a test-health triage, a vulnerability report, a groomed backlog) with zero blast radius (inv. 6, 12).
+
+### Follow-on specs
+
+Design efforts this program deliberately defers:
+
+1. **Multi-engine execution** — Codex and Gemini as peers to Claude Code. The org model is engine-agnostic by construction; the execution abstraction and per-position engine selection are separate work.
+2. **Surface design** — the thread, decision queue, standing-work board, activity board, and gate presentation. This phase map defines what those surfaces contain and why (Phase H); their layout and interaction are their own effort.
+3. **Migration sequencing** — this phase map *is* the migration sequencing for the reusable / changed / new / retired component delta between today's implementation and the target model.
 
 ## Phase 0 — Foundation
 
