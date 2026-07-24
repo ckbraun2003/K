@@ -14,8 +14,9 @@ import zlib from 'node:zlib'
 // Covers:
 //   A. the pipeline DAG now renders inside the *definition* inspector (was
 //      text-only; the React Flow graph previously only showed for a run);
-//   B. the background is a user-settable wallpaper (solid / gradient preset /
-//      uploaded image) — no animated ambient/galaxy scene;
+//   B. the background is a user-settable wallpaper (solid, with a custom
+//      solidColor, / uploaded image — gradient was dropped from the UI in
+//      ui-adjustments Round 4) — no animated ambient/galaxy scene;
 //   D. the Settings sidebar scrolls to a section WITHOUT writing location.hash
 //      (an <a href="#id"> would hijack the hash router → navigate to a 404).
 // (Lane C — modern-frosted glass — is a token retune with no new behavior; it
@@ -120,27 +121,25 @@ test('A. pipeline DAG renders inside the definition inspector (not just a run)',
   await screenshot(page, 'ui-refinement-def-inspector-graph')
 })
 
-test('B. wallpaper: solid + gradient presets render behind the frosted glass', async ({ page }) => {
+test('B. wallpaper: solid (with a custom color) renders behind the frosted glass', async ({ page }) => {
   await openApp(page, '#/settings')
   await page.getByTestId('appearance-section').scrollIntoViewIfNeeded()
   const bg = page.getByTestId('app-background')
-  const kind = page.getByTestId('background-kind-select')
 
-  // Solid.
-  await kind.selectOption('solid')
+  // Solid — the default kind (ui-adjustments Round 4 dropped the gradient
+  // kind + its preset picker; Solid|Image is now a seg-solid/seg-image toggle).
+  await page.getByTestId('seg-solid').click()
   await expect(bg).toHaveAttribute('data-variant', 'solid', { timeout: 10_000 })
   await screenshot(page, 'ui-refinement-wallpaper-solid')
 
-  // Gradient + a specific preset.
-  await kind.selectOption('gradient')
-  await expect(bg).toHaveAttribute('data-variant', 'gradient', { timeout: 10_000 })
-  const preset = page.getByTestId('background-preset-select')
-  await preset.selectOption('ocean')
-  // The Select is server-state-controlled — wait for the mutation to round-trip
-  // so the value (and the wallpaper) actually reflect 'ocean' before the shot.
-  await expect(preset).toHaveValue('ocean', { timeout: 10_000 })
+  // A custom solidColor override.
+  const colorInput = page.getByTestId('background-solid-color')
+  await colorInput.fill('#1a3f5c')
+  // The input is server-state-controlled — wait for the mutation to round-trip
+  // so the value (and the wallpaper) actually reflect the new color before the shot.
+  await expect(colorInput).toHaveValue('#1a3f5c', { timeout: 10_000 })
   await expect(page.getByTestId('background-preview')).toBeVisible()
-  await screenshot(page, 'ui-refinement-wallpaper-gradient-ocean')
+  await screenshot(page, 'ui-refinement-wallpaper-solid-custom-color')
 })
 
 test('B. wallpaper: uploading an image switches the background to that image', async ({ page }) => {
@@ -153,8 +152,8 @@ test('B. wallpaper: uploading an image switches the background to that image', a
 
   const bg = page.getByTestId('app-background')
   await expect(bg).toHaveAttribute('data-variant', 'image', { timeout: 15_000 })
-  // Uploading flips the persisted kind to 'image' server-side; the select follows.
-  await expect(page.getByTestId('background-kind-select')).toHaveValue('image')
+  // Uploading flips the persisted kind to 'image' server-side; the toggle follows.
+  await expect(page.getByTestId('seg-image')).toHaveAttribute('aria-pressed', 'true')
   await screenshot(page, 'ui-refinement-wallpaper-image')
 })
 

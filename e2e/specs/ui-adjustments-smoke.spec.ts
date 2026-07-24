@@ -281,7 +281,10 @@ test('3. Glass/palette: Settings > Appearance wallpaper picker renders', async (
     const section = page.getByTestId('appearance-section')
     await section.scrollIntoViewIfNeeded()
     await expect(section).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByTestId('background-kind-select')).toBeVisible({ timeout: 10_000 })
+    // ui-adjustments Round 4 dropped the gradient kind + <select>s in favour
+    // of a Solid|Image SegControl (seg-solid/seg-image).
+    await expect(page.getByTestId('seg-solid')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByTestId('seg-image')).toBeVisible({ timeout: 10_000 })
     await expect(page.getByTestId('background-preview')).toBeVisible({ timeout: 10_000 })
     await screenshot(page, 'uiadj-3-settings-appearance')
   } catch (err) {
@@ -291,7 +294,7 @@ test('3. Glass/palette: Settings > Appearance wallpaper picker renders', async (
       category: 'Bug',
       surface: '#/settings',
       repro: "gotoApp('#/settings'); scroll to appearance-section",
-      expected: 'appearance-section, background-kind-select (solid/gradient/image) and background-preview all render.',
+      expected: 'appearance-section, the seg-solid/seg-image wallpaper-kind toggle, and background-preview all render.',
       actual: String(err).slice(0, 300),
       evidence: 'uiadj-3-settings-appearance.png (or -top if it failed before scroll).',
     })

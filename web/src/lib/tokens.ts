@@ -35,6 +35,17 @@ export const TOKEN_FALLBACKS: Record<string, string> = {
   '--code-tag': '#ff8fc0', '--code-attr': '#fcd34d',
 }
 
+// The two possible outputs of Background.tsx's onAccentFor() WCAG-luminance
+// check (ui-adjustments Round 4) — dark ink for a light --primary, light ink
+// for a dark one. Not CSS custom properties (there's no single static
+// default; the choice depends on the operator's chosen primary hex at
+// runtime) — kept here only because this file is the one raw-hex exemption
+// in web/src/** (ui-token-gate.test.ts). ON_ACCENT_DARK matches the
+// '--on-accent' fallback above, which was tuned for the default light
+// --primary.
+export const ON_ACCENT_DARK = '#241640'
+export const ON_ACCENT_LIGHT = '#f2ecff'
+
 export function readToken(name: string): string {
   if (typeof window !== 'undefined') {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()

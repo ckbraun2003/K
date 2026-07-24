@@ -15,6 +15,8 @@ import {
   AutonomySettingsSchema, DEFAULT_AUTONOMY_SETTINGS, type AutonomySettings, type AutonomyPatchBody,
   BackgroundSettingsSchema, DEFAULT_BACKGROUND_SETTINGS, type BackgroundSettings,
   FontColorSettingsSchema, DEFAULT_FONT_COLOR_SETTINGS, type FontColorSettings,
+  PrimaryColorSettingsSchema, DEFAULT_PRIMARY_COLOR_SETTINGS, type PrimaryColorSettings,
+  SecondaryColorSettingsSchema, DEFAULT_SECONDARY_COLOR_SETTINGS, type SecondaryColorSettings,
 } from '@k/shared'
 import { configDb, DATA_DIR } from './db.js'
 import fs from 'fs'
@@ -201,18 +203,22 @@ export function setAutonomySettings(patch: AutonomyPatchBody): AutonomySettings 
 // Storage note: BG_KEY held a bare BackgroundVariant string pre-migration; the
 // legacy values ('galaxy'/'blobs'/'solid'/'aurora') are recognized and mapped
 // forward so an existing operator preference survives the upgrade instead of
-// silently resetting to default.
+// silently resetting to default. ui-adjustments Round 4 drops the gradient
+// backdrop from the UI entirely — legacy 'aurora' now maps to solid (same as
+// the other legacy variants) rather than the gradient kind, so no persisted
+// value resolves to a dead surface.
 
 const BG_KEY = 'ui.background'
 
 /** Read the operator's background settings. Absent → DEFAULT_BACKGROUND_SETTINGS.
- *  A legacy bare-variant string maps forward (galaxy/blobs/solid → solid,
- *  aurora → gradient/aurora); corrupt/unparseable JSON → default. */
+ *  A legacy bare-variant string maps forward (galaxy/blobs/solid/aurora → solid);
+ *  corrupt/unparseable JSON → default. */
 export function backgroundSettings(): BackgroundSettings {
   const raw = configDb.get(BG_KEY)
   if (!raw) return DEFAULT_BACKGROUND_SETTINGS
-  if (raw === 'galaxy' || raw === 'blobs' || raw === 'solid') return { kind: 'solid', preset: null, imageVersion: null }
-  if (raw === 'aurora') return { kind: 'gradient', preset: 'aurora', imageVersion: null }
+  if (raw === 'galaxy' || raw === 'blobs' || raw === 'solid' || raw === 'aurora') {
+    return { kind: 'solid', preset: null, imageVersion: null, solidColor: null }
+  }
   try {
     const parsed = BackgroundSettingsSchema.safeParse(JSON.parse(raw))
     return parsed.success ? parsed.data : DEFAULT_BACKGROUND_SETTINGS
@@ -253,6 +259,60 @@ export function fontColorSettings(): FontColorSettings {
  *  boundary (PUT /api/settings/font-color) — this store write does not gate it. */
 export function setFontColorSettings(s: FontColorSettings): void {
   configDb.set(FC_KEY, JSON.stringify(s))
+}
+
+// ── Primary accent-colour override (ui-adjustments Round 4) ─────────────────
+// Lets the operator retune the `--primary` accent token. app_config-backed, NO
+// schema bump — mirrors the FontColorSettings storage pattern exactly (one
+// JSON blob, absent/corrupt → default).
+
+const PRIMARY_KEY = 'ui.primaryColor'
+
+/** Read the operator's primary-colour override. Absent → DEFAULT_PRIMARY_COLOR_SETTINGS
+ *  (`{ color: null }` — no override, theme default applies). Corrupt/unparseable
+ *  JSON or a value failing schema validation also falls back to the default. */
+export function primaryColorSettings(): PrimaryColorSettings {
+  const raw = configDb.get(PRIMARY_KEY)
+  if (!raw) return DEFAULT_PRIMARY_COLOR_SETTINGS
+  try {
+    const parsed = PrimaryColorSettingsSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : DEFAULT_PRIMARY_COLOR_SETTINGS
+  } catch {
+    return DEFAULT_PRIMARY_COLOR_SETTINGS
+  }
+}
+
+/** Persist the primary-colour override. Callers MUST validate `s` at the route
+ *  boundary (PUT /api/settings/primary-color) — this store write does not gate it. */
+export function setPrimaryColorSettings(s: PrimaryColorSettings): void {
+  configDb.set(PRIMARY_KEY, JSON.stringify(s))
+}
+
+// ── Secondary accent-colour override (ui-adjustments Round 4) ───────────────
+// Lets the operator retune the `--secondary` accent token. app_config-backed,
+// NO schema bump — mirrors the FontColorSettings storage pattern exactly (one
+// JSON blob, absent/corrupt → default).
+
+const SECONDARY_KEY = 'ui.secondaryColor'
+
+/** Read the operator's secondary-colour override. Absent → DEFAULT_SECONDARY_COLOR_SETTINGS
+ *  (`{ color: null }` — no override, theme default applies). Corrupt/unparseable
+ *  JSON or a value failing schema validation also falls back to the default. */
+export function secondaryColorSettings(): SecondaryColorSettings {
+  const raw = configDb.get(SECONDARY_KEY)
+  if (!raw) return DEFAULT_SECONDARY_COLOR_SETTINGS
+  try {
+    const parsed = SecondaryColorSettingsSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : DEFAULT_SECONDARY_COLOR_SETTINGS
+  } catch {
+    return DEFAULT_SECONDARY_COLOR_SETTINGS
+  }
+}
+
+/** Persist the secondary-colour override. Callers MUST validate `s` at the route
+ *  boundary (PUT /api/settings/secondary-color) — this store write does not gate it. */
+export function setSecondaryColorSettings(s: SecondaryColorSettings): void {
+  configDb.set(SECONDARY_KEY, JSON.stringify(s))
 }
 
 // ── Wallpaper file storage ───────────────────────────────────────────────────

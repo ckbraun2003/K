@@ -9,8 +9,9 @@ import { makeScratchRepo } from '../lib/fixtures'
 // auto-booted, isolated stack to prove the Round 3 correction pass renders
 // without crashes/regressions. Eight surfaces, each with an assertion +
 // screenshot where visual:
-//   1. Glass renders over BOTH a gradient wallpaper and a REAL uploaded PNG
-//      image wallpaper (Home + a panel-heavy page under each).
+//   1. Glass renders over BOTH a solid wallpaper (with a custom solidColor —
+//      gradient was dropped from the UI in ui-adjustments Round 4) and a
+//      REAL uploaded PNG image wallpaper (Home + a panel-heavy page under each).
 //   2. The ConversationView composer's `.glass-bar` wrapper is a real,
 //      visible surface (D-134 fixed a Round-2 regression where it shipped
 //      with no background — "the bar disappeared").
@@ -62,7 +63,7 @@ test.describe.configure({ mode: 'serial' })
 
 const PERSONA = 'UIADJ3'
 const CHARTER =
-  'UI Adjustments Round 3 (D-134) live smoke: glass over both a gradient AND a real uploaded image ' +
+  'UI Adjustments Round 3 (D-134) live smoke: glass over both a solid (custom-color) AND a real uploaded image ' +
   'wallpaper, the ConversationView .glass-bar composer regression fix, no stray "orchestrator" ' +
   'conversation (server+client exclusion), full terminal removal (tab/route/settings), the ' +
   'Knowledge Graph off-thread-worker/LOD path on a MODERATE (64-node) populated graph with a ' +
@@ -211,25 +212,28 @@ async function registerProjectViaApi(page: Page, name: string, localPath: string
 
 // --- 1. Glass over both backgrounds -------------------------------------------
 
-test('1. Glass renders over both a gradient background and a real uploaded image wallpaper', async ({ page }) => {
+test('1. Glass renders over both a solid background and a real uploaded image wallpaper', async ({ page }) => {
   await openApp(page, '#/settings')
   const section = page.getByTestId('appearance-section')
 
   try {
     await section.scrollIntoViewIfNeeded()
     await expect(section).toBeVisible({ timeout: 10_000 })
-    await page.selectOption('[data-testid="background-kind-select"]', 'gradient')
-    await expect(page.getByTestId('background-preset-select')).toBeVisible({ timeout: 10_000 })
+    // ui-adjustments Round 4 dropped the gradient kind entirely — Solid
+    // (with an operator-settable solidColor) is now the only non-image kind,
+    // selected via the seg-solid SegControl button.
+    await page.getByTestId('seg-solid').click()
+    await page.fill('[data-testid="background-solid-color"]', '#2f1a4a')
     await page.waitForTimeout(500)
-    await expect(page.locator('[data-testid="app-background"]')).toHaveAttribute('data-variant', 'gradient', { timeout: 10_000 })
+    await expect(page.locator('[data-testid="app-background"]')).toHaveAttribute('data-variant', 'solid', { timeout: 10_000 })
   } catch (err) {
     findings.push({
-      title: 'Could not switch wallpaper to the gradient kind',
+      title: 'Could not switch wallpaper to the solid kind with a custom color',
       severity: 'High',
       category: 'Bug',
       surface: '#/settings (Appearance)',
-      repro: "selectOption background-kind-select -> 'gradient'",
-      expected: 'app-background flips to data-variant=gradient.',
+      repro: "click seg-solid; set background-solid-color to a custom hex",
+      expected: 'app-background stays/flips to data-variant=solid, painted with the chosen color.',
       actual: String(err).slice(0, 300),
       evidence: 'r3-1-home-gradient.png',
     })
@@ -249,7 +253,7 @@ test('1. Glass renders over both a gradient background and a real uploaded image
     await page.reload()
     await dismissHelp(page)
     await page.getByTestId('appearance-section').scrollIntoViewIfNeeded()
-    await expect(page.getByTestId('background-kind-select')).toHaveValue('image', { timeout: 10_000 })
+    await expect(page.getByTestId('seg-image')).toHaveAttribute('aria-pressed', 'true', { timeout: 10_000 })
     await expect(page.locator('[data-testid="app-background"]')).toHaveAttribute('data-variant', 'image', { timeout: 10_000 })
   } catch (err) {
     findings.push({
@@ -258,7 +262,7 @@ test('1. Glass renders over both a gradient background and a real uploaded image
       category: 'Bug',
       surface: '#/settings (Appearance)',
       repro: 'Upload a real browser-canvas-encoded PNG via background-image-input; reload.',
-      expected: 'background-kind-select reads "image" and app-background flips to data-variant=image.',
+      expected: 'seg-image shows aria-pressed=true and app-background flips to data-variant=image.',
       actual: String(err).slice(0, 300),
       evidence: 'r3-1-home-image.png',
     })

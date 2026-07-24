@@ -355,7 +355,10 @@ test('d/e. Settings > Appearance: font color, real wallpaper upload, size warnin
     await section.scrollIntoViewIfNeeded()
     await expect(section).toBeVisible({ timeout: 10_000 })
     await expect(page.getByTestId('font-color-input')).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByTestId('background-kind-select')).toBeVisible({ timeout: 10_000 })
+    // ui-adjustments Round 4 dropped the gradient kind + <select>s in favour
+    // of a Solid|Image SegControl (seg-solid/seg-image).
+    await expect(page.getByTestId('seg-solid')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByTestId('seg-image')).toBeVisible({ timeout: 10_000 })
   } catch (err) {
     findings.push({
       title: 'Settings > Appearance panel (font color / background picker) did not render',
@@ -363,7 +366,7 @@ test('d/e. Settings > Appearance: font color, real wallpaper upload, size warnin
       category: 'Bug',
       surface: '#/settings',
       repro: "gotoApp('#/settings'); scroll to appearance-section",
-      expected: 'appearance-section, font-color-input and background-kind-select all render.',
+      expected: 'appearance-section, font-color-input and the seg-solid/seg-image wallpaper-kind toggle all render.',
       actual: String(err).slice(0, 300),
       evidence: 'r2-d-settings-appearance-before.png',
     })
@@ -388,11 +391,12 @@ test('d/e. Settings > Appearance: font color, real wallpaper upload, size warnin
     await page.waitForTimeout(1000)
     await screenshot(page, 'r2-e-wallpaper-applied')
 
-    // Post-upload state: kind should now be 'image' and the button should read
-    // "Set background" (hasImage flips true once imageVersion is non-null).
+    // Post-upload state: kind should now be 'image' (seg-image pressed) and
+    // the button should read "Set background" (hasImage flips true once
+    // imageVersion is non-null).
     const section2 = page.getByTestId('appearance-section')
     await section2.scrollIntoViewIfNeeded()
-    await expect(page.getByTestId('background-kind-select')).toHaveValue('image', { timeout: 10_000 })
+    await expect(page.getByTestId('seg-image')).toHaveAttribute('aria-pressed', 'true', { timeout: 10_000 })
     await expect(page.getByRole('button', { name: 'Set background' })).toBeVisible({ timeout: 10_000 })
     await screenshot(page, 'r2-d-settings-appearance-after')
   } catch (err) {

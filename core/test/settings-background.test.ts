@@ -51,13 +51,13 @@ async function makeApp() {
 
 describe('GET/PUT /api/settings/background — settings model', () => {
   it('GET returns the default settings + the full preset/kind lists', async () => {
-    setBackgroundSettings({ kind: 'solid', preset: null, imageVersion: null })
+    setBackgroundSettings({ kind: 'solid', preset: null, imageVersion: null, solidColor: null })
     const app = await makeApp()
     try {
       const res = await app.inject({ method: 'GET', url: '/api/settings/background' })
       expect(res.statusCode).toBe(200)
       const body = res.json()
-      expect(body.settings).toEqual({ kind: 'solid', preset: null, imageVersion: null })
+      expect(body.settings).toEqual({ kind: 'solid', preset: null, imageVersion: null, solidColor: null })
       expect(body.presets).toEqual([...GRADIENT_PRESETS])
       expect(body.kinds).toEqual([...BACKGROUND_KINDS])
     } finally {
@@ -66,7 +66,7 @@ describe('GET/PUT /api/settings/background — settings model', () => {
   })
 
   it('PUT {kind:solid,preset:null} persists and GET reflects it afterward', async () => {
-    setBackgroundSettings({ kind: 'gradient', preset: 'dusk', imageVersion: null })
+    setBackgroundSettings({ kind: 'gradient', preset: 'dusk', imageVersion: null, solidColor: null })
     const app = await makeApp()
     try {
       const put = await app.inject({
@@ -75,17 +75,36 @@ describe('GET/PUT /api/settings/background — settings model', () => {
         payload: { kind: 'solid', preset: null },
       })
       expect(put.statusCode).toBe(200)
-      expect(put.json().settings).toEqual({ kind: 'solid', preset: null, imageVersion: null })
+      expect(put.json().settings).toEqual({ kind: 'solid', preset: null, imageVersion: null, solidColor: null })
 
       const get = await app.inject({ method: 'GET', url: '/api/settings/background' })
-      expect(get.json().settings).toEqual({ kind: 'solid', preset: null, imageVersion: null })
+      expect(get.json().settings).toEqual({ kind: 'solid', preset: null, imageVersion: null, solidColor: null })
     } finally {
       await app.close()
     }
   })
 
-  it('PUT preserves the current imageVersion (only image-upload advances it)', async () => {
-    setBackgroundSettings({ kind: 'image', preset: null, imageVersion: 5 })
+  it('PUT {kind:solid,preset:null,solidColor} persists and GET reflects the solidColor afterward', async () => {
+    setBackgroundSettings({ kind: 'image', preset: null, imageVersion: null, solidColor: null })
+    const app = await makeApp()
+    try {
+      const put = await app.inject({
+        method: 'PUT',
+        url: '/api/settings/background',
+        payload: { kind: 'solid', preset: null, solidColor: '#334455' },
+      })
+      expect(put.statusCode).toBe(200)
+      expect(put.json().settings).toEqual({ kind: 'solid', preset: null, imageVersion: null, solidColor: '#334455' })
+
+      const get = await app.inject({ method: 'GET', url: '/api/settings/background' })
+      expect(get.json().settings).toEqual({ kind: 'solid', preset: null, imageVersion: null, solidColor: '#334455' })
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('PUT preserves the current imageVersion (only image-upload advances it); solidColor is NOT preserved when omitted', async () => {
+    setBackgroundSettings({ kind: 'image', preset: null, imageVersion: 5, solidColor: '#abcabc' })
     const app = await makeApp()
     try {
       const put = await app.inject({
@@ -94,7 +113,21 @@ describe('GET/PUT /api/settings/background — settings model', () => {
         payload: { kind: 'gradient', preset: 'ocean' },
       })
       expect(put.statusCode).toBe(200)
-      expect(put.json().settings).toEqual({ kind: 'gradient', preset: 'ocean', imageVersion: 5 })
+      expect(put.json().settings).toEqual({ kind: 'gradient', preset: 'ocean', imageVersion: 5, solidColor: null })
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('PUT rejects an invalid solidColor (bad hex) with 400', async () => {
+    const app = await makeApp()
+    try {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/settings/background',
+        payload: { kind: 'solid', preset: null, solidColor: 'not-a-hex' },
+      })
+      expect(res.statusCode).toBe(400)
     } finally {
       await app.close()
     }
@@ -133,7 +166,7 @@ describe('GET/PUT /api/settings/background — settings model', () => {
 
 describe('PUT/GET /api/settings/background/image', () => {
   it('PUT with a valid PNG data URL sets kind:image and increments imageVersion; GET image serves it', async () => {
-    setBackgroundSettings({ kind: 'solid', preset: null, imageVersion: null })
+    setBackgroundSettings({ kind: 'solid', preset: null, imageVersion: null, solidColor: null })
     const app = await makeApp()
     try {
       const put = await app.inject({
@@ -142,8 +175,8 @@ describe('PUT/GET /api/settings/background/image', () => {
         payload: { dataUrl: TINY_PNG_DATA_URL },
       })
       expect(put.statusCode).toBe(200)
-      expect(put.json().settings).toEqual({ kind: 'image', preset: null, imageVersion: 1 })
-      expect(backgroundSettings()).toEqual({ kind: 'image', preset: null, imageVersion: 1 })
+      expect(put.json().settings).toEqual({ kind: 'image', preset: null, imageVersion: 1, solidColor: null })
+      expect(backgroundSettings()).toEqual({ kind: 'image', preset: null, imageVersion: 1, solidColor: null })
 
       const getImg = await app.inject({ method: 'GET', url: '/api/settings/background/image' })
       expect(getImg.statusCode).toBe(200)
@@ -153,8 +186,24 @@ describe('PUT/GET /api/settings/background/image', () => {
     }
   })
 
+  it('an image upload preserves the prior solidColor choice (only the PUT route resets it)', async () => {
+    setBackgroundSettings({ kind: 'solid', preset: null, imageVersion: null, solidColor: '#112233' })
+    const app = await makeApp()
+    try {
+      const put = await app.inject({
+        method: 'PUT',
+        url: '/api/settings/background/image',
+        payload: { dataUrl: TINY_PNG_DATA_URL },
+      })
+      expect(put.statusCode).toBe(200)
+      expect(put.json().settings).toEqual({ kind: 'image', preset: null, imageVersion: 1, solidColor: '#112233' })
+    } finally {
+      await app.close()
+    }
+  })
+
   it('a second upload increments imageVersion again and replaces the stored file', async () => {
-    setBackgroundSettings({ kind: 'image', preset: null, imageVersion: 1 })
+    setBackgroundSettings({ kind: 'image', preset: null, imageVersion: 1, solidColor: null })
     const app = await makeApp()
     try {
       const put = await app.inject({
@@ -187,7 +236,7 @@ describe('PUT/GET /api/settings/background/image', () => {
   })
 
   it('accepts a >8MB image now the cap is 25MB (HD/4K wallpapers, ui-adjustments C5)', async () => {
-    setBackgroundSettings({ kind: 'solid', preset: null, imageVersion: null })
+    setBackgroundSettings({ kind: 'solid', preset: null, imageVersion: null, solidColor: null })
     // 10 MB decoded — over the old 8 MB ceiling, under the new 25 MB one. The
     // route validates size + mime, not PNG structure, so a byte-filled buffer
     // exercises the size path exactly.
