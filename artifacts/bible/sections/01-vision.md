@@ -7,13 +7,13 @@ updated: 2026-07-24
 
 A personal, self-hosted engineering harness, **K** — where you **direct an agent organization**
 rather than operate a dashboard. You talk to **K**, a friendly secretary who handles logistics and
-Q&A and hands real engineering work to a **Chief**, who staffs it to **staff-engineer leads** that
+Q&A and hands real engineering work to a **Chief**, who staffs it to orchestrators whose workers
 do the coding through GitHub pull requests, automated skills, and verification workflows. The
 dashboard is the window into that organization — every action visible, replayable, and chartable.
 
 The goal is not just a tool. It is a **persistent engineering org** that grows smarter over time
 through per-agent memory, accumulated run data, knowledge graphs of your codebases, and a skill
-testing/verification loop. (The organization — K, the Chief, the leads, their authority tiers and
+testing/verification loop. (The organization — K, the Chief, its orchestrators and workers, their authority tiers and
 memory — is **PLANNED for Phase 5**; see §03 Agent Organization and §09 Roadmap. The substrate it
 rests on — supervisor, EventBus, ModelRouter, GitHubProvider, the verification loop — exists today.)
 
@@ -28,7 +28,7 @@ rests on — supervisor, EventBus, ModelRouter, GitHubProvider, the verification
    oversight granularity equals reporting granularity, streamed live, replayed later, and chartable
    over time.
 3. **Agents do the work; the harness keeps them honest.** Agents write code, open PRs, fix CI, and
-   update docs — but every handback is a typed exit carrying evidence-linked reports, deterministic CI
+   update docs — but every handback is a typed exit carrying evidence-linked reports; deterministic CI
    gates merges, and verification agents audit the auditors.
 4. **Doctrine is locked; the organization is yours.** Conduct — honesty, accountability, escalation —
    is fixed for every install; domains, orchestrators, jobs, and pipelines are yours to shape.
